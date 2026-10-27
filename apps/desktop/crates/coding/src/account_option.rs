@@ -222,7 +222,13 @@ fn login_rows(accounts: &AgentAccounts, usage: &AgentUsageMap) -> Vec<LoginRow> 
 }
 
 fn option_limits(row: &LoginRow) -> Option<AccountLimits> {
-    let usage = row.usage.as_ref()?;
+    account_limits(row.usage.as_ref()?)
+}
+
+/// One login's reported usage as the account picker's three-bar preview
+/// (`5h`, `week`, the per-model window). `None` when it reported no window.
+/// A-16: the Devices page's login chips preview the same bars.
+pub fn account_limits(usage: &AgentUsage) -> Option<AccountLimits> {
     if usage.windows.is_empty() {
         return None;
     }

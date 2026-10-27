@@ -25,7 +25,7 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `phone_tab_bar`,
+      symbol: `render`,
       file: `apps/desktop/crates/ui/src/styleguide/entries/phone_tab_bar.rs`,
       note: `the IDE has no phone shell; the styleguide twin paints the same bar`,
     },

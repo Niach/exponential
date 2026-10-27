@@ -282,12 +282,6 @@ final class AgentsViewModel {
         AgentAccountsRows.deviceRows(accountRows, deviceId: deviceId)
     }
 
-    /// EXP-849: the health badge a machine row wears — the worst of its
-    /// logins.
-    func deviceHealth(_ deviceId: String) -> AgentAccountHealth {
-        AgentAccountsRows.deviceHealth(accountRows, deviceId: deviceId)
-    }
-
     /// Whether a command is in flight for this login.
     func isAccountActionPending(_ row: AgentProfileUsageRow) -> Bool {
         accountActions.contains(row.key)

@@ -551,6 +551,27 @@ async function recipeScrollToCommentCard(page: Page): Promise<void> {
 
 // --------------------------------------------------------------- machines
 
+/** A-16: a device is ONE line with its logins as chips; the catalog's
+ *  Devices shot hovers the first login chip so its limits preview shows. */
+async function recipePreviewDeviceLimits(page: Page): Promise<void> {
+  const row = page.locator(`[data-testid^="device-row-"]`).first()
+  if (!(await appears(row, 30_000))) {
+    throw new Error(
+      `no device row under "My devices": run bun run screenshots:desktop ` +
+        `(and set STEER_RELAY_URL)`
+    )
+  }
+  const chip = page.locator(`[data-testid^="device-login-chip-"]`).first()
+  if (!(await appears(chip, 15_000))) return
+  await chip.hover()
+  // The preview is optional: a login whose usage was never probed has none.
+  await page
+    .locator(`[data-slot="account-limits-preview"]`)
+    .first()
+    .waitFor({ timeout: 3_000 })
+    .catch(() => undefined)
+}
+
 /**
  * Open a device's Device settings dialog from the Devices page. The gear only
  * renders for a REGISTERED device of the caller's own (my-machines.tsx), so
@@ -562,30 +583,6 @@ async function recipeScrollToCommentCard(page: Page): Promise<void> {
  * a "Device settings" entry), and from `md` up it is `opacity-0` until its row
  * is hovered — so hover the row first; below `md` it is force-visible.
  */
-/** EXP-944: devices list rows are COLLAPSED by default; the catalog's Devices
- *  shot shows a device's logins and their usage, so it opens the first row. */
-async function recipeExpandFirstDevice(page: Page): Promise<void> {
-  const row = page.locator(`[data-testid^="device-row-"]`).first()
-  if (!(await appears(row, 30_000))) {
-    throw new Error(
-      `no device row under "My devices": run bun run screenshots:desktop ` +
-        `(and set STEER_RELAY_URL)`
-    )
-  }
-  if ((await row.getAttribute(`aria-expanded`)) !== `true`) await row.click()
-  await page
-    .locator(`[data-testid^="device-login-row-"]`)
-    .first()
-    .waitFor({ timeout: 15_000 })
-  // The usage caption ("resets in …") is optional: a login whose usage the
-  // heartbeat has not probed draws none, and the shot is still the row.
-  await page
-    .getByText(/resets (in|soon)/)
-    .first()
-    .waitFor({ timeout: 3_000 })
-    .catch(() => undefined)
-}
-
 async function recipeOpenMachineSettings(page: Page): Promise<void> {
   const gear = page.getByRole(`button`, { name: /^Device settings for/ })
   if (!(await appears(gear, 30_000))) {
@@ -711,7 +708,7 @@ export const RECIPES: Record<string, Recipe> = {
   openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
   openMachineSettings: recipeOpenMachineSettings,
-  expandFirstDevice: recipeExpandFirstDevice,
+  previewDeviceLimits: recipePreviewDeviceLimits,
   openAddServer: recipeOpenAddServer,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,

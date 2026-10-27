@@ -322,8 +322,8 @@ pub struct DeviceEntry {
     #[serde(default)]
     pub owner: Option<DeviceOwner>,
     /// EXP-849: the machine's `agentAccounts` map, verbatim — the Devices row
-    /// badges the WORST health in it (`coding::agent_accounts::worst_health`),
-    /// which is the one thing `agents`/`unauthed_agents` cannot express: a CLI
+    /// lists its logins' health (A-16: `ui::machines::device_attention`, login
+    /// PROFILES only), which is the one thing `agents`/`unauthed_agents` cannot express: a CLI
     /// that still names an account the provider has revoked is in neither
     /// list. Absent from `devices.list` (which never sent it); the desktop
     /// fills it from the SYNCED row it builds these entries from.

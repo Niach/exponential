@@ -22,9 +22,9 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `root_dock / ask_row_sheet / plan_sheet`,
+      symbol: `root_dock / ask_row_sheet`,
       file: `apps/desktop/crates/ui/src/thread_screen.rs`,
-      note: `the primitive: dock.rs; the sheet's pages + footer decision: plan_card.rs; the session view's relay cards: steer_viewer.rs`,
+      note: `the primitive: dock.rs; the sheet (plan_sheet) + footer decision: plan_card.rs; the session view's relay cards: steer_viewer.rs`,
     },
     ios: {
       state: `ok`,

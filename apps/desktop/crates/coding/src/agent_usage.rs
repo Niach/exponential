@@ -3699,11 +3699,6 @@ mod tests {
         assert_eq!(row(&ids[1]).health(), Health::SignedOut, "signed out wins");
         // Signed in, never probed.
         assert_eq!(row(&ids[2]).health(), Health::Unknown);
-        // The device badge is the worst of the lot.
-        assert_eq!(
-            crate::agent_accounts::worst_health(&accounts),
-            Health::NeedsRelogin
-        );
         assert_eq!(accounts["codex"].health(), Health::SignedOut);
 
         // Exactly the logins past the cap are flagged, and the active one is

@@ -2,44 +2,34 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-909: a machine's agent logins, listed UNDER its row on the Devices page
-/// — one flat sub-row per login.
+/// A-16 (`devices-list.json`): a machine's logins as ONE wrapping row of
+/// chips on its Devices row — brand mark + `loginLabel` (+ ` · plan` when the
+/// label is the email), in `sortDeviceLogins` order. Nothing folds and no
+/// warning is written on a chip: a login's trouble is the row's attention
+/// icon's business.
 ///
-/// This replaces both the chip strip that used to sit here and the separate
-/// cross-device "Accounts" section below it (EXP-829/EXP-849). Folding the two
-/// killed a whole class of confusion: an account lived in two places with two
-/// orderings, two health badges and two menus, and the section's email-merged
-/// groups claimed one set of numbers for logins that are per MACHINE. A login
-/// belongs to the machine that holds it, so it reads there and nowhere else.
-///
-/// Each sub-row says WHO (`loginLabel` — the email, else the plan; never a
-/// status), badges its health, carries the unchanged
-/// action menu, and draws its own compact usage line.
-///
-/// A teammate's shared server renders the same rows READ-ONLY: seeing that a
-/// shared machine's codex login expired explains a refused start, but only its
-/// owner can fix it.
+/// Touch: tapping a chip opens the account menu (Sign in / Sign out / Remove
+/// account — the existing chip rules, EXP-862/EXP-1137) with that login's
+/// limit bars at its top (the account picker's inline bars, EXP-992). A team
+/// device's chip previews (the bars alone) and never offers an action. Own,
+/// online rows with an agent to add end with a ghost `+` (Add account). A
+/// machine that reported accounts but holds no login says `No account`; one
+/// that never reported says `Checking…`.
 struct DeviceLogins: View {
     let viewModel: AgentsViewModel
     let device: SteerDevice
-    /// EXP-944: the clock the usage bars' reset countdowns age on. The device
-    /// list is where a limit is actually planned around, so its bars say WHEN
-    /// they reset; the tight surfaces pass nothing and get bars alone.
-    var now: Date?
-    /// A team device: the rows are a statement, never a control — no menus and
-    /// no "Add account".
+    /// The row's own derivation (`DevicesList.row`) — `noAccount` decides the
+    /// empty slot's wording.
+    let noAccount: Bool
+    /// A team device: the chips are a statement, never a control — no menus
+    /// and no "Add account".
     var readOnly = false
-    /// Sign this login in — the host opens `AgentLoginSheet` on it. The
-    /// PROFILE rides along, not just the agent: a machine holding two claude
-    /// logins would otherwise re-login whichever one it is currently using,
-    /// which on an expired sibling repairs the wrong one.
+    /// Sign this login in — the host opens `AgentLoginSheet` on it (the
+    /// PROFILE rides along, so a re-login repairs the login that was tapped).
     let onSignIn: (AgentProfileUsageRow) -> Void
-    /// EXP-862: ask to remove this login from the machine. The host owns the
-    /// confirm (`AgentAccountsRows.removeAccountConfirmCopy`) — a destructive
-    /// action never fires straight off a menu row.
+    /// EXP-862: ask to remove this login from the machine (the host confirms).
     let onRemove: (AgentProfileUsageRow) -> Void
-    /// EXP-1137: ask to sign this login out on the machine. The host owns the
-    /// confirm (`AgentAccountsRows.signOutConfirmCopy`), like the removal.
+    /// EXP-1137: ask to sign this login out on the machine (the host confirms).
     let onSignOut: (AgentProfileUsageRow) -> Void
 
     /// EXP-862: the device-bound "Add account" sheet (agent, then the login).
@@ -50,118 +40,120 @@ struct DeviceLogins: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        FlowLayout(spacing: 6) {
             if rows.isEmpty {
                 emptyLine
             } else {
                 ForEach(rows) { row in
-                    loginRow(row)
+                    chip(row)
                 }
             }
             if showsAddAccount {
-                addAccountRow
+                addAccountChip
             }
-            // The MATERIAL outcome of a menu action lands by SYNC (the machine
-            // re-reports its accounts); a refusal is the error toast
-            // (FEED-79, `AgentsViewModel.queueAccountCommand`).
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - The empty states
 
-    /// Two different silences, said differently: a machine that has not
-    /// reported its accounts YET is still working, and one that reported NONE
-    /// has nothing to run with. `Checking…` vs `No login reported`, ×4.
+    /// Two different silences ×4: a machine that has not reported its accounts
+    /// YET is still working, one that reported NONE has nothing to run with.
     private var emptyLine: some View {
-        Text(device.agentAccounts == nil ? "Checking…" : AgentUsagePresentation.noLoginReported)
-            .font(.caption2)
+        Text(noAccount ? DevicesList.Copy.noAccount : DevicesList.Copy.checking)
+            .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 28)
             .accessibilityIdentifier("device-logins-empty-\(device.deviceId)")
     }
 
     // MARK: - One login
 
-    private func loginRow(_ row: AgentProfileUsageRow) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                // EXP-849: resolved through the brand-mark helper — an agent
-                // id with no asset draws the neutral glyph, never a blank.
-                if let mark = AgentBrandMark.image(row.agent) {
-                    mark
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 14, height: 14)
-                }
-                Text(AgentAccountsRows.loginLabel(row))
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                // The plan is a muted tail, and only when the label is the
-                // EMAIL — otherwise the label already IS the plan.
-                if row.email != nil, let plan = row.plan {
-                    Text("· \(plan)")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                        .lineLimit(1)
-                }
-                if let badge = AgentAccountsRows.healthBadge(row) {
-                    Text(badge)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.yellow)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if viewModel.isAccountActionPending(row) {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
-                        .accessibilityLabel("Working…")
-                } else if isActionable(row) {
-                    GlassMenu {
-                        menuItems(row)
-                    } label: {
-                        GhostIconLabel(AppIcons.uiMore)
-                    }
-                    .accessibilityLabel("\(AgentAccountsRows.loginLabel(row)) actions")
-                    .accessibilityIdentifier("device-login-menu-\(row.key)")
-                }
-            }
-            usageLine(row)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("device-login-row-\(row.key)")
-    }
-
-    /// The login's own numbers as the compact three-bar line, or the one
-    /// caption that says why there are none. EXP-862: a signed-in login
-    /// nothing has probed YET reads "Checking…" — "No usage reported" made a
-    /// machine that is simply still working read as broken.
     @ViewBuilder
-    private func usageLine(_ row: AgentProfileUsageRow) -> some View {
-        let age = AgentUsagePresentation.usageAge(row.usage)
-        if !AgentUsagePresentation.miniWindows(row.usage).isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                AgentUsageMini(usage: row.usage, now: now)
-                if let age {
-                    Text(age)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    private func chip(_ row: AgentProfileUsageRow) -> some View {
+        let limits = AccountOptions.limits(row)
+        if isActionable(row) || limits != nil {
+            GlassMenu {
+                menuHeader(row, limits: limits)
+                if isActionable(row) {
+                    menuItems(row)
                 }
+            } label: {
+                chipLabel(row)
             }
-            .opacity(age == nil ? 1 : 0.5)
+            .accessibilityLabel(chipAccessibilityLabel(row))
+            .accessibilityIdentifier("device-login-chip-\(row.key)")
         } else {
-            Text(captionWithoutUsage(row))
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            // Nothing to preview and nothing to do: the chip is a statement.
+            chipLabel(row)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(chipAccessibilityLabel(row))
+                .accessibilityIdentifier("device-login-chip-\(row.key)")
         }
     }
 
-    private func captionWithoutUsage(_ row: AgentProfileUsageRow) -> String {
-        let asOf = AgentUsagePresentation.relativeDate(row.usage?.fetchedAt ?? row.checkedAt)
-        if row.signedIn, asOf.isEmpty { return "Checking…" }
-        return asOf.isEmpty ? "No usage reported" : "No usage reported · as of \(asOf)"
+    /// The account picker trigger's capsule (`AccountPickerTriggerLabel`'s
+    /// chrome): brand mark, label, the muted plan tail when the label is the
+    /// email, and a spinner while a menu command is in flight.
+    private func chipLabel(_ row: AgentProfileUsageRow) -> some View {
+        HStack(spacing: 5) {
+            // EXP-849: resolved through the brand-mark helper — an agent id
+            // with no asset draws the neutral glyph, never a blank.
+            if let mark = AgentBrandMark.image(row.agent) {
+                mark
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+            }
+            Text(AgentAccountsRows.loginLabel(row))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if row.email != nil, let plan = row.plan {
+                Text("· \(plan)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+            }
+            if viewModel.isAccountActionPending(row) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+                    .accessibilityLabel("Working…")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(GlassTokens.fillRow, in: Capsule())
+        .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .contentShape(Capsule())
+    }
+
+    private func chipAccessibilityLabel(_ row: AgentProfileUsageRow) -> String {
+        var label = AgentAccountsRows.loginLabel(row)
+        if row.email != nil, let plan = row.plan { label += ", \(plan)" }
+        if let badge = AgentAccountsRows.healthBadge(row) { label += ", \(badge)" }
+        return label
+    }
+
+    /// The top of the chip's menu: who the login is and its limit bars — the
+    /// account picker's touch preview (EXP-992), not a second bar style.
+    @ViewBuilder
+    private func menuHeader(_ row: AgentProfileUsageRow, limits: AccountLimits?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(AgentAccountsRows.loginLabel(row))
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let limits {
+                AccountLimitBars(limits: limits)
+            }
+        }
+        .padding(.horizontal, GlassMenuTokens.itemHPadding)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Actionable only on one of MY machines that is listening and advertises
@@ -170,16 +162,14 @@ struct DeviceLogins: View {
     /// command until it wakes, which reads as a dead tap.
     private func isActionable(_ row: AgentProfileUsageRow) -> Bool {
         !readOnly && row.mine && device.isOnline && device.canAgentLogin
+            && !viewModel.isAccountActionPending(row)
     }
 
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
         // ONE rule, byte-identical with web's `accountChipActions`, the
         // desktop rows and Android, in this fixed order: Sign in, Sign out
-        // (EXP-1137), Remove account. EXP-944: a signed-out
-        // or refused login keeps Sign in as its first, repairing entry — but
-        // no longer ENDS there: a dead profile can be removed too.
-        // EXP-1137: a signed-in login can be signed out.
+        // (EXP-1137), Remove account.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
@@ -197,12 +187,9 @@ struct DeviceLogins: View {
 
     // MARK: - Adding one
 
-    /// EXP-909 REVERSES EXP-845's visible-but-disabled control: the row is
-    /// ABSENT unless a sign-in could actually be queued here — my machine,
-    /// listening, advertising `agent-login`, with at least one agent installed
-    /// — and never on a team device. A permanently greyed control on a machine
-    /// that can never take a login taught nothing; the device row above
-    /// already says why it is quiet.
+    /// EXP-909: ABSENT unless a sign-in could actually be queued here — my
+    /// machine, listening, advertising `agent-login`, with at least one agent
+    /// installed — and never on a team device.
     private var showsAddAccount: Bool {
         !readOnly && device.isMine && device.isOnline && device.canAgentLogin
             && !installedAgents.isEmpty
@@ -215,23 +202,77 @@ struct DeviceLogins: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
-    private var addAccountRow: some View {
-        Button {
+    /// The ghost `+` closing the chip row.
+    private var addAccountChip: some View {
+        GhostIconButton(
+            AppIcons.uiAdd,
+            accessibilityLabel: DevicesList.Copy.addAccount,
+            size: 28,
+            glyphSize: AppIcon.Size.small
+        ) {
             addingAccount = true
-        } label: {
-            HStack(spacing: 6) {
-                AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small)
-                Text("Add account")
-                    .font(.caption)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityIdentifier("add-account-\(device.deviceId)")
         .sheet(isPresented: $addingAccount) {
             AddAccountSheet(viewModel: viewModel, device: device)
         }
+    }
+}
+
+/// A-16: the row's attention card — one line per `DevicesList` item, its
+/// text left and its one action pill right (none on a teammate's machine, an
+/// offline one, or a queued update). Floats from the warning icon.
+struct DeviceAttentionMenu: View {
+    let deviceId: String
+    let items: [DevicesList.AttentionItem]
+    let onSignIn: (DevicesList.AttentionItem) -> Void
+    let onUpdate: () -> Void
+
+    var body: some View {
+        GlassMenu {
+            ForEach(items) { item in
+                DeviceAttentionLine(item: item, onSignIn: onSignIn, onUpdate: onUpdate)
+            }
+        } label: {
+            GhostIconLabel(AppIcons.uiWarning, tint: DesignTokens.Semantic.yellow)
+        }
+        .accessibilityLabel(DevicesList.Copy.attention)
+        .accessibilityIdentifier("device-attention-\(deviceId)")
+    }
+}
+
+private struct DeviceAttentionLine: View {
+    let item: DevicesList.AttentionItem
+    let onSignIn: (DevicesList.AttentionItem) -> Void
+    let onUpdate: () -> Void
+
+    @Environment(\.glassMenuDismiss) private var dismissMenu
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(item.text)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            switch item.action {
+            case .signIn:
+                GlassPill(DevicesList.Copy.signIn, icon: AppIcons.uiSignIn, mode: .action {
+                    dismissMenu()
+                    onSignIn(item)
+                })
+            case .update:
+                GlassPill(DevicesList.Copy.update, icon: AppIcons.uiUpdate, mode: .action {
+                    dismissMenu()
+                    onUpdate()
+                })
+            case nil:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, GlassMenuTokens.itemHPadding)
+        .frame(minHeight: GlassMenuTokens.itemMinHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("device-attention-item-\(item.id)")
     }
 }

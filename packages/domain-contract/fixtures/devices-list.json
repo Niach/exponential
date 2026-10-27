@@ -1,0 +1,348 @@
+{
+  "$comment": "A-16: THE Devices page row, one spec ×4 (web my-machines.tsx, desktop machines.rs, iOS AgentsView, Android AgentsScreen). One LINE per device: kind glyph, name, version (warning tone when the caller's own device is outdated), the default star, the Shared / This device tags, the status line (Online / Last seen …) under the name; then ONE chip per login (brand mark + label + ` · plan` when the label is an email), in `sortDeviceLogins` order; then the attention icon, only when `attention` is non-empty; then the settings gear (own registered rows; hover-revealed on a pointer, always on touch). Nothing folds and no warning is written inline. A login chip previews its limits: the account picker's hover card (UsageWindows `hover` density) on a pointer; on touch, and on a pointer click, the chip opens the account menu (Sign in / Sign out / Remove account, the existing AccountChipMenu rules) with those same bars at its top. A team device's chips preview but never open a menu. Own, online rows with an agent to add end the chip row with a ghost `+` (Add account). A device that reported accounts but holds NO login says `noAccount` muted in the chip slot; a device that never reported says `checking`. The attention icon (warning tone) opens a small card on hover (pointer) or tap (touch): one line per item, `text` left, its one `action` pill right (null = no pill). Items in order: every login whose health is needs_relogin, then every signed_out login, then the update line. An AGENT with no login at all (a CLI installed, never signed in: `profiles` empty or absent) is NOT an item and badges nothing: that is the old IDE bug where mint read `Signed out` because Codex was installed. The update line exists only on the caller's own device: `updateQueued` when an update is parked behind live sessions (no action), else `updateAvailable` (with `latest`) when the client's own version compare says `outdated` (action `update` only for a SERVER — the CLI daemon is the one device that acts on an update request; a desktop app updates itself, so its line carries no action — and only while it is online and registered). Login actions (`sign_in`) only on the caller's own online device. Groups: online rows first in the list's own order, then under the muted `offline` label every offline row, dimmed. The same rules hold for the Team devices section (read-only: no gear, no `+`, no actions, a team owner's Remove keeps the gear's slot).",
+  "copy": {
+    "mine": "My devices",
+    "team": "Team devices",
+    "offline": "Offline",
+    "noAccount": "No account",
+    "checking": "Checking…",
+    "addAccount": "Add account",
+    "attention": "Needs attention",
+    "updateAvailable": "Update available · v{version}",
+    "updateQueued": "Update queued until all sessions are closed.",
+    "needsRelogin": "{label} · Needs re-login",
+    "signedOut": "{label} · Signed out",
+    "update": "Update",
+    "signIn": "Sign in"
+  },
+  "cases": [
+    {
+      "name": "mint: codex installed but never signed in badges nothing",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": false,
+        "registered": true,
+        "outdated": false,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "dennis@straehhuber.com",
+            "health": "ok"
+          },
+          {
+            "agent": "claude",
+            "profileId": "b",
+            "label": "danny@yourev.at",
+            "health": "ok"
+          },
+          {
+            "agent": "claude",
+            "profileId": "c",
+            "label": "danny@straehhuber.com",
+            "health": "ok"
+          }
+        ]
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": []
+      }
+    },
+    {
+      "name": "server with an older version: one update line with its action",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "danny@straehhuber.com",
+            "health": "ok"
+          }
+        ]
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": [
+          {
+            "kind": "update",
+            "text": "Update available · v0.14.79",
+            "action": "update"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a desktop app updates itself: the update line, no action",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": false,
+        "registered": true,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "danny@straehhuber.com",
+            "health": "ok"
+          }
+        ]
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": [
+          {
+            "kind": "update",
+            "text": "Update available · v0.14.79",
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "an offline server: the update line without an action",
+      "input": {
+        "online": false,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": []
+      },
+      "expect": {
+        "group": "offline",
+        "noAccount": true,
+        "attention": [
+          {
+            "kind": "update",
+            "text": "Update available · v0.14.79",
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "dead credentials first, then signed out, then the update",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "dennis@straehhuber.com",
+            "health": "signed_out"
+          },
+          {
+            "agent": "claude",
+            "profileId": "b",
+            "label": "danny@yourev.at",
+            "health": "needs_relogin"
+          },
+          {
+            "agent": "codex",
+            "profileId": "c",
+            "label": "ops@yourev.at",
+            "health": "unknown"
+          }
+        ]
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": [
+          {
+            "kind": "login",
+            "profileId": "b",
+            "agent": "claude",
+            "text": "danny@yourev.at · Needs re-login",
+            "action": "sign_in"
+          },
+          {
+            "kind": "login",
+            "profileId": "a",
+            "agent": "claude",
+            "text": "dennis@straehhuber.com · Signed out",
+            "action": "sign_in"
+          },
+          {
+            "kind": "update",
+            "text": "Update available · v0.14.79",
+            "action": "update"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a queued update says so, without an action",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": true,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "danny@straehhuber.com",
+            "health": "ok"
+          }
+        ]
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": [
+          {
+            "kind": "update_queued",
+            "text": "Update queued until all sessions are closed.",
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "a server that holds no login says No account and badges nothing",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": false,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": []
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": true,
+        "attention": []
+      }
+    },
+    {
+      "name": "a device that never reported is checking, not No account",
+      "input": {
+        "online": true,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": false,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": false,
+        "logins": []
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": []
+      }
+    },
+    {
+      "name": "offline: grouped, items stay but nothing is actionable",
+      "input": {
+        "online": false,
+        "mine": true,
+        "server": true,
+        "registered": true,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "danny@straehhuber.com",
+            "health": "needs_relogin"
+          }
+        ]
+      },
+      "expect": {
+        "group": "offline",
+        "noAccount": false,
+        "attention": [
+          {
+            "kind": "login",
+            "profileId": "a",
+            "agent": "claude",
+            "text": "danny@straehhuber.com · Needs re-login",
+            "action": null
+          },
+          {
+            "kind": "update",
+            "text": "Update available · v0.14.79",
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "a teammate's shared server: login items without actions, no update line",
+      "input": {
+        "online": true,
+        "mine": false,
+        "server": true,
+        "registered": false,
+        "outdated": true,
+        "latest": "0.14.79",
+        "updateQueued": false,
+        "accountsReported": true,
+        "logins": [
+          {
+            "agent": "claude",
+            "profileId": "a",
+            "label": "alex@northwind.dev",
+            "health": "signed_out"
+          }
+        ]
+      },
+      "expect": {
+        "group": "online",
+        "noAccount": false,
+        "attention": [
+          {
+            "kind": "login",
+            "profileId": "a",
+            "agent": "claude",
+            "text": "alex@northwind.dev · Signed out",
+            "action": null
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -30,6 +30,7 @@ import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx
 import { entry as draftLeaveDialog } from "./draft-leave-dialog.tsx"
 import { entry as readinessChecklist } from "./readiness-checklist.tsx"
 import { entry as deviceReadiness } from "./device-readiness.tsx"
+import { entry as deviceAttention } from "./device-attention.tsx"
 import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
 import { entry as runStatusRow } from "./run-status-row.tsx"
@@ -99,6 +100,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   draftLeaveDialog,
   readinessChecklist,
   deviceReadiness,
+  deviceAttention,
   resultsGuide,
   mcpAppViews,
   runStatusRow,

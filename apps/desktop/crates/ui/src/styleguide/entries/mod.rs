@@ -35,6 +35,8 @@ pub(crate) mod stack_merge_choice_dialog;
 pub(crate) mod draft_leave_dialog;
 pub(crate) mod readiness_checklist;
 pub(crate) mod device_readiness;
+// A-16: the Devices row + its attention card.
+pub(crate) mod device_attention;
 pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
@@ -130,6 +132,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: draft_leave_dialog::ID, owner: draft_leave_dialog::OWNER, render: draft_leave_dialog::render },
     Entry { id: readiness_checklist::ID, owner: readiness_checklist::OWNER, render: readiness_checklist::render },
     Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
+    Entry { id: device_attention::ID, owner: device_attention::OWNER, render: device_attention::render },
     Entry { id: results_guide::ID, owner: results_guide::OWNER, render: results_guide::render },
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },

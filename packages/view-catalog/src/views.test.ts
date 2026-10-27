@@ -79,7 +79,7 @@ const PINNED_RECIPES = [
   `openFirstBoardSettings`,
   `openIssuePropertiesMobile`,
   `openMachineSettings`,
-  `expandFirstDevice`,
+  `previewDeviceLimits`,
   `openAddServer`,
   `openWidgetEditor`,
   `expandFirstDiffFile`,

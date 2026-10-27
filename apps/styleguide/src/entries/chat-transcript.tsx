@@ -24,7 +24,7 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/surface-card.tsx`,
       note: `session-thread-view.tsx ThreadConversation layout="bubbles" paints the rows; agent-session.tsx the same parts`,
     },
-    desktop: { state: `ok`, symbol: `surface_card`, file: `apps/desktop/crates/ui/src/surface_card.rs`, note: `twin: styleguide/entries/chat_transcript.rs` },
+    desktop: { state: `ok`, symbol: `sync_rows / divider_pill`, file: `apps/desktop/crates/ui/src/surface_card.rs`, note: `twin: styleguide/entries/chat_transcript.rs` },
     ios: { state: `ok`, symbol: `SurfaceCardFrame / TranscriptDividerPill / AgentChatBubble`, file: `apps/ios/ExpUI/Sources/ChatTranscript.swift` },
     android: { state: `ok`, symbol: `ChatBubble`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ThreadParts.kt`, note: `TranscriptDivider: ui/components/ChatComponents.kt; SurfaceCard: ui/thread/SurfaceCard.kt` },
   },
