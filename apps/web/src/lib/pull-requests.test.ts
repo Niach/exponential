@@ -60,7 +60,7 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   UNMERGEABLE_405: /not mergeable|merge conflicts?/i,
 }))
 vi.mock(`@/lib/integrations/github-checks`, () => ({
-  pullRequestChecks: vi.fn(async () => null),
+  pullRequestChecks: vi.fn(async () => ({ state: `green` })),
   isRequiredCheckRefusal: (message: string) => /required status checks?\b/i.test(message),
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
@@ -215,6 +215,8 @@ beforeEach(() => {
     txid: 1,
   }))
   vi.mocked(sync.loadPullRequest).mockResolvedValue(pr() as never)
+  // A forced merge never reads the checks: drop a queued verdict it left.
+  vi.mocked(checks.pullRequestChecks).mockReset().mockResolvedValue({ state: `green` })
 })
 
 describe(`openPullRequest`, () => {
@@ -552,6 +554,20 @@ describe(`mergePullRequest`, () => {
     })
     expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
     vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `red`, names: [`gate`] })
+    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, force: true })).resolves.toMatchObject({
+      merged: true,
+    })
+  })
+
+  it(`EXP-1378: checks it can't read refuse (fails closed); force skips the gate`, async () => {
+    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce(null)
+    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
+      code: `PRECONDITION_REQUIRED`,
+      kind: `checks_unreadable`,
+      message: `Couldn't read the checks on PR #7.`,
+    })
+    expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
+    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce(null)
     await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, force: true })).resolves.toMatchObject({
       merged: true,
     })

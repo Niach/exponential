@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { GitHubMergeError } from "@/lib/integrations/github-pr"
 import {
   checksRefusal,
+  checksUnreadableRefusal,
   isNotMergeable,
   MergeRefusal,
   prMergeFailureError,
@@ -163,5 +164,14 @@ describe(`checksRefusal`, () => {
     expect(error.code).toBe(`PRECONDITION_REQUIRED`)
     expect(error.kind).toBe(`checks_failed`)
     expect(error.message).toBe(`Checks failed on PR #12: "gate".`)
+  })
+})
+
+describe(`checksUnreadableRefusal`, () => {
+  it(`unreadable checks: PRECONDITION_REQUIRED (Merge anyway), checks_unreadable`, () => {
+    const error = checksUnreadableRefusal(12)
+    expect(error.code).toBe(`PRECONDITION_REQUIRED`)
+    expect(error.kind).toBe(`checks_unreadable`)
+    expect(error.message).toBe(`Couldn't read the checks on PR #12.`)
   })
 })

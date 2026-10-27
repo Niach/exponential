@@ -7,8 +7,9 @@ import type { GitHubFetch } from "@/lib/integrations/github-pr"
 // it reads them first. Required = the base branch's rulesets plus classic
 // branch protection; a repo that requires nothing gates on every check that
 // reported on the head commit. A read that fails (no `checks`/`statuses`
-// permission on the App, GitHub down) never blocks: GitHub's branch
-// protection still refuses a merge it does not allow.
+// permission on the App, GitHub down) answers null and the merge path
+// refuses (fails closed, `checksUnreadableRefusal`): a person may still
+// Merge anyway.
 
 export type ChecksVerdict =
   | { state: `green` }
@@ -115,7 +116,8 @@ async function requiredChecks(
 }
 
 /** The check gate for one open PR: its head commit against its base's
- *  required checks. Null = the gate could not read GitHub (never blocks). */
+ *  required checks. Null = the gate could not read GitHub (the merge
+ *  refuses). */
 export async function pullRequestChecks(opts: {
   repo: string
   prNumber: number

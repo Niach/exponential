@@ -26,6 +26,7 @@ import {
 const STEPS: Record<MergeRefusalKind, string> = {
   checks_pending: `Wait for the checks to finish (exponential_pr merge waits for running checks), then merge again.`,
   checks_failed: `Read the failing check, fix it, push, then merge again.`,
+  checks_unreadable: `Merge again in a minute; if the checks still can't be read, ask the person to look at them on GitHub and choose Merge anyway.`,
   conflict: `Rebase onto the base branch, resolve the conflicts, push with --force-with-lease, then merge again.`,
   other: `Handle it if you can and merge again; otherwise ask the person.`,
 }

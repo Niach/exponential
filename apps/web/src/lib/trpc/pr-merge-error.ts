@@ -19,7 +19,12 @@ import {
  * override with `force` (feedback-states.json errors.mergeRefusal).
  */
 
-export type MergeRefusalKind = `checks_pending` | `checks_failed` | `conflict` | `other`
+export type MergeRefusalKind =
+  | `checks_pending`
+  | `checks_failed`
+  | `checks_unreadable`
+  | `conflict`
+  | `other`
 
 export const MERGE_REFUSAL_COPY = feedbackStates.errors.mergeRefusal
 
@@ -111,5 +116,16 @@ export function checksRefusal(
       verdict.state === `pending`
         ? `Checks are still running on PR #${prNumber}: ${names}.`
         : `Checks failed on PR #${prNumber}: ${names}.`,
+  })
+}
+
+/** EXP-1378: the gate could not read the checks (`pullRequestChecks` null:
+ *  the App lacks the permission, GitHub down). Fails closed with the same
+ *  override as a red gate. */
+export function checksUnreadableRefusal(prNumber: number): MergeRefusal {
+  return new MergeRefusal({
+    kind: `checks_unreadable`,
+    code: `PRECONDITION_REQUIRED`,
+    message: `Couldn't read the checks on PR #${prNumber}.`,
   })
 }

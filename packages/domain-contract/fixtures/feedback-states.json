@@ -1038,7 +1038,7 @@
     "titlePattern": "Couldn't {verb} {thing}",
     "retry": "Retry",
     "mergeRefusal": {
-      "$comment": "EXP-1391 + EXP-1378: a refused PR merge (Merge PR, Merge stack, Merge through here) is the failed-action toast ×4, title `Couldn't merge the PR` / `Couldn't merge the stack`, description = the server's message verbatim (it ends with `handoff` when the refusal was posted into the thread, session-thread.json EXP-1391). The ONE code that changes the action is the check gate's PRECONDITION_REQUIRED (HTTP 428: required checks still running or red): its action is `force` (`pullRequests.merge({force: true})`, a person's explicit override of the gate; GitHub's own branch protection still applies) instead of Retry. Every other refusal keeps Retry. No client reads CONFLICT any more (the Fix conflicts run is gone).",
+      "$comment": "EXP-1391 + EXP-1378: a refused PR merge (Merge PR, Merge stack, Merge through here) is the failed-action toast ×4, title `Couldn't merge the PR` / `Couldn't merge the stack`, description = the server's message verbatim (it ends with `handoff` when the refusal was posted into the thread, session-thread.json EXP-1391). The ONE code that changes the action is the check gate's PRECONDITION_REQUIRED (HTTP 428: required checks still running or red, or checks the gate could not read: `Couldn't read the checks on PR #N.`, fails closed): its action is `force` (`pullRequests.merge({force: true})`, a person's explicit override of the gate; GitHub's own branch protection still applies) instead of Retry. Every other refusal keeps Retry. No client reads CONFLICT any more (the Fix conflicts run is gone).",
       "checksCode": "PRECONDITION_REQUIRED",
       "force": "Merge anyway",
       "handoff": "Sent to the thread."

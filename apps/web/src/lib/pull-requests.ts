@@ -84,6 +84,7 @@ import { pullRequestChecks, type ChecksVerdict } from "@/lib/integrations/github
 import { mergeRefusalText } from "@/lib/merge-refusal"
 import {
   checksRefusal,
+  checksUnreadableRefusal,
   isNotMergeable,
   MergeRefusal,
   prMergeFailureError,
@@ -581,7 +582,8 @@ const CHECKS_POLL_MS = 15_000
 
 /** EXP-1378: the check gate over every PR that lands. `waitMs` > 0 polls
  *  while checks run (an agent's merge); red or still running at the
- *  deadline refuses (PRECONDITION_REQUIRED, the code `force` overrides). */
+ *  deadline refuses (PRECONDITION_REQUIRED, the code `force` overrides),
+ *  and so do checks it could not read (fails closed). */
 async function gateOnChecks(opts: {
   repo: string
   token: string | null | undefined
@@ -596,7 +598,8 @@ async function gateOnChecks(opts: {
       if (verdict?.state !== `pending` || Date.now() + CHECKS_POLL_MS > deadline) break
       await new Promise((resolve) => setTimeout(resolve, CHECKS_POLL_MS))
     }
-    if (verdict && verdict.state !== `green`) throw checksRefusal(verdict, prNumber)
+    if (!verdict) throw checksUnreadableRefusal(prNumber)
+    if (verdict.state !== `green`) throw checksRefusal(verdict, prNumber)
   }
 }
 
