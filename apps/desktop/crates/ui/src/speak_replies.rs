@@ -337,6 +337,9 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
     // #NEW-54: push to talk first, so a Listen it drops is cancelled before
     // this may end the worker.
     crate::push_to_talk::settings_changed(&settings, cx);
+    // #NEW-63: decided before the update takes the settings.
+    let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+    let another_device = settings_name_another_device(&settings, &steer::persistent_device_id(&data_dir));
     entity.update(cx, |this, cx| {
         if this.settings == settings {
             return;
@@ -350,8 +353,7 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
     crate::voice_call::settings_changed(cx);
     // #NEW-63: not (or no longer) the member's voice device: its speech data
     // goes (the worker was shut down above; nothing runs it here).
-    let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
-    if settings_name_another_device(&settings, &steer::persistent_device_id(&data_dir)) {
+    if another_device {
         remove_voice_data_once(data_dir);
     }
     // NEW-78 / NEW-55: Push to talk or Speak replies moved here or away —
