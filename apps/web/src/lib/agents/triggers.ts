@@ -2,9 +2,10 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import type { AgentTrigger, AgentTriggerState } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { agents, messages, sessions, type Agent, type Event } from "@/db/schema"
+import { agents, messages, sessions, type Agent, type Event, type Session } from "@/db/schema"
 import { conversationInTx } from "@/lib/agents/conversation"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
+import { askHidden } from "@/lib/sessions/bus"
 import { insertMessage } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -19,7 +20,11 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // back (#FEED-124: caught up, never lost) and a tick never fires twice. A
 // schedule never stacks: while its last firing is still unread the tick is
 // skipped. Event triggers fire as the `events` row lands (`lib/events.ts`),
-// never for the agent whose own session emitted it.
+// never for the agent whose own session emitted it. #EXP-1409: an event
+// about a private session (`EventPrivateDetail`) posts its full payload
+// only into a conversation whose readers may see that session (the
+// #EXP-1399 `askHidden` rule); every other firing quotes the row's own
+// ids-only payload.
 
 const HOUR = 60 * 60 * 1000
 const MIN = 60 * 1000
@@ -37,12 +42,19 @@ export function enabledTriggers(agent: Pick<Agent, `triggers`>): AgentTrigger[] 
   )
 }
 
+/** The full payload of an event about a private session (`origin`), for
+ *  the firings whose readers may see it (`EmitEventArgs.privateDetail`). */
+export interface EventPrivateDetail {
+  origin: Pick<Session, `shared` | `userId`>
+  payload: Record<string, unknown>
+}
+
 /** Posts a firing into the owner's conversation (pending input). */
 async function postFiring(
   tx: Tx,
   agent: Agent,
   trigger: AgentTrigger,
-  body: string,
+  body: string | ((conversation: Session) => string),
   event: Event | null
 ): Promise<{ ownerId: string; deviceId: string } | null> {
   return postAgentInputInTx(tx, agent, agent.ownerId, body, {
@@ -61,14 +73,14 @@ export async function postAgentInputInTx(
   tx: Tx,
   agent: Agent,
   userId: string,
-  body: string,
+  body: string | ((conversation: Session) => string),
   card: { triggerId: string | null; eventId: string | null; name: string | null; issueId?: string | null }
 ): Promise<{ ownerId: string; deviceId: string } | null> {
   const { session, created } = await conversationInTx(tx, agent, userId)
   await insertMessage(tx, session, {
     authorKind: `user`,
     authorId: userId,
-    body,
+    body: typeof body === `function` ? body(session) : body,
     card: {
       kind: `event`,
       event: `trigger_fired`,
@@ -174,7 +186,11 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
 
 /** An `events` row landed: every enabled event trigger on its name in the
  *  team fires, except the agent whose own session emitted it. */
-export async function fireEventTriggersInTx(tx: Tx, event: Event): Promise<number> {
+export async function fireEventTriggersInTx(
+  tx: Tx,
+  event: Event,
+  privateDetail?: EventPrivateDetail
+): Promise<number> {
   const rows = await tx
     .select()
     .from(agents)
@@ -194,6 +210,12 @@ export async function fireEventTriggersInTx(tx: Tx, event: Event): Promise<numbe
           .limit(1)
       )[0]?.agentId ?? null)
     : null
+  const body = (conversation: Session) =>
+    TRIGGER_COPY.event(
+      privateDetail && !askHidden(conversation, privateDetail.origin)
+        ? { ...event, payload: privateDetail.payload }
+        : event
+    )
   let count = 0
   const hosts: Array<{ ownerId: string; deviceId: string } | null> = []
   for (const agent of rows) {
@@ -201,7 +223,7 @@ export async function fireEventTriggersInTx(tx: Tx, event: Event): Promise<numbe
     for (const trigger of enabledTriggers(agent)) {
       if (trigger.kind !== `event` || trigger.name !== event.name) continue
       try {
-        hosts.push(await postFiring(tx, agent, trigger, TRIGGER_COPY.event(event), event))
+        hosts.push(await postFiring(tx, agent, trigger, body, event))
         count += 1
       } catch (error) {
         console.warn(`[agent-triggers] event trigger ${trigger.id} of agent ${agent.id} not fired:`, error)
