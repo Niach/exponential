@@ -92,6 +92,14 @@ pub struct SurfaceSpecimen {
     pub mute: String,
 }
 
+/// What the other side's `call_end` does (`hangUpRules`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HangUpRules {
+    /// The failure code a `call_end` WITH a reason ends as.
+    pub failed_code: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceCallSpec {
@@ -101,6 +109,7 @@ pub struct VoiceCallSpec {
     pub test_ids: CallTestIds,
     pub constants: CallConstants,
     pub wire: CallWire,
+    pub hang_up_rules: HangUpRules,
 }
 
 pub static VOICE_CALL: LazyLock<VoiceCallSpec> =
@@ -200,11 +209,20 @@ pub enum CallEvent {
     Mute,
     Unmute,
     End,
+    /// The other side's `call_end`: a reason (`idle`, `max_length`,
+    /// `dropped`) fails it with the toast; none ends it silently.
+    HungUp(Option<String>),
     Failed(String),
 }
 
 fn quoted(text: &str) -> String {
     format!("“{text}”")
+}
+
+fn failed_state(state: &CallState, code: &str) -> CallState {
+    let failed = &VOICE_CALL.copy.failed;
+    let text = failed.get(code).or_else(|| failed.get("dropped")).cloned().unwrap_or_default();
+    CallState { toast: Some(text.replace("{device}", &state.device)), ..CallState::default() }
 }
 
 /// One step of the call.
@@ -240,12 +258,9 @@ pub fn call_step(state: &CallState, event: &CallEvent) -> CallState {
         CallEvent::ReplyFinished if state.phase == CallPhase::Speaking => at(CallPhase::Listening, String::new()),
         CallEvent::Mute => CallState { muted: true, ..state.clone() },
         CallEvent::Unmute => CallState { muted: false, ..state.clone() },
-        CallEvent::End => CallState::default(),
-        CallEvent::Failed(code) => {
-            let failed = &VOICE_CALL.copy.failed;
-            let text = failed.get(code).or_else(|| failed.get("dropped")).cloned().unwrap_or_default();
-            CallState { toast: Some(text.replace("{device}", &state.device)), ..CallState::default() }
-        }
+        CallEvent::End | CallEvent::HungUp(None) => CallState::default(),
+        CallEvent::HungUp(Some(_)) => failed_state(state, &VOICE_CALL.hang_up_rules.failed_code),
+        CallEvent::Failed(code) => failed_state(state, code),
         _ => state.clone(),
     }
 }
@@ -351,6 +366,7 @@ mod tests {
             "mute" => CallEvent::Mute,
             "unmute" => CallEvent::Unmute,
             "end" => CallEvent::End,
+            "hungUp" => CallEvent::HungUp(value["reason"].as_str().map(str::to_string)),
             "failed" => CallEvent::Failed(value["code"].as_str().unwrap().into()),
             other => panic!("unknown event {other}"),
         }

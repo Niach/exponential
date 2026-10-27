@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-27-voice-calls-web",
+    date: "2026-10-27",
+    title: "Call your agent from the browser (beta)",
+    summary: "The telephone in an agent's chat on web calls it through your voice device: talk hands-free in the browser, every reply is spoken, and talking over a reply stops it.",
+    body: r#"- **Calls on web**: the telephone in an agent chat's header opens a call card over the chat. Your microphone streams to your voice device, which listens and speaks the replies back into the browser.
+- **Mute and End call**: the card shows what was heard, what is queued and what is said, with End call and Mute.
+- **When it can't call**: the telephone stays visible but dimmed, and its tooltip says why (no voice device, Speak replies off, the device offline, its voice still getting ready, or no usable GPU)."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_95: ChangelogEntry = ChangelogEntry {
     id: "2026-10-27-voice-calls-ide",
     date: "2026-10-27",
     title: "Call your agent from the IDE (beta)",

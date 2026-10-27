@@ -9,6 +9,7 @@ export const VOICE_CALL_TEST_IDS = fixture.testIds
 export const VOICE_CALL_ICONS = fixture.icons
 export const VOICE_CALL_CONSTANTS = fixture.constants
 export const VOICE_CALL_WIRE = fixture.wire
+export const VOICE_CALL_HANG_UP = fixture.hangUpRules
 
 export type CallPlatform = `desktop` | `phone` | `web`
 /** The voice device's doctor row `speech` as a caller reads it. */
@@ -74,12 +75,20 @@ export type CallEvent =
   | { t: `mute` }
   | { t: `unmute` }
   | { t: `end` }
+  /** The other side's `call_end` (`hangUpRules`): a reason fails it. */
+  | { t: `hungUp`; reason?: string | null }
   | { t: `failed`; code: string }
 
 export const CALL_IDLE: CallState = { phase: `hidden`, muted: false, device: ``, said: ``, line: ``, toast: null }
 
 function quoted(text: string): string {
   return `“${text}”`
+}
+
+function failedState(state: CallState, code: string): CallState {
+  const failed = fixture.copy.failed as Record<string, string>
+  const toast = (failed[code] ?? failed.dropped).replace(`{device}`, state.device)
+  return { ...CALL_IDLE, toast }
 }
 
 /** One step of the call (the same machine on the voice device and a caller). */
@@ -124,11 +133,10 @@ export function callStep(state: CallState, event: CallEvent): CallState {
       return { ...state, muted: false }
     case `end`:
       return CALL_IDLE
-    case `failed`: {
-      const failed = fixture.copy.failed as Record<string, string>
-      const toast = (failed[event.code] ?? failed.dropped).replace(`{device}`, state.device)
-      return { ...CALL_IDLE, toast }
-    }
+    case `hungUp`:
+      return event.reason ? failedState(state, fixture.hangUpRules.failedCode) : CALL_IDLE
+    case `failed`:
+      return failedState(state, event.code)
   }
   return state
 }

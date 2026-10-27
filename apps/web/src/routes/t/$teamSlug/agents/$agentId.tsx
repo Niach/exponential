@@ -19,6 +19,7 @@ import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { AgentHeaderMenu } from "@/components/thread/chat-menu"
 import { AgentHeaderTitle } from "@/components/thread/chat-header"
+import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } from "@/components/voice-call"
 import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -91,6 +92,9 @@ function AgentChannelPage() {
     () => (agentHint.source ? (dockRows([agentHint.source])[0] ?? null) : null),
     [agentHint.source]
   )
+  // NEW-70 (voice-call.json): THE telephone left of `…`, the call card over the chat.
+  const callAvailability = useVoiceCallAvailability()
+  const voiceCall = useVoiceCall(agentId)
   usePageTitle(agent?.name ? pageTitle(agent.name, THREADS_LIST_COPY.agents) : undefined)
 
   const [graceOver, setGraceOver] = useState(false)
@@ -133,7 +137,16 @@ function AgentChannelPage() {
 
   const name = agent.name
   const headerMenu = (className?: string) => (
-    <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />
+    <>
+      <CallButton
+        availability={callAvailability}
+        agentName={name}
+        active={voiceCall.call.active}
+        onCall={() => void voiceCall.call.start(agent.id, callAvailability.device)}
+        className={className}
+      />
+      <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />
+    </>
   )
   const sendSurfaceReply = (text: string) => {
     const call = conversation
@@ -146,7 +159,7 @@ function AgentChannelPage() {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col max-md:h-dvh" data-testid="agent-channel-page">
+    <div className="relative flex h-full min-h-0 flex-col max-md:h-dvh" data-testid="agent-channel-page">
       {isMobile ? (
         <MobileDetailHeader
           // Chats (the draft, iOS/Android): the agent's disc, the name over `Agent`.
@@ -163,6 +176,7 @@ function AgentChannelPage() {
           {headerMenu(`shrink-0 text-muted-foreground`)}
         </div>
       )}
+      <VoiceCallOverlay {...voiceCall} />
       {/* EXP-1316 (1n): the session feed's scroll (opens at the newest
           row, follows while pinned, THE jump button once scrolled up). */}
       <div className="relative min-h-0 flex-1">

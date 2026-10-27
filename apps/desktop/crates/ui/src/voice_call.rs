@@ -46,6 +46,9 @@ pub(crate) struct VoiceCall {
     level: f32,
     bands: Vec<f32>,
     counter: u64,
+    /// The toasts raised (the lifecycle tests read them).
+    #[cfg(test)]
+    toasts: Vec<String>,
 }
 
 struct VoiceCallGlobal(Entity<VoiceCall>);
@@ -62,7 +65,16 @@ pub fn install(cx: &mut App) {
         if let Some(speaker) = crate::speak_replies::entity(cx) {
             cx.observe(&speaker, |this: &mut VoiceCall, _, cx| this.on_speaker(cx)).detach();
         }
-        VoiceCall { state: CallState::default(), active: None, overlay: Overlay::default(), level: 0., bands: Vec::new(), counter: 0 }
+        VoiceCall {
+            state: CallState::default(),
+            active: None,
+            overlay: Overlay::default(),
+            level: 0.,
+            bands: Vec::new(),
+            counter: 0,
+            #[cfg(test)]
+            toasts: Vec::new(),
+        }
     });
     cx.set_global(VoiceCallGlobal(entity));
 }
@@ -268,6 +280,8 @@ impl VoiceCall {
             cx.refresh_windows();
         }
         if let Some(toast) = self.state.toast.take() {
+            #[cfg(test)]
+            self.toasts.push(toast.clone());
             crate::toast::show_in_active_window(crate::toast::Toast::error(toast), cx);
         }
         let view = call_view(&self.state);
@@ -308,6 +322,12 @@ impl VoiceCall {
     }
 
     fn hang_up(&mut self, tell_host: bool, cx: &mut Context<Self>) {
+        self.close_with(tell_host, CallEvent::End, cx);
+    }
+
+    /// Hang up the worker (and the host, when told) and step `event`: End,
+    /// or the caller's `call_end` as `HungUp(reason)`.
+    fn close_with(&mut self, tell_host: bool, event: CallEvent, cx: &mut Context<Self>) {
         let Some(active) = self.active.take() else { return };
         if let Some(client) = crate::speak_replies::client(cx) {
             client.hangup(active.id.clone());
@@ -320,7 +340,7 @@ impl VoiceCall {
                 host.end();
             }
         }
-        self.step(CallEvent::End, cx);
+        self.step(event, cx);
     }
 
     fn fail(&mut self, code: &str, cx: &mut Context<Self>) {
@@ -346,7 +366,10 @@ impl VoiceCall {
                 client.call_audio(active.id.clone(), &pcm);
             }
             CallHostEvent::Mute(muted) => self.set_muted(muted, cx),
-            CallHostEvent::Ended { .. } => self.hang_up(false, cx),
+            // The relay's `idle` / `max_length` (or the caller's socket gone)
+            // fail it with the `dropped` toast; only a reason-less hang-up
+            // is silent (voice-call.json `hangUpRules`).
+            CallHostEvent::Ended { reason } => self.close_with(false, CallEvent::HungUp(reason), cx),
             CallHostEvent::Dropped(reason) => {
                 log::warn!("[voice] the streamed call dropped: {reason}");
                 self.fail("dropped", cx);
@@ -554,6 +577,41 @@ mod tests {
             on_worker_event(talk::Event::Exited, cx);
             assert!(!active(cx));
         });
+    }
+
+    /// A streamed call (a detached host socket) and the caller's `call_end`.
+    fn host_ended(reason: Option<&str>, cx: &mut gpui::TestAppContext) -> Vec<String> {
+        running(cx);
+        cx.update(|cx| {
+            let entity = global(cx).unwrap();
+            entity.update(cx, |this, cx| {
+                this.active.as_mut().unwrap().host = Some(steer::call_host::CallHost::detached());
+                this.on_host(steer::call_host::CallHostEvent::Ended { reason: reason.map(str::to_string) }, cx);
+            });
+            assert!(!active(cx));
+            assert_eq!(entity.read(cx).state.phase, CallPhase::Hidden);
+            entity.read(cx).toasts.clone()
+        })
+    }
+
+    /// #1266 review: the relay's idle timeout / max length end the call
+    /// with the `dropped` toast, never silently.
+    #[gpui::test]
+    async fn the_relays_idle_timeout_toasts_dropped(cx: &mut gpui::TestAppContext) {
+        let dropped = domain::voice_call::VOICE_CALL.copy.failed["dropped"].clone();
+        assert_eq!(host_ended(Some("idle"), cx), vec![dropped]);
+    }
+
+    #[gpui::test]
+    async fn the_relays_max_length_toasts_dropped(cx: &mut gpui::TestAppContext) {
+        let dropped = domain::voice_call::VOICE_CALL.copy.failed["dropped"].clone();
+        assert_eq!(host_ended(Some("max_length"), cx), vec![dropped]);
+    }
+
+    /// The caller pressing End call (no reason) ends it silently.
+    #[gpui::test]
+    async fn the_caller_hanging_up_is_silent(cx: &mut gpui::TestAppContext) {
+        assert!(host_ended(None, cx).is_empty());
     }
 
     #[test]

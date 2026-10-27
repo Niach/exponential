@@ -15,13 +15,14 @@ import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS } from "@exp/domain-contract/voice"
-import { callAvailability, type CallSpeech } from "@exp/domain-contract/voice-call"
+import { callAvailability } from "@exp/domain-contract/voice-call"
 
 import type { db as Database } from "@/db/connection"
-import { agents, devices, teamMembers, userVoiceSettings, type DeviceDoctor } from "@/db/schema"
+import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
 import { authedProcedure, router } from "@/lib/trpc"
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { callSpeechOf } from "@/lib/voice-call/availability"
 
 type Db = typeof Database
 
@@ -97,16 +98,10 @@ async function memberAgentExists(database: Db, userId: string, agentId: string):
   return agent !== undefined
 }
 
-/** NEW-55: the voice device's doctor row `speech` (group voice) as a caller
- *  reads it: `ok` speaks, `missing` = no usable GPU, anything else (absent,
- *  off, still downloading) = getting its voice ready. */
-export function callSpeechOf(doctor: DeviceDoctor | null): CallSpeech | null {
-  const row = doctor?.items.find((item) => item.key === `speech` && item.group === `voice`)
-  if (!row) return null
-  if (row.state === `ok`) return `ok`
-  if (row.state === `missing`) return `noGpu`
-  return `preparing`
-}
+// NEW-55: `callSpeechOf` lives beside the web caller's availability
+// (lib/voice-call/availability.ts) so the telephone reads the doctor row the
+// same way this refusal does.
+export { callSpeechOf }
 
 // Best-effort like devices.ts `nudgeDevice` (not imported: devices.ts reads
 // `voiceSettingsOf` for the heartbeat, and a cycle would be one too many).
