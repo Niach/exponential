@@ -1,0 +1,57 @@
+# NEW-88: cargo-fuzz targets on the call's untrusted audio (a caller's Opus
+# packets off the relay) and on the local call's echo canceller input.
+#
+#   cd apps/desktop/fuzz && cargo +nightly fuzz run <target> -- -max_total_time=60
+#
+# Targets: opus_decode (packet → PCM at any rate, channel count and frame
+# size, plus FEC and concealment), call_uplink (the call host's exact receive
+# path, `call_codec::Uplink`), aec (`decibri_aec` with any config, any
+# reference/microphone interleaving and chunk sizes). The release suite runs
+# each briefly; `-F libopus` fuzzes the libopus fallback instead.
+# Its own workspace: never a member of apps/desktop's.
+[package]
+name = "desktop-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+libopus = ["call-codec/libopus"]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+call-codec = { path = "../crates/call-codec" }
+opus-rs = "=0.1.40"
+decibri-aec = "=0.2.0"
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "opus_decode"
+path = "fuzz_targets/opus_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "call_uplink"
+path = "fuzz_targets/call_uplink.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "aec"
+path = "fuzz_targets/aec.rs"
+test = false
+doc = false
+bench = false

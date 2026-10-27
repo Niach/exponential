@@ -27,5 +27,6 @@ decibri-aec = "=0.2.0"
 cpal = "0.16"
 
 [dev-dependencies]
-# NEW-55: the `call_latency` example times the call's Opus frames.
-opus-rs = "=0.1.40"
+# NEW-55: the `call_latency` example times the call's Opus frames (NEW-88:
+# through `call-codec`, so `--features call-codec/libopus` times libopus).
+call-codec = { path = "../call-codec" }

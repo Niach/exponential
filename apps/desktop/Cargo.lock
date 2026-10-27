@@ -1129,6 +1129,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "call-codec"
+version = "0.14.79"
+dependencies = [
+ "log",
+ "opus-rs",
+ "pkg-config",
+]
+
+[[package]]
 name = "calloop"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7858,12 +7867,12 @@ name = "steer"
 version = "0.14.79"
 dependencies = [
  "api",
+ "call-codec",
  "coding",
  "domain",
  "flume 0.11.1",
  "futures-util",
  "log",
- "opus-rs",
  "regex",
  "serde",
  "serde_json",
@@ -9686,11 +9695,11 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "voice"
 version = "0.14.79"
 dependencies = [
+ "call-codec",
  "cpal",
  "crispasr",
  "decibri-aec",
  "log",
- "opus-rs",
  "serde_json",
  "talk",
 ]

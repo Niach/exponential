@@ -27,7 +27,7 @@ pub const KIND_DOWN: u8 = 2;
 /// voice-call.json `wire.maxFrameBytes`.
 pub const MAX_FRAME_BYTES: usize = 1500;
 /// voice-call.json `constants.frameMs`.
-pub const FRAME_MS: u32 = 20;
+pub const FRAME_MS: u32 = call_codec::FRAME_MS;
 /// voice-call.json `constants.upRate`.
 pub const UP_RATE: u32 = 16_000;
 /// voice-call.json `constants.downKbps`.
@@ -111,26 +111,19 @@ pub fn parse_audio_frame(frame: &[u8]) -> Option<(u8, u16, &[u8])> {
     Some((frame[0], u16::from_be_bytes([frame[1], frame[2]]), &frame[3..]))
 }
 
-/// Opus only codes 8, 12, 16, 24 and 48 kHz; anything else is a bug upstream.
-fn opus_rate(rate: u32) -> Option<u32> {
-    [8_000, 12_000, 16_000, 24_000, 48_000].contains(&rate).then_some(rate)
-}
-
 /// Frames reply PCM into 20 ms Opus packets, keeping the remainder
-/// (`opus_rs`: libopus 1.6 ported to Rust, so no C build on any runner).
+/// (`call_codec`: `opus-rs` by default, the system libopus with the
+/// `libopus` feature).
 struct Encoder {
     rate: u32,
-    opus: opus_rs::OpusEncoder,
+    opus: call_codec::Encoder,
     pending: Vec<i16>,
     seq: u16,
 }
 
 impl Encoder {
     fn new(rate: u32) -> Result<Self, String> {
-        let rate = opus_rate(rate).ok_or_else(|| format!("opus cannot code {rate} Hz"))?;
-        let mut opus = opus_rs::OpusEncoder::new(rate as i32, 1, opus_rs::Application::Voip).map_err(str::to_string)?;
-        opus.bitrate_bps = DOWN_BITRATE;
-        Ok(Encoder { rate, opus, pending: Vec::new(), seq: 0 })
+        Ok(Encoder { rate, opus: call_codec::Encoder::new(rate, DOWN_BITRATE, None)?, pending: Vec::new(), seq: 0 })
     }
 
     fn frame_len(&self) -> usize {
@@ -145,7 +138,7 @@ impl Encoder {
         let mut packet = [0u8; MAX_FRAME_BYTES - 3];
         while self.pending.len() >= len {
             let frame: Vec<i16> = self.pending.drain(..len).collect();
-            match self.opus.encode_i16(&frame, len, &mut packet) {
+            match self.opus.encode(&frame, &mut packet) {
                 Ok(size) => {
                     out.push(audio_frame(KIND_DOWN, self.seq, &packet[..size]));
                     self.seq = self.seq.wrapping_add(1);
@@ -153,43 +146,6 @@ impl Encoder {
                 Err(err) => log::warn!("call host: opus encode failed: {err}"),
             }
         }
-        out
-    }
-}
-
-/// Decodes the caller's packets; a lost sequence number is concealed with
-/// FEC from the next packet.
-struct Decoder {
-    opus: opus_rs::OpusDecoder,
-    next: Option<u16>,
-}
-
-/// f32 PCM in -1..1 as i16 samples.
-fn to_i16(samples: &[f32]) -> impl Iterator<Item = i16> + '_ {
-    samples.iter().map(|sample| (sample.clamp(-1., 1.) * 32767.) as i16)
-}
-
-impl Decoder {
-    fn new() -> Result<Self, String> {
-        Ok(Decoder { opus: opus_rs::OpusDecoder::new(UP_RATE as i32, 1).map_err(str::to_string)?, next: None })
-    }
-
-    fn push(&mut self, seq: u16, packet: &[u8]) -> Vec<i16> {
-        let frame = (UP_RATE * FRAME_MS / 1000) as usize;
-        let mut out = Vec::new();
-        // One lost packet: recover it from this one's in-band FEC.
-        if self.next.is_some_and(|next| seq == next.wrapping_add(1)) {
-            let mut recovered = vec![0f32; frame];
-            if let Ok(size) = self.opus.decode_fec(packet, frame, &mut recovered) {
-                out.extend(to_i16(&recovered[..size]));
-            }
-        }
-        let mut pcm = vec![0f32; frame];
-        match self.opus.decode(packet, frame, &mut pcm) {
-            Ok(size) => out.extend(to_i16(&pcm[..size])),
-            Err(err) => log::debug!("call host: opus decode failed: {err}"),
-        }
-        self.next = Some(seq.wrapping_add(1));
         out
     }
 }
@@ -216,7 +172,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
         crate::DialError::Other(err) => err,
     })?;
     let (mut sink, mut source) = stream.split();
-    let mut decoder = Decoder::new()?;
+    let mut decoder = call_codec::Uplink::new(UP_RATE)?;
     let mut encoder: Option<Encoder> = None;
     loop {
         tokio::select! {
@@ -316,11 +272,10 @@ mod tests {
         assert_eq!(parse_audio_frame(&frames[1]).unwrap().1, 1);
         assert!(frames.iter().all(|frame| frame.len() <= MAX_FRAME_BYTES));
         // The caller's side, at 16 kHz: one frame = 320 samples.
-        let mut up = opus_rs::OpusEncoder::new(UP_RATE as i32, 1, opus_rs::Application::Voip).unwrap();
-        up.use_inband_fec = true;
+        let mut up = call_codec::Encoder::new(UP_RATE, 24_000, Some(10)).unwrap();
         let mut packet = [0u8; 1500];
-        let size = up.encode_i16(&vec![0i16; 320], 320, &mut packet).unwrap();
-        let mut decoder = Decoder::new().unwrap();
+        let size = up.encode(&[0i16; 320], &mut packet).unwrap();
+        let mut decoder = call_codec::Uplink::new(UP_RATE).unwrap();
         assert_eq!(decoder.push(0, &packet[..size]).len(), 320);
     }
 
