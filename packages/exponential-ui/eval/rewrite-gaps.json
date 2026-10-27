@@ -109,6 +109,8 @@
     { "id": "threads", "class": "expressible", "with": "Section ×3 + Row (identifier, title, meta word, trailing device Icon) + LiveDot" },
     { "id": "chat-list", "class": "expressible", "with": "Box header (Heading + two icon Buttons) + a horizontal Row of Avatar bubbles with a ring + Segmented toggles for the chips + Row (Avatar lead, title, meta time, preview subtitle, trailing Badge)" },
     { "id": "chat-menus", "class": "expressible", "with": "Menu as a context menu (the phone look is a bottom Drawer of the same rows) + Dialog for the delete confirm" },
+    { "id": "chat-selection", "class": "expressible", "with": "the board-bulk-edit pattern on chat rows: Checkbox as the leading selection column + Toolbar as the floating bulk bar (Chip count + Buttons: Mark read, Archive, Stop, Delete)" },
+    { "id": "voice-call", "class": "expressible", "with": "Card (glass) holding VoiceWave (xl) over Text for the state and the line + a Group of two Buttons (End call primary, Mute); full screen on phones" },
     { "id": "chat-transcript", "class": "expressible", "with": "Box bubbles (Markdown, a meta time) + Chip for the divider pills; the inline preview IS a nested surface, its enter motion the renderer's" },
     { "id": "phone-tab-bar", "class": "expressible", "with": "Segmented in its full-width bar variant (icon over label, Avatar for Team, a trailing caret icon on the Board tab) beside a two-Button Group capsule" },
     { "id": "phone-board-menu", "class": "expressible", "with": "Menu (check items with a leading icon) in a full-width bottom panel" },
