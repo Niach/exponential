@@ -234,6 +234,8 @@ describe(`openPullRequest`, () => {
       number: 7,
       base: `master`,
       head: `exp/chat-abcd1234`,
+      // EXP-1377: the issues it linked (EXP-2 is another repository's).
+      issues: [`EXP-1`],
     })
     expect(gh.createPullRequest).toHaveBeenCalledWith({
       repo: `o/r`,

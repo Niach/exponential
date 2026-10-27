@@ -74,6 +74,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       update_status: `issues_update_status`,
       subscribe: `issues_subscribe`,
       unsubscribe: `issues_unsubscribe`,
+      unlink: `issues_unlink`,
       labels_add: `issue_labels_add`,
       labels_remove: `issue_labels_remove`,
       relations_add: `issue_relations_add`,
