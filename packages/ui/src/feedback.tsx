@@ -280,20 +280,13 @@ export function actionErrorTitle(verb: string, thing: string): string {
  *  Pass `retry` only when re-running the same call is safe. */
 export function toastActionError(
   title: string,
-  options: {
-    description?: string
-    retry?: () => void
-    /** The action's label when it is not a plain Retry (a merge refused by
-     *  the check gate offers `Merge anyway`, errors.mergeRefusal). */
-    retryLabel?: string
-    id?: string | number
-  } = {}
+  options: { description?: string; retry?: () => void; id?: string | number } = {}
 ): string | number {
-  const { description, retry, retryLabel, id } = options
+  const { description, retry, id } = options
   return toast.error(title, {
     id,
     description,
-    action: retry ? { label: retryLabel ?? FEEDBACK_ERRORS.retry, onClick: () => retry() } : undefined,
+    action: retry ? { label: FEEDBACK_ERRORS.retry, onClick: () => retry() } : undefined,
   })
 }
 

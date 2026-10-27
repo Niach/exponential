@@ -105,21 +105,12 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let failed = Toast::error("Couldn't save the team prompt")
         .description("The server didn't answer.")
         .action(feedback::RETRY, |_, _| {});
-    // EXP-1391 + EXP-1378: the check gate's refusal offers Merge anyway
-    // instead of Retry (`errors.mergeRefusal`).
-    let refused = crate::action_error::failed_toast(
-        "merge",
-        "the PR",
-        Some(format!("Checks are still running on PR #7: \"gate\". {}", feedback::MERGE_HANDOFF)),
-    )
-    .action(feedback::MERGE_ANYWAY, |_, _| {});
     let remote = Toast::info(feedback::remote_start_title("Danny"))
         .description("EXP-1271")
         .action(feedback::REMOTE_START_OPEN, |_, _| {});
     let errors = v_flex()
         .gap_3()
         .child(toast::card(&failed, cx).w(px(toast::constants::WIDTH)))
-        .child(toast::card(&refused, cx).w(px(toast::constants::WIDTH)))
         .child(crate::action_error::field_error(
             crate::settings::team_general::prompt_too_long(
                 domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES + 1,

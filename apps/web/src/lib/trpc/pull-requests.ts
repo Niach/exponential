@@ -15,20 +15,12 @@ const uuid = z.string().uuid()
 // webhook/poller; people act on a PR through these. Refusals THROW (the
 // toast); EXP-1391: a merge refusal is first posted into the PR's root
 // session (it wakes and takes it over; the message then ends with the
-// handoff), and the check gate's PRECONDITION_REQUIRED is the one a person
-// overrides with `force` (EXP-1378). `txid` is absent when this call wrote
-// nothing (the webhook already landed it, a queued merge, a merge a person did).
+// handoff). `txid` is absent when this call wrote nothing (the webhook
+// already landed it, a queued merge, a merge a person did).
 export const pullRequestsRouter = router({
   /** Squash-merge; `stack` = merge THROUGH this member of a native stack. */
   merge: authedProcedure
-    .input(
-      z.object({
-        pullRequestId: uuid,
-        stack: z.boolean().optional(),
-        /** Merge even while checks run or fail (GitHub's rules still apply). */
-        force: z.boolean().optional(),
-      })
-    )
+    .input(z.object({ pullRequestId: uuid, stack: z.boolean().optional() }))
     .mutation(
       async ({
         ctx,
@@ -40,7 +32,6 @@ export const pullRequestsRouter = router({
             userId: ctx.session.user.id,
             pullRequestId: input.pullRequestId,
             ...(input.stack !== undefined ? { stack: input.stack } : {}),
-            ...(input.force ? { force: true } : {}),
             callerSessionId: null,
           })
         } catch (err) {
@@ -50,11 +41,7 @@ export const pullRequestsRouter = router({
             actorUserId: ctx.session.user.id,
             error: err,
           })
-          throw new MergeRefusal({
-            kind: err.kind,
-            code: err.code === `PRECONDITION_REQUIRED` ? `PRECONDITION_REQUIRED` : `PRECONDITION_FAILED`,
-            message: withHandoff(err.message, posted),
-          })
+          throw new MergeRefusal({ kind: err.kind, message: withHandoff(err.message, posted) })
         }
         return {
           merged: result.merged,

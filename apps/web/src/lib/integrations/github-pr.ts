@@ -144,9 +144,6 @@ export async function mergePullRequest(opts: {
   prNumber: number
   token: string
   commitTitle?: string
-  /** EXP-1378: the head the checks passed on; GitHub refuses (409) when the
-   *  head moved since. */
-  sha?: string
   fetchImpl?: GitHubFetch
 }): Promise<MergedPull> {
   const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
@@ -163,7 +160,6 @@ export async function mergePullRequest(opts: {
         ...(opts.commitTitle !== undefined
           ? { commit_title: opts.commitTitle }
           : {}),
-        ...(opts.sha !== undefined ? { sha: opts.sha } : {}),
       }),
     }
   )
@@ -939,9 +935,6 @@ function parseAsyncMerge(
   }
 }
 
-/** GitHub's 409 when the pinned `sha` is no longer the head. */
-export const HEAD_MOVED_409 = /head branch was modified|sha .*(does not|doesn't) match|expected head sha/i
-
 /**
  * `PUT …/pulls/{n}/merge-async` — the ONLY way to merge a PR GitHub holds in
  * a stack (and a valid way to merge any PR). 202 hands back a job; 200 means the
@@ -976,13 +969,9 @@ export async function mergePullRequestAsync(opts: {
     }
   )
   if (res.status === 409) {
-    const message = await githubErrorMessage(res)
-    // EXP-1378: a pinned `sha` the head no longer matches is GitHub's 409
-    // too ("Head branch was modified"): a refusal, never "enqueued".
-    if (HEAD_MOVED_409.test(message)) throw new GitHubMergeError(409, message)
     return {
       status: `enqueued`,
-      message,
+      message: await githubErrorMessage(res),
       uuid: null,
       sha: null,
     }
@@ -1227,15 +1216,13 @@ export async function mergePullRequestSmart(opts: {
   prNumber: number
   token: string
   commitTitle?: string
-  /** EXP-1378: merge only this head (the one the check gate passed). */
-  sha?: string
   stack?: boolean
   fetchImpl?: GitHubFetch
   sleepImpl?: (ms: number) => Promise<void>
   timeoutMs?: number
   stepMs?: number
 }): Promise<SmartMergeResult> {
-  const { repo, prNumber, token, commitTitle, sha } = opts
+  const { repo, prNumber, token, commitTitle } = opts
   const verifyOpts = {
     repo,
     prNumber,
@@ -1264,7 +1251,6 @@ export async function mergePullRequestSmart(opts: {
       prNumber,
       token,
       ...(commitTitle !== undefined ? { commitTitle } : {}),
-      ...(sha !== undefined ? { sha } : {}),
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     })
   } catch (err) {
@@ -1316,7 +1302,6 @@ async function legacySquashMerge(
     prNumber: number
     token: string
     commitTitle?: string
-    sha?: string
     fetchImpl?: GitHubFetch
   },
   verified: (err: unknown) => Promise<SmartMergeResult | null>
@@ -1327,7 +1312,6 @@ async function legacySquashMerge(
       prNumber: opts.prNumber,
       token: opts.token,
       ...(opts.commitTitle !== undefined ? { commitTitle: opts.commitTitle } : {}),
-      ...(opts.sha !== undefined ? { sha: opts.sha } : {}),
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     })
     return { merged: merged.merged, queued: false, sha: merged.sha, mergedBy: null }

@@ -215,8 +215,6 @@ export async function mergeThrough(opts: {
   token: string
   prNumber: number
   commitTitle?: string
-  /** EXP-1378: the head the check gate passed. */
-  sha?: string
   fetchImpl?: GitHubFetch
   sleepImpl?: (ms: number) => Promise<void>
   timeoutMs?: number

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { GitHubMergeError } from "@/lib/integrations/github-pr"
 import {
-  checksRefusal,
-  checksUnreadableRefusal,
   isNotMergeable,
   MergeRefusal,
   prMergeFailureError,
@@ -10,7 +8,7 @@ import {
 
 // The whole mapping table. EXP-1391: no client reads CONFLICT any more (the
 // Fix conflicts run is gone); a refusal's KIND picks the steps the thread's
-// root reads, and only the check gate answers PRECONDITION_REQUIRED.
+// root reads, and every refusal is PRECONDITION_FAILED.
 
 const kindOf = (error: unknown) => (error instanceof MergeRefusal ? error.kind : null)
 
@@ -110,7 +108,7 @@ describe(`prMergeFailureError`, () => {
     expect(error.message).toBe(`Squash merges are not allowed on this repository`)
   })
 
-  it(`GitHub's required-check refusal is checks_pending, not force-able`, () => {
+  it(`GitHub's required-check refusal is kind checks`, () => {
     const error = prMergeFailureError(
       new GitHubMergeError(
         405,
@@ -119,7 +117,7 @@ describe(`prMergeFailureError`, () => {
       null
     )
     expect(error.code).toBe(`PRECONDITION_FAILED`)
-    expect(kindOf(error)).toBe(`checks_pending`)
+    expect(kindOf(error)).toBe(`checks`)
   })
 
   it(`inverts GitHub's 409: a moved head branch is not a content conflict`, () => {
@@ -148,30 +146,5 @@ describe(`prMergeFailureError`, () => {
     expect(error.message).toBe(
       `GitHub merge failed (HTTP 500): Server Error (request 1234:ABCD)`
     )
-  })
-})
-
-describe(`checksRefusal`, () => {
-  it(`running checks: PRECONDITION_REQUIRED, checks_pending, names quoted`, () => {
-    const error = checksRefusal({ state: `pending`, names: [`gate`, `lint`] }, 12)
-    expect(error.code).toBe(`PRECONDITION_REQUIRED`)
-    expect(error.kind).toBe(`checks_pending`)
-    expect(error.message).toBe(`Checks are still running on PR #12: "gate", "lint".`)
-  })
-
-  it(`red checks: checks_failed`, () => {
-    const error = checksRefusal({ state: `red`, names: [`gate`] }, 12)
-    expect(error.code).toBe(`PRECONDITION_REQUIRED`)
-    expect(error.kind).toBe(`checks_failed`)
-    expect(error.message).toBe(`Checks failed on PR #12: "gate".`)
-  })
-})
-
-describe(`checksUnreadableRefusal`, () => {
-  it(`unreadable checks: PRECONDITION_REQUIRED (Merge anyway), checks_unreadable`, () => {
-    const error = checksUnreadableRefusal(12)
-    expect(error.code).toBe(`PRECONDITION_REQUIRED`)
-    expect(error.kind).toBe(`checks_unreadable`)
-    expect(error.message).toBe(`Couldn't read the checks on PR #12.`)
   })
 })

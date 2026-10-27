@@ -53,8 +53,7 @@ data class ChangesMergeControl(
  * EXP-1154: the ONE Merge PR on a phone — the SOLID WHITE capsule (the
  * EXP-916 [BarSolidPill], 52dp, hugging its label) in the Guide's bar
  * cluster, running the confirm (or the ONE stack confirm). A refusal toasts
- * from the host (the check gate's offers `Merge anyway`, EXP-1378). The host
- * builds it only while the PR is
+ * from the host with Retry (EXP-1391). The host builds it only while the PR is
  * open, so it self-hides with the PR. The Issue / Run bars carry the same
  * control as the glyph-only [MergeCircle] (EXP-1191).
  */

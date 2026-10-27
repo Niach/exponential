@@ -22,12 +22,6 @@ import { ToastSpecimen } from "./toast"
 const { pending, starting, errors, mark } = FEEDBACK_STATES
 const UiSubmitIcon = conceptIcon(`ui-submit`)
 const MARK_PHASES = [0.08, 0.2, 0.32, 0.5]
-/** EXP-1391 + EXP-1378: the check gate's refusal, Merge anyway instead of
- *  Retry (errors.mergeRefusal); the same words on every platform's board. */
-const MERGE_REFUSAL = {
-  title: `Couldn't merge the PR`,
-  description: `Checks are still running on PR #7: "gate". ${errors.mergeRefusal.handoff}`,
-}
 
 function Kind({ index, title, children }: { index: number; title: string; children: ReactNode }) {
   return (
@@ -96,12 +90,6 @@ export function FeedbackStatesSpecimen(): ReactNode {
       </Kind>
       <Kind index={6} title="Errors">
         <ToastSpecimen kind="error" title={errors.cases[0]!.title!} description="Network error" action={errors.retry} />
-        <ToastSpecimen
-          kind="error"
-          title={MERGE_REFUSAL.title}
-          description={MERGE_REFUSAL.description}
-          action={errors.mergeRefusal.force}
-        />
         <div className="grid gap-1.5">
           <Input aria-invalid defaultValue="dennis@" />
           <p className="text-[13px] text-destructive">{errors.cases[4]!.message}</p>

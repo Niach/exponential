@@ -389,23 +389,15 @@ pub struct MergeOutput {
 }
 
 /// Merge a pull request; `stack` = merge THROUGH it (every open PR below
-/// lands first); `force` (EXP-1378) = the person's `Merge anyway` past the
-/// check gate (sent only when set).
-pub fn pr_merge(
-    trpc: &TrpcClient,
-    pull_request_id: &str,
-    stack: bool,
-    force: bool,
-) -> Result<MergeOutput, ApiError> {
+/// lands first).
+pub fn pr_merge(trpc: &TrpcClient, pull_request_id: &str, stack: bool) -> Result<MergeOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         pull_request_id: &'a str,
         stack: bool,
-        #[serde(skip_serializing_if = "std::ops::Not::not")]
-        force: bool,
     }
-    trpc.mutation("pullRequests.merge", &Input { pull_request_id, stack, force })
+    trpc.mutation("pullRequests.merge", &Input { pull_request_id, stack })
 }
 
 pub fn pr_close(trpc: &TrpcClient, pull_request_id: &str) -> Result<TxOutput, ApiError> {
@@ -696,19 +688,12 @@ mod tests {
             200,
             r#"{"result":{"data":{"merged":false,"queued":true,"txid":4}}}"#,
         );
-        let out = pr_merge(&client(&base), "pr-1", true, false).unwrap();
+        let out = pr_merge(&client(&base), "pr-1", true).unwrap();
         assert!(!out.merged && out.queued);
         assert_eq!(out.error, None);
         let request_text = request(&captured);
         assert!(request_text.starts_with("POST /api/trpc/pullRequests.merge HTTP/1.1"));
         assert!(request_text.ends_with(r#"{"pullRequestId":"pr-1","stack":true}"#));
-
-        // EXP-1378: `Merge anyway` re-posts the same merge with `force`.
-        let (base, captured) =
-            one_shot_server(200, r#"{"result":{"data":{"merged":true,"txid":6}}}"#);
-        assert!(pr_merge(&client(&base), "pr-1", false, true).unwrap().merged);
-        assert!(request(&captured)
-            .ends_with(r#"{"pullRequestId":"pr-1","stack":false,"force":true}"#));
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5}}}"#);
         pr_close(&client(&base), "pr-1").unwrap();

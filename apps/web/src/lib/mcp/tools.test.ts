@@ -2723,7 +2723,6 @@ describe(`pull request tools (EXP-1291)`, () => {
       pullRequestId: PR_ID,
       stack: true,
       callerSessionId: SESSION,
-      waitForChecksMs: 300_000,
     })
   })
 

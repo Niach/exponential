@@ -145,10 +145,8 @@ class FeedbackMarkTest {
         val errors = fixture.obj("errors")
         assertEquals(errors.string("titlePattern"), FeedbackStates.ERROR_TITLE_PATTERN)
         assertEquals(errors.string("retry"), FeedbackStates.RETRY)
-        // EXP-1391 + EXP-1378: the check gate's code and its `Merge anyway`.
-        val mergeRefusal = errors.obj("mergeRefusal")
-        assertEquals(mergeRefusal.string("checksCode"), FeedbackStates.MERGE_CHECKS_CODE)
-        assertEquals(mergeRefusal.string("force"), FeedbackStates.MERGE_ANYWAY)
+        // EXP-1391: the refusal posted into the thread ends with `handoff`.
+        assertEquals(errors.obj("mergeRefusal").string("handoff"), FeedbackStates.MERGE_HANDOFF)
         for (element in errors.getValue("cases").jsonArray) {
             val case = element.jsonObject
             if (case.string("kind") != "action") continue

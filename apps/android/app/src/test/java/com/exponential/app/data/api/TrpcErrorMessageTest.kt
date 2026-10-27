@@ -127,27 +127,6 @@ class TrpcErrorMessageTest {
         assertEquals("fallback", trpcErrorMessage(IllegalStateException("x"), "fallback"))
     }
 
-    // EXP-1378: the check gate (PRECONDITION_REQUIRED, HTTP 428) is the ONE
-    // merge refusal whose toast offers `Merge anyway`.
-    @Test
-    fun onlyTheCheckGateIsAChecksRefusal() {
-        assertTrue(isChecksRefusal(TrpcException("checks red", code = "PRECONDITION_REQUIRED")))
-        assertTrue(isChecksRefusal(TrpcException("checks running", HttpStatusCode(428, "Precondition Required"))))
-        assertFalse(isChecksRefusal(TrpcException("has merge conflicts", HttpStatusCode.Conflict, code = "CONFLICT")))
-        assertFalse(
-            isChecksRefusal(
-                TrpcException(
-                    "Squash merging is not allowed",
-                    HttpStatusCode.PreconditionFailed,
-                    code = "PRECONDITION_FAILED",
-                )
-            )
-        )
-        assertFalse(isChecksRefusal(TrpcException("no status", null)))
-        assertFalse(isChecksRefusal(java.net.UnknownHostException("offline")))
-        assertFalse(isChecksRefusal(null))
-    }
-
     // EXP-725: the invite-link creator has to tell a plan cap from every other
     // refusal, and the message it renders deliberately no longer says which it
     // was — so the flag is decided at the throw site off the RAW body: the
@@ -197,18 +176,5 @@ class TrpcErrorMessageTest {
         assertFalse(isPlanLimitError(TrpcException("No repository linked to this board")))
         assertFalse(isPlanLimitError(java.net.UnknownHostException("offline")))
         assertFalse(isPlanLimitError(null))
-    }
-
-    // Not even a 412 that quotes the check gate's wording counts.
-    @Test
-    fun preconditionFailedQuotingTheChecksSentenceIsNotAChecksRefusal() {
-        assertFalse(
-            isChecksRefusal(
-                TrpcException(
-                    "Checks are still running on PR #45",
-                    HttpStatusCode.PreconditionFailed,
-                )
-            )
-        )
     }
 }

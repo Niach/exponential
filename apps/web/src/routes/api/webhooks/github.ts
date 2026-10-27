@@ -1,10 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
-import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm"
+import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { pullRequests, repositories, sessions } from "@/db/schema"
-import { mergeCheckGateOn } from "@/lib/integrations/github-checks"
-import { maybeMergeYoloThread } from "@/lib/yolo-tree-merge"
+import { repositories, sessions } from "@/db/schema"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import {
   adoptOutOfBandPullRequest,
@@ -52,10 +50,8 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 // changes → flag/heal `repositories.inaccessible_at`) and `pull_request`
 // (EXP-1291: the `pull_requests` row by url: merged / closed / reopened /
 // base edits / draft flips; `opened` adopts an out-of-band PR whose
-// `exp/<IDENTIFIER>` head names an issue), `push` (EXP-1374: the live
-// sessions on that branch show a sign of life) and a finished `check_suite`
-// / `check_run` / `status` (EXP-1378, with `MERGE_CHECK_GATE` on: the yolo
-// automerge re-runs for the threads of the open PRs on that branch). Everything else is acked.
+// `exp/<IDENTIFIER>` head names an issue) and `push` (EXP-1374: the live
+// sessions on that branch show a sign of life). Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -181,49 +177,6 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             )
           )!
         )
-      }
-      return jsonResponse(200, { ok: true })
-    }
-
-    // EXP-1378: a check that FINISHED may turn a yolo thread's refused PR
-    // green (the automerge never waits for checks and posts nothing while
-    // they run): re-run it for the live PRs on that branch. Needs the App's
-    // `check_suite` + `check_run` + `status` event subscriptions; without
-    // them nothing arrives and the next lifecycle edge re-runs it instead.
-    // `MERGE_CHECK_GATE` off = no gate to wait for, so nothing to re-run.
-    if (event === `check_suite` || event === `check_run` || event === `status`) {
-      if (!mergeCheckGateOn()) return jsonResponse(200, { ok: true })
-      const payload = JSON.parse(rawBody) as {
-        action?: string
-        state?: string
-        check_suite?: { head_branch?: string | null }
-        check_run?: { check_suite?: { head_branch?: string | null } }
-        branches?: { name?: string }[]
-        repository?: { full_name?: string }
-      }
-      const finished = event === `status` ? payload.state !== `pending` : payload.action === `completed`
-      const branches =
-        event === `check_suite`
-          ? [payload.check_suite?.head_branch]
-          : event === `check_run`
-            ? [payload.check_run?.check_suite?.head_branch]
-            : (payload.branches ?? []).map((branch) => branch.name)
-      const heads = branches.filter((name): name is string => Boolean(name))
-      const fullName = payload.repository?.full_name
-      if (finished && fullName && heads.length > 0) {
-        const roots = await db
-          .selectDistinct({ rootId: pullRequests.rootSessionId })
-          .from(pullRequests)
-          .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
-          .where(
-            and(
-              eq(repositories.fullName, fullName),
-              inArray(pullRequests.head, heads),
-              eq(pullRequests.state, `open`),
-              isNotNull(pullRequests.rootSessionId)
-            )
-          )
-        for (const { rootId } of roots) if (rootId) void maybeMergeYoloThread(rootId)
       }
       return jsonResponse(200, { ok: true })
     }

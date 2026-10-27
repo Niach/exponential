@@ -24,13 +24,11 @@ const h = vi.hoisted(() => {
       select: vi.fn(chain),
       update: vi.fn(() => ({ set: () => ({ where: async () => {} }) })),
       delete: vi.fn(() => ({ where: () => ({ returning: async () => deleteRows.shift() ?? [] }) })),
-      transaction: vi.fn(async (run: (tx: unknown) => unknown) => run({})),
     },
   }
 })
 
 vi.mock(`@/db/connection`, () => ({ db: h.db }))
-vi.mock(`@/lib/events`, () => ({ emitEventInTx: vi.fn(async () => ({})) }))
 vi.mock(`@/lib/auth/access`, () => ({ resolveTeamAccess: vi.fn(async () => ({ kind: `member` })) }))
 vi.mock(`@/lib/board-visibility`, () => ({ boardVisible: () => undefined }))
 vi.mock(`@/lib/sessions/access`, () => ({ loadSessionForUser: vi.fn() }))
@@ -60,12 +58,6 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   retargetPullRequest: vi.fn(async () => {}),
   setPullRequestDraft: vi.fn(async () => {}),
   UNMERGEABLE_405: /not mergeable|merge conflicts?/i,
-}))
-vi.mock(`@/lib/integrations/github-checks`, () => ({
-  mergeCheckGateOn: vi.fn(() => true),
-  pullRequestChecks: vi.fn(async () => ({ state: `green`, sha: `head-sha` })),
-  pullRequestHeadSha: vi.fn(async () => `head-sha`),
-  isRequiredCheckRefusal: (message: string) => /required status checks?\b/i.test(message),
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoDefaultBranchCached: vi.fn(async () => `master`),
@@ -137,8 +129,6 @@ import * as gh from "@/lib/integrations/github-pr"
 import * as sync from "@/lib/integrations/pr-sync"
 import * as guard from "@/lib/pr-merge-guard"
 import * as stacks from "@/lib/pr-stacks"
-import * as checks from "@/lib/integrations/github-checks"
-import * as events from "@/lib/events"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import { compareChangedPaths } from "@/lib/pr-ui-guard"
 import { writeGuide } from "@/lib/sessions/guide"
@@ -220,10 +210,6 @@ beforeEach(() => {
     txid: 1,
   }))
   vi.mocked(sync.loadPullRequest).mockResolvedValue(pr() as never)
-  // A forced merge never reads the checks: drop a queued verdict it left.
-  vi.mocked(checks.pullRequestChecks).mockReset().mockResolvedValue({ state: `green`, sha: `head-sha` })
-  vi.mocked(checks.pullRequestHeadSha).mockReset().mockResolvedValue(`head-sha`)
-  vi.mocked(checks.mergeCheckGateOn).mockReset().mockReturnValue(true)
 })
 
 describe(`openPullRequest`, () => {
@@ -441,7 +427,6 @@ describe(`mergePullRequest`, () => {
       prNumber: 7,
       token: `tok`,
       commitTitle: `EXP-1: Fix the nav (#7)`,
-      sha: `head-sha`,
     })
     expect(sync.applyPullRequestMerged).toHaveBeenCalledWith(
       expect.objectContaining({ pullRequestId: `pr-1`, actorUserId: `u-1`, actorViaAgent: false })
@@ -511,43 +496,6 @@ describe(`mergePullRequest`, () => {
     expect(sync.applyPullRequestMerged).toHaveBeenCalledTimes(2)
   })
 
-  it(`EXP-1378: 'stack' gates every landed member and pins the merged head`, async () => {
-    vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `stack`, landing })
-    vi.mocked(checks.pullRequestChecks)
-      .mockResolvedValueOnce({ state: `green`, sha: `sha-5` })
-      .mockResolvedValueOnce({ state: `green`, sha: `sha-7` })
-    vi.mocked(checks.pullRequestHeadSha).mockResolvedValueOnce(`sha-5`)
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1`, stack: true })
-    expect(result).toEqual({ merged: true, mergedIds: [`pr-0`, `pr-1`] })
-    expect(vi.mocked(checks.pullRequestChecks).mock.calls.map(([opts]) => opts.prNumber)).toEqual([5, 7])
-    expect(stacks.mergeThrough).toHaveBeenCalledWith(expect.objectContaining({ prNumber: 7, sha: `sha-7` }))
-  })
-
-  it(`EXP-1378: 'stack' with a red lower member refuses before any merge`, async () => {
-    vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `stack`, landing })
-    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `red`, names: [`gate`], sha: `sha-5` })
-    await expect(
-      mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, stack: true })
-    ).rejects.toMatchObject({ kind: `checks_failed`, message: `Checks failed on PR #5: "gate".` })
-    expect(stacks.mergeThrough).not.toHaveBeenCalled()
-  })
-
-  it(`EXP-1378: a lower member that got a new commit while the top's checks were read refuses`, async () => {
-    vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `stack`, landing })
-    vi.mocked(checks.pullRequestChecks)
-      .mockResolvedValueOnce({ state: `green`, sha: `sha-5` })
-      .mockResolvedValueOnce({ state: `green`, sha: `sha-7` })
-    vi.mocked(checks.pullRequestHeadSha).mockResolvedValueOnce(`sha-5-pushed`)
-    await expect(
-      mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, stack: true })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_REQUIRED`,
-      kind: `checks_pending`,
-      message: `PR #5 got a new commit while its checks were read.`,
-    })
-    expect(stacks.mergeThrough).not.toHaveBeenCalled()
-  })
-
   it(`a tree child waits for its parent`, async () => {
     vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `tree`, parent: `EXP-0 (#5)`, landing })
     const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1`, stack: true })
@@ -589,89 +537,6 @@ describe(`mergePullRequest`, () => {
       queued: true,
     })
     expect(sync.applyPullRequestMerged).not.toHaveBeenCalled()
-  })
-
-  it(`EXP-1378: running checks refuse with PRECONDITION_REQUIRED; force skips the gate`, async () => {
-    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `pending`, names: [`gate`], sha: `head-sha` })
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
-      code: `PRECONDITION_REQUIRED`,
-      kind: `checks_pending`,
-    })
-    expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
-    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `red`, names: [`gate`], sha: `head-sha` })
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, force: true })).resolves.toMatchObject({
-      merged: true,
-    })
-  })
-
-  it(`EXP-1378: the merge pins the head the checks passed on; a push during the wait is judged anew`, async () => {
-    vi.useFakeTimers()
-    try {
-      vi.mocked(checks.pullRequestChecks)
-        .mockResolvedValueOnce({ state: `pending`, names: [`gate`], sha: `sha-old` })
-        .mockResolvedValueOnce({ state: `green`, sha: `sha-new` })
-      const merging = mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, waitForChecksMs: 60_000 })
-      await vi.advanceTimersByTimeAsync(15_000)
-      await expect(merging).resolves.toMatchObject({ merged: true })
-    } finally {
-      vi.useRealTimers()
-    }
-    expect(checks.pullRequestChecks).toHaveBeenCalledTimes(2)
-    expect(gh.mergePullRequestSmart).toHaveBeenCalledWith(expect.objectContaining({ prNumber: 7, sha: `sha-new` }))
-  })
-
-  it(`EXP-1378: a head that moves after the read: GitHub's 409 refuses, nothing lands`, async () => {
-    const GitHubMergeError = gh.GitHubMergeError as unknown as new (s: number, m: string) => Error
-    vi.mocked(gh.mergePullRequestSmart).mockRejectedValueOnce(
-      new GitHubMergeError(409, `Head branch was modified. Review and try the merge again.`)
-    )
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-    })
-    expect(gh.mergePullRequestSmart).toHaveBeenCalledWith(expect.objectContaining({ sha: `head-sha` }))
-    expect(sync.applyPullRequestMerged).not.toHaveBeenCalled()
-  })
-
-  it(`EXP-1378: MERGE_CHECK_GATE off reads no checks and pins nothing (master's merge)`, async () => {
-    vi.mocked(checks.mergeCheckGateOn).mockReturnValue(false)
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, waitForChecksMs: 60_000 })).resolves.toMatchObject({
-      merged: true,
-    })
-    expect(checks.pullRequestChecks).not.toHaveBeenCalled()
-    expect(checks.pullRequestHeadSha).not.toHaveBeenCalled()
-    expect(gh.mergePullRequestSmart).toHaveBeenCalledWith(expect.not.objectContaining({ sha: expect.anything() }))
-  })
-
-  it(`EXP-1378: Merge anyway pins nothing and leaves a pr.merge_forced audit row`, async () => {
-    await mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, force: true })
-    expect(checks.pullRequestChecks).not.toHaveBeenCalled()
-    expect(gh.mergePullRequestSmart).toHaveBeenCalledWith(expect.not.objectContaining({ sha: expect.anything() }))
-    expect(events.emitEventInTx).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ name: `pr.merge_forced`, emittedBy: { userId: `u-1` } })
-    )
-  })
-
-  it(`EXP-1378: checks it can't read refuse (fails closed); force skips the gate`, async () => {
-    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce(null)
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
-      code: `PRECONDITION_REQUIRED`,
-      kind: `checks_unreadable`,
-      message: `Couldn't read the checks on PR #7.`,
-    })
-    expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
-    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce(null)
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, force: true })).resolves.toMatchObject({
-      merged: true,
-    })
-  })
-
-  it(`EXP-1378: red checks are the agent's steps on the MCP path`, async () => {
-    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `red`, names: [`gate`], sha: `head-sha` })
-    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
-      merged: false,
-      error: `The merge of PR #7 was refused: Checks failed on PR #7: "gate".\n\nRead the failing check, fix it, push, then merge again.`,
-    })
   })
 
   it(`a draft is refused`, async () => {

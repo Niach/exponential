@@ -1085,7 +1085,7 @@ export const messageEventKindValues = [
   `trigger_fired`,
   // EXP-1374: a child's run stopped mid-turn (runner restart); it resumes.
   `session_interrupted`,
-  // EXP-1391: a merge GitHub or the check gate refused, posted into the
+  // EXP-1391: a merge GitHub refused, posted into the
   // PR's root session as pending input (it wakes the root).
   `pr_merge_refused`,
 ] as const
@@ -1298,8 +1298,6 @@ export type MessageCard =
       triggerId?: string | null
       eventId?: string | null
       name?: string | null
-      /** EXP-1378 `pr_merge_refused`: the head the check gate judged. */
-      headSha?: string | null
     }
   | { kind: `thread_started`; sessionId: string }
   /** A child's end (or a turn's relay when `final` is false) in its parent. */

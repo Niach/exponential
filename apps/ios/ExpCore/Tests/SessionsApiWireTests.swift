@@ -203,11 +203,6 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(single.keys.sorted(), ["pullRequestId"])
         let stack = try json(MergePullRequestInput(pullRequestId: "pr-1", stack: true))
         XCTAssertEqual(stack["stack"] as? Bool, true)
-        XCTAssertNil(stack["force"])
-        // EXP-1378: `Merge anyway` rides `force: true` past the check gate.
-        let forced = try json(MergePullRequestInput(pullRequestId: "pr-1", stack: nil, force: true))
-        XCTAssertEqual(forced.keys.sorted(), ["force", "pullRequestId"])
-        XCTAssertEqual(forced["force"] as? Bool, true)
 
         let result = try JSONDecoder().decode(
             PullRequestMergeResult.self,

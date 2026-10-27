@@ -24,9 +24,7 @@ import {
 // instead, never in the root.
 
 const STEPS: Record<MergeRefusalKind, string> = {
-  checks_pending: `Wait for the checks to finish (exponential_pr merge waits for running checks), then merge again.`,
-  checks_failed: `Read the failing check, fix it, push, then merge again.`,
-  checks_unreadable: `Merge again in a minute; if the checks still can't be read, ask the person to look at them on GitHub and choose Merge anyway.`,
+  checks: `Wait for the checks to finish; if one failed, read it, fix it and push. Then merge again.`,
   conflict: `Rebase onto the base branch, resolve the conflicts, push with --force-with-lease, then merge again.`,
   other: `Handle it if you can and merge again; otherwise ask the person.`,
 }
@@ -49,14 +47,12 @@ export async function postMergeRefusal(args: {
   /** Who merged (the thread's starter for the automerge). */
   actorUserId: string
   error: unknown
-  /** The automerge: running checks post nothing (green re-runs it), and
-   *  the same refusal on the same head is posted once, read or not, so a
+  /** The automerge: the same refusal is posted once, read or not, so a
    *  turn ending on it never wakes the root again. */
   automerge?: boolean
 }): Promise<boolean> {
   if (!isMergeRefusal(args.error)) return false
   const refusal = args.error
-  if (args.automerge && refusal.kind === `checks_pending`) return false
   try {
     return await db.transaction(async (tx) => {
       const [pr] = await tx
@@ -101,21 +97,13 @@ export async function postMergeRefusal(args: {
           .limit(1)
         if (waiting) return true
       }
-      // An ended target (display only) or the automerge: the same refusal on
-      // the same head is already there, read or not.
+      // An ended target (display only) or the automerge: the same refusal is
+      // already there, read or not.
       if (!live || args.automerge) {
         const [same] = await tx
           .select({ id: messages.id })
           .from(messages)
-          .where(
-            and(
-              ofThisPr,
-              eq(messages.body, body),
-              refusal.headSha
-                ? sql`${messages.card}->>'headSha' = ${refusal.headSha}`
-                : sql`${messages.card}->>'headSha' is null`
-            )
-          )
+          .where(and(ofThisPr, eq(messages.body, body)))
           .limit(1)
         if (same) return false
       }
@@ -128,7 +116,6 @@ export async function postMergeRefusal(args: {
           kind: `event`,
           event: `pr_merge_refused`,
           pullRequestId: args.pullRequestId,
-          ...(refusal.headSha ? { headSha: refusal.headSha } : {}),
         },
         consumedAt: live ? null : new Date(),
       })
