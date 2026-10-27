@@ -203,7 +203,7 @@ pub(crate) fn selection_rows(
 /// the selection). Mark read/unread and Archive/Unarchive batch (200 ids a
 /// call); Stop = `sessions.end` per chat; Delete asks first
 /// (`chat_delete_title`) then `sessions.delete` per chat. Any failure = ONE
-/// `copy.toasts.selectionFailed` toast.
+/// toast, `chat_selection_failed_title` (`{n} of {m}` when only some failed).
 pub(crate) fn run_selection_action(
     action: domain::chats::ChatSelectionAction,
     ids: Vec<String>,
@@ -233,6 +233,7 @@ fn spawn_selection(action: domain::chats::ChatSelectionAction, ids: Vec<String>,
         return;
     };
     cx.spawn(async move |cx| {
+        let total = ids.len();
         let (done, error): (Vec<String>, Option<api::ApiError>) = cx
             .background_executor()
             .spawn(async move {
@@ -279,7 +280,8 @@ fn spawn_selection(action: domain::chats::ChatSelectionAction, ids: Vec<String>,
             }
             if let Some(err) = &error {
                 log::warn!("[chats] selection {} failed: {err}", action.key());
-                failed(&CHATS.copy.toasts.selection_failed, Some(err), cx);
+                let title = domain::chats::chat_selection_failed_title(total - done.len(), total);
+                failed(&title, Some(err), cx);
             }
         });
     })

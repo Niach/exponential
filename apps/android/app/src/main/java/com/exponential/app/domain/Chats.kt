@@ -87,6 +87,7 @@ object Chats {
         const val TOAST_DELETE_FAILED = "Couldn't delete the chat"
         const val TOAST_STOP_NOT_DELIVERED = "The device didn't get the stop"
         const val TOAST_SELECTION_FAILED = "Couldn't update every chat"
+        const val TOAST_SELECTION_PARTIAL = "{n} of {m} chats couldn't be updated"
 
         /** #EXP-1388 `copy.selection`. */
         const val SELECTION_SELECT = "Select"
@@ -792,6 +793,15 @@ object Chats {
     /** #EXP-1388: the multi-delete confirm's title. */
     fun chatDeleteTitle(count: Int): String =
         if (count == 1) Copy.CONFIRM_DELETE_TITLE else Copy.SELECTION_CONFIRM_DELETE_MANY.replace("{n}", count.toString())
+
+    /** #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+     *  SOME of the [total] chats failed, else `selectionFailed`. */
+    fun chatSelectionFailedTitle(failed: Int, total: Int): String =
+        if (failed in 1 until total) {
+            Copy.TOAST_SELECTION_PARTIAL.replace("{n}", failed.toString()).replace("{m}", total.toString())
+        } else {
+            Copy.TOAST_SELECTION_FAILED
+        }
 
     fun chatSelectionLabel(action: ChatSelectionAction): String = when (action) {
         ChatSelectionAction.MarkRead -> Copy.SELECTION_MARK_READ

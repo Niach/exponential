@@ -314,8 +314,15 @@ class ThreadsViewModel @Inject constructor(
                 onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                // `Couldn't stop the chat` / `Couldn't delete the chat`.
-                _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""))
+                // `Couldn't stop the chat` / `Couldn't delete the chat`;
+                // a partial Stop / Delete = `{n} of {m} chats couldn't be updated`.
+                val partial = t as? PartialSelectionFailure
+                _failure.value = FailedAction(
+                    verb,
+                    thing,
+                    trpcErrorMessage(partial?.first ?: t, ""),
+                    title = partial?.let { Chats.chatSelectionFailedTitle(it.failed, it.total) },
+                )
             }
         }
     }
@@ -350,17 +357,20 @@ class ThreadsViewModel @Inject constructor(
     /** Delete = `sessions.delete` per chat (after the confirm). */
     fun deleteChats(rootIds: List<String>) = selectionCall { accountId -> each(rootIds) { sessionsApi.delete(accountId, it) } }
 
+    /** One chat at a time; every one is tried, then the failures counted. */
     private suspend fun each(ids: List<String>, block: suspend (String) -> Unit) {
-        var failure: Throwable? = null
+        var first: Throwable? = null
+        var failed = 0
         for (id in ids) {
             try {
                 block(id)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                failure = failure ?: t
+                first = first ?: t
+                failed += 1
             }
         }
-        failure?.let { throw it }
+        first?.let { throw PartialSelectionFailure(failed, ids.size, it) }
     }
 
     /** The agent menu's Stop = `sessions.stop` (the TURN interrupt). */
@@ -401,6 +411,9 @@ internal const val CHAT_THING = "the chat"
 /** #EXP-1388 `copy.toasts.selectionFailed` = `Couldn't update every chat`. */
 internal const val SELECTION_VERB = "update"
 internal const val SELECTION_THING = "every chat"
+
+/** A Stop / Delete selection that failed for [failed] of its [total] chats. */
+private class PartialSelectionFailure(val failed: Int, val total: Int, val first: Throwable) : Exception(first)
 
 /** `sessions.setRead` / `setArchived` take up to 200 ids per call. */
 private const val SELECTION_BATCH = 200

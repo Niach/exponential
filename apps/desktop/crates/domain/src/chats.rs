@@ -53,6 +53,8 @@ pub struct ChatsToastCopy {
     pub stop_not_delivered: String,
     /// #EXP-1388: a selection action that failed for some chat.
     pub selection_failed: String,
+    /// #EXP-1388: Stop / Delete failed for some of the chats (`{n} of {m}`).
+    pub selection_partial: String,
 }
 
 /// `copy.selection` (#EXP-1388: the Chats multi-selection).
@@ -1132,6 +1134,16 @@ pub fn chat_delete_title(count: usize) -> String {
     }
 }
 
+/// #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+/// SOME of the `total` chats failed, else `selectionFailed`.
+pub fn chat_selection_failed_title(failed: usize, total: usize) -> String {
+    if failed > 0 && failed < total {
+        CHATS.copy.toasts.selection_partial.replace("{n}", &failed.to_string()).replace("{m}", &total.to_string())
+    } else {
+        CHATS.copy.toasts.selection_failed.clone()
+    }
+}
+
 /// #EXP-1388: `copy.selection.count`.
 pub fn chat_selection_count(count: usize) -> String {
     CHATS.copy.selection.count.replace("{n}", &count.to_string())
@@ -1616,6 +1628,8 @@ mod tests {
         }
         assert_eq!(chat_delete_title(1), CHATS.copy.confirm_delete.title);
         assert_eq!(chat_delete_title(3), "Delete 3 chats?");
+        assert_eq!(chat_selection_failed_title(2, 5), "2 of 5 chats couldn't be updated");
+        assert_eq!(chat_selection_failed_title(5, 5), CHATS.copy.toasts.selection_failed);
         assert_eq!(chat_selection_count(2), "2 selected");
     }
 

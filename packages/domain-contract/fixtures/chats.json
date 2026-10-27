@@ -83,7 +83,8 @@
       "stopFailed": "Couldn't stop the chat",
       "deleteFailed": "Couldn't delete the chat",
       "stopNotDelivered": "The device didn't get the stop",
-      "selectionFailed": "Couldn't update every chat"
+      "selectionFailed": "Couldn't update every chat",
+      "selectionPartial": "{n} of {m} chats couldn't be updated"
     },
     "dividers": {
       "new": "New conversation",

@@ -127,7 +127,8 @@ struct ChatActions {
 
     /// #EXP-1388: the selection bar's actions (Delete runs after its
     /// confirm through `deleteAll`). Mark read / unread and (un)archive batch
-    /// in one call; Stop ends each chat. A failure = ONE toast.
+    /// (200 ids a call); Stop ends each chat, one at a time. A failure = ONE
+    /// toast, `chatSelectionFailedTitle` (`{n} of {m}` when only some failed).
     func run(_ item: Chats.ChatSelectionItem) {
         let api = deps.sessionsApi
         let accountId = accountId
@@ -135,6 +136,7 @@ struct ChatActions {
         let ids = item.sessionIds
         Task {
             var failed: Error?
+            var failures = 0
             switch item.action {
             case .markRead, .markUnread:
                 do { try await api.setRead(accountId: accountId, sessionIds: ids, read: item.action == .markRead) } catch { failed = error }
@@ -142,15 +144,18 @@ struct ChatActions {
                 do { try await api.setArchived(accountId: accountId, sessionIds: ids, archived: item.action == .archive) } catch { failed = error }
             case .stop:
                 for id in ids {
-                    do { try await api.end(accountId: accountId, sessionId: id) } catch { failed = error }
+                    do { try await api.end(accountId: accountId, sessionId: id) } catch { failed = failed ?? error; failures += 1 }
                 }
             case .delete:
                 for id in ids {
-                    do { try await api.delete(accountId: accountId, sessionId: id) } catch { failed = error }
+                    do { try await api.delete(accountId: accountId, sessionId: id) } catch { failed = failed ?? error; failures += 1 }
                 }
             }
             if let failed {
-                toaster.error(Chats.Copy.Toasts.selectionFailed, description: failed.userFacingMessage)
+                toaster.error(
+                    Chats.chatSelectionFailedTitle(failed: failures, total: ids.count),
+                    description: failed.userFacingMessage
+                )
             }
         }
     }

@@ -77,6 +77,7 @@ public enum Chats {
             public static let deleteFailed = "Couldn't delete the chat"
             public static let stopNotDelivered = "The device didn't get the stop"
             public static let selectionFailed = "Couldn't update every chat"
+            public static let selectionPartial = "{n} of {m} chats couldn't be updated"
         }
         public enum Dividers {
             public static let new = "New conversation"
@@ -831,6 +832,15 @@ public enum Chats {
     public static func chatDeleteTitle(_ count: Int) -> String {
         count == 1 ? Copy.ConfirmDelete.title
             : Copy.Selection.confirmDeleteMany.replacingOccurrences(of: "{n}", with: String(count))
+    }
+
+    /// #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+    /// SOME of the `total` chats failed, else `selectionFailed`.
+    public static func chatSelectionFailedTitle(failed: Int, total: Int) -> String {
+        guard failed > 0, failed < total else { return Copy.Toasts.selectionFailed }
+        return Copy.Toasts.selectionPartial
+            .replacingOccurrences(of: "{n}", with: String(failed))
+            .replacingOccurrences(of: "{m}", with: String(total))
     }
 
     /// A chip's label: its copy, then its count when there is one.

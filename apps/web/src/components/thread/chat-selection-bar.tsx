@@ -3,6 +3,7 @@ import {
   CHATS_COPY,
   chatDeleteTitle,
   chatSelectionActions,
+  chatSelectionFailedTitle,
   type ChatListView,
   type ChatSelectionAction,
   type ChatSelectionRow,
@@ -26,11 +27,25 @@ import { trpc } from "@/lib/trpc-client"
 // buttons (labelled on md+). Mark read / unread = `sessions.setRead`,
 // Archive / Unarchive = `sessions.setArchived` (batched, 200 ids a call),
 // Stop = `sessions.end` per chat, Delete asks first (`chatDeleteTitle`) then
-// `sessions.delete` per chat. Every action leaves the selection; a failure
-// toasts `copy.toasts.selectionFailed`. Escape leaves it too.
+// `sessions.delete` per chat, at most `IN_FLIGHT` at once (each ends a tree
+// and relays to devices). Every action leaves the selection; a failure toasts
+// `chatSelectionFailedTitle` ("{n} of {m} …" when only some failed). Escape
+// leaves it too.
 
 const COPY = CHATS_COPY
 const BATCH = 200
+const IN_FLIGHT = 4
+
+/** A selection action that failed for `failed` of its `total` chats. */
+class SelectionError extends Error {
+  constructor(
+    readonly failed: number,
+    readonly total: number,
+    readonly first: unknown
+  ) {
+    super(`selection failed`)
+  }
+}
 
 function batches(ids: readonly string[]): string[][] {
   const out: string[][] = []
@@ -60,19 +75,28 @@ async function runChatAction(action: ChatSelectionAction, sessionIds: readonly s
     if (txid !== undefined) await sessionReadsCollection.utils.awaitTxId(txid, 3000).catch(() => undefined)
     return
   }
-  // Stop / Delete: one call per chat; every one is tried, any failure fails.
-  const results = await Promise.allSettled(
-    sessionIds.map((sessionId) =>
-      action === `stop`
-        ? trpc.sessions.end.mutate({ sessionId }, SKIP_ERROR_TOAST)
-        : trpc.sessions.delete.mutate({ sessionId }, SKIP_ERROR_TOAST)
-    )
-  )
-  const txids = results.flatMap((result) => (result.status === `fulfilled` ? [result.value.txid] : []))
-  const last = txids.length > 0 ? Math.max(...txids) : undefined
+  // Stop / Delete: one call per chat, `IN_FLIGHT` workers; every one is
+  // tried, then the failures are counted.
+  let next = 0
+  let last: number | undefined
+  const failures: unknown[] = []
+  const worker = async () => {
+    while (next < sessionIds.length) {
+      const sessionId = sessionIds[next++]
+      try {
+        const { txid } =
+          action === `stop`
+            ? await trpc.sessions.end.mutate({ sessionId }, SKIP_ERROR_TOAST)
+            : await trpc.sessions.delete.mutate({ sessionId }, SKIP_ERROR_TOAST)
+        last = Math.max(last ?? txid, txid)
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, sessionIds.length) }, worker))
   if (last !== undefined) await sessionCollection.utils.awaitTxId(last, 3000).catch(() => undefined)
-  const failed = results.find((result): result is PromiseRejectedResult => result.status === `rejected`)
-  if (failed) throw failed.reason
+  if (failures.length > 0) throw new SelectionError(failures.length, sessionIds.length, failures[0])
 }
 
 export function ChatSelectionBar({
@@ -105,7 +129,11 @@ export function ChatSelectionBar({
     try {
       await runChatAction(action, sessionIds)
     } catch (error) {
-      toastActionError(COPY.toasts.selectionFailed, { description: actionErrorDescription(error) })
+      const title =
+        error instanceof SelectionError ? chatSelectionFailedTitle(error.failed, error.total) : COPY.toasts.selectionFailed
+      toastActionError(title, {
+        description: actionErrorDescription(error instanceof SelectionError ? error.first : error),
+      })
     } finally {
       setBusy(false)
       setDeleting(null)

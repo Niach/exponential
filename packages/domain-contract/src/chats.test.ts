@@ -8,6 +8,7 @@ import {
   agentInstructionsChanged,
   agentMenuEntries,
   chatDeleteTitle,
+  chatSelectionFailedTitle,
   chatList,
   chatSelectionActions,
   chatSelectionRange,
@@ -46,6 +47,11 @@ describe(`chats.json`, () => {
   test(`delete titles`, () => {
     expect(chatDeleteTitle(1)).toBe(fixture.copy.confirmDelete.title)
     expect(chatDeleteTitle(3)).toBe(`Delete 3 chats?`)
+  })
+  test(`selection failure titles`, () => {
+    expect(chatSelectionFailedTitle(2, 5)).toBe(`2 of 5 chats couldn't be updated`)
+    expect(chatSelectionFailedTitle(5, 5)).toBe(fixture.copy.toasts.selectionFailed)
+    expect(chatSelectionFailedTitle(1, 1)).toBe(fixture.copy.toasts.selectionFailed)
   })
   test(`every menu entry and tab has copy`, () => {
     for (const e of [`stop`, `stopAndDelete`, `delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()

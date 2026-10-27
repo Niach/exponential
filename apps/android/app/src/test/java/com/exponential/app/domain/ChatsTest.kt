@@ -307,6 +307,8 @@ class ChatsTest {
         }
         assertEquals("Delete this chat?", Chats.chatDeleteTitle(1))
         assertEquals("Delete 3 chats?", Chats.chatDeleteTitle(3))
+        assertEquals("2 of 5 chats couldn't be updated", Chats.chatSelectionFailedTitle(2, 5))
+        assertEquals(Chats.Copy.TOAST_SELECTION_FAILED, Chats.chatSelectionFailedTitle(5, 5))
     }
 
     @Test
@@ -442,7 +444,8 @@ class ChatsTest {
         assertEquals(toasts.str("deleteFailed"), Chats.Copy.TOAST_DELETE_FAILED)
         assertEquals(toasts.str("stopNotDelivered"), Chats.Copy.TOAST_STOP_NOT_DELIVERED)
         assertEquals(toasts.str("selectionFailed"), Chats.Copy.TOAST_SELECTION_FAILED)
-        assertEquals(4, toasts.size)
+        assertEquals(toasts.str("selectionPartial"), Chats.Copy.TOAST_SELECTION_PARTIAL)
+        assertEquals(5, toasts.size)
         val selection = copy.getValue("selection").jsonObject
         assertEquals(selection.str("select"), Chats.Copy.SELECTION_SELECT)
         assertEquals(selection.str("count"), Chats.Copy.SELECTION_COUNT)

@@ -441,6 +441,14 @@ export function chatDeleteTitle(count: number): string {
   return count === 1 ? fixture.copy.confirmDelete.title : fixture.copy.selection.confirmDeleteMany.replace(`{n}`, String(count))
 }
 
+/** #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+ *  SOME of the `total` chats failed, else `selectionFailed`. */
+export function chatSelectionFailedTitle(failed: number, total: number): string {
+  return failed > 0 && failed < total
+    ? fixture.copy.toasts.selectionPartial.replace(`{n}`, String(failed)).replace(`{m}`, String(total))
+    : fixture.copy.toasts.selectionFailed
+}
+
 export type AgentMenuEntry = `compact` | `newConversation` | `stop` | `settings`
 
 /** The agent chat's header menu (and its bubble's long-press) ×4

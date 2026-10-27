@@ -401,6 +401,8 @@ final class ChatsTests: XCTestCase {
     func testDeleteTitles() {
         XCTAssertEqual(Chats.chatDeleteTitle(1), Chats.Copy.ConfirmDelete.title)
         XCTAssertEqual(Chats.chatDeleteTitle(3), "Delete 3 chats?")
+        XCTAssertEqual(Chats.chatSelectionFailedTitle(failed: 2, total: 5), "2 of 5 chats couldn't be updated")
+        XCTAssertEqual(Chats.chatSelectionFailedTitle(failed: 5, total: 5), Chats.Copy.Toasts.selectionFailed)
     }
 
     // MARK: - Constants
@@ -447,6 +449,7 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["toasts"] as? [String: String], [
             "stopFailed": C.Toasts.stopFailed, "deleteFailed": C.Toasts.deleteFailed,
             "stopNotDelivered": C.Toasts.stopNotDelivered, "selectionFailed": C.Toasts.selectionFailed,
+            "selectionPartial": C.Toasts.selectionPartial,
         ])
         XCTAssertEqual(copy["dividers"] as? [String: String], ["new": C.Dividers.new, "compact": C.Dividers.compact])
         XCTAssertEqual(copy["superseded"] as? String, C.superseded)
