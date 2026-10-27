@@ -172,6 +172,8 @@ export interface SessionCard {
 /** NEW-1: the card's state word; a blocked session names WHY
  *  (`copy.blockedKinds[blocked.kind]`, an unknown kind = `states.blocked`). */
 export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: SessionState): string {
+  // #EXP-1405: a queued row names what it waits for (its device).
+  if (state === `queued`) return SESSION_CARD_COPY.queuedKind
   if (state === `interrupted`) {
     const word = (SESSION_CARD_COPY.interruptedKinds as Record<string, string>)[session.blocked?.kind ?? ``]
     if (word) return word
@@ -213,10 +215,11 @@ export function sessionCard(
   }
 }
 
-/** EXP-1374: the Dock card of an interrupted or background session (a
- *  dock.json `banner` source without its `kind`), null otherwise. */
+/** EXP-1374: the Dock card of an interrupted or background session, and
+ *  (#EXP-1405) of a queued one waiting for its device (a dock.json `banner`
+ *  source without its `kind`), null otherwise. */
 export interface SessionBanner {
-  id: `interrupted` | `background`
+  id: `interrupted` | `background` | `queued`
   icon: string
   label: string
   text: string
@@ -240,12 +243,12 @@ export function sessionBanner(
       action: null,
     }
   }
-  if (state === `background`) {
+  if (state === `background` || state === `queued`) {
     return {
       id: state,
-      icon: SESSION_CARD_ICONS.background,
-      label: SESSION_CARD_COPY.states.background,
-      text: cardFixture.banner.background,
+      icon: SESSION_CARD_ICONS[state],
+      label: SESSION_CARD_COPY.states[state],
+      text: cardFixture.banner[state],
       tone: `muted`,
       action: null,
     }

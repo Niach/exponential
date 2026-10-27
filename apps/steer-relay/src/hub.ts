@@ -136,6 +136,12 @@ interface Room {
    *  Closed by `lingerTimer`, by the last viewer leaving, or by the device
    *  going away with a page in flight. */
   historyServed: boolean
+  /** #EXP-1405: opened for a session the server still calls ALIVE (the
+   *  ticket's `live` claim: an idle row whose run went away). Its replay is
+   *  not an ending: the room lingers for as long as a viewer stays (the
+   *  run's publisher takes it back when it continues), and every way it
+   *  fails answers the retryable `no_such_session`, never a terminal `bye`. */
+  live: boolean
   /** EXP-796: fires HISTORY_ROOM_LINGER_MS after the replay's `bye`. */
   lingerTimer: ReturnType<typeof setTimeout> | null
   /** EXP-936: the ONE `compact_request` awaiting the host's verdict, or
@@ -1375,6 +1381,15 @@ export class Hub {
     }
     room.historyServed = true
     if (room.lingerTimer) clearTimeout(room.lingerTimer)
+    room.lingerTimer = null
+    // Nobody stayed for the replay: nothing to linger for.
+    if (room.activityMembers.size === 0) {
+      this.closeRoom(room, HISTORY_OUTCOME)
+      return
+    }
+    // #EXP-1405: a live session's transcript stays up while it is watched;
+    // the last viewer leaving (`onClose`) takes the room down.
+    if (room.live) return
     room.lingerTimer = setTimeout(() => {
       room.lingerTimer = null
       // A publisher took the room back (a second replay), or it closed and
@@ -1384,20 +1399,44 @@ export class Hub {
       this.historyRoomLingerExpiries += 1
       this.closeRoom(room, HISTORY_OUTCOME)
     }, HISTORY_ROOM_LINGER_MS)
-    // Nobody stayed for the replay: nothing to linger for.
-    if (room.activityMembers.size === 0) this.closeRoom(room, HISTORY_OUTCOME)
   }
 
   /** EXP-796: end a lingering history room with a TERMINAL answer — `error
    *  code` to every viewer, then the `bye` + close `closeRoom` sends. The
    *  same shape `requestHistory` and the 20s timer use, so every client
-   *  lands in Ended instead of reading a plain drop and redialing. */
+   *  lands in Ended instead of reading a plain drop and redialing.
+   *  #EXP-1405: a LIVE session's room is never ended: it goes the way a join
+   *  without a room does (`dropLiveRoom`), and the clients redial. */
   private closeHistoryRoom(room: Room, code: string) {
+    if (room.live) {
+      this.dropLiveRoom(room)
+      return
+    }
     const err = frame({ t: `error`, code })
     for (const member of room.activityMembers.keys()) {
       member.sock.send(err)
     }
     this.closeRoom(room, code)
+  }
+
+  /** #EXP-1405: take a live session's history room down with the answer a
+   *  join without any room gets (`error no_such_session`, then the close,
+   *  NO `bye`): every client (web, desktop, iOS, Android, old builds too)
+   *  reads it as "not up yet", keeps its transcript and redials while the
+   *  synced row stays alive. */
+  private dropLiveRoom(room: Room) {
+    if (room.staleTimer) clearTimeout(room.staleTimer)
+    if (room.historyTimer) clearTimeout(room.historyTimer)
+    if (room.lingerTimer) clearTimeout(room.lingerTimer)
+    this.dropHistoryPages(room)
+    this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
+    if (this.rooms.get(room.sessionId) === room) this.rooms.delete(room.sessionId)
+    const err = frame({ t: `error`, code: `no_such_session` })
+    for (const member of room.activityMembers.keys()) {
+      member.sock.send(err)
+      member.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
+    }
+    room.activityMembers.clear()
   }
 
   /** EXP-796: the lingering history room a control socket may answer a
@@ -1476,6 +1515,7 @@ export class Hub {
       historyPages: new Map(),
       historyDevice: null,
       historyServed: false,
+      live: false,
       lingerTimer: null,
       compactAsk: null,
     }
@@ -1485,6 +1525,9 @@ export class Hub {
    *  names the device that ran the session AND that device's control socket
    *  is online under the SAME user, open a pending room and ask the device
    *  for its stored transcript. Otherwise answer and close, as before.
+   *  #EXP-1405: a `live` ticket (a session the server still calls alive)
+   *  never draws a terminal answer: an offline device or a silent one is
+   *  `no_such_session`, which every client redials from.
    *  Returns the room to park the viewer in, or `undefined` when the socket
    *  has already been answered with an error. */
   private requestHistory(conn: Conn, sessionId: string): Room | undefined {
@@ -1503,6 +1546,13 @@ export class Hub {
     // the web app decided ran this session.
     const deviceOwnerId = conn.claims.deviceOwnerId ?? conn.claims.sub
     const control = this.devices.get(deviceOwnerId)?.get(deviceId)
+    const live = conn.claims.live === true
+    if (!control && live) {
+      this.historyDeviceOffline += 1
+      conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
+      conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
+      return undefined
+    }
     if (!control) {
       conn.sock.send(frame({ t: `error`, code: `device_offline` }))
       // The `bye` is not decoration: a viewer that sees a close with no `bye`
@@ -1520,12 +1570,17 @@ export class Hub {
     // EXP-796: remembered so the room can page through the device once the
     // replay is over and the publisher socket is gone.
     room.historyDevice = { userId: deviceOwnerId, deviceId }
+    room.live = live
     room.historyTimer = setTimeout(() => {
       room.historyTimer = null
+      this.historyTimeouts += 1
+      if (room.live) {
+        this.dropLiveRoom(room)
+        return
+      }
       for (const member of room.activityMembers.keys()) {
         member.sock.send(frame({ t: `error`, code: `history_unavailable` }))
       }
-      this.historyTimeouts += 1
       this.closeRoom(room, `history_unavailable`)
     }, HISTORY_TIMEOUT_MS)
     this.rooms.set(sessionId, room)

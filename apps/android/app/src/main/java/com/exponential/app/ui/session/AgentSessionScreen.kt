@@ -2570,7 +2570,9 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
         ) {
             add(Chats.AgentHint.banner)
         }
-        if (phase == AgentPhase.Starting && !paused && feed.isNotEmpty()) {
+        // #EXP-1405: an idle row's transcript waits for its next turn, not
+        // for a start: only a busy run is "starting".
+        if (phase == AgentPhase.Starting && !paused && feed.isNotEmpty() && session?.busy == true) {
             add(
                 Dock.Source.Banner(
                     "starting", "ui-loading", "Starting", "The agent is starting. Waiting for the live stream…",

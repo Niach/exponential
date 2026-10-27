@@ -7322,14 +7322,23 @@ impl SteerSessionView {
                 DockTint::Muted,
                 Some("Reconnect"),
             )),
-            ViewerPhase::Starting if !paused && !self.feed.is_empty() && !self.journal_seeded => out.push(banner(
-                "starting",
-                "ui-loading",
-                "Starting",
-                "The agent is starting. Waiting for the live stream…".to_string(),
-                DockTint::Muted,
-                None,
-            )),
+            // #EXP-1405: an idle row's transcript waits for its next turn,
+            // not for a start: only a busy run is "starting".
+            ViewerPhase::Starting
+                if !paused
+                    && !self.feed.is_empty()
+                    && !self.journal_seeded
+                    && self.row.as_ref().is_some_and(|row| row.busy) =>
+            {
+                out.push(banner(
+                    "starting",
+                    "ui-loading",
+                    "Starting",
+                    "The agent is starting. Waiting for the live stream…".to_string(),
+                    DockTint::Muted,
+                    None,
+                ))
+            }
             _ => {}
         }
         // EXP-1374 (session-card.json `banner`): an interrupted or

@@ -13,9 +13,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
-vi.mock(`@/lib/steer`, () => ({
+vi.mock(`@/lib/steer`, async (importOriginal) => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   mintSteerTicket: h.mintSteerTicket,
+  viewerHistoryClaims: (await importOriginal<{ viewerHistoryClaims: unknown }>()).viewerHistoryClaims,
 }))
 vi.mock(`@/lib/sessions/access`, () => ({
   loadSessionForUser: h.loadSessionForUser,
@@ -76,6 +77,18 @@ describe(`steer.mintTicket`, () => {
     expect(h.mintSteerTicket.mock.calls[0]![1]).toMatchObject({
       deviceId: `dev-1`,
       deviceOwnerId: `host`,
+    })
+  })
+
+  it(`names the device as live on an idle session's viewer ticket (#EXP-1405)`, async () => {
+    h.loadSessionForUser.mockResolvedValue(
+      session({ status: `idle`, busy: false, startedAt: new Date(`2026-10-27T10:00:00Z`), hostUserId: `host` })
+    )
+    await caller(`teammate`).mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
+    expect(h.mintSteerTicket.mock.calls[0]![1]).toMatchObject({
+      deviceId: `dev-1`,
+      deviceOwnerId: `host`,
+      live: true,
     })
   })
 

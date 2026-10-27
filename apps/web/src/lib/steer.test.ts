@@ -10,6 +10,7 @@ import {
   relayPostNudge,
   relayPostInterrupt,
   steerHttpBase,
+  viewerHistoryClaims,
   steerTicketUrl,
   steerWsBase,
   STEER_TICKET_TTL_SECONDS,
@@ -250,6 +251,36 @@ describe(`ticket claim composition`, () => {
         NOW
       )
     ).not.toHaveProperty(`deviceOwnerId`)
+  })
+
+  it(`viewer: \`live\` rides only beside a device (#EXP-1405)`, () => {
+    const seed = { kind: `viewer` as const, userId: `user-1`, teamId: `ws-1`, sessionId: `session-1` }
+    expect(buildSteerTicketClaims({ ...seed, deviceId: `dev-1`, live: true }, NOW)).toMatchObject({
+      deviceId: `dev-1`,
+      live: true,
+    })
+    expect(buildSteerTicketClaims({ ...seed, live: true }, NOW)).not.toHaveProperty(`live`)
+    expect(buildSteerTicketClaims({ ...seed, deviceId: `dev-1` }, NOW)).not.toHaveProperty(`live`)
+  })
+})
+
+describe(`viewerHistoryClaims (#EXP-1405)`, () => {
+  const row = { deviceId: `dev-1`, startedAt: `2026-10-27T10:00:00.000Z`, busy: false }
+  it(`an ended row names its device, never live`, () => {
+    expect(viewerHistoryClaims({ ...row, status: `ended` }, `host-1`)).toEqual({ deviceId: `dev-1`, deviceOwnerId: `host-1` })
+  })
+  it(`an idle row names its device as live: any device replays its transcript`, () => {
+    expect(viewerHistoryClaims({ ...row, status: `idle` }, `host-1`)).toEqual({
+      deviceId: `dev-1`,
+      deviceOwnerId: `host-1`,
+      live: true,
+    })
+    expect(viewerHistoryClaims({ ...row, status: `running` }, `host-1`)).toMatchObject({ live: true })
+  })
+  it(`a busy, queued or never-started row keeps the plain answer`, () => {
+    expect(viewerHistoryClaims({ ...row, status: `running`, busy: true }, `host-1`)).toEqual({})
+    expect(viewerHistoryClaims({ ...row, status: `queued` }, `host-1`)).toEqual({})
+    expect(viewerHistoryClaims({ ...row, status: `idle`, startedAt: null }, `host-1`)).toEqual({})
   })
 })
 

@@ -66,8 +66,8 @@ pub(super) fn sources() -> Vec<DockSource> {
 }
 
 /// EXP-1374: the session's own state cards (`session-card.json` `banner`,
-/// the web entry's `STATE_ROWS`): interrupted (its device went offline) and
-/// background tasks.
+/// the web entry's `STATE_ROWS`): interrupted (its device went offline),
+/// background tasks and (#EXP-1405) queued, waiting for its device.
 pub(super) fn state_rows() -> Vec<DockRow> {
     use domain::session_tree::{SessionState, SESSION_CARD};
     let banner = |state: SessionState, text: &str| DockSource::Banner {
@@ -81,6 +81,7 @@ pub(super) fn state_rows() -> Vec<DockRow> {
     dock_rows(&[
         banner(SessionState::Interrupted, &SESSION_CARD.banner.interrupted["device_offline"]),
         banner(SessionState::Background, &SESSION_CARD.banner.background),
+        banner(SessionState::Queued, &SESSION_CARD.banner.queued),
     ])
 }
 
@@ -137,7 +138,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(crate::dock::dock_card(&question, 0., None, cx))
         .child(caption("A banner: never opens; its action word trails", cx))
         .child(crate::dock::dock_card(&banner, 0., Some(switch_button("sg-dock-card-banner")), cx))
-        .child(caption("The session's own state: interrupted, background tasks", cx))
+        .child(caption("The session's own state: interrupted, background tasks, queued", cx))
         .children(state_rows().iter().map(|row| crate::dock::dock_card(row, 0., None, cx)))
         .child(caption("Five cards piled: the front one whole, the rest peeking out above it", cx))
         .child(pile_specimen("sg-dock-card-pile", &rows, false, window, cx))

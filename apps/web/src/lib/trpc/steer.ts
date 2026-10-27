@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure } from "@/lib/trpc"
-import { getSteerRelayConfig, mintSteerTicket } from "@/lib/steer"
+import { getSteerRelayConfig, mintSteerTicket, viewerHistoryClaims } from "@/lib/steer"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 
 // The live layer of a session (masterplan §3.5). EXP-1291: starts, messages,
@@ -63,16 +63,12 @@ export const steerRouter = router({
       })
     }
 
-    // EXP-773: an ENDED session names its device, so the relay can ask it for
-    // the transcript (which never leaves the device) when no room is up.
     return mintSteerTicket(config, {
       kind: `viewer`,
       userId,
       teamId: session.teamId,
       sessionId: session.id,
-      ...(session.status === `ended`
-        ? { deviceId: session.deviceId, deviceOwnerId: deviceOwner }
-        : {}),
+      ...viewerHistoryClaims(session, deviceOwner),
     })
   }),
 })

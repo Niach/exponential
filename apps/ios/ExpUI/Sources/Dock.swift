@@ -52,6 +52,8 @@ public enum DockMetrics {
         // EXP-1374: the session banner (session-card.json `icons`).
         case "run-pause": AppIcons.runPause
         case "trace-background": AppIcons.traceBackground
+        // #EXP-1405: a queued session waiting for its device.
+        case "ui-clock": AppIcons.uiClock
         default: concept
         }
     }

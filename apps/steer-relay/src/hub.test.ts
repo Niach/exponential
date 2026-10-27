@@ -3485,6 +3485,125 @@ describe(`history pages after the replay (EXP-796)`, () => {
   })
 })
 
+// ── #EXP-1405: an idle session's transcript, from any device ────────────────
+
+describe(`live history rooms (#EXP-1405)`, () => {
+  function connectDevice(hub: Hub, sub = `user-1`, deviceId = `dev-1`) {
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `control`, sub }))
+    hub.onMessage(sock, JSON.stringify({ t: `online`, deviceId }))
+    return sock
+  }
+
+  /** A viewer of an IDLE session: the ticket names its device, `live`. */
+  function joinLive(hub: Hub) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({ role: `viewer`, sub: `user-1`, sessionId: `sess-idle`, deviceId: `dev-1`, live: true })
+    )
+    hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+    return sock
+  }
+
+  function capturing<T>(fn: () => T) {
+    const timers: { ms?: number; fn: () => void }[] = []
+    const real = globalThis.setTimeout
+    globalThis.setTimeout = ((cb: () => void, ms?: number) => {
+      timers.push({ fn: cb, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    try {
+      return { value: fn(), timers }
+    } finally {
+      globalThis.setTimeout = real
+    }
+  }
+
+  function servedRoom(hub: Hub) {
+    const device = connectDevice(hub)
+    const viewer = joinLive(hub)
+    const pub = connectPublisher(hub, `sess-idle`)
+    activity(hub, pub, { kind: `narration`, text: `the last turn` })
+    const { timers } = capturing(() => hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` })))
+    hub.onClose(pub)
+    return { device, viewer, timers }
+  }
+
+  test(`the device replays the idle session's journal to a viewer anywhere`, () => {
+    const hub = new Hub()
+    const device = connectDevice(hub)
+    const viewer = joinLive(hub)
+    expect(device.lastFrame(`history_request`)).toMatchObject({ sessionId: `sess-idle` })
+    const pub = connectPublisher(hub, `sess-idle`)
+    activity(hub, pub, { kind: `narration`, text: `the last turn` })
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` }))
+    expect(viewer.events()).toEqual([{ kind: `narration`, text: `the last turn` }])
+    expect(viewer.frames().at(-1)).toMatchObject({ t: `activity_synced` })
+    expect(viewer.closed).toBeNull()
+    hub.destroy()
+  })
+
+  test(`its room never times out while watched: no bye, no linger timer`, () => {
+    const hub = new Hub()
+    const { viewer, timers } = servedRoom(hub)
+    expect(timers.find((t) => t.ms === HISTORY_ROOM_LINGER_MS)).toBeUndefined()
+    expect(viewer.framesOf(`bye`)).toHaveLength(0)
+    expect(hub.stats().rooms).toBe(1)
+    // The last viewer leaving takes it down.
+    hub.onClose(viewer)
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  test(`the run continuing takes the room back: the viewer goes live on the same socket`, () => {
+    const hub = new Hub()
+    const { viewer } = servedRoom(hub)
+    const run = connectPublisher(hub, `sess-idle`)
+    activity(hub, run, { kind: `narration`, text: `the next turn` })
+    expect(viewer.frames().map((f) => f.t)).toContain(`activity_reset`)
+    expect(viewer.events().at(-1)).toEqual({ kind: `narration`, text: `the next turn` })
+    expect(viewer.closed).toBeNull()
+    expect(hub.sessionInfo(`sess-idle`)).toMatchObject({ live: true, viewers: 1 })
+    hub.destroy()
+  })
+
+  test(`an offline device answers no_such_session (retryable), never an ending`, () => {
+    const hub = new Hub()
+    const viewer = joinLive(hub)
+    expect(viewer.frames().map((f) => f.t)).toEqual([`error`])
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.counters().historyDeviceOffline).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a device that never answers: no_such_session, no bye`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const { value: viewer, timers } = capturing(() => joinLive(hub))
+    timers.find((t) => t.ms === 20_000)!.fn()
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(viewer.framesOf(`bye`)).toHaveLength(0)
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    expect(hub.counters().historyTimeouts).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a page ask after the device left: no_such_session, no bye`, () => {
+    const hub = new Hub()
+    const { device, viewer } = servedRoom(hub)
+    hub.onClose(device)
+    hub.onMessage(viewer, JSON.stringify({ t: `history_page`, requestId: `p1`, beforeSeq: 40, limit: 20 }))
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(viewer.framesOf(`bye`)).toHaveLength(0)
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+})
+
 // ── NEW-55: voice calls ──────────────────────────────────────────────────────
 
 describe(`voice calls (NEW-55)`, () => {

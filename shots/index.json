@@ -768,36 +768,36 @@
         "file": "shots/dock-card/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 63012,
-        "sha256": "6a8fa0b65e944dd942705a43b516a7dfd9c90776836fee5f9af64a54eb6e797d"
+        "bytes": 62626,
+        "sha256": "edb0a79aa5a0a19fec284f4a6f30f49cb01a0e12209e88593ecd5a9235644d10"
       },
       "desktop": {
         "file": "shots/dock-card/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 60760,
-        "sha256": "fc64abf903a9ca7d0c7f9b185c786edb7283df8629b8d3fda940aa9a1e90a02a"
+        "bytes": 61422,
+        "sha256": "6f6be36f9b36dc232b6ee50601b6bb3e9d01f60d1f6091a696020a9b2ef5c048"
       },
       "ios": {
         "file": "shots/dock-card/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 70916,
-        "sha256": "db7e74bb572ce1b7b41deb3b6dea43cfb43a16ac8e72b0c425351a3755934782"
+        "bytes": 71096,
+        "sha256": "2c8241d258ad64a24292cc03cba55538c2252f3b5f3a27b8904050ece5d54174"
       },
       "web": {
         "file": "shots/dock-card/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 66754,
-        "sha256": "533c6c1477f102caaba6af35c25cac57229f854a34af919e337efa88495b18c8"
+        "bytes": 69132,
+        "sha256": "5a38c5e896d9eae685db474cc5755af580fafdaf11c71715b83d3121f8d3db56"
       },
       "web-mobile": {
         "file": "shots/dock-card/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 66608,
-        "sha256": "5a293384353fd89bcbb2620f299284aec0d970530b3035e67e1dafc2eaee71ac"
+        "bytes": 62476,
+        "sha256": "42ba3a4e606e403f3a6ba51c0bee534abe3889ac890a44e91f3bcdac7f523d67"
       }
     },
     "drafts": {

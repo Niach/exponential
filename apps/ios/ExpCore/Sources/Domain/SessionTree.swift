@@ -1238,6 +1238,10 @@ public enum SessionTree {
         ]
         /// EXP-1374: `banner.background`.
         public static let bannerBackground = "The turn is over; background tasks still run on its device."
+        /// #EXP-1405: `copy.queuedKind` — a queued row waits for its device.
+        public static let queuedKind = "Queued · waiting for the device"
+        /// #EXP-1405: `banner.queued`.
+        public static let bannerQueued = "Waiting for its device to pick it up. It starts by itself once the device is online."
     }
 
     /// fixtures/session-thread.json `copy` + `testIds` (titles: `SessionTitle`).
@@ -1423,6 +1427,8 @@ public enum SessionTree {
     /// (`CardCopy.blockedKinds[blocked.kind]`; an unknown or absent kind =
     /// `SessionState.blocked.word`). Web `sessionKindWord`.
     public static func sessionKindWord(_ session: TreeSession, state: SessionState) -> String {
+        // #EXP-1405: a queued row names what it waits for (its device).
+        if state == .queued { return CardCopy.queuedKind }
         // EXP-1374: an interruption names its kind (`CardCopy.interruptedKinds`).
         if state == .interrupted, let kind = session.blocked?.kind, let word = CardCopy.interruptedKinds[kind] {
             return word
@@ -1433,8 +1439,9 @@ public enum SessionTree {
         return state.word
     }
 
-    /// EXP-1374: the Dock card of an interrupted or background session (a
-    /// dock.json `banner` source; session-card.json `bannerCases`), nil for
+    /// EXP-1374: the Dock card of an interrupted or background session, and
+    /// (#EXP-1405) of a queued one waiting for its device (a dock.json
+    /// `banner` source; session-card.json `bannerCases`), nil for
     /// any other state. It replaces the host's offline "paused" banner while
     /// shown. Web `sessionBanner`.
     public static func sessionBanner(_ session: TreeSession) -> SessionBanner? {
@@ -1449,6 +1456,11 @@ public enum SessionTree {
             return SessionBanner(
                 id: state.rawValue, icon: state.icon, label: state.word,
                 text: CardCopy.bannerBackground, tone: "muted", action: nil
+            )
+        case .queued:
+            return SessionBanner(
+                id: state.rawValue, icon: state.icon, label: state.word,
+                text: CardCopy.bannerQueued, tone: "muted", action: nil
             )
         default:
             return nil

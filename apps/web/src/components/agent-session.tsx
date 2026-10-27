@@ -2069,7 +2069,9 @@ export function useSessionDock(session: SessionRow): {
         action: null,
       })
     }
-    if (phase.kind === `starting` && !paused && feed.length > 0) {
+    // #EXP-1405: an idle row's replayed transcript waits for its next turn,
+    // not for a start: only a busy run is "starting".
+    if (phase.kind === `starting` && !paused && feed.length > 0 && session.busy) {
       out.push({
         kind: `banner`,
         id: `starting`,
@@ -2082,7 +2084,7 @@ export function useSessionDock(session: SessionRow): {
     }
     if (hintSource) out.push(hintSource)
     return out
-  }, [queue, queueModel, stateBanner, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, compacting, limit, hintSource])
+  }, [queue, queueModel, stateBanner, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource])
   const renderSheet = (row: DockRow): ReactNode => {
     if (row.kind === `tasks`) {
       return (

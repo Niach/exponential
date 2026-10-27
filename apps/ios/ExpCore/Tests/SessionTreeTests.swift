@@ -337,6 +337,9 @@ final class SessionTreeTests: XCTestCase {
         let banner = try XCTUnwrap(fixture["banner"] as? [String: Any])
         XCTAssertEqual(banner["interrupted"] as? [String: String], SessionTree.CardCopy.bannerInterrupted)
         XCTAssertEqual(banner["background"] as? String, SessionTree.CardCopy.bannerBackground)
+        // #EXP-1405: a queued row waits for its device.
+        XCTAssertEqual(copy["queuedKind"] as? String, SessionTree.CardCopy.queuedKind)
+        XCTAssertEqual(banner["queued"] as? String, SessionTree.CardCopy.bannerQueued)
     }
 
     func testSessionCardReplaysEveryCase() throws {
