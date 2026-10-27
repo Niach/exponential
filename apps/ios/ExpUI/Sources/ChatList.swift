@@ -137,8 +137,10 @@ public struct ChatRowView<Lead: View>: View {
             }
             .padding(.vertical, ChatListMetrics.rowVerticalPadding)
             .overlay(alignment: .bottom) {
+                // A selected row's band has no line inside it (the
+                // hairline keeps its height, nothing reflows).
                 Rectangle()
-                    .fill(GlassTokens.strokeCard)
+                    .fill(selected ? Color.clear : GlassTokens.strokeCard)
                     .frame(height: GlassTokens.hairline)
             }
         }
