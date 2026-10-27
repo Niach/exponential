@@ -1291,6 +1291,8 @@ export type MessageCard =
       event: MessageEventKind
       issueId?: string | null
       pullRequestId?: string | null
+      /** EXP-1413 `pr_merge_refused` by the automerge: the refused head. */
+      headSha?: string | null
       sessionId?: string | null
       /** NEW-2 `trigger_fired`: the agent, its trigger, the event row (an
        *  event trigger) and the event's name. */

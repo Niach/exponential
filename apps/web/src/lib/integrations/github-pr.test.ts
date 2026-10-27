@@ -206,7 +206,7 @@ describe(`getPullRequest`, () => {
       jsonResponse(200, {
         state: `open`,
         merged: false,
-        head: { ref: `exp/EXP-320` },
+        head: { ref: `exp/EXP-320`, sha: `abc123` },
         base: { ref: `exp/EXP-314` },
         mergeable: false,
         mergeable_state: `dirty`,
@@ -220,6 +220,7 @@ describe(`getPullRequest`, () => {
       // carries it.
       draft: false,
       headRef: `exp/EXP-320`,
+      headSha: `abc123`,
       baseRef: `exp/EXP-314`,
       mergeable: false,
       mergeableState: `dirty`,

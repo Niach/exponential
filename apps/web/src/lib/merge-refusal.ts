@@ -50,6 +50,10 @@ export async function postMergeRefusal(args: {
   /** The automerge: the same refusal is posted once, read or not, so a
    *  turn ending on it never wakes the root again. */
   automerge?: boolean
+  /** EXP-1413: the automerge's "seen" key = this PR at this head commit
+   *  (GitHub's wording may change; a push is a new refusal). Null = the
+   *  head could not be read: any earlier refusal of the PR counts. */
+  headSha?: string | null
 }): Promise<boolean> {
   if (!isMergeRefusal(args.error)) return false
   const refusal = args.error
@@ -97,13 +101,18 @@ export async function postMergeRefusal(args: {
           .limit(1)
         if (waiting) return true
       }
-      // An ended target (display only) or the automerge: the same refusal is
-      // already there, read or not.
+      // An ended target (display only): the same refusal is already there,
+      // read or not. The automerge: this PR at this head was refused before.
       if (!live || args.automerge) {
+        const seen = args.automerge
+          ? args.headSha
+            ? sql`${messages.card}->>'headSha' = ${args.headSha}`
+            : undefined
+          : eq(messages.body, body)
         const [same] = await tx
           .select({ id: messages.id })
           .from(messages)
-          .where(and(ofThisPr, eq(messages.body, body)))
+          .where(and(ofThisPr, seen))
           .limit(1)
         if (same) return false
       }
@@ -116,6 +125,7 @@ export async function postMergeRefusal(args: {
           kind: `event`,
           event: `pr_merge_refused`,
           pullRequestId: args.pullRequestId,
+          ...(args.headSha ? { headSha: args.headSha } : {}),
         },
         consumedAt: live ? null : new Date(),
       })

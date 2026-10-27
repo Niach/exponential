@@ -13,6 +13,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
+import { yoloEdge } from "@/lib/yolo-edge"
 
 // EXP-1291/NEW-1: the session lifecycle — queued → running ⇄ idle → ended.
 // Merging ends nothing; a session ends only explicitly (End, the agent's
@@ -156,6 +157,10 @@ export async function stopSession(args: {
   await assertCanSteer(args.userId, session)
   const live = session.status === `running` || session.status === `idle`
   const ghost = live && !(await sessionDeviceOnline(session))
+  // EXP-1413: an interrupted busy turn holds the yolo automerge until the
+  // session works again (`sessions.report`). Stopping requested work that
+  // never started merges nothing either: no edge here.
+  const stopped = live && session.busy ? { stoppedAt: new Date() } : {}
   const txid = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     // A re-queued session keeps `started_at`: Stop never ends a session
@@ -165,10 +170,13 @@ export async function stopSession(args: {
     } else if (ghost) {
       await tx
         .update(sessions)
-        .set({ status: `idle`, busy: false, updatedAt: new Date() })
+        .set({ status: `idle`, busy: false, ...stopped, updatedAt: new Date() })
         .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
     } else {
-      await tx.update(sessions).set({ updatedAt: new Date() }).where(eq(sessions.id, session.id))
+      await tx
+        .update(sessions)
+        .set({ ...stopped, updatedAt: new Date() })
+        .where(eq(sessions.id, session.id))
     }
     return txid
   })
@@ -210,6 +218,7 @@ export async function endSession(args: {
     return { txid, endedIds }
   })
   await relayKillSessionsBestEffort(result.endedIds)
+  if (result.endedIds.length > 0) yoloEdge(session.rootId)
   return result
 }
 
@@ -309,15 +318,24 @@ export async function foreignHostedSessionIds(
  *  write committed (rows that ended meanwhile stay as they are). */
 export async function endHostedSessions(ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return []
-  const endedIds = await db.transaction(async (tx) => {
+  const endedRows = await db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, agentId: sessions.agentId })
+      .select({
+        id: sessions.id,
+        parentId: sessions.parentId,
+        depth: sessions.depth,
+        agentId: sessions.agentId,
+        rootId: sessions.rootId,
+      })
       .from(sessions)
       .where(and(inArray(sessions.id, [...ids]), ne(sessions.status, `ended`)))
       .orderBy(desc(sessions.depth), asc(sessions.createdAt))
-    return endRowsInTx(tx, rows)
+    const ended = await endRowsInTx(tx, rows)
+    return rows.filter((row) => ended.includes(row.id))
   })
+  const endedIds = endedRows.map((row) => row.id)
   await relayKillSessionsBestEffort(endedIds)
+  for (const rootId of new Set(endedRows.map((row) => row.rootId))) yoloEdge(rootId)
   return endedIds
 }
 

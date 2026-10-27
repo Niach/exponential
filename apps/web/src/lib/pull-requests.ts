@@ -127,6 +127,21 @@ async function repoToken(repo: Repo): Promise<string> {
   return token
 }
 
+/** EXP-1413: the PR's head commit on GitHub; null when it cannot be read
+ *  (the automerge then treats any earlier refusal of the PR as seen). */
+export async function pullRequestHeadSha(pullRequestId: string): Promise<string | null> {
+  try {
+    const pr = await loadPullRequest(pullRequestId)
+    if (!pr) return null
+    const repo = await loadRepository(pr.repositoryId)
+    const details = await getPullRequest(repo.fullName, pr.number, await repoToken(repo))
+    return details.headSha || null
+  } catch (err) {
+    console.error(`[yolo] reading the head of ${pullRequestId} failed`, err)
+    return null
+  }
+}
+
 /** EXP-1315: a thread's PR that changes UI needs a labelled Guide picture
  *  per touched platform, or `notRun` naming it. A failed compare never
  *  blocks the PR: it is logged and the guard skipped. */

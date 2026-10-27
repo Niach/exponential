@@ -301,6 +301,8 @@ vi.mock(`@/lib/sessions/issues`, () => ({
 }))
 vi.mock(`@/lib/sessions/guide`, () => ({ writeGuide: h.sessionsCore.writeGuide }))
 vi.mock(`@/lib/pull-requests`, () => h.prs)
+const yoloEdge = vi.hoisted(() => vi.fn())
+vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge }))
 // EXP-1280: the card builders stay real (the validation under test); only
 // the DB write is stubbed.
 const postAskCard = vi.hoisted(() => vi.fn())
@@ -2674,6 +2676,8 @@ describe(`pull request tools (EXP-1291)`, () => {
       issueIds: [UUID],
     })
     expect(noteAgentIssueActivity).toHaveBeenCalledWith(UUID, USER.id)
+    // EXP-1413: `pr_open` is a yolo edge of the caller's thread.
+    expect(yoloEdge).toHaveBeenCalledWith(ROOT)
   })
 
   it(`pr_open holds a confined grant to the repository's team`, async () => {

@@ -301,6 +301,8 @@ export interface PullDetails {
   /** A draft can never be merged. */
   draft: boolean
   headRef: string
+  /** EXP-1413: the head commit (the yolo refusal's "seen" key). */
+  headSha: string
   baseRef: string
   mergeable: boolean | null
   mergeableState: string | null
@@ -331,7 +333,7 @@ export async function getPullRequest(
     state: string
     merged: boolean
     draft?: boolean
-    head?: { ref?: string }
+    head?: { ref?: string; sha?: string }
     base?: { ref?: string }
     mergeable?: boolean | null
     mergeable_state?: string
@@ -344,6 +346,7 @@ export async function getPullRequest(
     merged: Boolean(data.merged),
     draft: Boolean(data.draft),
     headRef: data.head?.ref ?? ``,
+    headSha: data.head?.sha ?? ``,
     baseRef: data.base?.ref ?? ``,
     mergeable: data.mergeable ?? null,
     mergeableState: data.mergeable_state ?? null,
