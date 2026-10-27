@@ -617,6 +617,10 @@ pub(crate) struct SteerSessionView {
     /// Whether the synthetic trailing "Working…" row is present — the list's
     /// last index when it is.
     working: bool,
+    /// #EXP-1389: the feed was seeded from THIS device's journal of a live
+    /// (not ended) session the relay has no room for yet: an idle run on
+    /// this machine shows its transcript, never an endless "starting".
+    journal_seeded: bool,
     /// EXP-1259 (DEV-ONLY, `EXP_DEV_SCROLL_TO=script-card`): the transcript
     /// row the first Script card sat at when the list was last parked on it.
     dev_scrolled_to: Option<usize>,
@@ -827,6 +831,7 @@ impl SteerSessionView {
             dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
             working: false,
+            journal_seeded: false,
             dev_scrolled_to: None,
             chips: None,
             chip_cache: Default::default(),
@@ -848,6 +853,7 @@ impl SteerSessionView {
         if let FeedSource::Remote { handle: None } = &this.source {
             this.pending_dial = PendingDial(Some(events_tx));
             this.dial_pending(cx);
+            this.seed_from_journal(cx);
         }
         // EXP-773: a journal source is the whole transcript, already on disk.
         // Fold it into the SAME reducer the wire feeds, then mark the run
@@ -885,7 +891,10 @@ impl SteerSessionView {
         // `/new` (and any revive) ends the engine process and launches a
         // FRESH one for the same row; a view still bound to the old engine
         // showed its last turn forever and nothing the new one did.
-        if matches!(this.source, FeedSource::Local { .. }) {
+        // #EXP-1389: a RELAY view of a live row follows too: once this
+        // process hosts the session (a revive, a pickup after the view was
+        // built), the view reads the engine instead of waiting on a room.
+        if matches!(this.source, FeedSource::Local { .. } | FeedSource::Remote { .. }) {
             let local = crate::coding_flow::LocalSessions::global(cx);
             this._subscriptions.push(cx.observe_in(&local, window, |this, _, window, cx| {
                 this.follow_local_engine(window, cx);
@@ -925,17 +934,26 @@ impl SteerSessionView {
     /// like a fresh view's. A live engine of ours, or none hosted here, is
     /// left alone.
     fn follow_local_engine(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let FeedSource::Local { session: current } = &self.source else {
-            return;
+        let current_done = match &self.source {
+            FeedSource::Local { session } => session.is_done(),
+            // #EXP-1389: a relay view has no engine of its own: any live one
+            // hosting this session here wins.
+            FeedSource::Remote { .. } => true,
+            FeedSource::Replay { .. } | FeedSource::Journal { .. } => return,
         };
         let next = crate::coding_flow::LocalSessions::global_ref(cx)
             .and_then(|sessions| sessions.read(cx).session_by_id(&self.session_id).map(|entry| entry.host.session.clone()));
         let Some(next) = next else {
             return;
         };
-        if !follows_engine(current.is_done(), next.is_done()) {
+        if !follows_engine(current_done, next.is_done()) {
             return;
         }
+        if let FeedSource::Remote { handle: Some(handle) } = &self.source {
+            handle.shutdown();
+        }
+        self.pending_dial = PendingDial(None);
+        self.journal_seeded = false;
         log::info!("[ui] session {}: the view follows its restarted engine", self.session_id);
         self.feed = SteerFeed::new();
         self.derived_for = None;
@@ -950,6 +968,33 @@ impl SteerSessionView {
         self.source = FeedSource::Local { session: next };
         self.list.scroll_to_end();
         cx.notify();
+    }
+
+    /// #EXP-1389: a relay view of a LIVE row this machine ran (an idle
+    /// session whose process went away, a publisher that stopped) starts
+    /// from the device's own journal: the relay answers `no_such_session`
+    /// until a publisher is back, and the screen sat on "The agent is
+    /// starting" forever while the transcript was on this disk. The room's
+    /// replay (`activity_reset`) replaces it once the run publishes again.
+    fn seed_from_journal(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.feed.is_empty()
+            || crate::session_data::session(&self.session_id, cx).is_none_or(|row| row.is_ended())
+        {
+            return;
+        }
+        let Some(events) = steer::read_journal(&crate::coding_flow::coding_data_dir(cx), &self.session_id)
+        else {
+            return;
+        };
+        if events.is_empty() {
+            return;
+        }
+        for event in events {
+            self.feed.apply(event);
+        }
+        self.refresh_derived();
+        self.journal_seeded = true;
+        self.list.scroll_to_end();
     }
 
     /// The builtin agent behind this session, for the usage sheet's device
@@ -7277,7 +7322,7 @@ impl SteerSessionView {
                 DockTint::Muted,
                 Some("Reconnect"),
             )),
-            ViewerPhase::Starting if !paused && !self.feed.is_empty() => out.push(banner(
+            ViewerPhase::Starting if !paused && !self.feed.is_empty() && !self.journal_seeded => out.push(banner(
                 "starting",
                 "ui-loading",
                 "Starting",

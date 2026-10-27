@@ -343,6 +343,7 @@ fn reclaim_left_behind(
         .collect();
     let mut mid_turn = Vec::new();
     let mut idle = Vec::new();
+    let mut unstarted = Vec::new();
     for row in sessions.iter().filter(|row| left.contains(&row.id)) {
         let open = row.status_is(domain::contract::SESSION_STATUS_RUNNING)
             || row.status_is(domain::contract::SESSION_STATUS_IDLE);
@@ -363,7 +364,8 @@ fn reclaim_left_behind(
             continue;
         }
         crate::session_registry::settle_left_behind(&row.id);
-        match pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
+        let recorded = coding::run_registry::get(&data_dir, &row.id).is_some();
+        match pickup::reclaim_step(row, pending.contains(row.id.as_str()), recorded) {
             pickup::ReclaimStep::Replay => {
                 log::info!("[pickup] reclaim: session {} re-claimed — its pending messages replay", row.id);
             }
@@ -375,14 +377,18 @@ fn reclaim_left_behind(
             pickup::ReclaimStep::Waiting => {
                 log::info!("[pickup] reclaim: session {} re-claimed — idle, waiting for its next message", row.id);
             }
+            pickup::ReclaimStep::Unstarted => unstarted.push(row.id.clone()),
         }
     }
     let Some(trpc) = queries::trpc_client(cx).map(Arc::new) else {
         return;
     };
-    if !idle.is_empty() {
+    if !idle.is_empty() || !unstarted.is_empty() {
         let trpc = Arc::clone(&trpc);
         std::thread::spawn(move || {
+            for session_id in unstarted {
+                pickup::settle_unstarted(&trpc, &session_id);
+            }
             for session_id in idle {
                 if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
                     log::warn!("[pickup] reclaim: session {session_id} not reported idle: {err}");
