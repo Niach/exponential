@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   evaluateChecks,
   isRequiredCheckRefusal,
+  mergeCheckGateOn,
   pullRequestChecks,
   pullRequestHeadSha,
 } from "@/lib/integrations/github-checks"
@@ -199,5 +200,14 @@ describe(`isRequiredCheckRefusal`, () => {
   it(`matches GitHub's ruleset wording`, () => {
     expect(isRequiredCheckRefusal(`Required status check "gate" is expected.`)).toBe(true)
     expect(isRequiredCheckRefusal(`Squash merges are not allowed`)).toBe(false)
+  })
+})
+
+describe(`mergeCheckGateOn`, () => {
+  it(`is on only for MERGE_CHECK_GATE=on (default off)`, () => {
+    expect(mergeCheckGateOn({})).toBe(false)
+    expect(mergeCheckGateOn({ MERGE_CHECK_GATE: `off` })).toBe(false)
+    expect(mergeCheckGateOn({ MERGE_CHECK_GATE: `true` })).toBe(false)
+    expect(mergeCheckGateOn({ MERGE_CHECK_GATE: ` ON ` })).toBe(true)
   })
 })

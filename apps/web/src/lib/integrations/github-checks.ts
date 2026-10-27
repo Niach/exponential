@@ -11,6 +11,16 @@ import type { GitHubFetch } from "@/lib/integrations/github-pr"
 // protection only means none) answers null and the merge path refuses
 // (fails closed, `checksUnreadableRefusal`): a person may still Merge
 // anyway. The verdict carries the head sha it judged; the merge pins it.
+//
+// The gate is OFF unless the server sets `MERGE_CHECK_GATE=on`: it needs
+// the GitHub App's Checks: read + Commit statuses: read permissions (and,
+// for the yolo re-trigger, the `check_suite` / `check_run` / `status`
+// events). Off = merges go straight to GitHub as before.
+
+/** `MERGE_CHECK_GATE=on` turns the gate on; anything else = off. */
+export function mergeCheckGateOn(env: Record<string, string | undefined> = process.env): boolean {
+  return env.MERGE_CHECK_GATE?.trim().toLowerCase() === `on`
+}
 
 export type ChecksVerdict =
   | { state: `green` }

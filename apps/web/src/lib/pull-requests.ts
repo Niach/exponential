@@ -81,6 +81,7 @@ import {
 } from "@/lib/pr-merge-guard"
 import { ensureGithubStack, GitHubStackForkError, inferBaseBranch, mergeThrough } from "@/lib/pr-stacks"
 import {
+  mergeCheckGateOn,
   pullRequestChecks,
   pullRequestHeadSha,
   type PullRequestChecks,
@@ -712,8 +713,9 @@ async function mergeResolved(
 
   const landed = landing ?? [{ id: pr.id, number: pr.number }]
   // `force` (Merge anyway) pins nothing: the person merges whatever is there.
+  // `MERGE_CHECK_GATE` off = no gate at all (GitHub's own rules still apply).
   let pinnedSha: string | undefined
-  if (!args.force) {
+  if (!args.force && mergeCheckGateOn()) {
     const passed = await gateOnChecks({
       repo: repo.fullName,
       token,

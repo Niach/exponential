@@ -62,6 +62,7 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   UNMERGEABLE_405: /not mergeable|merge conflicts?/i,
 }))
 vi.mock(`@/lib/integrations/github-checks`, () => ({
+  mergeCheckGateOn: vi.fn(() => true),
   pullRequestChecks: vi.fn(async () => ({ state: `green`, sha: `head-sha` })),
   pullRequestHeadSha: vi.fn(async () => `head-sha`),
   isRequiredCheckRefusal: (message: string) => /required status checks?\b/i.test(message),
@@ -222,6 +223,7 @@ beforeEach(() => {
   // A forced merge never reads the checks: drop a queued verdict it left.
   vi.mocked(checks.pullRequestChecks).mockReset().mockResolvedValue({ state: `green`, sha: `head-sha` })
   vi.mocked(checks.pullRequestHeadSha).mockReset().mockResolvedValue(`head-sha`)
+  vi.mocked(checks.mergeCheckGateOn).mockReset().mockReturnValue(true)
 })
 
 describe(`openPullRequest`, () => {
@@ -628,6 +630,16 @@ describe(`mergePullRequest`, () => {
     })
     expect(gh.mergePullRequestSmart).toHaveBeenCalledWith(expect.objectContaining({ sha: `head-sha` }))
     expect(sync.applyPullRequestMerged).not.toHaveBeenCalled()
+  })
+
+  it(`EXP-1378: MERGE_CHECK_GATE off reads no checks and pins nothing (master's merge)`, async () => {
+    vi.mocked(checks.mergeCheckGateOn).mockReturnValue(false)
+    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, waitForChecksMs: 60_000 })).resolves.toMatchObject({
+      merged: true,
+    })
+    expect(checks.pullRequestChecks).not.toHaveBeenCalled()
+    expect(checks.pullRequestHeadSha).not.toHaveBeenCalled()
+    expect(gh.mergePullRequestSmart).toHaveBeenCalledWith(expect.not.objectContaining({ sha: expect.anything() }))
   })
 
   it(`EXP-1378: Merge anyway pins nothing and leaves a pr.merge_forced audit row`, async () => {

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { pullRequests, repositories, sessions } from "@/db/schema"
+import { mergeCheckGateOn } from "@/lib/integrations/github-checks"
 import { maybeMergeYoloThread } from "@/lib/yolo-tree-merge"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import {
@@ -53,8 +54,8 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 // base edits / draft flips; `opened` adopts an out-of-band PR whose
 // `exp/<IDENTIFIER>` head names an issue), `push` (EXP-1374: the live
 // sessions on that branch show a sign of life) and a finished `check_suite`
-// / `status` (EXP-1378: the yolo automerge re-runs for the threads of the
-// open PRs on that branch). Everything else is acked.
+// / `check_run` / `status` (EXP-1378, with `MERGE_CHECK_GATE` on: the yolo
+// automerge re-runs for the threads of the open PRs on that branch). Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -187,20 +188,26 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // EXP-1378: a check that FINISHED may turn a yolo thread's refused PR
     // green (the automerge never waits for checks and posts nothing while
     // they run): re-run it for the live PRs on that branch. Needs the App's
-    // `check_suite` + `status` event subscriptions.
-    if (event === `check_suite` || event === `status`) {
+    // `check_suite` + `check_run` + `status` event subscriptions; without
+    // them nothing arrives and the next lifecycle edge re-runs it instead.
+    // `MERGE_CHECK_GATE` off = no gate to wait for, so nothing to re-run.
+    if (event === `check_suite` || event === `check_run` || event === `status`) {
+      if (!mergeCheckGateOn()) return jsonResponse(200, { ok: true })
       const payload = JSON.parse(rawBody) as {
         action?: string
         state?: string
         check_suite?: { head_branch?: string | null }
+        check_run?: { check_suite?: { head_branch?: string | null } }
         branches?: { name?: string }[]
         repository?: { full_name?: string }
       }
-      const finished = event === `check_suite` ? payload.action === `completed` : payload.state !== `pending`
+      const finished = event === `status` ? payload.state !== `pending` : payload.action === `completed`
       const branches =
         event === `check_suite`
           ? [payload.check_suite?.head_branch]
-          : (payload.branches ?? []).map((branch) => branch.name)
+          : event === `check_run`
+            ? [payload.check_run?.check_suite?.head_branch]
+            : (payload.branches ?? []).map((branch) => branch.name)
       const heads = branches.filter((name): name is string => Boolean(name))
       const fullName = payload.repository?.full_name
       if (finished && fullName && heads.length > 0) {

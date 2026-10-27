@@ -520,6 +520,37 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
 })
 
 describe(`github webhook — finished checks re-run the yolo automerge (EXP-1378)`, () => {
+  beforeEach(() => {
+    vi.stubEnv(`MERGE_CHECK_GATE`, `on`)
+    return () => vi.unstubAllEnvs()
+  })
+
+  it(`with MERGE_CHECK_GATE off a finished check is acked and re-runs nothing`, async () => {
+    vi.stubEnv(`MERGE_CHECK_GATE`, ``)
+    const res = await postHandler({
+      request: webhookRequest(`check_suite`, {
+        action: `completed`,
+        check_suite: { head_branch: `exp/EXP-9` },
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(h.select).not.toHaveBeenCalled()
+    expect(maybeMergeYoloThread).not.toHaveBeenCalled()
+  })
+
+  it(`a completed check_run re-runs it for its suite's branch`, async () => {
+    h.selectQueue.push([{ rootId: `root-4` }])
+    await postHandler({
+      request: webhookRequest(`check_run`, {
+        action: `completed`,
+        check_run: { check_suite: { head_branch: `exp/EXP-9` } },
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(vi.mocked(maybeMergeYoloThread).mock.calls).toEqual([[`root-4`]])
+  })
+
   it(`a completed check_suite re-runs it for the threads of the open PRs on that branch`, async () => {
     h.selectQueue.push([{ rootId: `root-1` }, { rootId: `root-2` }])
     const res = await postHandler({

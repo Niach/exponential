@@ -2980,7 +2980,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge an open PR (via the GitHub App) once its checks are green: it waits for running checks (up to 5 min) and refuses on red with what to do. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging never ends your session. Merge a tree root first.`,
+      description: `Squash-merge an open PR (via the GitHub App). Where the server gates merges on checks, it waits for running ones (up to 5 min) and refuses on red with what to do. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging never ends your session. Merge a tree root first.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
