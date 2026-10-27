@@ -609,22 +609,22 @@
         "file": "shots/chat-selection/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 39576,
-        "sha256": "d5f0a16842d7e7aa47e0a166d6ed340f83da9d4d3d5f5c1544375d726797b6a6"
+        "bytes": 39516,
+        "sha256": "a45a72afb27e08976553786360fb769c8c3b5b1e59cf2034e5acd291d5d06214"
       },
       "ios": {
         "file": "shots/chat-selection/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 41164,
-        "sha256": "5f4237222704b48cb0cd3b625e0c6e4e2b6bc66f742bd104f26a3d7a05a82f0b"
+        "bytes": 41162,
+        "sha256": "dedcee30b8a29af4c0cd96285b7111ee48dec01fe7d692f07a56fff277520f4d"
       },
       "web": {
         "file": "shots/chat-selection/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42240,
-        "sha256": "8788b9f846beef0f5cf89936e98333b32443108203b74f79f69f83aeb02bff53"
+        "bytes": 42048,
+        "sha256": "81ce5537888214f859722142da5cc614ff7ccb2b312f7dce95d1d4de44b12847"
       },
       "web-mobile": {
         "file": "shots/chat-selection/web-mobile.webp",

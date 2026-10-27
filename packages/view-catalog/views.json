@@ -5765,7 +5765,7 @@
       "id": "chat-selection",
       "group": "coding",
       "title": "Chat selection",
-      "blurb": "The Chats multi-selection ×4 (chats.json SELECTION + ARCHIVE): long-press (touch) or Select / cmd-click / shift-click (pointers), the selection glyphs on the rows, the Archived entry and the bulk action bar (Mark read/unread, Archive/Unarchive, Stop, Delete).",
+      "blurb": "The Chats multi-selection ×4 (chats.json SELECTION + ARCHIVE): long-press (touch) or Select / cmd-click / shift-click (pointers), the issue rows' selection control on the rows (the checkbox square wide, the round glyph on touch), the Archived entry and the bulk action bar (Mark read/unread, Archive/Unarchive, Stop, Delete).",
       "order": 36,
       "web": {
         "route": "/t/$teamSlug/agent?dev=chat-selection",
