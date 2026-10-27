@@ -50,6 +50,7 @@ import {
   deviceWorktrees,
   MAX_AGENT_PROFILES,
   teamMembers,
+  userVoiceSettings,
   users,
   type DeviceAgentAccount,
   type DeviceDoctor,
@@ -1628,6 +1629,17 @@ export const devicesRouter = router({
             and(
               eq(devices.userId, ctx.session.user.id),
               eq(devices.deviceId, input.deviceId)
+            )
+          )
+        // #NEW-71: `voice_device_id` has no FK; a removed voice device reads
+        // as None (`clearOnNone`), so a re-registration never speaks again.
+        await tx
+          .update(userVoiceSettings)
+          .set({ voiceDeviceId: null, speakReplies: false, pushToTalk: false, wakeWord: false, updatedAt: new Date() })
+          .where(
+            and(
+              eq(userVoiceSettings.userId, ctx.session.user.id),
+              eq(userVoiceSettings.voiceDeviceId, input.deviceId)
             )
           )
         return id

@@ -196,6 +196,10 @@ pub fn install(cx: &mut App) {
         })
     });
     let state = store.state();
+    // #NEW-66: the account signed in now, so the first state notification
+    // of an already-synced store is no account change (it would end a
+    // worker that is still preparing, a download included).
+    let account = session_account(cx);
     let entity = cx.new(|cx: &mut Context<SpeakReplies>| {
         cx.observe(&messages, |this: &mut SpeakReplies, collection, cx| this.on_messages(&collection, cx))
             .detach();
@@ -206,7 +210,7 @@ pub fn install(cx: &mut App) {
             client,
             prepared: DeviceVoice::default(),
             settings: domain::voice::VoiceSettings::default(),
-            account: None,
+            account,
             crashes: 0,
             voices: Vec::new(),
             voices_known: false,
@@ -344,6 +348,12 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
     });
     // NEW-55: a call that can no longer run here ends.
     crate::voice_call::settings_changed(cx);
+    // #NEW-63: not (or no longer) the member's voice device: its speech data
+    // goes (the worker was shut down above; nothing runs it here).
+    let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+    if settings_name_another_device(&settings, &steer::persistent_device_id(&data_dir)) {
+        remove_voice_data_once(data_dir);
+    }
     // NEW-78 / NEW-55: Push to talk or Speak replies moved here or away —
     // the doctor's voice rows follow now (the refresh nudges the beat), not
     // a beat later.
@@ -352,6 +362,29 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
             crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
         }
     }
+}
+
+/// #NEW-63: delivered settings that pick another voice device (or none).
+fn settings_name_another_device(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
+    settings.voice_device_id.as_deref() != Some(own_device_id)
+}
+
+/// #NEW-63: free `{data_dir}/talk` off the UI thread, one removal at a time
+/// (every heartbeat delivers the settings again).
+fn remove_voice_data_once(data_dir: std::path::PathBuf) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static REMOVING: AtomicBool = AtomicBool::new(false);
+    if !talk::voice_data_dir(&data_dir).exists() || REMOVING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        match talk::remove_voice_data(&data_dir) {
+            Ok(true) => log::info!("[ui] speak replies: not the voice device; removed the speech data"),
+            Ok(false) => {}
+            Err(err) => log::warn!("[ui] speak replies: removing the speech data failed: {err}"),
+        }
+        REMOVING.store(false, Ordering::SeqCst);
+    });
 }
 
 fn session_account(cx: &App) -> Option<String> {
@@ -453,6 +486,15 @@ impl SpeakReplies {
             }
         } else {
             client.shutdown();
+            // #NEW-63: the worker is gone; a download it was killed in
+            // leaves a `.part` (up to 1.8 GB) that nothing else frees.
+            let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+            std::thread::spawn(move || {
+                let removed = talk::remove_partial_downloads(&data_dir);
+                if removed > 0 {
+                    log::info!("[ui] speak replies: removed {removed} partial voice download(s)");
+                }
+            });
             self.worker_ready = false;
             self.voices.clear();
             self.voices_known = false;
@@ -722,6 +764,17 @@ mod tests {
         let mut gate = Gate::default();
         assert!(gate.observe(true, std::iter::empty()).is_empty());
         assert_eq!(gate.armed_at(), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn the_speech_data_goes_once_another_device_or_none_is_the_voice_device() {
+        let mine = domain::voice::VoiceSettings { voice_device_id: Some("d-mint".into()), ..Default::default() };
+        assert!(!settings_name_another_device(&mine, "d-mint"), "the voice device keeps its data");
+        assert!(settings_name_another_device(&mine, "d-mac"));
+        // Speak replies off on the voice device keeps the download (#NEW-63 plan v3).
+        let off = domain::voice::VoiceSettings { speak_replies: false, ..mine.clone() };
+        assert!(!settings_name_another_device(&off, "d-mint"));
+        assert!(settings_name_another_device(&domain::voice::VoiceSettings::default(), "d-mint"));
     }
 
     #[test]

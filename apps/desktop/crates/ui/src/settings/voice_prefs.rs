@@ -87,12 +87,13 @@ pub(crate) fn voice_choices(cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>) {
 /// A picker's value: the option's label; a stored id whose row is not
 /// synced here (the shape not ready, the row gone) reads as the id itself,
 /// never as None (web `voice-settings-card`).
+/// #NEW-71: a picked row that is not (yet) synced reads `…`, never its raw id.
 fn label_of(options: &[VoiceOption], id: Option<&str>) -> SharedString {
     options
         .iter()
         .find(|option| option.id.as_deref() == id)
         .map(|option| option.label.clone())
-        .or_else(|| id.map(str::to_string))
+        .or_else(|| id.map(|_| "…".to_string()))
         .unwrap_or_default()
         .into()
 }

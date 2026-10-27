@@ -194,9 +194,18 @@ mod platform {
         fn finish(&self) {
             // Closing stdin lets the player drain and exit on its own.
             drop(self.stdin.lock().ok().and_then(|mut guard| guard.take()));
-            let child = self.child.lock().ok().and_then(|mut guard| guard.take());
-            if let Some(mut child) = child {
-                let _ = child.wait();
+            // #NEW-66: the player stays in `child` while it drains (polled,
+            // the lock released between polls) so a Stop during the final
+            // flush still kills it; it no longer plays a pipe buffer out.
+            loop {
+                let Ok(mut guard) = self.child.lock() else { return };
+                let Some(child) = guard.as_mut() else { return };
+                if !matches!(child.try_wait(), Ok(None)) {
+                    guard.take();
+                    return;
+                }
+                drop(guard);
+                std::thread::sleep(Duration::from_millis(20));
             }
         }
 
@@ -207,6 +216,37 @@ mod platform {
             if let Ok(mut guard) = self.stdin.try_lock() {
                 guard.take();
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn stop_reaches_the_player_during_the_final_flush() {
+            // A "player" that keeps draining for 30 s after its input closes.
+            let mut child = Command::new("/bin/sh")
+                .args(["-c", "cat >/dev/null; sleep 30"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let stdin = child.stdin.take();
+            let sink = Arc::new(PipeSink {
+                stdin: Mutex::new(stdin),
+                child: Mutex::new(Some(child)),
+                stopped: AtomicBool::new(false),
+                rate: 24_000,
+                next: Mutex::new(2),
+                written: AtomicBool::new(true),
+            });
+            let started = std::time::Instant::now();
+            let flushing = sink.clone();
+            let finish = std::thread::spawn(move || flushing.finish());
+            std::thread::sleep(Duration::from_millis(200));
+            sink.stop();
+            finish.join().unwrap();
+            assert!(started.elapsed() < Duration::from_secs(5), "Stop killed the draining player");
         }
     }
 }

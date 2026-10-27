@@ -481,7 +481,7 @@ private fun VoiceSettingsForm(
             )
             GroupDivider()
             // Every language carries its GPU note (#NEW-74), in the row and in the menu.
-            val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: it }
+            val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: "…" }
             OptionPickerRow(
                 label = Voice.Copy.LANGUAGE,
                 options = Voice.languages.map { Voice.Option(id = it.value, label = Voice.languageLabel(it.value, languageDevice)) },
@@ -520,7 +520,7 @@ private fun VoiceSettingsForm(
         if (deviceId != null) {
             Spacer(Modifier.height(12.dp))
             SectionHeader(
-                Voice.trayHeader(vocabulary.deviceNames[deviceId] ?: deviceId),
+                Voice.trayHeader(vocabulary.deviceNames[deviceId] ?: "…"),
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
             OptionGroup {
