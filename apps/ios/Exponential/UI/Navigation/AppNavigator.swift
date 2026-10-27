@@ -134,6 +134,8 @@ struct AppNavigator: View {
     /// The height of MainNavigator's top status banner while one is up
     /// (`ToastTopInsetKey`), so the top-hung stack sits below it; 0 else.
     @State private var toastBannerHeight: CGFloat = 0
+    /// NEW-69: the app's one call.
+    @State private var voiceCall = VoiceCallClient.shared
 
     private struct ExternalUrl: Identifiable {
         let url: URL
@@ -178,6 +180,8 @@ struct AppNavigator: View {
         // memory) belongs to nobody.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             deps.steerSessions.removeAll()
+            // NEW-69: a call belongs to the account that started it.
+            voiceCall.end()
         }
         .onChange(of: deps.auth.authenticatedAccountIds) { _, _ in
             deps.steerSessions.removeAll()
@@ -199,6 +203,15 @@ struct AppNavigator: View {
                 .ignoresSafeArea()
         }
         .transaction { $0.animation = nil }
+        // NEW-69: THE call surface (voice-call.json), full screen above every
+        // screen so a call outlives the chat that started it.
+        .background {
+            let inCall = voiceCall.view != nil
+            Color.clear
+                .fullScreenCover(isPresented: Binding(get: { inCall }, set: { if !$0 { voiceCall.end() } })) {
+                    VoiceCallScreen(client: voiceCall)
+                }
+        }
         .onPreferenceChange(ToastTopInsetKey.self) { height in
             MainActor.assumeIsolated { toastBannerHeight = height }
         }

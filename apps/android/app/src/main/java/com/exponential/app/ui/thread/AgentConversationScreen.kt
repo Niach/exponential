@@ -169,7 +169,8 @@ fun AgentConversationScreen(
             modifier = Modifier.testTag("agent-channel-page"),
             topBar = {
                 // Thread 58cb32df: THE chat header (back · the agent's disc ·
-                // its name over `Agent`); no menu before the conversation exists.
+                // its name over `Agent`); no menu before the conversation
+                // exists, the telephone already (NEW-69).
                 ChatHeader(
                     title = if (row == null) "" else name,
                     subtitle = if (row == null) null else "Agent",
@@ -183,6 +184,9 @@ fun AgentConversationScreen(
                         ) { AgentGlyph(icon = row?.icon, color = row?.color, size = 22.dp) }
                     },
                     onBack = onBack,
+                    call = if (row == null) null else {
+                        { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name) }
+                    },
                 )
             },
         ) { padding ->

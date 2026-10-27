@@ -422,6 +422,8 @@ fun ThreadScreen(
                 },
                 menu = chatMenu,
                 menuGroups = listOf(guideMenuItems),
+                // NEW-69: an agent's conversation carries the telephone.
+                headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name) } },
                 onSurfaceReply = { text -> viewModel.send(text) },
                 guidePage = { padding ->
                     ThreadGuidePage(
@@ -628,6 +630,8 @@ fun ThreadContent(
     issueTitle: (String) -> String? = { null },
     /** THE ask dock: the waiting cards' ids (drawn in the composer's slot). */
     dockedIds: Set<String> = emptySet(),
+    /** NEW-69: the agent chat's telephone in the header (null = none). */
+    headerCall: (@Composable () -> Unit)? = null,
 ) {
     // An agent channel is the conversation only. EXP-1334: a folded
     // sub-issue is a page too (right after its chip's). EXP-1343: phones
@@ -675,6 +679,7 @@ fun ThreadContent(
                 onStop = onStop,
                 menu = menu,
                 menuGroups = menuGroups,
+                call = headerCall,
                 // An agent's chat is the conversation only: no strip.
                 tabs = if (agent == null && view != null) {
                     {

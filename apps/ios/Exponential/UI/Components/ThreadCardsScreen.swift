@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call"]
 
     var body: some View {
         if kind == "app-consent" {
@@ -50,6 +50,7 @@ struct ThreadCardsScreen: View {
                     case "chat-menus": ChatMenuSpecimens()
                     case "schedule-picker": SchedulePickerSpecimens()
                     case "mention-pill": MentionPillSpecimens()
+                    case "voice-call": VoiceCallSpecimens()
                     default: workCards
                     }
                 }
@@ -778,5 +779,19 @@ private struct PlanCardSpecimens: View {
                 ThreadAskCard(row: row)
             }
         }
+    }
+}
+
+/// NEW-69: the `voice-call` entry (voice-call.json `surfaceSpecimens`): THE
+/// call card the live call screen draws (`VoiceCallCard`), once per row,
+/// static (the wave at its rest phase).
+private struct VoiceCallSpecimens: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(Array(VoiceCall.surfaceSpecimens.enumerated()), id: \.offset) { _, specimen in
+                VoiceCallCard(view: specimen.view, level: specimen.level, bands: specimen.bands, animated: false)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }

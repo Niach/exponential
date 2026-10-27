@@ -40,7 +40,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 /**
  * Thread 58cb32df (chats.json TRANSCRIPT, phones): THE chat header — back ·
  * the lead disc · the title over its subtitle · the Stop pill (a thread
- * while its root is not ended; an agent chat has none) · the `…` menu (the
+ * while its root is not ended; an agent chat has none) · NEW-69: the
+ * telephone ([call], an agent chat only, left of `…`) · the `…` menu (the
  * chat's own entries, `threadMenuEntries` / `agentMenuEntries`, then any
  * [menuGroups] after a divider). The thread's tab strip rides under it
  * ([tabs]) on the same band.
@@ -58,6 +59,8 @@ fun ChatHeader(
     /** Further menu groups (the Guide's Close PR), divider-separated. */
     menuGroups: List<List<ChatMenuItem>> = emptyList(),
     tabs: (@Composable () -> Unit)? = null,
+    /** NEW-69: the agent chat's telephone (`AgentCallButton`), left of `…`. */
+    call: (@Composable () -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("thread-header")) {
@@ -101,6 +104,10 @@ fun ChatHeader(
                         onClick = onStop,
                         modifier = Modifier.testTag("stop-run"),
                     )
+                }
+                if (call != null) {
+                    Spacer(Modifier.width(8.dp))
+                    call()
                 }
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
                 if (groups.isNotEmpty()) {
