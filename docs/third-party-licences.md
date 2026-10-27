@@ -506,10 +506,12 @@ bundle, Windows ~2.3 GB.
 | `<file>.tmp` | a file being unpacked (renamed into place when complete) | `crispasr::artifact::write_kept` |
 
 The NEW-53 `kokoro-multi-lang-v1_0/` directory is deleted by the worker on
-start. #NEW-63: the IDE deletes the whole `{data_dir}/talk/` once the
-member's settings name another voice device (or none), and sweeps leftover
-`*.part` / `*.tmp` files whenever the speech worker shuts down
-(`talk::remove_voice_data`, `talk::remove_partial_downloads`).
+start. #NEW-63: the IDE deletes the whole `{data_dir}/talk/` once an
+account's settings move its voice device away from this machine and no
+account signed in here still names it (`{data_dir}/voice-device-claims.json`),
+and sweeps leftover `*.part` / `*.tmp` files whenever the speech worker shuts
+down; both wait on the worker's lock (`talk::SpeechClient::remove_voice_data`,
+`talk::SpeechClient::remove_partial_downloads`).
 
 The built-in reference clips (`apps/desktop/crates/voice/assets/`, in the
 binary, ~0.9 MB) are our own output of Qwen3-TTS 0.6B CustomVoice

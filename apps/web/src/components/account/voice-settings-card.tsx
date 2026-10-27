@@ -110,7 +110,7 @@ export function VoiceSettingsCard({
   )
 
   // #NEW-71: never the raw device id; a row not (yet) synced reads `…`.
-  const deviceName = devices.find((device) => device.deviceId === settings.voiceDeviceId)?.name ?? `…`
+  const deviceName = devices.find((device) => device.deviceId === settings.voiceDeviceId)?.name ?? VOICE_COPY.ellipsis
   const agentName = agents.find((agent) => agent.id === settings.agentId)?.name ?? VOICE_COPY.agent
   const switchesLive = settings.voiceDeviceId !== null && settings.agentId !== null
   // #NEW-73: every language carries its GPU note (#NEW-74), in the row and in the menu.

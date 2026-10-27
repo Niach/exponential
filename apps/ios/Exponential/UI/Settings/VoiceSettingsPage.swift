@@ -364,7 +364,7 @@ struct VoiceSettingsPage: View {
 
     /// #NEW-71: a device row not (yet) synced reads `…`, never its raw id.
     private func deviceName(_ deviceId: String) -> String {
-        devices.first { $0.deviceId == deviceId }?.label ?? "…"
+        devices.first { $0.deviceId == deviceId }?.label ?? Voice.Copy.ellipsis
     }
 
     private var agentName: String {

@@ -85,15 +85,14 @@ pub(crate) fn voice_choices(cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>) {
 }
 
 /// A picker's value: the option's label; a stored id whose row is not
-/// synced here (the shape not ready, the row gone) reads as the id itself,
-/// never as None (web `voice-settings-card`).
-/// #NEW-71: a picked row that is not (yet) synced reads `…`, never its raw id.
-fn label_of(options: &[VoiceOption], id: Option<&str>) -> SharedString {
+/// synced here (the shape not ready, the row gone) reads `unsynced`, never
+/// its raw id nor None (#NEW-71, web `voice-settings-card`).
+fn label_of(options: &[VoiceOption], id: Option<&str>, unsynced: &str) -> SharedString {
     options
         .iter()
         .find(|option| option.id.as_deref() == id)
         .map(|option| option.label.clone())
-        .or_else(|| id.map(|_| "…".to_string()))
+        .or_else(|| id.map(|_| unsynced.to_string()))
         .unwrap_or_default()
         .into()
 }
@@ -195,8 +194,8 @@ pub(crate) fn voice_rows(
     let options = |list: &[VoiceOption]| list.iter().map(|option| (option.id.clone(), option.label.clone())).collect::<Vec<_>>();
 
     // The stored device names the tray group even while its row is not
-    // synced here (its label, else the id), as on web.
-    let device_name = settings.voice_device_id.as_deref().map(|id| label_of(devices, Some(id)).to_string());
+    // synced here (its label, else `copy.ellipsis`), as on web.
+    let device_name = settings.voice_device_id.as_deref().map(|id| label_of(devices, Some(id), &copy.ellipsis).to_string());
 
     let language = settings.language().to_string();
     // Every language carries its GPU note (#NEW-74), in the row and in the menu.
@@ -212,7 +211,7 @@ pub(crate) fn voice_rows(
                 "settings-voice-device",
                 &copy.voice_device,
                 None,
-                label_of(devices, settings.voice_device_id.as_deref()),
+                label_of(devices, settings.voice_device_id.as_deref(), &copy.ellipsis),
                 options(devices),
                 settings.voice_device_id.clone(),
                 send(Rc::new(|value| VoiceUpdate { voice_device_id: Some(value), ..Default::default() })),
@@ -222,7 +221,8 @@ pub(crate) fn voice_rows(
                 "settings-voice-agent",
                 &copy.agent,
                 None,
-                label_of(agents, settings.agent_id.as_deref()),
+                // Web's picker trails nothing for an agent not synced here.
+                label_of(agents, settings.agent_id.as_deref(), ""),
                 options(agents),
                 settings.agent_id.clone(),
                 send(Rc::new(|value| VoiceUpdate { agent_id: Some(value), ..Default::default() })),
