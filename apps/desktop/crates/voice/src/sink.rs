@@ -11,10 +11,16 @@
 //! 112 ms measured), so the echo canceller lost the delay it had converged
 //! on at every reply. The stream hands each block it gives the device to its
 //! [`Tap`] (the canceller's reference, silence included), so reference and
-//! echo stay one fixed delay apart for the whole call.
+//! echo stay one fixed delay apart for the whole call. #1281 review: the tap
+//! is built for the rate the stream hands its device ([`MakeTap`]: the
+//! device's own on cpal, 48 or 44.1 kHz, the voice's on Linux), and on cpal
+//! the device's real-time callback only moves samples through two
+//! lock-free [`Ring`]s; the stream's own thread resamples, taps and feeds.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+use std::sync::atomic::{AtomicU32, AtomicUsize};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -38,6 +44,10 @@ pub fn open(rate: u32) -> Result<Arc<dyn Sink>, String> {
 /// stream was opened with), in order, silence included.
 pub type Tap = Box<dyn FnMut(&[f32]) + Send>;
 
+/// #1281 review: builds a stream's [`Tap`] for the rate (Hz) its blocks
+/// come at, which only the opened device knows; again after a rebuild.
+pub type MakeTap = Box<dyn FnMut(u32) -> Tap + Send>;
+
 /// #NEW-92: a local call's output, open until the last handle drops (then
 /// what is queued plays out and the device closes).
 pub trait Stream: Send + Sync {
@@ -52,16 +62,17 @@ pub trait Stream: Send + Sync {
     fn failed(&self) -> Option<String>;
 }
 
-/// Open the call's stream for mono audio at `rate` Hz; `tap` sees every block.
-pub fn open_stream(rate: u32, tap: Tap) -> Result<Arc<dyn Stream>, String> {
-    platform::open_stream(rate, tap, None)
+/// Open the call's stream for mono audio at `rate` Hz; the tap `make_tap`
+/// builds for the device's rate sees every block.
+pub fn open_stream(rate: u32, make_tap: MakeTap) -> Result<Arc<dyn Stream>, String> {
+    platform::open_stream(rate, make_tap, None)
 }
 
 /// [`open_stream`] on the sound server's node `target` (Linux; the
 /// `echo_check` example's loopback). macOS and Windows play on the default
 /// device regardless.
-pub fn open_stream_on(rate: u32, tap: Tap, target: &str) -> Result<Arc<dyn Stream>, String> {
-    platform::open_stream(rate, tap, Some(target.to_string()))
+pub fn open_stream_on(rate: u32, make_tap: MakeTap, target: &str) -> Result<Arc<dyn Stream>, String> {
+    platform::open_stream(rate, make_tap, Some(target.to_string()))
 }
 
 /// #NEW-92: one reply on a call's [`Stream`]: `finish` waits for it to reach
@@ -100,8 +111,9 @@ impl Sink for Reply {
 }
 
 /// #NEW-92: the samples a [`Stream`] still has to hand its device, at
-/// `rate` (the device's on cpal, the voice's on Linux).
-struct Queue {
+/// `rate` (the voice's: Linux's player takes it as is, cpal's [`Pump`]
+/// resamples to the device's).
+pub(crate) struct Queue {
     samples: Mutex<VecDeque<f32>>,
     /// Signalled whenever the queue empties (drained or flushed) or fails.
     emptied: Condvar,
@@ -132,7 +144,7 @@ impl Queue {
     /// `None` = closing and nothing left: the stream ends.
     fn take(&self, n: usize) -> Option<Vec<f32>> {
         let mut queue = self.lock();
-        if queue.is_empty() && self.closing.load(Ordering::SeqCst) {
+        if queue.is_empty() && self.closing() {
             return None;
         }
         let have = n.min(queue.len());
@@ -172,6 +184,135 @@ impl Queue {
 
     fn failed(&self) -> Option<String> {
         self.failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    fn closing(&self) -> bool {
+        self.closing.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+/// #1281 review: a single-producer single-consumer ring of samples, lock-
+/// and allocation-free on both ends (a device's real-time callback pops
+/// from one and pushes into another). Each slot holds an `f32`'s bits.
+pub(crate) struct Ring {
+    slots: Box<[AtomicU32]>,
+    /// Samples pushed and popped so far (wrapping); `head - tail` = held.
+    head: AtomicUsize,
+    tail: AtomicUsize,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+impl Ring {
+    pub(crate) fn new(capacity: usize) -> Self {
+        Ring { slots: (0..capacity.max(1)).map(|_| AtomicU32::new(0)).collect(), head: AtomicUsize::new(0), tail: AtomicUsize::new(0) }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.head.load(Ordering::Acquire).wrapping_sub(self.tail.load(Ordering::Acquire))
+    }
+
+    /// The producer's side; `false` = full (the sample is dropped).
+    pub(crate) fn push(&self, sample: f32) -> bool {
+        let head = self.head.load(Ordering::Relaxed);
+        if head.wrapping_sub(self.tail.load(Ordering::Acquire)) >= self.slots.len() {
+            return false;
+        }
+        self.slots[head % self.slots.len()].store(sample.to_bits(), Ordering::Relaxed);
+        self.head.store(head.wrapping_add(1), Ordering::Release);
+        true
+    }
+
+    /// The consumer's side.
+    pub(crate) fn pop(&self) -> Option<f32> {
+        let tail = self.tail.load(Ordering::Relaxed);
+        if tail == self.head.load(Ordering::Acquire) {
+            return None;
+        }
+        let sample = f32::from_bits(self.slots[tail % self.slots.len()].load(Ordering::Relaxed));
+        self.tail.store(tail.wrapping_add(1), Ordering::Release);
+        Some(sample)
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+/// #1281 review: how far the [`Pump`] keeps the device's ring filled ahead.
+const PUMP_AHEAD_MS: u32 = 40;
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+/// #1281 review: the non-real-time half of a cpal call stream, run by its
+/// own thread every few ms: it keeps the device's `out` ring
+/// [`PUMP_AHEAD_MS`] ahead (the queue resampled from the voice's rate to
+/// the device's), and hands what the callback reports `played` (at the
+/// device's rate, silence included; `lost` = played samples the full ring
+/// dropped, tapped as silence so the count holds) to the tap.
+pub(crate) struct Pump {
+    resampler: crate::capture::Resampler,
+    voice_rate: u32,
+    device_rate: u32,
+    tap: Tap,
+    pub(crate) out: Arc<Ring>,
+    pub(crate) played: Arc<Ring>,
+    pub(crate) lost: Arc<AtomicUsize>,
+    block: Vec<f32>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+impl Pump {
+    pub(crate) fn new(voice_rate: u32, device_rate: u32, tap: Tap) -> Self {
+        Pump {
+            resampler: crate::capture::Resampler::new(voice_rate, device_rate),
+            voice_rate,
+            device_rate,
+            tap,
+            out: Arc::new(Ring::new(device_rate as usize / 4)),
+            played: Arc::new(Ring::new(device_rate as usize)),
+            lost: Arc::default(),
+            block: Vec::new(),
+        }
+    }
+
+    /// Top the device's ring up from `queue`; `false` = the queue closed
+    /// and played out (nothing more comes).
+    pub(crate) fn fill(&mut self, queue: &Queue) -> bool {
+        let ahead = (self.device_rate * PUMP_AHEAD_MS / 1000) as usize;
+        let need = ahead.saturating_sub(self.out.len());
+        if need == 0 {
+            return true;
+        }
+        let voice = (need as u64 * u64::from(self.voice_rate)).div_ceil(u64::from(self.device_rate)) as usize;
+        let Some(samples) = queue.take(voice) else { return false };
+        self.block.clear();
+        self.resampler.process(&samples, &mut self.block);
+        for sample in &self.block {
+            if !self.out.push(*sample) {
+                break;
+            }
+        }
+        true
+    }
+
+    /// Tap what the device played since the last call.
+    pub(crate) fn tap_played(&mut self) {
+        self.block.clear();
+        while let Some(sample) = self.played.pop() {
+            self.block.push(sample);
+        }
+        let lost = self.lost.swap(0, Ordering::Relaxed);
+        self.block.resize(self.block.len() + lost, 0.0);
+        if !self.block.is_empty() {
+            (self.tap)(&self.block);
+        }
+    }
+
+    /// The device's side, one frame: what the callback plays (silence when
+    /// the pump fell behind), and that it played it.
+    pub(crate) fn device_sample(out: &Ring, played: &Ring, lost: &AtomicUsize) -> f32 {
+        let sample = out.pop().unwrap_or(0.0);
+        if !played.push(sample) {
+            lost.fetch_add(1, Ordering::Relaxed);
+        }
+        sample
     }
 }
 
@@ -306,8 +447,10 @@ mod platform {
 
     /// #NEW-92: a call's stream: one player, fed 20 ms blocks (silence when
     /// nothing is queued) from its own thread until the last handle drops.
-    pub fn open_stream(rate: u32, mut tap: super::Tap, target: Option<String>) -> Result<Arc<dyn super::Stream>, String> {
+    pub fn open_stream(rate: u32, mut make_tap: super::MakeTap, target: Option<String>) -> Result<Arc<dyn super::Stream>, String> {
         let queue = Arc::new(super::Queue::new(rate));
+        // The player takes the voice's rate as is: the tap sees that rate.
+        let mut tap = make_tap(rate);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
         let feeding = queue.clone();
         std::thread::Builder::new()
@@ -497,7 +640,7 @@ mod platform {
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SizedSample};
@@ -596,82 +739,163 @@ mod platform {
             .map_err(|err| err.to_string())
     }
 
-    /// #NEW-92: a call's stream on the default output device; the device's
-    /// callback taps every block it plays (at the device's rate, mono).
-    pub fn open_stream(rate: u32, tap: super::Tap, _target: Option<String>) -> Result<Arc<dyn super::Stream>, String> {
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<Arc<super::Queue>, String>>();
-        let tap = Arc::new(Mutex::new(tap));
+    /// #NEW-92: a call's stream on the default output device. #1281
+    /// review: the tap is built for the DEVICE's rate (48 or 44.1 kHz, not
+    /// the voice's), the callback only moves samples through the [`Pump`]'s
+    /// lock-free rings, and the stream is rebuilt (the default device
+    /// again, a new tap at its rate) after any stream error and when the
+    /// default output device changes.
+    pub fn open_stream(rate: u32, mut make_tap: super::MakeTap, _target: Option<String>) -> Result<Arc<dyn super::Stream>, String> {
+        let queue = Arc::new(super::Queue::new(rate));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let running = queue.clone();
         std::thread::Builder::new()
             .name("voice-call-audio".into())
             .spawn(move || {
-                let result = (|| {
-                    let host = cpal::default_host();
-                    let device = host.default_output_device().ok_or("no audio output device")?;
-                    let supported = device.default_output_config().map_err(|err| err.to_string())?;
-                    let channels = supported.channels() as usize;
-                    let queue = Arc::new(super::Queue::new(supported.sample_rate().0));
-                    let config: cpal::StreamConfig = supported.config();
-                    let stream = match supported.sample_format() {
-                        cpal::SampleFormat::F32 => build_tapped::<f32>(&device, &config, channels, queue.clone(), tap.clone()),
-                        cpal::SampleFormat::I16 => build_tapped::<i16>(&device, &config, channels, queue.clone(), tap.clone()),
-                        cpal::SampleFormat::U16 => build_tapped::<u16>(&device, &config, channels, queue.clone(), tap.clone()),
-                        other => Err(format!("unsupported sample format {other:?}")),
-                    }?;
-                    stream.play().map_err(|err| err.to_string())?;
-                    Ok::<_, String>((stream, queue))
-                })();
-                match result {
-                    Ok((stream, queue)) => {
-                        let _ = ready_tx.send(Ok(queue.clone()));
-                        // Open until the last handle drops and the queue played.
-                        while !(queue.closing.load(Ordering::SeqCst) && queue.lock().is_empty()) && queue.failed().is_none() {
-                            std::thread::sleep(Duration::from_millis(20));
-                        }
-                        // The device's own buffer still holds the last few milliseconds.
-                        std::thread::sleep(Duration::from_millis(150));
-                        drop(stream);
-                    }
+                let mut device = match Device::open(rate, &mut make_tap) {
+                    Ok(device) => device,
                     Err(err) => {
                         let _ = ready_tx.send(Err(err));
+                        return;
+                    }
+                };
+                let _ = ready_tx.send(Ok(()));
+                loop {
+                    match device.run(&running) {
+                        Ended::Closed => return,
+                        Ended::Rebuild(why) => {
+                            eprintln!("voice: the call's audio output is rebuilt ({why})");
+                            drop(device);
+                            match reopen(rate, &mut make_tap) {
+                                Ok(next) => device = next,
+                                Err(err) => {
+                                    running.fail(err);
+                                    return;
+                                }
+                            }
+                        }
                     }
                 }
             })
             .map_err(|err| err.to_string())?;
-        let queue = ready_rx.recv().map_err(|_| "audio thread ended".to_string())??;
+        ready_rx.recv().map_err(|_| "audio thread ended".to_string())??;
         Ok(Arc::new(super::Handle::new(queue, rate)))
     }
 
-    fn build_tapped<T>(
+    /// How often the stream's thread pumps and taps.
+    const PUMP_EVERY: Duration = Duration::from_millis(5);
+    /// How often it asks which output device is the default.
+    const DEVICE_CHECK_EVERY: Duration = Duration::from_secs(1);
+    /// A rebuild's attempts (a device that just changed may need a moment).
+    const REBUILD_ATTEMPTS: u32 = 5;
+
+    fn reopen(rate: u32, make_tap: &mut super::MakeTap) -> Result<Device, String> {
+        let mut last = String::new();
+        for _ in 0..REBUILD_ATTEMPTS {
+            match Device::open(rate, make_tap) {
+                Ok(device) => return Ok(device),
+                Err(err) => last = err,
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        Err(last)
+    }
+
+    enum Ended {
+        Closed,
+        Rebuild(String),
+    }
+
+    /// One opened output device of a call's stream.
+    struct Device {
+        stream: cpal::Stream,
+        name: Option<String>,
+        pump: super::Pump,
+        /// The stream's error callback fired.
+        broken: Arc<Mutex<Option<String>>>,
+    }
+
+    impl Device {
+        fn open(rate: u32, make_tap: &mut super::MakeTap) -> Result<Device, String> {
+            let host = cpal::default_host();
+            let device = host.default_output_device().ok_or("no audio output device")?;
+            let supported = device.default_output_config().map_err(|err| err.to_string())?;
+            let channels = supported.channels() as usize;
+            let device_rate = supported.sample_rate().0;
+            let pump = super::Pump::new(rate, device_rate, make_tap(device_rate));
+            let broken = Arc::new(Mutex::new(None));
+            let config: cpal::StreamConfig = supported.config();
+            let stream = match supported.sample_format() {
+                cpal::SampleFormat::F32 => build_pumped::<f32>(&device, &config, channels, &pump, broken.clone()),
+                cpal::SampleFormat::I16 => build_pumped::<i16>(&device, &config, channels, &pump, broken.clone()),
+                cpal::SampleFormat::U16 => build_pumped::<u16>(&device, &config, channels, &pump, broken.clone()),
+                other => Err(format!("unsupported sample format {other:?}")),
+            }?;
+            stream.play().map_err(|err| err.to_string())?;
+            Ok(Device { stream, name: device.name().ok(), pump, broken })
+        }
+
+        /// Pump until the queue closed and played out, or the device needs a
+        /// rebuild.
+        fn run(&mut self, queue: &super::Queue) -> Ended {
+            let mut checked = Instant::now();
+            loop {
+                if queue.failed().is_some() {
+                    return Ended::Closed;
+                }
+                self.pump.tap_played();
+                if let Some(err) = self.broken.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
+                    return Ended::Rebuild(err);
+                }
+                if checked.elapsed() >= DEVICE_CHECK_EVERY {
+                    checked = Instant::now();
+                    let default = cpal::default_host().default_output_device().and_then(|device| device.name().ok());
+                    if default.is_some() && default != self.name {
+                        return Ended::Rebuild("the default output device changed".into());
+                    }
+                }
+                if !self.pump.fill(queue) {
+                    // Closed: the device plays out its ring and its own buffer.
+                    let deadline = Instant::now() + Duration::from_millis(500);
+                    while self.pump.out.len() > 0 && Instant::now() < deadline {
+                        std::thread::sleep(PUMP_EVERY);
+                        self.pump.tap_played();
+                    }
+                    std::thread::sleep(Duration::from_millis(150));
+                    let _ = self.stream.pause();
+                    return Ended::Closed;
+                }
+                std::thread::sleep(PUMP_EVERY);
+            }
+        }
+    }
+
+    fn build_pumped<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         channels: usize,
-        queue: Arc<super::Queue>,
-        tap: Arc<Mutex<super::Tap>>,
+        pump: &super::Pump,
+        broken: Arc<Mutex<Option<String>>>,
     ) -> Result<cpal::Stream, String>
     where
         T: SizedSample + FromSample<f32>,
     {
-        let failing = queue.clone();
+        let (out, played, lost) = (pump.out.clone(), pump.played.clone(), pump.lost.clone());
         device
             .build_output_stream(
                 config,
+                // Real time: no lock, no allocation.
                 move |data: &mut [T], _| {
-                    let frames = data.len() / channels.max(1);
-                    let Some(block) = queue.take(frames) else { return data.iter_mut().for_each(|slot| *slot = T::from_sample(0.0)) };
-                    for (frame, sample) in data.chunks_mut(channels).zip(&block) {
+                    for frame in data.chunks_mut(channels.max(1)) {
+                        let sample = T::from_sample(super::Pump::device_sample(&out, &played, &lost));
                         for slot in frame.iter_mut() {
-                            *slot = T::from_sample(*sample);
+                            *slot = sample;
                         }
-                    }
-                    if let Ok(mut tap) = tap.try_lock() {
-                        (*tap)(&block);
                     }
                 },
                 move |err| {
                     eprintln!("voice: audio stream error: {err}");
-                    if matches!(err, cpal::StreamError::DeviceNotAvailable) {
-                        failing.fail(err.to_string());
-                    }
+                    *broken.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(err.to_string());
                 },
                 None,
             )
@@ -828,5 +1052,60 @@ mod tests {
         stream.push(&[0.5; 240]).unwrap();
         let queued = queue.lock().len();
         assert!((478..=481).contains(&queued), "{queued}");
+    }
+
+    /// #1281 review: a device at 48 or 44.1 kHz under a 24 kHz voice: the
+    /// tap is built for the device's rate, so one second the device played
+    /// is one second of 16 kHz reference, the reply's tone at its pitch
+    /// (a tap built for the voice's rate stretched it about 2×).
+    #[test]
+    fn the_reference_runs_at_the_device_rate() {
+        use crate::echo::{Echo, FarEnd};
+        const VOICE: u32 = 24_000;
+        for device_rate in [48_000, 44_100] {
+            let far = Arc::new(FarEnd::default());
+            let _echo = Echo::new(far.clone());
+            let queue = Arc::new(Queue::new(VOICE));
+            let stream = Handle::new(queue.clone(), VOICE);
+            let mut make_tap: MakeTap = Box::new({
+                let far = far.clone();
+                move |rate| FarEnd::tap(&far, rate)
+            });
+            let mut pump = Pump::new(VOICE, device_rate, make_tap(device_rate));
+            // One second of a 1 kHz tone, then the device runs 2 s in 10 ms
+            // callbacks.
+            let tone: Vec<f32> = (0..VOICE).map(|at| 0.5 * (std::f32::consts::TAU * 1000.0 * at as f32 / VOICE as f32).sin()).collect();
+            stream.push(&tone).unwrap();
+            let callback = device_rate as usize / 100;
+            for _ in 0..200 {
+                assert!(pump.fill(&queue));
+                for _ in 0..callback {
+                    Pump::device_sample(&pump.out, &pump.played, &pump.lost);
+                }
+                pump.tap_played();
+            }
+            let reference = far.take(2 * 16_000 + 2_000);
+            let heard: Vec<f32> = reference.iter().copied().skip_while(|sample| sample.abs() < 1e-3).collect();
+            let tail = reference.iter().rposition(|sample| sample.abs() >= 1e-3).unwrap() + 1;
+            let lead = reference.len() - heard.len();
+            let length = tail - lead;
+            assert!(length.abs_diff(16_000) < 100, "{device_rate}: the tone is {length} reference samples");
+            let crossings = heard[..length].windows(2).filter(|pair| (pair[0] < 0.0) != (pair[1] < 0.0)).count();
+            assert!(crossings.abs_diff(2_000) < 20, "{device_rate}: {crossings} zero crossings (1 kHz = 2000)");
+            // Nothing past the two device seconds.
+            assert!(reference[2 * 16_000 + 100..].iter().all(|sample| *sample == 0.0), "{device_rate}");
+        }
+    }
+
+    /// #1281 review: the callback's ring is lock-free and bounded: a full
+    /// ring drops (and the pump taps the drop as silence, so the count holds).
+    #[test]
+    fn a_ring_holds_its_capacity_in_order() {
+        let ring = Ring::new(3);
+        assert!(ring.push(1.0) && ring.push(2.0) && ring.push(3.0));
+        assert!(!ring.push(4.0), "full");
+        assert_eq!((ring.pop(), ring.len()), (Some(1.0), 2));
+        assert!(ring.push(4.0));
+        assert_eq!([ring.pop(), ring.pop(), ring.pop(), ring.pop()], [Some(2.0), Some(3.0), Some(4.0), None]);
     }
 }

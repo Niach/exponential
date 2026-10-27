@@ -109,12 +109,19 @@ struct Shared {
     /// NEW-55: a local call's echo reference.
     far: Arc<echo::FarEnd>,
     /// #NEW-92: a local call's output stream (opened by its first reply,
-    /// dropped at Hangup) and its rate.
-    call_out: Mutex<Option<(u32, Arc<dyn sink::Stream>)>>,
+    /// dropped at Hangup).
+    call_out: Mutex<Option<CallOut>>,
     /// #NEW-92: the sentences of the local call's last two replies, and when
     /// each ended (`None` = it plays): what the call may still hear as echo.
     spoken: Mutex<Vec<(Vec<String>, Option<Instant>)>>,
     emit: Emitter,
+}
+
+/// #NEW-92: the open output stream of local call `call`, at `rate`.
+struct CallOut {
+    call: String,
+    rate: u32,
+    stream: Arc<dyn sink::Stream>,
 }
 
 /// #NEW-92: how long after a reply ended its words still count as echo
@@ -136,23 +143,49 @@ impl Shared {
     }
 
     /// #NEW-92: the local call's output stream at `rate`, opened on first use
-    /// (and again after it failed).
-    fn call_out(&self, rate: u32) -> Result<Arc<dyn sink::Stream>, String> {
+    /// (and again after it failed). #1281 review: `None` = no local call
+    /// runs (any more): checked under the stream's lock, so a Hangup that
+    /// lands between the reply's start and here never leaves a stream open
+    /// after its call (Hangup ends the call, THEN takes this lock).
+    fn call_out(&self, rate: u32) -> Option<Result<Arc<dyn sink::Stream>, String>> {
         let mut out = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some((open_rate, stream)) = out.as_ref() {
-            if *open_rate == rate && stream.failed().is_none() {
-                return Ok(stream.clone());
+        let call = self.listening.local_call()?;
+        if let Some(open) = out.as_ref() {
+            if open.call == call && open.rate == rate && open.stream.failed().is_none() {
+                return Some(Ok(open.stream.clone()));
             }
         }
-        let stream = sink::open_stream(rate, echo::FarEnd::tap(&self.far, rate))?;
-        *out = Some((rate, stream.clone()));
-        Ok(stream)
+        let far = self.far.clone();
+        // The tap at the rate the stream hands its device (cpal: the
+        // device's own, Linux: the voice's).
+        let stream = match sink::open_stream(rate, Box::new(move |device_rate| echo::FarEnd::tap(&far, device_rate))) {
+            Ok(stream) => stream,
+            Err(err) => return Some(Err(err)),
+        };
+        *out = Some(CallOut { call, rate, stream: stream.clone() });
+        Some(Ok(stream))
     }
 
-    /// #NEW-92: the call ended (or turned remote): its stream plays out and closes.
-    fn close_call_out(&self) {
-        let stream = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
-        drop(stream);
+    /// #NEW-92: call `id` ended (or turned remote): its stream plays out and
+    /// closes. #1281 review: only its own (a late Hangup of an older call
+    /// never closes the running call's); `None` = whichever is open (EOF).
+    fn close_call_out(&self, id: Option<&str>) {
+        let mut out = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if id.is_none_or(|id| out.as_ref().is_some_and(|open| open.call == id)) {
+            let stream = out.take();
+            drop(out);
+            drop(stream);
+        }
+    }
+
+    /// A call started: any stream but local call `keep`'s closes.
+    fn keep_call_out(&self, keep: Option<&str>) {
+        let mut out = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if out.as_ref().is_some_and(|open| Some(open.call.as_str()) != keep) {
+            let stream = out.take();
+            drop(out);
+            drop(stream);
+        }
     }
 
     /// #NEW-92: what a local call may still hear of the latest reply.
@@ -305,9 +338,8 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::Call { id, language, remote } => {
                 // Replaces a Listen or Call; replies keep playing.
                 listening.begin_call(&id, remote);
-                if remote {
-                    shared.close_call_out();
-                }
+                // The call it replaced (or this one, turned remote) closes its stream.
+                shared.keep_call_out((!remote).then_some(id.as_str()));
                 let _ = listen.send(listener::Job::Call { id, language, remote });
             }
             Request::CallAudio { id, pcm } => match talk::decode_pcm(&pcm) {
@@ -323,7 +355,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::Hangup { id } => {
                 // Replies play locally again at once.
                 listening.end(&id);
-                shared.close_call_out();
+                shared.close_call_out(Some(&id));
                 let _ = listen.send(listener::Job::Hangup { id });
             }
             Request::Wake { phrase, language } => {
@@ -337,6 +369,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
     crispasr::artifact::cancel_downloads();
     shared.generation.fetch_add(1, Ordering::SeqCst);
     silence(&shared);
+    shared.close_call_out(None);
     drop(tx);
     drop(listen);
     // The listener closes the microphone: always waited for.
@@ -777,7 +810,11 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
         Ok(Arc::new(StreamSink::new(id, loaded.sample_rate, shared.emit.clone())) as Arc<dyn sink::Sink>)
     } else if local_call {
         shared.set_spoken(speech_chunks(text, true).into_iter().map(str::to_string).collect());
-        shared.call_out(loaded.sample_rate).map(|stream| Arc::new(sink::Reply::new(stream)) as Arc<dyn sink::Sink>)
+        // The call may have hung up since: then it plays like any reply.
+        match shared.call_out(loaded.sample_rate) {
+            Some(opened) => opened.map(|stream| Arc::new(sink::Reply::new(stream)) as Arc<dyn sink::Sink>),
+            None => sink::open(loaded.sample_rate),
+        }
     } else {
         sink::open(loaded.sample_rate)
     };

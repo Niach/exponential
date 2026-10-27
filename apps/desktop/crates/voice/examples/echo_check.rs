@@ -41,7 +41,7 @@ use std::time::{Duration, Instant};
 
 use voice::capture::read_wav;
 use voice::echo::{dbfs, Echo, FarEnd};
-use voice::listen::{echo_of, Call, Vad, FRAME, RATE};
+use voice::listen::{Call, Vad, FRAME, RATE};
 use voice::listener::Engines;
 use voice::sink::{Reply, Sink};
 
@@ -201,7 +201,7 @@ fn main() {
         let (far, spoken, timeline, barged, current, finished) =
             (far.clone(), spoken.clone(), timeline.clone(), barged.clone(), current.clone(), finished.clone());
         player = Some(std::thread::spawn(move || {
-            let stream = voice::sink::open_stream_on(REPLY_RATE, FarEnd::tap(&far, REPLY_RATE), &sink).expect("open the call's stream");
+            let stream = voice::sink::open_stream_on(REPLY_RATE, Box::new(move |rate| FarEnd::tap(&far, rate)), &sink).expect("open the call's stream");
             std::thread::sleep(Duration::from_millis(1500));
             let until = Instant::now() + Duration::from_secs(seconds);
             let mut played = 0;
@@ -239,7 +239,6 @@ fn main() {
     }
 
     let mut events: Vec<(&str, f32, talk::Event)> = Vec::new();
-    let mut dropped: Vec<(f32, String)> = Vec::new();
     let mut fed = 0usize;
     // The microphone's clock on the run's: when its first chunk arrived
     // (pw-record's own latency is below a frame).
@@ -311,15 +310,13 @@ fn main() {
             }
         };
         let sentences = if replay.is_some() { &replay_sentences } else { &reply_sentences };
+        // The product's echo text rule runs inside the gated call; the
+        // check names what it dropped (what was heard after a reply that
+        // repeats it and never barged in over it).
+        gated.set_spoken(sentences.clone());
         for (name, call, vad) in [("gated", &mut gated, &mut vad_gated), ("ungated", &mut ungated, &mut vad_ungated)] {
             call.feed(&cleaned, vad, &mut engines, &mut |event| {
                 if name == "gated" {
-                    if let talk::Event::Said { text, .. } = &event {
-                        if echo_of(text, sentences) {
-                            dropped.push((at, text.clone()));
-                            return;
-                        }
-                    }
                     if matches!(event, talk::Event::SpeechStarted { .. }) && !no_stop {
                         // The worker's barge-in: the reply stops.
                         barged.store(true, Ordering::SeqCst);
@@ -400,10 +397,7 @@ fn main() {
             }
         }
     }
-    println!("dropped as the reply's echo: {}", dropped.len());
-    for (at, text) in &dropped {
-        println!("  {at:6.2}s {text:?}");
-    }
+    println!("dropped as the reply's echo (the echo text rule): {}", gated.echo_dropped());
     for (start, end, stopped) in timeline.replies.iter() {
         println!("  reply {start:6.2}-{end:6.2}s{}", if *stopped { " (barged in)" } else { "" });
     }

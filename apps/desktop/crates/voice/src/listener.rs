@@ -236,6 +236,14 @@ impl Listening {
         matches!(*self.lock(), Some((_, Mode::Call { .. })))
     }
 
+    /// #NEW-92: the id of the LOCAL call that runs, if one does.
+    pub fn local_call(&self) -> Option<String> {
+        match &*self.lock() {
+            Some((id, Mode::Call { remote: false })) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
     /// NEW-55: a remote call runs: replies stream as SpeechAudio.
     pub fn remote_call(&self) -> bool {
         matches!(*self.lock(), Some((_, Mode::Call { remote: true })))
@@ -360,20 +368,12 @@ impl<H: Hearing> Calling<H> {
             // #NEW-92: the barge-in gate hears what the canceller says.
             self.call.set_echo(echo.state());
         }
-        let local = self.echo.is_some();
+        if self.echo.is_some() {
+            // #NEW-92: the reply's own words are its echo (unless the
+            // utterance barged in): dropped, never a turn.
+            self.call.set_spoken((links.spoken)());
+        }
         self.call.feed(samples, &mut self.vad, engines, &mut |event| {
-            if local {
-                if let Event::Said { text, .. } | Event::Partial { text, .. } = &event {
-                    // #NEW-92: the reply's own words are its echo: dropped,
-                    // never a turn (and never logged: a transcript).
-                    if crate::listen::echo_of(text, &(links.spoken)()) {
-                        if matches!(event, Event::Said { .. }) {
-                            eprintln!("voice: dropped an utterance that was the reply's echo");
-                        }
-                        return;
-                    }
-                }
-            }
             if matches!(event, Event::SpeechStarted { .. }) {
                 // Barge-in: the reply stops (its Finished goes out) BEFORE
                 // the host hears that the person talks.
@@ -1430,23 +1430,20 @@ mod tests {
         assert!(!events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::Empty { .. })));
     }
 
-    /// #NEW-92: in a local call, an utterance made of the reply's own words
-    /// is its echo: dropped, never said; the next one goes out.
+    /// #NEW-92 (#1281 review): a local call hands the reply's sentences to
+    /// the echo text rule, and a short answer that repeats them goes out.
     #[test]
-    fn a_local_call_drops_the_replys_echo() {
+    fn a_local_call_says_a_short_answer_that_repeats_the_reply() {
         let harness = Harness::new();
-        *harness.spoken.lock().unwrap() = vec!["Here is clip1 again.".into()];
+        *harness.spoken.lock().unwrap() = vec!["Should I merge clip1 or close it?".into()];
         harness.call("c1", false);
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("the microphone opened");
-        for _ in 0..2 {
-            for chunk in phrase(0.8).chunks(320) {
-                harness.probe.say(chunk.to_vec());
-            }
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.say(chunk.to_vec());
         }
-        harness.until(|events| events.iter().filter(|event| matches!(event, Event::SpeechStarted { .. })).count() == 2);
         let events = harness.said(1);
         let said: Vec<&Event> = events.iter().filter(|event| matches!(event, Event::Said { .. })).collect();
-        assert_eq!(said, [&Event::Said { id: "c1".into(), text: "clip2".into() }]);
+        assert_eq!(said, [&Event::Said { id: "c1".into(), text: "clip1".into() }]);
         harness.close();
     }
 

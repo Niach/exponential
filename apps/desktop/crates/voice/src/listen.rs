@@ -29,9 +29,10 @@
 //! reply through the echo canceller, which needs a few seconds to converge.
 //! While a reply is audible ([`EchoState::replying`]) a frame counts towards
 //! barge-in only when the cancelled frame clears the call's echo floor by
-//! a margin ([`EchoGate`]), which is strict until the canceller converged
-//! (and then also needs a longer run); and an utterance whose words are the
-//! reply's own ([`echo_of`]) is dropped, never said.
+//! a margin ([`EchoGate`]; before the canceller converged, an absolute
+//! microphone level and a longer run); and an utterance that never barged
+//! in whose words are the reply's own ([`echo_of`], at least
+//! [`ECHO_TEXT_MIN_WORDS`]) is dropped, never said.
 
 use talk::{Event, ListenFailure, LEVEL_BANDS};
 
@@ -86,10 +87,18 @@ pub const ECHO_INITIAL_FLOOR_DB: f32 = 0.0;
 /// this; before, a barge-in needs [`UNCONVERGED_BARGE_IN_MS`].
 pub const CONVERGED_FLOOR_DB: f32 = -20.0;
 pub const UNCONVERGED_BARGE_IN_MS: usize = 500;
+/// #1281 review: before convergence a frame counts when the cancelled
+/// microphone reaches this ABSOLUTE level (dBFS): the reference's level and
+/// the microphone's sit on unrelated gains (output volume, microphone gain)
+/// until the floor has measured their relation.
+pub const UNCONVERGED_MIC_DB: f32 = -16.0;
 /// #NEW-92: an utterance is the reply's echo when at least this share of
 /// its words appear, in order, in one sentence of the reply (or two
 /// neighbouring ones).
 pub const ECHO_TEXT_COVERAGE: f32 = 0.7;
+/// #1281 review: ...and it has at least this many words (a short answer
+/// like "merge it" to "Should I merge it or close it?" is the member's).
+pub const ECHO_TEXT_MIN_WORDS: usize = 4;
 
 /// #NEW-92: what the echo canceller says about the samples a local call
 /// feeds next: the reply's reference envelope (its loudest 32 ms over the
@@ -149,7 +158,8 @@ impl EchoGate {
             return voiced;
         }
         let above = level_db - echo.reference_db;
-        let counts = voiced && above >= self.floor() + ECHO_MARGIN_DB;
+        let clears = if self.converged() { above >= self.floor() + ECHO_MARGIN_DB } else { level_db >= UNCONVERGED_MIC_DB };
+        let counts = voiced && clears;
         if counts && utterance.is_some_and(|run| run < frames(ECHO_FLOOR_HOLD_MS)) {
             return true;
         }
@@ -190,11 +200,12 @@ fn common_words(a: &[String], b: &[String]) -> usize {
 }
 
 /// #NEW-92: whether `heard` is the echo of the reply whose sentences are
-/// `spoken`: [`ECHO_TEXT_COVERAGE`] of its words appear, in order, in one
-/// sentence or two neighbouring ones (a segment can straddle a boundary).
+/// `spoken`: it has at least [`ECHO_TEXT_MIN_WORDS`] words and
+/// [`ECHO_TEXT_COVERAGE`] of them appear, in order, in one sentence or two
+/// neighbouring ones (a segment can straddle a boundary).
 pub fn echo_of(heard: &str, spoken: &[impl AsRef<str>]) -> bool {
     let heard = echo_words(heard);
-    if heard.is_empty() {
+    if heard.len() < ECHO_TEXT_MIN_WORDS {
         return false;
     }
     let sentences: Vec<Vec<String>> = spoken.iter().map(|sentence| echo_words(sentence.as_ref())).collect();
@@ -640,6 +651,10 @@ pub struct Call {
     scored: usize,
     echo: EchoState,
     gate: EchoGate,
+    /// #NEW-92: the sentences the call may hear back as echo (the echo
+    /// text rule; empty outside a local call), and the utterances it dropped.
+    spoken: Vec<String>,
+    echo_dropped: usize,
     /// The absolute sample count at the last partial decode.
     partial_at: usize,
     last_partial: String,
@@ -665,6 +680,8 @@ impl Call {
             scored: 0,
             echo: EchoState::default(),
             gate: EchoGate::default(),
+            spoken: Vec::new(),
+            echo_dropped: 0,
             partial_at: 0,
             last_partial: String::new(),
         }
@@ -673,6 +690,25 @@ impl Call {
     /// #NEW-92: what the echo canceller says about the samples fed next.
     pub fn set_echo(&mut self, echo: EchoState) {
         self.echo = echo;
+    }
+
+    /// #NEW-92: the reply sentences the call may still hear as echo.
+    pub fn set_spoken(&mut self, spoken: Vec<String>) {
+        self.spoken = spoken;
+    }
+
+    /// #NEW-92 (#1281 review): an utterance whose words are the reply's
+    /// own is its echo, unless it barged in over the reply: that one is the
+    /// member's, whatever it repeats. (Heard over the reply and never
+    /// barged in = never transcribed at all; so the rule reads what came
+    /// after a reply, within its hold.)
+    fn echo_text(&self, text: &str) -> bool {
+        !(self.over_reply && self.announced) && echo_of(text, &self.spoken)
+    }
+
+    /// #NEW-92: the utterances the echo text rule dropped (`echo_check`).
+    pub fn echo_dropped(&self) -> usize {
+        self.echo_dropped
     }
 
     /// #NEW-92: the barge-in gate (`echo_check` prints its floor).
@@ -722,7 +758,11 @@ impl Call {
                 // the reply's echo: never transcribed, never said.
                 if !self.over_reply || self.announced {
                     let text = normalize_transcript(&self.transcribe(segment.start, segment.end, transcriber)?);
-                    if !text.is_empty() {
+                    if self.echo_text(&text) {
+                        self.echo_dropped += 1;
+                        // Never logged with its text: a transcript.
+                        eprintln!("voice: dropped an utterance that was the reply's echo");
+                    } else if !text.is_empty() {
                         emit(Event::Said { id: self.id.clone(), text });
                     }
                 }
@@ -753,7 +793,7 @@ impl Call {
             if let Some(start) = self.segmenter.open_start() {
                 self.partial_at = end;
                 let text = normalize_transcript(&self.transcribe(start, usize::MAX, transcriber)?);
-                if !text.is_empty() && text != self.last_partial {
+                if !text.is_empty() && text != self.last_partial && !self.echo_text(&text) {
                     self.last_partial = text.clone();
                     emit(Event::Partial { id: self.id.clone(), text });
                 }
@@ -1119,7 +1159,9 @@ mod tests {
         assert_eq!(f(&c["convergedFloorDb"]), CONVERGED_FLOOR_DB);
         assert_eq!(c["bargeInMs"], talk::BARGE_IN_MS);
         assert_eq!(c["unconvergedBargeInMs"], UNCONVERGED_BARGE_IN_MS);
+        assert_eq!(f(&c["unconvergedMicDb"]), UNCONVERGED_MIC_DB);
         assert_eq!(f(&c["echoTextCoverage"]), ECHO_TEXT_COVERAGE);
+        assert_eq!(c["echoTextMinWords"], ECHO_TEXT_MIN_WORDS);
         assert_eq!(c["spokenHoldMs"].as_u64().unwrap() as u128, crate::SPOKEN_HOLD.as_millis());
 
         /// Hands out the case's probabilities, one per frame.
@@ -1169,6 +1211,50 @@ mod tests {
         for case in gate["echoTextCases"].as_array().unwrap() {
             let spoken: Vec<&str> = case["spoken"].as_array().unwrap().iter().map(|sentence| sentence.as_str().unwrap()).collect();
             assert_eq!(echo_of(case["heard"].as_str().unwrap(), &spoken), case["echo"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    /// #1281 review: the echo text rule drops an utterance heard after the
+    /// reply that repeats it, never one that barged in over the reply, and
+    /// never a short answer.
+    #[test]
+    fn the_echo_text_rule_spares_a_barge_in_and_a_short_answer() {
+        struct Fixed(&'static str);
+        impl Transcriber for Fixed {
+            fn transcribe(&mut self, _pcm: &[f32], _language: &str) -> Result<String, String> {
+                Ok(self.0.to_string())
+            }
+            fn partials(&self) -> bool {
+                false
+            }
+        }
+        let frame = |level_db: f32| -> Vec<f32> {
+            let amplitude = std::f32::consts::SQRT_2 * 10f32.powf(level_db / 20.0);
+            (0..FRAME).map(|at| amplitude * (std::f32::consts::TAU * 440.0 * at as f32 / RATE as f32).sin()).collect()
+        };
+        let spoken = vec!["Should I merge it or close it?".to_string()];
+        // (heard, reference while the member talks, said)
+        let cases = [
+            ("merge it or close it", None, false),
+            ("merge it", None, true),
+            ("merge it or close it", Some(-20.0), true),
+        ];
+        for (heard, reference, expected) in cases {
+            let mut call = Call::new("c1", "en");
+            call.set_spoken(spoken.clone());
+            let mut vad = EnergyVad(Vec::new());
+            let mut said = false;
+            let mut feed = |call: &mut Call, level: f32, reference: Option<f32>, count: usize| {
+                call.set_echo(reference.map_or_else(EchoState::default, |reference_db| EchoState { reference_db }));
+                for _ in 0..count {
+                    call.feed(&frame(level), &mut vad, &mut Fixed(heard), &mut |event| said |= matches!(event, Event::Said { .. })).unwrap();
+                }
+            };
+            // The canceller converged on the reply's residual.
+            feed(&mut call, -70.0, Some(-20.0), 20);
+            feed(&mut call, -10.0, reference, 20);
+            feed(&mut call, -70.0, reference, 20);
+            assert_eq!(said, expected, "{heard} over {reference:?}");
         }
     }
 
