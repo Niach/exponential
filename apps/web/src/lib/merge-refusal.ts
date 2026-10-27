@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { messages, pullRequests, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { askHidden } from "@/lib/sessions/bus"
 import { insertMessage } from "@/lib/sessions/messages"
 import {
   isMergeRefusal,
@@ -15,6 +16,12 @@ import {
 // GitHub's reason and the steps below, and deals with it (session-thread.json
 // EXP-1391). An agent's own `exponential_pr merge` gets the same text as its
 // tool result instead (`mergeRefusalText`) and posts nothing.
+//
+// #EXP-1408 privacy: the line names the PR and quotes GitHub, so it lands
+// where the PR's opener may be read. A PR opened by a PRIVATE session the
+// root's readers may not see (`askHidden`: the bus already hid its
+// `pr_opened` line there) gets the line in the OPENER's own conversation
+// instead, never in the root.
 
 const STEPS: Record<MergeRefusalKind, string> = {
   checks_pending: `Wait for the checks to finish (exponential_pr merge waits for running checks), then merge again.`,
@@ -32,9 +39,9 @@ export function mergeRefusalText(prNumber: number, reason: string, kind: MergeRe
   return `The merge of PR #${prNumber} was refused: ${reason}\n\n${STEPS[kind]}`
 }
 
-/** Posts the refusal into the PR's root session (waking it). True when a
- *  line wakes the root now or already waits unread there; false when there
- *  is no thread, the root ended (the line lands pre-consumed) or the post
+/** Posts the refusal into the PR's root session (or its hidden private
+ *  opener), waking it. True when a line wakes it now or already waits
+ *  unread there; false when there is no thread, the target ended (the line lands pre-consumed) or the post
  *  failed. Never throws: the refusal itself still reaches the caller. */
 export async function postMergeRefusal(args: {
   pullRequestId: string
@@ -47,25 +54,31 @@ export async function postMergeRefusal(args: {
   try {
     return await db.transaction(async (tx) => {
       const [pr] = await tx
-        .select({ number: pullRequests.number, rootSessionId: pullRequests.rootSessionId })
+        .select({
+          number: pullRequests.number,
+          rootSessionId: pullRequests.rootSessionId,
+          sessionId: pullRequests.sessionId,
+        })
         .from(pullRequests)
         .where(eq(pullRequests.id, args.pullRequestId))
         .limit(1)
       if (!pr?.rootSessionId) return false
-      const [root] = await tx
-        .select({
-          id: sessions.id,
-          rootId: sessions.rootId,
-          teamId: sessions.teamId,
-          shared: sessions.shared,
-          userId: sessions.userId,
-          status: sessions.status,
-        })
-        .from(sessions)
-        .where(eq(sessions.id, pr.rootSessionId))
-        .limit(1)
+      const cols = {
+        id: sessions.id,
+        rootId: sessions.rootId,
+        teamId: sessions.teamId,
+        shared: sessions.shared,
+        userId: sessions.userId,
+        status: sessions.status,
+      }
+      const [root] = await tx.select(cols).from(sessions).where(eq(sessions.id, pr.rootSessionId)).limit(1)
       if (!root) return false
-      const live = root.status !== `ended`
+      const [opener] =
+        pr.sessionId && pr.sessionId !== root.id
+          ? await tx.select(cols).from(sessions).where(eq(sessions.id, pr.sessionId)).limit(1)
+          : []
+      const target = opener && askHidden(root, opener) ? opener : root
+      const live = target.status !== `ended`
       // One unread line per PR: a repeat click or an automerge pass while
       // the last refusal still waits adds nothing.
       if (live) {
@@ -74,7 +87,7 @@ export async function postMergeRefusal(args: {
           .from(messages)
           .where(
             and(
-              eq(messages.sessionId, root.id),
+              eq(messages.sessionId, target.id),
               isNull(messages.consumedAt),
               sql`${messages.card}->>'event' = 'pr_merge_refused'`,
               sql`${messages.card}->>'pullRequestId' = ${args.pullRequestId}`
@@ -84,7 +97,7 @@ export async function postMergeRefusal(args: {
         if (waiting) return true
       }
       await generateTxId(tx)
-      await insertMessage(tx, root, {
+      await insertMessage(tx, target, {
         authorKind: `user`,
         authorId: args.actorUserId,
         body: mergeRefusalText(pr.number, refusal.message, refusal.kind),
