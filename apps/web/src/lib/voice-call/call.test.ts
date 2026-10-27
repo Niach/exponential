@@ -43,7 +43,7 @@ class FakeSocket implements CallSocket {
 
 function fakeAudio() {
   const audio = {
-    onPacket: null,
+    onPacket: null as CallAudio[`onPacket`],
     onLevel: null,
     muted: false,
     played: [] as number[][],
