@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-27-device-share-remove",
+    date: "2026-10-27",
+    title: "Team owners can remove a shared machine",
+    summary: "A team owner can now remove a teammate's shared machine from the team, and when two accounts claim the same machine, the account that registered it first wins.",
+    body: r#"- **Remove from this team**: on Devices, a team owner sees Remove on a teammate's shared machine. It stops sharing that machine with the team, and sessions teammates started on it end.
+- **Who holds it**: if a machine is already shared with the team from another account, a team owner sees whose account shares it.
+- **First registration wins**: a machine shared from an account that registered it later is replaced when the account that registered it first shares it.
+- **One account per machine and team**: two accounts signed in on one machine can each share it, but only into different teams."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_93: ChangelogEntry = ChangelogEntry {
     id: "2026-10-26-release-train",
     date: "2026-10-26",
     title: "Release 2026-10-26: Talk to your agents (beta), with the train's fixes",

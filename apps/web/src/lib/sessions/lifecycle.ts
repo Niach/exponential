@@ -255,36 +255,51 @@ export async function endDeadSessionInTx(tx: Tx, session: TreeRow): Promise<bool
 }
 
 /**
- * EXP-445: the consent behind a hosted run went away (the host unshared the
- * box, or the requester left the team): end every live THREAD session
- * someone else started in `teamId` on the machines in `deviceIds` whose
- * share `hostUserId` just withdrew. Agents never end: `pauseDeviceAgents`
- * disarms them. FEED-148: only the sessions `hostUserId` HOSTED (the
- * resolved host as of before the write, `hostedByCondition`), never every
- * session on a machine id they merely registered too.
+ * EXP-445: the consent behind a hosted run is going away (the host unshares
+ * the box, leaves the team, or a team owner drops the share): every live
+ * THREAD session someone else started in `teamId` on the machines in
+ * `deviceIds` that `hostUserId` HOSTS. Agents never end: `pauseDeviceAgents`
+ * disarms them. FEED-148: only the sessions `hostUserId` hosts (the resolved
+ * host, `hostedByCondition`), never every session on a machine id they
+ * merely registered too. FEED-149: read in the share write's transaction,
+ * after `lockDeviceShares` and BEFORE the write, so no other account's share
+ * can slip in and change who hosts between the read and the end; hand the
+ * ids to `endHostedSessions` after commit.
  */
-export async function endForeignHostedSessions(
+export async function foreignHostedSessionIds(
+  tx: Tx,
   hostUserId: string,
   teamId: string,
   deviceIds: readonly string[]
 ): Promise<string[]> {
   if (deviceIds.length === 0) return []
+  const rows = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        ne(sessions.userId, hostUserId),
+        eq(sessions.teamId, teamId),
+        ne(sessions.status, `ended`),
+        isNull(sessions.agentId),
+        inArray(sessions.deviceId, [...deviceIds]),
+        hostedByCondition(hostUserId, sessions)
+      )
+    )
+  return rows.map((row) => row.id)
+}
+
+/** FEED-149: end the set `foreignHostedSessionIds` read, after the share
+ *  write committed (rows that ended meanwhile stay as they are). */
+export async function endHostedSessions(ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return []
   const endedIds = await db.transaction(async (tx) => {
-    const hosted = await tx
+    const rows = await tx
       .select({ id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, agentId: sessions.agentId })
       .from(sessions)
-      .where(
-        and(
-          ne(sessions.userId, hostUserId),
-          eq(sessions.teamId, teamId),
-          ne(sessions.status, `ended`),
-          isNull(sessions.agentId),
-          inArray(sessions.deviceId, [...deviceIds]),
-          hostedByCondition(hostUserId, sessions, { revoking: true })
-        )
-      )
+      .where(and(inArray(sessions.id, [...ids]), ne(sessions.status, `ended`)))
       .orderBy(desc(sessions.depth), asc(sessions.createdAt))
-    return endRowsInTx(tx, hosted)
+    return endRowsInTx(tx, rows)
   })
   await relayKillSessionsBestEffort(endedIds)
   return endedIds

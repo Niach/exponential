@@ -3,6 +3,7 @@ package com.exponential.app.ui.session
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SteerApi
@@ -76,6 +77,7 @@ class AgentsViewModel @Inject constructor(
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
     stats: SyncStats,
+    private val selection: TeamSelection,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
@@ -103,6 +105,28 @@ class AgentsViewModel @Inject constructor(
     // shared with ANY member team (the synced rows are exactly those).
     val devices: StateFlow<List<SteerDevice>?> =
         steerDeviceFlow(dbFlow, flowOf(null), auth.userId, allTeams = true)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * FEED-149: the team a team owner's Remove drops a teammate's share from —
+     * the SELECTED team, null when the caller does not OWN it. The list is
+     * cross-team (EXP-1186), so a row only carries Remove when its
+     * `sharedTeamIds` holds this team (web `my-machines.tsx`).
+     */
+    val ownedTeamId: StateFlow<String?> =
+        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) {
+                    flowOf(null)
+                } else {
+                    combine(db.teamMemberDao().observeByTeam(teamId), auth.userId) { members, userId ->
+                        teamId.takeIf {
+                            userId != null &&
+                                members.any { it.userId == userId && it.role == DomainContract.teamRoleOwner }
+                        }
+                    }
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Informational CLIENT_LATEST_VERSION_* values behind the "update
@@ -343,6 +367,18 @@ class AgentsViewModel @Inject constructor(
      */
     fun removeDevice(deviceId: String) =
         mutateDevice(deviceId, "remove", "the device") { accountId -> devicesApi.remove(accountId, deviceId) }
+
+    /**
+     * FEED-149: a team owner drops a TEAMMATE's machine from [teamId]. Keyed
+     * by the synced row id; the shape delta removes the row, a failure is
+     * the remove toast web raises (`failedAction("remove", "the device")`).
+     */
+    fun dropDeviceShare(device: SteerDevice, teamId: String) {
+        val rowId = device.rowId ?: return
+        mutateDevice(device.deviceId, "remove", "the device") { accountId ->
+            devicesApi.dropShare(accountId, rowId, teamId)
+        }
+    }
 
     /** Ask a server daemon to self-update; it restarts when idle. */
     fun requestDeviceUpdate(deviceId: String): Unit =

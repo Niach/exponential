@@ -24,6 +24,21 @@ vi.mock(`@/lib/steer`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/steer")>()),
   getSteerRelayConfig: () => null,
 }))
+// FEED-149: a hook that runs between an endpoint's commit and its
+// `endHostedSessions` (the race window), then the real end.
+const endHook = vi.hoisted(() => ({ before: null as null | ((ids: string[]) => Promise<void>) }))
+vi.mock(`@/lib/sessions/lifecycle`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/sessions/lifecycle")>()
+  return {
+    ...actual,
+    endHostedSessions: async (ids: string[]) => {
+      const before = endHook.before
+      endHook.before = null
+      if (before) await before(ids)
+      return actual.endHostedSessions(ids)
+    },
+  }
+})
 
 const ready = await probeRealDb(`
   SELECT (
@@ -201,5 +216,179 @@ describe.skipIf(!ready.ok)(`FEED-148: a registered machine id is not the host`, 
     const next = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `again` } })).sessionId
     const [started] = await db.select().from(sessions).where(eq(sessions.id, next))
     expect(await resolveSessionHost(started!)).toBe(w.boxOwner)
+  })
+})
+
+// FEED-149: the follow-ups. A machine's id shows in team-visible sessions and
+// the box owner's Remove re-registers the box YOUNGER, so no share displaces
+// another, whatever the rows' ages: a contested share is CONFLICT and only a
+// team owner's drop settles it; the owner reads who holds one.
+describe.skipIf(!ready.ok)(`FEED-149: squats, the owner's drop, the holder's name`, () => {
+  const shareOf = async (userId: string, deviceId: string) =>
+    (
+      await db
+        .select({ sharedTeamIds: devices.sharedTeamIds })
+        .from(devices)
+        .where(and(eq(devices.userId, userId), eq(devices.deviceId, deviceId)))
+    )[0]!.sharedTeamIds
+  const doctor = { checkedAt: new Date().toISOString(), items: [] }
+  const registerAs = (userId: string, deviceId: string) =>
+    devicesAs(userId).register({ deviceId, label: `box`, kind: `server`, doctor })
+
+  it(`a teammate's OLDER row (the box owner removed and re-registered the box) cannot take the box over`, async () => {
+    const w = await world()
+    // 1. A teammate reads the box's id from a team-visible session and
+    //    registers it (younger than the box owner's row, for now).
+    const attacker = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: attacker, role: `member` })
+    await registerAs(attacker, w.deviceId)
+    // 2. The box owner presses Remove; the daemon registers again with a NEW
+    //    created_at, so the attacker's row is now the OLDER one. The owner
+    //    shares the box again and a teammate runs on it.
+    await devicesAs(w.boxOwner).remove({ deviceId: w.deviceId })
+    await registerAs(w.boxOwner, w.deviceId)
+    await devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    const ages = await db
+      .select({ userId: devices.userId })
+      .from(devices)
+      .where(eq(devices.deviceId, w.deviceId))
+      .orderBy(devices.createdAt, devices.id)
+    expect(ages.map((row) => row.userId)).toEqual([attacker, w.boxOwner])
+    const run = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `owner's run` } })).sessionId
+    // 3. The attacker shares: refused, nothing displaced.
+    await expect(
+      devicesAs(attacker).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+    expect(await shareOf(attacker, w.deviceId)).toEqual([])
+    expect(await shareOf(w.boxOwner, w.deviceId)).toEqual([w.teamId])
+    // The owner's runs are untouched and still theirs to claim and report.
+    expect(await status(w.hosted)).not.toBe(`ended`)
+    expect(await status(run)).not.toBe(`ended`)
+    for (const id of [w.hosted, run]) {
+      const [row] = await db.select().from(sessions).where(eq(sessions.id, id))
+      expect(await resolveSessionHost(row!)).toBe(w.boxOwner)
+      await expect(assertDeviceHost(w.boxOwner, row!)).resolves.toBeUndefined()
+      await expect(assertDeviceHost(attacker, row!)).rejects.toMatchObject({ code: `FORBIDDEN` })
+    }
+    // New starts still route to the owner's daemon.
+    const next = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `again` } })).sessionId
+    const [started] = await db.select().from(sessions).where(eq(sessions.id, next))
+    expect(await resolveSessionHost(started!)).toBe(w.boxOwner)
+  })
+
+  it(`a younger squat is not displaced either: the box owner gets CONFLICT until a team owner drops it`, async () => {
+    const w = await world()
+    // The box owner stops sharing; a teammate who read the id shares first.
+    await devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: false })
+    const squatter = await w.intruder({ shares: false })
+    await devicesAs(squatter).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    const squatted = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `squatted` } })).sessionId
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, squatted))
+    expect(await resolveSessionHost(row!)).toBe(squatter)
+    // The box owner's (older) share is refused too, and ends nothing.
+    await expect(
+      devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+    expect(await shareOf(squatter, w.deviceId)).toEqual([w.teamId])
+    expect(await status(squatted)).not.toBe(`ended`)
+    // A team owner settles it: the squat's runs end with it.
+    const [squatRow] = await db
+      .select({ id: devices.id })
+      .from(devices)
+      .where(and(eq(devices.userId, squatter), eq(devices.deviceId, w.deviceId)))
+    await devicesAs(w.lead).dropShare({ id: squatRow!.id, teamId: w.teamId })
+    expect(await status(squatted)).toBe(`ended`)
+    await devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    expect(await shareOf(w.boxOwner, w.deviceId)).toEqual([w.teamId])
+    await expect(
+      devicesAs(squatter).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+  })
+
+  it(`a CONFLICT names the holder for a team owner only`, async () => {
+    const w = await world()
+    // The box owner removed the box and its daemon registered again: their
+    // row is now YOUNGER than a duplicate that shares the box.
+    const holder = await w.intruder({ shares: false })
+    await db.execute(sql`UPDATE users SET name = 'Holder Person' WHERE id = ${holder}`)
+    await db
+      .update(devices)
+      .set({ sharedTeamIds: [w.teamId], createdAt: new Date(Date.now() - 86_400_000) })
+      .where(and(eq(devices.userId, holder), eq(devices.deviceId, w.deviceId)))
+    await devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: false })
+    await expect(
+      devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    ).rejects.toMatchObject({ code: `CONFLICT`, message: `Another account already shares this machine with that team` })
+    await db
+      .update(teamMembers)
+      .set({ role: `owner` })
+      .where(and(eq(teamMembers.teamId, w.teamId), eq(teamMembers.userId, w.boxOwner)))
+    await expect(
+      devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    ).rejects.toMatchObject({ code: `CONFLICT`, message: `Holder Person already shares this machine with that team` })
+  })
+
+  it(`a team owner drops a member's share: its runs end, its agents disarm, the box owner can share again`, async () => {
+    const w = await world()
+    const [agent] = await db
+      .insert(agents)
+      .values({
+        teamId: w.teamId,
+        name: `Nightly`,
+        deviceId: w.deviceId,
+        ownerId: w.lead,
+        triggers: [{ id: `t1`, enabled: true, kind: `schedule`, cron: `0 3 * * *` }] as never,
+      })
+      .returning({ id: agents.id })
+    const [boxRow] = await db
+      .select({ id: devices.id })
+      .from(devices)
+      .where(and(eq(devices.userId, w.boxOwner), eq(devices.deviceId, w.deviceId)))
+    // Only a team owner.
+    await expect(devicesAs(w.mate).dropShare({ id: boxRow!.id, teamId: w.teamId })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    expect(await status(w.hosted)).not.toBe(`ended`)
+    await devicesAs(w.lead).dropShare({ id: boxRow!.id, teamId: w.teamId })
+    expect(await shareOf(w.boxOwner, w.deviceId)).toEqual([])
+    expect(await status(w.hosted)).toBe(`ended`)
+    const [after] = await db.select({ triggers: agents.triggers }).from(agents).where(eq(agents.id, agent!.id))
+    expect(after!.triggers).toMatchObject([{ id: `t1`, enabled: false }])
+    // A share the team does not have is not found.
+    await expect(devicesAs(w.lead).dropShare({ id: boxRow!.id, teamId: w.teamId })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    await devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+    expect(await shareOf(w.boxOwner, w.deviceId)).toEqual([w.teamId])
+  })
+
+  it(`a share landing between the unshare's commit and its end cannot save the runs it hosted`, async () => {
+    const w = await world()
+    const rival = await w.intruder({ shares: false })
+    // The rival's share lands after the box owner's unshare commits, before
+    // its end runs: the rival is then the host of w.hosted.
+    endHook.before = async (ids) => {
+      expect(ids).toEqual([w.hosted])
+      await devicesAs(rival).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: true })
+      const [row] = await db.select().from(sessions).where(eq(sessions.id, w.hosted))
+      expect(await resolveSessionHost(row!)).toBe(rival)
+    }
+    await devicesAs(w.boxOwner).setShared({ deviceId: w.deviceId, teamId: w.teamId, shared: false })
+    expect(endHook.before).toBeNull()
+    // The end still covers it: the set was fixed before anyone else could share.
+    expect(await status(w.hosted)).toBe(`ended`)
+  })
+})
+
+describe.skipIf(!ready.ok)(`FEED-149: the release train's duplicate-share check`, () => {
+  it(`lists a legacy duplicate pair, host row first`, async () => {
+    const { duplicateDeviceShares } = await import(`@/lib/device-share-duplicates`)
+    const w = await world()
+    const legacy = await w.intruder({ shares: true })
+    await inRollback(async (tx) => {
+      const pair = (await duplicateDeviceShares(tx as never)).find((entry) => entry.deviceId === w.deviceId)
+      expect(pair?.teamId).toBe(w.teamId)
+      expect(pair?.rows.map((row) => row.userId)).toEqual([w.boxOwner, legacy])
+    })
   })
 })

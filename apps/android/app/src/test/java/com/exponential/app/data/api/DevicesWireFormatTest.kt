@@ -38,6 +38,15 @@ class DevicesWireFormatTest {
         )
     }
 
+    // FEED-149: the owner's drop names the synced ROW id as `id`, never `deviceId`.
+    @Test
+    fun `dropShare emits the row id and the team`() {
+        assertEquals(
+            """{"id":"row-1","teamId":"team-1"}""",
+            json.encodeToString(DropShareInput.serializer(), DropShareInput(id = "row-1", teamId = "team-1")),
+        )
+    }
+
     // EXP-924: the reset has to travel as a LITERAL null — the shared Json
     // drops null properties (explicitNulls = false), and a dropped `icon` key
     // would leave the old pick in place (the boards.update branch-clear story).

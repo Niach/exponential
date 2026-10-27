@@ -106,8 +106,10 @@ const h = vi.hoisted(() => {
     getSteerRelayConfig: vi.fn(),
     relayPostNudge: vi.fn(async () => ({ delivered: true })),
     assertTeamMember: vi.fn(),
+    assertTeamOwner: vi.fn(),
     getTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
-    endForeignHostedSessions: vi.fn(async () => [] as string[]),
+    foreignHostedSessionIds: vi.fn(async (..._args: unknown[]) => [] as string[]),
+    endHostedSessions: vi.fn(async (..._args: unknown[]) => [] as string[]),
     pauseDeviceTriggers: vi.fn(async (..._args: unknown[]) => {}),
   }
 })
@@ -125,11 +127,13 @@ vi.mock(`@/lib/steer`, () => ({
 }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
+  assertTeamOwner: h.assertTeamOwner,
   getTeamMember: h.getTeamMember,
 }))
 // EXP-1291: the agent disarm + the hosted-session end are lifecycle's units.
 vi.mock(`@/lib/sessions/lifecycle`, () => ({
-  endForeignHostedSessions: h.endForeignHostedSessions,
+  foreignHostedSessionIds: h.foreignHostedSessionIds,
+  endHostedSessions: h.endHostedSessions,
   pauseDeviceAgents: h.pauseDeviceTriggers,
 }))
 vi.mock(`@/lib/client-version`, () => ({
@@ -176,7 +180,8 @@ beforeEach(() => {
     secret: `s`,
     enabled: true,
   })
-  h.endForeignHostedSessions.mockResolvedValue([])
+  h.foreignHostedSessionIds.mockResolvedValue([])
+  h.endHostedSessions.mockResolvedValue([])
   h.getTeamMember.mockResolvedValue({ role: `member` })
 })
 
@@ -535,7 +540,7 @@ describe(`devices.setShared — toggle form`, () => {
     expect(h.state.updates[0]?.set).toMatchObject({
       sharedTeamIds: [TEAM_A, TEAM_B],
     })
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+    expect(h.foreignHostedSessionIds).not.toHaveBeenCalled()
   })
 
   it(`removes ONE team, keeps the others, and ends only that team's hosted runs`, async () => {
@@ -553,9 +558,8 @@ describe(`devices.setShared — toggle form`, () => {
       [TEAM_B],
       `dev-1`
     )
-    expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(1)
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
-      `actor`,
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledTimes(1)
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`,
       TEAM_B,
       [`dev-1`]
     )
@@ -566,13 +570,13 @@ describe(`devices.setShared — toggle form`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_A] })
     expect(h.assertTeamMember).not.toHaveBeenCalled()
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+    expect(h.foreignHostedSessionIds).not.toHaveBeenCalled()
 
     h.state.updates.length = 0
     h.state.selectQueue = sharedProbe(TEAM_A)
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B, shared: false })
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_A] })
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+    expect(h.foreignHostedSessionIds).not.toHaveBeenCalled()
   })
 
   it(`rejects the toggle form without a teamId`, async () => {
@@ -586,9 +590,9 @@ describe(`devices.setShared — toggle form`, () => {
     h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
     await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
-    expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(2)
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A, [`dev-1`])
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_B, [`dev-1`])
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledTimes(2)
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM_A, [`dev-1`])
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM_B, [`dev-1`])
   })
 })
 
@@ -660,29 +664,32 @@ describe(`devices.setShared — kill fan-out`, () => {
   const TEAM_A = `11111111-1111-4111-8111-111111111111`
   const TEAM_B = `22222222-2222-4222-8222-222222222222`
 
-  it(`ends the old team's hosted sessions when the share is cleared`, async () => {
+  it(`reads the hosted set BEFORE the write and ends it after commit (FEED-149)`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
-    // The column write must land FIRST — once shared_team_ids has moved, no
-    // new foreign attribution can slip in behind the fan-out. By then the
-    // share column is written and the trigger pause, which rides the same
-    // transaction, has run.
-    let updatesWhenKilled = -1
-    let pausesWhenKilled = -1
-    h.endForeignHostedSessions.mockImplementation(async () => {
-      updatesWhenKilled = h.state.updates.length
-      pausesWhenKilled = h.pauseDeviceTriggers.mock.calls.length
+    // The set is read in the share write's transaction, under the machine's
+    // lock and before shared_team_ids moves, so no other account's share can
+    // change who hosts it in between; the end runs after the write and the
+    // agent pause have committed.
+    let updatesWhenRead = -1
+    let updatesWhenEnded = -1
+    let pausesWhenEnded = -1
+    h.foreignHostedSessionIds.mockImplementation(async () => {
+      updatesWhenRead = h.state.updates.length
+      return [`s-1`]
+    })
+    h.endHostedSessions.mockImplementation(async () => {
+      updatesWhenEnded = h.state.updates.length
+      pausesWhenEnded = h.pauseDeviceTriggers.mock.calls.length
       return []
     })
 
     await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
-      `actor`,
-      TEAM_A,
-      [`dev-1`]
-    )
-    expect(updatesWhenKilled).toBe(1)
-    expect(pausesWhenKilled).toBe(1)
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM_A, [`dev-1`])
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-1`])
+    expect(updatesWhenRead).toBe(0)
+    expect(updatesWhenEnded).toBe(1)
+    expect(pausesWhenEnded).toBe(1)
   })
 
   it(`ends the OLD team's sessions when its share is withdrawn (toggle form)`, async () => {
@@ -692,8 +699,7 @@ describe(`devices.setShared — kill fan-out`, () => {
 
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [TEAM_B] })
     // Device-scoped since EXP-560 — only this machine's foreign runs die.
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
-      `actor`,
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`,
       TEAM_A,
       [`dev-1`]
     )
@@ -708,7 +714,7 @@ describe(`devices.setShared — kill fan-out`, () => {
     expect(h.state.updates[0]?.set).toMatchObject({
       sharedTeamIds: [TEAM_A, TEAM_B],
     })
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+    expect(h.foreignHostedSessionIds).not.toHaveBeenCalled()
   })
 
   it(`ends nothing on a first share (private → team)`, async () => {
@@ -716,7 +722,7 @@ describe(`devices.setShared — kill fan-out`, () => {
 
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
 
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+    expect(h.foreignHostedSessionIds).not.toHaveBeenCalled()
   })
 
   it(`ends nothing on a same-team re-share`, async () => {
@@ -724,7 +730,7 @@ describe(`devices.setShared — kill fan-out`, () => {
 
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
 
-    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+    expect(h.foreignHostedSessionIds).not.toHaveBeenCalled()
   })
 })
 

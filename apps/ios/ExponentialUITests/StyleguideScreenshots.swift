@@ -487,6 +487,13 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.network,
             "No \(Self.demoAccountEmail) login row — is the stub device reporting agent accounts?"
         )
+        // FEED-149: the demo user OWNS Acme, so the teammate's shared build
+        // server carries the owner's Remove in the gear's slot.
+        expect(
+            app.buttons["device-drop-share"].firstMatch,
+            within: Wait.sync,
+            "No Remove on the shared team device — is the demo user Acme's owner?"
+        )
         snapshot("sg_agents", settle: 2)
 
         // ── sg_chat / sg_chat-issues: the home composer ─────────────────────

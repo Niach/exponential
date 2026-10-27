@@ -267,6 +267,29 @@
       ],
       "focus": "cancel"
     },
+    "remove-device-share": {
+      "title": "Remove \"{name}\" from this team?",
+      "body": "Sessions teammates started on it end.",
+      "params": [
+        {
+          "name": "name",
+          "meaning": "the device label, or the device id when it has none"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "remove",
+          "label": "Remove",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
     "delete-team": {
       "title": "Delete \"{name}\"?",
       "body": "All its boards, issues and files are deleted for good.",

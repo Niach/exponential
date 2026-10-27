@@ -19,9 +19,13 @@ The cloud at https://app.exponential.at runs a Coolify dockerimage app that
 pulls the web image; the steer relays (steer.exponential.at /
 steer-next.exponential.at) pull the relay image the same way. Coolify's
 control plane is home-LAN-only, so **there is no auto-redeploy webhook**.
-After a green Actions run, deploy manually from a LAN-connected machine:
+After a green Actions run, deploy manually from a LAN-connected machine,
+after the pre-deploy check against the TARGET database (FEED-149: it exits 1
+on any machine more than one account shares into one team; a team owner
+drops the extra share, the Team devices row's Remove, before the deploy):
 
 ```
+cd apps/web && DATABASE_URL=<target database> bun run check:device-shares
 coolify deploy uuid <app-uuid>
 ```
 

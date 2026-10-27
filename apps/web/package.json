@@ -10,6 +10,7 @@
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
     "backfill:default-branches": "bun scripts/backfill-default-branches.ts",
+    "check:device-shares": "bun scripts/check-device-shares.ts",
     "seed:screenshots": "bun scripts/seed-screenshots.ts",
     "screenshots:ids": "bun scripts/screenshot-ids.ts",
     "screenshots:prune-devices": "bun scripts/screenshot-prune-devices.ts",

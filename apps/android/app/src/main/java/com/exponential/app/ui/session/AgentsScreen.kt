@@ -52,6 +52,7 @@ import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.LaunchDeviceRules
+import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
@@ -64,6 +65,7 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
@@ -91,7 +93,8 @@ import kotlinx.coroutines.delay
  * list is where machines are CURATED, not where runs are started — the Agent
  * page composer's device picker is the single launcher — so the play glyph,
  * the ⋯ row menu and the inline Update controls are gone, and Update and
- * Remove moved into the settings sheet the gear opens.
+ * Remove moved into the settings sheet the gear opens. FEED-149: a team
+ * OWNER's teammate rows carry Remove in that slot instead (drop the share).
  *
  * EXP-909 folded the accounts INTO the machines. The cross-device "Accounts"
  * section — logins merged by email, per-agent tabs, a chip per machine with
@@ -127,6 +130,11 @@ fun AgentsScreen(
     // FEED-79: a failed device write or login command is ONE error toast.
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     ClaimedFailedActionToast(failure, viewModel::claimFailure)
+    // FEED-149: the selected team when the caller OWNS it — its Remove drops a
+    // teammate's share from that team; null = no Remove on any row.
+    val ownedTeamId by viewModel.ownedTeamId.collectAsStateWithLifecycle()
+    // FEED-149: the teammate's shared row whose Remove waits on its confirm.
+    var dropShareTarget by remember { mutableStateOf<SteerDevice?>(null) }
 
     // EXP-817: the machines list's own refresh round — on every change of the
     // logins and on the same 30s clock the countdowns re-read on (web `useNow`).
@@ -248,9 +256,11 @@ fun AgentsScreen(
                             )
                         }
                     }
-                    // Teammates' machines carry no control at all — neither the
-                    // registry row nor the share is this user's to curate
-                    // (sharing itself is managed on the web).
+                    // Teammates' machines carry no gear — the registry row is
+                    // not this user's to curate. FEED-149: a team OWNER gets
+                    // Remove in its slot on a row shared into the SELECTED
+                    // team (the list is cross-team, EXP-1186), which drops
+                    // that share from it.
                     if (teamDevices.isNotEmpty()) {
                         item(key = "__team_machines_header__") { SectionHeader("Team devices") }
                         items(teamDevices, key = { "shared_${it.deviceId}" }) { device ->
@@ -270,6 +280,9 @@ fun AgentsScreen(
                                 onSignOutAccount = {},
                                 onSignInAccount = {},
                                 onAddAccount = {},
+                                onRemoveShare = ownedTeamId
+                                    ?.takeIf { device.rowId != null && it in device.sharedTeamIds }
+                                    ?.let { { dropShareTarget = device } },
                             )
                         }
                     }
@@ -295,6 +308,22 @@ fun AgentsScreen(
                 onDismiss = { settingsTargetId = null },
             )
         }
+    }
+
+    // FEED-149: the owner's Remove — the prompt names the machine; Remove drops
+    // its share from the selected team (the shape delta removes the row, a
+    // failure is the remove toast).
+    dropShareTarget?.let { target ->
+        PromptAlert(
+            prompt = Prompts.RemoveDeviceShare.prompt(target.deviceLabel.ifBlank { target.deviceId }),
+            onDismiss = { dropShareTarget = null },
+            handlers = mapOf(
+                "remove" to {
+                    ownedTeamId?.let { teamId -> viewModel.dropDeviceShare(target, teamId) }
+                    dropShareTarget = null
+                },
+            ),
+        )
     }
 
     // EXP-862: "Remove account" — the machine deletes ITS copy of the login.
@@ -466,7 +495,8 @@ private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { devic
  *
  * EXP-432: a TEAMMATE's shared server (`owner != null`) renders read-only —
  * "shared by <owner>" in place of the version chip, since neither the registry
- * row nor the share is the caller's to change. Own rows shared with a team
+ * row nor the share is the caller's to change (FEED-149: except a team
+ * OWNER's Remove, [onRemoveShare]). Own rows shared with a team
  * carry a quiet "Shared" chip so the reason teammates can start there is
  * visible from the phone (the toggle stays web-only).
  */
@@ -492,6 +522,8 @@ private fun MachineRow(
     onSignInAccount: (AgentProfileUsageRow) -> Unit,
     /** EXP-909: sign a NEW login in on this machine (the device-bound sheet). */
     onAddAccount: () -> Unit,
+    /** FEED-149: a team owner's Remove on a teammate's shared row; null = none. */
+    onRemoveShare: (() -> Unit)? = null,
 ) {
     val online = device.online
     // EXP-836: a machine that could take a start is an online one WITH a
@@ -694,6 +726,18 @@ private fun MachineRow(
                     modifier = Modifier
                         .padding(start = 8.dp)
                         .testTag("device-settings-button"),
+                )
+            } else if (onRemoveShare != null) {
+                // FEED-149: the gear's slot and style on a teammate's row, the
+                // Device settings "Remove device" glyph; always painted.
+                CircleIconButton(
+                    ExpIcons.uiDelete,
+                    contentDescription = "Remove ${device.displayLabel} from this team",
+                    onClick = onRemoveShare,
+                    borderless = true,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .testTag("device-remove-share-button"),
                 )
             }
         }

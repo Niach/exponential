@@ -48,7 +48,7 @@ function DevicesPage() {
   const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
-  const { isMember } = useTeamPermissions(team)
+  const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
 
   const currentUserId = session?.user?.id
@@ -115,6 +115,7 @@ function DevicesPage() {
               onChanged={remote.refresh}
               latestVersions={remote.latestVersions}
               teamId={teamId}
+              isTeamOwner={isOwner}
             />
           )}
         </div>

@@ -94,6 +94,11 @@ final class PromptsTests: XCTestCase {
         XCTAssertEqual(copy.body, "It gets a new identifier in that board.")
         XCTAssertEqual(copy.focus, "move")
         XCTAssertEqual(Prompts.DeleteAction.copy(name: "Triage").title, "Delete \"Triage\"?")
+        // FEED-149: the team owner's Remove on a teammate's shared row.
+        XCTAssertEqual(
+            Prompts.RemoveDeviceShare.copy(name: "Acme build server").title,
+            "Remove \"Acme build server\" from this team?"
+        )
         XCTAssertNil(Prompts.StopRun.copy().body)
         XCTAssertNil(Prompts.RemoveRepository.copy(fullName: "a/b").body)
     }

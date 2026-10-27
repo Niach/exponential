@@ -163,6 +163,12 @@ export const removeDevicePrompt = (name: string) =>
     name,
   })
 
+/** FEED-149: a team owner drops a member's share of a machine. */
+export const removeDeviceSharePrompt = (name: string) =>
+  copyOf(P[`remove-device-share`], P[`remove-device-share`].title, P[`remove-device-share`].body, {
+    name,
+  })
+
 export const deleteTeamPrompt = (name: string) =>
   copyOf(P[`delete-team`], P[`delete-team`].title, P[`delete-team`].body, {
     name,
