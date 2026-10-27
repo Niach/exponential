@@ -208,19 +208,19 @@ extension View {
         }
     }
 
-    /// #EXP-1388: a chat row while the list selects (`selected` nil = not
-    /// selecting) = the issue row's selection cell: the glyph leads at the
-    /// issue card's 12pt inset with its 10pt gap, and a selected row wears
-    /// the issue row's highlight over the full row (pulled 1.5pt in top and
-    /// bottom, the issue list's 3pt row gap).
-    func chatSelectionLead(_ selected: Bool?) -> some View {
-        HStack(spacing: BulkSelection.glyphGap) {
-            if let selected {
-                SelectionGlyph(selected: selected)
+    /// #EXP-1388 (owner on #1286, WhatsApp's reference): a chat row while
+    /// the list selects. NOTHING shifts (no leading control column); a
+    /// SELECTED row wears a full-width flat tint (glass fillActive, edge to
+    /// edge of the screen past the list's `screenInset`, no radius, no
+    /// hairline). The badge on the disc is `ChatRowView(selected:)`'s.
+    func chatSelectedTint(_ selected: Bool, screenInset: CGFloat = 16) -> some View {
+        background {
+            if selected {
+                Rectangle()
+                    .fill(GlassTokens.fillActive)
+                    .padding(.horizontal, -screenInset)
+                    .allowsHitTesting(false)
             }
-            self
         }
-        .padding(.horizontal, selected == nil ? 0 : BulkSelection.rowInset)
-        .selectedRowHighlight(selected == true, verticalInset: 1.5)
     }
 }
