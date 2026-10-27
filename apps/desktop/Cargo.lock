@@ -9699,6 +9699,7 @@ dependencies = [
  "cpal",
  "crispasr",
  "decibri-aec",
+ "libc",
  "log",
  "serde_json",
  "talk",

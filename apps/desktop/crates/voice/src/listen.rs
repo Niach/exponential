@@ -24,6 +24,14 @@
 //! [`talk::BARGE_IN_MS`] is [`talk::Event::SpeechStarted`], segments close
 //! after [`talk::CALL_MIN_SILENCE_MS`], and the audio before the next
 //! possible segment is dropped so an hour-long call stays bounded.
+//!
+//! #NEW-92 (talk-listen.json `echoGate`): a LOCAL call hears the agent's own
+//! reply through the echo canceller, which needs a few seconds to converge.
+//! While a reply is audible ([`EchoState::replying`]) a frame counts towards
+//! barge-in only when the cancelled frame clears the call's echo floor by
+//! a margin ([`EchoGate`]), which is strict until the canceller converged
+//! (and then also needs a longer run); and an utterance whose words are the
+//! reply's own ([`echo_of`]) is dropped, never said.
 
 use talk::{Event, ListenFailure, LEVEL_BANDS};
 
@@ -51,6 +59,137 @@ pub const PAD_MS: usize = 64;
 pub const MAX_SEGMENT_MS: usize = 20_000;
 /// How often the open segment is re-transcribed for a Partial.
 pub const PARTIAL_EVERY: usize = RATE * 300 / 1000;
+
+/// #NEW-92 (talk-listen.json `echoGate`): a reply is audible while its
+/// reference reached this level (dBFS) within the last [`ECHO_WINDOW_MS`].
+pub const REPLY_FLOOR_DB: f32 = -50.0;
+/// #NEW-92: the reference's envelope window: covers the echo's delay and
+/// the room's tail.
+pub const ECHO_WINDOW_MS: usize = 500;
+/// #NEW-92: while a reply is audible, a frame counts towards barge-in only
+/// this far above the call's echo floor...
+pub const ECHO_MARGIN_DB: f32 = 12.0;
+/// ...the median, over the last [`ECHO_FLOOR_FRAMES`] audible frames, of
+/// the frame's level after the canceller minus the reference's envelope
+/// ([`ECHO_INITIAL_FLOOR_DB`] until [`ECHO_FLOOR_MIN_FRAMES`] were seen).
+pub const ECHO_FLOOR_FRAMES: usize = 64;
+pub const ECHO_FLOOR_MIN_FRAMES: usize = 8;
+/// An unconverged canceller passes the echo at full level (the loopback's
+/// worst case: the microphone as loud as the reference).
+pub const ECHO_INITIAL_FLOOR_DB: f32 = 0.0;
+/// #NEW-92: the canceller has converged while the echo floor is at or below
+/// this; before, a barge-in needs [`UNCONVERGED_BARGE_IN_MS`].
+pub const CONVERGED_FLOOR_DB: f32 = -20.0;
+pub const UNCONVERGED_BARGE_IN_MS: usize = 500;
+/// #NEW-92: an utterance is the reply's echo when at least this share of
+/// its words appear, in order, in one sentence of the reply (or two
+/// neighbouring ones).
+pub const ECHO_TEXT_COVERAGE: f32 = 0.7;
+
+/// #NEW-92: what the echo canceller says about the samples a local call
+/// feeds next: the reply's reference envelope (its loudest 32 ms over the
+/// last [`ECHO_WINDOW_MS`], dBFS). The default is a call without one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EchoState {
+    pub reference_db: f32,
+}
+
+impl Default for EchoState {
+    fn default() -> Self {
+        EchoState { reference_db: -120.0 }
+    }
+}
+
+impl EchoState {
+    /// A reply (or its echo tail) can be heard.
+    pub fn replying(&self) -> bool {
+        self.reference_db >= REPLY_FLOOR_DB
+    }
+}
+
+/// #NEW-92: the barge-in gate of a local call (talk-listen.json `echoGate`):
+/// which frames count while a reply is audible, and how many make a
+/// barge-in. Its echo floor learns how well the canceller removes the
+/// echo, so it is strict before the canceller converged (and again after
+/// it diverged) and lets the member through once it did.
+#[derive(Debug, Clone, Default)]
+pub struct EchoGate {
+    /// Level after the canceller minus the reference's envelope, per
+    /// audible frame (the last [`ECHO_FLOOR_FRAMES`]).
+    history: std::collections::VecDeque<f32>,
+}
+
+impl EchoGate {
+    /// The echo floor: the median (the upper of two) of the history.
+    pub fn floor(&self) -> f32 {
+        if self.history.len() < ECHO_FLOOR_MIN_FRAMES {
+            return ECHO_INITIAL_FLOOR_DB;
+        }
+        let mut sorted: Vec<f32> = self.history.iter().copied().collect();
+        sorted.sort_by(f32::total_cmp);
+        sorted[sorted.len() / 2]
+    }
+
+    pub fn converged(&self) -> bool {
+        self.floor() <= CONVERGED_FLOOR_DB
+    }
+
+    /// Whether a frame (speech `probability`, its level after the canceller
+    /// in dBFS) counts towards barge-in; an audible frame joins the floor.
+    pub fn frame(&mut self, probability: f32, level_db: f32, echo: EchoState) -> bool {
+        if !echo.replying() {
+            return probability >= THRESHOLD;
+        }
+        let above = level_db - echo.reference_db;
+        let counts = probability >= THRESHOLD && above >= self.floor() + ECHO_MARGIN_DB;
+        self.history.push_back(above);
+        if self.history.len() > ECHO_FLOOR_FRAMES {
+            self.history.pop_front();
+        }
+        counts
+    }
+
+    /// The counted frames that make a barge-in.
+    pub fn needed(&self, echo: EchoState) -> usize {
+        if echo.replying() && !self.converged() { frames(UNCONVERGED_BARGE_IN_MS) } else { frames(talk::BARGE_IN_MS) }
+    }
+}
+
+/// #NEW-92: a transcript's words for [`echo_of`]: lower case, letters and
+/// digits only (`I've` = `ive`).
+fn echo_words(text: &str) -> Vec<String> {
+    text.split(|ch: char| !(ch.is_alphanumeric() || ch == '\'' || ch == '’'))
+        .map(|word| word.chars().filter(|ch| ch.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>())
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+/// The longest common subsequence of two word lists.
+fn common_words(a: &[String], b: &[String]) -> usize {
+    let mut row = vec![0usize; b.len() + 1];
+    for word in a {
+        let mut diagonal = 0;
+        for (index, other) in b.iter().enumerate() {
+            let above = row[index + 1];
+            row[index + 1] = if word == other { diagonal + 1 } else { above.max(row[index]) };
+            diagonal = above;
+        }
+    }
+    row[b.len()]
+}
+
+/// #NEW-92: whether `heard` is the echo of the reply whose sentences are
+/// `spoken`: [`ECHO_TEXT_COVERAGE`] of its words appear, in order, in one
+/// sentence or two neighbouring ones (a segment can straddle a boundary).
+pub fn echo_of(heard: &str, spoken: &[impl AsRef<str>]) -> bool {
+    let heard = echo_words(heard);
+    if heard.is_empty() {
+        return false;
+    }
+    let sentences: Vec<Vec<String>> = spoken.iter().map(|sentence| echo_words(sentence.as_ref())).collect();
+    let pairs = sentences.windows(2).map(|pair| [pair[0].as_slice(), pair[1].as_slice()].concat());
+    sentences.iter().cloned().chain(pairs).any(|sentence| common_words(&heard, &sentence) as f32 >= ECHO_TEXT_COVERAGE * heard.len() as f32)
+}
 
 const fn frames(ms: usize) -> usize {
     (ms * RATE / 1000).div_ceil(FRAME)
@@ -196,9 +335,6 @@ pub struct Segmenter {
     /// [`MIN_SILENCE_MS`] for push to talk, [`talk::CALL_MIN_SILENCE_MS`] in
     /// a call.
     min_silence: usize,
-    /// NEW-55: the speech frames (at or above [`THRESHOLD`]) of the open
-    /// segment.
-    voiced: usize,
     /// Frames scored so far.
     frame: usize,
     /// The first speech frame of the open segment.
@@ -219,7 +355,7 @@ impl Default for Segmenter {
 impl Segmenter {
     /// NEW-55: a segmenter closing segments after `min_silence_ms`.
     pub fn new(min_silence_ms: usize) -> Self {
-        Segmenter { min_silence: frames(min_silence_ms), voiced: 0, frame: 0, speech_start: None, silence_start: None, floor: 0 }
+        Segmenter { min_silence: frames(min_silence_ms), frame: 0, speech_start: None, silence_start: None, floor: 0 }
     }
 
     /// Score the next frame; a segment that just finished comes back.
@@ -229,13 +365,11 @@ impl Segmenter {
         let Some(start) = self.speech_start else {
             if probability >= THRESHOLD {
                 self.speech_start = Some(index);
-                self.voiced = 1;
             }
             return None;
         };
         if probability >= THRESHOLD {
             self.silence_start = None;
-            self.voiced += 1;
         } else if probability < NEG_THRESHOLD && self.silence_start.is_none() {
             self.silence_start = Some(index);
         }
@@ -251,11 +385,6 @@ impl Segmenter {
             return cut;
         }
         None
-    }
-
-    /// NEW-55: the speech in the open segment, in frames (0 = none open).
-    pub fn open_voiced(&self) -> usize {
-        if self.speech_start.is_some() { self.voiced } else { 0 }
     }
 
     /// NEW-55: the first frame any segment still to come can reach back to
@@ -293,7 +422,6 @@ impl Segmenter {
         let end = (speech_end + frames(PAD_MS)).min(self.frame);
         self.speech_start = None;
         self.silence_start = None;
-        self.voiced = 0;
         if speech_end - start < frames(MIN_SPEECH_MS) {
             return None;
         }
@@ -479,8 +607,8 @@ impl Utterance {
 
 /// NEW-55: a call, from its first sample to Hangup: Level per frame, Said
 /// per closed segment, Partial for the open one (GPU only), SpeechStarted
-/// once per utterance at [`talk::BARGE_IN_MS`] of speech. Never Heard or
-/// Empty.
+/// once per utterance at [`talk::BARGE_IN_MS`] of speech (#NEW-92: of
+/// frames the echo gate lets count, [`EchoGate`]). Never Heard or Empty.
 pub struct Call {
     id: String,
     language: String,
@@ -493,6 +621,13 @@ pub struct Call {
     segmenter: Segmenter,
     /// SpeechStarted went out for the open utterance.
     announced: bool,
+    /// #NEW-92: the open utterance's frames that count towards barge-in
+    /// ([`EchoGate`]), the frames scored so far, and the echo canceller's
+    /// word on the samples being fed.
+    barging: usize,
+    scored: usize,
+    echo: EchoState,
+    gate: EchoGate,
     /// The absolute sample count at the last partial decode.
     partial_at: usize,
     last_partial: String,
@@ -513,9 +648,23 @@ impl Call {
             meter: Meter::default(),
             segmenter: Segmenter::new(talk::CALL_MIN_SILENCE_MS),
             announced: false,
+            barging: 0,
+            scored: 0,
+            echo: EchoState::default(),
+            gate: EchoGate::default(),
             partial_at: 0,
             last_partial: String::new(),
         }
+    }
+
+    /// #NEW-92: what the echo canceller says about the samples fed next.
+    pub fn set_echo(&mut self, echo: EchoState) {
+        self.echo = echo;
+    }
+
+    /// #NEW-92: the barge-in gate (`echo_check` prints its floor).
+    pub fn echo_gate(&self) -> &EchoGate {
+        &self.gate
     }
 
     pub fn id(&self) -> &str {
@@ -552,6 +701,8 @@ impl Call {
         }
         let probabilities = vad.push(samples).map_err(|err| (ListenFailure::Failed, err))?;
         for probability in probabilities {
+            let frame = self.scored;
+            self.scored += 1;
             if let Some(segment) = self.segmenter.push(probability) {
                 let text = normalize_transcript(&self.transcribe(segment.start, segment.end, transcriber)?);
                 self.last_partial.clear();
@@ -559,9 +710,19 @@ impl Call {
                     emit(Event::Said { id: self.id.clone(), text });
                 }
             }
+            let at = (frame * FRAME).saturating_sub(self.base).min(self.audio.len());
+            let level = crate::echo::dbfs(&self.audio[at..(at + FRAME).min(self.audio.len())]);
+            // Every frame: the echo floor learns from the reply's silences too.
+            let counts = self.gate.frame(probability, level, self.echo);
             if self.segmenter.open_start().is_none() {
                 self.announced = false;
-            } else if !self.announced && self.segmenter.open_voiced() >= frames(talk::BARGE_IN_MS) {
+                self.barging = 0;
+                continue;
+            }
+            if counts {
+                self.barging += 1;
+            }
+            if !self.announced && self.barging >= self.gate.needed(self.echo) {
                 self.announced = true;
                 emit(Event::SpeechStarted { id: self.id.clone() });
             }
@@ -916,6 +1077,69 @@ mod tests {
             let segments: Vec<[usize; 2]> = segments.iter().map(|segment| [segment.start, segment.end]).collect();
             let expected: Vec<[usize; 2]> = serde_json::from_value(case["segments"].clone()).unwrap();
             assert_eq!(segments, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #NEW-92: talk-listen.json `echoGate`: the constants, the barge-in
+    /// gate frame by frame, and the echo text rule.
+    #[test]
+    fn the_echo_gate_follows_the_fixture() {
+        let fixture = fixture();
+        let gate = &fixture["echoGate"];
+        let c = &gate["constants"];
+        assert_eq!(f(&c["replyFloorDb"]), REPLY_FLOOR_DB);
+        assert_eq!(c["echoWindowMs"], ECHO_WINDOW_MS);
+        assert_eq!(f(&c["marginDb"]), ECHO_MARGIN_DB);
+        assert_eq!(c["echoFloorFrames"], ECHO_FLOOR_FRAMES);
+        assert_eq!(c["echoFloorMinFrames"], ECHO_FLOOR_MIN_FRAMES);
+        assert_eq!(f(&c["initialFloorDb"]), ECHO_INITIAL_FLOOR_DB);
+        assert_eq!(f(&c["convergedFloorDb"]), CONVERGED_FLOOR_DB);
+        assert_eq!(c["bargeInMs"], talk::BARGE_IN_MS);
+        assert_eq!(c["unconvergedBargeInMs"], UNCONVERGED_BARGE_IN_MS);
+        assert_eq!(f(&c["echoTextCoverage"]), ECHO_TEXT_COVERAGE);
+        assert_eq!(c["spokenHoldMs"].as_u64().unwrap() as u128, crate::SPOKEN_HOLD.as_millis());
+
+        /// Hands out the case's probabilities, one per frame.
+        struct Scripted(std::collections::VecDeque<f32>, usize);
+        impl Vad for Scripted {
+            fn push(&mut self, samples: &[f32]) -> Result<Vec<f32>, String> {
+                self.1 += samples.len();
+                let whole = self.1 / FRAME;
+                self.1 %= FRAME;
+                Ok((0..whole).map(|_| self.0.pop_front().unwrap_or(0.0)).collect())
+            }
+        }
+        for case in gate["bargeInCases"].as_array().unwrap() {
+            let mut frames_in = Vec::new();
+            for run in case["frames"].as_array().unwrap() {
+                let echo = run[2].as_f64().map_or_else(EchoState::default, |reference| EchoState { reference_db: reference as f32 });
+                for _ in 0..run[3].as_u64().unwrap() {
+                    frames_in.push((f(&run[0]), f(&run[1]), echo));
+                }
+            }
+            let mut vad = Scripted(frames_in.iter().map(|frame| frame.0).collect(), 0);
+            let mut transcriber = Lengths { partials: false, clips: Vec::new() };
+            let mut call = Call::new("c1", "en");
+            let mut started = None;
+            for (index, (_, level_db, echo)) in frames_in.iter().enumerate() {
+                call.set_echo(*echo);
+                // A sine at the frame's level (dBFS = 20·log10(A/√2)).
+                let amplitude = std::f32::consts::SQRT_2 * 10f32.powf(level_db / 20.0);
+                let frame: Vec<f32> = (0..FRAME).map(|at| amplitude * (std::f32::consts::TAU * 440.0 * at as f32 / RATE as f32).sin()).collect();
+                call.feed(&frame, &mut vad, &mut transcriber, &mut |event| {
+                    if matches!(event, Event::SpeechStarted { .. }) && started.is_none() {
+                        started = Some(index);
+                    }
+                })
+                .unwrap();
+            }
+            let expected = case["speechStartedAt"].as_u64().map(|at| at as usize);
+            assert_eq!(started, expected, "{}", case["name"]);
+        }
+
+        for case in gate["echoTextCases"].as_array().unwrap() {
+            let spoken: Vec<&str> = case["spoken"].as_array().unwrap().iter().map(|sentence| sentence.as_str().unwrap()).collect();
+            assert_eq!(echo_of(case["heard"].as_str().unwrap(), &spoken), case["echo"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 

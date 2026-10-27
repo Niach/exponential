@@ -27,7 +27,9 @@
 //!
 //! NEW-55 (`voice-call.json`): during a CALL a Speak plays (only push to
 //! talk refuses it). A local call's playback is tapped as the echo
-//! canceller's reference ([`echo`]); a remote call's reply is never played
+//! canceller's reference ([`echo`]) (#NEW-92: through ONE output stream for
+//! the whole call, [`sink::Stream`], so the echo delay the canceller
+//! converged on holds across replies); a remote call's reply is never played
 //! here but streamed as `SpeechAudio` ([`StreamSink`]). When the call hears
 //! [`talk::BARGE_IN_MS`] of speech, [`barge`] stops the reply (its
 //! `Finished { stopped: true }` goes out first) and only then is
@@ -106,8 +108,18 @@ struct Shared {
     listening: Arc<listener::Listening>,
     /// NEW-55: a local call's echo reference.
     far: Arc<echo::FarEnd>,
+    /// #NEW-92: a local call's output stream (opened by its first reply,
+    /// dropped at Hangup) and its rate.
+    call_out: Mutex<Option<(u32, Arc<dyn sink::Stream>)>>,
+    /// #NEW-92: the sentences of the local call's last two replies, and when
+    /// each ended (`None` = it plays): what the call may still hear as echo.
+    spoken: Mutex<Vec<(Vec<String>, Option<Instant>)>>,
     emit: Emitter,
 }
+
+/// #NEW-92: how long after a reply ended its words still count as echo
+/// (its echo tail, the segment's closing silence, a CPU transcription).
+pub(crate) const SPOKEN_HOLD: Duration = Duration::from_secs(3);
 
 impl Shared {
     fn new(listening: Arc<listener::Listening>, emit: Emitter) -> Self {
@@ -117,12 +129,67 @@ impl Shared {
             speaking: Mutex::new(None),
             listening,
             far: Arc::default(),
+            call_out: Mutex::new(None),
+            spoken: Mutex::new(Vec::new()),
             emit,
         }
     }
 
+    /// #NEW-92: the local call's output stream at `rate`, opened on first use
+    /// (and again after it failed).
+    fn call_out(&self, rate: u32) -> Result<Arc<dyn sink::Stream>, String> {
+        let mut out = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((open_rate, stream)) = out.as_ref() {
+            if *open_rate == rate && stream.failed().is_none() {
+                return Ok(stream.clone());
+            }
+        }
+        let stream = sink::open_stream(rate, echo::FarEnd::tap(&self.far, rate))?;
+        *out = Some((rate, stream.clone()));
+        Ok(stream)
+    }
+
+    /// #NEW-92: the call ended (or turned remote): its stream plays out and closes.
+    fn close_call_out(&self) {
+        let stream = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        drop(stream);
+    }
+
+    /// #NEW-92: what a local call may still hear of the latest reply.
+    fn spoken(&self) -> Vec<String> {
+        let spoken = self.spoken.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        spoken
+            .iter()
+            .filter(|(_, ended)| ended.is_none_or(|ended| ended.elapsed() < SPOKEN_HOLD))
+            .flat_map(|(sentences, _)| sentences.iter().cloned())
+            .collect()
+    }
+
+    /// A reply starts: its sentences join the previous reply's (whose
+    /// echo can still arrive after the next one started).
+    fn set_spoken(&self, sentences: Vec<String>) {
+        let mut spoken = self.spoken.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        spoken.push((sentences, None));
+        let over = spoken.len().saturating_sub(2);
+        spoken.drain(..over);
+    }
+
     fn speaking(&self) -> std::sync::MutexGuard<'_, Option<String>> {
         self.speaking.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+
+/// #NEW-92: the reply's sentences count as playing until this drops (every
+/// way `speak` returns), then for [`SPOKEN_HOLD`].
+struct SpokenUntilDrop<'a>(&'a Shared);
+
+impl Drop for SpokenUntilDrop<'_> {
+    fn drop(&mut self) {
+        let mut spoken = self.0.spoken.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, ended)) = spoken.last_mut() {
+            ended.get_or_insert_with(Instant::now);
+        }
     }
 }
 
@@ -181,6 +248,10 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             let shared = shared.clone();
             Arc::new(move || shared.speaking().is_some())
         },
+        spoken: {
+            let shared = shared.clone();
+            Arc::new(move || shared.spoken())
+        },
     };
     let (listen, listener) = listener::spawn(hearing, links);
 
@@ -234,6 +305,9 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::Call { id, language, remote } => {
                 // Replaces a Listen or Call; replies keep playing.
                 listening.begin_call(&id, remote);
+                if remote {
+                    shared.close_call_out();
+                }
                 let _ = listen.send(listener::Job::Call { id, language, remote });
             }
             Request::CallAudio { id, pcm } => match talk::decode_pcm(&pcm) {
@@ -249,6 +323,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::Hangup { id } => {
                 // Replies play locally again at once.
                 listening.end(&id);
+                shared.close_call_out();
                 let _ = listen.send(listener::Job::Hangup { id });
             }
             Request::Wake { phrase, language } => {
@@ -694,12 +769,22 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
     }
     // NEW-55: a remote call's reply streams to the caller.
     let remote = shared.listening.remote_call();
-    let sink: Arc<dyn sink::Sink> = if remote {
-        Arc::new(StreamSink::new(id, loaded.sample_rate, shared.emit.clone()))
+    // #NEW-92: a local call's reply plays on the call's one stream (tapped
+    // as the canceller's reference); its sentences are what the call may
+    // hear back as echo.
+    let local_call = !remote && shared.listening.in_call();
+    let opened = if remote {
+        Ok(Arc::new(StreamSink::new(id, loaded.sample_rate, shared.emit.clone())) as Arc<dyn sink::Sink>)
+    } else if local_call {
+        shared.set_spoken(speech_chunks(text, true).into_iter().map(str::to_string).collect());
+        shared.call_out(loaded.sample_rate).map(|stream| Arc::new(sink::Reply::new(stream)) as Arc<dyn sink::Sink>)
     } else {
-        match sink::open(loaded.sample_rate) {
-            // NEW-55: a local call cancels the reply's echo with this copy.
-            Ok(sink) => Arc::new(echo::TapSink::new(sink, shared.far.clone(), loaded.sample_rate)),
+        sink::open(loaded.sample_rate)
+    };
+    let _spoken = local_call.then(|| SpokenUntilDrop(shared));
+    let sink: Arc<dyn sink::Sink> = {
+        match opened {
+            Ok(sink) => sink,
             Err(err) => {
                 eprintln!("audio output failed: {err}");
                 emit(Event::Failed { id: id.into(), error: err });

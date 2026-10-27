@@ -356,7 +356,24 @@ impl<H: Hearing> Calling<H> {
         if self.muted {
             return Ok(());
         }
+        if let Some(echo) = &self.echo {
+            // #NEW-92: the barge-in gate hears what the canceller says.
+            self.call.set_echo(echo.state());
+        }
+        let local = self.echo.is_some();
         self.call.feed(samples, &mut self.vad, engines, &mut |event| {
+            if local {
+                if let Event::Said { text, .. } | Event::Partial { text, .. } = &event {
+                    // #NEW-92: the reply's own words are its echo: dropped,
+                    // never a turn (and never logged: a transcript).
+                    if crate::listen::echo_of(text, &(links.spoken)()) {
+                        if matches!(event, Event::Said { .. }) {
+                            eprintln!("voice: dropped an utterance that was the reply's echo");
+                        }
+                        return;
+                    }
+                }
+            }
             if matches!(event, Event::SpeechStarted { .. }) {
                 // Barge-in: the reply stops (its Finished goes out) BEFORE
                 // the host hears that the person talks.
@@ -378,12 +395,22 @@ pub struct Links {
     pub emit: Arc<dyn Fn(&Event) + Send + Sync>,
     /// #1263 review: a reply is being spoken (the wake word ignores it).
     pub speaking: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// #NEW-92: the sentences of the reply a local call may still hear
+    /// (empty = none): an utterance made of their words is the echo.
+    pub spoken: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
 }
 
 impl Links {
     /// Events to stdout, no speaker (the loop's tests, the examples).
     pub fn new(listening: Arc<Listening>) -> Self {
-        Links { listening, barge: Arc::new(|| {}), far: Arc::default(), emit: Arc::new(emit), speaking: Arc::new(|| false) }
+        Links {
+            listening,
+            barge: Arc::new(|| {}),
+            far: Arc::default(),
+            emit: Arc::new(emit),
+            speaking: Arc::new(|| false),
+            spoken: Arc::new(Vec::new),
+        }
     }
 }
 
@@ -1247,6 +1274,8 @@ mod tests {
         events: Arc<Mutex<Vec<Event>>>,
         /// What `Links::speaking` answers (a reply plays).
         speaking: Arc<std::sync::atomic::AtomicBool>,
+        /// What `Links::spoken` answers (the reply's sentences).
+        spoken: Arc<Mutex<Vec<String>>>,
         tx: Option<Sender<Job>>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
@@ -1261,16 +1290,19 @@ mod tests {
             let (sink, barged) = (events.clone(), events.clone());
             let speaking: Arc<std::sync::atomic::AtomicBool> = Arc::default();
             let plays = speaking.clone();
+            let spoken: Arc<Mutex<Vec<String>>> = Arc::default();
+            let replying = spoken.clone();
             let links = Links {
                 listening: listening.clone(),
                 barge: Arc::new(move || barged.lock().unwrap().push(Event::Finished { id: BARGE.into(), stopped: true })),
                 far: Arc::default(),
                 emit: Arc::new(move |event| sink.lock().unwrap().push(event.clone())),
                 speaking: Arc::new(move || plays.load(Ordering::SeqCst)),
+                spoken: Arc::new(move || replying.lock().unwrap().clone()),
             };
             let hearing = probe.hearing();
             let (tx, thread) = spawn(move || hearing, links);
-            Harness { probe, opened, listening, events, speaking, tx: Some(tx), thread: Some(thread) }
+            Harness { probe, opened, listening, events, speaking, spoken, tx: Some(tx), thread: Some(thread) }
         }
 
         fn send(&self, job: Job) {
@@ -1396,6 +1428,26 @@ mod tests {
         assert!(harness.listening.active(), "a call runs until Hangup");
         let events = harness.close();
         assert!(!events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::Empty { .. })));
+    }
+
+    /// #NEW-92: in a local call, an utterance made of the reply's own words
+    /// is its echo: dropped, never said; the next one goes out.
+    #[test]
+    fn a_local_call_drops_the_replys_echo() {
+        let harness = Harness::new();
+        *harness.spoken.lock().unwrap() = vec!["Here is clip1 again.".into()];
+        harness.call("c1", false);
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the microphone opened");
+        for _ in 0..2 {
+            for chunk in phrase(0.8).chunks(320) {
+                harness.probe.say(chunk.to_vec());
+            }
+        }
+        harness.until(|events| events.iter().filter(|event| matches!(event, Event::SpeechStarted { .. })).count() == 2);
+        let events = harness.said(1);
+        let said: Vec<&Event> = events.iter().filter(|event| matches!(event, Event::Said { .. })).collect();
+        assert_eq!(said, [&Event::Said { id: "c1".into(), text: "clip2".into() }]);
+        harness.close();
     }
 
     /// NEW-55: Hangup closes the microphone without an answer.
