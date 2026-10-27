@@ -55,6 +55,7 @@
 //!    [`viewer::ViewerHandle::note_session_ended`] so the redial loops stop
 //!    chasing a publisher that is gone.
 
+pub mod call_host;
 pub mod activity;
 pub mod agent_login_driver;
 pub mod answer_tap;

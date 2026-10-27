@@ -1,9 +1,14 @@
-// The relay hub: device presence + session rooms, all in memory (masterplan
-// §3.1/§3.4). No DB, no persistence — if the relay restarts, sockets reconnect
+// The relay hub: device presence + session rooms + (NEW-55) voice call
+// rooms, all in memory (masterplan §3.1/§3.4). No DB, no persistence — if the relay restarts, sockets reconnect
 // and re-announce; nothing durable is lost because nothing durable existed.
 
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import {
+  CALL_FRAME_HEADER_BYTES,
+  CALL_KIND_DOWN,
+  CALL_KIND_UP,
+  CALL_MAX_FRAME_BYTES,
+  CALL_RING_TIMEOUT_MS,
   CLOSE_PUBLISHER_IDLE,
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
@@ -18,9 +23,12 @@ import {
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this. Text-only since EXP-249 removed the binary
-// PTY mirror.
+// PTY mirror — except NEW-55's voice calls, whose Opus frames go out through
+// `sendBinary` and only ever to a call room's peer.
 export interface RelaySocket {
   send(data: string): void
+  /** NEW-55: one binary WebSocket frame (a call's audio). */
+  sendBinary(data: Uint8Array): void
   close(code?: number, reason?: string): void
   /** Bytes queued on the socket, for viewer backpressure. */
   bufferedAmount(): number
@@ -33,6 +41,10 @@ interface Conn {
   deviceId?: string
   // publisher/viewer sockets belong to a room after hello/join.
   sessionId?: string
+  /** NEW-55: caller/call_host sockets belong to a call room once it opened
+   *  (caller) or they were admitted to it (host). Cleared when the room ends,
+   *  so the socket's own close is inert afterwards. */
+  callId?: string
   /** Last time this socket's rejected-frame warning was logged (rate limit). */
   lastFrameWarnAt?: number
 }
@@ -124,6 +136,30 @@ interface Room {
    *  dropping, by the room closing, or by its own timer — never left
    *  dangling, since the web server's tool call is blocked on it. */
   compactAsk: CompactAsk | null
+}
+
+/** NEW-55: one voice call — a `caller` streaming to the member's voice
+ *  device, which answers with a `call_host` socket. Exactly two sockets,
+ *  nothing replayed, nothing logged. */
+interface CallRoom {
+  callId: string
+  /** The voice device's owner (the caller's `deviceOwnerId ?? sub`): the
+   *  only account whose `call_host` ticket may answer. */
+  ownerId: string
+  deviceId: string
+  caller: Conn
+  host: Conn | null
+  /** Fires CALL_RING_TIMEOUT_MS after the ring when no host joined. */
+  ringTimer: ReturnType<typeof setTimeout> | null
+}
+
+/** NEW-55: a peer with more than this queued SKIPS audio frames instead of
+ *  buffering them — a call is realtime, a late frame is worthless, and the
+ *  queue must not grow. ~2 s of the 32 kbps downlink. */
+const CALL_HIGH_WATER = 8 * 1024
+
+function callDeviceKey(ownerId: string, deviceId: string): string {
+  return `${ownerId}\n${deviceId}`
 }
 
 /** EXP-936: what `POST /sessions/:id/compact` gets back. `delivered: false`
@@ -323,6 +359,10 @@ export class Hub {
   private devices = new Map<string, Map<string, Conn>>()
   /** sessionId (== coding_sessions.id) → room. */
   private rooms = new Map<string, Room>()
+  /** NEW-55: callId → call room, and the voice device (owner + deviceId) →
+   *  its ONE running callId (a second caller reads `busy`). */
+  private calls = new Map<string, CallRoom>()
+  private callsByDevice = new Map<string, string>()
   /** REV2-X: Periodic check for idle publishers. */
   private idleCheckInterval: ReturnType<typeof setInterval>
   /** EXP-648: the viewer keepalive tick. */
@@ -360,6 +400,16 @@ export class Hub {
    *  host never answered (a host older than the frame). */
   private compactRequests = 0
   private compactVerdictTimeouts = 0
+  /** NEW-55: calls rung, the three ways a ring fails, and the audio frames
+   *  forwarded / dropped (wrong kind, oversized, not paired) / skipped (a
+   *  saturated peer). */
+  private callRings = 0
+  private callDeviceOffline = 0
+  private callBusy = 0
+  private callNoAnswer = 0
+  private callFramesForwarded = 0
+  private callFramesDropped = 0
+  private callFramesSkipped = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -376,6 +426,9 @@ export class Hub {
   destroy() {
     clearInterval(this.idleCheckInterval)
     clearInterval(this.keepaliveInterval)
+    for (const call of this.calls.values()) {
+      if (call.ringTimer) clearTimeout(call.ringTimer)
+    }
   }
 
   // ── Socket lifecycle (called from the Bun ws handlers) ────────────────────
@@ -389,6 +442,11 @@ export class Hub {
       // Room attaches on `hello` — nothing yet.
     } else if (claims.role === `viewer` && claims.sessionId) {
       // Viewers join on `join` — nothing yet.
+    } else if (claims.role === `caller`) {
+      // NEW-55: a caller rings on connect — its ticket is the whole ask.
+      this.ringCall(conn)
+    } else if (claims.role === `call_host`) {
+      this.answerCall(conn)
     }
   }
 
@@ -414,18 +472,67 @@ export class Hub {
     this.onControl(conn, msg)
   }
 
-  /** One rate-limited line for a frame the schema rejected: the socket's role,
-   *  the frame's `t`, and the first zod issue's path — structure only, never
-   *  frame CONTENT (the activity channel is scrubbed and stays that way). */
-  private warnRejectedFrame(conn: Conn, raw: string) {
+  /** NEW-55: one BINARY frame (Bun hands binary messages over as a Buffer).
+   *  Only a paired call room carries them: a caller's `up` frame goes to the
+   *  host, a host's `down` frame to the caller, each at most
+   *  CALL_MAX_FRAME_BYTES. Everything else — any other role, a wrong kind, an
+   *  oversized or empty frame — is dropped. Never decoded, never stored. */
+  onBinary(sock: RelaySocket, data: Uint8Array) {
+    const conn = this.conns.get(sock)
+    if (!conn) return
+    const call = this.callFor(conn)
+    if (!call) return this.dropBinary(conn, `no_call`, data.length)
+    const up = call.caller === conn
+    const peer = up ? call.host : call.caller
+    // A caller may start capturing while it rings: expected, not worth a log.
+    if (!peer) {
+      this.callFramesDropped += 1
+      return
+    }
+    if (data.length <= CALL_FRAME_HEADER_BYTES) {
+      return this.dropBinary(conn, `short`, data.length)
+    }
+    if (data.length > CALL_MAX_FRAME_BYTES) {
+      return this.dropBinary(conn, `oversized`, data.length)
+    }
+    if (data[0] !== (up ? CALL_KIND_UP : CALL_KIND_DOWN)) {
+      return this.dropBinary(conn, `wrong_kind`, data.length)
+    }
+    // Realtime: a saturated peer skips the frame rather than queueing it.
+    if (peer.sock.bufferedAmount() > CALL_HIGH_WATER) {
+      this.callFramesSkipped += 1
+      return
+    }
+    peer.sock.sendBinary(data)
+    this.callFramesForwarded += 1
+  }
+
+  private dropBinary(conn: Conn, why: string, bytes: number) {
+    this.callFramesDropped += 1
+    if (!this.mayWarn(conn)) return
+    console.warn(
+      `[hub] dropped ${conn.claims.role} binary frame (${bytes} bytes): ${why}`
+    )
+  }
+
+  /** The per-socket rate limit every dropped-frame warning shares. */
+  private mayWarn(conn: Conn): boolean {
     const now = Date.now()
     if (
       conn.lastFrameWarnAt !== undefined &&
       now - conn.lastFrameWarnAt < FRAME_WARN_INTERVAL_MS
     ) {
-      return
+      return false
     }
     conn.lastFrameWarnAt = now
+    return true
+  }
+
+  /** One rate-limited line for a frame the schema rejected: the socket's role,
+   *  the frame's `t`, and the first zod issue's path — structure only, never
+   *  frame CONTENT (the activity channel is scrubbed and stays that way). */
+  private warnRejectedFrame(conn: Conn, raw: string) {
+    if (!this.mayWarn(conn)) return
     const { t, issue } = describeClientFrameRejection(raw)
     console.warn(
       `[hub] dropped ${conn.claims.role} frame (t=${t ?? `?`}): ${issue}`
@@ -455,6 +562,13 @@ export class Hub {
     const conn = this.conns.get(sock)
     if (!conn) return
     this.conns.delete(sock)
+
+    // NEW-55: either side of a call going away ends it for the other.
+    const call = this.callFor(conn)
+    if (call) {
+      this.endCall(call, conn, `dropped`, false)
+      return
+    }
 
     // Device presence eviction.
     if (conn.deviceId) {
@@ -826,6 +940,30 @@ export class Hub {
         return
       }
 
+      // NEW-55: the caller's microphone toggled — to the host, once paired.
+      case `call_mute`: {
+        const call = this.callFor(conn)
+        if (!call?.host || call.caller !== conn) return
+        call.host.sock.send(frame({ t: `call_mute`, muted: msg.muted }))
+        return
+      }
+
+      // NEW-55: one flow event from the host — to the caller.
+      case `call_event`: {
+        const call = this.callFor(conn)
+        if (!call || call.host !== conn) return
+        call.caller.sock.send(frame({ t: `call_event`, event: msg.event }))
+        return
+      }
+
+      // NEW-55: either side hangs up (a ringing caller included).
+      case `call_end`: {
+        const call = this.callFor(conn)
+        if (!call) return
+        this.endCall(call, conn, msg.reason, true)
+        return
+      }
+
       case `bye`: {
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
@@ -958,6 +1096,7 @@ export class Hub {
       connections: this.conns.size,
       devices: [...this.devices.values()].reduce((n, m) => n + m.size, 0),
       rooms: this.rooms.size,
+      calls: this.calls.size,
     }
   }
 
@@ -979,6 +1118,13 @@ export class Hub {
       historyRoomDeviceLost: this.historyRoomDeviceLost,
       compactRequests: this.compactRequests,
       compactVerdictTimeouts: this.compactVerdictTimeouts,
+      callRings: this.callRings,
+      callDeviceOffline: this.callDeviceOffline,
+      callBusy: this.callBusy,
+      callNoAnswer: this.callNoAnswer,
+      callFramesForwarded: this.callFramesForwarded,
+      callFramesDropped: this.callFramesDropped,
+      callFramesSkipped: this.callFramesSkipped,
     }
   }
 
@@ -986,6 +1132,132 @@ export class Hub {
 
   private roomFor(conn: Conn): Room | undefined {
     return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
+  }
+
+  // ── NEW-55: voice calls ────────────────────────────────────────────────────
+
+  /** The call room this socket is a MEMBER of (a refused socket never is). */
+  private callFor(conn: Conn): CallRoom | undefined {
+    if (!conn.callId) return undefined
+    const call = this.calls.get(conn.callId)
+    if (!call || (call.caller !== conn && call.host !== conn)) return undefined
+    return call
+  }
+
+  /** A terminal answer on a call socket: error, `bye` with the same outcome,
+   *  close — the shape EXP-773's history refusals use, so a client never
+   *  mistakes it for a drop. */
+  private refuseCall(conn: Conn, code: string) {
+    conn.sock.send(frame({ t: `error`, code }))
+    conn.sock.send(frame({ t: `bye`, outcome: code }))
+    conn.sock.close(CLOSE_SESSION_ENDED, code)
+  }
+
+  /** A caller connected: ring the voice device its ticket names, on that
+   *  device's CONTROL socket under its OWNER (`deviceOwnerId ?? sub`, the
+   *  EXP-773 lookup) — both ids come from the signed ticket, so a caller can
+   *  only ever ring the device the web app decided is the member's. */
+  private ringCall(conn: Conn) {
+    const { callId, deviceId, agentId } = conn.claims
+    if (!callId || !deviceId || !agentId) {
+      this.refuseCall(conn, `no_such_call`)
+      return
+    }
+    const ownerId = conn.claims.deviceOwnerId ?? conn.claims.sub
+    const control = this.devices.get(ownerId)?.get(deviceId)
+    if (!control) {
+      this.callDeviceOffline += 1
+      this.refuseCall(conn, `device_offline`)
+      return
+    }
+    const key = callDeviceKey(ownerId, deviceId)
+    // One call per voice device; a replayed ticket (same callId) reads the
+    // same way.
+    if (this.callsByDevice.has(key) || this.calls.has(callId)) {
+      this.callBusy += 1
+      this.refuseCall(conn, `busy`)
+      return
+    }
+    const call: CallRoom = {
+      callId,
+      ownerId,
+      deviceId,
+      caller: conn,
+      host: null,
+      ringTimer: null,
+    }
+    call.ringTimer = setTimeout(() => {
+      call.ringTimer = null
+      if (this.calls.get(callId) !== call) return
+      this.callNoAnswer += 1
+      this.removeCall(call)
+      conn.callId = undefined
+      this.refuseCall(conn, `no_answer`)
+    }, CALL_RING_TIMEOUT_MS)
+    conn.callId = callId
+    this.calls.set(callId, call)
+    this.callsByDevice.set(key, callId)
+    control.sock.send(frame({ t: `call_ring`, callId, agentId }))
+    this.callRings += 1
+  }
+
+  /** The voice device answers: admitted only into a RINGING room, and only
+   *  when the ticket's account IS the device's owner. */
+  private answerCall(conn: Conn) {
+    const callId = conn.claims.callId
+    const call = callId ? this.calls.get(callId) : undefined
+    if (!call || call.host || call.ownerId !== conn.claims.sub) {
+      this.refuseCall(conn, `no_such_call`)
+      return
+    }
+    if (call.ringTimer) {
+      clearTimeout(call.ringTimer)
+      call.ringTimer = null
+    }
+    call.host = conn
+    conn.callId = call.callId
+    const ready = frame({ t: `call_ready` })
+    call.caller.sock.send(ready)
+    conn.sock.send(ready)
+  }
+
+  /** Hang up: the OTHER side gets `call_end` (the sender's reason, or
+   *  `dropped` when its socket simply went away) and both sockets close; the
+   *  room and its timer are gone. `closeFrom` = false when `from` is the
+   *  socket already closing. */
+  private endCall(
+    call: CallRoom,
+    from: Conn,
+    reason: string | undefined,
+    closeFrom: boolean
+  ) {
+    this.removeCall(call)
+    const end = frame({
+      t: `call_end`,
+      ...(reason === undefined ? {} : { reason }),
+    })
+    for (const member of [call.caller, call.host]) {
+      if (!member) continue
+      member.callId = undefined
+      if (member === from) {
+        if (closeFrom) member.sock.close(CLOSE_SESSION_ENDED, `call_end`)
+        continue
+      }
+      member.sock.send(end)
+      member.sock.close(CLOSE_SESSION_ENDED, `call_end`)
+    }
+  }
+
+  private removeCall(call: CallRoom) {
+    if (call.ringTimer) {
+      clearTimeout(call.ringTimer)
+      call.ringTimer = null
+    }
+    if (this.calls.get(call.callId) === call) this.calls.delete(call.callId)
+    const key = callDeviceKey(call.ownerId, call.deviceId)
+    if (this.callsByDevice.get(key) === call.callId) {
+      this.callsByDevice.delete(key)
+    }
   }
 
   /** EXP-795: retire one `history_page` ask — answered, or given up on. */

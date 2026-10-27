@@ -15,9 +15,17 @@ talk = { path = "../talk" }
 crispasr = { path = "../crispasr" }
 serde_json = { workspace = true }
 log = "0.4"
+# NEW-55: the echo canceller of LOCAL calls (the voice device's own microphone
+# with its speakers): speexdsp's AEC + residual-echo preprocessor (MIT/BSD),
+# built from source with `cc`; no meson, no system library.
+aec-rs = "1"
 
 # Playback: Linux pipes PCM into the session's PipeWire/PulseAudio player
 # (`pw-play`, else `paplay`), so the build needs no ALSA headers; macOS and
 # Windows drive the default output device through cpal (CoreAudio, WASAPI).
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 cpal = "0.16"
+
+[dev-dependencies]
+# NEW-55: the `call_latency` example times the call's Opus frames.
+opus = "0.4"

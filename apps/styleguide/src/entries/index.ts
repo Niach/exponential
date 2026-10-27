@@ -44,6 +44,7 @@ import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
 import { entry as voiceCallOverlay } from "./voice-call-overlay.tsx"
+import { entry as voiceCall } from "./voice-call.tsx"
 import { entry as computerUseBanner } from "./computer-use-banner.tsx"
 import { entry as voiceSettings } from "./voice-settings.tsx"
 import { entry as feedbackStates } from "./feedback-states.tsx"
@@ -111,6 +112,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   commentCallCard,
   teamAgentsSettings,
   voiceCallOverlay,
+  voiceCall,
   computerUseBanner,
   voiceSettings,
   agentHome,

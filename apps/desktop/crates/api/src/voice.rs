@@ -10,7 +10,7 @@
 //! The same settings ride every `devices.heartbeat` as `voice`, which is how
 //! the IDE learns of a change made on another client.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub use domain::voice::VoiceSettings;
 
@@ -52,6 +52,26 @@ pub fn voice_get(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError> {
 /// `voice.update` — mutation; returns what is stored now.
 pub fn voice_update(trpc: &TrpcClient, update: &VoiceUpdate) -> Result<VoiceSettings, ApiError> {
     trpc.mutation("voice.update", update)
+}
+
+/// NEW-55: a call ticket (voice-call.json TRANSPORT): `url` is the relay
+/// URL with the ticket in it, dialled as-is.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallTicket {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallHostTicketInput<'a> {
+    call_id: &'a str,
+}
+
+/// NEW-55: `voice.callHostTicket` — mutation; the voice device answers the
+/// relay's `call_ring` with it.
+pub fn voice_call_host_ticket(trpc: &TrpcClient, call_id: &str) -> Result<CallTicket, ApiError> {
+    trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id })
 }
 
 #[cfg(test)]

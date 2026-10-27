@@ -18,7 +18,7 @@
 //! turns push to talk off or changes the agent or the language.
 
 mod hotkey;
-mod overlay;
+pub(crate) mod overlay;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -339,6 +339,10 @@ impl PushToTalk {
             return;
         }
         let Some(armed) = self.armed.clone() else { return };
+        // NEW-55: a call holds the microphone; the key waits for End call.
+        if crate::voice_call::active(cx) {
+            return;
+        }
         self.held = true;
         self.generation += 1;
         self.sent = None;
@@ -555,7 +559,7 @@ impl PushToTalk {
             })
             .detach();
         }
-        self.overlay.show(view, cx);
+        self.overlay.show(view.map(overlay::Face::Ptt), cx);
         cx.notify();
     }
 }
@@ -574,7 +578,7 @@ impl PushToTalk {
             self.bands = vec![0.9, 0.6, 1., 0.5, 0.7, 0.4, 0.6, 0.3];
         }
         let view = self.overlay_now(cx);
-        self.overlay.show(view, cx);
+        self.overlay.show(view.map(overlay::Face::Ptt), cx);
     }
 }
 

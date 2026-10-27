@@ -487,6 +487,8 @@ fn full_protocol_flow_against_the_real_relay() {
         Arc::new(|_session_id| {}),
         // EXP-796: nor a page of one.
         Arc::new(|_ask, _reply| {}),
+        // NEW-55: no voice here.
+        Arc::new(|_ring| {}),
     );
 
     // EXP-481: the check-in nudge rides the same control socket. EXP-672
@@ -1039,6 +1041,7 @@ fn a_finished_run_replays_from_the_device_and_then_pages_through_its_control_soc
         Arc::new(move |ask, reply| {
             steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
         }),
+        Arc::new(|_ring| {}),
     );
     wait_for("device presence (nudge delivered)", || {
         http_request(

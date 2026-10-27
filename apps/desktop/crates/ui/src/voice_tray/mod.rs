@@ -158,6 +158,10 @@ pub fn install(cx: &mut App) {
         if let Some(push_to_talk) = crate::push_to_talk::entity(cx) {
             cx.observe(&push_to_talk, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
+        // NEW-55: a call starting or ending hides or shows Call.
+        if let Some(call) = crate::voice_call::entity(cx) {
+            cx.observe(&call, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
+        }
         VoiceTray { muted: false, pending: None, generation: 0, device_id, menu: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
@@ -242,8 +246,8 @@ impl VoiceTray {
             &TrayContext {
                 agent: agent.as_deref(),
                 muted: self.muted,
-                // V4 brings the call.
-                call_available: false,
+                // NEW-55: Call shows while a call can start here.
+                call_available: crate::voice_call::unavailable(cx).is_none(),
                 mic_available,
                 device_is_voice_device: settings.voice_device_id.as_deref() == Some(self.device_id.as_str()),
                 shortcut_unavailable: status.reason().is_some(),
@@ -277,8 +281,13 @@ impl VoiceTray {
             TrayItemId::Open => open_ide(cx),
             TrayItemId::Settings => crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx),
             TrayItemId::Quit => cx.quit(),
-            // V4: the menu never offers Call before then.
-            TrayItemId::Call => {}
+            // NEW-55: call the voice agent (deferred: the call stops this
+            // tray's speaker and redraws it).
+            TrayItemId::Call => {
+                if let Some(agent_id) = self.settings(cx).agent_id {
+                    cx.defer(move |cx| crate::voice_call::start(agent_id, cx));
+                }
+            }
         }
     }
 

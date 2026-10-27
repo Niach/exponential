@@ -12,7 +12,16 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 // `public_viewer` (the anonymous public-activity audience) was removed in
 // EXP-90 — the relay rejects tickets carrying any unknown role, so stale
 // instances that still mint it get a closed socket, never data.
-export type SteerRole = `control` | `publisher` | `viewer`
+//
+// NEW-55: `caller` (a phone/web client streaming a voice call's audio) and
+// `call_host` (the voice device answering it) open CALL rooms keyed by the
+// `callId` claim — binary Opus frames between exactly two sockets.
+export type SteerRole =
+  | `control`
+  | `publisher`
+  | `viewer`
+  | `caller`
+  | `call_host`
 
 // EXP-312: the old `perm` (view|steer) and `name` claims are GONE — a live
 // session is visible and steerable only by its owner, enforced at mint time,
@@ -44,6 +53,14 @@ export interface SteerTicketClaims {
    * requester steering a run on someone else's machine would otherwise look
    * the device up under themselves and never find it. Absent = `sub`. */
   deviceOwnerId?: string
+  /** NEW-55: the call room this ticket opens (`caller`) or answers
+   * (`call_host`). Minted by `voice.call` / `voice.callHostTicket`; on a
+   * caller ticket `deviceId` + `deviceOwnerId` name the voice device to ring,
+   * and the relay admits a host only when its `sub` IS that owner. */
+  callId?: string
+  /** NEW-55: the agent the call talks to (caller tickets): forwarded in the
+   * `call_ring` so the voice device knows whose conversation to open. */
+  agentId?: string
   role: SteerRole
   /** Unix seconds. */
   iat: number

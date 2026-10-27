@@ -701,10 +701,31 @@ impl AgentScreenView {
         )
     }
 
+    /// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's
+    /// icon button: disabled with the reason as its tooltip while a call
+    /// cannot start here (no voice device, Speak replies off, not this
+    /// machine, no voice yet, no usable GPU, a call already running).
+    fn header_call(&self, cx: &App) -> Option<AnyElement> {
+        let agent_id = self.agent.as_ref()?.id.clone();
+        let copy = &domain::voice_call::VOICE_CALL.copy;
+        let reason = crate::voice_call::unavailable(cx);
+        let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", &self.subject_name()));
+        let button = crate::controls::ghost_icon_button(
+            domain::voice_call::VOICE_CALL.test_ids.call.as_str(),
+            Icon::new(registry::VOICE_CALL),
+            cx,
+        )
+        .tooltip(tooltip)
+        .disabled(reason.is_some())
+        .on_click(move |_, _, cx| crate::voice_call::start(agent_id.clone(), cx));
+        Some(div().flex_shrink_0().child(button).into_any_element())
+    }
+
     fn render_header(&self, cx: &App) -> AnyElement {
         let theme = cx.theme();
         let icon = self.subject_icon();
         let name = self.subject_name();
+        let call = self.header_call(cx);
         let menu = self.header_menu(cx);
         v_flex()
             .w_full()
@@ -727,6 +748,7 @@ impl AgentScreenView {
                             .text_color(theme.foreground)
                             .child(SharedString::from(name)),
                     )
+                    .children(call)
                     .children(menu),
             )
             .child(div().w_full().h(px(1.)).bg(theme.border))

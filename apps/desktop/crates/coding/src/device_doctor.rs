@@ -26,6 +26,12 @@ pub const KEY_GIT: &str = "git";
 pub const KEY_COMPUTER_USE: &str = "computer_use";
 /// NEW-78: the voice group's one row (see [`add_microphone`]).
 pub const KEY_MICROPHONE: &str = "microphone";
+/// NEW-55: the voice group's second row (see [`add_speech`]).
+pub const KEY_SPEECH: &str = "speech";
+/// NEW-55: the speech row when the voice is loaded.
+pub const READY: &str = "Ready";
+/// NEW-55: the speech row without a usable GPU (grey, no pill).
+pub const NO_USABLE_GPU: &str = "No usable GPU";
 
 pub const NOT_INSTALLED: &str = "Not installed";
 pub const SIGNED_OUT: &str = "Signed out";
@@ -167,6 +173,7 @@ pub fn label(key: &str) -> &str {
         "screen_recording" => "Screen Recording",
         "accessibility" => "Accessibility",
         "microphone" => "Microphone",
+        "speech" => "Speech",
         other => other,
     }
 }
@@ -462,6 +469,29 @@ pub fn add_microphone(doctor: &mut DeviceDoctor, state: MicrophoneState) {
     });
 }
 
+/// NEW-55: what the speech worker said it can speak (mapped by the IDE).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpeechState {
+    /// The voice is loaded and the GPU speaks.
+    Ready,
+    /// The voice is being fetched.
+    Downloading,
+    /// No usable GPU: replies are shown, never spoken.
+    NoGpu,
+}
+
+/// NEW-55: append the voice group's `speech` row (pure). The IDE calls it
+/// only on the member's voice device with Speak replies on, once the worker
+/// answered; callers read it to enable the telephone (voice-call.json).
+pub fn add_speech(doctor: &mut DeviceDoctor, state: SpeechState) {
+    let row = |state| item(KEY_SPEECH, DoctorGroup::Voice, state);
+    doctor.items.push(match state {
+        SpeechState::Ready => row(DoctorState::Ok).detail(READY),
+        SpeechState::Downloading => row(DoctorState::Off).detail(DOWNLOADING),
+        SpeechState::NoGpu => row(DoctorState::Missing).detail(NO_USABLE_GPU),
+    });
+}
+
 /// The agents whose row is `ok`, and only while git is (the fixture's
 /// `runnable`).
 pub fn runnable_agents(doctor: &DeviceDoctor) -> Vec<&str> {
@@ -545,10 +575,18 @@ mod tests {
     /// IDE's [`add_microphone`] after [`build`]).
     fn case_microphone(index: usize) -> Option<MicrophoneState> {
         match index {
-            6 => Some(MicrophoneState::Granted),
-            7 => Some(MicrophoneState::NotGranted),
-            8 => Some(MicrophoneState::NoDevice),
-            9 => Some(MicrophoneState::NeedsRuntime),
+            6 | 7 => Some(MicrophoneState::Granted),
+            8 => Some(MicrophoneState::NotGranted),
+            9 => Some(MicrophoneState::NoDevice),
+            10 => Some(MicrophoneState::NeedsRuntime),
+            _ => None,
+        }
+    }
+
+    /// NEW-55: the speech row a fixture case carries (after the microphone).
+    fn case_speech(index: usize) -> Option<SpeechState> {
+        match index {
+            7 => Some(SpeechState::NoGpu),
             _ => None,
         }
     }
@@ -624,7 +662,7 @@ mod tests {
                 ComputerState::Unsupported(None),
             ),
             // NEW-78: the first case's machine, plus its microphone row.
-            6..=9 => case_input(0),
+            6..=10 => case_input(0),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -633,13 +671,16 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 10, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 11, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
             let mut doctor = build(&report, &settings, computer);
             if let Some(microphone) = case_microphone(index) {
                 add_microphone(&mut doctor, microphone);
+            }
+            if let Some(speech) = case_speech(index) {
+                add_speech(&mut doctor, speech);
             }
             let expected: Vec<DoctorItem> =
                 serde_json::from_value(case["doctor"]["items"].clone()).unwrap();

@@ -21,6 +21,16 @@
 //! transcripts; [`SpeechClient::end_listen`] closes the microphone and the
 //! worker answers [`Event::Heard`] (or [`Event::Empty`] when nobody spoke);
 //! [`SpeechClient::cancel_listen`] drops the utterance without an answer.
+//!
+//! NEW-55 (protocol 4) calls (`packages/domain-contract/fixtures/voice-call.json`):
+//! [`SpeechClient::call`] listens continuously, from the microphone or (a
+//! `remote` call, a phone or the web streaming to the voice device) from the
+//! [`SpeechClient::call_audio`] the host decoded. Every finished utterance
+//! comes back as [`Event::Said`]; [`Event::SpeechStarted`] marks speech of
+//! [`BARGE_IN_MS`] (the worker has already stopped any reply: barge-in).
+//! Speak is allowed during a call; a remote call's replies stream back as
+//! [`Event::SpeechAudio`] instead of playing here. [`SpeechClient::hangup`]
+//! ends it without an answer.
 
 pub mod microphone;
 
@@ -36,8 +46,19 @@ pub const ARGV_MARKER: &str = "__speech-worker";
 /// The flag carrying the data dir the worker keeps its models under.
 pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// The wire's version; a worker that answers another is replaced.
-/// NEW-78: 3 = listening.
-pub const PROTOCOL: u32 = 3;
+/// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
+pub const PROTOCOL: u32 = 5;
+
+/// NEW-55: a call closes an utterance after this much silence (push to talk
+/// keeps talk-listen.json's 300 ms); `voice-call.json` `minSilenceMs`.
+pub const CALL_MIN_SILENCE_MS: usize = 250;
+/// NEW-55: speech this long in the open utterance is a barge-in
+/// ([`Event::SpeechStarted`]); `voice-call.json` `bargeInMs`.
+pub const BARGE_IN_MS: usize = 250;
+/// NEW-55: the rate of call audio coming in ([`Request::CallAudio`]).
+pub const CALL_RATE: u32 = 16_000;
+/// NEW-55: one [`Event::SpeechAudio`] carries at most this much audio.
+pub const SPEECH_AUDIO_CHUNK_MS: u32 = 100;
 
 /// NEW-78: the bands of a [`Event::Level`] frame (low to high pitch).
 pub const LEVEL_BANDS: usize = 8;
@@ -61,6 +82,19 @@ pub enum Request {
     EndListen { id: String },
     /// NEW-78: drop utterance `id` (no Heard, no Empty).
     CancelListen { id: String },
+    /// NEW-55: call `id`: listen continuously in `language` until Hangup,
+    /// answering Said per utterance. `remote` = the audio comes ONLY as
+    /// CallAudio (a caller streams it; the microphone stays closed) and
+    /// replies stream back as SpeechAudio. Replaces a running Listen or Call.
+    Call { id: String, language: String, remote: bool },
+    /// NEW-55: caller audio of remote call `id`: base64 of i16 little-endian
+    /// mono [`CALL_RATE`] samples ([`encode_pcm`]).
+    CallAudio { id: String, pcm: String },
+    /// NEW-55: `muted` drops call `id`'s incoming audio (no Level, no
+    /// utterances); replies still play.
+    CallMute { id: String, muted: bool },
+    /// NEW-55: end call `id` (no answer events).
+    Hangup { id: String },
 }
 
 /// Worker → host, one JSON object per line.
@@ -97,6 +131,17 @@ pub enum Event {
     Empty { id: String },
     /// NEW-78: `id` could not listen or transcribe.
     ListenFailed { id: String, reason: ListenFailure, detail: String },
+    /// NEW-55: call `id` heard one finished utterance (normalised like
+    /// Heard, never empty).
+    Said { id: String, text: String },
+    /// NEW-55: call `id`'s open utterance reached [`BARGE_IN_MS`] of speech;
+    /// a reply that was playing has already ended (`Finished { stopped:
+    /// true }` came first).
+    SpeechStarted { id: String },
+    /// NEW-55: reply `id`'s audio during a remote call (never played here):
+    /// base64 of i16 LE mono samples at `rate` Hz (the voice's, 24000), at
+    /// most [`SPEECH_AUDIO_CHUNK_MS`] per event, between Started and Finished.
+    SpeechAudio { id: String, pcm: String, rate: u32 },
     /// Host-side: the worker process ended (crash, kill, EOF). Never sent
     /// by the worker itself.
     Exited,
@@ -116,6 +161,29 @@ pub enum ListenFailure {
     Unavailable,
     /// Transcribing failed.
     Failed,
+}
+
+/// NEW-55: i16 samples as the wire's base64 of little-endian bytes.
+pub fn encode_pcm(samples: &[i16]) -> String {
+    use base64::Engine as _;
+    let bytes: Vec<u8> = samples.iter().flat_map(|sample| sample.to_le_bytes()).collect();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// NEW-55: the wire's base64 back to i16 samples (an odd trailing byte is
+/// refused).
+pub fn decode_pcm(pcm: &str) -> Result<Vec<i16>, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(pcm).map_err(|err| err.to_string())?;
+    if bytes.len() % 2 != 0 {
+        return Err("odd number of PCM bytes".into());
+    }
+    Ok(bytes.chunks_exact(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]])).collect())
+}
+
+/// NEW-55: an f32 sample (-1..=1) as i16, clipped.
+pub fn to_i16(sample: f32) -> i16 {
+    (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16
 }
 
 /// NEW-74: the voice the member picked (`user_voice_settings`): the
@@ -324,6 +392,29 @@ impl SpeechClient {
 
     pub fn stop(&self) {
         self.send_if_running(&Request::Stop);
+    }
+
+    /// NEW-55: start call `id` in `language`; `remote` = the audio comes
+    /// through [`Self::call_audio`] (a phone or the web streams it) and
+    /// replies stream back as [`Event::SpeechAudio`].
+    pub fn call(&self, id: impl Into<String>, language: impl Into<String>, remote: bool) {
+        self.send(&Request::Call { id: id.into(), language: language.into(), remote });
+    }
+
+    /// NEW-55: the caller's audio of remote call `id`: mono [`CALL_RATE`] Hz
+    /// samples (the host decoded the caller's Opus).
+    pub fn call_audio(&self, id: impl Into<String>, pcm: &[i16]) {
+        self.send_if_running(&Request::CallAudio { id: id.into(), pcm: encode_pcm(pcm) });
+    }
+
+    /// NEW-55: mute or unmute call `id`.
+    pub fn call_mute(&self, id: impl Into<String>, muted: bool) {
+        self.send_if_running(&Request::CallMute { id: id.into(), muted });
+    }
+
+    /// NEW-55: end call `id`.
+    pub fn hangup(&self, id: impl Into<String>) {
+        self.send_if_running(&Request::Hangup { id: id.into() });
     }
 
     /// Requests that mean nothing to a worker that is not running never
@@ -537,6 +628,44 @@ mod tests {
     }
 
     #[test]
+    fn protocol_4_calls() {
+        assert_eq!(PROTOCOL, 5);
+        let requests = [
+            (Request::Call { id: "c1".into(), language: "de".into(), remote: true }, r#"{"t":"call","id":"c1","language":"de","remote":true}"#),
+            (Request::CallAudio { id: "c1".into(), pcm: encode_pcm(&[1, -2, i16::MAX, i16::MIN]) }, r#"{"t":"callAudio","id":"c1","pcm":"AQD+//9/AIA="}"#),
+            (Request::CallMute { id: "c1".into(), muted: true }, r#"{"t":"callMute","id":"c1","muted":true}"#),
+            (Request::Hangup { id: "c1".into() }, r#"{"t":"hangup","id":"c1"}"#),
+        ];
+        for (request, json) in requests {
+            assert_eq!(serde_json::to_string(&request).unwrap(), json);
+            assert_eq!(serde_json::from_str::<Request>(json).unwrap(), request);
+        }
+        let events = [
+            (Event::Said { id: "c1".into(), text: "What is still open?".into() }, r#"{"t":"said","id":"c1","text":"What is still open?"}"#),
+            (Event::SpeechStarted { id: "c1".into() }, r#"{"t":"speechStarted","id":"c1"}"#),
+            (Event::SpeechAudio { id: "m1".into(), pcm: "AQA=".into(), rate: 24_000 }, r#"{"t":"speechAudio","id":"m1","pcm":"AQA=","rate":24000}"#),
+        ];
+        for (event, json) in events {
+            assert_eq!(serde_json::to_string(&event).unwrap(), json);
+            assert_eq!(serde_json::from_str::<Event>(json).unwrap(), event);
+        }
+        assert_eq!(decode_pcm("AQD+//9/AIA=").unwrap(), [1, -2, i16::MAX, i16::MIN]);
+        assert!(decode_pcm("AQ==").is_err(), "an odd byte");
+        assert!(decode_pcm("not base64!").is_err());
+        assert_eq!((to_i16(1.5), to_i16(-1.0), to_i16(0.0)), (i16::MAX, -i16::MAX, 0));
+    }
+
+    #[test]
+    fn the_call_constants_are_the_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/voice-call.json")).unwrap();
+        let constants = &fixture["constants"];
+        assert_eq!(constants["minSilenceMs"], CALL_MIN_SILENCE_MS);
+        assert_eq!(constants["bargeInMs"], BARGE_IN_MS);
+        assert_eq!(constants["upRate"], CALL_RATE);
+    }
+
+    #[test]
     fn only_a_local_absolute_wav_with_a_transcript_is_a_voice_file() {
         let dir = std::env::temp_dir().join(format!("talk-voice-file-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -586,6 +715,10 @@ mod tests {
         client.stop();
         client.end_listen("u1");
         client.cancel_listen("u1");
+        client.call("c1", "en", true);
+        client.call_audio("c1", &[0, 1, -1]);
+        client.call_mute("c1", true);
+        client.hangup("c1");
         client.shutdown();
     }
 }

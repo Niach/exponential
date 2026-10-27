@@ -1270,7 +1270,8 @@ async fn pump_connection(
                             }
                         }
                         Some(ServerFrame::CheckIn)
-                        | Some(ServerFrame::HistoryRequest { .. }) => {
+                        | Some(ServerFrame::HistoryRequest { .. })
+                        | Some(ServerFrame::CallRing { .. }) => {
                             // Control-socket frames; never valid here. Ignore.
                         }
                         None => log::debug!("steer publisher: unparseable frame ignored"),

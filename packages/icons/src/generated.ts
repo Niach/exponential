@@ -713,6 +713,7 @@ export const SEMANTIC_ICONS = {
   "ui-warning": `triangle-alert`,
   "ui-watch": `eye`,
   "ui-widget": `megaphone`,
+  "voice-call": `phone`,
   "work-faces": `layers-2`,
   "work-results": `images`,
 } as const

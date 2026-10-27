@@ -957,6 +957,8 @@ pub const UI_WARNING: ExpIcon = ExpIcon::TriangleAlert;
 pub const UI_WATCH: ExpIcon = ExpIcon::Eye;
 /// Registry concept `ui-widget` -> Lucide `megaphone`.
 pub const UI_WIDGET: ExpIcon = ExpIcon::Megaphone;
+/// Registry concept `voice-call` -> Lucide `phone`.
+pub const VOICE_CALL: ExpIcon = ExpIcon::Phone;
 /// Registry concept `work-faces` -> Lucide `layers-2`.
 pub const WORK_FACES: ExpIcon = ExpIcon::Layers2;
 /// Registry concept `work-results` -> Lucide `images`.
@@ -1245,6 +1247,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-warning" => UI_WARNING,
         "ui-watch" => UI_WATCH,
         "ui-widget" => UI_WIDGET,
+        "voice-call" => VOICE_CALL,
         "work-faces" => WORK_FACES,
         "work-results" => WORK_RESULTS,
         _ => return None,

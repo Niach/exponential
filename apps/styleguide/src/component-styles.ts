@@ -37,6 +37,9 @@ function swatchFills(prefix: string, group: Record<string, string>): string {
 export const componentStyles = `
 /* ---------------------------------------------------------------- layout */
 .cmp-stack { display: grid; gap: 12px; }
+/* NEW-55: a stack of bars at their own width (the voice overlay's call rows
+   hold two pills: the narrow column would push them past the bar). */
+.cmp-stack-wide { width: 34rem; }
 
 /* -------------------------------------------------------- section header */
 /* EXP-818: the group BAND — a strip on the section fill over its flat rows. */

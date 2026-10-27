@@ -1,18 +1,43 @@
 // Steer relay wire protocol (masterplan §3.2; steering v2 = EXP-249).
 //
-// TEXT frames only: JSON control messages `{ t, ... }`. A control socket
+// TEXT frames: JSON control messages `{ t, ... }`. A control socket
 // announces device presence (`online`); a publisher opens its room (`hello`)
 // and streams already-scrubbed `activity` events; a viewer `join`s the one
 // audience there is (`channel: 'activity'`) and steers it with `input` /
 // `answer` / `kill`. Anything else on the wire fails the parse and is
 // dropped.
 //
+// NEW-55: BINARY frames exist for ONE pair of roles only — a voice call's
+// `caller` and `call_host` sockets (fixtures/voice-call.json `wire`). Byte 0
+// is the kind (`up` caller → host, `down` host → caller), bytes 1-2 a u16
+// big-endian sequence, then one Opus packet; the relay forwards a frame whose
+// kind matches the sender's role and whose length is within
+// `CALL_MAX_FRAME_BYTES`, and drops everything else. A binary frame from any
+// other role (publisher, viewer, control) is still dropped. The call's JSON
+// control frames (`call_mute`, `call_event`, `call_end`) ride beside them.
+//
 // The relay is a dumb pipe with auth + ephemeral presence: it never parses
-// terminal escape codes and never persists anything.
+// terminal escape codes, never decodes audio and never persists anything.
 
 import { contract } from "@exp/domain-contract"
 import scriptCard from "@exp/domain-contract/fixtures/script-card.json" with { type: "json" }
+import voiceCall from "@exp/domain-contract/fixtures/voice-call.json" with { type: "json" }
 import { z } from "zod"
+
+// ── NEW-55: voice call wire constants (fixtures/voice-call.json) ─────────────
+
+/** Byte 0 of a binary call frame: `up` = caller → host, `down` = host → caller. */
+export const CALL_KIND_UP = voiceCall.wire.kinds.up
+export const CALL_KIND_DOWN = voiceCall.wire.kinds.down
+/** A whole binary frame (kind + seq + Opus packet) above this is dropped. */
+export const CALL_MAX_FRAME_BYTES = voiceCall.wire.maxFrameBytes
+/** kind (1) + u16 seq (2): a frame no longer than this carries no audio. */
+export const CALL_FRAME_HEADER_BYTES = 3
+/** How long a ringing call waits for the voice device's `call_host`. */
+export const CALL_RING_TIMEOUT_MS = voiceCall.constants.ringTimeoutMs
+/** One `call_event` payload, serialized, at most. A flow event is a line of
+ *  transcript at worst; anything bigger is not one. */
+export const CALL_EVENT_MAX_BYTES = 8 * 1024
 
 // ── Client → relay control frames ────────────────────────────────────────────
 
@@ -802,6 +827,35 @@ export const compactVerdictFrame = z.object({
   refusedBecause: z.enum(COMPACT_REFUSALS).optional(),
 })
 
+// NEW-55, caller → relay → host: the caller's microphone closed or opened
+// (replies keep playing either way). Forwarded verbatim.
+export const callMuteFrame = z.object({
+  t: z.literal(`call_mute`),
+  muted: z.boolean(),
+})
+
+// NEW-55, host → relay → caller: ONE `flowCases` event (partial, said,
+// queued, replyStarted, replyFinished, speechStarted) the caller folds into
+// the same `callStep` machine. The relay checks only its shape (an object
+// with a short `t`) and its size; the caller validates the rest.
+export const callEventFrame = z.object({
+  t: z.literal(`call_event`),
+  event: z
+    .looseObject({ t: z.string().min(1).max(32) })
+    .refine(
+      (event) =>
+        Buffer.byteLength(JSON.stringify(event), `utf8`) <= CALL_EVENT_MAX_BYTES,
+      { message: `call_event too large` }
+    ),
+})
+
+// NEW-55, either side → relay → the other: hang up. The relay then closes
+// both sockets and removes the room.
+export const callEndFrame = z.object({
+  t: z.literal(`call_end`),
+  reason: z.string().max(64).optional(),
+})
+
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
   helloFrame,
@@ -819,6 +873,9 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   historyPageFrame,
   historyChunkFrame,
   compactVerdictFrame,
+  callMuteFrame,
+  callEventFrame,
+  callEndFrame,
 ])
 
 export type ClientFrame = z.infer<typeof clientFrame>
@@ -857,6 +914,16 @@ export type ServerFrame =
   // frame: a device with no journal stays silent and the room's own 20s timer
   // answers the viewer with `history_unavailable`.
   | { t: `history_request`; sessionId: string }
+  // NEW-55: relay → the voice device's CONTROL socket. A caller dialed it;
+  // the device mints a `call_host` ticket for `callId` and joins within
+  // CALL_RING_TIMEOUT_MS or the caller is told `no_answer`.
+  | { t: `call_ring`; callId: string; agentId: string }
+  // NEW-55: relay → caller AND host once the host joined: the pair is up.
+  | { t: `call_ready` }
+  // NEW-55: forwarded between the pair (see the client frames above).
+  | { t: `call_mute`; muted: boolean }
+  | { t: `call_event`; event: Record<string, unknown> }
+  | { t: `call_end`; reason?: string }
   // EXP-783: relay → the room's PUBLISHER, or (EXP-796) → the owning
   // DEVICE's control socket once the device has replayed a finished run and
   // the room lingers without a publisher. "Read your journal and send back
@@ -893,6 +960,11 @@ export type ServerFrame =
   // of the history pair are TERMINAL, so each is followed by a `bye` carrying
   // the same string as its outcome before the close: a viewer that gets a
   // close with no `bye` reads a plain drop and redials forever.
+  // NEW-55: a CALLER may see `device_offline` (the voice device's control
+  // socket is not connected), `busy` (a call already runs on it) and
+  // `no_answer` (no host joined in time); a host `no_such_call` (the room is
+  // gone, already answered, or not its own). All terminal: error, `bye` with
+  // the same outcome, close.
   | { t: `error`; code: string; message?: string }
   // relay → activity audience (authenticated members only). EXP-783: `seq` is
   // the publisher's own index, echoed unchanged.

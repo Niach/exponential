@@ -604,3 +604,81 @@ describe(`steer relay end-to-end`, () => {
     expect(authed.status).toBe(200)
   })
 })
+
+// NEW-55: a voice call through the real server — the call roles pass the
+// upgrade allowlist, the ring rides the control socket, and BINARY frames
+// cross the pair untouched (a wrong kind never does).
+describe(`voice call end-to-end (NEW-55)`, () => {
+  test(`ring, answer, audio both ways, hang up`, async () => {
+    const device = await connect(ticket({ role: `control`, sub: `voice-owner`, team: `` }))
+    const deviceIn = collector(device)
+    device.send(JSON.stringify({ t: `online`, deviceId: `mint` }))
+    await nudgeWhenOnline(`voice-owner`, `mint`)
+    expect(await deviceIn.nextJson()).toEqual({ t: `check_in` })
+
+    const caller = await connect(
+      ticket({
+        role: `caller`,
+        sub: `voice-owner`,
+        team: ``,
+        callId: `call-e2e`,
+        agentId: `agent-1`,
+        deviceId: `mint`,
+        deviceOwnerId: `voice-owner`,
+      })
+    )
+    const callerIn = collector(caller)
+    expect(await deviceIn.nextJson()).toEqual({
+      t: `call_ring`,
+      callId: `call-e2e`,
+      agentId: `agent-1`,
+    })
+
+    const host = await connect(
+      ticket({ role: `call_host`, sub: `voice-owner`, team: ``, callId: `call-e2e` })
+    )
+    const hostIn = collector(host)
+    expect(await hostIn.nextJson()).toEqual({ t: `call_ready` })
+    expect(await callerIn.nextJson()).toEqual({ t: `call_ready` })
+
+    // A caller's `down` frame is dropped; its `up` frame arrives byte-exact.
+    caller.send(new Uint8Array([2, 0, 0, 9, 9]))
+    const up = new Uint8Array([1, 0, 1, 0xfc, 0xff, 0xfe])
+    caller.send(up)
+    expect(await hostIn.next()).toEqual(up)
+
+    const down = new Uint8Array([2, 0xff, 0xff, 1, 2, 3, 4])
+    host.send(down)
+    expect(await callerIn.next()).toEqual(down)
+
+    host.send(JSON.stringify({ t: `call_event`, event: { t: `replyFinished` } }))
+    expect(await callerIn.nextJson()).toEqual({
+      t: `call_event`,
+      event: { t: `replyFinished` },
+    })
+
+    const hostClosed = new Promise<number>((resolve) => {
+      host.onclose = (e) => resolve(e.code)
+    })
+    caller.send(JSON.stringify({ t: `call_end` }))
+    expect(await hostIn.nextJson()).toEqual({ t: `call_end` })
+    expect(await hostClosed).toBe(4001)
+    device.close()
+  })
+
+  test(`a caller for an offline device is told so`, async () => {
+    const caller = await connect(
+      ticket({
+        role: `caller`,
+        sub: `nobody`,
+        team: ``,
+        callId: `call-off`,
+        agentId: `agent-1`,
+        deviceId: `ghost`,
+      })
+    )
+    const callerIn = collector(caller)
+    expect(await callerIn.nextJson()).toEqual({ t: `error`, code: `device_offline` })
+    expect(await callerIn.nextJson()).toEqual({ t: `bye`, outcome: `device_offline` })
+  })
+})

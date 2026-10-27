@@ -15,6 +15,7 @@
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use sha2::{Digest, Sha256};
 
@@ -64,6 +65,20 @@ impl std::fmt::Display for Error {
 
 fn io_error(context: impl std::fmt::Display, err: impl std::fmt::Display) -> Error {
     Error::Io(format!("{context}: {err}"))
+}
+
+/// #NEW-80: set once the process is shutting down; every download stops at
+/// its next read (the partial file is removed, nothing is installed).
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// #NEW-80: stop every running and future download of this process (the
+/// speech worker's host is gone). One way: there is no resume.
+pub fn cancel_downloads() {
+    CANCELLED.store(true, Ordering::SeqCst);
+}
+
+fn cancelled() -> Result<(), Error> {
+    if CANCELLED.load(Ordering::SeqCst) { Err(Error::Io("the download was cancelled".into())) } else { Ok(()) }
 }
 
 fn manifest_path(dir: &Path, artifact: &Artifact) -> PathBuf {
@@ -189,6 +204,7 @@ fn download(artifact: &Artifact, part: &Path, progress: &mut impl FnMut(u64)) ->
         .connect_timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|err| io_error("http client", err))?;
+    cancelled()?;
     let mut response = client
         .get(artifact.url)
         .send()
@@ -200,6 +216,11 @@ fn download(artifact: &Artifact, part: &Path, progress: &mut impl FnMut(u64)) ->
     let mut received = 0u64;
     let mut reported = 0u64;
     loop {
+        if let Err(err) = cancelled() {
+            drop(file);
+            let _ = fs::remove_file(part);
+            return Err(err);
+        }
         let read = response.read(&mut buffer).map_err(|err| io_error("download read", err))?;
         if read == 0 {
             break;

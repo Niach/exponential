@@ -107,6 +107,19 @@ export type SteerTicketSeed =
        * for a shared-device run). Omitted = the ticket's own user. */
       deviceOwnerId?: string
     }
+  // NEW-55: a voice call. The CALLER (a phone or web client streaming its
+  // audio) names the call, the agent and the member's voice device; the relay
+  // rings that device under the member (`deviceOwnerId`). The HOST (the voice
+  // device answering) names the call alone — the relay admits it only when
+  // its account owns the device the caller rang.
+  | {
+      kind: `caller`
+      userId: string
+      callId: string
+      agentId: string
+      deviceId: string
+    }
+  | { kind: `call_host`; userId: string; callId: string }
 
 export function buildSteerTicketClaims(
   seed: SteerTicketSeed,
@@ -150,6 +163,19 @@ export function buildSteerTicketClaims(
           ? { deviceOwnerId: seed.deviceOwnerId }
           : {}),
       }
+    case `caller`:
+      return {
+        ...base,
+        team: ``,
+        role: `caller`,
+        callId: seed.callId,
+        agentId: seed.agentId,
+        deviceId: seed.deviceId,
+        // The voice device is always the member's own desktop.
+        deviceOwnerId: seed.userId,
+      }
+    case `call_host`:
+      return { ...base, team: ``, role: `call_host`, callId: seed.callId }
   }
 }
 
