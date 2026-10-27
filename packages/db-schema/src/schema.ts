@@ -1867,6 +1867,10 @@ export const sessions = pgTable(
     // an MCP call by the session, a push to its branch. The stuck watchdog
     // measures from greatest(updated_at, last_activity_at).
     lastActivityAt: timestamp(`last_activity_at`, { withTimezone: true }),
+    // EXP-1413 (SERVER-ONLY): a person's Stop interrupted a busy turn; set
+    // until the session works again. The yolo automerge waits on it, so a
+    // stopped turn's half-done work never merges.
+    stoppedAt: timestamp(`stopped_at`, { withTimezone: true }),
     endedAt: timestamp(`ended_at`, { withTimezone: true }),
     // ── visibility ── (stamped at creation, never changes)
     shared: boolean().notNull().default(false),

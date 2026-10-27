@@ -1,20 +1,24 @@
 // @vitest-environment node
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
-import { db } from "@/db/connection"
-import { boards, devices, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
+import { db, pool } from "@/db/connection"
+import { boards, devices, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // #EXP-1413 against the REAL migrated Postgres (harness from
 // merge-refusal.real-db.test.ts): the lifecycle edges (a turn ending in
-// `sessions.report`, `endSession`) run the yolo automerge once the tree is
-// idle; a refusal lands in the thread once (session-thread.json EXP-1413).
+// `sessions.report`, `endSession`, `endHostedSessions`) run the yolo
+// automerge once the tree is complete (nothing queued, busy, waiting on a
+// person, Stopped or holding unread input); a refusal lands in the thread
+// once per PR head (session-thread.json EXP-1413).
 
 const merge = vi.fn()
+const headSha = vi.fn()
 vi.mock(`@/lib/pull-requests`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/pull-requests")>()),
   syncPullRequestBodies: async () => {},
   mergePullRequestOrThrow: (args: unknown) => merge(args),
+  pullRequestHeadSha: (id: string) => headSha(id),
 }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetSessionMessageNotify: () => {},
@@ -34,7 +38,7 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[yolo-tree-merge.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { endSession } = await import(`@/lib/sessions/lifecycle`)
+const { endHostedSessions, endSession, stopSession } = await import(`@/lib/sessions/lifecycle`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const { mergeRefusalText } = await import(`@/lib/merge-refusal`)
@@ -67,7 +71,16 @@ afterAll(async () => {
 beforeEach(() => {
   merge.mockReset()
   merge.mockResolvedValue({ queued: false })
+  headSha.mockReset()
+  headSha.mockResolvedValue(`sha-1`)
 })
+
+/** The device delivered every message of the thread (nothing unread). */
+const readAll = (rootId: string) =>
+  db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.rootId, rootId))
+
+/** Fire-and-forget edges: give a skipped one the time a fired one takes. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 300))
 
 /** A thread (running, busy) with a child (running, busy) that opened PR #7. */
 async function thread(yoloMode = true) {
@@ -108,7 +121,11 @@ async function thread(yoloMode = true) {
     issueIds: [],
     actorUserId: owner,
   })
-  const report = (sessionId: string, input: { status?: `idle` | `ended`; busy?: boolean }) =>
+  await readAll(root)
+  const report = (
+    sessionId: string,
+    input: { status?: `idle` | `ended`; busy?: boolean; needsInput?: boolean; blocked?: { kind: string } | null }
+  ) =>
     sessionsRouter
       .createCaller({ session: { user: { id: owner } }, db } as never)
       .report({ sessionId, deviceId, ...input })
@@ -136,16 +153,118 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     await vi.waitFor(() => expect(merge).toHaveBeenCalledWith({ userId: t.owner, pullRequestId: t.prId }))
   })
 
-  it(`a session ending (the child's process gone, then End) is an edge too`, async () => {
+  it(`a child ending leaves its report unread in the idle parent: nothing merges until the parent's turn on it ends`, async () => {
     const t = await thread()
     await t.report(t.root, { status: `idle`, busy: false })
     await t.report(t.child, { status: `ended` })
-    await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
+    await settle()
+    expect(merge).not.toHaveBeenCalled()
+    expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
+    // The parent reads the report and its turn on it ends.
+    await readAll(t.root)
+    await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, t.root))
+    await t.report(t.root, { status: `idle`, busy: false })
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledWith({ userId: t.owner, pullRequestId: t.prId }))
 
     const u = await thread()
     await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.id, u.root))
     await endSession({ userId: u.owner, sessionId: u.child })
-    await vi.waitFor(() => expect(merge).toHaveBeenCalledWith({ userId: u.owner, pullRequestId: u.prId }))
+    expect(await maybeMergeYoloThread(u.root)).toEqual({ status: `waiting` })
+    expect(merge).toHaveBeenCalledTimes(1)
+  })
+
+  it(`endHostedSessions ending the whole tree is an edge`, async () => {
+    const t = await thread()
+    await endHostedSessions([t.root, t.child])
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledWith({ userId: t.owner, pullRequestId: t.prId }))
+  })
+
+  it(`a person's Stop mid-turn: the interrupted turn end merges nothing until the session works again`, async () => {
+    const t = await thread()
+    await t.report(t.child, { status: `idle`, busy: false })
+    await stopSession({ userId: t.owner, sessionId: t.root })
+    await t.report(t.root, { status: `idle`, busy: false })
+    await settle()
+    expect(merge).not.toHaveBeenCalled()
+    expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
+    // A later message resumes it: busy again clears the Stop, its end merges.
+    await t.report(t.root, { busy: true })
+    const [row] = await db.select({ stoppedAt: sessions.stoppedAt }).from(sessions).where(eq(sessions.id, t.root))
+    expect(row!.stoppedAt).toBeNull()
+    await t.report(t.root, { status: `idle`, busy: false })
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
+  })
+
+  it(`Stopping a never-started session merges nothing`, async () => {
+    const t = await thread()
+    await t.report(t.root, { status: `idle`, busy: false })
+    await db.update(sessions).set({ status: `queued`, busy: false, startedAt: null }).where(eq(sessions.id, t.child))
+    await stopSession({ userId: t.owner, sessionId: t.child })
+    await settle()
+    expect(merge).not.toHaveBeenCalled()
+  })
+
+  it(`a turn ending on an open question/plan card or a wall waits for the person`, async () => {
+    const t = await thread()
+    await t.report(t.child, { status: `idle`, busy: false })
+    await t.report(t.root, { status: `idle`, busy: false, needsInput: true })
+    await settle()
+    expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
+
+    const u = await thread()
+    await u.report(u.child, { status: `idle`, busy: false, blocked: { kind: `usage_limit` } })
+    await u.report(u.root, { status: `idle`, busy: false })
+    await settle()
+    expect(await maybeMergeYoloThread(u.root)).toEqual({ status: `waiting` })
+    expect(merge).not.toHaveBeenCalled()
+  })
+
+  it(`only a real busy → idle edge fires: a repeated idle report does not`, async () => {
+    const t = await thread()
+    await t.report(t.child, { status: `idle`, busy: false })
+    await t.report(t.root, { status: `idle`, busy: false })
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
+    await t.report(t.root, { status: `idle`, busy: false })
+    await t.report(t.root, { status: `idle` })
+    await settle()
+    expect(merge).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a draft is skipped silently: no merge, no refusal, its stack waits`, async () => {
+    const t = await thread()
+    await db.update(pullRequests).set({ state: `draft` }).where(eq(pullRequests.id, t.prId))
+    await t.report(t.child, { status: `idle`, busy: false })
+    await t.report(t.root, { status: `idle`, busy: false })
+    await settle()
+    expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `merged`, outcomes: { [t.prId]: { kind: `draft` } } })
+    expect(merge).not.toHaveBeenCalled()
+    expect(await refusals(t.root)).toHaveLength(0)
+  })
+
+  it(`two concurrent triggers merge once (in process, and across instances by the advisory lock)`, async () => {
+    const t = await thread()
+    await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.rootId, t.root))
+    let release!: () => void
+    merge.mockImplementation(() => new Promise((resolve) => (release = () => resolve({ queued: false }))))
+    const a = maybeMergeYoloThread(t.root)
+    const b = maybeMergeYoloThread(t.root)
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
+    release()
+    expect(await a).toEqual(await b)
+    expect(merge).toHaveBeenCalledTimes(1)
+
+    // Another instance holds the thread's lock: this one stands down.
+    const other = await pool.connect()
+    try {
+      await other.query(`SELECT pg_advisory_lock(hashtext($1))`, [`yolo_thread:${t.root}`])
+      expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
+      await other.query(`SELECT pg_advisory_unlock(hashtext($1))`, [`yolo_thread:${t.root}`])
+    } finally {
+      other.release()
+    }
+    merge.mockResolvedValue({ queued: false })
+    expect(await maybeMergeYoloThread(t.root)).toMatchObject({ status: `merged` })
+    expect(merge).toHaveBeenCalledTimes(2)
   })
 
   it(`a team without yolo mode never merges`, async () => {
@@ -166,12 +285,18 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     expect((await refusals(t.root))[0]).toEqual(
       expect.objectContaining({ body: mergeRefusalText(7, reason, `checks`), consumedAt: null })
     )
-    // The root reads it and its turn ends on it: the next pass stays quiet.
-    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, t.root))
+    // The root reads it and its turn ends on it: the next pass stays quiet,
+    // even when GitHub words the same refusal differently.
+    await readAll(t.root)
     await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, t.root))
+    merge.mockRejectedValue(new MergeRefusal({ kind: `checks`, message: `Required status check "gate" is expected.` }))
     await t.report(t.root, { status: `idle`, busy: false })
     await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(2))
     expect(await maybeMergeYoloThread(t.root)).toMatchObject({ status: `merged` })
     expect(await refusals(t.root)).toHaveLength(1)
+    // A push = a new head: its refusal wakes the root again.
+    headSha.mockResolvedValue(`sha-2`)
+    expect(await maybeMergeYoloThread(t.root)).toMatchObject({ status: `merged` })
+    expect(await refusals(t.root)).toHaveLength(2)
   })
 })

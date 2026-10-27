@@ -1422,6 +1422,13 @@
       "when": 1793103166477,
       "tag": "0202_exp1388_chat_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793107027210,
+      "tag": "0203_exp1413_sessions_stopped_at",
+      "breakpoints": true
     }
   ]
 }

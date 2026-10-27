@@ -135,17 +135,23 @@ describe.skipIf(!ready.ok)(`#EXP-1391: a refused merge goes into the thread`, ()
     ])
   })
 
-  it(`automerge: the same refusal posts once, read or not; a new one is news`, async () => {
+  it(`automerge: a PR's refusal at one head posts once, read or not, whatever GitHub's wording; a new head is news`, async () => {
     const w = await threadWithPr()
-    const auto = (error: InstanceType<typeof MergeRefusal>) =>
-      postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error, automerge: true })
-    expect(await auto(refusal())).toBe(true)
-    // The root read it and ended its turn: the next pass stays quiet.
+    const auto = (error: InstanceType<typeof MergeRefusal>, headSha: string | null) =>
+      postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error, automerge: true, headSha })
+    expect(await auto(refusal(), `sha-1`)).toBe(true)
+    expect((await refusals(w.thread))[0]!.card).toMatchObject({ headSha: `sha-1` })
+    // The root read it and ended its turn: the next pass stays quiet, even
+    // when GitHub words it differently (#EXP-1413).
     await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, w.thread))
-    expect(await auto(refusal())).toBe(false)
+    expect(await auto(new MergeRefusal({ kind: `checks`, message: `Required status check "gate" is expected.` }), `sha-1`)).toBe(false)
     expect(await refusals(w.thread)).toHaveLength(1)
-    // A different refusal is news.
-    expect(await auto(new MergeRefusal({ kind: `conflict`, message: `Conflicts in a.ts` }))).toBe(true)
+    // A push (a new head) is news.
+    expect(await auto(new MergeRefusal({ kind: `conflict`, message: `Conflicts in a.ts` }), `sha-2`)).toBe(true)
+    expect(await refusals(w.thread)).toHaveLength(2)
+    // An unreadable head: any earlier refusal of the PR counts as seen.
+    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, w.thread))
+    expect(await auto(refusal(), null)).toBe(false)
     expect(await refusals(w.thread)).toHaveLength(2)
   })
 

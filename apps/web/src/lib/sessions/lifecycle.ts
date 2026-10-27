@@ -157,6 +157,10 @@ export async function stopSession(args: {
   await assertCanSteer(args.userId, session)
   const live = session.status === `running` || session.status === `idle`
   const ghost = live && !(await sessionDeviceOnline(session))
+  // EXP-1413: an interrupted busy turn holds the yolo automerge until the
+  // session works again (`sessions.report`). Stopping requested work that
+  // never started merges nothing either: no edge here.
+  const stopped = live && session.busy ? { stoppedAt: new Date() } : {}
   const txid = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     // A re-queued session keeps `started_at`: Stop never ends a session
@@ -166,14 +170,16 @@ export async function stopSession(args: {
     } else if (ghost) {
       await tx
         .update(sessions)
-        .set({ status: `idle`, busy: false, updatedAt: new Date() })
+        .set({ status: `idle`, busy: false, ...stopped, updatedAt: new Date() })
         .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
     } else {
-      await tx.update(sessions).set({ updatedAt: new Date() }).where(eq(sessions.id, session.id))
+      await tx
+        .update(sessions)
+        .set({ ...stopped, updatedAt: new Date() })
+        .where(eq(sessions.id, session.id))
     }
     return txid
   })
-  if (session.status === `queued` && !session.startedAt) yoloEdge(session.rootId)
   // Chats: `delivered` = the device got the interrupt; a queued, ghost,
   // ended or idle (not busy) session has nothing to deliver (true).
   if (session.status === `queued` || session.status === `ended` || ghost) return { txid, delivered: true }

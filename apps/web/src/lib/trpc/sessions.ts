@@ -685,6 +685,12 @@ export const sessionsRouter = router({
           : undefined
       const turnEnded =
         (input.busy === false && session.busy) || status === `idle` || ending
+      // EXP-1413: the yolo edge = a REAL busy → idle transition (or the
+      // process going); a repeated idle report is none, and neither is the
+      // end of a turn a person's Stop interrupted (`stoppedAt`).
+      const nowBusy =
+        input.busy !== undefined ? input.busy : status === `idle` ? false : session.busy
+      const yoloTurnEnd = ending || (session.busy && !nowBusy && !session.stoppedAt)
       const txid = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         if (ending) {
@@ -728,6 +734,8 @@ export const sessionsRouter = router({
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
+            // EXP-1413: working again = the Stop is settled.
+            ...(nowBusy && session.stoppedAt ? { stoppedAt: null } : {}),
             lastActivityAt: now,
             updatedAt: now,
           })
@@ -745,7 +753,7 @@ export const sessionsRouter = router({
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)
       // EXP-1413: a turn ending (or a child's process going) is a yolo edge.
-      if (turnEnded) yoloEdge(session.rootId)
+      if (yoloTurnEnd) yoloEdge(session.rootId)
       return { txid }
     }),
 
