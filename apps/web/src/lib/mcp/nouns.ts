@@ -61,7 +61,7 @@ const PREFIX = `exponential_`
 export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `issues`,
-    blurb: `Issues (id = UUID or identifier like EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data).`,
+    blurb: `Issues (id = UUID or identifier like EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data). create links only via sessionId or link: true.`,
     alwaysLoad: true,
     ops: {
       list: `issues_list`,
@@ -74,6 +74,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       update_status: `issues_update_status`,
       subscribe: `issues_subscribe`,
       unsubscribe: `issues_unsubscribe`,
+      unlink: `issues_unlink`,
       labels_add: `issue_labels_add`,
       labels_remove: `issue_labels_remove`,
       relations_add: `issue_relations_add`,

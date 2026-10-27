@@ -967,6 +967,17 @@
         "result": "issue"
       },
       {
+        "name": "issues_unlink",
+        "title": "Unlink issue",
+        "blurb": "Detaches an issue from the session that holds it.",
+        "progressive": "Unlinking issue",
+        "done": "Unlinked issue",
+        "progressiveMany": "Unlinking {n} issues",
+        "doneMany": "Unlinked {n} issues",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
         "name": "issues_delete",
         "title": "Delete issue",
         "blurb": "Removes an issue and everything on it.",
@@ -1685,6 +1696,7 @@
       { "name": "issues_show", "refs": "list:issue@" },
       { "name": "issues_subscribe", "refs": "issue@" },
       { "name": "issues_unsubscribe", "refs": "issue@" },
+      { "name": "issues_unlink", "refs": "session@ issue@$id" },
       { "name": "issues_update", "refs": "issue@" },
       { "name": "issues_update_status", "refs": "issue@ status@" },
       { "name": "team_config_labels_create", "refs": "label@" },

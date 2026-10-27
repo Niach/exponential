@@ -274,7 +274,15 @@ export async function openPullRequest(args: {
   issueIds?: string[]
   /** EXP-1315: the UI screens the agent could not run (`<platform>: <screen>`). */
   notRun?: string
-}): Promise<{ pullRequestId: string; url: string; number: number; base: string; head: string }> {
+}): Promise<{
+  pullRequestId: string
+  url: string
+  number: number
+  base: string
+  head: string
+  /** EXP-1377: the issues this PR links (they move on open and merge). */
+  issues: string[]
+}> {
   const caller = args.callerSessionId
     ? await loadSessionForUser(args.userId, args.callerSessionId)
     : null
@@ -328,6 +336,7 @@ export async function openPullRequest(args: {
     }
   }
   const linked = candidates.filter(belongs)
+  const linkedIdentifiers = linked.map((issue) => issue.identifier)
   const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || null
   const token = await repoToken(repo)
   // EXP-1315: `notRun` lives in the Guide (topic `Not run`), so every later
@@ -377,7 +386,7 @@ export async function openPullRequest(args: {
       await applyPullRequestDraft({ pullRequestId: existing.id, draft: args.draft })
     }
     await record({ url: existing.url, number: existing.number, base: existing.base, title: args.title })
-    return { pullRequestId: existing.id, url: existing.url, number: existing.number, base: existing.base, head: head! }
+    return { pullRequestId: existing.id, url: existing.url, number: existing.number, base: existing.base, head: head!, issues: linkedIdentifiers }
   }
 
   const defaults = await loadGuardDefaultBranches(db, { teamId: repo.teamId, repoFullName: repo.fullName })
@@ -436,6 +445,7 @@ export async function openPullRequest(args: {
     number: created.number,
     base: created.base,
     head: head!,
+    issues: linkedIdentifiers,
   }
 }
 

@@ -1265,12 +1265,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. sessionId makes that session hold it (default: your own); filing never moves its status, a later link or start does.`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. Unlinked unless sessionId (that session holds it) or link: true (your own session; link: false with sessionId is refused); filing never moves its status, a later link or start does. The result's sessionId = the session it linked to, null = none.`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
         parentId: uuidString.optional(),
         sessionId: uuidString.optional(),
+        link: z.boolean().optional(),
         status: issueStatusEnumSchema.optional(),
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
@@ -1287,7 +1288,7 @@ export function registerExponentialTools(
         labelIds: z.array(uuidString).optional(),
       }),
     },
-    async ({ description, sessionId: sessionIdArg, ...rest }) => {
+    async ({ description, sessionId: sessionIdArg, link, ...rest }) => {
       try {
         const board = await getBoardTeamId(rest.boardId)
         if (!access.full) {
@@ -1297,13 +1298,17 @@ export function registerExponentialTools(
             assertBoardGranted(access, parent.boardId, parent.teamId)
           }
         }
-        // EXP-1291: the thread the issue is filed into. A named session is
-        // checked BEFORE the issue exists (so a bad id never leaves an issue
-        // filed nowhere the agent meant); the caller's own thread is the
-        // default when it is a thread of the board's team (never an agent
-        // channel).
+        // EXP-1291: the thread the issue is filed into, checked BEFORE the
+        // issue exists (so a bad id never leaves an issue filed nowhere the
+        // agent meant). EXP-1377: linking is explicit: a named session, or
+        // `link: true` = the caller's own thread (of the board's team, never
+        // an agent channel); neither = an unlinked issue, so a follow-up
+        // never rides the filer's PR into done.
         const own = await loadCallerSession()
         let rootId: string | null = null
+        if (sessionIdArg && link === false) {
+          throw new Error(`link: false contradicts sessionId; omit sessionId for an unlinked issue`)
+        }
         if (sessionIdArg) {
           const target = await loadSessionForUser(user.id, sessionIdArg)
           if (!access.full) assertTeamFullyGranted(access, target.teamId)
@@ -1312,7 +1317,11 @@ export function registerExponentialTools(
             throw new Error(`Session not found in this board's team`)
           }
           rootId = target.id
-        } else if (own && own.teamId === board.teamId && own.rootAgentId === null) {
+        } else if (link) {
+          if (!own) throw new Error(noSessionMessage(`exponential_issues_create`, `sessionId`))
+          if (own.teamId !== board.teamId || own.rootAgentId !== null) {
+            throw new Error(`link: true needs a thread of this board's team; pass sessionId`)
+          }
           // NEW-1: the filer holds the issue (a row on the caller's session).
           rootId = own.id
         }
@@ -1322,7 +1331,7 @@ export function registerExponentialTools(
         })
         // EXP-617: exclusion-only (see noteAgentIssueActivity).
         noteAgentIssueActivity(result.issue.id, user.id)
-        if (!rootId) return ok(result.issue)
+        if (!rootId) return ok({ ...result.issue, sessionId: null })
         // The issue exists either way; a failed link says so instead of
         // failing the call.
         try {
@@ -1340,6 +1349,7 @@ export function registerExponentialTools(
         } catch (e) {
           return ok({
             ...result.issue,
+            sessionId: null,
             warning: `Created, but not linked to session ${rootId} (${e instanceof Error ? e.message : String(e)}). Retry with exponential_sessions_link.`,
           })
         }
@@ -2279,6 +2289,25 @@ export function registerExponentialTools(
     return { rootId: own.id, teamId: own.teamId }
   }
 
+  async function unlinkFromSession(
+    ref: string,
+    sessionIdArg: string | undefined,
+    tool: string
+  ): Promise<{ sessionId: string; issueId: string; unlinked: boolean }> {
+    const { rootId, teamId } = await linkTarget(sessionIdArg, tool)
+    const [issueId] = await resolveTeamIssues([ref], teamId)
+    const own = await loadCallerSession()
+    const result = await db.transaction((tx) =>
+      unlinkIssue(tx, {
+        sessionId: rootId,
+        issueId: issueId!,
+        removedBy: user.id,
+        removedBySessionId: own?.id ?? null,
+      })
+    )
+    return { sessionId: rootId, issueId: issueId!, unlinked: result.unlinked }
+  }
+
   /** Issue refs (UUID or identifier) → ids, grant-checked and confined to
    * one team. */
   async function resolveTeamIssues(
@@ -2755,18 +2784,30 @@ export function registerExponentialTools(
     },
     async ({ issueId: ref, sessionId: sessionIdArg }) => {
       try {
-        const { rootId, teamId } = await linkTarget(sessionIdArg, `exponential_sessions_unlink`)
-        const [issueId] = await resolveTeamIssues([ref], teamId)
-        const own = await loadCallerSession()
-        const result = await db.transaction((tx) =>
-          unlinkIssue(tx, {
-            sessionId: rootId,
-            issueId: issueId!,
-            removedBy: user.id,
-            removedBySessionId: own?.id ?? null,
-          })
-        )
-        return ok({ sessionId: rootId, issueId, ...(isRecord(result) ? result : {}) })
+        return ok(await unlinkFromSession(ref, sessionIdArg, `exponential_sessions_unlink`))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // EXP-1377: the same unlink from the issue's side, loud when nothing held it.
+  server.registerTool(
+    `exponential_issues_unlink`,
+    {
+      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its thread holds it). Errors when none held it. An already-open PR keeps it: exponential_pr {op: "unlink"}.`,
+      inputSchema: strictInput({
+        id: z.string().min(1),
+        sessionId: uuidString.optional(),
+      }),
+    },
+    async ({ id: ref, sessionId: sessionIdArg }) => {
+      try {
+        const result = await unlinkFromSession(ref, sessionIdArg, `exponential_issues_unlink`)
+        if (!result.unlinked) {
+          throw new Error(`${ref} is not linked to session ${result.sessionId} or its thread`)
+        }
+        return ok(result)
       } catch (e) {
         return err(e)
       }
@@ -2883,7 +2924,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; a work session with no share takes the root issues no other work session linked; issues a merged PR closed are left out). repositoryId when there are none. Body = your thread's Guide once written. A diff touching UI needs a Guide picture per platform (label starts web, web-mobile, ios, android or desktop) or notRun naming the screen you could not run. Linked issues take the team's PR-open status.`,
+      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; a work session with no share takes the root issues no other work session linked; issues a merged PR closed are left out). repositoryId when there are none. Body = your thread's Guide once written. A diff touching UI needs a Guide picture per platform (label starts web, web-mobile, ios, android or desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         title: z.string().min(1).max(255),

@@ -1674,7 +1674,7 @@ describe(`exponential_issues_create statusId passthrough (EXP-684)`, () => {
       title: `Idea`,
       statusId: STATUS,
     })
-    expect(parseOk(result)).toEqual({ id: UUID, statusId: STATUS })
+    expect(parseOk(result)).toEqual({ id: UUID, statusId: STATUS, sessionId: null })
     expect(caller.issues.create).toHaveBeenCalledWith({
       boardId: PROJ,
       title: `Idea`,
@@ -1695,7 +1695,7 @@ describe(`exponential_issues_create statusId passthrough (EXP-684)`, () => {
       title: `Child`,
       parentId: WS,
     })
-    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-2` })
+    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-2`, sessionId: null })
     expect(caller.issues.create).toHaveBeenCalledWith({
       boardId: PROJ,
       title: `Child`,
@@ -2423,6 +2423,43 @@ describe(`exponential_sessions_link / unlink`, () => {
     })
   })
 
+  // EXP-1377: the same unlink from the issue's side, loud when none held it.
+  it(`issues unlink detaches it, and errors when no session held it`, async () => {
+    dbRows.current = [callerRow({ teamId: `ws-1` })]
+    sessionsCore.unlinkIssue.mockResolvedValue({ unlinked: true })
+    const tools = collectTools(USER, SESSION)
+    const result = await tools.get(`exponential_issues_unlink`)!({ id: UUID })
+    expect(parseOk(result)).toEqual({ sessionId: SESSION, issueId: UUID, unlinked: true })
+    sessionsCore.unlinkIssue.mockResolvedValue({ unlinked: false })
+    const none = await tools.get(`exponential_issues_unlink`)!({ id: UUID })
+    expect(none.isError).toBe(true)
+    expect(none.content[0].text).toContain(`not linked`)
+  })
+
+  it(`issues unlink refuses another team's thread or another user's private thread`, async () => {
+    // Not a member of its team, or private and not the starter: not found.
+    sessionsCore.loadSessionForUser.mockRejectedValueOnce(
+      new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    )
+    const hidden = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(hidden.isError).toBe(true)
+    // A private session the caller did not start: the steer check refuses.
+    sessionsCore.loadSessionForUser.mockResolvedValue(
+      sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
+    )
+    sessionsCore.assertCanSteer.mockRejectedValueOnce(forbidden())
+    const privateThread = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(privateThread.isError).toBe(true)
+    // A thread of another team than the issue's.
+    sessionsCore.loadSessionForUser.mockResolvedValue(
+      sessionRow({ id: CHILD, rootId: ROOT, teamId: WS })
+    )
+    const otherTeam = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(otherTeam.isError).toBe(true)
+    expect(otherTeam.content[0].text).toContain(`not in this session's team`)
+    expect(sessionsCore.unlinkIssue).not.toHaveBeenCalled()
+  })
+
   it(`needs a sessionId without a session header`, async () => {
     const result = await tool(`exponential_sessions_link`)({ issueIds: [UUID] })
     expect(result.isError).toBe(true)
@@ -2436,11 +2473,23 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     sessionsCore.linkIssues.mockResolvedValue({ linked: [UUID] })
   })
 
-  it(`files into the caller's own thread by default, as a filed agent link`, async () => {
+  // EXP-1377: no sessionId and no link = an unlinked issue, even in a session.
+  it(`files an unlinked issue by default, inside a session too`, async () => {
     dbRows.current = [callerRow({ teamId: `ws-1` })]
     const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
       boardId: PROJ,
       title: `Follow-up`,
+    })
+    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9`, sessionId: null })
+    expect(sessionsCore.linkIssues).not.toHaveBeenCalled()
+  })
+
+  it(`link: true files into the caller's own thread, as a filed agent link`, async () => {
+    dbRows.current = [callerRow({ teamId: `ws-1` })]
+    const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
+      boardId: PROJ,
+      title: `Follow-up`,
+      link: true,
     })
     // NEW-1: the filer holds the issue.
     expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9`, sessionId: SESSION })
@@ -2481,15 +2530,35 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     expect(caller.issues.create).not.toHaveBeenCalled()
   })
 
-  it(`never files into a team agent's channel or another team's thread`, async () => {
+  it(`refuses link: false with a sessionId, before filing`, async () => {
+    const result = await tool(`exponential_issues_create`)({
+      boardId: PROJ,
+      title: `Follow-up`,
+      sessionId: CHILD,
+      link: false,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`link: false`)
+    expect(caller.issues.create).not.toHaveBeenCalled()
+  })
+
+  it(`link: true refuses a team agent's channel, another team's thread or no session, before filing`, async () => {
     for (const over of [{ teamId: `ws-1`, rootAgentId: UUID }, { teamId: WS }]) {
       dbRows.current = [callerRow(over)]
       const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
         boardId: PROJ,
         title: `Follow-up`,
+        link: true,
       })
-      expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9` })
+      expect(result.isError).toBe(true)
     }
+    const headerless = await tool(`exponential_issues_create`)({
+      boardId: PROJ,
+      title: `Follow-up`,
+      link: true,
+    })
+    expect(headerless.isError).toBe(true)
+    expect(caller.issues.create).not.toHaveBeenCalled()
     expect(sessionsCore.linkIssues).not.toHaveBeenCalled()
   })
 
@@ -2499,9 +2568,11 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
       boardId: PROJ,
       title: `Follow-up`,
+      link: true,
     })
     const payload = parseOk(result) as Record<string, unknown>
     expect(payload.id).toBe(UUID)
+    expect(payload.sessionId).toBeNull()
     expect(payload.warning).toContain(`exponential_sessions_link`)
   })
 })

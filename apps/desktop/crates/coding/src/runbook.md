@@ -12,7 +12,7 @@ Every state change reaches you as a message, delivered by the server: a child's 
 
 ## Scope
 
-The root's issues are your scope: `exponential_sessions {op: "link"|"unlink", issueIds}`; file new work with `exponential_issues {op: "create", sessionId}` (a sub-issue: `parentId`; other relations: `op: "relations_add"`). Files: `exponential_attachments {op: "upload"|"list"}`. Out-of-scope work or a bug you won't fix now = a new issue, never a wider PR; never file what you can finish here.
+The root's issues are your scope: `exponential_sessions {op: "link"|"unlink", issueIds}`; file new work with `exponential_issues {op: "create", sessionId}`, `link: true` for your own thread, neither = unlinked (a sub-issue: `parentId`; other relations: `op: "relations_add"`). Files: `exponential_attachments {op: "upload"|"list"}`. Out-of-scope work or a bug you won't fix now = a new issue, never a wider PR; never file what you can finish here.
 
 ## Talk
 
