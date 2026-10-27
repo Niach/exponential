@@ -167,13 +167,18 @@ impl From<bool> for CheckState {
 /// The checkbox's box (web `size-4`).
 pub const CHECKBOX_PX: f32 = 16.;
 
+/// The checkbox's corner (web `rounded-[4px]`, the Exponential UI Checkbox
+/// box in `control-geometry.json`): a square, never the `radius_sm` rung,
+/// which at 8px turns a 16px box into a circle.
+pub const CHECKBOX_RADIUS_PX: f32 = 4.;
+
 /// EXP-970 — the checkbox, the web `Checkbox` twin: the 16px square that
 /// holds a TABLE's selection (the issue list's bulk-select column, the
 /// rail's issue rows, a checklist item in the description) and nothing else
 /// — a picker's multi-select rows draw the `ui-selected`/`ui-unselected`
 /// circle pair instead. Glass tokens throughout: the row fill under the
 /// STRONG stroke (a 16px unchecked square has to stay legible on the row it
-/// sits on), the small rung's corner (`radius_sm`, web `rounded-sm`), and
+/// sits on), the 4px corner ([`CHECKBOX_RADIUS_PX`], web `rounded-[4px]`), and
 /// checked = the primary fill under the primary foreground with the chrome's
 /// `icons.check` glyph (`icons.minus` for indeterminate). Disabled halves the
 /// opacity and drops the pointer. The caller chains `.on_click`.
@@ -197,7 +202,7 @@ pub fn checkbox(
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(chrome.radius_sm))
+        .rounded(px(CHECKBOX_RADIUS_PX))
         .border_1()
         .when(!disabled, |square| square.cursor_pointer())
         .when(disabled, |square| square.opacity(0.5));
