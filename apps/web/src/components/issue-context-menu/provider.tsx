@@ -2,7 +2,11 @@ import { useRef, type ReactNode } from "react"
 import { MenuGestureHost } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { ISSUE_MENU_KIND } from "./attr"
-import { IssueMenuSelectionContext, type IssueMenuSelection } from "./selection"
+import {
+  IssueMenuSelectionContext,
+  useLongPressSelects,
+  type IssueMenuSelection,
+} from "./selection"
 import { IssueMenuSession } from "./session"
 import {
   AGENT_MENU_KIND,
@@ -46,7 +50,7 @@ export function IssueContextMenuProvider({
       <MenuGestureHost
         menus={{
           [ISSUE_MENU_KIND]: ({ target, open, onOpenChange }) => (
-            <IssueMenuSession
+            <IssueMenuOrSelect
               target={target}
               team={team}
               open={open}
@@ -70,4 +74,13 @@ export function IssueContextMenuProvider({
       {chatActions.dialog}
     </IssueMenuSelectionContext.Provider>
   )
+}
+
+/** #EXP-1388 (owner 2026-10-27): a touch long-press on a row of a selecting
+ *  issue list enters the selection directly, as on the Chats list and the
+ *  natives; anything else opens THE issue menu. */
+function IssueMenuOrSelect(props: Parameters<typeof IssueMenuSession>[0]) {
+  const selects = useLongPressSelects(props.selection, props.target.id, props.open, props.onOpenChange)
+  if (selects) return null
+  return <IssueMenuSession {...props} />
 }

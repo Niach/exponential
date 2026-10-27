@@ -516,6 +516,33 @@ describe(`IssueContextMenuProvider`, () => {
     expect(screen.getByText(`Deselect`)).not.toBeNull()
   })
 
+  // #EXP-1388 (owner 2026-10-27): on touch the long-press itself enters the
+  // selection, as on the Chats list and the natives: no menu, no Select step.
+  it(`selects on a touch long-press instead of opening the menu`, () => {
+    const matchMedia = window.matchMedia
+    window.matchMedia = ((query: string) =>
+      ({ matches: query === `(pointer: coarse)`, media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList) as typeof window.matchMedia
+    try {
+      const toggle = vi.fn()
+      function List({ children }: { children: ReactNode }) {
+        const root = useRef<HTMLDivElement>(null)
+        useIssueMenuSelection({ root, isSelected: () => false, toggle })
+        return <div ref={root}>{children}</div>
+      }
+      seed({ issues: [issueRow()] })
+      render(
+        <Host>
+          <List>{row(`issue-1`)}</List>
+        </Host>
+      )
+      openOn(`row-issue-1`)
+      expect(toggle).toHaveBeenCalledWith(`issue-1`)
+      expect(screen.queryByRole(`menu`)).toBeNull()
+    } finally {
+      window.matchMedia = matchMedia
+    }
+  })
+
   // The ONE layout (`@exp/ui` ISSUE_MENU_LAYOUT): what the styleguide draws
   // at rest and the IDE mirrors is what this host draws, top to bottom.
   it(`draws the items in the shared layout's order`, () => {
