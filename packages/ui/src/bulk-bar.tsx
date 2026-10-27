@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react"
 import { Button } from "./button"
+import { CheckboxMark } from "./checkbox"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 import { Separator } from "./separator"
@@ -17,7 +18,6 @@ import { Separator } from "./separator"
 //   SELECTABLE_ROW   a selectable row's hover + selected fill (the issue row's)
 
 const CloseIcon = conceptIcon(`ui-close`)
-const CheckIcon = conceptIcon(`ui-check`)
 
 /** An action button's classes: the phone (and `iconOnly`) runs every action
  *  as a bare 32px glyph cell. */
@@ -124,9 +124,9 @@ export function selectableRowClass({ selected, rest }: { selected: boolean; rest
   )
 }
 
-/** A row's selection glyph while its list selects (the issue list's phone
- *  selection cell ×4): an empty ring, or the filled primary disc with the
- *  check. */
+/** A row's selection cell while its list selects (the issue list's phone
+ *  selection cell ×4): THE checkbox square (CheckboxMark, 16/1/4) centred
+ *  in the 20px cell, empty or checked; never a round glyph. */
 export function SelectionCheck({
   selected,
   className,
@@ -136,14 +136,10 @@ export function SelectionCheck({
     <span
       role="checkbox"
       aria-checked={selected}
-      className={cn(
-        `flex size-5 shrink-0 items-center justify-center rounded-full border`,
-        selected ? `border-primary bg-primary text-primary-foreground` : `border-muted-foreground/50`,
-        className
-      )}
+      className={cn(`flex size-5 shrink-0 items-center justify-center`, className)}
       {...props}
     >
-      {selected && <CheckIcon className="size-3" />}
+      <CheckboxMark checked={selected} />
     </span>
   )
 }

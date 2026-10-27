@@ -17,6 +17,7 @@ import type { ThreadPlanQuestion, ThreadQuestionOption } from "@exp/domain-contr
 import { ASK_OPTION_PICKED_CLASS, ASK_OPTION_ROW_CLASS } from "./ask-card"
 import { Button } from "./button"
 import { ChoiceTiles } from "./choice-tiles"
+import { CheckboxMark } from "./checkbox"
 import { cn } from "./cn"
 import { Composer } from "./composer"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./dropdown-menu"
@@ -60,8 +61,6 @@ import { Textarea } from "./textarea"
 
 const CheckIcon = conceptIcon(`ui-check`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
-const SelectedIcon = conceptIcon(`ui-selected`)
-const UnselectedIcon = conceptIcon(`ui-unselected`)
 
 const PENDING_UPLOAD = new RegExp(
   `!\\[[^\\]\\n]*\\]\\(${PLAN_CARD_UPLOAD_SCHEME.replace(/[.*+?^${}()|[\]\\]/g, `\\$&`)}[^)\\n]*\\)`,
@@ -271,13 +270,7 @@ export function PlanCardOptions({
             className={cn(ASK_OPTION_ROW_CLASS, selected && ASK_OPTION_PICKED_CLASS)}
             onClick={() => onPick(togglePick(picked, option.label, multi, order))}
           >
-            {multi ? (
-              selected ? (
-                <SelectedIcon className="size-3.5 shrink-0 text-foreground" />
-              ) : (
-                <UnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
-              )
-            ) : null}
+            {multi ? <CheckboxMark checked={selected} /> : null}
             <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
               <span>{option.label}</span>
               {option.description && (

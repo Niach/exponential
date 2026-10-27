@@ -348,7 +348,7 @@ const IssueRow = memo(function IssueRow({
             />
           </div>
         )}
-        {/* Phone selection mode: a leading round check on EVERY row (empty
+        {/* Phone selection mode: a leading checkbox square on EVERY row (empty
             or checked), as the natives draw it. */}
         {mobileSelectionActive && (
           <SelectionCheck
