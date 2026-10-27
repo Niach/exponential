@@ -29,8 +29,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 52372,
-        "sha256": "0e8fa1ddf7c338ab66db41a78a3e6e6f29455de25c70a7577dc4e90942ec3e17"
+        "bytes": 53292,
+        "sha256": "6313780099f31833705c1e66e273266b99ebd61c50694e6585fea28dd1145d8a"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
@@ -43,15 +43,15 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 46830,
-        "sha256": "cb4f139dd3e199460636fba3c8d70da993195827c2be68abc4184c5397575239"
+        "bytes": 55620,
+        "sha256": "f4bc2e9910a028b516cc2b6559260500da5fb5a87c8d4f169f0504dbfa9d090b"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 43946,
-        "sha256": "bc7b9fb15ab63f08956bb1f41f477d89a6fd4618f460cda4b47a51de6da02e79"
+        "bytes": 44112,
+        "sha256": "fb5eed28a64e715b5339260a67b9244f9c3c92ae29528f7934d56eea1fb3db57"
       }
     },
     "agent-home": {
