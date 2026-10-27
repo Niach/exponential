@@ -306,4 +306,30 @@ final class VoiceCallTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(VoiceCall.Ticket.self, from: data),
                        VoiceCall.Ticket(callId: "c1", ticket: "t1", url: "wss://relay/ws?ticket=t1"))
     }
+
+    // #NEW-89: a late `wasSuspended` began never drops a running call.
+    func testInterruptionIgnoresWasSuspended() {
+        typealias Rules = VoiceCall.AudioSessionRules
+        XCTAssertTrue(Rules.interruptionDropsCall(began: true, wasSuspended: false))
+        XCTAssertFalse(Rules.interruptionDropsCall(began: true, wasSuspended: true))
+        XCTAssertFalse(Rules.interruptionDropsCall(began: false, wasSuspended: false))
+        XCTAssertFalse(Rules.interruptionDropsCall(began: false, wasSuspended: true))
+    }
+
+    // #NEW-89: AirPods mid-call (the built-in 48 kHz mic → a 16 kHz HFP
+    // mic and back) rebuild the tap and resampler; no input drops the call.
+    func testRouteChangeRebuildsTheCaptureChain() {
+        typealias Rules = VoiceCall.AudioSessionRules
+        let builtIn = Rules.InputFormat(sampleRate: 48_000, channels: 1)
+        let airPods = Rules.InputFormat(sampleRate: 16_000, channels: 1)
+        XCTAssertEqual(Rules.captureChange(built: builtIn, route: builtIn), .keep)
+        XCTAssertEqual(Rules.captureChange(built: builtIn, route: airPods), .rebuild)
+        XCTAssertEqual(Rules.captureChange(built: airPods, route: builtIn), .rebuild)
+        XCTAssertEqual(Rules.captureChange(built: builtIn, route: .init(sampleRate: 48_000, channels: 2)), .rebuild)
+        XCTAssertEqual(Rules.captureChange(built: nil, route: builtIn), .rebuild)
+        XCTAssertEqual(Rules.captureChange(built: builtIn, route: .init(sampleRate: 0, channels: 0)), .drop)
+        XCTAssertEqual(Rules.captureChange(built: builtIn, route: .init(sampleRate: 16_000, channels: 0)), .drop)
+        XCTAssertEqual(Rules.tapFrames(sampleRate: 48_000), 960)
+        XCTAssertEqual(Rules.tapFrames(sampleRate: 16_000), 320)
+    }
 }

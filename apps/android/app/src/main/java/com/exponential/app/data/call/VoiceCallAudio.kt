@@ -45,7 +45,9 @@ import kotlin.math.sqrt
  * (`no_microphone` when the microphone cannot open, else `dropped`). The
  * call holds transient audio focus: focus refused at start, or lost (an
  * incoming phone call, another app's call), drops the call. [release] frees
- * everything without blocking its caller and is safe to call twice.
+ * everything without blocking its caller and is safe to call twice; it puts
+ * the routing back only once the capture and playback threads have exited
+ * (#NEW-89), never under a recorder or track that is still running.
  */
 internal class VoiceCallAudio(
     private val context: Context,
@@ -71,8 +73,6 @@ internal class VoiceCallAudio(
     private val failed = AtomicBoolean(false)
     private val released = AtomicBoolean(false)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private var previousMode: Int = AudioManager.MODE_NORMAL
-    private var previousSpeaker: Boolean = false
     private var focus: AudioFocusRequest? = null
 
     private var captureThread: Thread? = null
@@ -91,6 +91,8 @@ internal class VoiceCallAudio(
         private const val UP_FRAME = VoiceCall.Constants.UP_RATE * VoiceCall.Constants.FRAME_MS / 1000
         private const val DOWNLINK_QUEUE = 64
         private const val CODEC_TIMEOUT_US = 10_000L
+        /** How long [release] waits for each audio thread before restoring the routing. */
+        private const val JOIN_MS = 500L
         /** Opus' standard seek pre-roll (80 ms) for the decoder's csd-2. */
         private const val SEEK_PREROLL_NS = 80_000_000L
 
@@ -131,6 +133,18 @@ internal class VoiceCallAudio(
                 putShort(0) // output gain
                 put(0) // mapping family
             }.array()
+
+        /** The routing before the first of back-to-back calls (`mode` to `speakerphone`). */
+        private val routing = RoutingHandoff<Pair<Int, Boolean>>()
+
+        /**
+         * Waits for every audio thread to exit, then [restore]s: the routing
+         * never changes under a recorder or track that is still running.
+         */
+        internal fun joinThenRestore(threads: List<Thread>, timeoutMs: Long, restore: () -> Unit) {
+            for (thread in threads) runCatching { thread.join(timeoutMs) }
+            restore()
+        }
 
         private fun le64(value: Long): ByteArray =
             ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(value).array()
@@ -181,14 +195,12 @@ internal class VoiceCallAudio(
         jitter.flush()
         val threads = listOfNotNull(captureThread, decodeThread, playThread)
         for (thread in threads) thread.interrupt()
-        restoreRouting()
         micLevel = 0f
         playLevel = 0f
         // The threads free their recorder, codecs and track as they exit;
-        // waiting for them never blocks the caller (often the main thread).
-        if (threads.isNotEmpty()) {
-            Thread({ for (thread in threads) runCatching { thread.join(500) } }, "call-release").start()
-        }
+        // the routing goes back after them, and waiting for them never
+        // blocks the caller (often the main thread).
+        Thread({ joinThenRestore(threads, JOIN_MS) { restoreRouting() } }, "call-release").start()
     }
 
     private fun fail(code: String, cause: Throwable? = null) {
@@ -223,8 +235,7 @@ internal class VoiceCallAudio(
         }
         focus = request
         runCatching {
-            previousMode = audioManager.mode
-            previousSpeaker = audioManager.isSpeakerphoneOn
+            routing.claim(this) { audioManager.mode to audioManager.isSpeakerphoneOn }
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             // The call is a full screen held in front of the face: the
             // loudspeaker, unless a headset (wired, USB or Bluetooth) is on.
@@ -246,12 +257,15 @@ internal class VoiceCallAudio(
         // Never routed (focus refused): another app's call owns the mode.
         val request = focus ?: return
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                audioManager.clearCommunicationDevice()
-            } else {
-                audioManager.isSpeakerphoneOn = previousSpeaker
+            // A call started since then routes now: leave its routing alone.
+            routing.restore(this)?.let { (previousMode, previousSpeaker) ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    audioManager.clearCommunicationDevice()
+                } else {
+                    audioManager.isSpeakerphoneOn = previousSpeaker
+                }
+                audioManager.mode = previousMode
             }
-            audioManager.mode = previousMode
             audioManager.abandonAudioFocusRequest(request)
             focus = null
         }
@@ -529,5 +543,30 @@ internal class JitterBuffer(private val prebuffer: Int, private val cap: Int = p
         val asked = flushRequested
         flushRequested = false
         return asked
+    }
+}
+
+/**
+ * #NEW-89: the call routing's saved state across back-to-back calls. A call
+ * restores the routing only after its audio threads exit, so the next call
+ * may route first: it keeps the state saved before the FIRST call, and the
+ * previous call's late [restore] gets nothing (it would undo the new
+ * call's routing).
+ */
+internal class RoutingHandoff<S : Any> {
+    private var owner: Any? = null
+    private var saved: S? = null
+
+    /** [owner] routes now; [current] is read only when no call holds the routing. */
+    @Synchronized fun claim(owner: Any, current: () -> S) {
+        if (this.owner == null) saved = current()
+        this.owner = owner
+    }
+
+    /** The state to put back, when [owner] still holds the routing; else null. */
+    @Synchronized fun restore(owner: Any): S? {
+        if (this.owner !== owner) return null
+        this.owner = null
+        return saved.also { saved = null }
     }
 }

@@ -18,6 +18,11 @@ import Foundation
 // a call's session teardown always runs before the next call's activation,
 // and the main actor never waits on it (start resumes, stop is fire and
 // forget).
+//
+// #NEW-89: a route change (AirPods connect or disconnect mid-call) rebuilds
+// the tap and the resampler from the route's new input format; a call's end
+// puts the session's category back (no voice-chat routing for later media);
+// a late `wasSuspended` interruption never drops the call.
 
 enum VoiceCallAudioError: Error {
     /// No input route (voice-call.json `failed.no_microphone`).
@@ -52,6 +57,10 @@ final class VoiceCallAudio: @unchecked Sendable {
     private let downOpus = VoiceCallAudio.opusFormat(rate: VoiceCall.Constants.downRate)
 
     private var resampler: AVAudioConverter?
+    /// The input format the tap and `resampler` were built for.
+    private var captureFormat: VoiceCall.AudioSessionRules.InputFormat?
+    /// The session's category before the call, put back by `stopOnQueue`.
+    private var previousCategory: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
     private var encoder: AVAudioConverter?
     private var decoder: AVAudioConverter?
 
@@ -121,6 +130,9 @@ final class VoiceCallAudio: @unchecked Sendable {
     private func startOnQueue() throws {
         guard !running else { return }
         let session = AVAudioSession.sharedInstance()
+        if session.category != .playAndRecord || session.mode != .voiceChat {
+            previousCategory = (session.category, session.mode, session.categoryOptions)
+        }
         do {
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try? session.setPreferredIOBufferDuration(Double(VoiceCall.Constants.frameMs) / 1000)
@@ -139,33 +151,24 @@ final class VoiceCallAudio: @unchecked Sendable {
             stopOnQueue()
             throw VoiceCallAudioError.failed
         }
-        let inFormat = input.outputFormat(forBus: 0)
-        guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else {
-            stopOnQueue()
-            throw VoiceCallAudioError.noMicrophone
-        }
-        guard let resampler = AVAudioConverter(from: inFormat, to: upPcm),
-              let encoder = AVAudioConverter(from: upPcm, to: upOpus),
+        guard let encoder = AVAudioConverter(from: upPcm, to: upOpus),
               let decoder = AVAudioConverter(from: downOpus, to: downPcm)
         else {
             stopOnQueue()
             throw VoiceCallAudioError.failed
         }
         encoder.bitRate = VoiceCall.Constants.upKbps * 1000
-        self.resampler = resampler
         self.encoder = encoder
         self.decoder = decoder
 
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: downPcm)
-        let tapFrames = AVAudioFrameCount(inFormat.sampleRate * Double(VoiceCall.Constants.frameMs) / 1000)
-        input.installTap(onBus: 0, bufferSize: tapFrames, format: inFormat) { [weak self] buffer, _ in
-            // Copied off the tap thread, never waited on: `stop` removes the
-            // tap from the queue, which must not wait for a tap that waits
-            // for the queue.
-            guard let self, let copy = Self.copy(buffer) else { return }
-            let box = Boxed(copy)
-            self.queue.async { self.capture(box.value) }
+        switch installCapture() {
+        case .keep, .rebuild:
+            break
+        case .drop:
+            stopOnQueue()
+            throw VoiceCallAudioError.noMicrophone
         }
         engine.prepare()
         do {
@@ -179,6 +182,35 @@ final class VoiceCallAudio: @unchecked Sendable {
         observe()
     }
 
+    /// (Re)builds the tap and its resampler for the input route's format,
+    /// unless they already match it. `.drop` = the route has no input.
+    @discardableResult
+    private func installCapture() -> VoiceCall.AudioSessionRules.CaptureChange {
+        let input = engine.inputNode
+        let inFormat = input.outputFormat(forBus: 0)
+        let route = VoiceCall.AudioSessionRules.InputFormat(
+            sampleRate: inFormat.sampleRate, channels: Int(inFormat.channelCount)
+        )
+        let change = VoiceCall.AudioSessionRules.captureChange(built: captureFormat, route: route)
+        guard change == .rebuild else { return change }
+        guard let resampler = AVAudioConverter(from: inFormat, to: upPcm) else { return .drop }
+        input.removeTap(onBus: 0)
+        self.resampler = resampler
+        captureFormat = route
+        // A partial frame from the old route never joins the new one.
+        uplink.reset()
+        let tapFrames = AVAudioFrameCount(VoiceCall.AudioSessionRules.tapFrames(sampleRate: inFormat.sampleRate))
+        input.installTap(onBus: 0, bufferSize: tapFrames, format: inFormat) { [weak self] buffer, _ in
+            // Copied off the tap thread, never waited on: `stop` removes the
+            // tap from the queue, which must not wait for a tap that waits
+            // for the queue.
+            guard let self, let copy = Self.copy(buffer) else { return }
+            let box = Boxed(copy)
+            self.queue.async { self.capture(box.value) }
+        }
+        return change
+    }
+
     private func stopOnQueue() {
         running = false
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -189,6 +221,7 @@ final class VoiceCallAudio: @unchecked Sendable {
         if engine.attachedNodes.contains(player) { engine.detach(player) }
         try? engine.inputNode.setVoiceProcessingEnabled(false)
         resampler = nil
+        captureFormat = nil
         encoder = nil
         decoder = nil
         uplink.reset()
@@ -196,18 +229,29 @@ final class VoiceCallAudio: @unchecked Sendable {
         scheduled = 0
         prebuffering = true
         playGeneration += 1
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        // Media played after the call must not keep voice-chat routing (nor
+        // the `audio` background mode's keep-alive): the category before
+        // the call, else the system default.
+        let (category, mode, options) = previousCategory ?? (.soloAmbient, .default, [])
+        try? session.setCategory(category, mode: mode, options: options)
+        previousCategory = nil
     }
 
-    /// An interruption (a phone call, Siri) drops the call; a route change
-    /// that stops the engine restarts it, or drops the call when it can't.
+    /// An interruption that began now (a phone call, Siri) drops the call;
+    /// a configuration change (a new route) rebuilds the capture chain for
+    /// the route's input and restarts the engine, or drops the call when it
+    /// can't.
     private func observe() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: nil
         ) { [weak self] note in
             let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-            guard raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began else { return }
+            let began = raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began
+            let wasSuspended = note.userInfo?[AVAudioSessionInterruptionWasSuspendedKey] as? Bool ?? false
+            guard VoiceCall.AudioSessionRules.interruptionDropsCall(began: began, wasSuspended: wasSuspended) else { return }
             guard let self else { return }
             self.queue.async { self.failOnQueue() }
         })
@@ -220,7 +264,13 @@ final class VoiceCallAudio: @unchecked Sendable {
     }
 
     private func restartOnQueue() {
-        guard running, !engine.isRunning else { return }
+        guard running else { return }
+        // The engine stopped itself before posting the change. The old tap's
+        // format may no longer match the route (AirPods run the HFP
+        // microphone at 16 kHz, the built-in one at 48 kHz): restarting on
+        // it would fail or silently kill the uplink.
+        engine.stop()
+        guard installCapture() != .drop else { return failOnQueue() }
         do {
             engine.prepare()
             try engine.start()
@@ -248,7 +298,11 @@ final class VoiceCallAudio: @unchecked Sendable {
     }
 
     private func capture(_ buffer: AVAudioPCMBuffer) {
-        guard running, let resampler, buffer.frameLength > 0 else { return }
+        // A buffer still queued from the previous route is dropped.
+        guard running, let resampler, buffer.frameLength > 0,
+              buffer.format.sampleRate == resampler.inputFormat.sampleRate,
+              buffer.format.channelCount == resampler.inputFormat.channelCount
+        else { return }
         let ratio = upPcm.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
         guard let out = AVAudioPCMBuffer(pcmFormat: upPcm, frameCapacity: capacity) else { return }
