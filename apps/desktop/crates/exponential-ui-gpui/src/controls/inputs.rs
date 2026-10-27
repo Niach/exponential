@@ -172,11 +172,11 @@ pub const CHECKBOX_PX: f32 = 16.;
 /// which at 8px turns a 16px box into a circle.
 pub const CHECKBOX_RADIUS_PX: f32 = 4.;
 
-/// EXP-970 — the checkbox, the web `Checkbox` twin: the 16px square that
-/// holds a TABLE's selection (the issue list's bulk-select column, the
-/// rail's issue rows, a checklist item in the description) and nothing else
-/// — a picker's multi-select rows draw the `ui-selected`/`ui-unselected`
-/// circle pair instead. Glass tokens throughout: the row fill under the
+/// EXP-970 — the checkbox, the web `Checkbox` twin: the 16px square that is
+/// EVERY check / selection mark (the issue list's bulk-select column, the
+/// rail's issue rows, a chat's selection, a checklist item, a multi-select
+/// choice row, a tick list); nothing draws a round or second look (a picker's
+/// multi rows mark by their highlight wash alone). Glass tokens throughout: the row fill under the
 /// STRONG stroke (a 16px unchecked square has to stay legible on the row it
 /// sits on), the 4px corner ([`CHECKBOX_RADIUS_PX`], web `rounded-[4px]`), and
 /// checked = the primary fill under the primary foreground with the chrome's

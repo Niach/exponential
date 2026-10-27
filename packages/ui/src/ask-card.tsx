@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactN
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { Button } from "./button"
+import { CheckboxMark } from "./checkbox"
 import { cn } from "./cn"
 import { Composer, ComposerSubmit } from "./composer"
 import { GlassCard } from "./glass-card"
@@ -21,8 +22,6 @@ import { Textarea } from "./textarea"
 const PlanIcon = conceptIcon(`coding-plan`)
 const HelpIcon = conceptIcon(`ui-help`)
 const LoadingIcon = conceptIcon(`ui-loading`)
-const SelectedIcon = conceptIcon(`ui-selected`)
-const UnselectedIcon = conceptIcon(`ui-unselected`)
 const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
 
@@ -403,13 +402,7 @@ export function AskPrompt({
                 aria-expanded={askOpensField(item, index) ? fieldOpen : undefined}
                 onClick={() => choose(option, index)}
               >
-                {multiSelect ? (
-                  selected ? (
-                    <SelectedIcon className="size-3.5 shrink-0 text-foreground" />
-                  ) : (
-                    <UnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  )
-                ) : null}
+                {multiSelect ? <CheckboxMark checked={selected} /> : null}
                 <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
                   <span>{label}</span>
                   {option.description && (

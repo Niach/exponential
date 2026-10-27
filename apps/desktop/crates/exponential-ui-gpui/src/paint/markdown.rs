@@ -906,7 +906,12 @@ pub struct MdPaint {
     pub units: Option<MdUnits>,
     pub selection: Option<MdSelection>,
     pub selection_bg: Hsla,
+    /// A task item's box by its checked state (the theme's Checkbox `box`).
+    pub task_box: TaskBox,
 }
+
+/// Paints a task item's checkbox (`true` = checked).
+pub type TaskBox = Rc<dyn Fn(bool) -> AnyElement>;
 
 /// What a markdown link press calls (the href).
 pub type LinkHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
@@ -988,17 +993,20 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
             BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)).into_any_element(),
             BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors)).into_any_element(),
             BlockKind::ListItem { marker, task, depth } => {
-                let marker = match task {
-                    Some(true) => "☑".to_string(),
-                    Some(false) => "☐".to_string(),
-                    None if *depth > 0 && marker == "•" => "◦".to_string(),
-                    None => marker.clone(),
-                };
                 let lead = s.list_indent * *depth as f32;
                 let body_w = (width - lead - s.list_indent).max(1.0);
                 let (marker_x, body_x) = if p.rtl { (width - lead - s.list_indent, 0.0) } else { (lead, lead + s.list_indent) };
+                let gutter = div().absolute().left(px(marker_x)).top_0().w(px(s.list_indent));
+                let gutter = match task {
+                    // The Checkbox square, centred on the first line.
+                    Some(checked) => gutter.h(px(s.body.line_height)).flex().items_center().when(p.rtl, |d| d.justify_end()).child((p.task_box)(*checked)),
+                    None => {
+                        let marker = if *depth > 0 && marker == "•" { "◦".to_string() } else { marker.clone() };
+                        gutter.text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).when(p.rtl, |d| d.text_right()).child(SharedString::from(marker))
+                    }
+                };
                 placed
-                    .child(div().absolute().left(px(marker_x)).top_0().w(px(s.list_indent)).text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).when(p.rtl, |d| d.text_right()).child(SharedString::from(marker)))
+                    .child(gutter)
                     .child(div().absolute().left(px(body_x)).top_0().w(px(body_w)).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
                     .into_any_element()
             }

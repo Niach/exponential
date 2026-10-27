@@ -25,6 +25,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
+import com.exponential.app.ui.components.ExpCheckbox
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.isSpecified
@@ -358,11 +360,19 @@ private fun ListItemView(
     ) {
         val glyph = if (body == MdStyle.body) 22.dp else PlanCard.Look.LIST_INDENT.dp
         when (a.listType) {
-            ListType.Checklist -> Text(
-                if (a.checked) "☑" else "☐",
-                style = body,
-                modifier = Modifier.width(glyph),
-            )
+            // THE square checkbox, centred on the item's first line.
+            ListType.Checklist -> Box(
+                modifier = Modifier
+                    .width(glyph)
+                    .height(
+                        with(LocalDensity.current) {
+                            body.lineHeight.takeIf { it.isSp }?.toDp() ?: 20.dp
+                        },
+                    ),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                ExpCheckbox(a.checked)
+            }
             ListType.Ordered -> Text(
                 "${a.orderedIndex}.",
                 style = body,

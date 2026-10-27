@@ -121,7 +121,8 @@ struct MarkdownView: View {
             HStack(alignment: .top, spacing: 0) {
                 Group {
                     if let task {
-                        Image(systemName: task ? "checkmark.square" : "square").font(.system(size: spec.size * 0.9)).foregroundStyle(task ? ink : muted)
+                        MarkdownTaskBox(checked: task, model: model, props: props, ink: ink, border: border)
+                            .frame(height: spec.lineHeight)
                     } else {
                         Text(marker).font(.system(size: spec.size)).foregroundStyle(muted)
                     }
@@ -164,5 +165,34 @@ struct MarkdownView: View {
             }
             .overlay(alignment: .top) { Rectangle().fill(border).frame(height: 1) }
         }
+    }
+}
+
+/// A task item's box = the Checkbox `box` + `check` recipe parts (the same
+/// square the Checkbox component paints: 16×16, 1pt border, 4pt corner,
+/// `ui-check` at 14 when checked), never an SF glyph.
+struct MarkdownTaskBox: View {
+    let checked: Bool
+    let model: SurfaceModel
+    let props: Props
+    let ink: Color
+    let border: Color
+
+    var body: some View {
+        let p: Props = { var p = props; p["checked"] = .bool(checked); return p }()
+        let states = checked ? ["checked"] : []
+        let box = model.part("Checkbox", "box", props: p, states: states)
+        let check = model.part("Checkbox", "check", props: p, states: states)
+        let side = box.width ?? 16
+        let shape = RoundedRectangle(cornerRadius: box.style.radius > 0 ? box.style.radius : 4)
+        ZStack {
+            shape.fill(box.style.background ?? (checked ? ink : Color.clear))
+            shape.strokeBorder(box.style.borderColor ?? (checked ? ink : border), lineWidth: max(box.style.borderWidth, 1))
+            if checked {
+                ConceptIcon(name: BuiltinIcons.name("Checkbox.check"), size: check.width ?? 14, color: check.color ?? box.style.color ?? ink, model: model, weight: .bold)
+            }
+        }
+        .frame(width: side, height: side)
+        .accessibilityHidden(true)
     }
 }

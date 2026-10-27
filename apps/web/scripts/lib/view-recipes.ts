@@ -360,11 +360,15 @@ async function recipeOpenBoardBulkEdit(page: Page): Promise<void> {
       await boxes.nth(index).click()
     }
   } else {
-    await rows.first().click({ button: `right` })
-    await page.getByRole(`menuitem`, { name: `Select`, exact: true }).click()
+    // #EXP-1388: a touch long-press selects at once; a menu's Select only
+    // where one still opens.
+    await rows.filter({ visible: true }).first().click({ button: `right` })
+    const item = page.getByRole(`menuitem`, { name: `Select`, exact: true })
+    if (await appears(item, 2_000)) await item.click()
     // Tap each row's leading selection check: the row's middle holds the
     // status glyph, whose own picker would open instead.
-    const checks = page.locator(`[data-testid^="issue-select-"]`)
+    const checks = page.locator(`[data-testid^="issue-select-"]`).filter({ visible: true })
+    await checks.first().waitFor({ timeout: 10_000 })
     for (let index = 1; index < wanted; index += 1) {
       await checks.nth(index).click()
     }

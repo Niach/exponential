@@ -35628,15 +35628,15 @@
           "light": {
             "default": {
               "color": "#fafafa",
-              "width": 12,
-              "height": 12
+              "width": 14,
+              "height": 14
             }
           },
           "dark": {
             "default": {
               "color": "#171717",
-              "width": 12,
-              "height": 12
+              "width": 14,
+              "height": 14
             }
           }
         },
@@ -35660,15 +35660,15 @@
           "light": {
             "default": {
               "color": "#ffffff",
-              "width": 12,
-              "height": 12
+              "width": 14,
+              "height": 14
             }
           },
           "dark": {
             "default": {
               "color": "#431407",
-              "width": 12,
-              "height": 12
+              "width": 14,
+              "height": 14
             }
           }
         }

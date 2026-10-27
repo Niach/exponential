@@ -559,6 +559,14 @@
             "boxShadow": "$shadow.none"
           }
         }
+      ],
+      "check": [
+        {
+          "style": {
+            "width": 14,
+            "height": 14
+          }
+        }
       ]
     },
     "Radio": {

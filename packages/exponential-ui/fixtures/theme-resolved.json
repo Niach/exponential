@@ -8243,6 +8243,12 @@
                 "width": 12,
                 "height": 12
               }
+            },
+            {
+              "style": {
+                "width": 14,
+                "height": 14
+              }
             }
           ],
           "label": [
@@ -20804,6 +20810,12 @@
                 "color": "$color.primaryForeground",
                 "width": 12,
                 "height": 12
+              }
+            },
+            {
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ],

@@ -522,6 +522,7 @@ class ChatsTest {
         assertEquals(shell.getValue("selectBadge").jsonPrimitive.int, Chats.Shell.SELECT_BADGE)
         assertEquals(shell.getValue("selectBadgeRing").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_RING)
         assertEquals(shell.getValue("selectBadgeGlyph").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_GLYPH)
+        assertEquals(shell.getValue("selectBadgeRadius").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_RADIUS)
         assertEquals(shell.getValue("archivedGlyph").jsonPrimitive.int, Chats.Shell.ARCHIVED_GLYPH)
         assertEquals(shell.getValue("bubble").jsonPrimitive.int, Chats.Shell.BUBBLE)
         assertEquals(shell.getValue("bubbleRing").jsonPrimitive.int, Chats.Shell.BUBBLE_RING)

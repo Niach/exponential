@@ -737,7 +737,11 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         // (the chat's own measure) starts the item's FIRST line where its
         // wrapped lines start, the marker kerned out to the indent.
         if context.overrides.bodySize != nil, let font = prefixAttrs[.font] as? PlatformFont {
-            let width = (prefix as NSString).size(withAttributes: [.font: font]).width
+            // A task box is laid out as the 16pt checkbox, not its glyph
+            // (`MarkdownLayoutManager` draws `ExpCheckbox` in its cell).
+            let width = isTaskItem
+                ? ExpCheckbox.Metrics.side + (" " as NSString).size(withAttributes: [.font: font]).width
+                : (prefix as NSString).size(withAttributes: [.font: font]).width
             let gap = (indent - paragraphStyle.firstLineHeadIndent) - width
             if gap > 0 {
                 prefixText.addAttribute(.kern, value: gap, range: NSRange(location: prefixText.length - 1, length: 1))

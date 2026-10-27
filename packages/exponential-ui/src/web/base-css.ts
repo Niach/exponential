@@ -265,6 +265,10 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-md ol{list-style:decimal}
 .xui-md li>ul,.xui-md li>ol{margin-bottom:0}
 .xui-Markdown-listItem{margin:0}
+.xui-md li[data-task]{list-style:none}
+.xui-Markdown-listItem>input[type=checkbox]{appearance:none;display:inline-grid;place-content:center;vertical-align:-3px;width:16px;height:16px;margin:0;border:1px solid var(--xui-color-input);border-radius:4px;background:var(--xui-color-card)}
+.xui-Markdown-listItem>input[type=checkbox]:checked{background:var(--xui-color-primary);border-color:var(--xui-color-primary)}
+.xui-Markdown-listItem>input[type=checkbox]:checked::before{content:"";width:14px;height:14px;background:var(--xui-color-primaryForeground);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
 .xui-Markdown-code{font-family:var(--xui-font-mono);font-size:.925em;padding:0 .3em;border-radius:4px;background:var(--xui-color-muted)}
 .xui-Markdown-codeBlock{display:block;font-family:var(--xui-font-mono);font-size:var(--xui-type-size-xs);white-space:pre;overflow:auto;padding:var(--xui-spacing-sm);margin:0 0 var(--xui-spacing-sm);border-radius:var(--xui-radius-sm);background:var(--xui-color-muted)}
 .xui-Markdown-quote{margin:0 0 var(--xui-spacing-sm);padding-inline-start:var(--xui-spacing-md);border-inline-start:2px solid var(--xui-color-border);color:var(--xui-color-mutedForeground)}

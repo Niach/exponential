@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type RefObject } from "react"
+import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react"
 
 // EXP-1074 — a list's selection, as the menu host sees it. The menu host
 // sits above every list, so a list REGISTERS its selection here while
@@ -47,9 +47,16 @@ export function useLongPressSelects(
 ): boolean {
   const [touch] = useState(coarsePointer)
   const selects = Boolean(selection) && touch
+  // Once per open: a re-run of the effect (StrictMode's double mount) must
+  // not toggle the row straight back out.
+  const toggled = useRef(false)
   useEffect(() => {
-    if (!selects || !open) return
-    selection?.toggle(id)
+    if (!selects || !open) {
+      toggled.current = false
+      return
+    }
+    if (!toggled.current) selection?.toggle(id)
+    toggled.current = true
     onOpenChange(false)
   }, [selects, open, selection, id, onOpenChange])
   return selects

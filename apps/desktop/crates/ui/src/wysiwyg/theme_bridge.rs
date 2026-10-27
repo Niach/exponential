@@ -57,10 +57,21 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     c.mention_text = theme::tokens::ACCENT_FOREGROUND.to_hsla();
     c.cursor = app.caret;
     c.selection = app.selection;
-    c.task_checkbox_border = app.border;
-    c.task_checkbox_bg = Hsla::transparent_black();
+    // The task box IS `controls::checkbox` (the vendored crate cannot call
+    // it): the glass row fill under the strong stroke, the primary fill and
+    // the chrome's check glyph when checked, 16px with the 4px corner.
+    let chrome = exponential_ui_gpui::chrome::Chrome::global(cx);
+    c.task_checkbox_border = chrome.stroke_strong;
+    c.task_checkbox_bg = chrome.fill_row;
     c.task_checkbox_checked_bg = app.primary;
     c.task_checkbox_check = app.primary_foreground;
+    theme.task_check_icon = Some(chrome.icons.check.to_string());
+    let dims = &mut theme.dimensions;
+    dims.task_checkbox_size = exponential_ui_gpui::controls::CHECKBOX_PX;
+    dims.task_checkbox_radius = exponential_ui_gpui::controls::CHECKBOX_RADIUS_PX;
+    dims.task_checkbox_border_width = 1.;
+    dims.task_checkbox_check_size = 14.;
+    let c = &mut theme.colors;
     c.table_border = app.border;
     c.table_header_bg = app.muted;
     c.table_cell_bg = Hsla::transparent_black();

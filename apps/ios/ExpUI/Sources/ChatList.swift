@@ -20,6 +20,7 @@ public enum ChatListMetrics {
     public static let selectBadge = CGFloat(Chats.Shell.selectBadge)
     public static let selectBadgeRing = CGFloat(Chats.Shell.selectBadgeRing)
     public static let selectBadgeGlyph = CGFloat(Chats.Shell.selectBadgeGlyph)
+    public static let selectBadgeRadius = CGFloat(Chats.Shell.selectBadgeRadius)
     public static let archivedGlyph = CGFloat(Chats.Shell.archivedGlyph)
     /// Lead → text column.
     public static let gap: CGFloat = 14
@@ -179,22 +180,28 @@ public struct ChatRowView<Lead: View>: View {
     }
 }
 
-/// #EXP-1388 touch selection (WhatsApp's reference): the filled primary
-/// check badge on a selected row's disc, ringed in the selected row's ground
-/// (the screen background under the fillActive tint) so it reads cut out of
-/// the disc; its outer box sits flush with the disc's bottom-right corner.
+/// #EXP-1388 touch selection (WhatsApp's reference): the select badge on a
+/// selected row's disc = a SQUARE in THE checkbox look (`selectBadgeRadius`
+/// corner, primary fill, the Checkbox's `ui-check` at `selectBadgeGlyph` in
+/// primary-foreground, its normal stroke), ringed in the selected row's
+/// ground (the screen background under the fillActive tint; outer corner =
+/// radius + ring) so it reads cut out of the disc; its outer box sits flush
+/// with the disc's bottom-right corner.
 public struct ChatSelectBadge: View {
     public init() {}
 
     public var body: some View {
         let ring = ChatListMetrics.selectBadgeRing
         let badge = ChatListMetrics.selectBadge
+        let radius = ChatListMetrics.selectBadgeRadius
+        let outer = RoundedRectangle(cornerRadius: radius + ring, style: .continuous)
         ZStack {
-            Circle().fill(DesignTokens.Palette.background)
-            Circle().fill(GlassTokens.fillActive)
-            Circle().fill(DesignTokens.Palette.primary)
+            outer.fill(DesignTokens.Palette.background)
+            outer.fill(GlassTokens.fillActive)
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(DesignTokens.Palette.primary)
                 .frame(width: badge, height: badge)
-            AppIcon(AppIcons.uiCheck, size: ChatListMetrics.selectBadgeGlyph, weight: .bold)
+            AppIcon(AppIcons.uiCheck, size: ChatListMetrics.selectBadgeGlyph)
                 .foregroundStyle(DesignTokens.Palette.primaryForeground)
         }
         .frame(width: badge + 2 * ring, height: badge + 2 * ring)

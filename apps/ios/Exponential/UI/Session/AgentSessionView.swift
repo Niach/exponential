@@ -3038,10 +3038,7 @@ struct QuestionCard: View {
                 // Multi-select rows carry an explicit checkbox (EXP-529) —
                 // the glassRow tint alone was too subtle to read the picked
                 // set off the card. Android parity (QuestionOptionLabel).
-                AppIcon(checked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: 13)
-                    .foregroundStyle(
-                        .white.opacity(checked ? TextOpacity.primary : TextOpacity.tertiary)
-                    )
+                ExpCheckbox(checked: checked)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)

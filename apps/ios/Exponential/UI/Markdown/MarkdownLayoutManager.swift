@@ -11,7 +11,19 @@ import UIKit
 /// Installed by BlockTextEditor's explicit TextKit 1 stack — which also makes
 /// the TextKit version deterministic (EditorTextView's tap handler touching
 /// `layoutManager` already forced the TextKit 1 fallback, just lazily).
-final class MarkdownLayoutManager: NSLayoutManager {
+///   - task items: the baked `☐`/`☑` box character stays in the storage (the
+///     serializer, the toggle tap and the list-prefix math read it), but it is
+///     laid out as a 16pt control glyph and painted as THE square checkbox
+///     (`ExpCheckbox`), never as a font glyph.
+final class MarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
+    override init() {
+        super.init()
+        delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         // super still paints `.backgroundColor` runs — inline code keeps its
         // per-run highlight; code BLOCKS no longer carry that attribute.
@@ -35,6 +47,95 @@ final class MarkdownLayoutManager: NSLayoutManager {
         }
 
         drawChipCapsules(in: glyphsToShow, at: origin)
+        drawTaskBoxes(in: glyphsToShow, at: origin)
+    }
+
+    // MARK: - Task boxes
+
+    /// `☐` (U+2610) / `☑` (U+2611): the task-item box the load path bakes.
+    static func taskBoxState(_ unit: unichar) -> ExpCheckbox.State? {
+        switch unit {
+        case 0x2610: .unchecked
+        case 0x2611: .checked
+        default: nil
+        }
+    }
+
+    private func taskBoxState(at charIndex: Int) -> ExpCheckbox.State? {
+        guard let storage = textStorage, charIndex < storage.length else { return nil }
+        return Self.taskBoxState((storage.string as NSString).character(at: charIndex))
+    }
+
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+        properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+        characterIndexes charIndexes: UnsafePointer<Int>,
+        font aFont: UIFont,
+        forGlyphRange glyphRange: NSRange
+    ) -> Int {
+        guard let storage = textStorage else { return 0 }
+        let string = storage.string as NSString
+        var changed: [NSLayoutManager.GlyphProperty]?
+        for i in 0..<glyphRange.length {
+            let index = charIndexes[i]
+            guard index < string.length, Self.taskBoxState(string.character(at: index)) != nil else { continue }
+            if changed == nil { changed = Array(UnsafeBufferPointer(start: props, count: glyphRange.length)) }
+            changed?[i] = .controlCharacter
+        }
+        guard let changed else { return 0 }
+        changed.withUnsafeBufferPointer { buffer in
+            setGlyphs(glyphs, properties: buffer.baseAddress!, characterIndexes: charIndexes, font: aFont, forGlyphRange: glyphRange)
+        }
+        return glyphRange.length
+    }
+
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldUse action: NSLayoutManager.ControlCharacterAction,
+        forControlCharacterAt charIndex: Int
+    ) -> NSLayoutManager.ControlCharacterAction {
+        taskBoxState(at: charIndex) != nil ? .whitespace : action
+    }
+
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        boundingBoxForControlGlyphAt glyphIndex: Int,
+        for textContainer: NSTextContainer,
+        proposedLineFragment proposedRect: CGRect,
+        glyphPosition: CGPoint,
+        characterIndex charIndex: Int
+    ) -> CGRect {
+        CGRect(x: glyphPosition.x, y: glyphPosition.y, width: ExpCheckbox.Metrics.side, height: 0)
+    }
+
+    /// Paints every task box in the drawn range as `ExpCheckbox`, its
+    /// vertical centre on the text's cap-height middle (the chip status
+    /// icon's rule).
+    private func drawTaskBoxes(in glyphsToShow: NSRange, at origin: CGPoint) {
+        guard let storage = textStorage, storage.length > 0 else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        let string = storage.string as NSString
+        let end = min(NSMaxRange(charRange), string.length)
+        var index = charRange.location
+        while index < end {
+            defer { index += 1 }
+            guard let state = Self.taskBoxState(string.character(at: index)) else { continue }
+            let glyph = glyphIndexForCharacter(at: index)
+            guard glyph < numberOfGlyphs else { continue }
+            let font = storage.attribute(.font, at: index, effectiveRange: nil) as? UIFont ?? MarkdownStyle.bodyFont
+            let line = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let point = location(forGlyphAt: glyph)
+            let side = ExpCheckbox.Metrics.side
+            let baseline = line.minY + point.y + origin.y
+            let rect = CGRect(
+                x: line.minX + point.x + origin.x,
+                y: (baseline - font.capHeight / 2 - side / 2).rounded(),
+                width: side,
+                height: side
+            )
+            ExpCheckbox.draw(state, in: rect)
+        }
     }
 
     /// Bordered capsule behind every `.markdownChip` run — the `#IDENTIFIER`

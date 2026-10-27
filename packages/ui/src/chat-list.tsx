@@ -189,26 +189,32 @@ export function ChatFilterChips({
   )
 }
 
-/** #EXP-1388 (owner on #1286, WhatsApp's reference): the touch selection
- *  mark, a filled primary check badge on the disc's bottom-right corner,
- *  ringed in the selected row's ground (the background under the
- *  fillActive tint) so it reads cut out of the disc. */
+/** #EXP-1388 (owner on #1286): the touch selection mark on the disc's
+ *  bottom-right corner, THE checkbox look (owner 2026-10-27: every check is
+ *  the square Checkbox): the primary square at `selectBadgeRadius` with the
+ *  Checkbox's check, ringed in the selected row's ground (the background
+ *  under the fillActive tint, outer corner = radius + ring) so it reads cut
+ *  out of the disc. */
 export function ChatSelectBadge({ className }: { className?: string }) {
-  const { selectBadge, selectBadgeRing, selectBadgeGlyph } = CHATS_SHELL
+  const { selectBadge, selectBadgeRing, selectBadgeGlyph, selectBadgeRadius } = CHATS_SHELL
   const outer = selectBadge + 2 * selectBadgeRing
+  const ringRadius = selectBadgeRadius + selectBadgeRing
   return (
     <span
       aria-hidden
       data-slot="chat-select-badge"
-      className={cn(`absolute right-0 bottom-0 rounded-full bg-background`, className)}
-      style={{ width: outer, height: outer }}
+      className={cn(`absolute right-0 bottom-0 bg-background`, className)}
+      style={{ width: outer, height: outer, borderRadius: ringRadius }}
     >
       <span
-        className="flex size-full items-center justify-center rounded-full bg-glass-active"
-        style={{ padding: selectBadgeRing }}
+        className="flex size-full items-center justify-center bg-glass-active"
+        style={{ padding: selectBadgeRing, borderRadius: ringRadius }}
       >
-        <span className="flex size-full items-center justify-center rounded-full bg-primary text-primary-foreground">
-          <CheckIcon style={{ width: selectBadgeGlyph, height: selectBadgeGlyph }} strokeWidth={3} />
+        <span
+          className="flex size-full items-center justify-center bg-primary text-primary-foreground"
+          style={{ borderRadius: selectBadgeRadius }}
+        >
+          <CheckIcon style={{ width: selectBadgeGlyph, height: selectBadgeGlyph }} />
         </span>
       </span>
     </span>

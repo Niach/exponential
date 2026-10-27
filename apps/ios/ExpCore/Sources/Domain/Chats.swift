@@ -262,11 +262,12 @@ public enum Chats {
         public static let boardChips: [BoardChip] = BoardChip.allCases
         public static let leadDisc: Double = 52
         /// #EXP-1388 touch selection: the SELECT BADGE on a selected row's
-        /// lead disc (circle, its ground ring, the ui-check glyph) and the
+        /// lead disc (a 4pt-corner square, its ground ring, the ui-check glyph) and the
         /// Archived entry's plain glyph.
         public static let selectBadge: Double = 18
         public static let selectBadgeRing: Double = 2
-        public static let selectBadgeGlyph: Double = 12
+        public static let selectBadgeGlyph: Double = 14
+        public static let selectBadgeRadius: Double = 4
         public static let archivedGlyph: Double = 24
         public static let bubble: Double = 66
         public static let bubbleRing: Double = 3

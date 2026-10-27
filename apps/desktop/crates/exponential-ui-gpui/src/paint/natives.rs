@@ -1163,6 +1163,32 @@ pub fn check_box(cx: &LeafCx, checked: bool) -> AnyElement {
     div().size_full().flex().items_center().justify_center().child(icons::concept(cx.host, "ui-check", size, color)).into_any_element()
 }
 
+/// A markdown task item's box (`- [ ]` / `- [x]`): THE Checkbox `box` of
+/// the theme, 16px, its check glyph when checked — the same square a
+/// Checkbox component paints, so a checklist never draws a second look.
+pub fn task_box_painter(cx: &LeafCx, host: Rc<dyn HostPlugin>) -> crate::paint::markdown::TaskBox {
+    let style = |checked: bool| {
+        let mut props = Map::new();
+        props.insert("checked".into(), Value::Bool(checked));
+        let states: Vec<String> = if checked { vec!["checked".into()] } else { Vec::new() };
+        let p = part_props(cx.theme, cx.mode, "Checkbox", "box", &props, &states);
+        PaintStyle::from_visual(&exponential_ui::style::visual(&p, exponential_ui::style::BoxKind::Leaf))
+    };
+    let (off, on) = (style(false), style(true));
+    let check = cx.part_props("Checkbox", "check", &[]);
+    let check_size = px_prop(&check, "width").unwrap_or(12.0);
+    let check_color = color_of(check.get("color").and_then(Value::as_str)).or(on.color).unwrap_or(cx.ink);
+    Rc::new(move |checked| {
+        let s = if checked { &on } else { &off };
+        styled_box(div().flex_shrink_0().size(px(TASK_BOX_PX)).flex().items_center().justify_center(), s, TASK_BOX_PX, TASK_BOX_PX)
+            .when(checked, |d| d.child(icons::concept(host.as_ref(), "ui-check", check_size, check_color)))
+            .into_any_element()
+    })
+}
+
+/// The task box's side: the Checkbox `box` (`measure.rs`, web `size-4`).
+pub const TASK_BOX_PX: f32 = 16.0;
+
 /// Where a Switch thumb sits: the end side when checked (the left in RTL).
 pub fn switch_thumb_x(checked: bool, w: f32, size: f32, inset: f32, rtl: bool) -> f32 {
     let end = checked != rtl;

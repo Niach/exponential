@@ -415,34 +415,13 @@ pub(crate) fn step_picker_selection(
     }
 }
 
-/// The web `SelectionGlyph`: the mark a row wears, by arity. A single row
-/// carries a trailing check when it is picked and NOTHING when it is not; a
-/// MULTI row carries the circle pair, filled or empty, because a tick list
-/// has to say "not ticked" as loudly as "ticked".
-///
-/// EXP-1021 gave the PICKER primitive a different multi language — the row's
-/// own highlight is the mark there, so `picker::render_search` never asks for
-/// a multi glyph. The multi arm lives on for the tick lists that are not
-/// pickers (the launch dialog's MCP servers), where it is the row's only
-/// state cue.
-pub(crate) fn selection_glyph(multi: bool, state: SelectionState, cx: &App) -> Option<Icon> {
+/// The web `SelectionGlyph`: the mark a SINGLE-pick row wears — a trailing
+/// check when it is picked and NOTHING when it is not. A MULTI pick never
+/// asks for a glyph: inside the picker primitive the row's own highlight is
+/// the mark (EXP-1021), and every other tick list draws THE checkbox
+/// (`controls::checkbox`), never a second, round look.
+pub(crate) fn selection_glyph(state: SelectionState, cx: &App) -> Option<Icon> {
     let selected = state == SelectionState::Selected;
-    if multi {
-        return Some(
-            Icon::new(if selected {
-                registry::UI_SELECTED
-            } else {
-                registry::UI_UNSELECTED
-            })
-            .size(px(14.))
-            .flex_shrink_0()
-            .text_color(if selected {
-                cx.theme().foreground
-            } else {
-                cx.theme().muted_foreground
-            }),
-        );
-    }
     selected.then(|| {
         Icon::new(registry::UI_CHECK)
             .size(px(14.))

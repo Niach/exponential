@@ -29,7 +29,9 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.graphics.Color
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.json.Props
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.flag
@@ -303,6 +305,9 @@ internal fun UnknownLeaf(cx: LeafContext) {
     }
 }
 
+private val TASK_OFF: Props = mapOf("checked" to JsonValue.Bool(false))
+private val TASK_ON: Props = mapOf("checked" to JsonValue.Bool(true))
+
 /**
  * `Markdown`: the host's renderer when it has one, else the primitives'
  * `MarkdownView` with the measurer's [MarkdownPainter.styles] and fonts,
@@ -325,6 +330,8 @@ internal fun MarkdownLeaf(cx: LeafContext) {
     val styles = remember(theme, model.mode, cx.textStyle, cx.props) { MarkdownPainter.styles(theme, model.mode, cx.textStyle, cx.props) }
     val muted = cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f)
     val border = cx.themeColor("border") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.2f)
+    val taskOff = cx.part("Checkbox", "box", TASK_OFF)
+    val taskOn = cx.part("Checkbox", "box", TASK_ON, listOf("checked"))
     val colors = MarkdownColors(
         ink = cx.ink,
         muted = muted,
@@ -333,6 +340,11 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         codeBackground = cx.part("Markdown", "code", cx.props).style.background,
         codeBlockBackground = cx.part("Markdown", "codeBlock", cx.props).style.background ?: cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.06f),
         quoteBorder = cx.part("Markdown", "quote", cx.props).style.borderColor ?: border,
+        // A task box IS the theme's Checkbox box (off / on) and its check.
+        taskFill = taskOff.style.background ?: Color.Transparent,
+        taskBorder = taskOff.style.borderColor ?: border,
+        taskChecked = taskOn.style.background ?: cx.themeColor("primary") ?: cx.ink,
+        taskCheck = cx.part("Checkbox", "check", TASK_ON, listOf("checked")).color ?: cx.themeColor("primaryForeground") ?: Color.White,
     )
     val shaper = model.textShaper()
     val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }

@@ -45,7 +45,7 @@ pub use feedback::{
 };
 pub use inputs::{
     checkbox, glass_input, search_field, web_textarea, CheckState, SearchFieldSize,
-    CHECKBOX_PX, SEARCH_FIELD_SM_H,
+    CHECKBOX_PX, CHECKBOX_RADIUS_PX, SEARCH_FIELD_SM_H,
 };
 pub use markdown::{bare_code_markdown_style, markdown_style, markdown_view};
 pub use meter::{context_ring, meter};
