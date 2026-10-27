@@ -18,7 +18,7 @@ log = "0.4"
 # NEW-55: the echo canceller of LOCAL calls (the voice device's own microphone
 # with its speakers): pure Rust (Apache-2.0), so no cmake, libclang or
 # system library on any runner.
-decibri-aec = "0.2"
+decibri-aec = "=0.2.0"
 
 # Playback: Linux pipes PCM into the session's PipeWire/PulseAudio player
 # (`pw-play`, else `paplay`), so the build needs no ALSA headers; macOS and
@@ -28,4 +28,4 @@ cpal = "0.16"
 
 [dev-dependencies]
 # NEW-55: the `call_latency` example times the call's Opus frames.
-opus-rs = "0.1"
+opus-rs = "=0.1.40"

@@ -239,12 +239,23 @@ export const voiceRouter = router({
   // account owns, so the callId is not a grant of anything.
   callHostTicket: authedProcedure
     .input(z.object({ callId: z.string().uuid() }))
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       const config = getSteerRelayConfig()
       if (!config) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
-      const minted = mintSteerTicket(config, { kind: `call_host`, userId: ctx.session.user.id, callId: input.callId })
+      // NEW-55 review: the ticket names the member's voice device; the relay
+      // admits it only into that device's call room.
+      const settings = await voiceSettingsOf(ctx.db, ctx.session.user.id)
+      if (!settings.voiceDeviceId) {
+        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `No voice device` })
+      }
+      const minted = mintSteerTicket(config, {
+        kind: `call_host`,
+        userId: ctx.session.user.id,
+        callId: input.callId,
+        deviceId: settings.voiceDeviceId,
+      })
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }

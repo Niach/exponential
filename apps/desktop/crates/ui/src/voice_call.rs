@@ -374,6 +374,11 @@ impl VoiceCall {
                 let Ok(samples) = talk::decode_pcm(&pcm) else { return };
                 host.send_speech(samples, rate);
             }
+            // NEW-55 review: the worker died: the call cannot go on.
+            talk::Event::Exited if self.active.is_some() => {
+                log::warn!("[voice] the speech worker exited during a call");
+                self.fail("dropped", cx);
+            }
             talk::Event::ListenFailed { reason, detail, .. } => {
                 log::warn!("[voice] the call could not listen: {detail}");
                 let code = match reason {
@@ -478,9 +483,78 @@ fn ring_timeout() -> Duration {
     Duration::from_millis(domain::voice_call::VOICE_CALL.constants.ring_timeout_ms)
 }
 
+/// A call as if it had connected (no worker, no host), for the lifecycle
+/// tests.
+#[cfg(test)]
+fn start_for_test(agent_id: &str, cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    entity.update(cx, |this, cx| {
+        this.active = Some(Active { id: "call-test".into(), agent_id: agent_id.into(), host: None, queued: 0, speaking: None });
+        this.step(CallEvent::Start { device: "mint".into() }, cx);
+        this.step(CallEvent::Connected, cx);
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn running(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            install(cx);
+            start_for_test("agent-1", cx);
+            assert!(active(cx));
+            assert_eq!(agent_id(cx).as_deref(), Some("agent-1"));
+        });
+    }
+
+    /// NEW-55 review: a crashed speech worker ends the call and clears it.
+    #[gpui::test]
+    async fn a_worker_crash_ends_the_call(cx: &mut gpui::TestAppContext) {
+        running(cx);
+        cx.update(|cx| {
+            assert!(!owns(&talk::Event::Exited, cx), "the dispatcher sends Exited itself");
+            on_worker_event(talk::Event::Exited, cx);
+            assert!(!active(cx));
+            assert_eq!(global(cx).unwrap().read(cx).state.phase, CallPhase::Hidden);
+        });
+    }
+
+    /// Sign-out (Speak replies' `on_session`) hangs up through `end`.
+    #[gpui::test]
+    async fn sign_out_hangs_up(cx: &mut gpui::TestAppContext) {
+        running(cx);
+        cx.update(|cx| {
+            end(cx);
+            assert!(!active(cx));
+        });
+    }
+
+    /// A settings change that leaves no voice device here (another device
+    /// picked, or none) ends the call.
+    #[gpui::test]
+    async fn a_voice_device_change_hangs_up(cx: &mut gpui::TestAppContext) {
+        running(cx);
+        cx.update(|cx| {
+            assert!(unavailable_ignoring_busy(cx).is_some(), "no voice device in the test app");
+            settings_changed(cx);
+            assert!(!active(cx));
+        });
+    }
+
+    /// A worker that exits with no call running is not the call's business.
+    #[gpui::test]
+    async fn an_exit_without_a_call_is_ignored(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            install(cx);
+            on_worker_event(talk::Event::Exited, cx);
+            assert!(!active(cx));
+        });
+    }
 
     #[test]
     fn only_flow_events_go_to_the_caller() {

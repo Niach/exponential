@@ -7,7 +7,10 @@ import {
   CALL_FRAME_HEADER_BYTES,
   CALL_KIND_DOWN,
   CALL_KIND_UP,
+  CALL_IDLE_TIMEOUT_MS,
   CALL_MAX_FRAME_BYTES,
+  CALL_MAX_FRAMES_PER_SECOND,
+  CALL_MAX_MS,
   CALL_RING_TIMEOUT_MS,
   CLOSE_PUBLISHER_IDLE,
   CLOSE_REPLACED,
@@ -45,6 +48,10 @@ interface Conn {
    *  (caller) or they were admitted to it (host). Cleared when the room ends,
    *  so the socket's own close is inert afterwards. */
   callId?: string
+  /** NEW-55 review: this socket's binary-frame token bucket (tokens left,
+   *  and when it was last refilled). */
+  frameTokens?: number
+  frameTokensAt?: number
   /** Last time this socket's rejected-frame warning was logged (rate limit). */
   lastFrameWarnAt?: number
 }
@@ -151,6 +158,13 @@ interface CallRoom {
   host: Conn | null
   /** Fires CALL_RING_TIMEOUT_MS after the ring when no host joined. */
   ringTimer: ReturnType<typeof setTimeout> | null
+  /** NEW-55 review: once paired, ends the call at CALL_MAX_MS. */
+  lengthTimer: ReturnType<typeof setTimeout> | null
+  /** NEW-55 review: once paired, checks for CALL_IDLE_TIMEOUT_MS without a
+   *  forwarded frame. */
+  idleTimer: ReturnType<typeof setInterval> | null
+  /** The last forwarded binary frame (or the pairing). */
+  lastFrameAt: number
 }
 
 /** NEW-55: a peer with more than this queued SKIPS audio frames instead of
@@ -407,6 +421,7 @@ export class Hub {
   private callDeviceOffline = 0
   private callBusy = 0
   private callNoAnswer = 0
+  private callsExpired = 0
   private callFramesForwarded = 0
   private callFramesDropped = 0
   private callFramesSkipped = 0
@@ -498,6 +513,10 @@ export class Hub {
     if (data[0] !== (up ? CALL_KIND_UP : CALL_KIND_DOWN)) {
       return this.dropBinary(conn, `wrong_kind`, data.length)
     }
+    if (!this.takeFrameToken(conn)) {
+      return this.dropBinary(conn, `rate`, data.length)
+    }
+    call.lastFrameAt = Date.now()
     // Realtime: a saturated peer skips the frame rather than queueing it.
     if (peer.sock.bufferedAmount() > CALL_HIGH_WATER) {
       this.callFramesSkipped += 1
@@ -505,6 +524,24 @@ export class Hub {
     }
     peer.sock.sendBinary(data)
     this.callFramesForwarded += 1
+  }
+
+  /** NEW-55 review: CALL_MAX_FRAMES_PER_SECOND per socket, a bucket that
+   *  holds one second's worth. */
+  private takeFrameToken(conn: Conn): boolean {
+    const now = Date.now()
+    const elapsed = (now - (conn.frameTokensAt ?? now)) / 1000
+    const tokens = Math.min(
+      CALL_MAX_FRAMES_PER_SECOND,
+      (conn.frameTokens ?? CALL_MAX_FRAMES_PER_SECOND) + elapsed * CALL_MAX_FRAMES_PER_SECOND
+    )
+    conn.frameTokensAt = now
+    if (tokens < 1) {
+      conn.frameTokens = tokens
+      return false
+    }
+    conn.frameTokens = tokens - 1
+    return true
   }
 
   private dropBinary(conn: Conn, why: string, bytes: number) {
@@ -1122,6 +1159,7 @@ export class Hub {
       callDeviceOffline: this.callDeviceOffline,
       callBusy: this.callBusy,
       callNoAnswer: this.callNoAnswer,
+      callsExpired: this.callsExpired,
       callFramesForwarded: this.callFramesForwarded,
       callFramesDropped: this.callFramesDropped,
       callFramesSkipped: this.callFramesSkipped,
@@ -1185,6 +1223,9 @@ export class Hub {
       caller: conn,
       host: null,
       ringTimer: null,
+      lengthTimer: null,
+      idleTimer: null,
+      lastFrameAt: 0,
     }
     call.ringTimer = setTimeout(() => {
       call.ringTimer = null
@@ -1206,7 +1247,12 @@ export class Hub {
   private answerCall(conn: Conn) {
     const callId = conn.claims.callId
     const call = callId ? this.calls.get(callId) : undefined
-    if (!call || call.host || call.ownerId !== conn.claims.sub) {
+    if (
+      !call ||
+      call.host ||
+      call.ownerId !== conn.claims.sub ||
+      conn.claims.deviceId !== call.deviceId
+    ) {
       this.refuseCall(conn, `no_such_call`)
       return
     }
@@ -1216,6 +1262,19 @@ export class Hub {
     }
     call.host = conn
     conn.callId = call.callId
+    // NEW-55 review: a paired call ends at CALL_MAX_MS, or after
+    // CALL_IDLE_TIMEOUT_MS without a frame either way.
+    call.lastFrameAt = Date.now()
+    call.lengthTimer = setTimeout(() => {
+      call.lengthTimer = null
+      this.expireCall(call, `max_length`)
+    }, CALL_MAX_MS)
+    call.idleTimer = setInterval(
+      () => {
+        if (Date.now() - call.lastFrameAt >= CALL_IDLE_TIMEOUT_MS) this.expireCall(call, `idle`)
+      },
+      Math.min(CALL_IDLE_TIMEOUT_MS, 5_000)
+    )
     const ready = frame({ t: `call_ready` })
     call.caller.sock.send(ready)
     conn.sock.send(ready)
@@ -1248,10 +1307,33 @@ export class Hub {
     }
   }
 
+  /** NEW-55 review: the relay itself ends a paired call (too long, idle):
+   *  both sides get `call_end` with the reason and close. */
+  private expireCall(call: CallRoom, reason: string) {
+    if (this.calls.get(call.callId) !== call) return
+    this.callsExpired += 1
+    this.removeCall(call)
+    const end = frame({ t: `call_end`, reason })
+    for (const member of [call.caller, call.host]) {
+      if (!member) continue
+      member.callId = undefined
+      member.sock.send(end)
+      member.sock.close(CLOSE_SESSION_ENDED, `call_end`)
+    }
+  }
+
   private removeCall(call: CallRoom) {
     if (call.ringTimer) {
       clearTimeout(call.ringTimer)
       call.ringTimer = null
+    }
+    if (call.lengthTimer) {
+      clearTimeout(call.lengthTimer)
+      call.lengthTimer = null
+    }
+    if (call.idleTimer) {
+      clearInterval(call.idleTimer)
+      call.idleTimer = null
     }
     if (this.calls.get(call.callId) === call) this.calls.delete(call.callId)
     const key = callDeviceKey(call.ownerId, call.deviceId)

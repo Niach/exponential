@@ -236,11 +236,16 @@ describe(`voice.startCall`, () => {
 })
 
 describe(`voice.callHostTicket`, () => {
-  it(`mints a call_host ticket for the member`, async () => {
+  it(`mints a call_host ticket for the member's voice device`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, createdAt: new Date(), updatedAt: new Date() }]]
     const callId = `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d`
     const out = await caller.callHostTicket({ callId })
     expect(out.url).toBe(`wss://relay.example/ws?ticket=${encodeURIComponent(out.ticket)}`)
     const verdict = verifySteerTicket(out.ticket, `relay-secret`)
-    expect(verdict.ok && verdict.claims).toMatchObject({ role: `call_host`, sub: `me`, callId })
+    expect(verdict.ok && verdict.claims).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mint` })
+  })
+
+  it(`refuses a member without a voice device`, async () => {
+    await expect(caller.callHostTicket({ callId: `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d` })).rejects.toThrow(`No voice device`)
   })
 })

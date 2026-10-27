@@ -7,7 +7,10 @@ import {
   type RelaySocket,
 } from "./hub"
 import {
+  CALL_IDLE_TIMEOUT_MS,
   CALL_MAX_FRAME_BYTES,
+  CALL_MAX_FRAMES_PER_SECOND,
+  CALL_MAX_MS,
   CALL_RING_TIMEOUT_MS,
   CLOSE_PUBLISHER_IDLE,
   CLOSE_SESSION_ENDED,
@@ -2672,6 +2675,7 @@ describe(`stats counters (EXP-553)`, () => {
       callDeviceOffline: 0,
       callBusy: 0,
       callNoAnswer: 0,
+      callsExpired: 0,
       callFramesForwarded: 0,
       callFramesDropped: 0,
       callFramesSkipped: 0,
@@ -3509,7 +3513,7 @@ describe(`voice calls (NEW-55)`, () => {
     )
     return sock
   }
-  function answer(hub: Hub, opts: { callId?: string; sub?: string } = {}) {
+  function answer(hub: Hub, opts: { callId?: string; sub?: string; deviceId?: string } = {}) {
     const sock = new FakeSocket()
     hub.onOpen(
       sock,
@@ -3518,6 +3522,7 @@ describe(`voice calls (NEW-55)`, () => {
         sub: opts.sub ?? `owner`,
         team: ``,
         callId: opts.callId ?? `call-1`,
+        deviceId: opts.deviceId ?? `mint`,
       })
     )
     return sock
@@ -3632,6 +3637,78 @@ describe(`voice calls (NEW-55)`, () => {
     expect(caller.framesOf(`call_ready`)).toHaveLength(1)
     expect(host.frames()).toEqual([{ t: `call_ready` }])
     expect(host.closed).toBeNull()
+    hub.destroy()
+  })
+
+  // NEW-55 review: the host ticket is bound to its device.
+  test(`a host ticket for another device is refused`, () => {
+    const hub = new Hub()
+    onlineDevice(hub)
+    const caller = dial(hub)
+    const host = answer(hub, { deviceId: `other` })
+    expect(host.frames()).toContainEqual({ t: `error`, code: `no_such_call` })
+    expect(caller.framesOf(`call_ready`)).toHaveLength(0)
+    hub.destroy()
+  })
+
+  test(`a socket may send at most CALL_MAX_FRAMES_PER_SECOND frames a second`, () => {
+    const { hub, caller, host } = paired()
+    const before = host.binary.length
+    for (let seq = 0; seq < CALL_MAX_FRAMES_PER_SECOND + 20; seq += 1) hub.onBinary(caller, audio(1, seq))
+    expect(host.binary.length - before).toBe(CALL_MAX_FRAMES_PER_SECOND)
+    hub.destroy()
+  })
+
+  function pairedWithTimers() {
+    const timeouts: { fn: () => void; ms: number }[] = []
+    const intervals: { fn: () => void; ms: number }[] = []
+    const [realTimeout, realInterval] = [globalThis.setTimeout, globalThis.setInterval]
+    globalThis.setTimeout = ((fn: () => void, ms: number) => {
+      timeouts.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    globalThis.setInterval = ((fn: () => void, ms: number) => {
+      intervals.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval
+    try {
+      return { ...paired(), timeouts, intervals }
+    } finally {
+      globalThis.setTimeout = realTimeout
+      globalThis.setInterval = realInterval
+    }
+  }
+
+  test(`a paired call ends at CALL_MAX_MS with max_length`, () => {
+    const { hub, caller, host, timeouts } = pairedWithTimers()
+    const length = timeouts.find((t) => t.ms === CALL_MAX_MS)
+    expect(length).toBeDefined()
+    length!.fn()
+    expect(caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `max_length` })
+    expect(host.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `max_length` })
+    expect(hub.stats().calls).toBe(0)
+    expect(hub.counters().callsExpired).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a paired call with no frame for CALL_IDLE_TIMEOUT_MS ends with idle`, () => {
+    const { hub, caller, host, intervals } = pairedWithTimers()
+    const idle = intervals.find((t) => t.ms === Math.min(CALL_IDLE_TIMEOUT_MS, 5_000))
+    expect(idle).toBeDefined()
+    const now = Date.now
+    try {
+      // A frame keeps it alive.
+      hub.onBinary(caller, audio(1, 0))
+      idle!.fn()
+      expect(hub.stats().calls).toBe(1)
+      Date.now = () => now() + CALL_IDLE_TIMEOUT_MS + 1
+      idle!.fn()
+    } finally {
+      Date.now = now
+    }
+    expect(caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `idle` })
+    expect(host.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().calls).toBe(0)
     hub.destroy()
   })
 

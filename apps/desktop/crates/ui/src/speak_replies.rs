@@ -219,6 +219,11 @@ pub fn install(cx: &mut App) {
         while let Ok(event) = rx.recv_async().await {
             let Some(entity) = weak.upgrade() else { break };
             let _ = cx.update(|cx| {
+                // NEW-55 review: a worker crash ends a running call too
+                // (Speak replies then restarts the worker as before).
+                if matches!(event, talk::Event::Exited) {
+                    crate::voice_call::on_worker_event(talk::Event::Exited, cx);
+                }
                 // NEW-55: a running call's events (its microphone, its
                 // streamed reply audio) go to the call first.
                 if crate::voice_call::owns(&event, cx) {

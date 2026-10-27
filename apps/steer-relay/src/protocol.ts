@@ -35,6 +35,11 @@ export const CALL_MAX_FRAME_BYTES = voiceCall.wire.maxFrameBytes
 export const CALL_FRAME_HEADER_BYTES = 3
 /** How long a ringing call waits for the voice device's `call_host`. */
 export const CALL_RING_TIMEOUT_MS = voiceCall.constants.ringTimeoutMs
+/** NEW-55 review: per-socket binary frames per second (a token bucket). */
+export const CALL_MAX_FRAMES_PER_SECOND = voiceCall.constants.maxFramesPerSecond
+/** NEW-55 review: the longest call, and the silence that ends a paired one. */
+export const CALL_MAX_MS = voiceCall.constants.maxCallMs
+export const CALL_IDLE_TIMEOUT_MS = voiceCall.constants.idleTimeoutMs
 /** One `call_event` payload, serialized, at most. A flow event is a line of
  *  transcript at worst; anything bigger is not one. */
 export const CALL_EVENT_MAX_BYTES = 8 * 1024

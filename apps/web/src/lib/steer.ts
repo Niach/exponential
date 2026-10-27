@@ -119,7 +119,7 @@ export type SteerTicketSeed =
       agentId: string
       deviceId: string
     }
-  | { kind: `call_host`; userId: string; callId: string }
+  | { kind: `call_host`; userId: string; callId: string; deviceId: string }
 
 export function buildSteerTicketClaims(
   seed: SteerTicketSeed,
@@ -175,7 +175,7 @@ export function buildSteerTicketClaims(
         deviceOwnerId: seed.userId,
       }
     case `call_host`:
-      return { ...base, team: ``, role: `call_host`, callId: seed.callId }
+      return { ...base, team: ``, role: `call_host`, callId: seed.callId, deviceId: seed.deviceId }
   }
 }
 

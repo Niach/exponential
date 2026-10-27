@@ -635,7 +635,7 @@ describe(`voice call end-to-end (NEW-55)`, () => {
     })
 
     const host = await connect(
-      ticket({ role: `call_host`, sub: `voice-owner`, team: ``, callId: `call-e2e` })
+      ticket({ role: `call_host`, sub: `voice-owner`, team: ``, callId: `call-e2e`, deviceId: `mint` })
     )
     const hostIn = collector(host)
     expect(await hostIn.nextJson()).toEqual({ t: `call_ready` })
