@@ -275,6 +275,8 @@ pub struct ChatsShell {
     pub select_badge: f32,
     pub select_badge_ring: f32,
     pub select_badge_glyph: f32,
+    /// The badge's corner: THE checkbox square, never a disc.
+    pub select_badge_radius: f32,
     /// The Archived row's plain ui-archive glyph, no disc behind it (#EXP-1388).
     pub archived_glyph: f32,
     pub bubble: f32,
@@ -1386,8 +1388,13 @@ mod tests {
         assert_eq!(CHATS.shell.tabs, ["board", "chats", "apps", "team"]);
         assert_eq!(CHATS.shell.archived_glyph, 24.);
         assert_eq!(
-            (CHATS.shell.select_badge, CHATS.shell.select_badge_ring, CHATS.shell.select_badge_glyph),
-            (18., 2., 12.)
+            (
+                CHATS.shell.select_badge,
+                CHATS.shell.select_badge_ring,
+                CHATS.shell.select_badge_glyph,
+                CHATS.shell.select_badge_radius
+            ),
+            (18., 2., 14., 4.)
         );
     }
 
