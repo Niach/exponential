@@ -19,11 +19,14 @@
 //! #NEW-56: while the wake word holds the microphone open the icon carries a
 //! dot (`domain::voice::tray_icon`), and Mute takes the wake word's
 //! microphone away too.
+//! #NEW-97: while no tray host shows the item (GNOME without AppIndicator)
+//! the rail's footer carries the same rows ([`rail`], `domain::voice::rail_voice`),
+//! clicked through [`click`] = the tray's own handlers.
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
 
 use api::voice::VoiceUpdate;
-use domain::voice::{tray_icon, tray_menu, TrayContext, TrayIcon, TrayItem, TrayItemId, VoiceSettings};
+use domain::voice::{rail_voice, tray_icon, tray_menu, RailVoice, TrayContext, TrayIcon, TrayItem, TrayItemId, VoiceSettings};
 
 /// The app icon (the one `desktop_integration` installs on Linux).
 const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/logo-white.svg");
@@ -107,6 +110,9 @@ pub(crate) enum TrayEvent {
     /// The tray host went away (Linux): with no window open, bring one back
     /// so the IDE never hides with no way in.
     HostLost,
+    /// #NEW-97: whether a host shows the item now (Linux; every answer).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Hosted(bool),
 }
 
 /// #NEW-76: two activations closer than this are one (a Windows double-click
@@ -198,6 +204,11 @@ pub(crate) struct VoiceTray {
     menu: Option<Vec<TrayItem>>,
     /// #NEW-56: the icon the OS shows.
     icon: Option<TrayIcon>,
+    /// #NEW-97: whether a host shows the tray (None = not known yet: no
+    /// rail button before the first answer, so a host never sees it flash).
+    hosted: Option<bool>,
+    /// #NEW-97: the rail's voice button (None = none).
+    rail: Option<RailVoice>,
     backend: backend::Backend,
 }
 
@@ -232,7 +243,7 @@ pub fn install(cx: &mut App) {
         if let Some(call) = crate::voice_call::entity(cx) {
             cx.observe(&call, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
-        VoiceTray { muted, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, backend: backend::Backend::new(tx) }
+        VoiceTray { muted, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, hosted: None, rail: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
     let weak = entity.downgrade();
@@ -247,6 +258,7 @@ pub fn install(cx: &mut App) {
                         open_ide(cx);
                     }
                 }
+                TrayEvent::Hosted(hosted) => entity.update(cx, |this, cx| this.set_hosted(Some(hosted), cx)),
             });
         }
     })
@@ -279,6 +291,19 @@ pub(crate) fn muted(cx: &App) -> bool {
 pub(crate) fn set_muted(muted: bool, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.set_muted(muted, cx));
+    }
+}
+
+/// #NEW-97: the rail's voice button: this IDE is the voice device, the wake
+/// word is on and no tray host shows the tray.
+pub(crate) fn rail(cx: &App) -> Option<RailVoice> {
+    global(cx).and_then(|entity| entity.read(cx).rail.clone())
+}
+
+/// #NEW-97: a rail menu row: the tray's own handler.
+pub(crate) fn click(id: TrayItemId, cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.on_click(id, cx));
     }
 }
 
@@ -317,6 +342,14 @@ impl VoiceTray {
         self.sync(cx);
     }
 
+    /// #NEW-97: a host's answer (Linux), or the native tray's existence.
+    fn set_hosted(&mut self, hosted: Option<bool>, cx: &mut Context<Self>) {
+        if hosted != self.hosted {
+            self.hosted = hosted;
+            self.sync(cx);
+        }
+    }
+
     fn sync(&mut self, cx: &mut Context<Self>) {
         let settings = self.settings(cx);
         let agent = agent_label(&settings, cx);
@@ -326,20 +359,25 @@ impl VoiceTray {
         let mic_available = crate::speak_replies::listens_here(&settings, &self.device_id) && crate::speak_replies::worker_ready(cx);
         let status = crate::push_to_talk::status(cx);
         let device_is_voice_device = settings.voice_device_id.as_deref() == Some(self.device_id.as_str());
-        let icon = tray_icon(device_is_voice_device, crate::push_to_talk::wake_listening(cx), self.muted);
-        let menu = tray_menu(
-            &settings,
-            &TrayContext {
-                agent: agent.as_deref(),
-                muted: self.muted,
-                // NEW-55: Call shows while a call can start here.
-                call_available: crate::voice_call::unavailable(cx).is_none(),
-                mic_available,
-                device_is_voice_device,
-                shortcut_unavailable: status.reason().is_some(),
-                shortcut_label: status.trigger(),
-            },
-        );
+        let wake_listening = crate::push_to_talk::wake_listening(cx);
+        let icon = tray_icon(device_is_voice_device, wake_listening, self.muted);
+        let context = TrayContext {
+            agent: agent.as_deref(),
+            muted: self.muted,
+            // NEW-55: Call shows while a call can start here.
+            call_available: crate::voice_call::unavailable(cx).is_none(),
+            mic_available,
+            device_is_voice_device,
+            shortcut_unavailable: status.reason().is_some(),
+            shortcut_label: status.trigger(),
+        };
+        let menu = tray_menu(&settings, &context);
+        // #NEW-97: no answer yet = no button.
+        let rail = self.hosted.and_then(|hosted| rail_voice(&settings, &context, wake_listening, hosted));
+        if rail != self.rail {
+            self.rail = rail;
+            cx.notify();
+        }
         if icon != self.icon {
             self.icon = icon;
             if let Some(icon) = icon {
@@ -353,6 +391,14 @@ impl VoiceTray {
         self.menu = menu.clone();
         self.backend.set(menu);
         cx.notify();
+        // #NEW-97: a hidden tray answers again once it is wanted (Linux), the
+        // native tray exists or not right away.
+        #[cfg(target_os = "linux")]
+        if hidden {
+            self.hosted = None;
+        }
+        #[cfg(not(target_os = "linux"))]
+        self.set_hosted(self.menu.is_some().then(|| self.backend.registered()), cx);
         // No longer the voice device with every window closed: nothing keeps
         // the IDE up any more (macOS keeps running as always).
         #[cfg(not(target_os = "macos"))]

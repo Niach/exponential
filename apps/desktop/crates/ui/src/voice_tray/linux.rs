@@ -195,10 +195,13 @@ fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registere
     // A fresh well-known name per connection (`-{pid}-{n}`).
     let mut serial = 0u32;
     // Flip the flag; losing a host tells the IDE (no window = bring one up).
+    // #NEW-97: every answer is reported, so the rail's voice button shows
+    // exactly while no host draws the item.
     let set_registered = |now: bool| {
         if registered.swap(now, Ordering::SeqCst) && !now {
             let _ = clicks.send(TrayEvent::HostLost);
         }
+        let _ = clicks.send(TrayEvent::Hosted(now));
     };
     loop {
         let command = flume::Selector::new()

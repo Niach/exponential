@@ -58,6 +58,8 @@ pub struct PttCopy {
     pub overlay_thinking: String,
     pub overlay_replied: String,
     pub overlay_muted: String,
+    /// #NEW-97: the rail voice button's tooltip, {phrase} = the wake phrase.
+    pub rail_listening: String,
     pub overlay_muted_line: String,
     pub overlay_unmute: String,
     pub overlay_not_sent: String,
@@ -389,6 +391,49 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
         TrayItem::Action { id: TrayItemId::Quit, label: copy.tray_quit.clone(), enabled: true },
     ]);
     Some(menu)
+}
+
+/// #NEW-97: the IDE rail's voice button (`railVoice`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RailVoice {
+    /// The rail's destructive dot: the wake word holds the microphone open.
+    pub badge: bool,
+    pub tooltip: String,
+    /// The tray's rows minus Open, Quit and the separators.
+    pub menu: Vec<TrayItem>,
+}
+
+/// #NEW-97: the rail's voice button while no tray host shows the tray
+/// (`tray_hosted` = the tray's own registered state); None = no button.
+pub fn rail_voice(
+    settings: &VoiceSettings,
+    context: &TrayContext<'_>,
+    wake_listening: bool,
+    tray_hosted: bool,
+) -> Option<RailVoice> {
+    if tray_hosted || !settings.clone().clear_on_none().wake_word {
+        return None;
+    }
+    let menu = tray_menu(settings, context)?;
+    let phrase = match settings.wake_phrase.trim() {
+        "" => wake_phrase_placeholder(context.agent.unwrap_or("…")),
+        phrase => phrase.to_string(),
+    };
+    Some(RailVoice {
+        badge: tray_icon(context.device_is_voice_device, wake_listening, context.muted) == Some(TrayIcon::Listening),
+        tooltip: if context.muted {
+            VOICE.ptt_copy.overlay_muted.clone()
+        } else {
+            VOICE.ptt_copy.rail_listening.replace("{phrase}", &phrase)
+        },
+        menu: menu
+            .into_iter()
+            .filter(|item| match item {
+                TrayItem::Separator => false,
+                TrayItem::Action { id, .. } | TrayItem::Check { id, .. } => !matches!(id, TrayItemId::Open | TrayItemId::Quit),
+            })
+            .collect(),
+    })
 }
 
 /// #NEW-54: a shortcut's label (`shortcuts`), the value itself when unknown.
@@ -1385,6 +1430,30 @@ mod tests {
                 context["muted"].as_bool().unwrap(),
             );
             assert_eq!(detail.as_deref(), case["detail"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn rail_voice_matches_the_fixture() {
+        for case in fixture()["railVoiceCases"].as_array().unwrap() {
+            let settings: VoiceSettings = serde_json::from_value(case["settings"].clone()).unwrap();
+            let context = &case["context"];
+            let rail = rail_voice(
+                &settings,
+                &TrayContext {
+                    agent: context["agent"].as_str(),
+                    muted: context["muted"].as_bool().unwrap(),
+                    call_available: context["callAvailable"].as_bool().unwrap(),
+                    mic_available: context["micAvailable"].as_bool().unwrap(),
+                    device_is_voice_device: context["deviceIsVoiceDevice"].as_bool().unwrap(),
+                    shortcut_unavailable: false,
+                    shortcut_label: None,
+                },
+                context["wakeListening"].as_bool().unwrap(),
+                context["trayHosted"].as_bool().unwrap(),
+            );
+            let expected: Option<RailVoice> = serde_json::from_value(case["rail"].clone()).unwrap();
+            assert_eq!(rail, expected, "{}", case["name"]);
         }
     }
 

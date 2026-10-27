@@ -790,6 +790,11 @@ impl RailView {
         // EXP-1294: the Threads dot, the Agents rows and the Running section
         // are live reads over the session tree (+ the issues that title it).
         subscriptions.extend(crate::session_data::observe_session_collections(cx));
+        // #NEW-97: the footer's voice button follows the tray (its host, the
+        // wake word's microphone, Mute and the switches).
+        if let Some(tray) = crate::voice_tray::entity(cx) {
+            subscriptions.push(cx.observe(&tray, |_, _, cx| cx.notify()));
+        }
         Self {
             nav,
             shared,
@@ -1229,6 +1234,65 @@ impl RailView {
                 )
             })
             .into_any_element()
+    }
+
+    /// #NEW-97: the footer's voice button while no tray host shows the tray
+    /// (`domain::voice::rail_voice`): the Computer button's ghost square with
+    /// the `settings-voice` glyph, the tray icon's red dot while the wake
+    /// word holds the microphone open, and the tray's rows (minus Open and
+    /// Quit) on the pointer menu, each running the tray's own handler.
+    fn rail_voice_entry(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let rail = crate::voice_tray::rail(cx)?;
+        let menu = |mut menu: gpui_component::menu::PopupMenu,
+                    _window: &mut Window,
+                    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
+            // Built on open from the tray's current rows.
+            let Some(rail) = crate::voice_tray::rail(cx) else { return menu };
+            for item in rail.menu {
+                let row = match item {
+                    domain::voice::TrayItem::Check { id, label, checked, .. } => crate::controls::pointer_toggle_item(
+                        format!("rail-voice-{id:?}"),
+                        None,
+                        label,
+                        checked,
+                        move |_, _, cx| crate::voice_tray::click(id, cx),
+                    ),
+                    domain::voice::TrayItem::Action { id, label, .. } => crate::controls::pointer_menu_item(
+                        None,
+                        label,
+                        |_| None,
+                        move |_, cx| crate::voice_tray::click(id, cx),
+                    ),
+                    domain::voice::TrayItem::Separator => continue,
+                };
+                menu = menu.item(row);
+            }
+            menu
+        };
+        let button = crate::controls::PointerMenu::for_button(
+            Button::new("rail-voice")
+                .ghost()
+                .cursor_pointer()
+                .small()
+                .icon(registry::SETTINGS_VOICE)
+                .tooltip(rail.tooltip),
+            menu,
+        )
+        .anchor(gpui::Anchor::BottomLeft);
+        Some(
+            div()
+                .relative()
+                .flex_shrink_0()
+                .child(button)
+                .when(rail.badge, |this| {
+                    this.child(div().absolute().top(px(3.)).right(px(3.)).child(rail_badge_element(
+                        RailBadge::Dot(theme::tokens::DESTRUCTIVE.to_hsla()),
+                        10.,
+                        cx,
+                    )))
+                })
+                .into_any_element(),
+        )
     }
 
     /// [`Self::rail_screen_entry`] with the highlight decided by the CALLER.
@@ -2238,6 +2302,9 @@ impl Render for RailView {
             cx,
         );
 
+        // #NEW-97: no tray host = the voice button beside the Computer one.
+        let voice_entry = self.rail_voice_entry(cx);
+
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
         // them are the `Shell`'s (`render_left_column`), shared with the
@@ -2375,6 +2442,7 @@ impl Render for RailView {
                                     .min_w_0()
                                     .child(self.render_account_button(cx)),
                             )
+                            .children(voice_entry)
                             .child(computer_entry)
                             .child(settings_entry),
                     ),

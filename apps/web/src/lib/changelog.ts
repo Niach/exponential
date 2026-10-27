@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-rail-voice-button`,
+    date: `2026-10-27`,
+    title: `Wake word: a voice button in the sidebar when there's no tray`,
+    summary: `On a Linux desktop that shows no tray icons, such as GNOME without AppIndicator, the sidebar gets a microphone button while the wake word is on. It shows a red dot while the microphone listens and opens the tray's menu, including Mute.`,
+    body: `- **Where**: next to the Computer button at the bottom of the sidebar, only on your voice device, only with the wake word on, and only while nothing shows the tray icon.
+- **What it says**: hover it for the phrase it listens for, or Microphone muted. The red dot is the same one the tray icon shows.
+- **Its menu**: Speak replies, Push to talk, Wake word, Mute microphone and Voice settings…, working exactly as in the tray.`,
+  },
+  {
     id: `2026-10-27-chat-selection-archive`,
     date: `2026-10-27`,
     title: `Select chats, mark them read and archive them`,

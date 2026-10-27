@@ -435,6 +435,36 @@ export function wakeDetail(context: { here: boolean; wakeWord: boolean; wakeList
   return context.wakeListening ? fixture.pttCopy.overlayListening : null
 }
 
+/** #NEW-97: what the IDE rail's voice button reads besides the settings. */
+export interface RailVoiceContext extends TrayContext {
+  /** The speech worker reported the wake word's microphone open. */
+  wakeListening: boolean
+  /** A tray host shows the tray (Linux: the StatusNotifierItem registered). */
+  trayHosted: boolean
+}
+
+export interface RailVoice {
+  /** The rail's destructive dot: the wake word holds the microphone open. */
+  badge: boolean
+  tooltip: string
+  /** The tray's rows minus Open, Quit and the separators. */
+  menu: TrayItem[]
+}
+
+/** #NEW-97: the IDE rail's voice button while no tray host shows the tray;
+ *  null = no button. */
+export function railVoice(settings: TraySettings, context: RailVoiceContext): RailVoice | null {
+  if (context.trayHosted || !clearOnNone(settings, {}).wakeWord) return null
+  const tray = trayMenu(settings, context)
+  if (tray === null) return null
+  const phrase = settings.wakePhrase.trim() || wakePhrasePlaceholder(context.agent ?? `…`)
+  return {
+    badge: trayIcon(context) === `listening`,
+    tooltip: context.muted ? fixture.pttCopy.overlayMuted : fixture.pttCopy.railListening.replace(`{phrase}`, phrase),
+    menu: tray.filter((item) => item.kind !== `separator` && item.id !== `open` && item.id !== `quit`),
+  }
+}
+
 const GB = 1_000_000_000
 const MB = 1_000_000
 
