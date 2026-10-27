@@ -4,7 +4,7 @@ import SwiftUI
 
 // Thread 58cb32df (chats.json): the iOS styleguide's chat entries (web
 // `apps/styleguide` entries `chat-list`, `phone-tab-bar`, `chat-transcript`,
-// `chat-menus`, the updated `schedule-picker`): the REAL views over specimen
+// `chat-menus`, `chat-selection`, the updated `schedule-picker`): the REAL views over specimen
 // values. Capture only: `-uiTestingStyleguide <id>` (`ThreadCardsScreen`).
 
 /// `chat-list`: THE phone Chats screen over the bottom bar — the large
@@ -63,6 +63,27 @@ struct ChatListSpecimens: View {
         id: "t1", name: "Acme", slug: "acme", iconUrl: nil, createdAt: "", updatedAt: ""
     )
 
+    /// #EXP-1388 `chat-selection`: the selected ids (nil = not selecting):
+    /// the Archived entry first, the rows lead with the selection glyph and
+    /// THE BAR stands in the tab bar's slot.
+    var selection: [String]?
+
+    /// The specimen's archived count (the Archived entry's trailing slot).
+    private static let archived = 2
+
+    /// The selected rows as the bar reads them: `a` live (needs you),
+    /// `c` ended with one unread, both the viewer's.
+    private static func selectionRow(_ id: String) -> Chats.ChatSelectionRow {
+        let row = rows.first { $0.id == id }
+        return Chats.ChatSelectionRow(
+            sessionId: id,
+            rootStatus: row?.group == "recent" ? "ended" : "running",
+            unreadCount: row?.unread ?? 0,
+            canSteer: true,
+            canDelete: true
+        )
+    }
+
     @State private var filter: Chats.ChatFilter = .all
 
     private var shown: [Row] {
@@ -100,6 +121,9 @@ struct ChatListSpecimens: View {
                         }
                         .padding(.horizontal, -16)
                         .padding(.bottom, 4)
+                        if selection != nil, filter == .all {
+                            ChatArchivedRow(count: Self.archived)
+                        }
                         ForEach(shown) { row in
                             ChatRowView(
                                 title: row.title,
@@ -112,6 +136,7 @@ struct ChatListSpecimens: View {
                                 word: row.word?.text,
                                 wordIcon: row.word == .stack ? AppIcons.prStack : nil
                             ) { ChatLeadMark(lead: row.lead) }
+                            .chatSelectionLead(selection.map { $0.contains(row.id) })
                         }
                     }
                     .padding(.horizontal, 16)
@@ -123,12 +148,23 @@ struct ChatListSpecimens: View {
         }
         .environment(\.inboxUnread, true)
         .overlay(alignment: .bottom) {
-            MobileTabBar(
-                selected: .chats, board: PhoneShellSpecimen.activeBoard, team: Self.team,
-                chatsNeedYou: true
-            )
+            if let selection {
+                ChatSelectionBar(
+                    count: selection.count,
+                    items: Chats.chatSelectionActions(rows: selection.map(Self.selectionRow)),
+                    onClose: {},
+                    onAction: { _ in }
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+            } else {
+                MobileTabBar(
+                    selected: .chats, board: PhoneShellSpecimen.activeBoard, team: Self.team,
+                    chatsNeedYou: true
+                )
+            }
         }
-        .accessibilityIdentifier("chat-list-specimen")
+        .accessibilityIdentifier(selection == nil ? "chat-list-specimen" : "chat-selection-specimen")
     }
 }
 

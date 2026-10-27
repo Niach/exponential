@@ -183,6 +183,14 @@ data class SessionStopResult(val txid: Long? = null, val delivered: Boolean = tr
 @Serializable
 data class SessionDeleteResult(val txid: Long? = null)
 
+/** #EXP-1388 `sessions.setRead` input. */
+@Serializable
+data class SessionsSetReadInput(val sessionIds: List<String>, val read: Boolean)
+
+/** #EXP-1388 `sessions.setArchived` input. */
+@Serializable
+data class SessionsSetArchivedInput(val sessionIds: List<String>, val archived: Boolean)
+
 @Serializable
 private data class MessageIdInput(val messageId: String)
 
@@ -359,6 +367,26 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
     /** EXP-1323: stamp the viewer's read of a session (a thread = its root). */
     suspend fun markRead(accountId: String, sessionId: String) =
         unit(accountId, "sessions.markRead", sessionId)
+
+    /** #EXP-1388: Mark read / unread a batch of chats (up to 200 roots). */
+    suspend fun setRead(accountId: String, sessionIds: List<String>, read: Boolean) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.setRead",
+            input = SessionsSetReadInput(sessionIds, read),
+            inputSerializer = SessionsSetReadInput.serializer(),
+        )
+    }
+
+    /** #EXP-1388: Archive / unarchive a batch of chats for the viewer. */
+    suspend fun setArchived(accountId: String, sessionIds: List<String>, archived: Boolean) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.setArchived",
+            input = SessionsSetArchivedInput(sessionIds, archived),
+            inputSerializer = SessionsSetArchivedInput.serializer(),
+        )
+    }
 
     /** EXP-1323: Start / Do it here on one suggested task. */
     suspend fun startSuggestion(accountId: String, input: StartSuggestionInput) {

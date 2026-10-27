@@ -2819,6 +2819,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v84 (#EXP-1388): `session_reads.archived_at`, the viewer's
+        // per-chat archive beside read_at. Rows already synced lack it, so
+        // the session-reads cursor resets and they re-arrive with it.
+        migrator.registerMigration("v84_session_read_archived_at") { db in
+            guard try db.tableExists("session_reads") else { return }
+            guard try db.columns(in: "session_reads").contains(where: { $0.name == "archived_at" }) == false else { return }
+            try db.alter(table: "session_reads") { t in
+                t.add(column: "archived_at", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'session-reads'
+                    """)
+            }
+        }
+
         return migrator
     }
 

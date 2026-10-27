@@ -102,6 +102,8 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomNavDefaults
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.SelectionBarShell
+import com.exponential.app.ui.components.SelectionGlyph
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LabelDot
@@ -921,19 +923,8 @@ internal fun IssueRow(
         IssueRowContent(
             title = issue.title,
             leading = {
-                if (selected != null) {
-                    Icon(
-                        if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-                        contentDescription = if (selected) "Selected" else "Not selected",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                        },
-                    )
-                    Spacer(Modifier.width(10.dp))
-                }
+                // #EXP-1388: the shared selection glyph cell (the Chats rows' too).
+                if (selected != null) SelectionGlyph(selected)
                 IconColumn(onClick = onPriorityClick, onLongClick = onLongClick) {
                     PriorityIcon(priority, size = 16.dp)
                 }
@@ -1113,39 +1104,9 @@ private fun SelectionBar(
     // web bulk bar's Button; only the pill keeps the capsule.
     val shape = GlassTokens.ButtonShape
     val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    // Suppress the 48dp minimum interactive inflation so the 32dp icon buttons
-    // keep the bar at its own height instead of ballooning it.
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-        Row(
-            modifier = Modifier
-                // EXP-642: the styleguide capture addresses the bar directly
-                // (iOS parity — `bulk-selection-bar`).
-                .testTag("bulk-selection-bar")
-                // EXP-698 r5: the ONE bulk-bar chrome on every client — the
-                // opaque glass card at radius 24, not a hand-mixed capsule.
-                // The bar takes the tab bar's slot and its height (52), so the
-                // two never read as two different floating things.
-                .height(SelectionBarHeight)
-                .glassCard(opaque = true, cornerRadius = DesignTokens.Radius.Xl3)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    ExpIcons.uiClose,
-                    contentDescription = "Clear selection",
-                    modifier = Modifier.size(18.dp),
-                    tint = neutral,
-                )
-            }
-            Text(
-                count.toString(),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
+    // #EXP-1388: the chrome (card, close, count) is the shared shell the
+    // Chats selection bar wears too.
+    SelectionBarShell(count = count.toString(), onClear = onClear) {
             IconButton(onClick = onStatus, modifier = Modifier.size(32.dp)) {
                 if (sharedStatus != null) {
                     StatusIcon(sharedStatus, size = 18.dp)
@@ -1244,12 +1205,8 @@ private fun SelectionBar(
                     )
                 }
             }
-        }
     }
 }
-
-/** The bar's height IS the nav bar's pill height — it takes that slot. */
-private val SelectionBarHeight = 52.dp
 
 /**
  * The selection bar's bulk-label sheet (EXP-247): tri-state rows — the FULL

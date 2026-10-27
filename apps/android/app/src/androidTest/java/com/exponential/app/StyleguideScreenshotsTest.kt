@@ -56,6 +56,8 @@ import com.exponential.app.ui.styleguide.ChatListSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatListSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatMenusSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatMenusSpecimenTestId
+import com.exponential.app.ui.styleguide.ChatSelectionSpecimenScreen
+import com.exponential.app.ui.styleguide.ChatSelectionSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenTestId
 import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
@@ -118,7 +120,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
- *   sg_chat-menus · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
+ *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_voice-call
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
@@ -195,6 +197,8 @@ class StyleguideScreenshotsTest {
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
+            // #EXP-1388: the Chats multi-selection + the Archived entry.
+            "sg_chat-selection",
             // Thread e4a04d22: the member pill in a chat.
             "sg_mention-pill",
             // VAPP-120: the consent card with a typed action's words.
@@ -1216,6 +1220,10 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_chat-transcript")
         show(ChatMenusSpecimenTestId) { ChatMenusSpecimenScreen() }
         flow.screenshot("sg_chat-menus")
+        // #EXP-1388: the Chats list selecting (the Archived entry first, two
+        // rows selected) over THE bar in the tab bar's slot.
+        show(ChatSelectionSpecimenTestId) { ChatSelectionSpecimenScreen() }
+        flow.screenshot("sg_chat-selection")
         show(SchedulePickerSpecimenTestId) { SchedulePickerSpecimenScreen() }
         flow.screenshot("sg_schedule-picker")
         // Thread e4a04d22: `@email` as the member's pill in a chat, an

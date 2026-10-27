@@ -180,6 +180,79 @@ export const sessionsRouter = router({
       })
     }),
 
+  /** #EXP-1388: the Chats selection's Mark read / Mark unread. Read = the
+   *  `markRead` upsert per chat; unread = the root's read just before its
+   *  newest non-event agent message (one unread; none = unchanged). */
+  setRead: authedProcedure
+    .input(z.object({ sessionIds: z.array(uuid).min(1).max(200), read: z.boolean() }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const chats: Session[] = []
+      for (const id of new Set(input.sessionIds)) chats.push(await loadSessionForUser(userId, id))
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const now = new Date()
+        for (const chat of chats) {
+          let readAt = now
+          if (!input.read) {
+            const [newest] = await tx
+              .select({ createdAt: messages.createdAt })
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.sessionId, chat.id),
+                  eq(messages.authorKind, `agent`),
+                  sql`(${messages.card} IS NULL OR ${messages.card}->>'kind' <> 'event')`
+                )
+              )
+              .orderBy(sql`${messages.createdAt} DESC`)
+              .limit(1)
+            if (!newest) continue
+            readAt = new Date(newest.createdAt.getTime() - 1)
+          }
+          await tx
+            .insert(sessionReads)
+            .values({ userId, sessionId: chat.id, readAt })
+            .onConflictDoUpdate({
+              target: [sessionReads.userId, sessionReads.sessionId],
+              set: { readAt, updatedAt: now },
+            })
+        }
+        return { txid }
+      })
+    }),
+
+  /** #EXP-1388: archive / unarchive chats for the caller (per viewer, on
+   *  the ROOT's read row; a first row starts unread, read_at = epoch). */
+  setArchived: authedProcedure
+    .input(z.object({ sessionIds: z.array(uuid).min(1).max(200), archived: z.boolean() }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const chats: Session[] = []
+      for (const id of new Set(input.sessionIds)) {
+        const chat = await loadSessionForUser(userId, id)
+        if (chat.parentId !== null) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `Only a chat (a root session) can be archived` })
+        }
+        chats.push(chat)
+      }
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const now = new Date()
+        const archivedAt = input.archived ? now : null
+        for (const chat of chats) {
+          await tx
+            .insert(sessionReads)
+            .values({ userId, sessionId: chat.id, readAt: new Date(0), archivedAt })
+            .onConflictDoUpdate({
+              target: [sessionReads.userId, sessionReads.sessionId],
+              set: { archivedAt, updatedAt: now },
+            })
+        }
+        return { txid }
+      })
+    }),
+
   // ── EXP-1328: the suggestions card (posted by MCP `sessions_suggest`) ──
 
   /** Start = a child of the card's session (`where: child`, the item's text

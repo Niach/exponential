@@ -61,8 +61,22 @@ class ChatSpecimenFixtureTest {
                     put("unread", list.counts.unread)
                 },
             )
+            put("archived", list.archived)
         }
         assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `the chat-selection specimen's bar reads chatSelectionActions (EXP-1388)`() {
+        assertEquals(
+            listOf(
+                Chats.ChatSelectionAction.MarkRead to listOf("a", "c"),
+                Chats.ChatSelectionAction.Archive to listOf("a", "c"),
+                Chats.ChatSelectionAction.Stop to listOf("a"),
+                Chats.ChatSelectionAction.Delete to listOf("a", "c"),
+            ),
+            chatSelectionSpecimenActions().map { it.action to it.sessionIds },
+        )
     }
 
     @Test

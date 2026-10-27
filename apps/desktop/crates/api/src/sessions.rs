@@ -296,6 +296,35 @@ pub fn mark_read(trpc: &TrpcClient, session_id: &str) -> Result<serde::de::Ignor
     trpc.mutation("sessions.markRead", &SessionIdInput { session_id })
 }
 
+/// #EXP-1388 `sessions.setRead` / `sessions.setArchived` input (up to 200
+/// root ids per call).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetReadInput<'a> {
+    session_ids: &'a [String],
+    read: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetArchivedInput<'a> {
+    session_ids: &'a [String],
+    archived: bool,
+}
+
+/// #EXP-1388: the chats selection's Mark read (`read`) / Mark unread
+/// (`!read`: the server reads the root just before its newest agent
+/// message) for the viewer.
+pub fn set_read(trpc: &TrpcClient, session_ids: &[String], read: bool) -> Result<TxOutput, ApiError> {
+    trpc.mutation("sessions.setRead", &SetReadInput { session_ids, read })
+}
+
+/// #EXP-1388: the chats selection's Archive / Unarchive (per viewer,
+/// `session_reads.archived_at`).
+pub fn set_archived(trpc: &TrpcClient, session_ids: &[String], archived: bool) -> Result<TxOutput, ApiError> {
+    trpc.mutation("sessions.setArchived", &SetArchivedInput { session_ids, archived })
+}
+
 /// EXP-1323: where a suggested task starts (`sessions.startSuggestion`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -542,6 +571,23 @@ mod tests {
         send(&client(&base), &input).unwrap();
         assert!(request(&captured)
             .ends_with(r#"{"teamId":"t-1","deviceId":"dev-1","text":"only the web","promptId":"p-1"}"#));
+    }
+
+    /// #EXP-1388: the selection's batch read + archive writes.
+    #[test]
+    fn set_read_and_set_archived_post_their_inputs() {
+        let ids = vec!["s-1".to_string(), "s-2".to_string()];
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":7}}}"#);
+        assert_eq!(set_read(&client(&base), &ids, false).unwrap().tx_id, Some(7));
+        let text = request(&captured);
+        assert!(text.starts_with("POST /api/trpc/sessions.setRead HTTP/1.1"), "{text}");
+        assert!(text.ends_with(r#"{"sessionIds":["s-1","s-2"],"read":false}"#), "{text}");
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":8}}}"#);
+        set_archived(&client(&base), &ids, true).unwrap();
+        let text = request(&captured);
+        assert!(text.starts_with("POST /api/trpc/sessions.setArchived HTTP/1.1"), "{text}");
+        assert!(text.ends_with(r#"{"sessionIds":["s-1","s-2"],"archived":true}"#), "{text}");
     }
 
     /// EXP-1323: markRead and the suggestion verbs.

@@ -277,6 +277,7 @@ pub fn init(cx: &mut App) {
     // Bulk select: cmd-a/ctrl-a select-all +
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);
+    threads_view::init(cx);
     // Create-flow dialog actions (§4.2): NewBoard (sidebar `+`), CreateTeam
     // (team picker). EXP-1170: NewIssue opens the New issue PAGE — its
     // handler lives with the other navigations (`navigation::init`).

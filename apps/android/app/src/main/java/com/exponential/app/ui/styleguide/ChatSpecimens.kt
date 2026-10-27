@@ -40,6 +40,9 @@ import com.exponential.app.domain.SchedulePicker
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.ChatMenuSheetFace
+import com.exponential.app.ui.components.ChatSelectionBar
+import com.exponential.app.ui.components.BottomNavDefaults
+import androidx.compose.foundation.layout.navigationBarsPadding
 import com.exponential.app.ui.components.ChatLeadDisc
 import com.exponential.app.ui.components.ScheduleFieldsSpecimen
 import com.exponential.app.ui.components.agentMenuItems
@@ -67,6 +70,7 @@ const val PhoneBoardMenuSpecimenTestId = "phone-board-menu-specimen"
 const val PhonePageHeaderSpecimenTestId = "phone-page-header-specimen"
 const val ChatTranscriptSpecimenTestId = "chat-transcript-specimen"
 const val ChatMenusSpecimenTestId = "chat-menus-specimen"
+const val ChatSelectionSpecimenTestId = "chat-selection-specimen"
 const val SchedulePickerSpecimenTestId = "schedule-picker-specimen"
 
 private val ACME = TeamEntity(id = "t1", name = "Acme", slug = "acme", createdAt = "", updatedAt = "")
@@ -176,6 +180,67 @@ fun ChatListSpecimenScreen() {
                 )
             }
             SpecimenTabBar(selected = "chats", modifier = Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+/** #EXP-1388 the specimen's archived count (the Archived entry's slot) and
+ *  selection (iOS ChatListSpecimen line for line): `a` live (needs you),
+ *  `c` ended with one unread, both the viewer's. */
+const val CHAT_SELECTION_ARCHIVED = 2
+val CHAT_SELECTION_IDS: List<String> = listOf("a", "c")
+
+/** The selection bar's actions for the specimen's selection. */
+fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatSelectionActions(
+    CHAT_SELECTION_IDS.map { id ->
+        val row = ROWS.first { it.sessionId == id }
+        Chats.ChatSelectionRow(
+            sessionId = id,
+            rootStatus = if (row.group == SessionTree.ThreadsGroupKey.Recent) "ended" else "running",
+            unreadCount = row.unreadCount,
+            canSteer = true,
+            canDelete = true,
+        )
+    },
+)
+
+/** THE Chats list in selection mode: the Archived entry first, listCases[0]
+ *  with two rows selected (the selection glyphs), THE BAR in the tab bar's
+ *  slot (shot `sg_chat-selection`). */
+@Composable
+fun ChatSelectionSpecimenScreen() {
+    var selected by remember { mutableStateOf(CHAT_SELECTION_IDS) }
+    AppBackground {
+        Box(Modifier.fillMaxSize().testTag(ChatSelectionSpecimenTestId)) {
+            Scaffold(containerColor = Color.Transparent) { padding ->
+                ChatsContent(
+                    list = LIST.copy(archived = CHAT_SELECTION_ARCHIVED),
+                    filter = Chats.ChatFilter.All,
+                    bubbles = BUBBLES,
+                    agentOf = { "claude" },
+                    onSelectFilter = {},
+                    onOpenChat = {},
+                    onLongPressChat = {},
+                    onOpenAgent = {},
+                    onLongPressAgent = {},
+                    onOpenInbox = {},
+                    inboxUnread = true,
+                    selected = selected,
+                    onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
+                    modifier = Modifier.padding(padding),
+                )
+            }
+            ChatSelectionBar(
+                count = CHAT_SELECTION_IDS.size,
+                actions = chatSelectionSpecimenActions(),
+                onClear = {},
+                onAction = {},
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = BottomNavDefaults.HorizontalInset)
+                    .padding(bottom = 8.dp),
+            )
         }
     }
 }

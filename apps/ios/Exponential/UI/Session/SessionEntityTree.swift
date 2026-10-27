@@ -73,7 +73,7 @@ extension TreeMessage {
 
 extension TreeSessionRead {
     init(sessionReadRow row: SessionReadEntity) {
-        self.init(sessionId: row.sessionId, readAt: row.readAt)
+        self.init(sessionId: row.sessionId, readAt: row.readAt, archivedAt: row.archivedAt)
     }
 }
 

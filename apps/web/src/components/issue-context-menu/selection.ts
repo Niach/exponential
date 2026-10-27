@@ -4,6 +4,8 @@ import { createContext, useContext, useEffect, type RefObject } from "react"
 // so selection mode starts from a menu item, not a competing recognizer).
 // The menu host sits above every list, so a list REGISTERS its selection
 // here while mounted; the host picks the adapter whose root holds the row.
+// #EXP-1388: the Chats list registers the same shape (ids = chat roots;
+// `toggle` = its menu's Select / a touch long-press, entering the selection).
 
 export interface IssueMenuSelection {
   /** The list's element — which adapter a row belongs to. */

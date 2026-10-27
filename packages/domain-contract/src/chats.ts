@@ -96,7 +96,12 @@ export interface ChatList {
   rows: ChatRow[]
   /** Chip counts (All has none). */
   counts: Record<Exclude<ChatFilter, `all`>, number>
+  /** #EXP-1388: archived chats of the active team (the Archived entry). */
+  archived: number
 }
+
+/** #EXP-1388: the list's view: the chats, or the Archived page. */
+export type ChatListView = `list` | `archived`
 
 const ms = (iso: string | null | undefined): number | null => {
   if (!iso) return null
@@ -268,13 +273,18 @@ export function chatList(input: {
   /** threadRowWord by session id (absent = none). */
   words?: Readonly<Record<string, ThreadRowWord | null>>
   filter: ChatFilter
+  /** #EXP-1388: absent = `list`. */
+  view?: ChatListView
   now: string
   utcOffsetMinutes: number
   /** #EXP-1399 review: the viewer's synced session ids (`chatPreview`). */
   visibleSessionIds?: readonly string[] | null
 }): ChatList {
   const reads = input.reads ?? []
-  const all: ChatRow[] = input.groups
+  const archivedIds = new Set(reads.filter((r) => r.archivedAt).map((r) => r.sessionId))
+  const isArchived = (row: ChatRow) => !row.needsYou && archivedIds.has(row.sessionId)
+  const wantArchived = input.view === `archived`
+  const rows: ChatRow[] = input.groups
     .flatMap((group) => group.rows.filter((row) => row.depth === 0).map((row) => ({ row, group: group.key })))
     .map(({ row, group }) => {
       const mark = threadRowMarkState(row)
@@ -306,6 +316,7 @@ export function chatList(input: {
       (a, b) =>
         (ms(b.activityAt) ?? 0) - (ms(a.activityAt) ?? 0) || (a.sessionId < b.sessionId ? -1 : 1)
     )
+  const all = rows.filter((row) => isArchived(row) === wantArchived)
   const keep = (row: ChatRow, filter: ChatFilter) =>
     filter === `all` ||
     (filter === `needs_you` && row.group === `needs_you`) ||
@@ -318,7 +329,17 @@ export function chatList(input: {
       running: all.filter((row) => keep(row, `running`)).length,
       unread: all.filter((row) => keep(row, `unread`)).length,
     },
+    archived: rows.filter(isArchived).length,
   }
+}
+
+/** #EXP-1388: the Chats nav dot = an unread chat outside the archive (an
+ *  archived chat never lights it; one that needs you is never archived). */
+export function chatsUnread(groups: readonly ThreadsListGroup[], reads: readonly TreeSessionRead[] = []): boolean {
+  const archived = new Set(reads.filter((r) => r.archivedAt).map((r) => r.sessionId))
+  return groups.some((group) =>
+    group.rows.some((row) => row.depth === 0 && row.unread && (row.needsYou || !archived.has(row.sessionId)))
+  )
 }
 
 /** A chip's label: its copy, then its count when there is one. */
@@ -370,6 +391,54 @@ export function threadMenuEntries(input: {
   if (!input.canSteer) return []
   if (input.rootStatus === `ended`) return input.canDelete ? [`delete`] : []
   return input.canDelete ? [`stop`, `stopAndDelete`] : [`stop`]
+}
+
+export type ChatSelectionAction = `markRead` | `markUnread` | `archive` | `unarchive` | `stop` | `delete`
+
+export interface ChatSelectionRow {
+  sessionId: string
+  rootStatus: string
+  unreadCount: number
+  canSteer: boolean
+  canDelete: boolean
+}
+
+/** #EXP-1388: the selection bar's actions ×4 (`selectionCases`), in bar
+ *  order, each with the chats it acts on (selection order): Mark read when
+ *  any chat is unread, else Mark unread (all); Archive in the list, Unarchive
+ *  on the Archived page (all); Stop while any chat is live and steerable
+ *  (those); Delete only when the viewer may delete every one (all). */
+export function chatSelectionActions(input: {
+  rows: readonly ChatSelectionRow[]
+  view?: ChatListView
+}): { action: ChatSelectionAction; sessionIds: string[] }[] {
+  const rows = input.rows
+  if (rows.length === 0) return []
+  const ids = (list: readonly ChatSelectionRow[]) => list.map((row) => row.sessionId)
+  const out: { action: ChatSelectionAction; sessionIds: string[] }[] = [
+    { action: rows.some((row) => row.unreadCount > 0) ? `markRead` : `markUnread`, sessionIds: ids(rows) },
+    { action: input.view === `archived` ? `unarchive` : `archive`, sessionIds: ids(rows) },
+  ]
+  const live = rows.filter((row) => row.canSteer && row.rootStatus !== `ended`)
+  if (live.length > 0) out.push({ action: `stop`, sessionIds: ids(live) })
+  if (rows.every((row) => row.canSteer && row.canDelete)) out.push({ action: `delete`, sessionIds: ids(rows) })
+  return out
+}
+
+/** #EXP-1388: a pointer's range select (shift-click): the ids between the
+ *  anchor and the clicked row in list order, both ends included; a missing
+ *  anchor = the clicked row alone (`rangeCases`). */
+export function chatSelectionRange(order: readonly string[], anchor: string | null, target: string): string[] {
+  const to = order.indexOf(target)
+  if (to < 0) return []
+  const from = anchor === null ? -1 : order.indexOf(anchor)
+  if (from < 0) return [target]
+  return order.slice(Math.min(from, to), Math.max(from, to) + 1)
+}
+
+/** #EXP-1388: the multi-delete confirm's title (`copy.selection.confirmDelete`). */
+export function chatDeleteTitle(count: number): string {
+  return count === 1 ? fixture.copy.confirmDelete.title : fixture.copy.selection.confirmDeleteMany.replace(`{n}`, String(count))
 }
 
 export type AgentMenuEntry = `compact` | `newConversation` | `stop` | `settings`

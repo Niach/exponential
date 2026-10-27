@@ -66,6 +66,8 @@ pub(crate) mod phone_board_menu;
 pub(crate) mod phone_page_header;
 pub(crate) mod chat_transcript;
 pub(crate) mod chat_menus;
+// #EXP-1388: the Chats multi-selection.
+pub(crate) mod chat_selection;
 // Thread e4a04d22: mention pills in chats.
 pub(crate) mod mention_pill;
 
@@ -154,4 +156,5 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: phone_page_header::ID, owner: phone_page_header::OWNER, render: phone_page_header::render },
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
     Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
+    Entry { id: chat_selection::ID, owner: chat_selection::OWNER, render: chat_selection::render },
 ];

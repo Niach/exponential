@@ -37,6 +37,9 @@ export function IssueContextMenuProvider({
 }) {
   const registry = useRef(new Set<IssueMenuSelection>()).current
   const chatActions = useChatActions(team?.slug)
+  // The list (issues or chats) whose root holds the row the menu opened on.
+  const selectionOf = (origin: HTMLElement | null) =>
+    [...registry].find((adapter) => (origin ? adapter.root.current?.contains(origin) : false))
 
   return (
     <IssueMenuSelectionContext.Provider value={registry}>
@@ -48,12 +51,17 @@ export function IssueContextMenuProvider({
               team={team}
               open={open}
               onOpenChange={onOpenChange}
-              selection={[...registry].find((adapter) =>
-                target.origin ? adapter.root.current?.contains(target.origin) : false
-              )}
+              selection={selectionOf(target.origin)}
             />
           ),
-          [CHAT_MENU_KIND]: (session) => <ChatMenuSession {...session} actions={chatActions} />,
+          // #EXP-1388: the Chats list registers its selection the same way.
+          [CHAT_MENU_KIND]: (session) => (
+            <ChatMenuSession
+              {...session}
+              actions={chatActions}
+              selection={selectionOf(session.target.origin)}
+            />
+          ),
           [AGENT_MENU_KIND]: (session) => <AgentMenuSession {...session} team={team} />,
         }}
       >

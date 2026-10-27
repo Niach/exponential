@@ -3,6 +3,7 @@ package com.exponential.app.ui.components
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -112,7 +113,9 @@ fun ChatLeadDisc(
  * unread, else muted) · the preview (muted, up to two lines; `working…`
  * italic), the row word (with its glyph) and the unread badge on line 2.
  * The hairline runs under the text column only. A tap opens the chat; a
- * long-press opens its menu ([onLongClick], null = no menu).
+ * long-press enters the selection ([onLongClick], null = none; #EXP-1388).
+ * While selecting ([selected] non-null) the row leads with THE selection
+ * glyph cell (the issue list's) and a tap toggles it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -123,6 +126,7 @@ fun ChatRow(
     onLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     divider: Boolean = true,
+    selected: Boolean? = null,
 ) {
     val haptics = LocalHapticFeedback.current
     val unread = row.unreadCount > 0
@@ -148,6 +152,7 @@ fun ChatRow(
             .padding(start = 20.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selected != null) SelectionGlyph(selected)
         ChatLeadDisc(row.lead, agent)
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -187,6 +192,117 @@ fun ChatRow(
             if (divider) {
                 Box(Modifier.fillMaxWidth().padding(end = 20.dp).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
             }
+        }
+    }
+}
+
+/**
+ * #EXP-1388 THE ARCHIVED ENTRY: the list's first row while chats are
+ * archived (filter All) = a chat row with ui-archive in its lead disc, the
+ * title `copy.archived.entry` and the count in the time slot (muted), no
+ * preview line. A tap opens the Archived page ([onClick] null = inert, while
+ * selecting).
+ */
+@Composable
+fun ChatArchivedRow(
+    count: Int,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    divider: Boolean = true,
+) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .testTag(Chats.TestIds.CHAT_ARCHIVED)
+            .padding(start = 20.dp, end = 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp).clip(CircleShape).background(DiscFill, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                ExpIcons.uiArchive,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp * 0.42f),
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.padding(end = 20.dp, top = 14.dp, bottom = 14.dp).heightIn(min = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    Chats.Copy.ARCHIVED_ENTRY,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    count.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = muted,
+                    maxLines = 1,
+                    modifier = Modifier.testTag("chat-archived-count"),
+                )
+            }
+            if (divider) {
+                Box(Modifier.fillMaxWidth().padding(end = 20.dp).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
+            }
+        }
+    }
+}
+
+/** The icon CONCEPT of a selection bar action (chats.json `selectionCases`). */
+fun chatSelectionIcon(action: Chats.ChatSelectionAction): ImageVector = when (action) {
+    Chats.ChatSelectionAction.MarkRead -> ExpIcons.uiMarkRead
+    Chats.ChatSelectionAction.MarkUnread -> ExpIcons.uiMarkUnread
+    Chats.ChatSelectionAction.Archive -> ExpIcons.uiArchive
+    Chats.ChatSelectionAction.Unarchive -> ExpIcons.uiUnarchive
+    Chats.ChatSelectionAction.Stop -> ExpIcons.codingStop
+    Chats.ChatSelectionAction.Delete -> ExpIcons.uiDelete
+}
+
+/**
+ * #EXP-1388 THE Chats selection bar = the issue list's bulk bar
+ * ([SelectionBarShell]: same card, close, count) with
+ * [Chats.chatSelectionActions] as its icon buttons (Delete in the error
+ * colour, last).
+ */
+@Composable
+fun ChatSelectionBar(
+    count: Int,
+    actions: List<Chats.ChatSelectionEntry>,
+    onClear: () -> Unit,
+    onAction: (Chats.ChatSelectionEntry) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SelectionBarShell(
+        count = Chats.Copy.selectionCount(count),
+        onClear = onClear,
+        modifier = modifier,
+        testTag = Chats.TestIds.SELECTION_BAR,
+    ) {
+        actions.forEach { entry ->
+            SelectionBarIconButton(
+                icon = chatSelectionIcon(entry.action),
+                contentDescription = Chats.chatSelectionLabel(entry.action),
+                onClick = { onAction(entry) },
+                modifier = Modifier.testTag("chat-selection-${entry.action.wire}"),
+                tint = if (entry.action == Chats.ChatSelectionAction.Delete) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                },
+            )
         }
     }
 }
@@ -514,9 +630,14 @@ fun agentMenuItems(
 /** Delete asks first ×4 (`copy.confirmDelete`; the destructive confirm =
  *  `copy.menu.delete`). */
 @Composable
-fun ChatDeleteConfirm(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun ChatDeleteConfirm(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    /** #EXP-1388: [Chats.chatDeleteTitle] for a selection of several. */
+    title: String = Chats.Copy.CONFIRM_DELETE_TITLE,
+) {
     GlassAlert(
-        title = Chats.Copy.CONFIRM_DELETE_TITLE,
+        title = title,
         body = Chats.Copy.CONFIRM_DELETE_BODY,
         onDismiss = onDismiss,
         trailing = listOf(

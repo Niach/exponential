@@ -25,7 +25,8 @@ public enum ChatListMetrics {
 public struct ChatRowView<Lead: View>: View {
     private let title: String
     private let time: String
-    private let preview: String
+    /// nil = no preview line (#EXP-1388: the Archived entry row).
+    private let preview: String?
     /// The preview's leading label (`Question:` / `Plan:`) painted a step
     /// brighter; nil = none.
     private let previewLabel: String?
@@ -39,7 +40,7 @@ public struct ChatRowView<Lead: View>: View {
     public init(
         title: String,
         time: String,
-        preview: String,
+        preview: String?,
         previewLabel: String? = nil,
         previewItalic: Bool = false,
         needsYou: Bool = false,
@@ -88,8 +89,9 @@ public struct ChatRowView<Lead: View>: View {
                         .foregroundStyle(timeColor)
                         .fixedSize()
                 }
+                if let preview {
                 HStack(alignment: .center, spacing: 8) {
-                    previewText
+                    previewText(preview)
                         .font(.subheadline)
                         .lineLimit(2)
                         .truncationMode(.tail)
@@ -116,6 +118,7 @@ public struct ChatRowView<Lead: View>: View {
                             .fixedSize()
                     }
                 }
+                }
             }
             .padding(.vertical, ChatListMetrics.rowVerticalPadding)
             .overlay(alignment: .bottom) {
@@ -128,7 +131,7 @@ public struct ChatRowView<Lead: View>: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var previewText: Text {
+    private func previewText(_ preview: String) -> Text {
         let muted = Color.white.opacity(TextOpacity.secondary)
         if let previewLabel, preview.hasPrefix(previewLabel) {
             let rest = String(preview.dropFirst(previewLabel.count))
@@ -136,6 +139,25 @@ public struct ChatRowView<Lead: View>: View {
                 + Text(rest).foregroundStyle(muted)
         }
         return Text(preview).italic(previewItalic).foregroundStyle(muted)
+    }
+}
+
+/// #EXP-1388 THE ARCHIVED ENTRY: the same chat row with `ui-archive` in its
+/// lead disc, the title `copy.archived.entry` and the archived count in the
+/// trailing time slot (muted), no preview line.
+public struct ChatArchivedRow: View {
+    let count: Int
+
+    public init(count: Int) {
+        self.count = count
+    }
+
+    public var body: some View {
+        ChatRowView(title: Chats.Copy.Archived.entry, time: "\(count)", preview: nil) {
+            AppIcon(AppIcons.uiArchive, size: 24)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
+        .accessibilityIdentifier(Chats.TestIds.chatArchived)
     }
 }
 

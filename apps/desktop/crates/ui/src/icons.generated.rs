@@ -156,6 +156,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "activity" => ExpIcon::Activity,
         "anchor" => ExpIcon::Anchor,
         "archive" => ExpIcon::Archive,
+        "archive-restore" => ExpIcon::ArchiveRestore,
         "arrow-down" => ExpIcon::ArrowDown,
         "arrow-down-left" => ExpIcon::ArrowDownLeft,
         "arrow-left" => ExpIcon::ArrowLeft,
@@ -286,6 +287,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "log-in" => ExpIcon::LogIn,
         "log-out" => ExpIcon::LogOut,
         "mail" => ExpIcon::Mail,
+        "mail-open" => ExpIcon::MailOpen,
         "map" => ExpIcon::Map,
         "map-pin" => ExpIcon::MapPin,
         "maximize-2" => ExpIcon::Maximize2,
@@ -861,6 +863,10 @@ pub const UI_LINK: ExpIcon = ExpIcon::Link;
 pub const UI_LOADING: ExpIcon = ExpIcon::LoaderCircle;
 /// Registry concept `ui-mail` -> Lucide `mail`.
 pub const UI_MAIL: ExpIcon = ExpIcon::Mail;
+/// Registry concept `ui-mark-read` -> Lucide `mail-open`.
+pub const UI_MARK_READ: ExpIcon = ExpIcon::MailOpen;
+/// Registry concept `ui-mark-unread` -> Lucide `mail`.
+pub const UI_MARK_UNREAD: ExpIcon = ExpIcon::Mail;
 /// Registry concept `ui-mcp` -> Lucide `plug`.
 pub const UI_MCP: ExpIcon = ExpIcon::Plug;
 /// Registry concept `ui-member` -> Lucide `shield-check`.
@@ -933,6 +939,8 @@ pub const UI_SUCCESS: ExpIcon = ExpIcon::CircleCheck;
 pub const UI_SWAP: ExpIcon = ExpIcon::ArrowLeftRight;
 /// Registry concept `ui-team` -> Lucide `users`.
 pub const UI_TEAM: ExpIcon = ExpIcon::Users;
+/// Registry concept `ui-unarchive` -> Lucide `archive-restore`.
+pub const UI_UNARCHIVE: ExpIcon = ExpIcon::ArchiveRestore;
 /// Registry concept `ui-unassigned` -> Lucide `user-x`.
 pub const UI_UNASSIGNED: ExpIcon = ExpIcon::UserX;
 /// Registry concept `ui-undo` -> Lucide `undo-2`.
@@ -1199,6 +1207,8 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-link" => UI_LINK,
         "ui-loading" => UI_LOADING,
         "ui-mail" => UI_MAIL,
+        "ui-mark-read" => UI_MARK_READ,
+        "ui-mark-unread" => UI_MARK_UNREAD,
         "ui-mcp" => UI_MCP,
         "ui-member" => UI_MEMBER,
         "ui-menu" => UI_MENU,
@@ -1235,6 +1245,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-success" => UI_SUCCESS,
         "ui-swap" => UI_SWAP,
         "ui-team" => UI_TEAM,
+        "ui-unarchive" => UI_UNARCHIVE,
         "ui-unassigned" => UI_UNASSIGNED,
         "ui-undo" => UI_UNDO,
         "ui-undock" => UI_UNDOCK,

@@ -20,7 +20,8 @@ import org.junit.Test
 /**
  * Thread 58cb32df: Chats is fixture-locked ×4 — every case group of
  * `chats.json` (previewCases, timeCases, listCases, bubbleCases, menuCases,
- * agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases) runs here (TS
+ * agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
+ * selectionCases, rangeCases, dotCases) runs here (TS
  * `chats.test.ts`, iOS `ChatsTests`, desktop `domain::chats`). Outputs are
  * re-encoded in the fixture's JSON shape and compared WHOLE; the embedded
  * copy is proved equal to the fixture's.
@@ -75,7 +76,7 @@ class ChatsTest {
         agentId = json.str("agentId"),
     )
 
-    private fun read(json: JsonObject) = SessionTree.SessionRead(json.str("sessionId")!!, json.str("readAt")!!)
+    private fun read(json: JsonObject) = SessionTree.SessionRead(json.str("sessionId")!!, json.str("readAt")!!, json.str("archivedAt"))
 
     private fun agent(json: JsonObject) = SessionTree.AgentRow(
         agentId = json.str("agentId")!!,
@@ -176,6 +177,7 @@ class ChatsTest {
                 prStates = prStates,
                 words = words,
                 filter = filterOf(input.str("filter")!!),
+                view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") },
                 now = input.str("now")!!,
                 utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
             )
@@ -189,6 +191,7 @@ class ChatsTest {
                         put("unread", actual.counts.unread)
                     },
                 )
+                put("archived", actual.archived)
             }
             assertEquals(case.str("name"), case.getValue("expected"), encoded)
             // The chip labels read the counts.
@@ -249,6 +252,61 @@ class ChatsTest {
                 actual.map { it.wire },
             )
         }
+    }
+
+    private fun groups(input: JsonObject) = input.list("groups").map { group ->
+        SessionTree.ThreadsListGroup(
+            key = groupKey(group.str("key")!!),
+            title = group.str("title")!!,
+            rows = group.list("rows").map(::listRow),
+        )
+    }
+
+    @Test
+    fun `every selection, range and dot case matches the fixture (EXP-1388)`() {
+        for (case in cases("selectionCases")) {
+            val input = case.getValue("input").jsonObject
+            val rows = input.list("rows").map {
+                Chats.ChatSelectionRow(
+                    sessionId = it.str("sessionId")!!,
+                    rootStatus = it.str("rootStatus")!!,
+                    unreadCount = it.getValue("unreadCount").jsonPrimitive.int,
+                    canSteer = it.bool("canSteer"),
+                    canDelete = it.bool("canDelete"),
+                )
+            }
+            val view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") }
+            val actual = JsonArray(
+                Chats.chatSelectionActions(rows, view).map { entry ->
+                    buildJsonObject {
+                        put("action", entry.action.wire)
+                        put("sessionIds", JsonArray(entry.sessionIds.map(::JsonPrimitive)))
+                    }
+                },
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
+        }
+        for (case in cases("rangeCases")) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                Chats.chatSelectionRange(
+                    case.getValue("order").jsonArray.map { it.jsonPrimitive.content },
+                    case.str("anchor"),
+                    case.str("target")!!,
+                ),
+            )
+        }
+        for (case in cases("dotCases")) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.bool("expected"),
+                Chats.chatsUnread(groups(input), input.list("reads").map(::read)),
+            )
+        }
+        assertEquals("Delete this chat?", Chats.chatDeleteTitle(1))
+        assertEquals("Delete 3 chats?", Chats.chatDeleteTitle(3))
     }
 
     @Test
@@ -383,7 +441,19 @@ class ChatsTest {
         assertEquals(toasts.str("stopFailed"), Chats.Copy.TOAST_STOP_FAILED)
         assertEquals(toasts.str("deleteFailed"), Chats.Copy.TOAST_DELETE_FAILED)
         assertEquals(toasts.str("stopNotDelivered"), Chats.Copy.TOAST_STOP_NOT_DELIVERED)
-        assertEquals(3, toasts.size)
+        assertEquals(toasts.str("selectionFailed"), Chats.Copy.TOAST_SELECTION_FAILED)
+        assertEquals(4, toasts.size)
+        val selection = copy.getValue("selection").jsonObject
+        assertEquals(selection.str("select"), Chats.Copy.SELECTION_SELECT)
+        assertEquals(selection.str("count"), Chats.Copy.SELECTION_COUNT)
+        assertEquals(selection.str("confirmDeleteMany"), Chats.Copy.SELECTION_CONFIRM_DELETE_MANY)
+        for (action in Chats.ChatSelectionAction.entries) assertEquals(selection.str(action.wire), Chats.chatSelectionLabel(action))
+        assertEquals(9, selection.size)
+        val archived = copy.getValue("archived").jsonObject
+        assertEquals(archived.str("entry"), Chats.Copy.ARCHIVED_ENTRY)
+        assertEquals(archived.str("title"), Chats.Copy.ARCHIVED_TITLE)
+        assertEquals(archived.str("empty"), Chats.Copy.ARCHIVED_EMPTY)
+        assertEquals(3, archived.size)
         val dividers = copy.getValue("dividers").jsonObject
         assertEquals(dividers.str("new"), Chats.Copy.divider(Chats.DIVIDER_KIND_NEW))
         assertEquals(dividers.str("compact"), Chats.Copy.divider(Chats.DIVIDER_KIND_COMPACT))
@@ -408,6 +478,7 @@ class ChatsTest {
             setOf(
                 "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete",
                 "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
+                "selection", "archived",
             ),
             copy.keys,
         )
@@ -463,7 +534,9 @@ class ChatsTest {
         assertEquals(ids.str("boardMenuRow"), Chats.TestIds.BOARD_MENU_ROW)
         assertEquals(ids.str("pageHeader"), Chats.TestIds.PAGE_HEADER)
         assertEquals(ids.str("searchButton"), Chats.TestIds.SEARCH_BUTTON)
-        assertEquals(15, ids.size)
+        assertEquals(ids.str("chatArchived"), Chats.TestIds.CHAT_ARCHIVED)
+        assertEquals(ids.str("selectionBar"), Chats.TestIds.SELECTION_BAR)
+        assertEquals(17, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
 

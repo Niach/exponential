@@ -2225,7 +2225,7 @@
       "group": "coding",
       "title": "App · consent card",
       "blurb": "VAPP-120: the consent card an app surface raises for a typed action nobody granted (fixtures/app-actions.json): the operation's own words (\"Allow this surface to comment on issue APP-15?\"), the arguments it would send, Deny and Allow. A granted action never shows it; a destructive one always does (the 2026-10-24 ruling).",
-      "order": 40,
+      "order": 41,
       "ios": {
         "shot": "sg_app-consent",
         "lane": "styleguide"
@@ -5614,7 +5614,7 @@
       "group": "coding",
       "title": "Phone board menu",
       "blurb": "The phone's only board switch (chats.json shell.boardMenu): on the board view the Board tab morphs the bottom strip into one glass menu, the team's boards (the active one lit with the check) then New board.",
-      "order": 37,
+      "order": 38,
       "web": {
         "route": "/t/$teamSlug/agent?dev=phone-board-menu",
         "anchor": {
@@ -5652,7 +5652,7 @@
       "group": "coding",
       "title": "Page header",
       "blurb": "The phone page header on every top-level page (chats.json shell.header): the large title and the round search + inbox circles, the inbox's sky dot while a notification is unread.",
-      "order": 38,
+      "order": 39,
       "web": {
         "route": "/t/$teamSlug/agent?dev=phone-page-header",
         "anchor": {
@@ -5762,11 +5762,49 @@
       }
     },
     {
+      "id": "chat-selection",
+      "group": "coding",
+      "title": "Chat selection",
+      "blurb": "The Chats multi-selection ×4 (chats.json SELECTION + ARCHIVE): long-press (touch) or Select / cmd-click / shift-click (pointers), the selection glyphs on the rows, the Archived entry and the bulk action bar (Mark read/unread, Archive/Unarchive, Stop, Delete).",
+      "order": 36,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-selection",
+        "anchor": {
+          "testId": "chat-selection-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_chat-selection",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_chat-selection",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:chat-selection"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=chat-selection` on the Agent route (never parsed in a production build): `@exp/ui` `ChatSelectionSpecimen`, the Chats list in selection mode (the Archived entry first, two rows selected) over the bulk action bar, 390px wide.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-selection.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-selection`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web: the phone frame draws the same 390px specimen at full width."
+      }
+    },
+    {
       "id": "schedule-picker",
       "group": "coding",
       "title": "Schedule picker",
       "blurb": "THE schedule rows ×4 (schedule-picker.json): Repeat (Every few minutes · hour · day · week · month), Every / Minute / Time / Days / Day, Time zone only from daily up.",
-      "order": 36,
+      "order": 37,
       "ios": {
         "shot": "sg_schedule-picker",
         "lane": "styleguide"
@@ -5795,7 +5833,7 @@
       "group": "coding",
       "title": "Mention pill",
       "blurb": "THE round @member pill ×4 in every chat's text (thread e4a04d22): a team member's @email paints as the comments' pill with the member's name, an unresolved @x@y.com stays the written text.",
-      "order": 39,
+      "order": 40,
       "ios": {
         "shot": "sg_mention-pill",
         "lane": "styleguide"
@@ -5824,7 +5862,7 @@
       "group": "coding",
       "title": "App · export",
       "blurb": "VAPP-121 (fixtures/app-export.json): the Export dialog over the app editor: the title `Export <name>`, the one Include records switch (switched on in the shot) and Export, which hands `<slug>.app.json` to the platform (web download, desktop save panel, iOS share sheet, Android share intent).",
-      "order": 41,
+      "order": 42,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug",
         "anchor": {
@@ -5866,7 +5904,7 @@
       "group": "coding",
       "title": "App · import",
       "blurb": "VAPP-121 (fixtures/app-export.json): the New app dialog's import step: the paste field holding the capture text, Choose file, the server's issues as `path: message` rows (here `/package: is required`) and Import, disabled while there are issues.",
-      "order": 42,
+      "order": 43,
       "web": {
         "route": "/t/$teamSlug/apps",
         "anchor": {

@@ -59,6 +59,7 @@ import { entry as phoneBoardMenu } from "./phone-board-menu.tsx"
 import { entry as phonePageHeader } from "./phone-page-header.tsx"
 import { entry as chatTranscript } from "./chat-transcript.tsx"
 import { entry as chatMenus } from "./chat-menus.tsx"
+import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import type { StyleguideEntry } from "./types.ts"
@@ -124,6 +125,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   phonePageHeader,
   chatTranscript,
   chatMenus,
+  chatSelection,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

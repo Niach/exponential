@@ -12,15 +12,17 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection"]
 
     var body: some View {
         if kind == "app-consent" {
             // VAPP-120: the consent card over a stand-in surface.
             AppConsentSpecimens()
-        } else if kind == "chat-list" {
-            // A whole phone screen (its own nav bar and bottom bar).
-            ChatListSpecimens()
+        } else if kind == "chat-list" || kind == "chat-selection" {
+            // A whole phone screen (its own nav bar and bottom bar);
+            // #EXP-1388 `chat-selection` = the same list selecting two rows
+            // over THE BAR.
+            ChatListSpecimens(selection: kind == "chat-selection" ? ["a", "c"] : nil)
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("thread-cards-screen")

@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { useThreadsList } from "@/hooks/use-session-tree"
+import { useSessionReads, useThreadsList } from "@/hooks/use-session-tree"
 import { threadsNavState } from "@/components/team/sidebar-running"
 
 // Shared nav-count hooks for the sidebar badges (desktop) and the mobile
@@ -17,5 +17,6 @@ export function useThreadsNav(teamIds: string | readonly string[] | undefined): 
   unread: boolean
 } {
   const { groups } = useThreadsList(teamIds)
-  return useMemo(() => threadsNavState(groups), [groups])
+  const reads = useSessionReads()
+  return useMemo(() => threadsNavState(groups, reads), [groups, reads])
 }

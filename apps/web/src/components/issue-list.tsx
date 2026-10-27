@@ -12,6 +12,7 @@ import {
   Button,
   Pill,
   Checkbox,
+  SelectionCheck,
   SkeletonRows,
   UserAvatar,
   useIsMobile,
@@ -45,7 +46,6 @@ const AddIcon = conceptIcon(`ui-add`)
 const DueDateIcon = conceptIcon(`ui-due-date`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
-const CheckIcon = conceptIcon(`ui-check`)
 
 // REV-46: the desktop IDE virtualizes this exact list (issue_list.rs
 // v_virtual_list — "the list can be long; virtualization is mandatory"). The
@@ -350,15 +350,12 @@ const IssueRow = memo(function IssueRow({
         {/* Phone selection mode: a leading round check on EVERY row (empty
             or checked), as the natives draw it. */}
         {mobileSelectionActive && (
-          <span
-            role="checkbox"
-            aria-checked={isSelected}
+          <SelectionCheck
+            selected={isSelected}
             aria-label={`Select ${issue.identifier}`}
             data-testid={`issue-select-${issue.identifier}`}
-            className={`flex size-5 shrink-0 items-center justify-center rounded-full border md:hidden ${isSelected ? `border-primary bg-primary text-primary-foreground` : `border-muted-foreground/50`}`}
-          >
-            {isSelected && <CheckIcon className="size-3" />}
-          </span>
+            className="md:hidden"
+          />
         )}
         {/* Phones: the 32px tap targets bleed into the row gap (`-mx-2`), so
             the glyphs sit as tight as the natives' and the title keeps its

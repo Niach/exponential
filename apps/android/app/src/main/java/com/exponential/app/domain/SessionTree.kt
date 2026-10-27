@@ -76,7 +76,12 @@ object SessionTree {
     )
 
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
-    data class SessionRead(val sessionId: String, val readAt: String)
+    data class SessionRead(
+        val sessionId: String,
+        val readAt: String,
+        /** #EXP-1388: the viewer archived the chat (null = not). */
+        val archivedAt: String? = null,
+    )
 
     /** NEW-1: [sessionId] = the session that HOLDS the issue (the row sits on it). */
     data class SessionIssue(
@@ -1731,7 +1736,7 @@ object SessionTree {
         authorSessionId = row.authorSessionId,
     )
 
-    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt)
+    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt)
 
     fun pullRequest(row: PullRequestEntity): PullRequest? =
         row.number?.let { PullRequest(id = row.id, number = it, state = row.state) }

@@ -5,7 +5,8 @@ import XCTest
 // Thread 58cb32df: Chats, locked ×4 (TS `chats.test.ts`, Android `ChatsTest`,
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, bubbleCases, menuCases,
-// agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases) plus the copy, test
+// agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
+// selectionCases, rangeCases, dotCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -64,7 +65,8 @@ final class ChatsTests: XCTestCase {
         try ((value as? [[String: Any]]) ?? []).map {
             TreeSessionRead(
                 sessionId: try XCTUnwrap(string($0["sessionId"])),
-                readAt: try XCTUnwrap(string($0["readAt"]))
+                readAt: try XCTUnwrap(string($0["readAt"])),
+                archivedAt: string($0["archivedAt"])
             )
         }
     }
@@ -189,6 +191,7 @@ final class ChatsTests: XCTestCase {
                 if let raw = raw as? String { words[id] = try XCTUnwrap(ThreadRowWord(rawValue: raw)) }
             }
             let filter = try XCTUnwrap(Chats.ChatFilter(rawValue: try XCTUnwrap(string(input["filter"]))))
+            let view = try string(input["view"]).map { try XCTUnwrap(Chats.ChatListView(rawValue: $0)) } ?? .list
             let got = Chats.chatList(
                 groups: try groups(input["groups"]),
                 messages: try messages(input["messages"]),
@@ -196,12 +199,13 @@ final class ChatsTests: XCTestCase {
                 prStates: prStates,
                 words: words,
                 filter: filter,
+                view: view,
                 now: try XCTUnwrap(string(input["now"])),
                 utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
             )
             var counts: [String: Any] = [:]
             for (key, value) in got.counts { counts[key.rawValue] = value }
-            assertJSON(["rows": got.rows.map(json), "counts": counts], testCase["expected"], "\(name) / \(filter)")
+            assertJSON(["rows": got.rows.map(json), "counts": counts, "archived": got.archived], testCase["expected"], "\(name) / \(filter)")
         }
     }
 
@@ -348,6 +352,57 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    /// #EXP-1388 `selectionCases`: the selection bar's actions.
+    func testSelectionCases() throws {
+        for testCase in try cases("selectionCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let rows = try XCTUnwrap(input["rows"] as? [[String: Any]], name).map { row in
+                Chats.ChatSelectionRow(
+                    sessionId: try XCTUnwrap(string(row["sessionId"])),
+                    rootStatus: try XCTUnwrap(string(row["rootStatus"])),
+                    unreadCount: try XCTUnwrap(row["unreadCount"] as? Int),
+                    canSteer: try XCTUnwrap(row["canSteer"] as? Bool),
+                    canDelete: try XCTUnwrap(row["canDelete"] as? Bool)
+                )
+            }
+            let view = try string(input["view"]).map { try XCTUnwrap(Chats.ChatListView(rawValue: $0)) } ?? .list
+            let got = Chats.chatSelectionActions(rows: rows, view: view)
+            assertJSON(got.map { ["action": $0.action.rawValue, "sessionIds": $0.sessionIds] }, testCase["expected"], name)
+        }
+    }
+
+    /// #EXP-1388 `rangeCases`.
+    func testRangeCases() throws {
+        for testCase in try cases("rangeCases") {
+            let name = string(testCase["name"]) ?? ""
+            let got = Chats.chatSelectionRange(
+                order: try XCTUnwrap(testCase["order"] as? [String], name),
+                anchor: string(testCase["anchor"]),
+                target: try XCTUnwrap(string(testCase["target"]), name)
+            )
+            XCTAssertEqual(got, testCase["expected"] as? [String], name)
+        }
+    }
+
+    /// #EXP-1388 `dotCases`: the Chats nav dot.
+    func testDotCases() throws {
+        for testCase in try cases("dotCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            XCTAssertEqual(
+                Chats.chatsUnread(groups: try groups(input["groups"]), reads: try reads(input["reads"])),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                name
+            )
+        }
+    }
+
+    func testDeleteTitles() {
+        XCTAssertEqual(Chats.chatDeleteTitle(1), Chats.Copy.ConfirmDelete.title)
+        XCTAssertEqual(Chats.chatDeleteTitle(3), "Delete 3 chats?")
+    }
+
     // MARK: - Constants
 
     func testCopyMatchesTheFixture() throws {
@@ -391,7 +446,7 @@ final class ChatsTests: XCTestCase {
         ])
         XCTAssertEqual(copy["toasts"] as? [String: String], [
             "stopFailed": C.Toasts.stopFailed, "deleteFailed": C.Toasts.deleteFailed,
-            "stopNotDelivered": C.Toasts.stopNotDelivered,
+            "stopNotDelivered": C.Toasts.stopNotDelivered, "selectionFailed": C.Toasts.selectionFailed,
         ])
         XCTAssertEqual(copy["dividers"] as? [String: String], ["new": C.Dividers.new, "compact": C.Dividers.compact])
         XCTAssertEqual(copy["superseded"] as? String, C.superseded)
@@ -403,9 +458,18 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["inbox"] as? String, C.inbox)
         XCTAssertEqual(copy["loadEarlier"] as? String, C.loadEarlier)
         XCTAssertEqual(copy["working"] as? String, C.working)
+        XCTAssertEqual(copy["selection"] as? [String: String], [
+            "select": C.Selection.select, "count": C.Selection.count, "markRead": C.Selection.markRead,
+            "markUnread": C.Selection.markUnread, "archive": C.Selection.archive, "unarchive": C.Selection.unarchive,
+            "stop": C.Selection.stop, "delete": C.Selection.delete, "confirmDeleteMany": C.Selection.confirmDeleteMany,
+        ])
+        XCTAssertEqual(C.Selection.countLine(2), "2 selected")
+        XCTAssertEqual(copy["archived"] as? [String: String], [
+            "entry": C.Archived.entry, "title": C.Archived.title, "empty": C.Archived.empty,
+        ])
         XCTAssertEqual(Set(copy.keys), [
             "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
-            "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
+            "superseded", "boardChips", "team", "inbox", "loadEarlier", "working", "selection", "archived",
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
     }
@@ -420,6 +484,7 @@ final class ChatsTests: XCTestCase {
             "boardMenu": T.boardMenu, "boardMenuRow": T.boardMenuRow, "pageHeader": T.pageHeader,
             "searchButton": T.searchButton,
             "loadEarlier": T.loadEarlier, "jumpToBottom": T.jumpToBottom,
+            "chatArchived": T.chatArchived, "selectionBar": T.selectionBar,
         ])
         let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
         XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)

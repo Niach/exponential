@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::chats::{chat_filter_label, AgentBubble, AgentRing, ChatCounts, ChatFilter, ChatLead, ChatPreviewKind, ChatRow, CHATS};
+use domain::chats::{chat_filter_label, chat_selection_count, ChatSelectionAction, AgentBubble, AgentRing, ChatCounts, ChatFilter, ChatLead, ChatPreviewKind, ChatRow, CHATS};
 use domain::session_tree::ThreadRowWord;
 
 use crate::icons::registry;
@@ -160,6 +160,37 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
                 .into_any_element(),
             None => SharedString::from(rest).into_any_element(),
         });
+    let second = h_flex()
+        .w_full()
+        .gap_2()
+        .items_center()
+        .child(preview)
+        .children(word.map(|(glyph, text)| {
+            h_flex()
+                .flex_shrink_0()
+                .gap_1()
+                .items_center()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .children(glyph.map(|glyph| Icon::new(glyph).with_size(px(14.)).text_color(theme.muted_foreground)))
+                .child(text)
+        }))
+        .children(badge);
+    chat_row_frame(lead, row.title.clone(), unread, row.time.clone(), time_color, Some(second), cx)
+}
+
+/// THE row's frame: the lead, then the text column (title + the trailing
+/// time slot on line 1, `second` under it) over the row hairline.
+fn chat_row_frame(
+    lead: AnyElement,
+    title: String,
+    strong: bool,
+    time: String,
+    time_color: gpui::Hsla,
+    second: Option<Div>,
+    cx: &App,
+) -> Div {
+    let theme = cx.theme();
     h_flex()
         .w_full()
         .gap_4()
@@ -184,39 +215,119 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
                                 .min_w_0()
                                 .truncate()
                                 .text_size(px(15.))
-                                .font_weight(if unread { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+                                .font_weight(if strong { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
                                 .text_color(theme.foreground)
-                                .child(SharedString::from(row.title.clone())),
+                                .child(SharedString::from(title)),
                         )
                         .child(
                             div()
                                 .flex_shrink_0()
                                 .text_xs()
                                 .text_color(time_color)
-                                .child(SharedString::from(row.time.clone())),
+                                .child(SharedString::from(time)),
                         ),
                 )
-                .child(
-                    h_flex()
-                        .w_full()
-                        .gap_2()
-                        .items_center()
-                        .child(preview)
-                        .children(word.map(|(glyph, text)| {
-                            h_flex()
-                                .flex_shrink_0()
-                                .gap_1()
-                                .items_center()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .children(
-                                    glyph.map(|glyph| Icon::new(glyph).with_size(px(14.)).text_color(theme.muted_foreground)),
-                                )
-                                .child(text)
-                        }))
-                        .children(badge),
-                ),
+                .children(second),
         )
+}
+
+/// #EXP-1388 THE ARCHIVED ENTRY: the same row with `ui-archive` in its lead
+/// disc, `copy.archived.entry` as its title and the count in the time slot
+/// (muted), no preview line.
+pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
+    let theme = cx.theme();
+    let lead = div()
+        .size(px(CHATS.shell.lead_disc))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(theme.muted)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(Icon::new(registry::UI_ARCHIVE).with_size(px(GLYPH_PX)).text_color(theme.foreground))
+        .into_any_element();
+    chat_row_frame(
+        lead,
+        CHATS.copy.archived.entry.clone(),
+        false,
+        count.to_string(),
+        theme.muted_foreground,
+        None,
+        cx,
+    )
+}
+
+/// #EXP-1388: while selecting, a row leads with the selection glyph
+/// (`ui-selected` foreground / `ui-unselected` muted) in the issue list's
+/// select cell width; `None` = not selecting (the row as is).
+pub(crate) fn chat_selectable(selected: Option<bool>, row: Div, cx: &App) -> Div {
+    let Some(selected) = selected else {
+        return row;
+    };
+    let (glyph, tint) = if selected {
+        (registry::UI_SELECTED, cx.theme().foreground)
+    } else {
+        (registry::UI_UNSELECTED, cx.theme().muted_foreground)
+    };
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .child(
+            div()
+                .w_5()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(Icon::new(glyph).with_size(px(18.)).text_color(tint)),
+        )
+        .child(row)
+}
+
+/// A selection bar action pick.
+pub(crate) type OnSelectionAction = Rc<dyn Fn(ChatSelectionAction, Vec<String>, &mut Window, &mut App)>;
+
+/// #EXP-1388 THE BAR: the issue list's bulk capsule
+/// ([`crate::issue_list::bulk_bar_capsule`]): ✕, `copy.selection.count`,
+/// then `chat_selection_actions` as ghost icon + label buttons, the
+/// hairline before the destructive Delete.
+pub(crate) fn chat_selection_bar(
+    count: usize,
+    actions: Vec<(ChatSelectionAction, Vec<String>)>,
+    busy: bool,
+    on_clear: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_action: Option<OnSelectionAction>,
+    cx: &App,
+) -> AnyElement {
+    use gpui_component::button::{Button, ButtonVariants as _};
+    use gpui_component::Disableable as _;
+    use crate::controls::WebControl as _;
+    let danger = cx.theme().danger;
+    let mut bar = crate::issue_list::bulk_bar_capsule(chat_selection_count(count).into(), on_clear, cx);
+    for (action, ids) in actions {
+        let mut icon = Icon::new(registry::concept_by_name(action.icon()).unwrap_or(registry::UI_CHECK));
+        if action.destructive() {
+            icon = icon.text_color(danger);
+            bar = bar.child(crate::issue_list::bulk_bar_rule());
+        }
+        let mut button = Button::new(SharedString::from(format!("chat-bulk-{}", action.key())))
+            .ghost()
+            .web_sm()
+            .icon(icon)
+            .label(action.label())
+            .tooltip(action.label())
+            .disabled(busy);
+        if action.destructive() {
+            button = button.text_color(danger);
+        }
+        if let Some(on_action) = on_action.clone() {
+            button = button.on_click(move |_, window, cx| on_action(action, ids.clone(), window, cx));
+        }
+        bar = bar.child(button);
+    }
+    bar.into_any_element()
 }
 
 /// One agent bubble: the 66 circle (a 3px ring around a 3px background gap

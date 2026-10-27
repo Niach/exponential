@@ -51,6 +51,8 @@ export interface TreeSession {
 export interface TreeSessionRead {
   sessionId: string
   readAt: string
+  /** #EXP-1388: the viewer archived the chat (absent / null = not). */
+  archivedAt?: string | null
 }
 
 export interface TreeSessionIssue {

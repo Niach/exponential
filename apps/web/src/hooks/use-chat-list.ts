@@ -5,6 +5,7 @@ import {
   type AgentBubble,
   type ChatFilter,
   type ChatList,
+  type ChatListView,
 } from "@exp/domain-contract/chats"
 import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { useNow } from "@/hooks/use-now"
@@ -31,7 +32,9 @@ export function localUtcOffsetMinutes(now: Date): number {
 export function useChatList(
   teamId: string | undefined,
   me: string | null | undefined,
-  filter: ChatFilter
+  filter: ChatFilter,
+  /** #EXP-1388: the Chats list, or the Archived page. */
+  view: ChatListView = `list`
 ): {
   list: ChatList
   bubbles: AgentBubble[]
@@ -69,12 +72,13 @@ export function useChatList(
       prStates,
       words,
       filter,
+      view,
       now: nowIso,
       utcOffsetMinutes: offset,
       // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
       visibleSessionIds: tree.map((session) => session.id),
     })
-  }, [groups, messages, reads, prs, filter, nowIso, offset, tree])
+  }, [groups, messages, reads, prs, filter, view, nowIso, offset, tree])
 
   const bubbles = useMemo(
     () => agentBubbles({ agents, sessions: tree, messages, reads, me: me ?? null }),

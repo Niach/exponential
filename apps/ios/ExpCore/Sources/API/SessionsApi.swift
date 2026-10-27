@@ -245,6 +245,16 @@ private struct SessionIdInput: Encodable {
     let sessionId: String
 }
 
+private struct SetReadInput: Encodable {
+    let sessionIds: [String]
+    let read: Bool
+}
+
+private struct SetArchivedInput: Encodable {
+    let sessionIds: [String]
+    let archived: Bool
+}
+
 private struct LinkIssuesInput: Encodable {
     let sessionId: String
     let issueIds: [String]
@@ -433,6 +443,24 @@ public final class SessionsApi: Sendable {
     public func markRead(accountId: String, sessionId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "sessions.markRead", input: SessionIdInput(sessionId: sessionId)
+        )
+    }
+
+    /// #EXP-1388: the chat selection's Mark read (`read` true = now) /
+    /// Mark unread (the server sets the read just before the newest agent
+    /// message). Up to 200 roots per call.
+    public func setRead(accountId: String, sessionIds: [String], read: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.setRead", input: SetReadInput(sessionIds: sessionIds, read: read)
+        )
+    }
+
+    /// #EXP-1388: archive / unarchive chats for the viewer
+    /// (`session_reads.archived_at`). Up to 200 roots per call.
+    public func setArchived(accountId: String, sessionIds: [String], archived: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.setArchived",
+            input: SetArchivedInput(sessionIds: sessionIds, archived: archived)
         )
     }
 

@@ -137,7 +137,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background"]
+             "v83_session_background", "v84_session_read_archived_at"]
         )
     }
 
@@ -196,7 +196,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background"]
+             "v83_session_background", "v84_session_read_archived_at"]
         )
     }
 
@@ -727,7 +727,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background"]
+             "v83_session_background", "v84_session_read_archived_at"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -834,7 +834,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background"]
+             "v83_session_background", "v84_session_read_archived_at"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1910,7 +1910,7 @@ final class DatabaseMigrationTests: XCTestCase {
         )
         XCTAssertEqual(
             try columnNames(pool, "session_reads"),
-            ["id", "user_id", "session_id", "read_at", "created_at", "updated_at"]
+            ["id", "user_id", "session_id", "read_at", "archived_at", "created_at", "updated_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_requests"),
@@ -3546,6 +3546,43 @@ final class DatabaseMigrationTests: XCTestCase {
             {"id":"s-2","team_id":"t","user_id":"u","device_id":"d","created_at":"x","updated_at":"x"}
             """#.utf8))
         XCTAssertFalse(missing.background)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #EXP-1388: v84 adds `session_reads.archived_at`, resetting ONLY the
+    // session-reads cursor so synced read marks re-arrive with it.
+    func testSessionReadArchivedAtColumnAdded() throws {
+        let pool = try makePool("exp1388-session-read-archived")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v83_session_background")
+        try pool.write { db in
+            for shape in ["session-reads", "sessions"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "session_reads").contains("archived_at"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["session-reads"])
+        }
+        let wire = Data("""
+            {"id":"r-1","user_id":"u","session_id":"s-1","read_at":"2026-10-27T10:00:00Z",
+             "archived_at":"2026-10-27T11:00:00Z","created_at":"x","updated_at":"x"}
+            """.utf8)
+        let row = try JSONDecoder().decode(SessionReadEntity.self, from: wire)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try SessionReadEntity.fetchOne(db, key: "r-1") }
+        XCTAssertEqual(read?.archivedAt, "2026-10-27T11:00:00Z")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

@@ -23,12 +23,12 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    px, App, ClickEvent, InteractiveElement as _, Entity, IntoElement, ParentElement, Render, ScrollHandle,
-    SharedString, Styled, Subscription, Window,
+    px, App, ClickEvent, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement, Render,
+    ScrollHandle, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::chats::{AgentBubble, ChatFilter, ChatRow, CHATS};
+use domain::chats::{chat_selection_range, AgentBubble, ChatFilter, ChatListView, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
 use domain::session_tree::{
     thread_in_stack, thread_row_mark_state, thread_row_word, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
@@ -312,11 +312,37 @@ fn root_agent(root: Option<&SessionRow>) -> Option<coding::CodingAgent> {
     root.and_then(|root| root.cli.as_deref()).and_then(coding::CodingAgent::parse)
 }
 
+gpui::actions!(
+    threads_view,
+    [
+        /// #EXP-1388 (escape): leave the Chats selection.
+        ClearChatSelection,
+    ]
+);
+
+const KEY_CONTEXT: &str = "ChatsPage";
+
+/// Register the Chats page's keys (call once from `ui::init`).
+pub(crate) fn init(cx: &mut App) {
+    cx.bind_keys([gpui::KeyBinding::new(
+        "escape",
+        ClearChatSelection,
+        Some("ChatsPage && !Input && !MarkdownEditor && !MentionInput && !Terminal"),
+    )]);
+}
+
 pub struct ThreadsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
     /// #EXP-1380: the selected filter chip.
     filter: ChatFilter,
+    /// #EXP-1388: the chats, or the Archived page.
+    view: ChatListView,
+    /// #EXP-1388: the multi-selection (selecting while non-empty).
+    selected: Vec<String>,
+    /// The last clicked row (shift-click's range start).
+    anchor: Option<String>,
+    focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -325,23 +351,112 @@ impl ThreadsView {
         let nav = nav_for_window(window, cx);
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         subscriptions.extend(session_data::observe_session_collections(cx));
-        Self {
+        let mut view = Self {
             nav,
             scroll: ScrollHandle::new(),
             filter: ChatFilter::All,
+            view: ChatListView::List,
+            selected: Vec::new(),
+            anchor: None,
+            focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
+        };
+        view.apply_dev_selection();
+        view
+    }
+
+    /// DEV-ONLY (the EXP_DEV_* family, never documented for users):
+    /// `EXP_DEV_CHAT_SELECT=<id>,<id>` pre-selects those chats so a capture
+    /// lands on the selection bar without synthetic input.
+    fn apply_dev_selection(&mut self) {
+        if let Ok(spec) = std::env::var("EXP_DEV_CHAT_SELECT") {
+            self.selected = spec.split(',').map(str::trim).filter(|id| !id.is_empty()).map(str::to_string).collect();
         }
+    }
+
+    /// The rows the page shows (view + chip), in list order.
+    fn visible_rows(&self, model: &session_data::ChatsModel) -> Vec<ChatRow> {
+        let list = match self.view {
+            ChatListView::List => &model.list,
+            ChatListView::Archived => &model.archived,
+        };
+        list.rows.iter().filter(|row| self.filter.keeps(row)).cloned().collect()
+    }
+
+    fn model(&self, cx: &mut App) -> std::rc::Rc<session_data::ChatsModel> {
+        active_team_id(&self.nav, cx)
+            .as_deref()
+            .map(|team_id| session_data::chats_model(team_id, cx))
+            .unwrap_or_default()
+    }
+
+    fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        self.selected.clear();
+        self.anchor = None;
+        cx.notify();
+    }
+
+    /// Enter / grow the selection with `id` (the menu's Select, cmd-click).
+    fn toggle(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if let Some(at) = self.selected.iter().position(|selected| selected == id) {
+            self.selected.remove(at);
+        } else {
+            self.selected.push(id.to_string());
+            window.focus(&self.focus_handle, cx);
+        }
+        self.anchor = Some(id.to_string());
+        cx.notify();
+    }
+
+    /// A row click: shift = the range from the anchor; cmd/ctrl or while
+    /// selecting = toggle; else open the chat.
+    fn click_row(&mut self, id: &str, event: &ClickEvent, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let modifiers = event.modifiers();
+        if modifiers.shift {
+            let model = self.model(cx);
+            let order: Vec<String> = self.visible_rows(&model).into_iter().map(|row| row.session_id).collect();
+            for id in chat_selection_range(&order, self.anchor.as_deref(), id) {
+                if !self.selected.contains(&id) {
+                    self.selected.push(id);
+                }
+            }
+            self.anchor = Some(id.to_string());
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+            return;
+        }
+        if modifiers.secondary() || !self.selected.is_empty() {
+            self.toggle(id, window, cx);
+            return;
+        }
+        crate::navigation::navigate(window, cx, Screen::Thread { session_id: id.to_string() });
+    }
+
+    fn set_view(&mut self, view: ChatListView, cx: &mut gpui::Context<Self>) {
+        self.view = view;
+        self.selected.clear();
+        self.anchor = None;
+        cx.notify();
     }
 }
 
+/// A row's click (`session_id`, the event).
+type OnRowClick = std::rc::Rc<dyn Fn(&str, &ClickEvent, &mut Window, &mut App)>;
+/// The menu's Select (`session_id`).
+type OnSelect = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
 /// #EXP-1380: one Chats page row — THE list row ([`crate::chat_list`]),
-/// hover-lit; a click opens the chat, a right-click its menu.
-fn chats_page_row(row: &ChatRow, cx: &App) -> gpui::AnyElement {
+/// hover-lit; a click opens the chat (or toggles it while selecting,
+/// #EXP-1388), a right-click its menu: Select, then the chat's entries.
+/// `selected` = `None` while not selecting.
+fn chats_page_row(row: &ChatRow, selected: Option<bool>, on_click: OnRowClick, on_select: OnSelect, cx: &App) -> gpui::AnyElement {
+    use crate::controls::PointerContextMenuExt as _;
     use gpui::StatefulInteractiveElement as _;
     let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
     let lead = crate::chat_list::chat_lead_disc(row.lead, agent, cx);
     let session_id = row.session_id.clone();
-    let element = gpui::div()
+    let menu_root = row.session_id.clone();
+    gpui::div()
         .id(SharedString::from(format!("{}-{}", CHATS.test_ids.chat_row, row.session_id)))
         .w_full()
         .min_w_0()
@@ -349,12 +464,21 @@ fn chats_page_row(row: &ChatRow, cx: &App) -> gpui::AnyElement {
         .rounded_lg()
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-            crate::navigation::navigate(window, cx, Screen::Thread { session_id: session_id.clone() });
+        .when(selected == Some(true), |this| this.bg(cx.theme().list_active))
+        .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
+        .child(crate::chat_list::chat_selectable(selected, crate::chat_list::chat_row(row, lead, cx), cx))
+        .pointer_context_menu(move |menu, _, cx| {
+            let root = menu_root.clone();
+            let on_select = on_select.clone();
+            let menu = menu.min_w(px(220.)).item(crate::controls::pointer_menu_item(
+                Some(registry::UI_SELECTED),
+                CHATS.copy.selection.select.clone(),
+                |_| None,
+                move |window, cx| on_select(&root, window, cx),
+            ));
+            crate::chat_actions::chat_menu_items(menu, &menu_root, true, cx)
         })
-        .child(crate::chat_list::chat_row(row, lead, cx))
-        .into_any_element();
-    chat_row_menu(&row.session_id, element, cx)
+        .into_any_element()
 }
 
 /// #EXP-1380: a bubble's click opens the agent's chat, its right-click the
@@ -379,20 +503,49 @@ fn chats_page_bubble(index: usize, bubble: &AgentBubble, element: gpui::Div) -> 
 
 impl Render for ThreadsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use gpui::StatefulInteractiveElement as _;
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
-        let team_id = active_team_id(&self.nav, cx);
-        let model = team_id
-            .as_deref()
-            .map(|team_id| session_data::chats_model(team_id, cx))
-            .unwrap_or_default();
+        let model = self.model(cx);
         let filter = self.filter;
+        let view_kind = self.view;
+        let rows = self.visible_rows(&model);
+        // The selection keeps only rows still in the list, in list order.
+        if ready && !self.selected.is_empty() {
+            let kept: Vec<String> = rows
+                .iter()
+                .filter(|row| self.selected.contains(&row.session_id))
+                .map(|row| row.session_id.clone())
+                .collect();
+            if kept.len() != self.selected.len() || kept != self.selected {
+                self.selected = kept;
+            }
+        }
+        let selecting = !self.selected.is_empty();
+        let entity = cx.entity().downgrade();
         let on_filter: crate::chat_list::OnFilter = {
-            let view = cx.entity().downgrade();
+            let view = entity.clone();
             std::rc::Rc::new(move |filter, _window, cx| {
                 view.update(cx, |view, cx| {
                     view.filter = filter;
                     cx.notify();
+                })
+                .ok();
+            })
+        };
+        let on_click: OnRowClick = {
+            let view = entity.clone();
+            std::rc::Rc::new(move |id, event, window, cx| {
+                view.update(cx, |view, cx| view.click_row(id, event, window, cx)).ok();
+            })
+        };
+        let on_select: OnSelect = {
+            let view = entity.clone();
+            std::rc::Rc::new(move |id, window, cx| {
+                view.update(cx, |view, cx| {
+                    if !view.selected.iter().any(|selected| selected == id) {
+                        view.toggle(id, window, cx);
+                    }
                 })
                 .ok();
             })
@@ -406,31 +559,118 @@ impl Render for ThreadsView {
                 cx,
             ))
         } else {
-            let rows: Vec<&ChatRow> = model.list.rows.iter().filter(|row| filter.keeps(row)).collect();
+            let archived_entry = (view_kind == ChatListView::List && filter == ChatFilter::All && model.list.archived > 0)
+                .then(|| {
+                    let view = entity.clone();
+                    gpui::div()
+                        .id(SharedString::from(CHATS.test_ids.chat_archived.clone()))
+                        .w_full()
+                        .min_w_0()
+                        .px_2()
+                        .rounded_lg()
+                        .cursor_pointer()
+                        .hover(|style| style.bg(cx.theme().list_hover))
+                        .on_click(move |_: &ClickEvent, _window: &mut Window, cx: &mut App| {
+                            view.update(cx, |view, cx| view.set_view(ChatListView::Archived, cx)).ok();
+                        })
+                        .child(crate::chat_list::chat_selectable(
+                            None,
+                            crate::chat_list::chat_archived_row(model.list.archived, cx),
+                            cx,
+                        ))
+                        .into_any_element()
+                });
             // The empty state for an empty filter too (web `ChatList`).
-            let list = if rows.is_empty() {
-                crate::controls::empty_state(
-                    Icon::new(registry::NAV_THREADS),
-                    crate::empty_state_copy::THREADS,
-                    None,
-                    cx,
-                )
-                .into_any_element()
+            let list = if rows.is_empty() && archived_entry.is_none() {
+                let (icon, copy): (Icon, SharedString) = match view_kind {
+                    ChatListView::Archived => (Icon::new(registry::UI_ARCHIVE), CHATS.copy.archived.empty.clone().into()),
+                    ChatListView::List => (Icon::new(registry::NAV_THREADS), crate::empty_state_copy::THREADS.into()),
+                };
+                crate::controls::empty_state(icon, copy, None, cx).into_any_element()
             } else {
                 v_flex()
                     .w_full()
                     .min_w_0()
-                    .children(rows.into_iter().map(|row| chats_page_row(row, cx)))
+                    .children(archived_entry)
+                    .children(rows.iter().map(|row| {
+                        let selected = selecting.then(|| self.selected.contains(&row.session_id));
+                        chats_page_row(row, selected, on_click.clone(), on_select.clone(), cx)
+                    }))
                     .into_any_element()
             };
+            let back = (view_kind == ChatListView::Archived).then(|| {
+                let view = entity.clone();
+                crate::session_screen::back_link_row("chats-archived-back", CHATS.copy.title.clone(), move |_window, cx| {
+                    view.update(cx, |view, cx| view.set_view(ChatListView::List, cx)).ok();
+                }, cx)
+            });
             v_flex()
                 .min_w_0()
                 .gap_4()
-                .children(crate::chat_list::agent_bubbles_row(&model.bubbles, chats_page_bubble, cx))
-                .child(crate::chat_list::chat_filter_chips(&model.list.counts, filter, Some(on_filter), cx))
+                .children(back)
+                .when(view_kind == ChatListView::List, |this| {
+                    this.children(crate::chat_list::agent_bubbles_row(&model.bubbles, chats_page_bubble, cx))
+                })
+                .child(crate::chat_list::chat_filter_chips(
+                    match view_kind {
+                        ChatListView::List => &model.list.counts,
+                        ChatListView::Archived => &model.archived.counts,
+                    },
+                    filter,
+                    Some(on_filter),
+                    cx,
+                ))
                 .child(list)
+                // Room under the last row for the floating bar.
+                .when(selecting, |this| this.pb(px(72.)))
         };
-        page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W)
+        let bar = selecting.then(|| {
+            let ids = self.selected.clone();
+            let actions = domain::chats::chat_selection_actions(
+                &crate::chat_actions::selection_rows(&ids, &rows, cx),
+                view_kind,
+            );
+            let clear = entity.clone();
+            let act = entity.clone();
+            crate::chat_list::chat_selection_bar(
+                ids.len(),
+                actions,
+                false,
+                move |_, _, cx| {
+                    clear.update(cx, |view, cx| view.clear_selection(cx)).ok();
+                },
+                Some(std::rc::Rc::new(move |action, ids, window, cx| {
+                    // Every action leaves the selection.
+                    act.update(cx, |view, cx| view.clear_selection(cx)).ok();
+                    crate::chat_actions::run_selection_action(action, ids, window, cx);
+                })),
+                cx,
+            )
+        });
+        v_flex()
+            .id("chats-page")
+            .size_full()
+            .relative()
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &ClearChatSelection, _, cx| {
+                if this.selected.is_empty() {
+                    cx.propagate();
+                    return;
+                }
+                this.clear_selection(cx);
+            }))
+            .child(page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W))
+            .children(bar.map(|bar| {
+                h_flex()
+                    .absolute()
+                    .bottom_4()
+                    .left_0()
+                    .right_0()
+                    .justify_center()
+                    .px_4()
+                    .child(bar)
+            }))
     }
 }
 

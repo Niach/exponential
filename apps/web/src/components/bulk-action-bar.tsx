@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import {
@@ -8,6 +8,9 @@ import {
   assigneePickerValue,
   conceptIcon,
   Button,
+  BulkBarCapsule,
+  BulkBarSeparator,
+  bulkBarActionClass,
   labelPickerItems,
   Menu,
   PickerItemBody,
@@ -16,7 +19,6 @@ import {
   statusPickerItems,
   Pill,
   Prompt,
-  Separator,
   UserAvatar,
 } from "@exp/ui"
 import { deleteIssuesPrompt, promptActions } from "@/lib/prompts"
@@ -113,25 +115,13 @@ export function BulkActionBar({
   const deleteCopy = deleteIssuesPrompt(issues.length)
   // The phone already runs every action as a bare 32px glyph cell; icon-only
   // is that same cell at every width.
-  const actionButtonClass = `shrink-0 text-muted-foreground ${
-    iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
-  }`
+  const actionButtonClass = bulkBarActionClass({ iconOnly })
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
   const {
     options: teamStatusOptions,
     byId: statusById,
     resolve: resolveStatus,
   } = useTeamStatusesContext()
-
-  // EXP-698 r5: while a selection lives, THIS bar is the phone's bottom
-  // chrome — the tab bar and its FAB step aside (`use-mobile-chrome.tsx`),
-  // and the list spends `--bulkbar-h` instead of `--tabbar-h`.
-  const { setBulkBarPresent } = useMobileChrome()
-  useEffect(() => {
-    setBulkBarPresent(true)
-    return () => setBulkBarPresent(false)
-  }, [setBulkBarPresent])
-  const publishBulkBarHeight = useChromeHeightVar(`--bulkbar-h`)
 
   const orderedUsers = useMemo(
     () => [...users].sort((left, right) => left.name.localeCompare(right.name)),
@@ -327,58 +317,13 @@ export function BulkActionBar({
   const isSolo = users.length === 1 && agents.length === 0
 
   return (
-    // POSITIONING ONLY. On md+ this wrapper is `display: contents`, so the bar
-    // sits in its host's floating strip (board page, sidebar list); below md it is
-    // the fixed, centered box. The split exists because EXP-523's enter
-    // animation writes `transform` (tw-animate-css's keyframes replace it
-    // wholesale), which would cancel the `-translate-x-1/2` centering and snap
-    // the bar half its width to the right on every phone selection.
-    // EXP-698 r5: on phones the bar IS the tab bar now, so it copies the tab
-    // bar's box exactly — pinned to `bottom-0` with the safe-area inset as its
-    // own PADDING, never as an offset. That is what makes the measured
-    // `--bulkbar-h` (published here, spent by TAB_BAR_CLEARANCE) cover the
-    // same footprint `--tabbar-h` does; an inset expressed as `bottom-…` would
-    // sit outside the measured box and under-reserve the list's clearance.
-    <div
-      ref={publishBulkBarHeight}
-      className="md:contents max-md:fixed max-md:bottom-0 max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2 max-md:pb-[max(1rem,env(safe-area-inset-bottom))]"
-    >
-      <div
-        // EXP-698 r5: the opaque glass card of the tab bar and the natives'
-        // selection bar — 24px radius over the strong hairline, 10×8 padding.
-        // EXP-523: enter-only. Clearing a selection is a deliberate action and
-        // reads fine instantly, and an exit would mean threading presence state
-        // through both call sites (board view + my-issues) for no real gain.
-        // Phone budget (416px viewport → 384px of bar): the separators go, the
-        // gaps halve and Start coding shrinks, so × + count + four 32px icons
-        // + the pill + the trash land around 340px — the natives' one-row
-        // 360dp bar. `overflow-x-auto` is the safety net, not the plan: a
-        // longer count or a translated label scrolls instead of pushing the
-        // destructive button off the screen edge (EXP-698 r5 shot review).
-        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-enter-pop slide-in-from-bottom-1 max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto shadow-lg shadow-black/40${
-          // EXP-1048: a column too narrow for one line folds instead of
-          // clipping — the IDE's `wrap` arm.
-          wrap ? ` max-w-full flex-wrap justify-center max-md:h-auto` : ``
-        }`}
-        data-testid="bulk-action-bar"
+    <BulkBarDock>
+      <BulkBarCapsule
+        count={issues.length}
+        onClear={onClear}
+        iconOnly={iconOnly}
+        wrap={wrap}
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 text-muted-foreground"
-          aria-label="Clear selection"
-          onClick={onClear}
-        >
-          <CloseIcon className="size-4" />
-        </Button>
-        <span className="shrink-0 px-1 text-sm font-semibold whitespace-nowrap">
-          {issues.length}
-        </span>
-
-        {!iconOnly && (
-          <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
-        )}
-
         {/* EXP-957: the mark shows what the whole selection ALREADY has;
             nothing is marked when the selected issues disagree
             (`indeterminate`). No duplicate-CATEGORY row: bulk marking has no
@@ -535,16 +480,12 @@ export function BulkActionBar({
           iconOnly={iconOnly}
         />
 
-        {!iconOnly && (
-          <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
-        )}
+        <BulkBarSeparator iconOnly={iconOnly} />
 
         <Button
           variant="ghost"
           size="sm"
-          className={`shrink-0 text-destructive hover:text-destructive ${
-            iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
-          }`}
+          className={bulkBarActionClass({ iconOnly, destructive: true })}
           disabled={busy}
           aria-label="Delete selected"
           data-testid="bulk-delete"
@@ -568,7 +509,41 @@ export function BulkActionBar({
             },
           })}
         />
-      </div>
+      </BulkBarCapsule>
+    </BulkBarDock>
+  )
+}
+
+/** The bar's PLACEMENT, shared by the issue bar and the Chats selection
+ *  bar (#EXP-1388): md+ = the host's floating strip, phones = the tab bar's
+ *  slot. EXP-698 r5: while a selection lives, THIS bar is the phone's bottom
+ *  chrome — the tab bar and its FAB step aside (`use-mobile-chrome.tsx`),
+ *  and the list spends `--bulkbar-h` instead of `--tabbar-h`. */
+export function BulkBarDock({ children }: { children: ReactNode }) {
+  const { setBulkBarPresent } = useMobileChrome()
+  useEffect(() => {
+    setBulkBarPresent(true)
+    return () => setBulkBarPresent(false)
+  }, [setBulkBarPresent])
+  const publishBulkBarHeight = useChromeHeightVar(`--bulkbar-h`)
+  return (
+    // POSITIONING ONLY. On md+ this wrapper is `display: contents`, so the bar
+    // sits in its host's floating strip (board page, sidebar list); below md it is
+    // the fixed, centered box. The split exists because EXP-523's enter
+    // animation writes `transform` (tw-animate-css's keyframes replace it
+    // wholesale), which would cancel the `-translate-x-1/2` centering and snap
+    // the bar half its width to the right on every phone selection.
+    // EXP-698 r5: on phones the bar IS the tab bar now, so it copies the tab
+    // bar's box exactly — pinned to `bottom-0` with the safe-area inset as its
+    // own PADDING, never as an offset. That is what makes the measured
+    // `--bulkbar-h` (published here, spent by TAB_BAR_CLEARANCE) cover the
+    // same footprint `--tabbar-h` does; an inset expressed as `bottom-…` would
+    // sit outside the measured box and under-reserve the list's clearance.
+    <div
+      ref={publishBulkBarHeight}
+      className="md:contents max-md:fixed max-md:bottom-0 max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2 max-md:pb-[max(1rem,env(safe-area-inset-bottom))]"
+    >
+      {children}
     </div>
   )
 }
@@ -579,7 +554,6 @@ const START_CODING_LABEL = READINESS_COPY.start
 // shared priority glyph), assignee, labels, close, delete.
 const StatusIcon = conceptIcon(`ui-checklist`)
 const PriorityIcon = conceptIcon(`priority-high`)
-const CloseIcon = conceptIcon(`ui-close`)
 const DeleteIcon = conceptIcon(`ui-delete`)
 const AssigneeIcon = conceptIcon(`ui-assignee`)
 const LabelsIcon = conceptIcon(`settings-labels`)
