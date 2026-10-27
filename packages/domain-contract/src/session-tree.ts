@@ -1017,6 +1017,8 @@ export function buildSessionThread(input: {
         const target = typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
         const origin = typeof card.messageId === `string` ? messagesById.get(card.messageId) : undefined
         if (!target || treeIds.has(target.id) || !origin || origin.sessionId !== target.id) break
+        // #EXP-1399 review: only the origin session's own mirror draws it.
+        if (message.authorSessionId !== target.id) break
         if (origin.card?.kind !== `question` && origin.card?.kind !== `plan`) break
         if (escalated.has(origin.id)) break
         escalated.add(origin.id)

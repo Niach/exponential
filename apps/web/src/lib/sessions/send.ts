@@ -40,7 +40,7 @@ import {
   loadSessionForUser,
   sessionDeviceOwner,
 } from "@/lib/sessions/access"
-import { watchSessions } from "@/lib/sessions/bus"
+import { closeAskMirrorsOf, watchSessions } from "@/lib/sessions/bus"
 import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import {
   assertIssuesInTeam,
@@ -714,6 +714,7 @@ async function messageSession(
         .set({ status: `ended`, endedAt: new Date(), busy: false, needsInput: false, blocked: null, updatedAt: new Date() })
         .where(eq(sessions.id, target.id))
         .returning({ id: sessions.id })
+      await closeAskMirrorsOf(tx, [target.id])
       const result = await continueSession(tx, {
         ended: target,
         userId,

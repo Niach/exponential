@@ -130,24 +130,50 @@ export function plainLine(markdown: string): string {
     .trim()
 }
 
-/** A plan / question card's preview kind + plain text. #EXP-1399: an
- *  `ask` mirror reads its body, the bus's `askText` (`Asks: <question>`
- *  on its first line with text | `Proposes a plan:` then the plan's first block),
- *  which the list digest keeps too. */
-export function askPreview(message: Pick<TreeMessage, `card` | `body`>): { kind: `plan` | `question`; text: string } {
+/** A plan / question card's preview line. #EXP-1399: an `ask` mirror
+ *  reads its body, the bus's `askText` (`Asks: <question>` on its first
+ *  line with text | `Proposes a plan:` then the plan's first block), which
+ *  the list digest keeps too. A PRIVATE origin (the server's neutral body,
+ *  or a session outside `visible`) shows the private copy, never its text. */
+export function askPreview(
+  message: Pick<TreeMessage, `card` | `body` | `authorSessionId`>,
+  visible?: ReadonlySet<string> | null
+): { kind: `plan` | `question`; text: string } {
+  const copy = fixture.copy.preview
   const card = message.card!
-  if (card.kind === `plan`) return { kind: `plan`, text: plainLine(String(card.plan ?? ``)) }
-  if (card.kind !== `ask`) return { kind: `question`, text: plainLine(String(card.question ?? ``)) }
+  if (card.kind === `plan`) return { kind: `plan`, text: copy.plan.replace(`{text}`, plainLine(String(card.plan ?? ``))) }
+  if (card.kind !== `ask`) {
+    return { kind: `question`, text: copy.question.replace(`{text}`, plainLine(String(card.question ?? ``))) }
+  }
   const body = message.body.trim()
-  if (body.startsWith(ASK_PLAN_LEAD)) {
-    return { kind: `plan`, text: plainLine(body.slice(ASK_PLAN_LEAD.length).trim().split(/\n\s*\n/)[0] ?? ``) }
+  const plan = body.startsWith(ASK_PLAN_LEAD) || body.startsWith(ASK_PRIVATE_PLAN_LEAD)
+  const hidden =
+    body.startsWith(ASK_PRIVATE_PLAN_LEAD) ||
+    body.startsWith(ASK_PRIVATE_QUESTION_LEAD) ||
+    (visible != null && !visible.has(askOrigin(message)))
+  if (hidden) return plan ? { kind: `plan`, text: copy.planPrivate } : { kind: `question`, text: copy.questionPrivate }
+  if (plan) {
+    const block = plainLine(body.slice(ASK_PLAN_LEAD.length).trim().split(/\n\s*\n/)[0] ?? ``)
+    return { kind: `plan`, text: copy.plan.replace(`{text}`, block) }
   }
   const first = body.split(`\n`).find((line) => plainLine(line) !== ``) ?? ``
-  return { kind: `question`, text: plainLine(first.startsWith(ASK_QUESTION_LEAD) ? first.slice(ASK_QUESTION_LEAD.length) : first) }
+  const question = plainLine(first.startsWith(ASK_QUESTION_LEAD) ? first.slice(ASK_QUESTION_LEAD.length) : first)
+  return { kind: `question`, text: copy.question.replace(`{text}`, question) }
+}
+
+/** An `ask` mirror's origin session: its card's, else its author (the
+ *  digest keeps only the author). */
+function askOrigin(message: Pick<TreeMessage, `card` | `authorSessionId`>): string {
+  const id = message.card?.sessionId
+  return typeof id === `string` ? id : (message.authorSessionId ?? ``)
 }
 
 export const ASK_QUESTION_LEAD = fixture.copy.preview.askQuestionLead
 export const ASK_PLAN_LEAD = fixture.copy.preview.askPlanLead
+/** #EXP-1399 review: the server's NEUTRAL mirror body (a reader may not see
+ *  the origin): no card text. */
+export const ASK_PRIVATE_QUESTION_LEAD = fixture.copy.preview.askPrivateQuestionLead
+export const ASK_PRIVATE_PLAN_LEAD = fixture.copy.preview.askPrivatePlanLead
 
 /** The root conversation's preview line (`previewCases`). */
 export function chatPreview(input: {
@@ -155,8 +181,11 @@ export function chatPreview(input: {
   messages: readonly TreeMessage[]
   needsYou: boolean
   busy: boolean
+  /** #EXP-1399 review: the viewer's synced session ids (absent = no check). */
+  visibleSessionIds?: readonly string[] | null
 }): ChatPreview {
   const copy = fixture.copy.preview
+  const visible = input.visibleSessionIds ? new Set(input.visibleSessionIds) : null
   const own = input.messages
     .filter((m) => m.sessionId === input.rootId && (m.authorKind === `user` || m.authorKind === `agent`))
     .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
@@ -165,10 +194,7 @@ export function chatPreview(input: {
     const waiting = own.find(
       (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
     )
-    if (waiting) {
-      const { kind, text } = askPreview(waiting)
-      return { kind, text: copy[kind].replace(`{text}`, text) }
-    }
+    if (waiting) return askPreview(waiting, visible)
   }
   if (input.busy) return { kind: `working`, text: copy.working }
   const newest = own[0]
@@ -188,10 +214,8 @@ export function chatPreview(input: {
       }
     case `question`:
     case `ask`:
-    case `plan`: {
-      const { kind, text } = askPreview(newest)
-      return { kind, text: copy[kind].replace(`{text}`, text) }
-    }
+    case `plan`:
+      return askPreview(newest, visible)
     default:
       return { kind: `agent`, text: plainLine(newest.body) }
   }
@@ -239,6 +263,8 @@ export function chatList(input: {
   filter: ChatFilter
   now: string
   utcOffsetMinutes: number
+  /** #EXP-1399 review: the viewer's synced session ids (`chatPreview`). */
+  visibleSessionIds?: readonly string[] | null
 }): ChatList {
   const reads = input.reads ?? []
   const all: ChatRow[] = input.groups
@@ -254,7 +280,13 @@ export function chatList(input: {
         deviceId: row.deviceId ?? null,
         group,
         lead,
-        preview: chatPreview({ rootId: row.sessionId, messages: input.messages, needsYou: row.needsYou, busy: row.busy }),
+        preview: chatPreview({
+          rootId: row.sessionId,
+          messages: input.messages,
+          needsYou: row.needsYou,
+          busy: row.busy,
+          visibleSessionIds: input.visibleSessionIds,
+        }),
         activityAt: row.activityAt,
         time: chatTimeLabel(row.activityAt, input.now, input.utcOffsetMinutes),
         unreadCount: unreadCount(row.sessionId, input.messages, reads),

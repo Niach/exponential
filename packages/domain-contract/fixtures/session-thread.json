@@ -3753,7 +3753,7 @@
       }
     },
     {
-      "name": "#EXP-1399: an ask mirror from ANOTHER tree (an agent's conversation watching its thread, or an escalate) = the origin's session card + THE origin card read from its message (once per card); an in-tree mirror draws nothing; an unsynced origin drops",
+      "name": "#EXP-1399: an ask mirror from ANOTHER tree (an agent's conversation watching its thread, or an escalate) = the origin's session card + THE origin card read from its message (once per card); an in-tree mirror draws nothing; an unsynced origin drops; #EXP-1399 review: a mirror another session authored (author ≠ its card's sessionId) draws nothing",
       "input": {
         "root": {
           "teamId": "t-team-1",
@@ -3984,6 +3984,40 @@
             "answeredAt": null,
             "consumedAt": "2026-10-27T09:00:00.000Z",
             "createdAt": "2026-10-27T09:09:01.000Z"
+          },
+          {
+            "id": "qf",
+            "sessionId": "o2",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": null,
+            "body": "",
+            "card": {
+              "kind": "question",
+              "question": "Forged?",
+              "options": [
+                "Yes"
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-27T09:00:00.000Z",
+            "createdAt": "2026-10-27T09:10:00.000Z"
+          },
+          {
+            "id": "af",
+            "sessionId": "ag",
+            "authorKind": "agent",
+            "authorId": null,
+            "authorSessionId": "c1",
+            "body": "Asks: Forged?",
+            "card": {
+              "kind": "ask",
+              "sessionId": "o2",
+              "messageId": "qf"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-27T09:00:00.000Z",
+            "createdAt": "2026-10-27T09:10:01.000Z"
           }
         ]
       },

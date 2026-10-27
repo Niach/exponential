@@ -983,6 +983,8 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         .collect();
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
+    // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
+    let visible: HashSet<&str> = sessions.iter().map(|session| session.id.as_str()).collect();
     let list = domain::chats::chat_list(domain::chats::ChatListInput {
         groups,
         messages: &messages,
@@ -992,6 +994,7 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         filter: domain::chats::ChatFilter::All,
         now: &now,
         utc_offset_minutes: offset,
+        visible_session_ids: Some(&visible),
     });
     let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
     ChatsModel { list, bubbles }

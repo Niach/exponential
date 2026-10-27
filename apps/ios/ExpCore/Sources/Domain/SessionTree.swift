@@ -1631,6 +1631,8 @@ public enum SessionTree {
                       !treeIds.contains(target.id),
                       let originId = card.messageId, let origin = messagesById[originId],
                       origin.sessionId == target.id,
+                      // #EXP-1399 review: only the origin session's own mirror draws it.
+                      message.authorSessionId == target.id,
                       origin.card?.kind == "question" || origin.card?.kind == "plan",
                       !escalated.contains(origin.id),
                       let row = ThreadRow.askCard(origin)

@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm"
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
-import { askText } from "@/lib/sessions/bus"
+import { askHidden, askHiddenText, askText } from "@/lib/sessions/bus"
 import { insertMessage } from "@/lib/sessions/messages"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import type { Tx } from "@/lib/sessions/tx"
@@ -19,43 +19,43 @@ import type { Tx } from "@/lib/sessions/tx"
 
 const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
 
-type AskCard = Extract<MessageCard, { kind: `question` | `plan` }>
-
-/** The agent conversation managing `root`'s tree: a live agent
- *  conversation watching the root, else the root's starting agent's
- *  conversation with the root's starter. */
+/** The agent conversation managing `origin`'s tree (`root`): a live
+ *  agent conversation watching the root, the starter's own first, else
+ *  the root's starting agent's live conversation with the root's starter.
+ *  #EXP-1399 review: never one whose readers may not see `origin` (its
+ *  account must see it; a shared conversation only for a shared origin). */
 export async function managingConversation(
   tx: Tx,
-  root: Pick<Session, `id` | `teamId` | `userId` | `startedByAgentId`>
+  root: Pick<Session, `id` | `teamId` | `userId` | `startedByAgentId`>,
+  origin: Pick<Session, `shared` | `userId`>
 ): Promise<Session | null> {
+  const readable = origin.shared ? undefined : and(eq(sessions.userId, origin.userId), eq(sessions.shared, false))
+  const conversation = and(
+    eq(sessions.teamId, root.teamId),
+    isNotNull(sessions.agentId),
+    isNull(sessions.parentId),
+    ne(sessions.status, `ended`),
+    readable
+  )
   const [watching] = await tx
     .select()
     .from(sessions)
-    .where(
-      and(
-        eq(sessions.teamId, root.teamId),
-        isNotNull(sessions.agentId),
-        isNull(sessions.parentId),
-        ne(sessions.status, `ended`),
-        sql`${sessions.wakeOn} @> ${JSON.stringify([root.id])}::jsonb`
-      )
+    .where(and(conversation, sql`${sessions.wakeOn} @> ${JSON.stringify([root.id])}::jsonb`))
+    .orderBy(
+      desc(sql`${sessions.userId} = ${root.userId}`),
+      desc(sql`${sessions.agentId} IS NOT DISTINCT FROM ${root.startedByAgentId}`),
+      asc(sessions.id)
     )
-    .orderBy(sessions.id)
     .limit(1)
   if (watching) return watching
   if (!root.startedByAgentId) return null
-  const [conversation] = await tx
+  const [started] = await tx
     .select()
     .from(sessions)
-    .where(
-      and(
-        eq(sessions.agentId, root.startedByAgentId),
-        eq(sessions.userId, root.userId),
-        isNull(sessions.parentId)
-      )
-    )
+    .where(and(conversation, eq(sessions.agentId, root.startedByAgentId), eq(sessions.userId, root.userId)))
+    .orderBy(desc(sessions.createdAt), desc(sessions.id))
     .limit(1)
-  return conversation ?? null
+  return started ?? null
 }
 
 export async function escalateCard(input: {
@@ -71,17 +71,21 @@ export async function escalateCard(input: {
     ;[message] = await db.select().from(messages).where(eq(messages.id, mirrored.messageId)).limit(1)
   }
   if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
-  const card = message.card as MessageCard | null
-  if (card?.kind !== `question` && card?.kind !== `plan`) {
-    throw bad(`messageId must name a question or plan card (or its ask mirror)`)
-  }
-  if (message.answeredAt) throw bad(`That card is already answered`)
   const origin = await loadSessionForUser(input.userId, message.sessionId)
   const [root] = await db.select().from(sessions).where(eq(sessions.id, origin.rootId)).limit(1)
   if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
 
   return db.transaction(async (tx) => {
-    const target = await managingConversation(tx, root)
+    // The card row is THE lock: an answer racing this either lands first
+    // (refused below) or waits and then closes the mirror inserted here;
+    // a second escalate waits and finds the first one's mirror.
+    const [locked] = await tx.select().from(messages).where(eq(messages.id, message.id)).limit(1).for(`update`)
+    const card = locked?.card as MessageCard | null | undefined
+    if (card?.kind !== `question` && card?.kind !== `plan`) {
+      throw bad(`messageId must name a question or plan card (or its ask mirror)`)
+    }
+    if (locked!.answeredAt) throw bad(`That card is already answered`)
+    const target = await managingConversation(tx, root, origin)
     if (!target) {
       throw bad(`No team agent manages this thread: escalate works in a thread an agent's conversation started or watches`)
     }
@@ -98,7 +102,6 @@ export async function escalateCard(input: {
       .where(
         and(
           eq(messages.sessionId, target.id),
-          eq(messages.authorSessionId, origin.id),
           sql`${messages.card}->>'kind' = 'ask'`,
           sql`${messages.card}->>'messageId' = ${message.id}`
         )
@@ -108,7 +111,7 @@ export async function escalateCard(input: {
     const id = await insertMessage(tx, target, {
       authorKind: `agent`,
       authorSessionId: origin.id,
-      body: askText(origin, card as AskCard),
+      body: askHidden(target, origin) ? askHiddenText(origin, card) : askText(origin, card),
       card: { kind: `ask`, sessionId: origin.id, messageId: message.id },
       // It wakes the agent, unless the agent escalated it itself.
       consumedAt: input.caller.id === target.id || target.status === `ended` ? new Date() : null,

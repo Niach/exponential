@@ -1792,6 +1792,10 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 if tree_ids.contains(target.id.as_str()) || origin.session_id != target.id {
                     continue;
                 }
+                // #EXP-1399 review: only the origin session's own mirror draws it.
+                if message.author_session_id.as_deref() != Some(target.id.as_str()) {
+                    continue;
+                }
                 let Some(origin_row) = ask_card_row(origin) else {
                     continue;
                 };

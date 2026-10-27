@@ -1,7 +1,12 @@
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
-import { ASK_PLAN_LEAD, ASK_QUESTION_LEAD } from "@exp/domain-contract/chats"
+import {
+  ASK_PLAN_LEAD,
+  ASK_PRIVATE_PLAN_LEAD,
+  ASK_PRIVATE_QUESTION_LEAD,
+  ASK_QUESTION_LEAD,
+} from "@exp/domain-contract/chats"
 import { messages, sessions, type Session } from "@/db/schema"
 import { insertMessage } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
@@ -80,7 +85,9 @@ async function deliver(
   child: Pick<Session, `id` | `parentId`>,
   message: {
     authorKind: `agent` | `system`
-    body: string
+    /** #EXP-1399 review: per listener (an ask never shows a private card's
+     *  text where others read it). */
+    body: string | ((listener: Listener) => string)
     card: MessageCard | null
     waking: boolean
     /** With no listener: post on the child itself (pre-consumed). */
@@ -95,13 +102,13 @@ async function deliver(
       await insertMessage(tx, listener, {
         authorKind: message.authorKind,
         authorSessionId: child.id,
-        body: message.body,
+        body: typeof message.body === `string` ? message.body : message.body(listener),
         card: message.card,
         consumedAt: message.waking && listener.status !== `ended` ? null : now,
       })
     )
   }
-  if (listeners.length === 0 && message.fallbackToSelf) {
+  if (listeners.length === 0 && message.fallbackToSelf && typeof message.body === `string`) {
     ids.push(
       await insertMessage(tx, child.id, {
         authorKind: message.authorKind,
@@ -169,17 +176,39 @@ export function askText(
     .join(`\n\n`)
 }
 
+/** #EXP-1399 review: a reader of `listener` may not see `origin` (a
+ *  private session mirrored into a shared conversation, or into another
+ *  member's): its ask mirror then carries no card text. */
+export function askHidden(
+  listener: Pick<Session, `shared` | `userId`>,
+  origin: Pick<Session, `shared` | `userId`>
+): boolean {
+  return !origin.shared && (listener.shared || listener.userId !== origin.userId)
+}
+
+/** The NEUTRAL ask text (`askHidden`): the kind and the session id only;
+ *  the agent reads the card itself if its account may see it. */
+export function askHiddenText(
+  child: Pick<Session, `id`>,
+  card: Extract<MessageCard, { kind: `question` | `plan` }>
+): string {
+  return [
+    card.kind === `plan` ? ASK_PRIVATE_PLAN_LEAD : ASK_PRIVATE_QUESTION_LEAD,
+    `Read it with exponential_sessions({op: "get", id: "${child.id}"}) and answer with exponential_sessions_send({sessionId: "${child.id}", answer: {…}}) if you may see it; otherwise end your turn, a person answers in the card.`,
+  ].join(`\n`)
+}
+
 /** `child` posted a question/plan card (`messageId` = THE card row): its
  *  listeners get the `ask` mirror (one row, two views) and wake. */
 export async function busAsk(
   tx: Tx,
-  child: Pick<Session, `id` | `parentId`>,
+  child: Pick<Session, `id` | `parentId` | `shared` | `userId`>,
   messageId: string,
   card: Extract<MessageCard, { kind: `question` | `plan` }>
 ): Promise<string[]> {
   return deliver(tx, child, {
     authorKind: `agent`,
-    body: askText(child, card),
+    body: (listener) => (askHidden(listener, child) ? askHiddenText(child, card) : askText(child, card)),
     card: { kind: `ask`, sessionId: child.id, messageId },
     waking: true,
   })
@@ -204,6 +233,27 @@ export async function closeAskMirrors(
         isNull(messages.answeredAt),
         sql`${messages.card}->>'kind' = 'ask'`,
         inArray(sql`${messages.card}->>'messageId'`, [...messageIds])
+      )
+    )
+}
+
+/** #EXP-1399 review: `sessionIds` ended (or are about to be deleted):
+ *  their still-open `ask` mirrors close, so no list waits on a card nobody
+ *  can answer any more. */
+export async function closeAskMirrorsOf(
+  tx: Pick<Tx, `update`>,
+  sessionIds: readonly string[],
+  at: Date = new Date()
+): Promise<void> {
+  if (sessionIds.length === 0) return
+  await tx
+    .update(messages)
+    .set({ answeredAt: at, updatedAt: at })
+    .where(
+      and(
+        isNull(messages.answeredAt),
+        sql`${messages.card}->>'kind' = 'ask'`,
+        inArray(sql`${messages.card}->>'sessionId'`, [...sessionIds])
       )
     )
 }
@@ -319,7 +369,9 @@ export async function forgetWatched(tx: Tx, endedIds: readonly string[]): Promis
   }
 }
 
-/** `watcher` watches `ids` (live sessions other than itself; idempotent). */
+/** `watcher` watches `ids` (live sessions other than itself; idempotent).
+ *  #EXP-1399 review: only sessions of its team its own account may see
+ *  (shared, or the watcher's user started them); others drop silently. */
 export async function watchSessions(
   tx: Tx,
   watcherId: string,
@@ -327,17 +379,25 @@ export async function watchSessions(
 ): Promise<string[]> {
   const wanted = [...new Set(ids)].filter((id) => id !== watcherId)
   if (wanted.length === 0) return []
-  const live = await tx
-    .select({ id: sessions.id })
-    .from(sessions)
-    .where(and(inArray(sessions.id, wanted), ne(sessions.status, `ended`)))
   const [row] = await tx
-    .select({ wakeOn: sessions.wakeOn })
+    .select({ wakeOn: sessions.wakeOn, teamId: sessions.teamId, userId: sessions.userId })
     .from(sessions)
     .where(eq(sessions.id, watcherId))
     .limit(1)
     .for(`update`)
-  const next = [...new Set([...(row?.wakeOn ?? []), ...live.map((entry) => entry.id)])]
+  if (!row) return []
+  const live = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        inArray(sessions.id, wanted),
+        ne(sessions.status, `ended`),
+        eq(sessions.teamId, row.teamId),
+        or(eq(sessions.shared, true), eq(sessions.userId, row.userId))
+      )
+    )
+  const next = [...new Set([...(row.wakeOn ?? []), ...live.map((entry) => entry.id)])]
   await tx.update(sessions).set({ wakeOn: next }).where(eq(sessions.id, watcherId))
   return live.map((entry) => entry.id)
 }

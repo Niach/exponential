@@ -240,6 +240,8 @@ class ThreadsViewModel @Inject constructor(
             filter = filter,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
+            // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
+            visible = input.sessions.mapTo(HashSet()) { it.id },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
 

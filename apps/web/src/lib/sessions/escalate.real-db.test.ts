@@ -44,6 +44,8 @@ const { sendSession } = await import(`@/lib/sessions/send`)
 const { escalateCard } = await import(`@/lib/sessions/escalate`)
 const { buildPlanCard, buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+const { chatPreview } = await import(`@exp/domain-contract/chats`)
+const { watchSessions } = await import(`@/lib/sessions/bus`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -216,5 +218,169 @@ describe.skipIf(!ready.ok)(`escalate: a managed thread's card in its agent's con
     const old = mirrors.find((m) => (m.card as { messageId: string }).messageId === first.messageId)
     expect(old!.answeredAt).not.toBeNull()
     expect(mirrors.filter((m) => m.answeredAt === null)).toHaveLength(1)
+  })
+})
+
+/** #EXP-1399 review: the agent on a device SHARED with the team (so its
+ *  conversation is shared) starts a thread on the owner's PRIVATE device. */
+async function privateUnderShared() {
+  const w = await world()
+  const sharedDevice = `dev-${id8()}`
+  await db.insert(devices).values({ userId: w.owner, deviceId: sharedDevice, label: `team box`, kind: `server`, sharedTeamIds: [w.teamId] })
+  const [agent] = await db
+    .insert(agents)
+    .values({ teamId: w.teamId, name: `Big Brother`, deviceId: sharedDevice, ownerId: w.owner })
+    .returning({ id: agents.id })
+  const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: `watch` } })).sessionId
+  const thread = (
+    await sendSession({
+      userId: w.owner,
+      callerSessionId: conversation,
+      viaMcp: true,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `secret work` },
+    })
+  ).sessionId
+  const childId = await w.child(thread)
+  return { ...w, agentId: agent!.id, sharedDevice, conversation, thread, childId }
+}
+
+const SECRET = `Rotate the prod key xyz-123?`
+
+const preview = (rootId: string, rows: (typeof messages.$inferSelect)[], visibleSessionIds?: string[]) =>
+  chatPreview({
+    rootId,
+    messages: rows.map((m) => ({
+      ...m,
+      createdAt: m.createdAt.toISOString(),
+      answeredAt: m.answeredAt?.toISOString() ?? null,
+      consumedAt: m.consumedAt?.toISOString() ?? null,
+    })) as never,
+    needsYou: true,
+    busy: false,
+    visibleSessionIds,
+  })
+
+describe.skipIf(!ready.ok)(`escalate review: a private card never reaches readers who may not see it`, () => {
+  it(`a private root's card mirrored into a shared conversation carries no text, its preview neither`, async () => {
+    const w = await privateUnderShared()
+    expect((await row(w.conversation)).shared).toBe(true)
+    expect((await row(w.thread)).shared).toBe(false)
+    const own = await postAskCard({
+      userId: w.owner,
+      sessionId: w.thread,
+      card: buildQuestionCard({ question: SECRET, options: [{ label: `yes` }] }),
+    })
+    const mirrors = await asks(w.conversation)
+    expect(mirrors).toHaveLength(1)
+    expect(mirrors[0]).toMatchObject({ card: { kind: `ask`, sessionId: w.thread, messageId: own.messageId }, consumedAt: null })
+    expect(mirrors[0]!.body).not.toContain(`xyz-123`)
+    expect(mirrors[0]!.body).toContain(w.thread)
+    // A teammate's list (they sync the conversation, not the thread).
+    expect(preview(w.conversation, mirrors, [w.conversation])).toEqual({ kind: `question`, text: `Question in a private chat` })
+    // Even with no visibility input, the neutral body reads as private.
+    expect(preview(w.conversation, mirrors).text).not.toContain(`xyz-123`)
+    // A plan: the same.
+    await postAskCard({ userId: w.owner, sessionId: w.thread, card: buildPlanCard({ plan: `## ${SECRET}` }) })
+    for (const m of await asks(w.conversation)) expect(m.body).not.toContain(`xyz-123`)
+  })
+
+  it(`escalate never picks a shared conversation for a private origin`, async () => {
+    const w = await privateUnderShared()
+    const asked = await postAskCard({
+      userId: w.owner,
+      sessionId: w.childId,
+      card: buildQuestionCard({ question: SECRET, options: [{ label: `no` }] }),
+    })
+    await expect(
+      escalateCard({ userId: w.owner, caller: await row(w.thread), messageId: asked.messageId })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(await asks(w.conversation)).toEqual([])
+  })
+
+  it(`another member's conversation is never chosen; the starter's own wins`, async () => {
+    const w = await managed()
+    const other = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: other, role: `member` })
+    const otherDevice = `dev-${id8()}`
+    await db.insert(devices).values({ userId: other, deviceId: otherDevice, label: `theirs`, kind: `server` })
+    const [theirs] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Their agent`, deviceId: otherDevice, ownerId: other })
+      .returning({ id: agents.id })
+    const theirConversation = (await sendSession({ userId: other, input: { agentId: theirs!.id, text: `hi` } })).sessionId
+    // watchSessions refuses a private session the watcher's account cannot see.
+    expect(await db.transaction((tx) => watchSessions(tx, theirConversation, [w.thread]))).toEqual([])
+    expect((await row(theirConversation)).wakeOn ?? []).not.toContain(w.thread)
+    // Even a (legacy) watch row of theirs never wins, ordered first by id or not.
+    await db
+      .update(sessions)
+      .set({ wakeOn: sql`coalesce(${sessions.wakeOn}, '[]'::jsonb) || ${JSON.stringify([w.thread])}::jsonb` })
+      .where(eq(sessions.id, theirConversation))
+    const asked = await postAskCard({
+      userId: w.owner,
+      sessionId: w.childId,
+      card: buildQuestionCard({ question: SECRET, options: [{ label: `no` }] }),
+    })
+    const [threadMirror] = await asks(w.thread)
+    expect(await escalateCard({ userId: w.owner, caller: await row(w.thread), messageId: threadMirror!.id })).toMatchObject({
+      sessionId: w.conversation,
+      escalated: true,
+    })
+    expect(await asks(theirConversation)).toEqual([])
+    expect((await asks(w.conversation)).map((m) => (m.card as { messageId: string }).messageId)).toContain(asked.messageId)
+  })
+
+  it(`two escalates at once insert ONE mirror; an answer first refuses the escalate`, async () => {
+    const w = await managed()
+    const asked = await postAskCard({
+      userId: w.owner,
+      sessionId: w.childId,
+      card: buildQuestionCard({ question: `Race?`, options: [{ label: `a` }] }),
+    })
+    const results = await Promise.all([
+      escalateCard({ userId: w.owner, caller: await row(w.thread), messageId: asked.messageId }),
+      escalateCard({ userId: w.owner, caller: await row(w.thread), messageId: asked.messageId }),
+    ])
+    expect(results.filter((r) => r.escalated)).toHaveLength(1)
+    expect(new Set(results.map((r) => r.messageId)).size).toBe(1)
+    expect(await asks(w.conversation)).toHaveLength(1)
+    await expect(
+      db.insert(messages).values({
+        sessionId: w.conversation,
+        authorKind: `agent`,
+        body: `dup`,
+        card: { kind: `ask`, sessionId: w.childId, messageId: asked.messageId },
+      } as never)
+    ).rejects.toThrow()
+    const second = await postAskCard({
+      userId: w.owner,
+      sessionId: w.childId,
+      card: buildQuestionCard({ question: `Late?`, options: [{ label: `b` }] }),
+    })
+    await caller(w.owner).answer({ messageId: second.messageId, answers: [`b`] })
+    await expect(
+      escalateCard({ userId: w.owner, caller: await row(w.thread), messageId: second.messageId })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`an origin that ends or is deleted unanswered closes its mirrors`, async () => {
+    const w = await managed()
+    const asked = await postAskCard({
+      userId: w.owner,
+      sessionId: w.childId,
+      card: buildQuestionCard({ question: `Still there?`, options: [{ label: `x` }] }),
+    })
+    await escalateCard({ userId: w.owner, caller: await row(w.thread), messageId: asked.messageId })
+    await caller(w.owner).end({ sessionId: w.childId })
+    for (const m of [...(await asks(w.thread)), ...(await asks(w.conversation))]) expect(m.answeredAt).not.toBeNull()
+    // Delete: the root's own card mirrored into the conversation closes too.
+    const own = await postAskCard({
+      userId: w.owner,
+      sessionId: w.thread,
+      card: buildQuestionCard({ question: `Delete me?`, options: [{ label: `x` }] }),
+    })
+    await caller(w.owner).delete({ sessionId: w.thread })
+    const left = (await asks(w.conversation)).find((m) => (m.card as { messageId: string }).messageId === own.messageId)
+    expect(left!.answeredAt).not.toBeNull()
   })
 })

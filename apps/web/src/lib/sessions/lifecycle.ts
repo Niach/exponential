@@ -7,7 +7,7 @@ import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
-import { busReport, forgetWatched } from "@/lib/sessions/bus"
+import { busReport, closeAskMirrorsOf, forgetWatched } from "@/lib/sessions/bus"
 import { postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
@@ -69,7 +69,9 @@ export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
     .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, blocked: null, updatedAt: now })
     .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), isNull(sessions.agentId)))
     .returning({ id: sessions.id })
-  return ended.map((row) => row.id)
+  const endedIds = ended.map((row) => row.id)
+  await closeAskMirrorsOf(tx, endedIds, now)
+  return endedIds
 }
 
 /**
@@ -227,6 +229,7 @@ export async function deleteSession(args: { userId: string; sessionId: string })
     const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session))
     const tree = await tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.rootId, session.id))
     await forgetWatched(tx, tree.map((row) => row.id))
+    await closeAskMirrorsOf(tx, tree.map((row) => row.id))
     await tx
       .update(attachments)
       .set({ messageId: null })

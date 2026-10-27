@@ -157,7 +157,8 @@ final class ChatsTests: XCTestCase {
                 rootId: try XCTUnwrap(string(input["rootId"])),
                 messages: try messages(input["messages"]),
                 needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
-                busy: try XCTUnwrap(input["busy"] as? Bool)
+                busy: try XCTUnwrap(input["busy"] as? Bool),
+                visible: (input["visibleSessionIds"] as? [String]).map(Set.init)
             )
             assertJSON(json(got), testCase["expected"], name)
         }
@@ -370,6 +371,9 @@ final class ChatsTests: XCTestCase {
             "you": C.Preview.you, "picture": C.Preview.picture, "surface": C.Preview.surface,
             "empty": C.Preview.empty, "askQuestionLead": C.Preview.askQuestionLead,
             "askPlanLead": C.Preview.askPlanLead,
+            "askPrivateQuestionLead": C.Preview.askPrivateQuestionLead,
+            "askPrivatePlanLead": C.Preview.askPrivatePlanLead,
+            "questionPrivate": C.Preview.questionPrivate, "planPrivate": C.Preview.planPrivate,
         ])
         let time = try XCTUnwrap(copy["time"] as? [String: Any])
         XCTAssertEqual(time["yesterday"] as? String, C.Time.yesterday)

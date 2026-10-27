@@ -44,6 +44,12 @@ public enum Chats {
             /// #EXP-1399: the bus's `askText` leads an `ask` mirror's body.
             public static let askQuestionLead = "Asks: "
             public static let askPlanLead = "Proposes a plan:"
+            /// #EXP-1399 review: the server's NEUTRAL mirror (a reader may
+            /// not see the origin) and the private preview lines.
+            public static let askPrivateQuestionLead = "Asks a question in a private chat."
+            public static let askPrivatePlanLead = "Proposes a plan in a private chat."
+            public static let questionPrivate = "Question in a private chat"
+            public static let planPrivate = "Plan in a private chat"
         }
         public enum Time {
             public static let yesterday = "Yesterday"
@@ -471,31 +477,53 @@ public enum Chats {
         template.replacingOccurrences(of: "{text}", with: text)
     }
 
-    /// A plan / question card's preview kind + plain text. #EXP-1399: an
-    /// `ask` mirror reads its body, the bus's `askText` (`Asks: <question>`
-    /// on its first line with text | `Proposes a plan:` then the plan's first
-    /// block), which the list digest keeps too.
-    public static func askPreview(_ message: TreeMessage) -> (kind: ChatPreviewKind, text: String) {
+    /// A plan / question card's preview line. #EXP-1399: an `ask` mirror
+    /// reads its body, the bus's `askText` (`Asks: <question>` on its first
+    /// line with text | `Proposes a plan:` then the plan's first block),
+    /// which the list digest keeps too. A PRIVATE origin (the server's
+    /// neutral body, or a session outside `visible`) shows the private copy,
+    /// never its text.
+    public static func askPreview(_ message: TreeMessage, visible: Set<String>? = nil) -> ChatPreview {
         let card = message.card
-        if card?.kind == "plan" { return (.plan, plainLine(card?.plan ?? "")) }
-        if card?.kind != "ask" { return (.question, plainLine(card?.question ?? "")) }
+        if card?.kind == "plan" { return ChatPreview(kind: .plan, text: fill(Copy.Preview.plan, plainLine(card?.plan ?? ""))) }
+        if card?.kind != "ask" {
+            return ChatPreview(kind: .question, text: fill(Copy.Preview.question, plainLine(card?.question ?? "")))
+        }
         let body = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plan = body.hasPrefix(Copy.Preview.askPlanLead) || body.hasPrefix(Copy.Preview.askPrivatePlanLead)
+        let origin = card?.sessionId ?? message.authorSessionId ?? ""
+        let hidden = body.hasPrefix(Copy.Preview.askPrivatePlanLead)
+            || body.hasPrefix(Copy.Preview.askPrivateQuestionLead)
+            || visible.map { !$0.contains(origin) } ?? false
+        if hidden {
+            return plan
+                ? ChatPreview(kind: .plan, text: Copy.Preview.planPrivate)
+                : ChatPreview(kind: .question, text: Copy.Preview.questionPrivate)
+        }
         if body.hasPrefix(Copy.Preview.askPlanLead) {
             let rest = String(body.dropFirst(Copy.Preview.askPlanLead.count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let block = rest.range(of: #"\n\s*\n"#, options: .regularExpression)
                 .map { String(rest[..<$0.lowerBound]) } ?? rest
-            return (.plan, plainLine(block))
+            return ChatPreview(kind: .plan, text: fill(Copy.Preview.plan, plainLine(block)))
         }
         let first = body.components(separatedBy: "\n").first(where: { !plainLine($0).isEmpty }) ?? ""
         let question = first.hasPrefix(Copy.Preview.askQuestionLead)
             ? String(first.dropFirst(Copy.Preview.askQuestionLead.count))
             : first
-        return (.question, plainLine(question))
+        return ChatPreview(kind: .question, text: fill(Copy.Preview.question, plainLine(question)))
     }
 
     /// The root conversation's preview line (`previewCases`).
-    public static func chatPreview(rootId: String, messages: [TreeMessage], needsYou: Bool, busy: Bool) -> ChatPreview {
+    /// `visible` = the viewer's synced session ids (nil = no check,
+    /// #EXP-1399 review).
+    public static func chatPreview(
+        rootId: String,
+        messages: [TreeMessage],
+        needsYou: Bool,
+        busy: Bool,
+        visible: Set<String>? = nil
+    ) -> ChatPreview {
         let own = messages
             .filter { $0.sessionId == rootId && ($0.authorKind == "user" || $0.authorKind == "agent") }
             .filter { m in
@@ -511,8 +539,7 @@ public enum Chats {
            let waiting = own.first(where: { m in
                m.answeredAt == nil && ["question", "plan", "ask"].contains(m.card?.kind ?? "")
            }) {
-            let (kind, text) = askPreview(waiting)
-            return ChatPreview(kind: kind, text: fill(kind == .plan ? Copy.Preview.plan : Copy.Preview.question, text))
+            return askPreview(waiting, visible: visible)
         }
         if busy { return ChatPreview(kind: .working, text: Copy.Preview.working) }
         guard let newest = own.first else { return ChatPreview(kind: .empty, text: Copy.Preview.empty) }
@@ -529,8 +556,7 @@ public enum Chats {
             let title = newest.card?.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return ChatPreview(kind: .surface, text: title.isEmpty ? Copy.Preview.surface : title)
         case "question", "ask", "plan":
-            let (kind, text) = askPreview(newest)
-            return ChatPreview(kind: kind, text: fill(kind == .plan ? Copy.Preview.plan : Copy.Preview.question, text))
+            return askPreview(newest, visible: visible)
         default:
             return ChatPreview(kind: .agent, text: plainLine(newest.body))
         }
@@ -606,7 +632,8 @@ public enum Chats {
         words: [String: ThreadRowWord] = [:],
         filter: ChatFilter,
         now: String,
-        utcOffsetMinutes: Int
+        utcOffsetMinutes: Int,
+        visible: Set<String>? = nil
     ) -> ChatList {
         let all: [ChatRow] = groups.flatMap { group in
             group.rows.filter { $0.depth == 0 }.map { row -> ChatRow in
@@ -629,7 +656,13 @@ public enum Chats {
                     deviceId: row.deviceId,
                     group: group.key.rawValue,
                     lead: lead,
-                    preview: chatPreview(rootId: row.sessionId, messages: messages, needsYou: row.needsYou, busy: row.busy),
+                    preview: chatPreview(
+                        rootId: row.sessionId,
+                        messages: messages,
+                        needsYou: row.needsYou,
+                        busy: row.busy,
+                        visible: visible
+                    ),
                     activityAt: row.activityAt,
                     time: chatTimeLabel(at: row.activityAt, now: now, utcOffsetMinutes: utcOffsetMinutes),
                     unreadCount: unreadCount(rootId: row.sessionId, messages: messages, reads: reads),

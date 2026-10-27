@@ -1072,6 +1072,8 @@ object SessionTree {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
                     val origin = card.str("messageId")?.let { messagesById[it] } ?: continue
                     if (target.id in treeIds || origin.sessionId != target.id) continue
+                    // #EXP-1399 review: only the origin session's own mirror draws it.
+                    if (message.authorSessionId != target.id) continue
                     val originKind = origin.card?.str("kind")
                     if (originKind != DomainContract.messageCardKindQuestion &&
                         originKind != DomainContract.messageCardKindPlan
