@@ -89,7 +89,8 @@ thresholds 0.25, 0.1 and 0.05, boosted 2.5x or not, nor its prefix `EXPO`. The
 options are a trained openWakeWord model (the 4090 can train one) or a
 different short idle phrase; "hey <agent name>" as a transcript match while
 STT runs needs nothing (both Nemotron and Whistle wrote "hey exponential").
-False-accept rate per hour is not measured yet. The planned 1 h recording
+False accepts are measured on corpus audio in "Wake word false accepts"
+below (NEW-56). The planned 1 h recording
 (game audio, desk noise, speech) uses only the recording person's own voice
 and voices with explicit consent (§201 StGB, as the spec notes), and stays
 in the gitignored `out/`; nothing of it is committed.
@@ -206,7 +207,10 @@ redistributed), Whistle and cactus-rs (Apache-2.0 / MIT), Nemotron 3.5
 (**OpenMDW-1.1**, NVIDIA's open model licence, commercial use allowed; to be
 read before shipping), transcribe.cpp (MIT), Qwen3-TTS weights (Apache-2.0),
 llama.cpp (MIT), CrispASR (MIT). Excluded as planned: espeak-ng as a linked
-library, Piper, Kitten TTS, Supertonic (OpenRAIL-M).
+library, Piper, Kitten TTS, Supertonic (OpenRAIL-M). Measuring data only
+(NEW-56, never committed or shipped): LibriSpeech and Multilingual LibriSpeech
+(CC BY 4.0, attribution: Panayotov et al. 2015, Pratap et al. 2020), Kenney
+and OpenGameArt audio (CC0).
 
 ## Decision after listening (2026-10-25)
 
@@ -248,8 +252,8 @@ the human recording set decides between them in #NEW-54.
 - NEW-57 meeting mode: PipeWire per-source capture is confirmed; the merge by
   timestamps is harness work, not research.
 - Open: Qwen3-TTS 0.6B on Metal, the
-  Linux German CPU voice, a human recording set, false accepts per hour (own and consenting voices
-  only, kept out of git), a
+  Linux German CPU voice, a human recording set (own and consenting voices
+  only, kept out of git; also the wake word's final check), a
   running game beside the engines.
 
 ## Speech in through CrispASR (NEW-78, 2026-10-26)
@@ -289,6 +293,75 @@ Downloads: the transcriber needs the runtime (the CUDA build, 781 MB with
 NVIDIA's wheels; on a machine without a GPU driver, NEW-78 pins the CPU-only
 build of the same release: 22.7 MB on Linux, 58.4 MB on Windows) plus the two
 models, fetched on the first Listen.
+
+## Wake word false accepts (NEW-56, 2026-10-27)
+
+The wake word as it ships (#1263: Silero segments, the first 1.2-2 s of each
+segment through the resident Parakeet once, the phrase matched within
+floor(letters x 0.25) edits) over **8.5 h of mixed audio per language**,
+measured on mint (RTX 4090) with the speech model on the GPU and **every GPU
+step run with the heavy lane held** (`scripts/lanes/lane.sh heavy`), one
+measurement at a time. Harness: `cargo run --release -p voice --example wake
+-- <data-dir> --phrase P --language L --checks-out F <corpus> <positives>`;
+corpus and positives: `apps/desktop/spikes/talk/scripts/wake_corpus.py`;
+numbers: `apps/desktop/spikes/talk/wake-numbers.json`.
+
+**Corpus (public and CC0 only, nothing of it committed).** English:
+LibriSpeech test-clean + test-other (CC BY 4.0), 3,022 utterances, 5.6 h of
+speech. German: Multilingual LibriSpeech German dev (CC BY 4.0), 1,694
+utterances, 6.5 h of speech. Common Voice needs a Mozilla Data Collective
+login, which an unattended session does not have, so MLS took its place.
+Mixed into 17 x 30 min per language, seeded, scene by scene: 80 % speech scenes
+(a quiet room, CC0 game music 5-20 dB under the speech, or music plus game
+effects), 20 % game-only scenes, a -65 dBFS noise floor under everything.
+Background: Kenney's seven audio packs and 22 OpenGameArt music pages, all CC0.
+No private clips, no scraped video.
+
+**Positives.** Qwen3-TTS 0.6B CustomVoice (Apache-2.0), all 9 built-in
+speakers, 3 texts per phrase and language (the phrase alone, + a question,
++ a command), 27 clips each.
+
+| language | phrase | edits | checks (8.5 h) | false accepts | per 8 h | near misses | true accepts |
+|---|---|---|---|---|---|---|---|
+| en | Hey Triage | 2 | 5,592 | **0** | 0 | 0 | 6 / 27 |
+| en | Hey Ops | 1 | 5,592 | **0** | 0 | 0 | 18 / 27 |
+| en | Hey Studio | 2 | 5,592 | **0** | 0 | 0 | 25 / 27 |
+| en | Hey Assistant | 3 | 5,592 | **0** | 0 | 2 | 26 / 27 |
+| de | Hey Triage | 2 | 5,563 | **0** | 0 | 0 | 15 / 27 |
+| de | Hey Ops | 1 | 5,563 | **0** | 0 | 0 | 21 / 27 |
+| de | Hey Studio | 2 | 5,563 | **0** | 0 | 0 | 26 / 27 |
+| de | Hey Assistant | 3 | 5,563 | **0** | 0 | 0 | 27 / 27 |
+
+"Near misses" = checks one edit past the tolerance: only two in 44,620
+(`He assisted at it, but`, `He was sitting there with his head down` for Hey
+Assistant). 10.9 checks a minute, 0.5 % of a core on the GPU path.
+
+**Verdict: the < 1 per 8 h target is met on corpus audio**: zero false
+accepts in 17 h per phrase. Statistically, zero in 17 h bounds the rate at
+1.4 per 8 h (95 %, rule of three), so this is "no false accept seen", not a
+proof. Read-aloud books also almost never open a segment with "hey" (three segments
+in 17 h: `Hey D.`, `Hey fever.`, `Hey, ihr da auf dem Kastell.`), which is
+exactly where a wake phrase is at risk. **A human
+recording (own voice, desk and game chat) stays the final check.**
+
+**True accepts are the weak side, and mostly the voices'.** The misses are
+the TTS saying the name wrong (`Hey Tree Edge`, `Patrios`, `Hey Chiyashi`,
+dialect and Korean-accented speakers above all) or Parakeet fusing the
+greeting (`Hatrige`, `Hatred`). Hey Studio and Hey Assistant are near
+perfect; "Triage" is a hard word for these voices.
+
+**Tuning: none.** `wake_sweep.py` replays the match over the logged
+transcripts at other tolerances. At 1/3 of the letters, true accepts rise
+(en Triage 6 → 17, Ops 18 → 22, Studio 25 → 27; de Triage 15 → 20, Ops 21 → 23)
+and the corpus still shows zero false accepts for those three, but Hey
+Assistant takes the two audiobook near misses (1.9 per 8 h). A cap at 3 edits
+would avoid that, but 2 edits for `Hey Ops` take `Hey boss`, `Hey Oma`, `Hey
+los`, `Hey, oh`, and 3 for `Hey Triage` take `Hey Tracy`, `Hey, tricky`:
+the everyday openers the corpus cannot see. So maxEditRatio stays 0.25, and
+talk-listen.json gains the corpus transcripts as `match` cases (the voices'
+`Hey Triad`, `Hey Triash, was steht heute an?`, `Hey, oops`, `Hey Ups`,
+`Hey Assistent`) plus the near misses a looser match would take, so the
+margin is fixture-locked.
 
 ## macbook
 

@@ -107,30 +107,46 @@ fn levenshtein(a: &[char], b: &[char]) -> usize {
     row[b.len()]
 }
 
-/// Whether `heard` opens with `phrase`; `Some(rest)` = what follows the
-/// phrase (leading punctuation dropped, the first letter capitalised), the
-/// command. The phrase's letters (spaces ignored, so `Heystudio` and `Hey
-/// stu dio` count) are compared with the transcript's first 1 to n + 2
-/// words (n = the phrase's words); the closest wins within
-/// [`MAX_EDIT_RATIO`]. A phrase without a letter or digit never matches.
-pub fn wake_match(phrase: &str, heard: &str) -> Option<String> {
+/// The edits [`wake_match`] tolerates for `phrase`: floor(letters ×
+/// [`MAX_EDIT_RATIO`]).
+pub fn wake_allowed(phrase: &str) -> usize {
+    let letters: usize = wake_words(phrase).iter().map(|word| word.folded.chars().count()).sum();
+    (letters as f32 * MAX_EDIT_RATIO).floor() as usize
+}
+
+/// How close `heard`'s opening comes to `phrase`: the phrase's letters
+/// (spaces ignored, so `Heystudio` and `Hey stu dio` count) against the
+/// transcript's first 1 to n + 2 words joined (n = the phrase's words), the
+/// closest (the fewest words on a tie) as (words, edits). None for a phrase
+/// without a letter or digit, or a transcript without a word.
+pub fn wake_distance(phrase: &str, heard: &str) -> Option<(usize, usize)> {
     let phrase_words = wake_words(phrase);
     let key: Vec<char> = phrase_words.iter().flat_map(|word| word.folded.chars()).collect();
     if key.is_empty() {
         return None;
     }
-    let allowed = (key.len() as f32 * MAX_EDIT_RATIO).floor() as usize;
-    let words = wake_words(heard);
     let mut best: Option<(usize, usize)> = None;
     let mut candidate: Vec<char> = Vec::new();
-    for (count, word) in words.iter().take(phrase_words.len() + 2).enumerate() {
+    for (count, word) in wake_words(heard).iter().take(phrase_words.len() + 2).enumerate() {
         candidate.extend(word.folded.chars());
         let distance = levenshtein(&candidate, &key);
-        if distance <= allowed && best.is_none_or(|(_, best)| distance < best) {
+        if best.is_none_or(|(_, best)| distance < best) {
             best = Some((count + 1, distance));
         }
     }
-    let (count, _) = best?;
+    best
+}
+
+/// Whether `heard` opens with `phrase`; `Some(rest)` = what follows the
+/// phrase (leading punctuation dropped, the first letter capitalised), the
+/// command. The closest opening ([`wake_distance`]) matches within
+/// [`wake_allowed`] edits. A phrase without a letter or digit never matches.
+pub fn wake_match(phrase: &str, heard: &str) -> Option<String> {
+    let (count, distance) = wake_distance(phrase, heard)?;
+    if distance > wake_allowed(phrase) {
+        return None;
+    }
+    let words = wake_words(heard);
     let rest = heard[words[count - 1].end..].trim_start_matches(|ch: char| !ch.is_alphanumeric());
     let mut chars = rest.chars();
     Some(match chars.next() {

@@ -1,0 +1,413 @@
+{
+ "_": "#NEW-56: wake-word false accepts on corpus audio, mint (RTX 4090), 2026-10-27, every GPU step inside the heavy lane (scripts/lanes/lane.sh heavy). Built by apps/desktop/spikes/talk/scripts/wake_corpus.py, measured by `cargo run --release -p voice --example wake -- <data> --phrase P --language L --checks-out F <corpus/L> <positives/L/P>`, swept by scripts/wake_sweep.py. No audio is committed; docs/talk-spike.md `Wake word false accepts` reads these numbers.",
+ "corpus": {
+  "en": {
+   "label": "en",
+   "seed": 56,
+   "hours": 8.5,
+   "speechHours": 5.59,
+   "utterances": 3022,
+   "scenes": {
+    "music": 118,
+    "music+effects": 68,
+    "game-only": 66,
+    "quiet": 63
+   },
+   "speech": [
+    "test-clean",
+    "test-other"
+   ],
+   "speechPool": 5559,
+   "backgroundFiles": {
+    "music": 63,
+    "effects": 537
+   },
+   "source": "LibriSpeech test-clean + test-other (openslr.org/12, CC BY 4.0)"
+  },
+  "de": {
+   "label": "de",
+   "seed": 56,
+   "hours": 8.5,
+   "speechHours": 6.47,
+   "utterances": 1694,
+   "scenes": {
+    "quiet": 68,
+    "music": 115,
+    "game-only": 63,
+    "music+effects": 68
+   },
+   "speech": [
+    "mls-de-dev.parquet"
+   ],
+   "speechPool": 3469,
+   "backgroundFiles": {
+    "music": 63,
+    "effects": 537
+   },
+   "source": "Multilingual LibriSpeech German dev (huggingface.co/datasets/facebook/multilingual_librispeech, CC BY 4.0)"
+  },
+  "background": {
+   "kenney": [
+    "rpg-audio",
+    "impact-sounds",
+    "sci-fi-sounds",
+    "music-jingles",
+    "casino-audio",
+    "interface-sounds",
+    "digital-audio"
+   ],
+   "kenneyLicence": "CC0 (kenney.nl)",
+   "opengameart": [
+    "4-chiptunes-adventure",
+    "5-chiptunes-action",
+    "another-space-background-track",
+    "awake-megawall-10",
+    "background-space-track",
+    "battle-theme-a",
+    "bossa-nova",
+    "cave-theme",
+    "creepy-forest-f",
+    "crystal-cave-song18",
+    "cyberpunk-moonlight-sonata",
+    "enchanted-tiki-86",
+    "fast-fight-battle-music",
+    "loading-screen-loop",
+    "menu-music",
+    "mysterious-ambience-song21",
+    "next-to-you",
+    "rain-and-thunders",
+    "snowfall",
+    "the-field-of-dreams",
+    "town-theme-rpg",
+    "tragic-ambient-main-menu"
+   ],
+   "opengameartLicence": "CC0 (each page offers CC0; two also offer OGA-BY 3.0, CC0 chosen)"
+  },
+  "positives": "Qwen3-TTS 12 Hz 0.6B CustomVoice Q8_0 (Apache-2.0) through CrispASR, the 9 built-in speakers (aiden, ryan, vivian, serena, dylan, eric, uncle_fu, ono_anna, sohee) x 3 texts per phrase and language: the phrase alone, + a question, + a command (en: \"what's on my board today?\", \"move NEW-78 to done.\"; de: \"was steht heute an?\", \"schieb NEW-78 auf erledigt.\"), seeds 7-9"
+ },
+ "results": [
+  {
+   "language": "de",
+   "phrase": "Hey Assistant",
+   "allowedEdits": 3,
+   "windowMs": 1800,
+   "negativeHours": 8.53,
+   "checks": 5563,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 27,
+   "missedHeard": []
+  },
+  {
+   "language": "de",
+   "phrase": "Hey Ops",
+   "allowedEdits": 1,
+   "windowMs": 1200,
+   "negativeHours": 8.53,
+   "checks": 5563,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 21,
+   "missedHeard": [
+    [
+     "Sheep new"
+    ],
+    [
+     "Hey Ubbs, was"
+    ],
+    [
+     "Oops.",
+     "Sheep New Aston Zip"
+    ],
+    [
+     "Ha ha ha.",
+     "Hm.",
+     "Hey up."
+    ],
+    [
+     "Hey.",
+     "Oops, sheep new."
+    ],
+    [
+     "Hey Orbs, was steht?"
+    ]
+   ]
+  },
+  {
+   "language": "de",
+   "phrase": "Hey Studio",
+   "allowedEdits": 2,
+   "windowMs": 1500,
+   "negativeHours": 8.53,
+   "checks": 5563,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 26,
+   "missedHeard": [
+    [
+     "Studium.",
+     "Was steht heute an?"
+    ]
+   ]
+  },
+  {
+   "language": "de",
+   "phrase": "Hey Triage",
+   "allowedEdits": 2,
+   "windowMs": 1500,
+   "negativeHours": 8.53,
+   "checks": 5563,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 15,
+   "missedHeard": [
+    [
+     "Hey Tree."
+    ],
+    [
+     "Patriage",
+     "Was steht heute an?"
+    ],
+    [
+     "A triage!"
+    ],
+    [
+     "Hey Tiro."
+    ],
+    [
+     "Hey trash, sheepne."
+    ],
+    [
+     "Hey, triosh!"
+    ],
+    [
+     "Hatriush"
+    ],
+    [
+     "Zetrush."
+    ],
+    [
+     "He tries."
+    ],
+    [
+     "Hey 3S, seepn."
+    ],
+    [
+     "Hitriash"
+    ],
+    [
+     "Hei, trăjaš!",
+     "Was steht heute an?"
+    ]
+   ]
+  },
+  {
+   "language": "en",
+   "phrase": "Hey Assistant",
+   "allowedEdits": 3,
+   "windowMs": 1800,
+   "negativeHours": 8.53,
+   "checks": 5592,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [
+    "He assisted at it, but",
+    "He was sitting there with his head down to the"
+   ],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 26,
+   "missedHeard": [
+    [
+     "Hei așa!",
+     "What's on my board today?"
+    ]
+   ]
+  },
+  {
+   "language": "en",
+   "phrase": "Hey Ops",
+   "allowedEdits": 1,
+   "windowMs": 1200,
+   "negativeHours": 8.53,
+   "checks": 5592,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 18,
+   "missedHeard": [
+    [
+     "Hey, old pass."
+    ],
+    [
+     "Hey Alp.",
+     "What's on my board today?"
+    ],
+    [
+     "Heheheh, hey up."
+    ],
+    [
+     ""
+    ],
+    [
+     "Hey, Obies!"
+    ],
+    [
+     "Hey",
+     "Opposite."
+    ],
+    [
+     "Hey Oofs, what's on my"
+    ],
+    [
+     "Hey o",
+     "Love could"
+    ],
+    [
+     "Hey old pass!"
+    ]
+   ]
+  },
+  {
+   "language": "en",
+   "phrase": "Hey Studio",
+   "allowedEdits": 2,
+   "windowMs": 1500,
+   "negativeHours": 8.53,
+   "checks": 5592,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 25,
+   "missedHeard": [
+    [
+     "Studio"
+    ],
+    [
+     "Studio move"
+    ]
+   ]
+  },
+  {
+   "language": "en",
+   "phrase": "Hey Triage",
+   "allowedEdits": 2,
+   "windowMs": 1500,
+   "negativeHours": 8.53,
+   "checks": 5592,
+   "checksPerMinute": 10.9,
+   "falseAccepts": 0,
+   "falseAcceptsPer8h": 0.0,
+   "nearMisses": [],
+   "cpuPercentOfOneCore": 0.5,
+   "positiveClips": 27,
+   "trueAccepts": 6,
+   "missedHeard": [
+    [
+     "Hey Traj, what's on my"
+    ],
+    [
+     "Hey Tree Edge."
+    ],
+    [
+     "Hey,",
+     "Trees.",
+     "Move new",
+     "Tira, tira.",
+     "Ba",
+     "To down."
+    ],
+    [
+     "Hey Tris."
+    ],
+    [
+     "Hey Tree Az, what's got my b-"
+    ],
+    [
+     "Hey Triers, move!"
+    ],
+    [
+     "Hey Trash!"
+    ],
+    [
+     "Three J is.",
+     "Move no seventy-eight."
+    ],
+    [
+     "Patrios."
+    ],
+    [
+     "Hatrious.",
+     "What's on my board today?"
+    ],
+    [
+     "Hey tries, move."
+    ],
+    [
+     "Hatrige"
+    ],
+    [
+     "Hatred",
+     "What's on my board today?"
+    ],
+    [
+     "Hei triaasi!",
+     "Edu Jaasi!"
+    ],
+    [
+     "Hey Chiyashi, what's up my-"
+    ],
+    [
+     "Hey Trich!",
+     "Mównio się do Buntsdan."
+    ],
+    [
+     "Hey.",
+     "Tree ish."
+    ],
+    [
+     "Hey, Trash.",
+     "Uh, what's on my board today?"
+    ],
+    [
+     "Hey.",
+     "Pray on.",
+     "Move new.",
+     "Servant Jew",
+     "Sevi pa",
+     "To duh."
+    ],
+    [
+     "Hey, Tri Ridge?"
+    ],
+    [
+     "Patriad.",
+     "What's on my board today?"
+    ]
+   ]
+  }
+ ]
+}
