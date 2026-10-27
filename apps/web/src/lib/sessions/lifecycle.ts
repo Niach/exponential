@@ -13,7 +13,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
-import { yoloEdge } from "@/lib/yolo-tree-merge"
+import { yoloEdge } from "@/lib/yolo-edge"
 
 // EXP-1291/NEW-1: the session lifecycle — queued → running ⇄ idle → ended.
 // Merging ends nothing; a session ends only explicitly (End, the agent's

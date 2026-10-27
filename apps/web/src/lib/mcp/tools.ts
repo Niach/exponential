@@ -200,7 +200,7 @@ import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
-import { yoloEdge } from "@/lib/yolo-tree-merge"
+import { yoloEdge } from "@/lib/yolo-edge"
 import {
   assertFullAccess,
   assertBoardGranted,

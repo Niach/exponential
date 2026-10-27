@@ -63,7 +63,7 @@ import {
   startSuggestion,
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
-import { yoloEdge } from "@/lib/yolo-tree-merge"
+import { yoloEdge } from "@/lib/yolo-edge"
 import {
   effectiveCli,
   isRunnerModel,

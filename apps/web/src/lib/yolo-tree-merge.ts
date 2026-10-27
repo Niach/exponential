@@ -3,7 +3,7 @@
 // follow-up PRs on each other's branches, so nothing merges while any
 // session of the tree works; every lifecycle edge (a turn ending, a session
 // ending, `pr_open`) calls the ONE idempotent `maybeMergeYoloThread(rootId)`
-// through `yoloEdge`, after its write committed (EXP-1413: `sessions.report`
+// through `yoloEdge` (`lib/yolo-edge.ts`), after its write committed (EXP-1413: `sessions.report`
 // when a turn ends or a child's process goes, `endSession` /
 // `endHostedSessions` / Stop of a never-started row, MCP `pr open`).
 //
@@ -74,12 +74,6 @@ export function maybeMergeYoloThread(rootId: string): Promise<YoloResult> {
     .finally(() => inFlight.delete(rootId))
   inFlight.set(rootId, run)
   return run
-}
-
-/** A lifecycle edge of the thread `rootId` (EXP-1413): fire and forget,
- *  AFTER the edge's write committed, so the merge sees the tree idle. */
-export function yoloEdge(rootId: string | null | undefined): void {
-  if (rootId) void maybeMergeYoloThread(rootId)
 }
 
 async function mergeNow(rootId: string): Promise<YoloResult> {
