@@ -4157,7 +4157,7 @@ impl ClaudeSession {
         let (withdraw, withdrawn) = flume::bounded::<String>(1);
         {
             let mut state = self.lock();
-            if state.voice_ledger.take_approval(&card, voice_clock_ms()) {
+            if state.voice_ledger.take_approval(&card, &request.input, voice_clock_ms()) {
                 log::info!("engine: claude voice policy ran the changed {} (pre-approved)", request.tool_name);
                 return wire::permission_allow(tool_use_id, request.input.clone());
             }
@@ -4201,7 +4201,7 @@ impl ClaudeSession {
                 return wire::permission_deny(tool_use_id, &reason, false);
             }
         };
-        match self.lock().voice_ledger.answered(&card, &answer, voice_clock_ms()) {
+        match self.lock().voice_ledger.answered(&card, &request.input, &answer, voice_clock_ms()) {
             Verdict::Allow => wire::permission_allow(tool_use_id, request.input.clone()),
             Verdict::Deny(message) => wire::permission_deny(tool_use_id, &message, false),
         }

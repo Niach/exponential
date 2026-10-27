@@ -196,6 +196,59 @@ so Agent / Task are now `confirm`. A codex voice agent is refused at launch,
 only the member answers the cards (never a session over the bus), and a
 spoken yes never answers a card past its 15-minute expiry.
 
+**#NEW-90 live checks (2026-10-27, mint, `claude --version` = 2.1.310).**
+`cargo run -p engine --example new90_policy_checks -- haiku` drives the
+real CLI through the launcher's voice launch path: the confined voice flag
+layer from `coding::launcher::claude_flag_settings`, the claude adapter under
+`voice_policy`, and a scratch cwd that the launcher's trust seeding marks
+trusted. The scratch dir is hostile on purpose. Its project settings set
+`defaultMode: bypassPermissions`, `allow` Bash, Agent, Task, KillShell,
+CronCreate and the plugin's tools, run a PreToolUse hook that answers
+`allow` for every tool, and enable a plugin (local marketplace) that bundles
+a stdio MCP server. It also defines a subagent with `permissionMode:
+bypassPermissions`. Every card is denied, except that the Agent card is
+allowed, so the subagent really runs. The run used the member's own login.
+Nothing reached a real instance: the Exponential server URL is a closed
+port.
+
+1. **Subagent bypass: holds.** The Agent card is allowed and the subagent
+   runs. Its Bash `touch` still reaches `can_use_tool` as a confirm-strong
+   card, which is denied, and the marker never appears.
+   `disableBypassPermissionsMode` plus the `default` launch keep the
+   subagent's `permissionMode` from widening.
+2. **Hook precedence: holds.** The PreToolUse hook ran (its log shows Bash)
+   and answered `allow`, and the project rule allows Bash too. The forced
+   `ask` still won: the call got a card, was denied, and wrote no marker.
+3. **Plugin MCP servers: hold.** The control run is the bare CLI in the same
+   dir without `--strict-mcp-config`. There the plugin's server connects
+   (`mcp__plugin_probe_probe__mark`), next to the account's claude.ai
+   connectors. With `--strict-mcp-config` the init frame lists no MCP server
+   at all, even though the plugin itself still loads: the model searched for
+   the tool and found nothing.
+4. **Deny-by-default: fixed.** An `ask: ["*"]` rule makes 2.1.310 ask for
+   EVERY tool, built-ins and MCP tools alike (`mcp__*` matches nothing).
+   Before this change, any tool missing from the named ask list (KillShell,
+   CronCreate, a future built-in) skipped `can_use_tool` whenever a user
+   `allow` rule named it. The voice layer now asks for `*` first and keeps
+   the named rules as a fallback. The policy allows the read-only tools at
+   once and cards everything else (`unknown` = confirm, `otherMcp` =
+   confirm-strong). The example's fourth check proves it.
+   `NEW90_NO_STAR=1` drops `*` to show the gap it closes.
+
+Decided: starting a subagent from voice stays `confirm` (one card names the
+subagent and its prompt), and the subagent's own calls are carded as usual.
+Offline, `launcher::tests::the_voice_conversation_asks_for_every_policed_tool`
+pins the layer (`*` first, bypass disabled), and the voice-policy fixture
+replays the logic. Only the live example exercises the CLI's own precedence.
+
+**Logic (#NEW-90).** A change now needs a yes: "but …" or "and …" with no
+yes or allow word is `other`, so nothing is pre-approved. A pre-approved
+redo is bound to the answer. Every field that differs from the changed call
+(added, changed or dropped) must have been said: a new value word for word,
+or a dropped field by its key. "Yes, but priority urgent" lets `priority:
+urgent` run once. The same redo with a new title, another status or
+`priority: low` asks again.
+
 ## Licences touched
 
 sherpa-onnx 2.0 Rust crate (Apache-2.0; its 2.0.0 prebuilt dropped espeak-ng),
