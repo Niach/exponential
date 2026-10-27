@@ -47,6 +47,11 @@ const CONFINED_FILE_TOOLS: [&str; 9] = [
     "LS",
 ];
 const CONFINED_PATH_KEYS: [&str; 3] = ["file_path", "path", "notebook_path"];
+/// The file tools that ALWAYS name their file: one of these with none of
+/// [`CONFINED_PATH_KEYS`] is a payload the guard could not read, refused
+/// (`Glob`/`Grep` legitimately default to the cwd).
+const PATH_REQUIRED_TOOLS: [&str; 7] =
+    ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "NotebookRead", "LS"];
 
 /// System prefixes a Bash command may name without leaving the sandbox in any
 /// way that matters (interpreters, `/dev/null`, `/etc/hosts`). Everything
@@ -143,35 +148,54 @@ pub struct Confinement<'a> {
 /// confined run allows that ONE project dir (the cwd's, never a sibling's).
 ///
 /// The name munges every non-alphanumeric UTF-16 unit to `-`; past 200 chars
-/// claude keeps the first 200 and appends `-<hash>` (EXP-761), so a long name
-/// matches the existing dirs on that prefix.
+/// claude keeps the first 200 and appends `-<hash>` (EXP-761), computed here
+/// EXACTLY ([`capped_project_name`]): a sibling cwd sharing the first 200
+/// chars has another hash, so its memory dir never opens.
 pub fn claude_harness_dirs(config: Option<&Path>, dirs: &[&Path]) -> Vec<PathBuf> {
     let Some(projects) = config.map(|config| config.join("projects")) else { return Vec::new() };
     let mut names: Vec<String> = Vec::new();
     for dir in dirs {
         for path in [dir.to_path_buf(), resolve_path(dir, Path::new("/"))] {
-            let name = munge_project_name(&path.to_string_lossy());
+            let name = capped_project_name(&path.to_string_lossy());
             if !names.contains(&name) {
                 names.push(name);
             }
         }
     }
-    let mut out: Vec<PathBuf> = Vec::new();
-    for name in names {
-        if name.len() <= 200 {
-            out.push(resolve_path(&projects.join(&name), Path::new("/")));
-            continue;
-        }
-        let prefix = format!("{}-", &name[..200]);
-        let Ok(entries) = std::fs::read_dir(&projects) else { continue };
-        for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(&prefix) {
-                out.push(resolve_path(&entry.path(), Path::new("/")));
-            }
-        }
-    }
+    let mut out: Vec<PathBuf> =
+        names.iter().map(|name| resolve_path(&projects.join(name), Path::new("/"))).collect();
     out.dedup();
     out
+}
+
+/// The 200-char cap: the munged name is kept as is up to 200 chars; past
+/// that claude (2.1.308, `J0`) writes the first 200 plus
+/// `-<base36(|hashCode(path)|)>`, the hash being Java's `String.hashCode`
+/// (`h = 31·h + unit`, wrapping i32, over the UTF-16 units of the ORIGINAL
+/// path), `Math.abs` taken as a JS number (so `i32::MIN` is 2³¹).
+fn capped_project_name(path: &str) -> String {
+    const CAP: usize = 200;
+    let name = munge_project_name(path);
+    if name.len() <= CAP {
+        return name;
+    }
+    let mut hash: i32 = 0;
+    for unit in path.encode_utf16() {
+        hash = hash.wrapping_shl(5).wrapping_sub(hash).wrapping_add(i32::from(unit));
+    }
+    let mut rest = (i64::from(hash)).unsigned_abs();
+    let mut digits: Vec<u8> = Vec::new();
+    loop {
+        let digit = (rest % 36) as u8;
+        digits.push(if digit < 10 { b'0' + digit } else { b'a' + digit - 10 });
+        rest /= 36;
+        if rest == 0 {
+            break;
+        }
+    }
+    digits.reverse();
+    // The munged name is ASCII, so the slice lands on a char boundary.
+    format!("{}-{}", &name[..CAP], String::from_utf8(digits).expect("base36 digits are ASCII"))
 }
 
 fn munge_project_name(path: &str) -> String {
@@ -200,11 +224,19 @@ fn munge_project_name(path: &str) -> String {
 pub fn confinement_denial(tool: &str, input: &Value, cwd: &Path, confine: &Confinement) -> Option<String> {
     let check = Check::new(cwd, confine);
     let offense = if CONFINED_FILE_TOOLS.contains(&tool) {
-        let mut hit = CONFINED_PATH_KEYS
+        let paths: Vec<&str> = CONFINED_PATH_KEYS
             .iter()
             .filter_map(|key| input.get(*key).and_then(Value::as_str))
-            .filter(|raw| !raw.trim().is_empty())
-            .find_map(|raw| check.outside(raw.trim(), cwd, false));
+            .map(str::trim)
+            .filter(|raw| !raw.is_empty())
+            .collect();
+        // Fail closed: a tool that always names its file carrying no path
+        // (a payload the hook could not read in full) is refused, never
+        // waved through as "nothing to check".
+        if paths.is_empty() && PATH_REQUIRED_TOOLS.contains(&tool) {
+            return Some(no_path_denial(confine));
+        }
+        let mut hit = paths.iter().find_map(|raw| check.outside(raw, cwd, false));
         if hit.is_none() && tool == "Glob" {
             let base = match input.get("path").and_then(Value::as_str).map(str::trim).filter(|path| !path.is_empty()) {
                 Some(path) => check.resolve(path, cwd),
@@ -236,6 +268,26 @@ pub fn confinement_denial(tool: &str, input: &Value, cwd: &Path, confine: &Confi
              refused. Spell the path out literally, inside the scratch folder or a temp dir."
         ),
     })
+}
+
+/// The deny for a file tool that names no path at all ([`PATH_REQUIRED_TOOLS`]).
+fn no_path_denial(confine: &Confinement) -> String {
+    let root = confine.root.display();
+    format!(
+        "This session is confined to its scratch folder {root}; the call names no file path \
+         (`file_path`, `path` or `notebook_path`), so the guard cannot check it and refuses it. \
+         Name a path inside the scratch folder or a temp dir."
+    )
+}
+
+/// The deny for a hook payload the guard could not read (unparseable, or
+/// no tool name): the hook FAILS CLOSED rather than waving the call through.
+pub fn unreadable_call_denial(root: &Path) -> String {
+    let root = root.display();
+    format!(
+        "This session is confined to its scratch folder {root}; the guard could not read this \
+         tool call, so it is refused. Retry the call with its full arguments."
+    )
 }
 
 /// Why a call is refused.
@@ -1323,37 +1375,40 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
 }
 
 /// Absolute, `..`-free, symlinks resolved as far as the path exists.
+///
+/// Resolved COMPONENT BY COMPONENT, never folded lexically first: with
+/// `scratch/link -> ~/.ssh`, `link/../.zshrc` is what the kernel opens —
+/// `~/.zshrc` — so the link is followed BEFORE the `..` pops the real
+/// directory it points into (a cloned repo or an extracted tar can plant
+/// such a link). Past the deepest existing ancestor (a file about to be
+/// written) the remainder stays lexical, `..` popping the lexical tail.
 fn resolve_path(path: &Path, cwd: &Path) -> PathBuf {
     let absolute = if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) };
-    let mut lexical = PathBuf::new();
+    let mut out = PathBuf::new();
+    // `out` is canonical (symlinks followed) while it exists; once a
+    // component is missing the rest is appended as named.
+    let mut exists = true;
     for component in absolute.components() {
         match component {
-            std::path::Component::ParentDir => {
-                lexical.pop();
-            }
             std::path::Component::CurDir => {}
-            other => lexical.push(other.as_os_str()),
+            std::path::Component::ParentDir => {
+                out.pop();
+                if !exists {
+                    exists = out.exists();
+                }
+            }
+            other => {
+                out.push(other.as_os_str());
+                if exists {
+                    match std::fs::canonicalize(&out) {
+                        Ok(canonical) => out = canonical,
+                        Err(_) => exists = false,
+                    }
+                }
+            }
         }
     }
-    // Canonicalize the longest existing prefix; re-append the rest.
-    let mut existing = lexical.clone();
-    let mut rest: Vec<std::ffi::OsString> = Vec::new();
-    loop {
-        if let Ok(canonical) = std::fs::canonicalize(&existing) {
-            let mut out = canonical;
-            for part in rest.iter().rev() {
-                out.push(part);
-            }
-            return out;
-        }
-        match (existing.file_name().map(|name| name.to_os_string()), existing.parent()) {
-            (Some(name), Some(parent)) => {
-                rest.push(name);
-                existing = parent.to_path_buf();
-            }
-            _ => return lexical,
-        }
-    }
+    out
 }
 
 fn within(path: &Path, root: &Path) -> bool {
@@ -1560,6 +1615,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Wave review of #1254..#1285: `link/../secret` opens `<link
+    /// target>/../secret`, so the link is followed BEFORE the `..` — a
+    /// lexical fold would score it inside the scratch dir.
+    #[cfg(unix)]
+    #[test]
+    fn a_dot_dot_after_a_symlink_pops_the_link_target() {
+        let dir = temp("symlink-dotdot");
+        let scratch = dir.join("scratch");
+        std::fs::create_dir_all(scratch.join("sub")).unwrap();
+        let home = home_dir().expect("HOME");
+        std::os::unix::fs::symlink(&home, scratch.join("link")).unwrap();
+        let denied = |tool: &str, input: Value| denial_in(tool, input, &scratch, &[]).is_some();
+        assert_eq!(resolve_path(Path::new("link/../secret"), &scratch), resolve_path(&home, Path::new("/")).parent().unwrap().join("secret"));
+        assert!(denied("Read", json!({ "file_path": "link/../secret" })));
+        assert!(denied("Write", json!({ "file_path": scratch.join("link/../secret").display().to_string(), "content": "x" })));
+        assert!(denied("Bash", json!({ "command": "cat link/../secret" })));
+        // A real dir, then `..`: still inside.
+        assert!(!denied("Read", json!({ "file_path": "sub/../inside.txt" })));
+        assert!(!denied("Bash", json!({ "command": "cat sub/../inside.txt" })));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The write case: a file (and dirs) that do not exist yet inside the
+    /// scratch dir resolve under it, `..` on the missing tail popping lexically.
+    #[test]
+    fn a_missing_target_inside_the_scratch_dir_is_allowed() {
+        let dir = temp("missing-inside");
+        let scratch = dir.join("scratch");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let denied = |tool: &str, input: Value| denial_in(tool, input, &scratch, &[]).is_some();
+        assert!(!denied("Write", json!({ "file_path": "new/deep/report.md", "content": "x" })));
+        assert!(!denied("Write", json!({ "file_path": "new/deep/../report.md", "content": "x" })));
+        assert_eq!(
+            resolve_path(Path::new("new/deep/../report.md"), &scratch),
+            resolve_path(&scratch, Path::new("/")).join("new/report.md")
+        );
+        // Climbing out through the missing tail lands outside (the temp dir
+        // around this scratch dir is open, so only the resolution is checked).
+        assert_eq!(
+            resolve_path(Path::new("new/../../outside.md"), &scratch),
+            resolve_path(&dir, Path::new("/")).join("outside.md")
+        );
+        assert!(denied("Write", json!({ "file_path": "new/../../../../../../../../../../etc/outside.md", "content": "x" })));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Fail closed: a file tool that always names its file, with no path
+    /// key at all (or an empty one), is refused; `Glob`/`Grep` default to
+    /// the cwd and stay allowed.
+    #[test]
+    fn a_file_tool_without_a_path_is_refused() {
+        for tool in PATH_REQUIRED_TOOLS {
+            assert!(denied(tool, json!({})), "{tool}");
+            assert!(denied(tool, json!({ "file_path": "  " })), "{tool} blank");
+            assert!(denied(tool, json!({ "content": "x" })), "{tool} content only");
+        }
+        let reason = denial_in("Read", json!({}), &scratch(), &[]).unwrap();
+        assert!(reason.contains("names no file path"), "{reason}");
+        assert!(!denied("Glob", json!({ "pattern": "*.md" })));
+        assert!(!denied("Grep", json!({ "pattern": "todo" })));
+    }
+
     /// The root as data, not a path: today's misfires (`cut -d/`, `awk -F/`).
     #[test]
     fn a_bare_slash_in_a_pattern_regex_or_delimiter_is_not_the_root() {
@@ -1634,20 +1751,49 @@ mod tests {
     }
 
     /// FEED-142: past 200 chars claude caps the project dir name and appends
-    /// a hash, so the long name matches on its prefix.
+    /// a hash; the harness names that EXACT dir (wave review of
+    /// #1254..#1285: a prefix match opened a sibling cwd's memory dir).
     #[test]
     fn a_long_scratch_dir_matches_its_hash_suffixed_project_dir() {
         let base = temp("harness");
         let config = base.join("config");
         let dir = PathBuf::from(format!("/nonexistent-exp-scratch/{}/root/session", "x".repeat(220)));
+        let sibling = PathBuf::from(format!("/nonexistent-exp-scratch/{}/root/sibling", "x".repeat(220)));
         let munged = munge_project_name(&dir.display().to_string());
         assert!(munged.len() > 200);
-        let capped = config.join("projects").join(format!("{}-71h4ur", &munged[..200]));
+        assert_eq!(&munged[..200], &munge_project_name(&sibling.display().to_string())[..200]);
+        // The suffixes claude 2.1.308 writes for these two paths.
+        let capped = config.join("projects").join(format!("{}-2n2ii0", &munged[..200]));
+        let other = config.join("projects").join(format!("{}-10czy4", &munged[..200]));
+        assert_eq!(capped_project_name(&dir.display().to_string()), capped.file_name().unwrap().to_string_lossy());
+        assert_eq!(capped_project_name(&sibling.display().to_string()), other.file_name().unwrap().to_string_lossy());
         std::fs::create_dir_all(capped.join("memory")).unwrap();
+        std::fs::create_dir_all(other.join("memory")).unwrap();
         std::fs::create_dir_all(config.join("projects/-other/memory")).unwrap();
         let harness = claude_harness_dirs(Some(&config), &[&dir]);
         assert_eq!(harness, vec![resolve_path(&capped, Path::new("/"))]);
+        // The sibling's memory dir stays shut: only the cwd's project dir is
+        // an allowed root (the config dir sits under the open temp dir, so
+        // the roots are checked, not a denial).
+        let allowed = Check::new(&dir, &Confinement { root: &dir, harness: &harness }).allowed;
+        assert!(allowed.contains(&resolve_path(&capped, Path::new("/"))));
+        assert!(!allowed.contains(&resolve_path(&other, Path::new("/"))));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The cap's hash is Java's `String.hashCode` over UTF-16 units, `abs`,
+    /// base36 (claude 2.1.308 `J0`/`Bue`); pinned against the CLI's output.
+    #[test]
+    fn a_capped_project_name_hashes_like_claude() {
+        assert_eq!(capped_project_name("/home/a"), "-home-a");
+        let long = format!("/{}", "y".repeat(230));
+        let capped = capped_project_name(&long);
+        assert_eq!(capped.len(), 200 + 1 + capped.rsplit('-').next().unwrap().len());
+        assert!(capped.starts_with(&format!("-{}-", "y".repeat(199))));
+        let suffix = |path: &str| capped_project_name(&format!("{}{path}", "z".repeat(210))).rsplit('-').next().unwrap().to_string();
+        // `Math.abs(Bue(t)).toString(36)` for `z`×210 + the tail, computed with bun.
+        assert_eq!(suffix("/ä😀"), "719vco");
+        assert_ne!(suffix("/a"), suffix("/b"));
     }
 
     #[test]

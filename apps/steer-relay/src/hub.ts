@@ -447,8 +447,9 @@ export class Hub {
   destroy() {
     clearInterval(this.idleCheckInterval)
     clearInterval(this.keepaliveInterval)
-    for (const call of this.calls.values()) {
-      if (call.ringTimer) clearTimeout(call.ringTimer)
+    // NEW-55: every call's ring, length and idle timers die with the hub.
+    for (const call of [...this.calls.values()]) {
+      this.removeCall(call)
     }
   }
 
@@ -637,6 +638,13 @@ export class Hub {
       // EXP-936: nor is the compaction verdict.
       this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
       room.staleTimer ??= setTimeout(() => {
+        room.staleTimer = null
+        // #EXP-1405: a device dropping mid-replay in a LIVE room is no
+        // ending — the viewers get the retryable drop and redial.
+        if (room.historyDevice && room.live) {
+          this.dropLiveRoom(room)
+          return
+        }
         this.closeRoom(room, `publisher_lost`)
       }, PUBLISHER_GRACE_MS)
       return
@@ -742,6 +750,12 @@ export class Hub {
           // viewer parks until the replay arrives (or the timer gives up).
           room = this.requestHistory(conn, sessionId)
           if (!room) return // an error frame went out and the socket is closed
+        } else if (room.historyDevice) {
+          // #EXP-1405: `live` is the CURRENT joiner's claim, never a stale
+          // one — a ticket minted after the session ended says so, and the
+          // room must stop outliving its viewers (the linger comes back).
+          room.live = conn.claims.live === true
+          this.armLinger(room)
         }
         conn.sessionId = sessionId
 
@@ -1027,6 +1041,9 @@ export class Hub {
             return
           }
         }
+        // #EXP-1405: the session itself ended — nothing is live any more,
+        // so the room answers with the ending, never the retryable drop.
+        room.live = false
         this.closeRoom(room, msg.outcome ?? `ended`)
         return
       }
@@ -1387,9 +1404,18 @@ export class Hub {
       this.closeRoom(room, HISTORY_OUTCOME)
       return
     }
-    // #EXP-1405: a live session's transcript stays up while it is watched;
-    // the last viewer leaving (`onClose`) takes the room down.
-    if (room.live) return
+    this.armLinger(room)
+  }
+
+  /** EXP-796: start the linger countdown on a served history room.
+   *  #EXP-1405: a live session's transcript stays up while it is watched —
+   *  the last viewer leaving (`onClose`) takes the room down — so a live
+   *  room arms nothing. A join whose ticket no longer says `live` (the
+   *  session ended meanwhile) re-arms it through here. */
+  private armLinger(room: Room) {
+    if (room.live || room.lingerTimer || room.publisher || !room.historyServed) {
+      return
+    }
     room.lingerTimer = setTimeout(() => {
       room.lingerTimer = null
       // A publisher took the room back (a second replay), or it closed and

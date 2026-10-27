@@ -1,6 +1,7 @@
-- Push to talk (beta): mantenha o atalho premido no seu dispositivo de voz, fale e solte; o que disse vai para o seu agente e a resposta é lida em voz alta
-- Leitura das respostas (beta, inglês e alemão): escolha o seu dispositivo de voz em "Settings > Voice" e deixe o IDE ler em voz alta as respostas do seu agente, com uma voz integrada ou uma clonada a partir do seu próprio clipe
-- "Settings > Voice" é seu em todos os dispositivos: dispositivo de voz, agente, leitura das respostas, push to talk e o seu atalho, a frase de ativação, idioma (English ou Deutsch), um ficheiro de voz e a sua transcrição; os mesmos interruptores estão na bandeja do sistema do seu dispositivo de voz
-- Em breve: ligar ao seu agente a partir do telemóvel, e a palavra de ativação
-- Os interruptores de voz ficam desligados depois de o seu agente ser apagado
-- Um turno longo já não mostra "needs input" por engano, e as sessões numa máquina partilhada aparecem sob o host certo
+- Ligar ao seu agente (beta): ligue ao agente do seu dispositivo de voz a partir do iPhone, da web ou da app de computador e fale com ele sem usar as mãos
+- Palavra de ativação (beta): diga a frase de ativação perto do seu dispositivo de voz para começar a falar, sem atalho
+- Respostas faladas (beta): as respostas são lidas em voz alta em inglês e alemão, e o alemão começa agora a falar muito mais depressa
+- Propostas por voz (beta): quando o agente quer alterar algo por voz, mostra um cartão e espera pelo seu sim
+- As sessões interrompidas retomam sozinhas, as sessões em fila esperam pelo seu dispositivo e os cartões de plano e de pergunta chegam ao agente da equipa
+- Selecione várias conversas para as marcar como lidas, arquivar ou eliminar; arquivar só as oculta para si
+- Todas as caixas de verificação são agora quadradas, a página Dispositivos mostra uma linha por máquina e um merge recusado aparece na conversa com Tentar novamente

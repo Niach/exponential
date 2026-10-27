@@ -3139,11 +3139,25 @@ pub fn idle_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError>
     session_device::report(trpc, session_id, &idle_report())
 }
 
+/// [`idle_session`] stamped with the reporting device (EXP-1252): the
+/// server drops an idle from a device the row no longer names, so a stale
+/// local copy never idles a session that moved to the user's other device.
+/// Every caller that knows its device id uses this one.
+pub fn idle_session_on(trpc: &TrpcClient, session_id: &str, device_id: Option<&str>) -> Result<(), ApiError> {
+    session_device::report(trpc, session_id, &idle_report_on(device_id))
+}
+
 /// #FEED-85: [`idle_session`]'s write — idle and not busy.
 pub fn idle_report() -> SessionReport {
+    idle_report_on(None)
+}
+
+/// [`idle_report`] naming the reporting device ([`idle_session_on`]).
+pub fn idle_report_on(device_id: Option<&str>) -> SessionReport {
     SessionReport {
         status: Some(ReportStatus::Idle),
         busy: Some(false),
+        device_id: device_id.map(str::to_string),
         ..SessionReport::default()
     }
 }
@@ -5413,6 +5427,24 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert!(requests[0].starts_with("POST /api/trpc/sessions.report"));
         assert!(requests[0].ends_with(r#"{"sessionId":"s-thread","status":"ended"}"#), "{}", requests[0]);
         assert!(requests[1].ends_with(r#"{"sessionId":"s-agent","status":"idle","busy":false}"#), "{}", requests[1]);
+    }
+
+    /// Wave review of #1257: an idle written by a host that knows its device
+    /// names it (`deviceId`), so the server's stale-host guard (EXP-1252)
+    /// drops one from a device the row no longer names.
+    #[test]
+    fn an_idle_report_names_its_device() {
+        let (base, captured) = canned_server_recording(vec![(200, REPORT_OK.to_string())]);
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("tok".into())));
+        idle_session_on(&trpc, "s-agent", Some("dev-1")).expect("idled");
+        let requests = captured.lock().unwrap();
+        assert!(requests[0].starts_with("POST /api/trpc/sessions.report"));
+        assert!(
+            requests[0].ends_with(r#"{"sessionId":"s-agent","status":"idle","busy":false,"deviceId":"dev-1"}"#),
+            "{}",
+            requests[0]
+        );
+        assert_eq!(idle_report_on(None), idle_report());
     }
 
     // ---- EXP-1138: the gate judges the login the launch spends ----

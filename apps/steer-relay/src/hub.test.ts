@@ -3602,6 +3602,95 @@ describe(`live history rooms (#EXP-1405)`, () => {
     expect(hub.stats().rooms).toBe(0)
     hub.destroy()
   })
+
+  // `live` is the CURRENT joiner's claim: a ticket minted after the session
+  // ended (no `live`) turns the room back into an ordinary lingering one, so
+  // it no longer outlives its viewers.
+  test(`a join without live resets the room: the linger is armed again`, () => {
+    const hub = new Hub()
+    const { viewer: first, timers: replayTimers } = servedRoom(hub)
+    expect(replayTimers.find((t) => t.ms === HISTORY_ROOM_LINGER_MS)).toBeUndefined()
+    const ended = new FakeSocket()
+    hub.onOpen(
+      ended,
+      claims({ role: `viewer`, sub: `user-1`, sessionId: `sess-idle`, deviceId: `dev-1` })
+    )
+    const { timers } = capturing(() =>
+      hub.onMessage(ended, JSON.stringify({ t: `join`, channel: `activity` }))
+    )
+    const linger = timers.find((t) => t.ms === HISTORY_ROOM_LINGER_MS)
+    expect(linger).toBeDefined()
+    expect(ended.events()).toEqual([{ kind: `narration`, text: `the last turn` }])
+    linger!.fn()
+    expect(hub.counters().historyRoomLingerExpiries).toBe(1)
+    expect(first.lastFrame(`bye`)).toMatchObject({ outcome: `history` })
+    expect(ended.lastFrame(`bye`)).toMatchObject({ outcome: `history` })
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  // The other direction: a non-live room a live joiner enters follows the
+  // live rule from then on (no linger), and the session's own `bye` ends it
+  // for good — the ending, not the retryable drop.
+  test(`a live join lifts the linger; the session's bye is terminal`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const plain = new FakeSocket()
+    hub.onOpen(
+      plain,
+      claims({ role: `viewer`, sub: `user-1`, sessionId: `sess-idle`, deviceId: `dev-1` })
+    )
+    hub.onMessage(plain, JSON.stringify({ t: `join`, channel: `activity` }))
+    const pub = connectPublisher(hub, `sess-idle`)
+    const { timers } = capturing(() => hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `history` })))
+    hub.onClose(pub)
+    expect(timers.find((t) => t.ms === HISTORY_ROOM_LINGER_MS)).toBeDefined()
+    const viewer = joinLive(hub)
+    expect(viewer.closed).toBeNull()
+    const run = connectPublisher(hub, `sess-idle`)
+    hub.onMessage(run, JSON.stringify({ t: `bye`, outcome: `done` }))
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
+    expect(plain.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  // The device dropping mid-replay (no `bye`) in a LIVE room: the stale
+  // timer answers the retryable drop, never `publisher_lost`.
+  test(`a replay dropping mid-way in a live room: no_such_session, no bye`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const viewer = joinLive(hub)
+    const pub = connectPublisher(hub, `sess-idle`)
+    activity(hub, pub, { kind: `narration`, text: `half a turn` })
+    const { timers } = capturing(() => hub.onClose(pub))
+    const stale = timers.find((t) => t.ms === 60_000)
+    expect(stale).toBeDefined()
+    stale!.fn()
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(viewer.framesOf(`bye`)).toHaveLength(0)
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  // A plain (non-live) replay dropping mid-way still ends as before.
+  test(`a replay dropping mid-way in a plain room: bye publisher_lost`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const viewer = new FakeSocket()
+    hub.onOpen(
+      viewer,
+      claims({ role: `viewer`, sub: `user-1`, sessionId: `sess-idle`, deviceId: `dev-1` })
+    )
+    hub.onMessage(viewer, JSON.stringify({ t: `join`, channel: `activity` }))
+    const pub = connectPublisher(hub, `sess-idle`)
+    const { timers } = capturing(() => hub.onClose(pub))
+    timers.find((t) => t.ms === 60_000)!.fn()
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `publisher_lost` })
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
 })
 
 // ── NEW-55: voice calls ──────────────────────────────────────────────────────
@@ -3675,6 +3764,15 @@ describe(`voice calls (NEW-55)`, () => {
     expect(hub.stats().calls).toBe(1)
     expect(hub.counters().callRings).toBe(1)
     hub.destroy()
+  })
+
+  // `destroy()` retires every call (ring, length and idle timers alike), not
+  // just the ones still ringing.
+  test(`destroy drops every call with its timers`, () => {
+    const { hub } = paired()
+    expect(hub.stats().calls).toBe(1)
+    hub.destroy()
+    expect(hub.stats().calls).toBe(0)
   })
 
   test(`an offline voice device answers device_offline, terminally`, () => {

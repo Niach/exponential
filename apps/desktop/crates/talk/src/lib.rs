@@ -52,7 +52,10 @@ use serde::{Deserialize, Serialize};
 pub const ARGV_MARKER: &str = "__speech-worker";
 /// The flag carrying the data dir the worker keeps its models under.
 pub const DATA_DIR_FLAG: &str = "--data-dir";
-/// The wire's version; a worker that answers another is replaced.
+/// The wire's version, announced in [`Event::Ready`]. The worker is the
+/// host's OWN executable (`ARGV_MARKER`), so the two sides agree by
+/// construction; nothing here replaces a worker on a mismatch, the host
+/// only reads the number.
 /// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
 pub const PROTOCOL: u32 = 5;
 
@@ -486,13 +489,28 @@ impl SpeechClient {
     /// #NEW-54: bring the worker up without a request (push to talk wants
     /// it resident and its `Ready` known before the first key-down).
     pub fn start(&self) {
-        let Ok(mut guard) = self.worker.lock() else { return };
-        if guard.is_some() {
-            return;
-        }
-        match self.spawn() {
-            Ok(worker) => *guard = Some(worker),
-            Err(err) => log::warn!("talk: speech worker failed to start: {err}"),
+        let failed = {
+            let Ok(mut guard) = self.worker.lock() else { return };
+            if guard.is_some() {
+                return;
+            }
+            match self.spawn() {
+                Ok(worker) => {
+                    *guard = Some(worker);
+                    false
+                }
+                Err(err) => {
+                    log::warn!("talk: speech worker failed to start: {err}");
+                    true
+                }
+            }
+        };
+        // Wave review of #1263/#1278: a worker that never came up is an
+        // `Exited` like one that died (off the lock: the host may call
+        // back in), so the Devices speech row reads unavailable rather
+        // than vanishing.
+        if failed {
+            (self.on_event)(Event::Exited);
         }
     }
 
@@ -604,6 +622,9 @@ impl SpeechClient {
                     Ok(worker) => *guard = Some(worker),
                     Err(err) => {
                         log::warn!("talk: speech worker failed to start: {err}");
+                        // As in [`Self::start`]: reported as an exit, off the lock.
+                        drop(guard);
+                        (self.on_event)(Event::Exited);
                         return;
                     }
                 }
@@ -788,7 +809,7 @@ mod tests {
     }
 
     #[test]
-    fn protocol_4_calls() {
+    fn protocol_5_calls() {
         assert_eq!(PROTOCOL, 5);
         let requests = [
             (Request::Call { id: "c1".into(), language: "de".into(), remote: true }, r#"{"t":"call","id":"c1","language":"de","remote":true}"#),
@@ -961,6 +982,30 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), 1, "a worker that dies on its own is reported");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Wave review of #1263/#1278: a worker that never SPAWNS is reported
+    /// like one that died — once per attempt, from `start` and from a
+    /// request that would have spawned it.
+    #[test]
+    fn a_failed_spawn_is_reported_as_an_exit() {
+        let dir = std::env::temp_dir().join(format!("talk-nospawn-{}", std::process::id()));
+        let seen = Arc::new(Mutex::new(0usize));
+        let counter = seen.clone();
+        let client = SpeechClient::new(dir.join("no-such-executable"), dir.clone(), move |event| {
+            if event == Event::Exited {
+                *counter.lock().unwrap() += 1;
+            }
+        });
+        client.start();
+        assert_eq!(*seen.lock().unwrap(), 1, "a failed start is an exit");
+        client.call("c1", "en", false);
+        assert_eq!(*seen.lock().unwrap(), 2, "a request that cannot spawn is an exit");
+        // Requests that never spawn a worker say nothing.
+        client.stop();
+        client.hangup("c1");
+        assert_eq!(*seen.lock().unwrap(), 2);
+    }
+
     /// #1278 review: the cleanup is ordered against the worker: nothing goes
     /// while one runs (a download in progress), and a worker started right
     /// after a removal never sees the tree being deleted.

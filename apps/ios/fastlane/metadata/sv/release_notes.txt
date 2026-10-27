@@ -1,6 +1,7 @@
-- Push to talk (beta): håll ned genvägen på din röstenhet, tala och släpp; det du sa går till din agent och svaret läses upp
-- Uppläsning av svar (beta, engelska och tyska): välj din röstenhet i "Settings > Voice" och låt IDE:t läsa upp agentens svar, med en inbyggd röst eller en som klonats från ditt eget klipp
-- "Settings > Voice" gäller för dig på alla enheter: röstenhet, agent, uppläsning av svar, push to talk och dess genväg, väckningsfrasen, språk (English eller Deutsch), en röstfil och dess utskrift; samma reglage finns i röstenhetens systemfält
-- På väg: ring din agent från telefonen, och väckningsordet
-- Röstreglage förblir av efter att deras agent tagits bort
-- En lång tur visar inte längre "needs input" av misstag, och sessioner på en delad dator visas under rätt värd
+- Ring din agent (beta): ring agenten på din röstenhet från iPhone, webben eller skrivbordsappen och prata med den handsfree
+- Väckningsord (beta): säg väckningsfrasen nära din röstenhet för att börja prata, utan kortkommando
+- Upplästa svar (beta): svar läses upp på engelska och tyska, och tyska börjar nu tala mycket snabbare
+- Röstförslag (beta): när agenten vill ändra något via röst visar den ett kort och väntar på ditt ja
+- Avbrutna sessioner fortsätter av sig själva, köade sessioner väntar på sin enhet, och plan- och frågekort når fram till teamagenten
+- Markera flera chattar för att markera dem som lästa, arkivera eller radera dem; arkivering döljer dem bara för dig
+- Alla kryssrutor är nu fyrkantiga, sidan Enheter visar en rad per dator, och en nekad merge visas i tråden med Försök igen

@@ -55,8 +55,14 @@ if (!ready.ok) console.info(`[watchdog.real-db] skipped: ${ready.reason}`)
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { BUS_COPY } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
-const { runWatchdog, restoreDeviceSessionsInTx, clearLiveStuckInTx, recordSessionActivityInTx, touchSessionActivity } =
-  await import(`@/lib/sessions/watchdog`)
+const {
+  BACKGROUND_STUCK_MINUTES,
+  runWatchdog,
+  restoreDeviceSessionsInTx,
+  clearLiveStuckInTx,
+  recordSessionActivityInTx,
+  touchSessionActivity,
+} = await import(`@/lib/sessions/watchdog`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { devicesRouter } = await import(`@/lib/trpc/devices`)
 
@@ -763,6 +769,31 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     // A not-busy report drops `background` with it.
     await w.host.report({ sessionId: background, busy: false })
     expect(await row(background)).toMatchObject({ busy: false, background: false })
+  })
+
+  // The exemption has a cap: the flag is written on a state edge and nothing
+  // resets it when the run dies with its tasks, so past BACKGROUND_STUCK_MINUTES
+  // a background row is measured like any busy one.
+  it(`a background run with no sign of life for BACKGROUND_STUCK_MINUTES is stuck like any other`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const [fresh, stale] = await Promise.all(
+      [`background fresh`, `background stale`].map((text) => w.child(rootId, text))
+    )
+    for (const id of [fresh, stale]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true, background: true })
+    }
+    await backdateSession(fresh, `updated_at`, ago((BACKGROUND_STUCK_MINUTES - 1) * MIN))
+    await backdateSession(stale, `updated_at`, ago((BACKGROUND_STUCK_MINUTES + 1) * MIN))
+    await runWatchdog(NOW)
+    expect(await row(fresh)).toMatchObject({ busy: true, background: true, blocked: null, needsInput: false })
+    expect(await row(stale)).toMatchObject({ busy: true, background: true, needsInput: true, blocked: { kind: `stuck` } })
+    const [line] = await lines(rootId, `session_stuck`, stale)
+    expect(line!.body).toBe(BUS_COPY.session_stuck(BACKGROUND_STUCK_MINUTES + 1))
+    // Ending it drops `background` with `busy`.
+    await w.host.report({ sessionId: stale, status: `ended` })
+    expect(await row(stale)).toMatchObject({ status: `ended`, busy: false, background: false })
   })
 
   it(`EXP-1374: the device back continues an interrupted run; a listed one is busy again; one left alone is on a person after resumeMinutes`, async () => {

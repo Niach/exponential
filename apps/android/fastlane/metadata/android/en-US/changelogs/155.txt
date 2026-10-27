@@ -1,0 +1,5 @@
+Calls (beta): call your voice device's agent from your phone, the web or the IDE.
+Wake word (beta): say the wake phrase to start talking; spoken replies in German start faster.
+Voice proposals (beta): your agent shows a card and waits for your yes.
+Interrupted sessions resume by themselves; plan and question cards show inline.
+Select chats to mark read, archive or delete; square checkboxes; Devices shows one line per machine.

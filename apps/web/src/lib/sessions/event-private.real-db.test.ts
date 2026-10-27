@@ -162,6 +162,12 @@ describe.skipIf(!ready.ok)(`#EXP-1409: a private session's session.ended event`,
     expect(own!.body).toContain(SECRET)
     expect(own!.body).toContain(BRANCH)
     expect(own!.card).toMatchObject({ eventId: event!.id, name: `session.ended` })
+    // The emitter prints the ids in the order a rewrite prints them (rootId
+    // first, migration 0200's): a pass over a fresh firing changes nothing.
+    for (const agent of [mateAgent, sharedAgent]) {
+      const [fired] = await firings(agent.id)
+      expect(await db.transaction((tx) => hidePrivateLinesInTx(tx, [fired!.sessionId]))).toBe(0)
+    }
   })
 
   it(`a session visible to the whole team keeps its title and branch, in the row and every firing`, async () => {

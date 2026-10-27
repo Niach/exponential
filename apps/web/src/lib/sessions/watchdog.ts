@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, notInArray, sql, type SQL } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -44,6 +44,13 @@ export interface WatchdogRun {
 }
 
 const LIVE = [`running`, `idle`] as const
+
+/** EXP-1374 / #EXP-1374 follow-up: a session its device flagged `background`
+ *  (busy only because background tasks run) is exempt from the stuck rule,
+ *  but not forever: the flag is written on a state edge and nothing resets
+ *  it when the run dies with its tasks, so past this many minutes without
+ *  a sign of life a background row is measured like any busy one. */
+export const BACKGROUND_STUCK_MINUTES = 240
 
 function flag(kind: CodingSessionBlocked[`kind`], now: Date): CodingSessionBlocked {
   return { kind, agent: null, window: null, resetsAt: null, since: now.toISOString() }
@@ -174,6 +181,7 @@ async function nudgeStalled(now: Date): Promise<number> {
  *  line says how long and asks to check, never to stop it. */
 async function flagStuck(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.sessionWatchdog.stuckMinutes * MIN)
+  const backgroundCutoff = new Date(now.getTime() - BACKGROUND_STUCK_MINUTES * MIN)
   const online = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
     const rows = await tx
@@ -183,7 +191,9 @@ async function flagStuck(now: Date): Promise<number> {
         and(
           inArray(sessions.status, [...LIVE]),
           eq(sessions.busy, true),
-          eq(sessions.background, false),
+          // A background run is alive for BACKGROUND_STUCK_MINUTES, then
+          // measured like the rest.
+          or(eq(sessions.background, false), sql`${liveness()} < ${backgroundCutoff}`),
           isNull(sessions.blocked),
           sql`${liveness()} < ${cutoff}`,
           // FEED-148: the resolved host's row only (`hostRowCondition`): a

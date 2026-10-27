@@ -1350,6 +1350,7 @@ fn reconcile_stale_sessions(ctx: &Ctx, reclaim: bool) -> HashSet<String> {
     }
     let trpc = Arc::clone(&ctx.trpc);
     let data_dir = ctx.data_dir.clone();
+    let device_id = ctx.device_id();
     let owed_end = |id: &str| {
         coding::run_registry::get(&data_dir, id)
             .is_some_and(|record| !record.kind.is_persistent() && record.unreported_end())
@@ -1375,7 +1376,7 @@ fn reconcile_stale_sessions(ctx: &Ctx, reclaim: bool) -> HashSet<String> {
                 !record.kind.is_persistent() && record.unreported_end()
             });
             if entry.crashed || !owed_end {
-                let result = api::session_device::report(&trpc, &entry.id, &idle_report());
+                let result = api::session_device::report(&trpc, &entry.id, &idle_report(&device_id));
                 registry::apply_end_outcome(&data_dir, &entry.id, &result);
             } else if coding::end_session(&trpc, &entry.id).is_ok() {
                 // The end observer applied the outcome to the registry.
@@ -3063,7 +3064,7 @@ impl DaemonHost {
                                 let result = api::session_device::report(
                                     &pickup.ctx.trpc,
                                     id,
-                                    &idle_report(),
+                                    &idle_report(&pickup.device_id),
                                 );
                                 match result {
                                     Ok(()) => log::info!(
@@ -3088,12 +3089,13 @@ impl DaemonHost {
             return;
         }
         let trpc = Arc::clone(&self.pickup.ctx.trpc);
+        let device_id = self.pickup.device_id.clone();
         std::thread::spawn(move || {
             for session_id in unstarted {
-                coding::pickup::settle_unstarted(&trpc, &session_id);
+                coding::pickup::settle_unstarted_on(&trpc, &session_id, Some(&device_id));
             }
             for session_id in stale {
-                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
+                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report(&device_id)) {
                     log::warn!("reclaim: session {session_id} not reported idle: {err}");
                 }
             }
@@ -3113,10 +3115,13 @@ fn live_session_ids<I: IntoIterator<Item = String>>(
 }
 
 /// EXP-1292: a session with no engine on this device — idle and not working.
-fn idle_report() -> api::session_device::SessionReport {
+/// Stamped with this host's device id so the server's stale-host guard
+/// ignores a copy of a session that has since moved (#EXP-1389).
+fn idle_report(device_id: &str) -> api::session_device::SessionReport {
     api::session_device::SessionReport {
         status: Some(api::session_device::ReportStatus::Idle),
         busy: Some(false),
+        device_id: Some(device_id.to_string()),
         ..api::session_device::SessionReport::default()
     }
 }

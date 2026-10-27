@@ -417,6 +417,36 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(`instructions` in tree.root).toBe(false)
   })
 
+  // A private tree's child on a teammate's shared box would have that
+  // box's daemon host prompts the teammate's account cannot read.
+  it(`a private tree's child runs on the caller's own device, never a teammate's shared box`, async () => {
+    const w = await world()
+    const mateBox = `dev-${id8()}`
+    await db
+      .insert(devices)
+      .values({ userId: w.mate, deviceId: mateBox, label: `mate box`, kind: `server`, sharedTeamIds: [w.teamId] })
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` },
+    })
+    expect((await row(root.sessionId)).shared).toBe(false)
+    await expect(
+      sendSession({ userId: w.owner, input: { parentId: root.sessionId, deviceId: mateBox, text: `sub` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const own = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `sub` } })
+    expect(await row(own.sessionId)).toMatchObject({ deviceId: w.deviceId, shared: false })
+    // A shared tree fans out onto the shared box.
+    const shared = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: mateBox, text: `shared root` },
+    })
+    const child = await sendSession({
+      userId: w.owner,
+      input: { parentId: shared.sessionId, deviceId: mateBox, text: `sub` },
+    })
+    expect(await row(child.sessionId)).toMatchObject({ deviceId: mateBox, shared: true })
+  })
+
   it(`NEW-1: a start's issues sit on the new session; a message FORWARDS one onto its target`, async () => {
     const w = await world()
     const [a, b, c] = [await w.issue(`Lag`), await w.issue(`Jank`), await w.issue(`Typo`)]
@@ -2100,15 +2130,20 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     await host.report({ sessionId: w.sessionId, status: `idle` })
     expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
 
-    // Stop on a running row whose device is offline frees it.
+    // Stop on a running row whose device is offline frees it (EXP-1374:
+    // `background` goes with `busy`).
     await db
       .update(devices)
       .set({ lastSeenAt: new Date(Date.now() - 3 * 3_600_000) })
       .where(eq(devices.deviceId, w.deviceId))
-    await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
+    await db
+      .update(sessions)
+      .set({ status: `running`, busy: true, background: true })
+      .where(eq(sessions.id, w.sessionId))
     // Chats: nothing to deliver to a ghost: `delivered` stays true.
     expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: true })
-    expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
+    expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false, background: false })
+    expect((await row(w.sessionId)).stoppedAt).not.toBeNull()
     // An online device's Stop only interrupts; `delivered` = the relay's word.
     await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.deviceId, w.deviceId))
     await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
@@ -2125,9 +2160,25 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     }
     expect(await row(w.sessionId)).toMatchObject({ status: `running`, busy: true })
     // An idle (not busy) session had nothing to interrupt: delivered, even
-    // with no relay configured.
-    await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.id, w.sessionId))
+    // with no relay configured. EXP-1413: nor does it stamp `stopped_at`
+    // (the stamp reads the row's own `busy`): a Stop landing after the
+    // turn ended by itself holds no yolo merge.
+    await db
+      .update(sessions)
+      .set({ status: `idle`, busy: false, stoppedAt: null })
+      .where(eq(sessions.id, w.sessionId))
     expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: true })
+    expect((await row(w.sessionId)).stoppedAt).toBeNull()
+    await db
+      .update(sessions)
+      .set({ status: `running`, busy: false, stoppedAt: null })
+      .where(eq(sessions.id, w.sessionId))
+    expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: true })
+    expect((await row(w.sessionId)).stoppedAt).toBeNull()
+    // A busy one is interrupted: stamped.
+    await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
+    await stopSession({ userId: w.owner, sessionId: w.sessionId })
+    expect((await row(w.sessionId)).stoppedAt).not.toBeNull()
   })
 
   it(`Chats: a queued session's Stop delivers nothing and reads delivered`, async () => {

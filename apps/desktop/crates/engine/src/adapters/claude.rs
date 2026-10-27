@@ -4261,12 +4261,23 @@ impl ClaudeSession {
         let callback = request.callback_id.clone().unwrap_or_default();
         if callback == wire::HOOK_PRE_TOOL_USE_CONFINE {
             // N-5 / NEW-5: decided synchronously, so answering first still holds.
-            let input: wire::HookInput =
-                serde_json::from_value(request.input.clone()).unwrap_or_default();
-            let denial = self.confinement_denial(&input.tool_name, &input.tool_input);
-            if denial.is_some() {
-                log::info!("engine: claude PreToolUse denied {} outside the confined dir", input.tool_name);
-            }
+            // Wave review of #1254..#1285: the hook FAILS CLOSED — a payload
+            // it cannot read, or one naming no tool, is denied, never
+            // answered `{continue: true}` with an empty tool name.
+            let denial = match confine_hook_call(&request.input) {
+                Ok(input) => {
+                    let denial = self.confinement_denial(&input.tool_name, &input.tool_input);
+                    if denial.is_some() {
+                        log::info!("engine: claude PreToolUse denied {} outside the confined dir", input.tool_name);
+                    }
+                    denial
+                }
+                Err(err) => {
+                    log::warn!("engine: claude PreToolUse payload unreadable ({err}); denied");
+                    let root = self.spec.confine_to.as_deref().unwrap_or_else(|| self.cwd());
+                    Some(confine::unreadable_call_denial(root))
+                }
+            };
             let _ = self.send(wire::control_response_success(
                 &request_id,
                 wire::pre_tool_use_answer(denial.as_deref()),
@@ -5690,9 +5701,38 @@ fn disallowed_tools(disallow_ask: bool, aside: bool) -> Vec<&'static str> {
     tools
 }
 
+/// The tool call a confine-hook payload names, or why it cannot be read
+/// (not the hook's object shape, a tool name that is not a string, no tool
+/// name at all): the hook fails CLOSED on an `Err`.
+fn confine_hook_call(payload: &Value) -> Result<wire::HookInput, String> {
+    let input: wire::HookInput =
+        serde_json::from_value(payload.clone()).map_err(|err| format!("unreadable payload: {err}"))?;
+    if input.tool_name.trim().is_empty() {
+        return Err("no tool name".to_string());
+    }
+    Ok(input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Wave review of #1254..#1285: the confine hook fails closed — a
+    /// payload it cannot parse or one without a tool name is an `Err`
+    /// (denied), a readable one names its tool.
+    #[test]
+    fn a_confine_hook_payload_is_read_or_refused() {
+        assert!(confine_hook_call(&json!("not an object")).unwrap_err().starts_with("unreadable payload"));
+        assert!(confine_hook_call(&json!({ "tool_name": 5, "tool_input": {} })).unwrap_err().starts_with("unreadable payload"));
+        assert_eq!(confine_hook_call(&json!({ "tool_input": { "file_path": "/etc/passwd" } })).unwrap_err(), "no tool name");
+        assert_eq!(confine_hook_call(&json!({ "tool_name": "  " })).unwrap_err(), "no tool name");
+        let input = confine_hook_call(&json!({ "tool_name": "Read", "tool_input": { "file_path": "a.md" } })).unwrap();
+        assert_eq!(input.tool_name, "Read");
+        assert_eq!(input.tool_input["file_path"], "a.md");
+        // The denial the hook answers with on an `Err`.
+        let reason = confine::unreadable_call_denial(Path::new("/scratch/s1"));
+        assert!(reason.contains("/scratch/s1") && reason.contains("could not read"), "{reason}");
+    }
 
     /// EXP-1330: an aside adds the read-only set to the form gate.
     #[test]

@@ -15,7 +15,7 @@ import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
 import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
-import { assertRunnerVocabulary, resolveSessionDevice } from "@/lib/sessions/send"
+import { assertRunnerVocabulary, resolveSessionDeviceInTx } from "@/lib/sessions/send"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
 // members read the synced `agents` shape). An agent runs as conversation
@@ -86,12 +86,13 @@ export const agentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       await assertTeamOwner(userId, input.teamId)
-      // The agent runs on the owner's device (own, or shared with the team).
-      await resolveSessionDevice(userId, input.teamId, input.deviceId)
       const model = input.model || null
       assertRunnerVocabulary({ cli: input.cli, ...(model ? { model } : {}) })
       return ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
+        // The agent runs on the owner's device (own, or shared with the
+        // team), read under the machine's share lock (#EXP-1259).
+        await resolveSessionDeviceInTx(tx, userId, input.teamId, input.deviceId)
         const [agent] = await tx
           .insert(agents)
           .values({
@@ -143,13 +144,14 @@ export const agentsRouter = router({
       // A new device re-stamps every conversation's visibility (its device's
       // share decides it) and hands them over: queued again, the new device
       // boots them, the old one drops rows that no longer name it.
-      const moved =
-        input.deviceId !== undefined && input.deviceId !== agent.deviceId
-          ? await resolveSessionDevice(userId, agent.teamId, input.deviceId)
-          : null
       return ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
+        // #EXP-1259: the new device is read under its share lock.
+        const moved =
+          input.deviceId !== undefined && input.deviceId !== agent.deviceId
+            ? await resolveSessionDeviceInTx(tx, userId, agent.teamId, input.deviceId)
+            : null
         const [updated] = await tx
           .update(agents)
           .set({
@@ -183,7 +185,7 @@ export const agentsRouter = router({
               ...(input.account !== undefined ? { account: input.account } : {}),
               ...(model !== undefined ? { model } : {}),
               ...(moved
-                ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false }
+                ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false, background: false }
                 : {}),
               updatedAt: now,
             })

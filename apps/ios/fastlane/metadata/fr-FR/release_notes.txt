@@ -1,6 +1,7 @@
-- Push to talk (bêta) : maintenez le raccourci sur votre appareil vocal, parlez et relâchez ; ce que vous avez dit part à votre agent et la réponse est lue à voix haute
-- Lecture des réponses (bêta, anglais et allemand) : choisissez votre appareil vocal dans "Settings > Voice" et laissez l'IDE lire à voix haute les réponses de votre agent, avec une voix intégrée ou une voix clonée à partir de votre propre extrait
-- "Settings > Voice" vous suit sur tous vos appareils : appareil vocal, agent, lecture des réponses, push to talk et son raccourci, la phrase de réveil, la langue (English ou Deutsch), un fichier de voix et sa transcription ; les mêmes interrupteurs se trouvent dans la barre système de votre appareil vocal
-- Bientôt : appeler votre agent depuis le téléphone, et le mot de réveil
-- Les interrupteurs vocaux restent éteints après la suppression de leur agent
-- Un long tour n'affiche plus "needs input" par erreur, et les sessions sur une machine partagée apparaissent sous le bon hôte
+- Appeler votre agent (beta) : appelez l'agent de votre appareil vocal depuis l'iPhone, le web ou l'app de bureau et parlez-lui les mains libres
+- Mot d'activation (beta) : dites la phrase d'activation près de votre appareil vocal pour parler, sans raccourci
+- Réponses parlées (beta) : les réponses sont lues à voix haute en anglais et en allemand, et l'allemand commence désormais à parler bien plus vite
+- Propositions vocales (beta) : quand votre agent veut modifier quelque chose à la voix, il affiche une carte et attend votre oui
+- Les sessions interrompues reprennent seules, les sessions en file attendent leur appareil et les cartes de plan et de question arrivent à l'agent de votre équipe
+- Sélectionnez plusieurs chats pour les marquer comme lus, les archiver ou les supprimer ; l'archivage ne les masque que pour vous
+- Toutes les cases à cocher sont désormais carrées, la page Appareils affiche une ligne par machine et un merge refusé apparaît dans le fil avec Réessayer

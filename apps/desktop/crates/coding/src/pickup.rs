@@ -1665,7 +1665,7 @@ fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps
             consume_off_thread(deps, session_id, tried, || {});
         }
     }
-    if let Err(err) = crate::idle_session(&deps.coding.trpc, session_id) {
+    if let Err(err) = crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id)) {
         log::warn!("pickup: failed start of session {session_id} not reported: {err}");
     }
 }
@@ -2020,7 +2020,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
         log::warn!("pickup: reviving session {session_id} failed: {reason}");
         if attempt >= MAX_LAUNCH_ATTEMPTS {
             deps.live.settle_revive(session_id);
-            if let Err(err) = crate::idle_session(&deps.coding.trpc, session_id) {
+            if let Err(err) = crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id)) {
                 log::warn!("pickup: unrevived session {session_id} not reported: {err}");
             }
         }
@@ -2059,7 +2059,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
             deps.live.settle_revive(session_id);
             let reason = reason.message();
             log::warn!("pickup: session {session_id} not revived: {reason}");
-            if let Err(err) = crate::idle_session(&deps.coding.trpc, session_id) {
+            if let Err(err) = crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id)) {
                 log::warn!("pickup: unrevived session {session_id} not reported: {err}");
             }
             Err(reason)
@@ -2107,13 +2107,20 @@ pub fn reclaim_step(row: &SessionRow, pending: bool, recorded: bool) -> ReclaimS
 pub const UNSTARTED_REPLY: &str = "Could not start: the runner restarted before it began. Send it a message to start it again.";
 
 /// [`ReclaimStep::Unstarted`]: replied ([`UNSTARTED_REPLY`], waking its
-/// listeners like any refusal), then idle.
+/// listeners like any refusal), then idle. Prefer [`settle_unstarted_on`]:
+/// without the device id the idle skips the server's stale-host guard.
 pub fn settle_unstarted(trpc: &api::trpc::TrpcClient, session_id: &str) {
+    settle_unstarted_on(trpc, session_id, None);
+}
+
+/// [`settle_unstarted`] stamped with THIS host's device id (EXP-1252), so
+/// a stale copy of a session that moved to another device idles nothing.
+pub fn settle_unstarted_on(trpc: &api::trpc::TrpcClient, session_id: &str, device_id: Option<&str>) {
     log::warn!("pickup: session {session_id} was claimed but never started here");
     if let Err(err) = session_device::reply(trpc, session_id, UNSTARTED_REPLY, None) {
         log::warn!("pickup: unstarted session {session_id} not replied: {err}");
     }
-    if let Err(err) = crate::idle_session(trpc, session_id) {
+    if let Err(err) = crate::idle_session_on(trpc, session_id, device_id) {
         log::warn!("pickup: unstarted session {session_id} not reported: {err}");
     }
 }
@@ -2927,7 +2934,7 @@ fn refuse(persistent: bool, session_id: &str, reason: &str, waking: bool, deps: 
         log::warn!("pickup: refusal of session {session_id} not replied: {err}");
     }
     let settled = if persistent || waking {
-        crate::idle_session(&deps.coding.trpc, session_id)
+        crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id))
     } else {
         crate::end_session(&deps.coding.trpc, session_id)
     };
@@ -3995,7 +4002,7 @@ mod tests {
         let row = agent("agent-1", "queued");
         assert!(matches!(launch_queued(&row, &host.deps).unwrap(), LaunchQueued::Disabled { .. }));
         let requests = requests.lock().unwrap();
-        assert!(requests[3].ends_with(r#"{"sessionId":"agent-1","status":"idle","busy":false}"#), "{}", requests[3]);
+        assert!(requests[3].ends_with(r#"{"sessionId":"agent-1","status":"idle","busy":false,"deviceId":"dev-1"}"#), "{}", requests[3]);
     }
 
     #[test]
@@ -4318,7 +4325,7 @@ mod tests {
             vec!["sessions.brief", "sessions.reply", "sessions.report"]
         );
         let report = requests.lock().unwrap()[2].clone();
-        assert!(report.ends_with(r#"{"sessionId":"sess-1","status":"idle","busy":false}"#), "a wake never ends: {report}");
+        assert!(report.ends_with(r#"{"sessionId":"sess-1","status":"idle","busy":false,"deviceId":"dev-1"}"#), "a wake never ends: {report}");
         // The claim was released with the refusal.
         assert!(ClaimLock::try_acquire(&dir.0, "sess-1").unwrap().is_some());
         // A NEW message tries again (the canned server is spent, so the
