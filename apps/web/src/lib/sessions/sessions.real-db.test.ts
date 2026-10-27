@@ -18,6 +18,7 @@ import {
   sessions,
   teamMembers,
   teams,
+  userVoiceSettings,
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
@@ -827,6 +828,13 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(cards.map((c) => c.card)).toEqual([{ kind: `thread_started`, sessionId: spawned.sessionId }])
     const brief = await composeSessionBrief(agent.sessionId)
     expect(brief.agentInstructions).toBe(`Be brief.`)
+    // #NEW-79: only the member's conversation with their VOICE agent runs
+    // under the voice tool policy; the thread it spawned never does.
+    expect(brief.voicePolicy).toBe(false)
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: ada!.id })
+    expect((await composeSessionBrief(agent.sessionId)).voicePolicy).toBe(true)
+    expect((await composeSessionBrief(spawned.sessionId)).voicePolicy).toBe(false)
+    await db.delete(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
   })
 })
 
@@ -1241,6 +1249,49 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       db,
       request: new Request(`http://x.test`),
     } as never)
+
+  it(`#NEW-79: only its member answers a voice conversation's proposal card; never a session`, async () => {
+    const w = await world({ shared: true })
+    const [ada] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Ada`, icon: `rocket`, color: `#ff0000`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const voice = await sendSession({ userId: w.owner, input: { agentId: ada!.id, text: `hello` } })
+    // A shared conversation: the teammate can read and steer it.
+    await db.update(sessions).set({ shared: true }).where(eq(sessions.id, voice.sessionId))
+    const host = caller(w.owner)
+    await host.claim({ sessionId: voice.sessionId, deviceId: w.deviceId })
+    const card = () =>
+      host.reply({
+        sessionId: voice.sessionId,
+        body: ``,
+        card: { kind: `question`, question: `Issue · delete CR-1. Say yes to go ahead.`, options: [`Allow`, `Deny`], questionId: `toolu_${id8()}` },
+      })
+
+    // Not the voice agent (yet): any member who may steer answers it.
+    const plain = await card()
+    await caller(w.mate).answer({ messageId: plain.messageId, answer: `Allow` })
+
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: ada!.id })
+    const proposal = await card()
+    await expect(caller(w.mate).answer({ messageId: proposal.messageId, answer: `Allow` })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    await expect(caller(w.mate).resolveCard({ messageId: proposal.messageId, answer: `Allow` })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    // Over the bus nobody answers it, its member's own sessions included.
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: voice.sessionId, answer: { messageId: proposal.messageId, answer: `Allow` } } })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    const [open] = await db.select().from(messages).where(eq(messages.id, proposal.messageId))
+    expect(open!.answeredAt).toBeNull()
+    // Its member answers it.
+    await caller(w.owner).answer({ messageId: proposal.messageId, answer: `Allow` })
+    const [answered] = await db.select().from(messages).where(eq(messages.id, proposal.messageId))
+    expect(answered!.answeredAt).not.toBeNull()
+    await db.delete(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
+  })
 
   it(`claims, reports, asks, is answered and consumes — only from the device's account`, async () => {
     const w = await world({ shared: true })

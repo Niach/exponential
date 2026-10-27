@@ -159,6 +159,43 @@ launcher side, never in the model's prompt. Not done in the spike: the one
 live run (an Assistant session with that posture, one intercepted call shown
 in the Dock). That is the first task of NEW-54.
 
+**Built in #NEW-79.** `sessions.brief` answers `voicePolicy` for exactly the
+member's root conversation with their voice agent; that launch runs
+`--permission-mode default` with flag settings that `ask` for the policed
+tools (so a user `allow` rule never skips `can_use_tool`). `allowedTools`
+could not express the policy (the Exponential tools are 16 nouns with an
+`op`), so `answer_can_use_tool` classifies by tool + `input.op` from
+`packages/domain-contract/fixtures/voice-policy.json` (replayed by
+`domain::voice_policy`). A proposal card is an elicitation, not a
+`request_permission`: a permission card only takes its own option labels,
+and "two, but priority high" needs a typed change, which the elicitation's
+folded free-text row carries (no new UI). Expired or replaced cards are
+withdrawn through a `_meta` key the host turns into a dismissal. Push to talk
+matches confirmations on the finalized transcript before sending, and Speak
+replies reads a waiting card's question aloud.
+
+Live run on mint (2026-10-27, `cargo run -p engine --example new79_card_path
+-- haiku 5`): the real claude 2.1.310 under the voice posture, a warm
+conversation, then "Run the shell command `touch …` now." The Bash call was
+intercepted every time and the engine's mapper published the Dock card
+(confirm-strong, read-back tail and transcript snippet) after 1351, 2819,
+1536, 1380 and 1548 ms: median 1.54 s, 4 of 5 under the 2.5 s target, the
+slow one a model round trip. The card was denied and the file never
+appeared.
+
+**#1264 review (2026-10-27).** A change pre-approves only `{tool}#{op}|{target}`
+of a `confirm` card, once, at that tier or lower: a confirm-strong call or a
+call without a target always asks again. A typed "no" / "don't …" is a deny,
+only "yes, but …" is a change. `mcp__codemode__exec` is denied (a script
+reaches every op past the tiers). The flag layer asks for Skill, Agent, Task
+and every team server, and sets `disableBypassPermissionsMode`. Subagents:
+claude 2.1.310 already refuses a subagent's `permissionMode:
+bypassPermissions` when the parent is not in bypass ("not authorized by this
+session … keeping parent mode"), but it does let one widen to `acceptEdits`,
+so Agent / Task are now `confirm`. A codex voice agent is refused at launch,
+only the member answers the cards (never a session over the bus), and a
+spoken yes never answers a card past its 15-minute expiry.
+
 ## Licences touched
 
 sherpa-onnx 2.0 Rust crate (Apache-2.0; its 2.0.0 prebuilt dropped espeak-ng),

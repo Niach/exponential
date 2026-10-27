@@ -56,6 +56,11 @@ pub struct SessionBrief {
     /// a server that does not send it yet.
     #[serde(default)]
     pub root_agent_id: Option<String>,
+    /// #NEW-79: the member's conversation with their voice agent: launched
+    /// under the voice tool policy (`fixtures/voice-policy.json`); `false`
+    /// from a server that does not send it.
+    #[serde(default)]
+    pub voice_policy: bool,
 }
 
 impl SessionBrief {
@@ -468,7 +473,7 @@ mod tests {
     fn brief_queries_with_the_session_id_and_decodes_the_layers() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0"}}}"#,
+            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true}}}"#,
         );
         let brief = brief(&client(&base), SESSION).unwrap();
         assert_eq!(
@@ -479,6 +484,7 @@ mod tests {
                 agent_instructions: None,
                 parent_branch: Some("exp/EXP-0".to_string()),
                 root_agent_id: None,
+                voice_policy: true,
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

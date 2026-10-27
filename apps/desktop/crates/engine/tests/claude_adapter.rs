@@ -417,6 +417,7 @@ fn spec_env(
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
         confine_to: None,
+        voice_policy: false,
         aside: false,
         exit: engine::ChildExitLink::new(),
     }
@@ -1136,6 +1137,117 @@ async fn a_status_frame_that_stops_compacting_closes_the_fold() {
         vec![CompactionStatus::InProgress, CompactionStatus::Completed],
         "the adapter itself closed the fold, no boundary frame needed"
     );
+}
+
+/// #NEW-79: the voice conversation runs `default` (no bypass) and its Bash
+/// call is a confirm-strong proposal card in THE Dock ask: one elicitation
+/// carrying the policy's words; Allow allows, Deny denies, a typed change
+/// denies with the person's words for the model.
+#[tokio::test]
+async fn the_voice_conversation_asks_through_a_proposal_card() {
+    let _session = one_session_at_a_time();
+    let answer = |field: &'static str, value: &'static str| -> ElicitationAnswer {
+        Arc::new(move |_request| {
+            let mut content = std::collections::BTreeMap::new();
+            content.insert(field.to_string(), ElicitationContentValue::String(value.to_string()));
+            ElicitationAction::Accept(ElicitationAcceptAction::new().content(content))
+        })
+    };
+    let prompt = "Run exactly this shell command and nothing else";
+    let voice_spec = |work: &Path| {
+        let mut spec = spec("permission", work, false);
+        spec.voice_policy = true;
+        spec
+    };
+    let policy = &*domain::voice_policy::VOICE_POLICY;
+
+    let allowed = workdir("voice-allow");
+    let run = drive_spec(voice_spec(&allowed.0), &allowed.0, prompt, reject_all(), answer("decision", "Allow")).await;
+    assert_eq!(run.argv_value("--permission-mode"), Some("default"));
+    assert!(!run.argv.iter().any(|arg| arg == "--allow-dangerously-skip-permissions"));
+    assert!(run.permissions.is_empty(), "the card is the elicitation, never a permission");
+    let card = run.elicitations.first().expect("one proposal card");
+    assert!(card.message.starts_with("Run a command rm -f /work/tree/x"), "{}", card.message);
+    assert!(card.message.contains(policy.copy.strong_tail.trim()), "{}", card.message);
+    assert!(card.message.ends_with(&format!("You said: “{prompt}”")), "{}", card.message);
+    let payload = &run.control_responses()[0]["response"]["response"];
+    assert_eq!(payload["behavior"], serde_json::json!("allow"));
+    assert_eq!(payload["updatedInput"]["command"], serde_json::json!("rm -f /work/tree/x"));
+
+    let denied = workdir("voice-deny");
+    let run = drive_spec(voice_spec(&denied.0), &denied.0, prompt, reject_all(), answer("decision", "Deny")).await;
+    let payload = &run.control_responses()[0]["response"]["response"];
+    assert_eq!(payload["behavior"], serde_json::json!("deny"));
+    assert_eq!(payload["message"], serde_json::json!(policy.copy.rejected));
+
+    let changed = workdir("voice-change");
+    let run = drive_spec(
+        voice_spec(&changed.0),
+        &changed.0,
+        prompt,
+        reject_all(),
+        answer("decision_custom", "Yes, but only the temp file"),
+    )
+    .await;
+    let payload = &run.control_responses()[0]["response"]["response"];
+    assert_eq!(payload["behavior"], serde_json::json!("deny"));
+    assert_eq!(
+        payload["message"],
+        serde_json::json!(policy.copy.changed_ask.replace("{answer}", "Yes, but only the temp file")),
+        "a confirm-strong call is never pre-approved: the redo asks again"
+    );
+}
+
+/// #NEW-79 review: a change pre-approves exactly the redo it asked for.
+/// "Yes, but priority urgent" on `issues update NEW-12`, then the model's
+/// `issues delete NEW-12` (same target, another op) still shows a card;
+/// the `update NEW-12` redo runs without one, ONCE: the next identical call
+/// asks again.
+#[tokio::test]
+async fn a_change_pre_approves_only_the_same_op_on_the_same_target_once() {
+    let _session = one_session_at_a_time();
+    let policy = &*domain::voice_policy::VOICE_POLICY;
+    let work = workdir("voice-redo");
+    let mut voice = spec("voice-redo", &work.0, false);
+    voice.voice_policy = true;
+    let answer: ElicitationAnswer = Arc::new(|request| {
+        let reply = if request.message.starts_with("Issue · update NEW-12 — priority: high") {
+            "Yes, but priority urgent"
+        } else {
+            "Deny"
+        };
+        let field = if reply == "Deny" { "decision" } else { "decision_custom" };
+        let mut content = std::collections::BTreeMap::new();
+        content.insert(field.to_string(), ElicitationContentValue::String(reply.to_string()));
+        ElicitationAction::Accept(ElicitationAcceptAction::new().content(content))
+    });
+    let run = drive_spec(voice, &work.0, "set twelve to high", reject_all(), answer).await;
+    let cards: Vec<&str> = run.elicitations.iter().map(|card| card.message.as_str()).collect();
+    assert_eq!(cards.len(), 3, "{cards:#?}");
+    assert!(cards[0].starts_with("Issue · update NEW-12 — priority: high."), "{}", cards[0]);
+    assert!(cards[1].starts_with("Issue · delete NEW-12."), "the op change asks again: {}", cards[1]);
+    assert!(cards[2].starts_with("Issue · update NEW-12 — priority: urgent."), "pre-approved once: {}", cards[2]);
+    let answers: Vec<(&Value, &Value)> = run
+        .control_responses()
+        .iter()
+        .map(|line| (&line["response"]["response"]["behavior"], &line["response"]["response"]["toolUseID"]))
+        .collect();
+    assert_eq!(
+        answers,
+        vec![
+            (&serde_json::json!("deny"), &serde_json::json!("toolu_voice_1")),
+            (&serde_json::json!("deny"), &serde_json::json!("toolu_voice_2")),
+            (&serde_json::json!("allow"), &serde_json::json!("toolu_voice_3")),
+            (&serde_json::json!("deny"), &serde_json::json!("toolu_voice_4")),
+        ]
+    );
+    let responses = run.control_responses();
+    assert_eq!(
+        responses[0]["response"]["response"]["message"],
+        serde_json::json!(policy.copy.changed.replace("{answer}", "Yes, but priority urgent"))
+    );
+    assert_eq!(responses[1]["response"]["response"]["message"], serde_json::json!(policy.copy.rejected));
+    assert_eq!(responses[2]["response"]["response"]["updatedInput"]["priority"], serde_json::json!("urgent"));
 }
 
 #[tokio::test]

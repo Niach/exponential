@@ -55,7 +55,7 @@ use agent_client_protocol::{
     on_receive_notification, on_receive_request, Client, ConnectTo, Error,
 };
 
-use crate::local::{EnginePhase, LocalFeedEvent};
+use crate::local::{EnginePhase, LocalFeedEvent, ASK_WITHDRAWN_META_KEY};
 use crate::mapper::{AnswerDecision, MapOut, Mapper, PendingAskKey, FLUSH_IDLE};
 use crate::session::ResumeHandle;
 use crate::sink::EventSink;
@@ -1810,7 +1810,18 @@ where
                 }
                 let mut out = MapOut::default();
                 notify_ctx.with_mapper(|mapper| mapper.on_update(&notification, &mut out));
+                // #NEW-79: a card the adapter withdrew is dismissed and its
+                // parked request answered, never left waiting.
+                let withdrawn = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(ASK_WITHDRAWN_META_KEY))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|ask_id| notify_ctx.with_mapper(|mapper| mapper.withdraw_ask(ask_id, &mut out)));
                 notify_ctx.dispatch(out);
+                if let Some(key) = withdrawn {
+                    notify_ctx.asks.resolve(&key, AskOutcome::Cancelled);
+                }
                 Ok(())
             },
             on_receive_notification!(),

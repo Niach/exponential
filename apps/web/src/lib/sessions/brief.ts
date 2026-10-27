@@ -2,8 +2,9 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
-import { agents, issues, messages, sessionIssues, sessions, teams, type Session } from "@/db/schema"
+import { agents, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
 import { deriveSessionTitle } from "@/lib/sessions/title"
+import type { Db } from "@/lib/sessions/tx"
 
 export { deriveSessionTitle }
 
@@ -43,6 +44,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   /** #EXP-1383: the root's agent (null = not an agent conversation tree):
    *  the device tells agent-tree sessions apart by it. */
   rootAgentId: string | null
+  /** #NEW-79 (voice-policy.json): this session IS its member's conversation
+   *  with the agent picked in Settings → Voice, so the device launches it
+   *  under the launcher-enforced tool policy. */
+  voicePolicy: boolean
 }> {
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1)
   if (!session) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -90,12 +95,29 @@ export async function composeSessionBrief(sessionId: string): Promise<{
 
   return {
     brief: composeBrief(input),
+    voicePolicy: await isVoiceConversation(session),
     teamPrompt: team?.agentPrompt?.trim() || null,
     agentInstructions: agent?.instructions?.trim() || null,
     parentBranch,
     // #EXP-1383: a conversation's agent, or the agent that started the root.
     rootAgentId: root.agentId ?? root.startedByAgentId ?? null,
   }
+}
+
+/** #NEW-79: a ROOT agent conversation whose agent is its member's voice
+ *  agent (`user_voice_settings.agent_id`). Children, threads and other
+ *  agents' conversations keep today's posture. */
+export async function isVoiceConversation(
+  session: Pick<Session, `id` | `rootId` | `agentId` | `userId`>,
+  database: Db = db
+): Promise<boolean> {
+  if (session.rootId !== session.id || !session.agentId) return false
+  const [voice] = await database
+    .select({ agentId: userVoiceSettings.agentId })
+    .from(userVoiceSettings)
+    .where(eq(userVoiceSettings.userId, session.userId))
+    .limit(1)
+  return voice?.agentId === session.agentId
 }
 
 /** #EXP-1383 (chats.json `agentHint`): the device fetched this session's
