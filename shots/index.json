@@ -609,8 +609,8 @@
         "file": "shots/chat-selection/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 39516,
-        "sha256": "a45a72afb27e08976553786360fb769c8c3b5b1e59cf2034e5acd291d5d06214"
+        "bytes": 40336,
+        "sha256": "05513afebc919f81c91eec2e502e83fdb602a80431b6ed4a143a295e36e9e431"
       },
       "ios": {
         "file": "shots/chat-selection/ios.webp",
@@ -623,8 +623,8 @@
         "file": "shots/chat-selection/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42048,
-        "sha256": "81ce5537888214f859722142da5cc614ff7ccb2b312f7dce95d1d4de44b12847"
+        "bytes": 41970,
+        "sha256": "dedab5e4a3730297c0bcf07a95a4ee11c26af0c7a76881d22089ef24ab4a756a"
       },
       "web-mobile": {
         "file": "shots/chat-selection/web-mobile.webp",
@@ -1255,8 +1255,8 @@
         "file": "shots/exponential-ui-checkbox/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 28808,
-        "sha256": "b4cd7ba4abb06d090c06d36ca400e10dbc689e0707a5280fc215077477be8209"
+        "bytes": 29574,
+        "sha256": "081dc27f104cc45f64b701c1a8cbc14dc3335dec7acc04eacc6b74cc2c722ce5"
       },
       "ios": {
         "file": "shots/exponential-ui-checkbox/ios.webp",
