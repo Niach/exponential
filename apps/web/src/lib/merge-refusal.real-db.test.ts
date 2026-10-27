@@ -102,7 +102,7 @@ const refusals = (sessionId: string) =>
     .from(messages)
     .where(and(eq(messages.sessionId, sessionId), sql`${messages.card}->>'event' = 'pr_merge_refused'`))
 
-const refusal = () => new MergeRefusal({ kind: `checks_failed`, message: `Checks failed: gate.` })
+const refusal = () => new MergeRefusal({ kind: `checks`, message: `Required status check "gate" is failing.` })
 
 describe.skipIf(!ready.ok)(`#EXP-1391: a refused merge goes into the thread`, () => {
   it(`lands once in the root as waking input; a repeat while unread adds nothing`, async () => {
@@ -113,7 +113,7 @@ describe.skipIf(!ready.ok)(`#EXP-1391: a refused merge goes into the thread`, ()
       expect.objectContaining({
         authorKind: `user`,
         authorId: w.owner,
-        body: mergeRefusalText(7, `Checks failed: gate.`, `checks_failed`),
+        body: mergeRefusalText(7, `Required status check "gate" is failing.`, `checks`),
         consumedAt: null,
         card: { kind: `event`, event: `pr_merge_refused`, pullRequestId: w.prId },
       }),
@@ -129,28 +129,24 @@ describe.skipIf(!ready.ok)(`#EXP-1391: a refused merge goes into the thread`, ()
     expect(await refusals(w.thread)).toEqual([])
     expect(await refusals(w.child)).toEqual([
       expect.objectContaining({
-        body: mergeRefusalText(7, `Checks failed: gate.`, `checks_failed`),
+        body: mergeRefusalText(7, `Required status check "gate" is failing.`, `checks`),
         consumedAt: null,
       }),
     ])
   })
 
-  it(`EXP-1378 automerge: running checks post nothing; the same refusal on the same head posts once, read or not`, async () => {
+  it(`automerge: the same refusal posts once, read or not; a new one is news`, async () => {
     const w = await threadWithPr()
-    const pending = new MergeRefusal({ kind: `checks_pending`, message: `Checks are still running.`, headSha: `a1` })
-    expect(await postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error: pending, automerge: true })).toBe(false)
-    expect(await refusals(w.thread)).toEqual([])
-
-    const red = (headSha: string) => new MergeRefusal({ kind: `checks_failed`, message: `Checks failed: gate.`, headSha })
-    expect(await postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error: red(`a1`), automerge: true })).toBe(true)
-    // The root read it and ended its turn: the next pass on the same head stays quiet.
+    const auto = (error: InstanceType<typeof MergeRefusal>) =>
+      postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error, automerge: true })
+    expect(await auto(refusal())).toBe(true)
+    // The root read it and ended its turn: the next pass stays quiet.
     await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, w.thread))
-    expect(await postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error: red(`a1`), automerge: true })).toBe(false)
+    expect(await auto(refusal())).toBe(false)
     expect(await refusals(w.thread)).toHaveLength(1)
-    // A new head that fails again is news.
-    expect(await postMergeRefusal({ pullRequestId: w.prId, actorUserId: w.owner, error: red(`b2`), automerge: true })).toBe(true)
-    const lines = await refusals(w.thread)
-    expect(lines.map((line) => (line.card as { headSha?: string }).headSha).sort()).toEqual([`a1`, `b2`])
+    // A different refusal is news.
+    expect(await auto(new MergeRefusal({ kind: `conflict`, message: `Conflicts in a.ts` }))).toBe(true)
+    expect(await refusals(w.thread)).toHaveLength(2)
   })
 
   it(`an ended root keeps one display line per refusal, never a repeat`, async () => {

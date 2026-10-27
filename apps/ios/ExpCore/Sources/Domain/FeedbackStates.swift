@@ -202,16 +202,11 @@ public enum FeedbackStates {
 
         public static func title(verb: String, thing: String) -> String { "Couldn't \(verb) \(thing)" }
 
-        /// EXP-1391 + EXP-1378: `errors.mergeRefusal`. A refused merge is the
-        /// failed-action toast; only the check gate's code swaps Retry for
-        /// `force` (re-run with `force: true`). No client reads CONFLICT.
+        /// EXP-1391: `errors.mergeRefusal`. A refused merge is the
+        /// failed-action toast with Retry; the server also posts it into the
+        /// thread. No client reads the tRPC code.
         public enum MergeRefusal {
-            public static let checksCode = "PRECONDITION_REQUIRED"
-            public static let force = "Merge anyway"
             public static let handoff = "Sent to the thread."
-
-            /// Whether a refusal with this tRPC code offers `Merge anyway`.
-            public static func offersForce(code: String?) -> Bool { code == checksCode }
         }
 
         /// Where a failure renders, by who started the work (the fixture's

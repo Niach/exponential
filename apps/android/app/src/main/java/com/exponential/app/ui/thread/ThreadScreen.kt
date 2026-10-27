@@ -50,7 +50,6 @@ import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.GuideSectionKey
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.Prompts
@@ -66,7 +65,6 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.deviceIcon
@@ -906,8 +904,8 @@ private fun ThreadIssuePage(
  * chain with `stack = true`, since the server refuses a plain merge of any
  * open-stack member.
  * A section's Changes row opens its diff page. A refused merge toasts (the
- * server posts it into the root, whose agent takes it over, EXP-1391): the
- * check gate's refusal offers `Merge anyway` (EXP-1378), any other Retry.
+ * server posts it into the root, whose agent takes it over, EXP-1391) and
+ * offers Retry.
  */
 @Composable
 private fun ThreadGuidePage(
@@ -939,8 +937,6 @@ private fun ThreadGuidePage(
     }
     val throughError by (throughVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
         .collectAsStateWithLifecycle()
-    val throughChecks by (throughVm?.actionErrorIsChecks ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
-        .collectAsStateWithLifecycle()
     val guideStack = stackView?.let { view ->
         GuideStack(
             view = view,
@@ -968,8 +964,6 @@ private fun ThreadGuidePage(
         .collectAsStateWithLifecycle()
     val actionError by (changesVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
         .collectAsStateWithLifecycle()
-    val checks by (changesVm?.actionErrorIsChecks ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
-        .collectAsStateWithLifecycle()
     val linkedCount by (changesVm?.linkedIssueCount ?: remember { kotlinx.coroutines.flow.MutableStateFlow(0) })
         .collectAsStateWithLifecycle()
     val files = remember(load) { (load as? ChangesLoadState.Loaded)?.files?.map { it.toDiffFile() } }
@@ -995,7 +989,7 @@ private fun ThreadGuidePage(
         val message = throughError ?: return@LaunchedEffect
         // The top member's VM IS the capsule's: its refusal toasts below.
         val vm = throughVm ?: return@LaunchedEffect
-        if (vm !== changesVm) toaster.mergeRefused("the stack", message, throughChecks, vm::retryMerge)
+        if (vm !== changesVm) toaster.failedAction("merge", "the stack", message, retry = vm::retryMerge)
     }
     if (throughConfirmOpen && newest != null && throughPr != null && throughVm != null) {
         PullRequestStack.stackConfirm(newest, stackPool, through = throughPr)?.let { confirm ->
@@ -1009,7 +1003,7 @@ private fun ThreadGuidePage(
     LaunchedEffect(actionError) {
         val message = actionError ?: return@LaunchedEffect
         val vm = changesVm ?: return@LaunchedEffect
-        toaster.mergeRefused("the PR", message, checks, vm::retryMerge)
+        toaster.failedAction("merge", "the PR", message, retry = vm::retryMerge)
     }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     val section = sectionName?.let(::parseSectionKey)
@@ -1037,21 +1031,6 @@ private fun ThreadGuidePage(
             },
         )
     }
-}
-
-/**
- * EXP-1391 + EXP-1378 (feedback-states.json `errors.mergeRefusal`): a refused
- * merge's toast. The check gate's refusal ([checks]) offers `Merge anyway`
- * (the same merge with `force`), every other refusal Retry.
- */
-private fun Toaster.mergeRefused(thing: String, message: String, checks: Boolean, merge: (force: Boolean) -> Unit) {
-    failedAction(
-        "merge",
-        thing,
-        message,
-        retry = { merge(checks) },
-        retryLabel = if (checks) FeedbackStates.MERGE_ANYWAY else FeedbackStates.RETRY,
-    )
 }
 
 private fun sectionKeyName(key: GuideSectionKey): String = when (key) {

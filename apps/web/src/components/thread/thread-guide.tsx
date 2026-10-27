@@ -26,7 +26,7 @@ import {
 } from "@/hooks/use-stack-merge-choice"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { pullRequestCollection } from "@/lib/collections"
-import { MERGE_ANYWAY_LABEL, mergeFailure } from "@/lib/merge-failure"
+import { mergeFailure } from "@/lib/merge-failure"
 import {
   guideMenuEntries,
   guidePullRequest,
@@ -79,11 +79,11 @@ function MergeThroughConfirm({
 }) {
   const stack = usePullRequestStackConfirm(pr, `through`)
   const [merging, setMerging] = useState(false)
-  const merge = async (pullRequestId: string, force = false) => {
+  const merge = async (pullRequestId: string) => {
     setMerging(true)
     try {
       const result = await trpc.pullRequests.merge.mutate(
-        { pullRequestId, stack: true, ...(force ? { force } : {}) },
+        { pullRequestId, stack: true },
         SKIP_ERROR_TOAST
       )
       if (result.error) {
@@ -92,11 +92,9 @@ function MergeThroughConfirm({
         await pullRequestCollection.utils.awaitTxId(result.txid).catch(() => undefined)
       }
     } catch (error) {
-      // EXP-1378: the check gate's refusal offers `Merge anyway`.
-      const failure = mergeFailure(error, `The pull request could not be merged`)
-      failedAction(`merge`, `the stack`, failure.message, {
-        retry: () => void merge(pullRequestId, failure.checks || force),
-        ...(failure.checks ? { retryLabel: MERGE_ANYWAY_LABEL } : {}),
+      // EXP-1391: every refusal offers Retry.
+      failedAction(`merge`, `the stack`, mergeFailure(error, `The pull request could not be merged`).message, {
+        retry: () => void merge(pullRequestId),
       })
     } finally {
       setMerging(false)

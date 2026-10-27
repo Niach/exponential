@@ -917,9 +917,8 @@ struct ThreadScreen: View {
 
     /// Merge through a rail member: `pullRequests.merge({stack: true})` on
     /// it. Shares the capsule's in-flight state, so both spin together.
-    /// EXP-1378: the check gate's refusal offers `Merge anyway` (`force`),
-    /// every other one Retry.
-    private func merge(through confirm: PullRequestStack.Confirm, force: Bool = false) {
+    /// EXP-1391: every refusal offers Retry.
+    private func merge(through confirm: PullRequestStack.Confirm) {
         mergeState.merging = true
         let api = deps.pullRequestsApi
         let accountId = accountId
@@ -927,20 +926,17 @@ struct ThreadScreen: View {
         Task {
             do {
                 let result = try await api.merge(
-                    accountId: accountId, pullRequestId: confirm.throughId, stack: true, force: force ? true : nil
+                    accountId: accountId, pullRequestId: confirm.throughId, stack: true
                 )
                 if !result.merged, result.queued != true {
                     toaster.error(title, description: result.error)
                 }
             } catch {
-                let forces = FeedbackStates.Errors.MergeRefusal.offersForce(code: error.trpcErrorCode)
                 toaster.error(
                     title,
                     description: error.userFacingMessage,
-                    action: ToastAction(
-                        label: forces ? FeedbackStates.Errors.MergeRefusal.force : FeedbackStates.Errors.retry
-                    ) {
-                        Task { @MainActor in merge(through: confirm, force: forces || force) }
+                    action: ToastAction(label: FeedbackStates.Errors.retry) {
+                        Task { @MainActor in merge(through: confirm) }
                     }
                 )
             }

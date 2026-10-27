@@ -12,9 +12,7 @@
 //! `pullRequests.close`). Keys share one namespace: the pull request id for
 //! a merge, [`close_pr_key`] (`close:<id>`) for a close. A refusal is the
 //! error toast (no recovery run); EXP-1391: the server also posts a refused
-//! merge into the thread's root session, which takes it over. EXP-1378: the
-//! check gate's refusal (428) offers `Merge anyway` (`force`) instead of
-//! Retry.
+//! merge into the thread's root session, which takes it over.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -59,12 +57,9 @@ pub enum MergeOp {
     /// GitHub merge-async through `id` (it lands everything beneath it).
     /// `pull_request_id` stays the CLICKED row (key, spinner, caption): it
     /// always sits at or below `id`, so its own echo settles the spinner.
-    ///
-    /// EXP-1378: `force` = `Merge anyway` past the check gate.
     Merge {
         pull_request_id: String,
         stack_through: Option<String>,
-        force: bool,
     },
     /// `pullRequests.close` — close WITHOUT merging (EXP-100). Echo-settled
     /// like the merge.
@@ -77,24 +72,6 @@ impl MergeOp {
         MergeOp::Merge {
             pull_request_id: pull_request_id.into(),
             stack_through: None,
-            force: false,
-        }
-    }
-
-    /// The same merge past the check gate (`force: true`); a close stays
-    /// itself.
-    fn forced(&self) -> Self {
-        match self {
-            MergeOp::Merge {
-                pull_request_id,
-                stack_through,
-                ..
-            } => MergeOp::Merge {
-                pull_request_id: pull_request_id.clone(),
-                stack_through: stack_through.clone(),
-                force: true,
-            },
-            close => close.clone(),
         }
     }
 
@@ -132,16 +109,12 @@ impl MergeOp {
             MergeOp::Merge {
                 pull_request_id,
                 stack_through,
-                force,
-            } => {
-                let force = if *force { ", force" } else { "" };
-                match stack_through {
-                    Some(through) => format!(
-                        "pullRequests.merge({through}, stack, from {pull_request_id}{force})"
-                    ),
-                    None => format!("pullRequests.merge({pull_request_id}{force})"),
+            } => match stack_through {
+                Some(through) => {
+                    format!("pullRequests.merge({through}, stack, from {pull_request_id})")
                 }
-            }
+                None => format!("pullRequests.merge({pull_request_id})"),
+            },
             MergeOp::Close { pull_request_id } => format!("pullRequests.close({pull_request_id})"),
         }
     }
@@ -154,13 +127,12 @@ impl MergeOp {
             MergeOp::Merge {
                 pull_request_id,
                 stack_through,
-                force,
             } => {
                 let (id, stack) = match stack_through {
                     Some(through) => (through.as_str(), true),
                     None => (pull_request_id.as_str(), false),
                 };
-                let out = api::sessions::pr_merge(trpc, id, stack, *force)?;
+                let out = api::sessions::pr_merge(trpc, id, stack)?;
                 match out.error {
                     Some(message) if !out.merged && !out.queued => {
                         Err(api::ApiError::Http { status: 400, message })
@@ -196,10 +168,6 @@ pub struct MergeFailure {
     pub message: SharedString,
     /// Whether MERGE or CLOSE produced it (the toast's verb).
     pub op: FailedOp,
-    /// EXP-1378: the check gate refused (tRPC `PRECONDITION_REQUIRED` /
-    /// HTTP 428: required checks running or red) — its toast offers
-    /// `Merge anyway` instead of Retry.
-    pub checks: bool,
 }
 
 struct MergeStateGlobal(Entity<MergeState>);
@@ -383,7 +351,6 @@ pub(crate) fn stack_confirm_op(
     MergeOp::Merge {
         pull_request_id: clicked.to_string(),
         stack_through: Some(confirm.pull_request_id.clone()),
-        force: false,
     }
 }
 
@@ -506,12 +473,9 @@ pub fn two_click(op: MergeOp, cx: &mut App) -> TwoClick {
                     Err(err) => {
                         log::warn!("[ui] {} failed: {err}", call_op.describe());
                         this.merging.remove(&key);
-                        // Classify BEFORE the message is consumed.
-                        let checks = err.is_precondition_required();
                         let failure = MergeFailure {
                             message: SharedString::from(user_message(err)),
                             op: call_op.failed_op(),
-                            checks,
                         };
                         cx.notify();
                         Some(failure)
@@ -521,38 +485,23 @@ pub fn two_click(op: MergeOp, cx: &mut App) -> TwoClick {
             if let Ok(Some(failure)) = failed {
                 let _ = cx.update(|cx| {
                     // FEED-79: a refusal is the error toast. A merge/close
-                    // re-runs safely (a settled PR just refuses); the check
-                    // gate's refusal offers `Merge anyway` (the same merge
-                    // with `force`) instead (EXP-1378).
+                    // re-runs safely (a settled PR just refuses), so every
+                    // refusal offers Retry.
                     let verb = match failure.op {
                         FailedOp::Merge => "merge",
                         FailedOp::Close => "close",
                     };
                     let thing = merge_failure_thing(&retry_op);
                     let description = Some(failure.message.to_string());
-                    if failure.checks {
-                        let forced = retry_op.forced();
-                        crate::action_error::failed_action_with(
-                            verb,
-                            thing,
-                            description,
-                            crate::feedback::MERGE_ANYWAY,
-                            move |_, cx| {
-                                fire_confirmed(forced.clone(), cx);
-                            },
-                            cx,
-                        );
-                    } else {
-                        crate::action_error::failed_action_with_retry(
-                            verb,
-                            thing,
-                            description,
-                            move |_, cx| {
-                                fire_confirmed((*retry_op).clone(), cx);
-                            },
-                            cx,
-                        );
-                    }
+                    crate::action_error::failed_action_with_retry(
+                        verb,
+                        thing,
+                        description,
+                        move |_, cx| {
+                            fire_confirmed((*retry_op).clone(), cx);
+                        },
+                        cx,
+                    );
                 });
             }
         })
@@ -602,29 +551,6 @@ mod tests {
         assert!(!spec.is_ok_disabled());
         assert_eq!(merge_failure_thing(&op), "the stack");
         assert_eq!(merge_failure_thing(&MergeOp::merge("m")), "the PR");
-    }
-
-    /// EXP-1378: `Merge anyway` re-fires the SAME merge (key, stack) with
-    /// `force`; a close has no force.
-    #[test]
-    fn merge_anyway_is_the_same_merge_forced() {
-        let plain = MergeOp::merge("pr-1").forced();
-        assert_eq!(plain.key(), "pr-1");
-        assert_eq!(plain.describe(), "pullRequests.merge(pr-1, force)");
-        let confirm = domain::pr_stack::StackMergeConfirm {
-            title: domain::pr_stack::MERGE_STACK_LABEL.to_string(),
-            landing: Vec::new(),
-            stays_open: Vec::new(),
-            body: String::new(),
-            pull_request_id: "t".into(),
-        };
-        let stack = stack_confirm_op("m", &confirm).forced();
-        assert_eq!(stack.key(), "m");
-        assert_eq!(stack.describe(), "pullRequests.merge(t, stack, from m, force)");
-        let close = MergeOp::Close {
-            pull_request_id: "pr-1".to_string(),
-        };
-        assert_eq!(close.forced(), close);
     }
 
     #[test]

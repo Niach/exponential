@@ -90,14 +90,6 @@ impl ApiError {
         matches!(self, ApiError::Http { status: 409, .. })
     }
 
-    /// EXP-1378: tRPC `PRECONDITION_REQUIRED` (HTTP 428) = the check gate
-    /// refused a merge (required checks still running or red). Its toast
-    /// offers `Merge anyway` (`force: true`) instead of Retry; every other
-    /// refusal (412 stale base, branch protection, 409) keeps Retry.
-    pub fn is_precondition_required(&self) -> bool {
-        matches!(self, ApiError::Http { status: 428, .. })
-    }
-
     /// What a USER should read. Server messages are already user-facing and
     /// win; transport/decode failures get a plain sentence instead of a
     /// library's internal text. Logging keeps [`Display`](fmt::Display).
@@ -380,24 +372,5 @@ mod tests {
         .is_conflict());
         assert!(!ApiError::transport("refused").is_conflict());
         assert!(!ApiError::Unauthorized.is_conflict());
-    }
-
-    #[test]
-    fn only_a_428_is_the_check_gate() {
-        assert!(ApiError::Http {
-            status: 428,
-            message: "Required checks are still running".to_string(),
-        }
-        .is_precondition_required());
-        // 412 (PRECONDITION_FAILED) and 409 are other refusals: Retry.
-        for status in [409, 412] {
-            assert!(!ApiError::Http {
-                status,
-                message: "Required checks are still running".to_string(),
-            }
-            .is_precondition_required());
-        }
-        assert!(!ApiError::transport("refused").is_precondition_required());
-        assert!(!ApiError::Unauthorized.is_precondition_required());
     }
 }

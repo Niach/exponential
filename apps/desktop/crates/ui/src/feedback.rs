@@ -118,11 +118,6 @@ pub(crate) const STARTING_TIMEOUT: Duration = Duration::from_millis(30_000);
 const STARTING_TIMEOUT_TITLE: &str = "The session did not start";
 const STARTING_TIMEOUT_DESCRIPTION: &str = "{device} did not answer.";
 pub(crate) const RETRY: &str = "Retry";
-/// `errors.mergeRefusal.force`: the check gate's override (EXP-1378).
-pub(crate) const MERGE_ANYWAY: &str = "Merge anyway";
-/// `errors.mergeRefusal.handoff`: the server's message ends with it once the
-/// refusal was posted into the thread (the styleguide's specimen).
-pub(crate) const MERGE_HANDOFF: &str = "Sent to the thread.";
 
 /// `autosave.*`.
 pub(crate) const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(800);
@@ -776,9 +771,6 @@ mod tests {
         assert_eq!(s(&st["startIdKey"]), "startId");
         assert_eq!(num(&st["dedupeMs"]), num(&st["watchMs"]));
         assert_eq!(s(&f["errors"]["retry"]), RETRY);
-        assert_eq!(s(&f["errors"]["mergeRefusal"]["force"]), MERGE_ANYWAY);
-        assert_eq!(s(&f["errors"]["mergeRefusal"]["handoff"]), MERGE_HANDOFF);
-        assert_eq!(s(&f["errors"]["mergeRefusal"]["checksCode"]), "PRECONDITION_REQUIRED");
 
         let a = &f["autosave"];
         assert_eq!(num(&a["debounceMs"]) as u128, AUTOSAVE_DEBOUNCE.as_millis());

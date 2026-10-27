@@ -63,31 +63,19 @@ struct FeedbackStatesScreen: View {
                     }
                 }
                 .padding(16)
-                // The top clears the error toast pinned over the screen.
-                .padding(.top, 104)
-            }
-            // (6) ERRORS: a failed action is THE toast. A live toast's clock
-            // runs out before the capture, so the specimen pins the card at
-            // the touch placement (top-centre): EXP-1391 + EXP-1378, the
-            // check gate's refusal offers Merge anyway instead of Retry.
-            VStack {
-                ToastCard(
-                    item: ToastItem(
-                        kind: .error,
-                        title: FeedbackStates.Errors.title(verb: "merge", thing: "the PR"),
-                        description: "Checks are still running on PR #7: \"gate\". \(FeedbackStates.Errors.MergeRefusal.handoff)",
-                        action: ToastAction(label: FeedbackStates.Errors.MergeRefusal.force) {}
-                    ),
-                    onDismiss: {}
-                )
-                .padding(.horizontal, ToastHostMetrics.screenInset)
-                .padding(.top, ToastHostMetrics.screenInset)
-                Spacer()
             }
         }
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("feedback-states-screen")
+        .onAppear {
+            // (6) ERRORS: a failed action is THE toast, with Retry.
+            Toaster.shared.error(
+                FeedbackStates.Errors.title(verb: "save", thing: "the team prompt"),
+                description: "Network error",
+                action: ToastAction(label: FeedbackStates.Errors.retry) {}
+            )
+        }
     }
 
     private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

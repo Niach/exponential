@@ -35,11 +35,10 @@ export function failedAction(
   verb: string,
   thing: string,
   error?: unknown,
-  options: { retry?: () => void; retryLabel?: string; description?: string } = {}
+  options: { retry?: () => void; description?: string } = {}
 ): string | number {
   return toastActionError(actionErrorTitle(verb, thing), {
     description: options.description ?? actionErrorDescription(error),
     retry: options.retry,
-    ...(options.retryLabel ? { retryLabel: options.retryLabel } : {}),
   })
 }

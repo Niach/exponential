@@ -1,6 +1,5 @@
 import { TRPCError } from "@trpc/server"
 import feedbackStates from "@exp/domain-contract/fixtures/feedback-states.json"
-import { isRequiredCheckRefusal } from "@/lib/integrations/github-checks"
 import {
   GitHubMergeError,
   UNMERGEABLE_405,
@@ -14,17 +13,11 @@ import {
  * EXP-1391: a refusal is a `MergeRefusal` carrying its KIND, which picks the
  * steps the thread's root session reads when the refusal is posted into it
  * (`lib/merge-refusal.ts`). No client classifies a conflict any more (the
- * Fix conflicts run is gone): every refusal is PRECONDITION_FAILED except
- * the check gate's, PRECONDITION_REQUIRED (HTTP 428), the one a person may
- * override with `force` (feedback-states.json errors.mergeRefusal).
+ * Fix conflicts run is gone): every refusal is PRECONDITION_FAILED and
+ * every client offers Retry (feedback-states.json errors.mergeRefusal).
  */
 
-export type MergeRefusalKind =
-  | `checks_pending`
-  | `checks_failed`
-  | `checks_unreadable`
-  | `conflict`
-  | `other`
+export type MergeRefusalKind = `checks` | `conflict` | `other`
 
 export const MERGE_REFUSAL_COPY = feedbackStates.errors.mergeRefusal
 
@@ -32,18 +25,10 @@ export class MergeRefusal extends TRPCError {
   readonly kind: MergeRefusalKind
   /** The refused PR (stamped by the merge path). */
   prNumber: number | null = null
-  /** The head commit the check gate judged (check refusals only). */
-  readonly headSha: string | null
 
-  constructor(opts: {
-    kind: MergeRefusalKind
-    message: string
-    code?: `PRECONDITION_FAILED` | `PRECONDITION_REQUIRED`
-    headSha?: string | null
-  }) {
-    super({ code: opts.code ?? `PRECONDITION_FAILED`, message: opts.message })
+  constructor(opts: { kind: MergeRefusalKind; message: string }) {
+    super({ code: `PRECONDITION_FAILED`, message: opts.message })
     this.kind = opts.kind
-    this.headSha = opts.headSha ?? null
   }
 }
 
@@ -75,11 +60,10 @@ export function prMergeFailureError(
         message: diagnosis?.message || err.message,
       })
     }
-    // Branch protection still waiting for a required check (EXP-1391: the
-    // "Required status check "gate" is expected." refusal); our gate saw no
-    // check yet. `force` cannot override GitHub's own rule.
+    // Branch protection waiting on a required check, or one that failed
+    // (EXP-1391: GitHub's "Required status check "gate" is expected.").
     if (isRequiredCheckRefusal(err.message)) {
-      return new MergeRefusal({ kind: `checks_pending`, message: err.message })
+      return new MergeRefusal({ kind: `checks`, message: err.message })
     }
     // Policy refusals (squash merges disallowed, branch protection): GitHub's
     // message verbatim.
@@ -107,40 +91,7 @@ export function prMergeFailureError(
   })
 }
 
-/** EXP-1378: the check gate's refusal (the code `force` overrides). */
-export function checksRefusal(
-  verdict: { state: `pending` | `red`; names: string[]; sha?: string },
-  prNumber: number
-): MergeRefusal {
-  const names = verdict.names.map((name) => `"${name}"`).join(`, `)
-  return new MergeRefusal({
-    kind: verdict.state === `pending` ? `checks_pending` : `checks_failed`,
-    code: `PRECONDITION_REQUIRED`,
-    headSha: verdict.sha ?? null,
-    message:
-      verdict.state === `pending`
-        ? `Checks are still running on PR #${prNumber}: ${names}.`
-        : `Checks failed on PR #${prNumber}: ${names}.`,
-  })
-}
-
-/** EXP-1378: the gate could not read the checks (`pullRequestChecks` null:
- *  the App lacks the permission, GitHub down). Fails closed with the same
- *  override as a red gate. */
-export function checksUnreadableRefusal(prNumber: number): MergeRefusal {
-  return new MergeRefusal({
-    kind: `checks_unreadable`,
-    code: `PRECONDITION_REQUIRED`,
-    message: `Couldn't read the checks on PR #${prNumber}.`,
-  })
-}
-
-/** EXP-1378: a stack member got a new commit after the gate passed it (its
- *  new head's checks decide; merging again re-reads them). */
-export function headMovedRefusal(prNumber: number): MergeRefusal {
-  return new MergeRefusal({
-    kind: `checks_pending`,
-    code: `PRECONDITION_REQUIRED`,
-    message: `PR #${prNumber} got a new commit while its checks were read.`,
-  })
+/** GitHub's branch protection refusing on a required status check. */
+export function isRequiredCheckRefusal(message: string): boolean {
+  return /required status checks?\b/i.test(message)
 }

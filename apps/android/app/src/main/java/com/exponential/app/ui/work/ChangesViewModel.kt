@@ -78,14 +78,7 @@ class ChangesViewModel @AssistedInject constructor(
     private val _actionErrorFrom = MutableStateFlow<PrAction?>(null)
     val actionErrorFrom: StateFlow<PrAction?> = _actionErrorFrom
 
-    /**
-     * EXP-1378: the merge was refused by the check gate (HTTP 428) — its toast
-     * offers `Merge anyway` ([retryMerge] with force) instead of Retry.
-     */
-    private val _actionErrorIsChecks = MutableStateFlow(false)
-    val actionErrorIsChecks: StateFlow<Boolean> = _actionErrorIsChecks
-
-    /** The last merge's [mergePr] `stack` flag, so a toast's action replays it. */
+    /** The last merge's [mergePr] `stack` flag, so a toast's Retry replays it. */
     private var lastMergeStack = false
 
     init {
@@ -116,11 +109,11 @@ class ChangesViewModel @AssistedInject constructor(
     }
 
     /**
-     * Squash-merge the PR; [stack] = merge THROUGH it (a native stack);
-     * [force] = past the check gate (EXP-1378). A refusal lands in
-     * [actionError]; the server posts it into the thread too (EXP-1391).
+     * Squash-merge the PR; [stack] = merge THROUGH it (a native stack). A
+     * refusal lands in [actionError]; the server posts it into the thread too
+     * (EXP-1391).
      */
-    fun mergePr(stack: Boolean = false, force: Boolean = false) {
+    fun mergePr(stack: Boolean = false) {
         if (_merging.value || _closing.value) return
         lastMergeStack = stack
         viewModelScope.launch {
@@ -128,15 +121,7 @@ class ChangesViewModel @AssistedInject constructor(
             _merging.value = true
             _actionError.value = null
             _actionErrorFrom.value = null
-            _actionErrorIsChecks.value = false
-            runCatching {
-                pullRequestsApi.merge(
-                    accountId,
-                    pullRequestId,
-                    stack = if (stack) true else null,
-                    force = if (force) true else null,
-                )
-            }
+            runCatching { pullRequestsApi.merge(accountId, pullRequestId, stack = if (stack) true else null) }
                 .onSuccess { result ->
                     val refusal = result.error
                     if (!result.merged && result.queued != true && !refusal.isNullOrBlank()) {
@@ -151,8 +136,6 @@ class ChangesViewModel @AssistedInject constructor(
                     } else {
                         MergeFailure.from(t, "The pull request could not be merged")
                     }
-                    // The flag first: the screen keys its toast on the message.
-                    _actionErrorIsChecks.value = failure.isChecks
                     _actionError.value = failure.message
                     _actionErrorFrom.value = PrAction.Merge
                 }
@@ -160,8 +143,8 @@ class ChangesViewModel @AssistedInject constructor(
         }
     }
 
-    /** The refusal toast's action: the SAME merge again (Retry), [force] = `Merge anyway`. */
-    fun retryMerge(force: Boolean) = mergePr(stack = lastMergeStack, force = force)
+    /** The refusal toast's Retry: the SAME merge again. */
+    fun retryMerge() = mergePr(stack = lastMergeStack)
 
     /** Close the PR WITHOUT merging. */
     fun closePr() {
@@ -171,7 +154,6 @@ class ChangesViewModel @AssistedInject constructor(
             _closing.value = true
             _actionError.value = null
             _actionErrorFrom.value = null
-            _actionErrorIsChecks.value = false
             runCatching { pullRequestsApi.close(accountId, pullRequestId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t

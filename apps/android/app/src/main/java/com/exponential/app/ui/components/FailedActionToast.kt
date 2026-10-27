@@ -18,21 +18,16 @@ import com.exponential.app.domain.ToastAction
 // call is safe. Invalid input stays inline under its field; nothing else
 // renders an error inline.
 
-/**
- * Toast a failed action: `Couldn't <verb> <thing>` + [message], Retry when
- * [retry] is given ([retryLabel] renames it: the merge check gate's `Merge
- * anyway`, EXP-1378).
- */
+/** Toast a failed action: `Couldn't <verb> <thing>` + [message], Retry when [retry] is given. */
 fun Toaster.failedAction(
     verb: String,
     thing: String,
     message: String? = null,
-    retryLabel: String = FeedbackStates.RETRY,
     retry: (() -> Unit)? = null,
 ): String = this.error(
     FeedbackStates.errorTitle(verb, thing),
     description = message?.trim()?.takeIf { it.isNotEmpty() },
-    action = retry?.let { ToastAction(retryLabel, it) },
+    action = retry?.let { ToastAction(FeedbackStates.RETRY, it) },
 )
 
 /**
@@ -43,8 +38,6 @@ data class FailedAction(
     val verb: String,
     val thing: String,
     val message: String? = null,
-    /** The action's label: Retry, or the merge check gate's `Merge anyway`. */
-    val retryLabel: String = FeedbackStates.RETRY,
     val retry: (() -> Unit)? = null,
 )
 
@@ -55,7 +48,7 @@ fun FailedActionToast(failure: FailedAction?, onShown: () -> Unit) {
     val currentOnShown by rememberUpdatedState(onShown)
     LaunchedEffect(failure) {
         val f = failure ?: return@LaunchedEffect
-        toaster.failedAction(f.verb, f.thing, f.message, f.retryLabel, f.retry)
+        toaster.failedAction(f.verb, f.thing, f.message, f.retry)
         currentOnShown()
     }
 }
@@ -70,7 +63,7 @@ fun ClaimedFailedActionToast(failure: FailedAction?, claim: (FailedAction) -> Bo
     val currentClaim by rememberUpdatedState(claim)
     LaunchedEffect(failure) {
         val f = failure ?: return@LaunchedEffect
-        if (currentClaim(f)) toaster.failedAction(f.verb, f.thing, f.message, f.retryLabel, f.retry)
+        if (currentClaim(f)) toaster.failedAction(f.verb, f.thing, f.message, f.retry)
     }
 }
 
