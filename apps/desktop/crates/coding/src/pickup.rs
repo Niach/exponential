@@ -2080,18 +2080,41 @@ pub enum ReclaimStep {
     Idle,
     /// Already idle: nothing to say (a persistent root is [`plan`]'s Revive).
     Waiting,
+    /// EXP-1374 (FEED-135): claimed by the process that left it, never
+    /// spawned (no run record here: the claim consumed its first message,
+    /// the worktree or the spawn never came): [`settle_unstarted`] says so
+    /// and idles it, so the sender learns it never ran.
+    Unstarted,
 }
 
-/// [`ReclaimStep`] for `row` (`pending` = an input waits for it). Pure.
-pub fn reclaim_step(row: &SessionRow, pending: bool) -> ReclaimStep {
+/// [`ReclaimStep`] for `row` (`pending` = an input waits for it; `recorded`
+/// = this machine holds its run record). Pure.
+pub fn reclaim_step(row: &SessionRow, pending: bool, recorded: bool) -> ReclaimStep {
     if pending {
         ReclaimStep::Replay
+    } else if !recorded && (row.busy || row.status_is(SESSION_STATUS_RUNNING)) {
+        ReclaimStep::Unstarted
     } else if row.busy {
         ReclaimStep::Continue
     } else if row.status_is(SESSION_STATUS_RUNNING) {
         ReclaimStep::Idle
     } else {
         ReclaimStep::Waiting
+    }
+}
+
+/// EXP-1374: the reply a [`ReclaimStep::Unstarted`] session posts.
+pub const UNSTARTED_REPLY: &str = "Could not start: the runner restarted before it began. Send it a message to start it again.";
+
+/// [`ReclaimStep::Unstarted`]: replied ([`UNSTARTED_REPLY`], waking its
+/// listeners like any refusal), then idle.
+pub fn settle_unstarted(trpc: &api::trpc::TrpcClient, session_id: &str) {
+    log::warn!("pickup: session {session_id} was claimed but never started here");
+    if let Err(err) = session_device::reply(trpc, session_id, UNSTARTED_REPLY, None) {
+        log::warn!("pickup: unstarted session {session_id} not replied: {err}");
+    }
+    if let Err(err) = crate::idle_session(trpc, session_id) {
+        log::warn!("pickup: unstarted session {session_id} not reported: {err}");
     }
 }
 
@@ -3183,12 +3206,30 @@ mod tests {
             busy,
             ..SessionRow::default()
         };
-        assert_eq!(reclaim_step(&row("running", true), false), ReclaimStep::Continue);
-        assert_eq!(reclaim_step(&row("idle", true), false), ReclaimStep::Continue);
-        assert_eq!(reclaim_step(&row("running", true), true), ReclaimStep::Replay);
-        assert_eq!(reclaim_step(&row("idle", false), true), ReclaimStep::Replay);
-        assert_eq!(reclaim_step(&row("running", false), false), ReclaimStep::Idle);
-        assert_eq!(reclaim_step(&row("idle", false), false), ReclaimStep::Waiting);
+        assert_eq!(reclaim_step(&row("running", true), false, true), ReclaimStep::Continue);
+        assert_eq!(reclaim_step(&row("idle", true), false, true), ReclaimStep::Continue);
+        assert_eq!(reclaim_step(&row("running", true), true, true), ReclaimStep::Replay);
+        assert_eq!(reclaim_step(&row("idle", false), true, true), ReclaimStep::Replay);
+        assert_eq!(reclaim_step(&row("running", false), false, true), ReclaimStep::Idle);
+        assert_eq!(reclaim_step(&row("idle", false), false, true), ReclaimStep::Waiting);
+    }
+
+    /// EXP-1374 (FEED-135): a row claimed but never spawned here (no run
+    /// record) says so instead of going idle in silence; a pending input
+    /// still replays (a fresh launch from its brief), an idle one waits.
+    #[test]
+    fn a_claimed_row_that_never_started_is_unstarted() {
+        let row = |status: &str, busy: bool| SessionRow {
+            id: "s".to_string(),
+            status: Some(status.to_string()),
+            busy,
+            ..SessionRow::default()
+        };
+        assert_eq!(reclaim_step(&row("running", false), false, false), ReclaimStep::Unstarted);
+        assert_eq!(reclaim_step(&row("running", true), false, false), ReclaimStep::Unstarted);
+        assert_eq!(reclaim_step(&row("idle", true), false, false), ReclaimStep::Unstarted);
+        assert_eq!(reclaim_step(&row("running", false), true, false), ReclaimStep::Replay);
+        assert_eq!(reclaim_step(&row("idle", false), false, false), ReclaimStep::Waiting);
     }
 
     /// EXP-1341: a pending message wakes a persistent root through Resume

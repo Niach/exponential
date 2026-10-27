@@ -2997,6 +2997,7 @@ impl DaemonHost {
         let pending = pending_session_ids(messages);
         let left_behind = std::mem::take(&mut *lock_or_recover(&self.pickup.reclaiming));
         let mut stale = Vec::new();
+        let mut unstarted = Vec::new();
         let mut mid_turn = Vec::new();
         for row in rows {
             let running = row.status_is(domain::contract::SESSION_STATUS_RUNNING);
@@ -3020,7 +3021,8 @@ impl DaemonHost {
                 }
                 continue;
             }
-            match coding::pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
+            let recorded = coding::run_registry::get(&self.pickup.ctx.data_dir, &row.id).is_some();
+            match coding::pickup::reclaim_step(row, pending.contains(row.id.as_str()), recorded) {
                 coding::pickup::ReclaimStep::Replay => {
                     log::info!("reclaim: session {} re-claimed — its pending messages replay", row.id);
                 }
@@ -3032,6 +3034,7 @@ impl DaemonHost {
                 coding::pickup::ReclaimStep::Waiting => {
                     log::info!("reclaim: session {} re-claimed — idle, waiting for its next message", row.id);
                 }
+                coding::pickup::ReclaimStep::Unstarted => unstarted.push(row.id.clone()),
             }
         }
         if !mid_turn.is_empty() {
@@ -3078,11 +3081,14 @@ impl DaemonHost {
                 }
             }
         }
-        if stale.is_empty() {
+        if stale.is_empty() && unstarted.is_empty() {
             return;
         }
         let trpc = Arc::clone(&self.pickup.ctx.trpc);
         std::thread::spawn(move || {
+            for session_id in unstarted {
+                coding::pickup::settle_unstarted(&trpc, &session_id);
+            }
             for session_id in stale {
                 if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
                     log::warn!("reclaim: session {session_id} not reported idle: {err}");
