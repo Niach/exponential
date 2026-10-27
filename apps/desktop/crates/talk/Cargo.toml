@@ -14,6 +14,8 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
+# NEW-55: call audio crosses the JSON-lines wire as base64 of i16 LE PCM.
+base64 = "0.22"
 
 # NEW-78: the microphone doctor probe (`src/microphone.rs`): AVCaptureDevice's
 # audio authorization + default input device through raw objc2 messages (the

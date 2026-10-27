@@ -1295,6 +1295,9 @@ fn dial_control(
         on_check_in,
         on_history_request,
         on_history_page,
+        // NEW-55: the daemon is never a voice device (the voice runs in the
+        // IDE alone), so a ring is not its to answer.
+        Arc::new(|_ring| {}),
     ))
 }
 

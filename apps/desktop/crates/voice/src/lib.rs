@@ -24,9 +24,19 @@
 //! speaker and the transcriber share ONE CrispASR runtime ([`runtime`]).
 //! A `Speak` that arrives while a Listen runs is answered `Finished {
 //! stopped: true }` unplayed: never a reply into the open microphone.
+//!
+//! NEW-55 (`voice-call.json`): during a CALL a Speak plays (only push to
+//! talk refuses it). A local call's playback is tapped as the echo
+//! canceller's reference ([`echo`]); a remote call's reply is never played
+//! here but streamed as `SpeechAudio` ([`StreamSink`]). When the call hears
+//! [`talk::BARGE_IN_MS`] of speech, [`barge`] stops the reply (its
+//! `Finished { stopped: true }` goes out first) and only then is
+//! `SpeechStarted` emitted. The first clause of a reply is synthesized on
+//! its own ([`first_clause`]) for a faster first audio (target < 400 ms).
 
 pub mod builtin;
 pub mod capture;
+pub mod echo;
 pub mod listen;
 pub mod listener;
 pub mod runtime;
@@ -73,11 +83,39 @@ enum Job {
     Speak { id: String, text: String, generation: u64 },
 }
 
+/// Where an event goes: stdout in the worker, a list in the tests.
+pub(crate) type Emitter = Arc<dyn Fn(&Event) + Send + Sync>;
+
 struct Shared {
     /// Bumped by every Speak and Stop; work of an older value stops.
     generation: AtomicU64,
     /// The sink playing now, so Stop can silence it from the reader thread.
     current: Mutex<Option<Arc<dyn sink::Sink>>>,
+    /// NEW-55: the reply being spoken; whoever takes it out (its own end, or
+    /// a barge-in) emits its `Finished`, exactly once.
+    speaking: Mutex<Option<String>>,
+    /// NEW-55: whether a Listen or a (remote) Call runs.
+    listening: Arc<listener::Listening>,
+    /// NEW-55: a local call's echo reference.
+    far: Arc<echo::FarEnd>,
+    emit: Emitter,
+}
+
+impl Shared {
+    fn new(listening: Arc<listener::Listening>, emit: Emitter) -> Self {
+        Shared {
+            generation: AtomicU64::new(0),
+            current: Mutex::new(None),
+            speaking: Mutex::new(None),
+            listening,
+            far: Arc::default(),
+            emit,
+        }
+    }
+
+    fn speaking(&self) -> std::sync::MutexGuard<'_, Option<String>> {
+        self.speaking.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 fn run(data_dir: PathBuf) {
@@ -87,10 +125,34 @@ fn run(data_dir: PathBuf) {
     serve(std::io::stdin().lock(), data_dir, move || listener::Ears::new(ears));
 }
 
+/// NEW-55: barge-in: the call heard [`talk::BARGE_IN_MS`] of speech. Any
+/// reply stops now (a queued one too), and the one being spoken is
+/// answered `Finished { stopped: true }` here, before the caller emits
+/// `SpeechStarted`.
+fn barge(shared: &Shared) {
+    let mut speaking = shared.speaking();
+    shared.generation.fetch_add(1, Ordering::SeqCst);
+    silence(shared);
+    if let Some(id) = speaking.take() {
+        (shared.emit)(&Event::Finished { id, stopped: true });
+    }
+}
+
+/// `id` ended: its `event` goes out unless a barge-in already answered it.
+fn end_speaking(shared: &Shared, id: &str, event: Event) {
+    let mut speaking = shared.speaking();
+    if speaking.as_deref() == Some(id) {
+        *speaking = None;
+        (shared.emit)(&event);
+    }
+}
+
 /// Answer `input`'s requests until EOF, then wind the engines down and
 /// return (the listener on `hearing`, which `make` builds on its thread).
 fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: impl FnOnce() -> H + Send + 'static) {
-    let shared = Arc::new(Shared { generation: AtomicU64::new(0), current: Mutex::new(None) });
+    let emitter: Emitter = Arc::new(emit);
+    let listening = Arc::new(listener::Listening::default());
+    let shared = Arc::new(Shared::new(listening.clone(), emitter.clone()));
     let (tx, rx) = mpsc::channel::<Job>();
     let engine_shared = shared.clone();
     let (engine_done, engine_ended) = mpsc::channel::<()>();
@@ -101,8 +163,14 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             let _ = engine_done.send(());
         })
         .expect("spawn the voice engine");
-    let listening = Arc::new(listener::Listening::default());
-    let (listen, listener) = listener::spawn(hearing, listening.clone());
+    let barging = shared.clone();
+    let links = listener::Links {
+        listening: listening.clone(),
+        barge: Arc::new(move || barge(&barging)),
+        far: shared.far.clone(),
+        emit: emitter,
+    };
+    let (listen, listener) = listener::spawn(hearing, links);
 
     for line in input.lines() {
         let Ok(line) = line else { break };
@@ -118,9 +186,10 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::Prepare { voice } => {
                 let _ = tx.send(Job::Prepare(voice));
             }
-            Request::Speak { id, .. } if listening.active() => {
+            Request::Speak { id, .. } if listening.refuses_speech() => {
                 // Never into the open microphone: a reply that arrives
                 // mid-Listen is dropped, as barge-in would have stopped it.
+                // NEW-55: a call plays it (push to talk only refuses).
                 emit(&Event::Finished { id, stopped: true });
             }
             Request::Speak { id, text } => {
@@ -145,10 +214,32 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::CancelListen { id } => {
                 let _ = listen.send(listener::Job::Cancel { id });
             }
+            Request::Call { id, language, remote } => {
+                // Replaces a Listen or Call; replies keep playing.
+                listening.begin_call(&id, remote);
+                let _ = listen.send(listener::Job::Call { id, language, remote });
+            }
+            Request::CallAudio { id, pcm } => match talk::decode_pcm(&pcm) {
+                Ok(pcm) => {
+                    let samples = pcm.into_iter().map(|sample| f32::from(sample) / 32768.0).collect();
+                    let _ = listen.send(listener::Job::Audio { id, samples });
+                }
+                Err(err) => eprintln!("unreadable call audio ({err})"),
+            },
+            Request::CallMute { id, muted } => {
+                let _ = listen.send(listener::Job::Mute { id, muted });
+            }
+            Request::Hangup { id } => {
+                // Replies play locally again at once.
+                listening.end(&id);
+                let _ = listen.send(listener::Job::Hangup { id });
+            }
         }
     }
     // EOF: the host is gone. Silence and let the engines wind down; the
-    // listener closes any open microphone.
+    // listener closes any open microphone. #NEW-80: running downloads stop
+    // at their next read (also the listener's, on its own thread).
+    crispasr::artifact::cancel_downloads();
     shared.generation.fetch_add(1, Ordering::SeqCst);
     silence(&shared);
     drop(tx);
@@ -331,7 +422,9 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
         eprintln!("no usable GPU: this GPU and driver were too slow before (cached; a driver change or 30 days re-test)");
         return Ok(None);
     }
-    artifact::ensure_all(&models_dir, &model_files, |received, _| report(runtime_total + received))
+    // #NEW-80: under the runtime's download lock (the transcriber fetches
+    // into the same dir).
+    runtime::fetching(|| artifact::ensure_all(&models_dir, &model_files, |received, _| report(runtime_total + received)))
         .map_err(|err| err.to_string())?;
     // The GGUFs are re-hashed before ggml parses them (~1-2 s for 2.2 GB).
     let hashing = Instant::now();
@@ -466,32 +559,125 @@ fn sentences(text: &str) -> Vec<&str> {
     out
 }
 
+/// NEW-55: the first sentence's first clause, synthesized on its own so the
+/// first audio comes sooner: split at the first `,` `;` `:` (followed by a
+/// space) or ` - ` when that leaves 2 to 8 words in front. `None` = no such
+/// split. The front keeps its punctuation (a dash is dropped).
+pub fn first_clause(sentence: &str) -> Option<(&str, &str)> {
+    let mark = sentence.char_indices().find_map(|(index, ch)| {
+        let rest = &sentence[index + ch.len_utf8()..];
+        match ch {
+            ',' | ';' | ':' if rest.starts_with(char::is_whitespace) => Some((index + 1, index + 1)),
+            '-' if index > 0 && sentence[..index].ends_with(' ') && rest.starts_with(' ') => Some((index - 1, index + 1)),
+            _ => None,
+        }
+    })?;
+    let (front, rest) = (sentence[..mark.0].trim(), sentence[mark.1..].trim());
+    let words = front.split_whitespace().count();
+    ((2..=8).contains(&words) && !rest.is_empty()).then_some((front, rest))
+}
+
+/// The synthesis calls of a reply: its sentences, the first one split at
+/// its [`first_clause`].
+fn utterances(text: &str) -> Vec<&str> {
+    let mut parts = sentences(text);
+    if let Some((front, rest)) = parts.first().and_then(|first| first_clause(first)) {
+        parts.splice(0..1, [front, rest]);
+    }
+    parts
+}
+
+/// NEW-55: a remote call's reply: every pushed sample goes to the host as
+/// `SpeechAudio` (i16 LE, at most [`talk::SPEECH_AUDIO_CHUNK_MS`] each),
+/// never to a speaker. Stopped (Stop, barge-in), it sends nothing more; a
+/// chunk being sent finishes before `stop` returns.
+pub struct StreamSink {
+    id: String,
+    rate: u32,
+    stopped: Mutex<bool>,
+    emit: Emitter,
+}
+
+impl StreamSink {
+    fn new(id: &str, rate: u32, emit: Emitter) -> Self {
+        StreamSink { id: id.into(), rate, stopped: Mutex::new(false), emit }
+    }
+}
+
+impl sink::Sink for StreamSink {
+    fn push(&self, samples: &[f32]) -> Result<(), String> {
+        let chunk = (self.rate * talk::SPEECH_AUDIO_CHUNK_MS / 1000).max(1) as usize;
+        for part in samples.chunks(chunk) {
+            let stopped = self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *stopped {
+                return Ok(());
+            }
+            let pcm: Vec<i16> = part.iter().map(|sample| talk::to_i16(*sample)).collect();
+            (self.emit)(&Event::SpeechAudio { id: self.id.clone(), pcm: talk::encode_pcm(&pcm), rate: self.rate });
+        }
+        Ok(())
+    }
+
+    fn finish(&self) {}
+
+    fn stop(&self) {
+        *self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
+    }
+}
+
 fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, generation: u64) {
     let current = |shared: &Shared| shared.generation.load(Ordering::SeqCst) == generation;
+    let emit = |event: Event| (shared.emit)(&event);
     if !current(shared) {
-        emit(&Event::Finished { id: id.into(), stopped: true });
+        emit(Event::Finished { id: id.into(), stopped: true });
         return;
     }
-    let sink = match sink::open(loaded.sample_rate) {
-        Ok(sink) => sink,
-        Err(err) => {
-            eprintln!("audio output failed: {err}");
-            emit(&Event::Failed { id: id.into(), error: err });
-            return;
+    // NEW-55: a remote call's reply streams to the caller.
+    let remote = shared.listening.remote_call();
+    let sink: Arc<dyn sink::Sink> = if remote {
+        Arc::new(StreamSink::new(id, loaded.sample_rate, shared.emit.clone()))
+    } else {
+        match sink::open(loaded.sample_rate) {
+            // NEW-55: a local call cancels the reply's echo with this copy.
+            Ok(sink) => Arc::new(echo::TapSink::new(sink, shared.far.clone(), loaded.sample_rate)),
+            Err(err) => {
+                eprintln!("audio output failed: {err}");
+                emit(Event::Failed { id: id.into(), error: err });
+                return;
+            }
         }
     };
     if let Ok(mut playing) = shared.current.lock() {
         *playing = Some(sink.clone());
     }
+    {
+        // Checked under the barge-in's lock: a barge-in either came first
+        // (the reply never starts) or finds it speaking and answers it.
+        let mut speaking = shared.speaking();
+        if !current(shared) {
+            drop(speaking);
+            sink.stop();
+            clear_current(shared, &sink);
+            emit(Event::Finished { id: id.into(), stopped: true });
+            return;
+        }
+        *speaking = Some(id.to_string());
+    }
     let mut started = false;
-    for sentence in sentences(text) {
+    let mut failed = None;
+    for part in utterances(text) {
         if !current(shared) {
             break;
         }
-        match loaded.session.synthesize(sentence) {
+        match loaded.session.synthesize(part) {
             Ok(pcm) => {
                 if !current(shared) {
                     break;
+                }
+                if remote && !started && !pcm.is_empty() {
+                    // The stream sits between Started and Finished.
+                    started = true;
+                    emit(Event::Started { id: id.into() });
                 }
                 // #1231 review: a player that takes no audio (pw-play
                 // without a PipeWire session) fails the reply, never
@@ -499,30 +685,30 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
                 if let Err(err) = sink.push(&pcm) {
                     eprintln!("audio output failed: {err}");
                     if !started {
-                        sink.stop();
-                        clear_current(shared, &sink);
-                        emit(&Event::Failed { id: id.into(), error: err });
-                        return;
+                        failed = Some(err);
                     }
                     break;
                 }
                 if !started && !pcm.is_empty() {
                     started = true;
-                    emit(&Event::Started { id: id.into() });
+                    emit(Event::Started { id: id.into() });
                 }
             }
             Err(err) => {
                 let err = scrub(&err, text);
                 eprintln!("synthesis failed: {err}");
                 if !started {
-                    sink.stop();
-                    clear_current(shared, &sink);
-                    emit(&Event::Failed { id: id.into(), error: err });
-                    return;
+                    failed = Some(err);
                 }
                 break;
             }
         }
+    }
+    if let Some(error) = failed {
+        sink.stop();
+        clear_current(shared, &sink);
+        end_speaking(shared, id, Event::Failed { id: id.into(), error });
+        return;
     }
     if current(shared) {
         sink.finish();
@@ -531,7 +717,7 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
     }
     let still_current = current(shared);
     clear_current(shared, &sink);
-    emit(&Event::Finished { id: id.into(), stopped: !still_current });
+    end_speaking(shared, id, Event::Finished { id: id.into(), stopped: !still_current });
 }
 
 fn clear_current(shared: &Shared, sink: &Arc<dyn sink::Sink>) {
@@ -606,6 +792,92 @@ mod tests {
         assert_eq!(scrub("failed at Der Build ist grün.", text), "failed at <reply>");
         assert_eq!(scrub("qwen3-tts synthesis failed", text), "qwen3-tts synthesis failed");
         assert_eq!(scrub(&"x".repeat(500), text).len(), 200);
+    }
+
+    struct FakeSink(std::sync::atomic::AtomicBool);
+
+    impl sink::Sink for FakeSink {
+        fn push(&self, _samples: &[f32]) -> Result<(), String> {
+            Ok(())
+        }
+        fn finish(&self) {}
+        fn stop(&self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn recording() -> (Emitter, Arc<Mutex<Vec<Event>>>) {
+        let events: Arc<Mutex<Vec<Event>>> = Arc::default();
+        let sink = events.clone();
+        (Arc::new(move |event: &Event| sink.lock().unwrap().push(event.clone())), events)
+    }
+
+    /// NEW-55: barge-in stops the reply and answers it, once, at once.
+    #[test]
+    fn barge_in_stops_the_reply_and_answers_it_first() {
+        let (emitter, events) = recording();
+        let shared = Shared::new(Arc::default(), emitter);
+        let playing = Arc::new(FakeSink(Default::default()));
+        *shared.current.lock().unwrap() = Some(playing.clone());
+        *shared.speaking() = Some("m1".into());
+        barge(&shared);
+        assert!(playing.0.load(Ordering::SeqCst), "the sink stopped");
+        assert_eq!(shared.generation.load(Ordering::SeqCst), 1, "the speaker's work is stale");
+        assert_eq!(*events.lock().unwrap(), [Event::Finished { id: "m1".into(), stopped: true }]);
+        // The engine winding down answers nothing more.
+        end_speaking(&shared, "m1", Event::Finished { id: "m1".into(), stopped: true });
+        assert_eq!(events.lock().unwrap().len(), 1);
+        // Nothing playing: still stale (a queued reply never starts), no answer.
+        barge(&shared);
+        assert_eq!(shared.generation.load(Ordering::SeqCst), 2);
+        assert_eq!(events.lock().unwrap().len(), 1);
+    }
+
+    /// NEW-55: a remote call's reply streams in chunks of at most 100 ms.
+    #[test]
+    fn a_remote_reply_streams_100_ms_chunks_until_stopped() {
+        use sink::Sink as _;
+        let (emitter, events) = recording();
+        let stream = StreamSink::new("m1", 24_000, emitter);
+        let pcm: Vec<f32> = (0..6000).map(|index| (index as f32 / 10.0).sin() * 0.5).collect();
+        stream.push(&pcm).unwrap();
+        let chunks: Vec<Vec<i16>> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|event| match event {
+                Event::SpeechAudio { id, pcm, rate } => {
+                    assert_eq!((id.as_str(), *rate), ("m1", 24_000));
+                    talk::decode_pcm(pcm).unwrap()
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(), [2400, 2400, 1200]);
+        assert_eq!(chunks[0][10], talk::to_i16(pcm[10]));
+        stream.stop();
+        stream.push(&pcm).unwrap();
+        assert_eq!(events.lock().unwrap().len(), 3, "a stopped stream sends nothing");
+    }
+
+    /// NEW-55: the first clause of a reply is synthesized on its own.
+    #[test]
+    fn the_first_clause_splits_off() {
+        assert_eq!(first_clause("Three issues are open: NEW-55, NEW-56 and NEW-79."), Some(("Three issues are open:", "NEW-55, NEW-56 and NEW-79.")));
+        assert_eq!(first_clause("Okay, I moved it."), None, "one word in front");
+        assert_eq!(first_clause("Sure thing, I moved it."), Some(("Sure thing,", "I moved it.")));
+        assert_eq!(first_clause("The build is green - merging now."), Some(("The build is green", "merging now.")));
+        assert_eq!(first_clause("Done; the PR is open."), None);
+        assert_eq!(first_clause("All right then; the PR is open."), Some(("All right then;", "the PR is open.")));
+        assert_eq!(first_clause("One two three four five six seven eight nine, ten."), None, "nine words in front");
+        assert_eq!(first_clause("One two three four five six seven eight, nine."), Some(("One two three four five six seven eight,", "nine.")));
+        assert_eq!(first_clause("Okay, so the plan is set, go."), None, "only the first mark counts");
+        assert_eq!(first_clause("It costs 1,000 euros, roughly."), Some(("It costs 1,000 euros,", "roughly.")), "a digit comma is no mark");
+        assert_eq!(first_clause("It is 12:30 now, so lunch."), Some(("It is 12:30 now,", "so lunch.")));
+        assert_eq!(first_clause("NEW-55 and NEW-56 are open."), None, "a hyphen is no dash");
+        assert_eq!(first_clause("Two words,"), None, "nothing behind it");
+        assert_eq!(utterances("Sure thing, I moved it. The PR is open, too."), ["Sure thing,", "I moved it.", "The PR is open, too."]);
+        assert_eq!(utterances("Done."), ["Done."]);
     }
 
     #[test]

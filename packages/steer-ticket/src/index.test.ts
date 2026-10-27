@@ -75,6 +75,30 @@ describe(`steer tickets`, () => {
     }
   })
 
+  // NEW-55: the call roles ride the same format — callId/agentId are plain
+  // claims, verified (and tolerated) like every other one.
+  test(`round-trips caller and call_host tickets`, () => {
+    const caller = claims({
+      role: `caller`,
+      team: ``,
+      sessionId: undefined,
+      callId: `call-1`,
+      agentId: `agent-1`,
+      deviceId: `dev-1`,
+      deviceOwnerId: `user-1`,
+    })
+    const host = claims({ role: `call_host`, team: ``, sessionId: undefined, callId: `call-1` })
+    for (const c of [caller, host]) {
+      const result = verifySteerTicket(signSteerTicket(c, SECRET), SECRET)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.claims.role).toBe(c.role)
+        expect(result.claims.callId).toBe(`call-1`)
+        expect(result.claims.agentId).toBe(c.agentId)
+      }
+    }
+  })
+
   test(`rejects malformed tokens`, () => {
     for (const bad of [``, `abc`, `.`, `a.`, `.b`, `not-base64!.sig`]) {
       const result = verifySteerTicket(bad, SECRET)

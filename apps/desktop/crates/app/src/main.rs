@@ -214,6 +214,9 @@ fn main() {
         // #NEW-54: push to talk (shares the speech worker; before the tray,
         // which shows its shortcut status and Mute).
         ui::push_to_talk::install(cx);
+        // NEW-55: caller mode (observes Speak replies; before the tray,
+        // whose Call item it answers).
+        ui::voice_call::install(cx);
         // NEW-68: the voice tray (follows the settings speak replies holds).
         ui::voice_tray::install(cx);
 

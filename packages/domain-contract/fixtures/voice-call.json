@@ -1,0 +1,275 @@
+{
+  "$comment": "NEW-55 (voice V4, phase-2 plan approved 2026-10-27 on #NEW-9): CALLER MODE. A call = a conversation with ONE agent by voice: the microphone stays open until End call, every finished utterance goes out as a plain message through `sessions.send` (the member's conversation with that agent, exactly like push to talk), every reply of that agent in that conversation is spoken, speech while a reply plays cancels it (barge-in), and an utterance finished while the agent's turn runs rides the existing queue bar (the `queue` slot strip) like a typed message. Recognition and the voice run ONLY on the member's voice device (`user_voice_settings.voiceDeviceId`); phones (V5) and web (V6) STREAM the call's audio to it. ENTRY: the telephone (icon concept `voice-call`, testId `testIds.call`, label `copy.call`) in the AGENT CHAT'S HEADER ×4, left of the overflow, the existing header icon button; never in the Agents list. The IDE tray's `Call {agent}` item (voice.json `trayCall`) calls the voice agent. AVAILABILITY = pure `callAvailability(input)` (`availabilityCases`; reasons in order, first match wins): no voice device → `noVoiceDevice`; Speak replies off → `speakOff` (the voice is only prepared while it is on); the voice device offline → `offline`; on a desktop that is NOT the voice device → `notHere` (V4 calls only from the voice device's own IDE); the voice device's doctor row `speech` (group voice) missing or not yet checked → `preparing`; its state `missing` (no usable GPU: Qwen3-TTS runs on the GPU only) → `noGpu`; a call already running on the voice device → `busy`; else enabled (reason null). A disabled telephone stays visible, dimmed, its tooltip/long-press = the reason. FLOW = pure `callStep(state, event)` + `callView(state)` (`flowCases`; the SAME machine on the voice device and on a caller, which receives the host's events as `call_event` frames): phases connecting → listening ⇄ thinking ⇄ speaking, `muted` is a flag (the microphone closes, replies still play); `view` null = no call surface. The call surface: on the desktop THE voice capsule (voice-call-overlay: VoiceWave md, `state` bold, `line` muted, then the `mute` pill and the PRIMARY `copy.endCall` pill), on phones full screen and on web a centred card (the `voice-call` entry: VoiceWave xl, the state, the line, End call primary + Mute); a failure ends the call with a toast (`toast`). `surfaceSpecimens` are the styleguide rows of both surfaces (web + desktop `voice-call-overlay` capsules with the lead pill, and the `voice-call` entry); each view's End call pill is `copy.endCall`. TRANSPORT (streamed calls): tRPC `voice.startCall({agentId})` answers `{callId, ticket, url, relayUrl}` (the client dials `url` as-is) or refuses with the availability reason; the caller opens the steer relay with a `caller` ticket (claims callId, deviceId, deviceOwnerId); the relay rings the voice device on its control socket (`{t:'call_ring', callId, agentId}`), which mints a `call_host` ticket (tRPC `voice.callHostTicket({callId})`) and joins; both get `{t:'call_ready'}`; no host within `constants.ringTimeoutMs` → the caller gets `{t:'error', code:'no_answer'}` then `bye`. The `call_host` ticket names the voice device (`deviceId`) and is admitted only into that device's room. Once paired, each socket may send at most `constants.maxFramesPerSecond` binary frames per second (a token bucket; extra frames are dropped), a call ends after `constants.maxCallMs` (reason `max_length`) and after `constants.idleTimeoutMs` without a frame either way (reason `idle`): both sides get `call_end` with that reason, which toasts as `dropped`. DEPLOY ORDER: the steer relay ships BEFORE web (an older relay refuses caller tickets with 401, which also count toward its failed-auth rate limit). The voice device answers every ring without asking: a caller is always the device's own member. AUDIO = BINARY WebSocket frames: byte 0 = kind (`wire.kinds`), bytes 1-2 = sequence (u16 big-endian, wraps), then ONE Opus packet of `constants.frameMs` ms; uplink mono `constants.upRate` Hz at ~`constants.upKbps` kbps with in-band FEC, downlink mono `constants.downRate` Hz at ~`constants.downKbps` kbps; a frame above `wire.maxFrameBytes` is dropped; a caller may send only `up`, the host only `down`. CONTROL = JSON text frames `wire.control`; the relay forwards them between the pair, persists nothing and never decodes audio. The caller plays the downlink through a `constants.jitterMs` ms jitter buffer, flushed on `call_event` speechStarted (barge-in), and captures with the OS echo canceller on (iOS `.voiceChat`, Android VOICE_COMMUNICATION + AcousticEchoCanceler, web `echoCancellation: true`); the voice device's own microphone runs through the worker's echo canceller with the reply as the reference. In a call the worker closes a segment after `constants.minSilenceMs` ms of silence (push to talk keeps talk-listen.json's 300) and barge-in needs `constants.bargeInMs` ms of speech.",
+  "copy": {
+    "call": "Call {agent}",
+    "connecting": "Connecting",
+    "listening": "Listening",
+    "thinking": "Thinking",
+    "speaking": "Speaking",
+    "muted": "Microphone muted",
+    "mutedLine": "Unmute to talk",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "endCall": "End call",
+    "queued": "{count} queued · {text}",
+    "reasons": {
+      "noVoiceDevice": "Pick a voice device in Settings → Voice",
+      "speakOff": "Turn on Speak replies in Settings → Voice",
+      "offline": "{device} is offline",
+      "notHere": "Calls run on {device}",
+      "preparing": "{device} is getting its voice ready",
+      "noGpu": "{device} can't speak: no usable GPU",
+      "busy": "{device} is in another call"
+    },
+    "failed": {
+      "no_answer": "{device} didn't answer",
+      "device_offline": "{device} is offline",
+      "no_microphone": "No microphone",
+      "not_granted": "Microphone not allowed",
+      "dropped": "The call dropped"
+    }
+  },
+  "icons": {
+    "call": "voice-call"
+  },
+  "testIds": {
+    "call": "agent-chat-call",
+    "surface": "voice-call",
+    "mute": "voice-call-mute",
+    "end": "voice-call-end"
+  },
+  "constants": {
+    "ringTimeoutMs": 10000,
+    "maxFramesPerSecond": 60,
+    "maxCallMs": 3600000,
+    "idleTimeoutMs": 30000,
+    "minSilenceMs": 250,
+    "bargeInMs": 250,
+    "frameMs": 20,
+    "upRate": 16000,
+    "downRate": 24000,
+    "upKbps": 24,
+    "downKbps": 32,
+    "jitterMs": 40
+  },
+  "wire": {
+    "kinds": { "up": 1, "down": 2 },
+    "maxFrameBytes": 1500,
+    "control": {
+      "call_ring": "relay → voice device (control socket): { callId, agentId }",
+      "call_ready": "relay → both: the pair is up",
+      "call_event": "host → caller: { event } = one `flowCases` event (partial, said, queued, replyStarted, replyFinished, speechStarted)",
+      "call_mute": "caller → host: { muted }",
+      "call_end": "either → relay → the other: { reason? }; the relay then closes the room"
+    }
+  },
+  "surfaceSpecimens": [
+    {
+      "activity": "listening",
+      "level": 0.7,
+      "bands": [0.9, 0.6, 1, 0.5],
+      "state": "Listening",
+      "line": "“what is still open on the voice board”",
+      "mute": "Mute"
+    },
+    {
+      "activity": "thinking",
+      "level": 0,
+      "bands": [],
+      "state": "Thinking",
+      "line": "1 queued · “and assign them to me”",
+      "mute": "Mute"
+    },
+    {
+      "activity": "speaking",
+      "level": 0.5,
+      "bands": [0.7, 1, 0.5, 0.8],
+      "state": "Speaking",
+      "line": "Three issues are open: NEW-55, NEW-56 and NEW-79.",
+      "mute": "Mute"
+    },
+    {
+      "activity": "muted",
+      "level": 0,
+      "bands": [],
+      "state": "Microphone muted",
+      "line": "Unmute to talk",
+      "mute": "Unmute"
+    }
+  ],
+  "availabilityCases": [
+    {
+      "name": "no voice device",
+      "input": { "platform": "phone", "device": null, "speakReplies": true, "online": false, "here": false, "speech": null, "busy": false },
+      "expected": { "enabled": false, "reason": "Pick a voice device in Settings → Voice" }
+    },
+    {
+      "name": "speak replies off",
+      "input": { "platform": "web", "device": "mint", "speakReplies": false, "online": true, "here": false, "speech": "ok", "busy": false },
+      "expected": { "enabled": false, "reason": "Turn on Speak replies in Settings → Voice" }
+    },
+    {
+      "name": "the voice device is offline",
+      "input": { "platform": "phone", "device": "mint", "speakReplies": true, "online": false, "here": false, "speech": "ok", "busy": false },
+      "expected": { "enabled": false, "reason": "mint is offline" }
+    },
+    {
+      "name": "another desktop",
+      "input": { "platform": "desktop", "device": "mint", "speakReplies": true, "online": true, "here": false, "speech": "ok", "busy": false },
+      "expected": { "enabled": false, "reason": "Calls run on mint" }
+    },
+    {
+      "name": "the voice is not checked yet",
+      "input": { "platform": "phone", "device": "mint", "speakReplies": true, "online": true, "here": false, "speech": null, "busy": false },
+      "expected": { "enabled": false, "reason": "mint is getting its voice ready" }
+    },
+    {
+      "name": "the voice is downloading",
+      "input": { "platform": "desktop", "device": "mint", "speakReplies": true, "online": true, "here": true, "speech": "preparing", "busy": false },
+      "expected": { "enabled": false, "reason": "mint is getting its voice ready" }
+    },
+    {
+      "name": "no usable GPU",
+      "input": { "platform": "web", "device": "macbook", "speakReplies": true, "online": true, "here": false, "speech": "noGpu", "busy": false },
+      "expected": { "enabled": false, "reason": "macbook can't speak: no usable GPU" }
+    },
+    {
+      "name": "already in a call",
+      "input": { "platform": "phone", "device": "mint", "speakReplies": true, "online": true, "here": false, "speech": "ok", "busy": true },
+      "expected": { "enabled": false, "reason": "mint is in another call" }
+    },
+    {
+      "name": "the voice device itself",
+      "input": { "platform": "desktop", "device": "mint", "speakReplies": true, "online": true, "here": true, "speech": "ok", "busy": false },
+      "expected": { "enabled": true, "reason": null }
+    },
+    {
+      "name": "a phone streams to it",
+      "input": { "platform": "phone", "device": "mint", "speakReplies": true, "online": true, "here": false, "speech": "ok", "busy": false },
+      "expected": { "enabled": true, "reason": null }
+    }
+  ],
+  "flowCases": [
+    {
+      "name": "connecting",
+      "events": [{ "t": "start", "device": "mint" }],
+      "view": { "activity": "thinking", "state": "Connecting", "line": "", "mute": "Mute" }
+    },
+    {
+      "name": "connected, listening",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }],
+      "view": { "activity": "listening", "state": "Listening", "line": "", "mute": "Mute" }
+    },
+    {
+      "name": "a partial shows quoted",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "partial", "text": " what is still open " }],
+      "view": { "activity": "listening", "state": "Listening", "line": "“what is still open”", "mute": "Mute" }
+    },
+    {
+      "name": "a finished utterance thinks",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "said", "text": "what is still open on the voice board" }],
+      "view": { "activity": "thinking", "state": "Thinking", "line": "“what is still open on the voice board”", "mute": "Mute" }
+    },
+    {
+      "name": "the reply is spoken",
+      "events": [
+        { "t": "start", "device": "mint" },
+        { "t": "connected" },
+        { "t": "said", "text": "what is still open" },
+        { "t": "replyStarted", "text": "Three issues are open: NEW-55, NEW-56 and NEW-79." }
+      ],
+      "view": { "activity": "speaking", "state": "Speaking", "line": "Three issues are open: NEW-55, NEW-56 and NEW-79.", "mute": "Mute" }
+    },
+    {
+      "name": "after the reply it listens again",
+      "events": [
+        { "t": "start", "device": "mint" },
+        { "t": "connected" },
+        { "t": "said", "text": "what is still open" },
+        { "t": "replyStarted", "text": "Three." },
+        { "t": "replyFinished" }
+      ],
+      "view": { "activity": "listening", "state": "Listening", "line": "", "mute": "Mute" }
+    },
+    {
+      "name": "barge-in: speech during the reply listens",
+      "events": [
+        { "t": "start", "device": "mint" },
+        { "t": "connected" },
+        { "t": "said", "text": "what is still open" },
+        { "t": "replyStarted", "text": "Three issues are open." },
+        { "t": "speechStarted" }
+      ],
+      "view": { "activity": "listening", "state": "Listening", "line": "", "mute": "Mute" }
+    },
+    {
+      "name": "speech while thinking keeps thinking",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "said", "text": "what is still open" }, { "t": "speechStarted" }],
+      "view": { "activity": "thinking", "state": "Thinking", "line": "“what is still open”", "mute": "Mute" }
+    },
+    {
+      "name": "mid-turn utterances ride the queue bar",
+      "events": [
+        { "t": "start", "device": "mint" },
+        { "t": "connected" },
+        { "t": "said", "text": "what is still open" },
+        { "t": "queued", "count": 1, "text": "and assign them to me" }
+      ],
+      "view": { "activity": "thinking", "state": "Thinking", "line": "1 queued · “and assign them to me”", "mute": "Mute" }
+    },
+    {
+      "name": "an emptied queue keeps the line",
+      "events": [
+        { "t": "start", "device": "mint" },
+        { "t": "connected" },
+        { "t": "said", "text": "what is still open" },
+        { "t": "queued", "count": 1, "text": "and assign them" },
+        { "t": "queued", "count": 0, "text": "" }
+      ],
+      "view": { "activity": "thinking", "state": "Thinking", "line": "“what is still open”", "mute": "Mute" }
+    },
+    {
+      "name": "muted while listening",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "mute" }],
+      "view": { "activity": "muted", "state": "Microphone muted", "line": "Unmute to talk", "mute": "Unmute" }
+    },
+    {
+      "name": "muted, the reply still plays",
+      "events": [
+        { "t": "start", "device": "mint" },
+        { "t": "connected" },
+        { "t": "said", "text": "what is still open" },
+        { "t": "mute" },
+        { "t": "replyStarted", "text": "Three." }
+      ],
+      "view": { "activity": "speaking", "state": "Speaking", "line": "Three.", "mute": "Unmute" }
+    },
+    {
+      "name": "unmuted listens again",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "mute" }, { "t": "unmute" }],
+      "view": { "activity": "listening", "state": "Listening", "line": "", "mute": "Mute" }
+    },
+    {
+      "name": "an empty utterance is ignored",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "said", "text": "  " }],
+      "view": { "activity": "listening", "state": "Listening", "line": "", "mute": "Mute" }
+    },
+    {
+      "name": "End call hides it",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "end" }],
+      "view": null
+    },
+    {
+      "name": "no answer ends it with a toast",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "failed", "code": "no_answer" }],
+      "view": null,
+      "toast": "mint didn't answer"
+    },
+    {
+      "name": "a dropped call ends it with a toast",
+      "events": [{ "t": "start", "device": "mint" }, { "t": "connected" }, { "t": "failed", "code": "dropped" }],
+      "view": null,
+      "toast": "The call dropped"
+    }
+  ]
+}

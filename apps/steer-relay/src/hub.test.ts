@@ -7,6 +7,11 @@ import {
   type RelaySocket,
 } from "./hub"
 import {
+  CALL_IDLE_TIMEOUT_MS,
+  CALL_MAX_FRAME_BYTES,
+  CALL_MAX_FRAMES_PER_SECOND,
+  CALL_MAX_MS,
+  CALL_RING_TIMEOUT_MS,
   CLOSE_PUBLISHER_IDLE,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
@@ -19,11 +24,16 @@ import {
 
 class FakeSocket implements RelaySocket {
   sent: string[] = []
+  /** NEW-55: binary frames (a call's audio). */
+  binary: Uint8Array[] = []
   closed: { code?: number; reason?: string } | null = null
   buffered = 0
 
   send(data: string) {
     this.sent.push(data)
+  }
+  sendBinary(data: Uint8Array) {
+    this.binary.push(data)
   }
   close(code?: number, reason?: string) {
     this.closed = { code, reason }
@@ -2661,6 +2671,14 @@ describe(`stats counters (EXP-553)`, () => {
       historyRoomDeviceLost: 0,
       compactRequests: 0,
       compactVerdictTimeouts: 0,
+      callRings: 0,
+      callDeviceOffline: 0,
+      callBusy: 0,
+      callNoAnswer: 0,
+      callsExpired: 0,
+      callFramesForwarded: 0,
+      callFramesDropped: 0,
+      callFramesSkipped: 0,
     })
 
     const desktop = new FakeSocket()
@@ -3463,6 +3481,416 @@ describe(`history pages after the replay (EXP-796)`, () => {
     ])
     expect(member.closed?.code).toBe(CLOSE_SESSION_ENDED)
     expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+})
+
+// ── NEW-55: voice calls ──────────────────────────────────────────────────────
+
+describe(`voice calls (NEW-55)`, () => {
+  function onlineDevice(hub: Hub, owner = `owner`, deviceId = `mint`) {
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `control`, sub: owner, team: `` }))
+    hub.onMessage(sock, JSON.stringify({ t: `online`, deviceId }))
+    return sock
+  }
+  function dial(
+    hub: Hub,
+    opts: { callId?: string; owner?: string; deviceId?: string } = {}
+  ) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({
+        role: `caller`,
+        sub: opts.owner ?? `owner`,
+        team: ``,
+        callId: opts.callId ?? `call-1`,
+        agentId: `agent-1`,
+        deviceId: opts.deviceId ?? `mint`,
+        deviceOwnerId: opts.owner ?? `owner`,
+      })
+    )
+    return sock
+  }
+  function answer(hub: Hub, opts: { callId?: string; sub?: string; deviceId?: string } = {}) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({
+        role: `call_host`,
+        sub: opts.sub ?? `owner`,
+        team: ``,
+        callId: opts.callId ?? `call-1`,
+        deviceId: opts.deviceId ?? `mint`,
+      })
+    )
+    return sock
+  }
+  function audio(kind: number, seq: number, bytes = 40) {
+    const out = new Uint8Array(3 + bytes)
+    out[0] = kind
+    out[1] = (seq >> 8) & 0xff
+    out[2] = seq & 0xff
+    out.fill(0xab, 3)
+    return out
+  }
+  function paired() {
+    const hub = new Hub()
+    const device = onlineDevice(hub)
+    const caller = dial(hub)
+    const host = answer(hub)
+    return { hub, device, caller, host }
+  }
+
+  test(`a caller rings the voice device's control socket`, () => {
+    const hub = new Hub()
+    const device = onlineDevice(hub)
+    const caller = dial(hub)
+    expect(device.lastFrame(`call_ring`)).toEqual({
+      t: `call_ring`,
+      callId: `call-1`,
+      agentId: `agent-1`,
+    })
+    expect(caller.closed).toBeNull()
+    expect(hub.stats().calls).toBe(1)
+    expect(hub.counters().callRings).toBe(1)
+    hub.destroy()
+  })
+
+  test(`an offline voice device answers device_offline, terminally`, () => {
+    const hub = new Hub()
+    onlineDevice(hub, `owner`, `other-device`)
+    const caller = dial(hub)
+    expect(caller.frames()).toEqual([
+      { t: `error`, code: `device_offline` },
+      { t: `bye`, outcome: `device_offline` },
+    ])
+    expect(caller.closed).toEqual({
+      code: CLOSE_SESSION_ENDED,
+      reason: `device_offline`,
+    })
+    expect(hub.stats().calls).toBe(0)
+    hub.destroy()
+  })
+
+  test(`the device is looked up under its owner, not another account`, () => {
+    const hub = new Hub()
+    onlineDevice(hub, `someone-else`, `mint`)
+    const caller = dial(hub)
+    expect(caller.lastFrame(`error`)).toMatchObject({ code: `device_offline` })
+    hub.destroy()
+  })
+
+  test(`a second call to the same device is busy`, () => {
+    const hub = new Hub()
+    const device = onlineDevice(hub)
+    dial(hub)
+    const second = dial(hub, { callId: `call-2` })
+    expect(second.frames()).toEqual([
+      { t: `error`, code: `busy` },
+      { t: `bye`, outcome: `busy` },
+    ])
+    expect(second.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(device.framesOf(`call_ring`)).toHaveLength(1)
+    // The refused socket closing does not touch the running call.
+    hub.onClose(second)
+    expect(hub.stats().calls).toBe(1)
+    expect(hub.counters().callBusy).toBe(1)
+    hub.destroy()
+  })
+
+  test(`no host within the ring timeout answers no_answer`, () => {
+    const hub = new Hub()
+    onlineDevice(hub)
+    const timers: { fn: () => void; ms?: number }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      timers.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    let caller: FakeSocket
+    try {
+      caller = dial(hub)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    const ring = timers.find((t) => t.ms === CALL_RING_TIMEOUT_MS)
+    expect(ring).toBeDefined()
+    expect(CALL_RING_TIMEOUT_MS).toBe(10_000)
+    ring!.fn()
+    expect(caller.frames()).toEqual([
+      { t: `error`, code: `no_answer` },
+      { t: `bye`, outcome: `no_answer` },
+    ])
+    expect(caller.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().calls).toBe(0)
+    expect(hub.counters().callNoAnswer).toBe(1)
+    // The device is free again.
+    const again = dial(hub, { callId: `call-2` })
+    expect(again.closed).toBeNull()
+    hub.destroy()
+  })
+
+  test(`the owner's host joins and both get call_ready`, () => {
+    const { hub, caller, host } = paired()
+    expect(caller.framesOf(`call_ready`)).toHaveLength(1)
+    expect(host.frames()).toEqual([{ t: `call_ready` }])
+    expect(host.closed).toBeNull()
+    hub.destroy()
+  })
+
+  // NEW-55 review: the host ticket is bound to its device.
+  test(`a host ticket for another device is refused`, () => {
+    const hub = new Hub()
+    onlineDevice(hub)
+    const caller = dial(hub)
+    const host = answer(hub, { deviceId: `other` })
+    expect(host.frames()).toContainEqual({ t: `error`, code: `no_such_call` })
+    expect(caller.framesOf(`call_ready`)).toHaveLength(0)
+    hub.destroy()
+  })
+
+  test(`a socket may send at most CALL_MAX_FRAMES_PER_SECOND frames a second`, () => {
+    const { hub, caller, host } = paired()
+    const before = host.binary.length
+    for (let seq = 0; seq < CALL_MAX_FRAMES_PER_SECOND + 20; seq += 1) hub.onBinary(caller, audio(1, seq))
+    expect(host.binary.length - before).toBe(CALL_MAX_FRAMES_PER_SECOND)
+    hub.destroy()
+  })
+
+  function pairedWithTimers() {
+    const timeouts: { fn: () => void; ms: number }[] = []
+    const intervals: { fn: () => void; ms: number }[] = []
+    const [realTimeout, realInterval] = [globalThis.setTimeout, globalThis.setInterval]
+    globalThis.setTimeout = ((fn: () => void, ms: number) => {
+      timeouts.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    globalThis.setInterval = ((fn: () => void, ms: number) => {
+      intervals.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval
+    try {
+      return { ...paired(), timeouts, intervals }
+    } finally {
+      globalThis.setTimeout = realTimeout
+      globalThis.setInterval = realInterval
+    }
+  }
+
+  test(`a paired call ends at CALL_MAX_MS with max_length`, () => {
+    const { hub, caller, host, timeouts } = pairedWithTimers()
+    const length = timeouts.find((t) => t.ms === CALL_MAX_MS)
+    expect(length).toBeDefined()
+    length!.fn()
+    expect(caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `max_length` })
+    expect(host.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `max_length` })
+    expect(hub.stats().calls).toBe(0)
+    expect(hub.counters().callsExpired).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a paired call with no frame for CALL_IDLE_TIMEOUT_MS ends with idle`, () => {
+    const { hub, caller, host, intervals } = pairedWithTimers()
+    const idle = intervals.find((t) => t.ms === Math.min(CALL_IDLE_TIMEOUT_MS, 5_000))
+    expect(idle).toBeDefined()
+    const now = Date.now
+    try {
+      // A frame keeps it alive.
+      hub.onBinary(caller, audio(1, 0))
+      idle!.fn()
+      expect(hub.stats().calls).toBe(1)
+      Date.now = () => now() + CALL_IDLE_TIMEOUT_MS + 1
+      idle!.fn()
+    } finally {
+      Date.now = now
+    }
+    expect(caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `idle` })
+    expect(host.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().calls).toBe(0)
+    hub.destroy()
+  })
+
+  test(`a host on another account is refused and the call keeps ringing`, () => {
+    const hub = new Hub()
+    onlineDevice(hub)
+    const caller = dial(hub)
+    const intruder = answer(hub, { sub: `attacker` })
+    expect(intruder.frames()).toEqual([
+      { t: `error`, code: `no_such_call` },
+      { t: `bye`, outcome: `no_such_call` },
+    ])
+    expect(intruder.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    hub.onClose(intruder)
+    expect(caller.framesOf(`call_ready`)).toHaveLength(0)
+    expect(caller.closed).toBeNull()
+    // The real host still gets in.
+    const host = answer(hub)
+    expect(host.frames()).toEqual([{ t: `call_ready` }])
+    hub.destroy()
+  })
+
+  test(`a host for an unknown or already answered call is refused`, () => {
+    const { hub } = paired()
+    const late = answer(hub)
+    expect(late.lastFrame(`error`)).toMatchObject({ code: `no_such_call` })
+    const stray = answer(hub, { callId: `nope` })
+    expect(stray.lastFrame(`error`)).toMatchObject({ code: `no_such_call` })
+    hub.destroy()
+  })
+
+  test(`audio flows up caller → host and down host → caller, untouched`, () => {
+    const { hub, caller, host } = paired()
+    const up = audio(1, 7)
+    hub.onBinary(caller, up)
+    expect(host.binary).toEqual([up])
+    const down = audio(2, 65535)
+    hub.onBinary(host, down)
+    expect(caller.binary).toEqual([down])
+    expect(hub.counters().callFramesForwarded).toBe(2)
+    hub.destroy()
+  })
+
+  test(`a wrong kind, an oversized or an empty frame is dropped`, () => {
+    const { hub, caller, host } = paired()
+    const warn = spyOn(console, `warn`).mockImplementation(() => {})
+    try {
+      hub.onBinary(caller, audio(2, 1)) // a caller may only send `up`
+      hub.onBinary(host, audio(1, 1)) // a host may only send `down`
+      hub.onBinary(caller, audio(1, 2, CALL_MAX_FRAME_BYTES)) // 3 + 1500 bytes
+      hub.onBinary(caller, new Uint8Array([1, 0, 3])) // header only
+      expect(host.binary).toHaveLength(0)
+      expect(caller.binary).toHaveLength(0)
+      // Exactly the limit passes.
+      hub.onBinary(caller, audio(1, 3, CALL_MAX_FRAME_BYTES - 3))
+      expect(host.binary).toHaveLength(1)
+      expect(hub.counters().callFramesDropped).toBe(4)
+      // Rate-limited: one warning per socket per window.
+      expect(warn).toHaveBeenCalledTimes(2)
+    } finally {
+      warn.mockRestore()
+    }
+    hub.destroy()
+  })
+
+  test(`audio before the host joined goes nowhere`, () => {
+    const hub = new Hub()
+    onlineDevice(hub)
+    const caller = dial(hub)
+    hub.onBinary(caller, audio(1, 1))
+    expect(hub.counters().callFramesDropped).toBe(1)
+    hub.destroy()
+  })
+
+  test(`a saturated peer skips frames instead of queueing them`, () => {
+    const { hub, caller, host } = paired()
+    host.buffered = 64 * 1024
+    hub.onBinary(caller, audio(1, 1))
+    expect(host.binary).toHaveLength(0)
+    expect(hub.counters().callFramesSkipped).toBe(1)
+    host.buffered = 0
+    hub.onBinary(caller, audio(1, 2))
+    expect(host.binary).toHaveLength(1)
+    hub.destroy()
+  })
+
+  test(`binary frames from every other role are still dropped`, () => {
+    const hub = new Hub()
+    const warn = spyOn(console, `warn`).mockImplementation(() => {})
+    try {
+      const device = onlineDevice(hub)
+      const pub = connectPublisher(hub)
+      const member = connectMember(hub)
+      for (const sock of [device, pub, member]) hub.onBinary(sock, audio(1, 1))
+      for (const sock of [device, pub, member]) expect(sock.binary).toHaveLength(0)
+      expect(hub.counters().callFramesForwarded).toBe(0)
+    } finally {
+      warn.mockRestore()
+    }
+    hub.destroy()
+  })
+
+  test(`call_mute goes to the host, call_event to the caller`, () => {
+    const { hub, caller, host } = paired()
+    hub.onMessage(caller, JSON.stringify({ t: `call_mute`, muted: true }))
+    expect(host.lastFrame(`call_mute`)).toEqual({ t: `call_mute`, muted: true })
+    const event = { t: `said`, text: `what is still open` }
+    hub.onMessage(host, JSON.stringify({ t: `call_event`, event }))
+    expect(caller.lastFrame(`call_event`)).toEqual({ t: `call_event`, event })
+    // Wrong direction: a host cannot mute, a caller cannot send events.
+    hub.onMessage(host, JSON.stringify({ t: `call_mute`, muted: false }))
+    hub.onMessage(caller, JSON.stringify({ t: `call_event`, event }))
+    expect(caller.framesOf(`call_mute`)).toHaveLength(0)
+    expect(host.framesOf(`call_event`)).toHaveLength(0)
+    hub.destroy()
+  })
+
+  test(`an oversized call_event is rejected`, () => {
+    const { hub, caller, host } = paired()
+    const warn = spyOn(console, `warn`).mockImplementation(() => {})
+    try {
+      const event = { t: `partial`, text: `x`.repeat(9 * 1024) }
+      hub.onMessage(host, JSON.stringify({ t: `call_event`, event }))
+      expect(caller.framesOf(`call_event`)).toHaveLength(0)
+    } finally {
+      warn.mockRestore()
+    }
+    hub.destroy()
+  })
+
+  test(`call_end reaches the peer and closes the room`, () => {
+    const { hub, device, caller, host } = paired()
+    hub.onMessage(caller, JSON.stringify({ t: `call_end`, reason: `hangup` }))
+    expect(host.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `hangup` })
+    expect(host.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(caller.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(caller.framesOf(`call_end`)).toHaveLength(0)
+    expect(hub.stats().calls).toBe(0)
+    // The sockets' own closes afterwards are inert, and the device is free.
+    hub.onClose(caller)
+    hub.onClose(host)
+    const next = dial(hub, { callId: `call-2` })
+    expect(next.closed).toBeNull()
+    expect(device.framesOf(`call_ring`)).toHaveLength(2)
+    hub.destroy()
+  })
+
+  test(`either socket closing ends the call for the other`, () => {
+    const a = paired()
+    a.hub.onClose(a.host)
+    expect(a.caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `dropped` })
+    expect(a.caller.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(a.hub.stats().calls).toBe(0)
+    a.hub.destroy()
+
+    const b = paired()
+    b.hub.onClose(b.caller)
+    expect(b.host.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `dropped` })
+    expect(b.host.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(b.hub.stats().calls).toBe(0)
+    b.hub.destroy()
+  })
+
+  test(`a ringing caller hanging up frees the device`, () => {
+    const hub = new Hub()
+    onlineDevice(hub)
+    const caller = dial(hub)
+    hub.onClose(caller)
+    expect(hub.stats().calls).toBe(0)
+    const host = answer(hub)
+    expect(host.lastFrame(`error`)).toMatchObject({ code: `no_such_call` })
+    hub.destroy()
+  })
+
+  test(`call frames from other roles do nothing`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    hub.onMessage(member, JSON.stringify({ t: `call_end` }))
+    hub.onMessage(pub, JSON.stringify({ t: `call_mute`, muted: true }))
+    expect(member.closed).toBeNull()
+    expect(pub.closed).toBeNull()
     hub.destroy()
   })
 })

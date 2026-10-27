@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-voice-calls-ide`,
+    date: `2026-10-27`,
+    title: `Call your agent from the IDE (beta)`,
+    summary: `On your voice device, the telephone in an agent's chat starts a call: talk hands-free, every reply is spoken, and talking over a reply stops it. Calling from your phone and the browser comes next.`,
+    body: `- **Calls**: the telephone in an agent chat's header, or Call in the tray, opens a call on your voice device. The microphone stays open until End call, each thing you say goes to the agent as a message, and every reply is read aloud.
+- **Talk over it**: speaking while a reply plays stops the voice and listens again. What you say while the agent is still working waits in the chat's queue, like a typed message.
+- **Mute**: the call's bar has Mute and End call.
+- **When it can't call**: the telephone stays visible but dimmed, and its tooltip says why (no voice device, Speak replies off, or no usable GPU to speak with).
+- **Devices**: the voice device's readiness now has a Speech row that says whether it can speak.`,
+  },
+  {
     id: `2026-10-27-device-share-remove`,
     date: `2026-10-27`,
     title: `Team owners can remove a shared machine`,

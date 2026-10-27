@@ -682,6 +682,7 @@ public enum AppIcons {
         "ui-warning": "triangle-alert",
         "ui-watch": "eye",
         "ui-widget": "megaphone",
+        "voice-call": "phone",
         "work-faces": "layers-2",
         "work-results": "images"
     ]
@@ -1244,6 +1245,8 @@ public enum AppIcons {
     public static let uiWatch: String = "eye"
     /// Concept `ui-widget`.
     public static let uiWidget: String = "megaphone"
+    /// Concept `voice-call`.
+    public static let voiceCall: String = "phone"
     /// Concept `work-faces`.
     public static let workFaces: String = "layers-2"
     /// Concept `work-results`.

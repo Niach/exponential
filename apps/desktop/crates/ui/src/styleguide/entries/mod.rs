@@ -48,6 +48,7 @@ pub(crate) mod plan_card;
 pub(crate) mod script_card;
 pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
+pub(crate) mod voice_call;
 pub(crate) mod voice_call_overlay;
 // NEW-67: Settings → Voice.
 pub(crate) mod voice_settings;
@@ -141,6 +142,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
+    Entry { id: voice_call::ID, owner: voice_call::OWNER, render: voice_call::render },
     Entry { id: computer_use_banner::ID, owner: computer_use_banner::OWNER, render: computer_use_banner::render },
     Entry { id: voice_settings::ID, owner: voice_settings::OWNER, render: voice_settings::render },
     Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },

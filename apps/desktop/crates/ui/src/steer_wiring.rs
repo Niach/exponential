@@ -197,8 +197,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // UI can explain WHY the machine is not startable. EXP-485: this row
         // is now the ONLY path the agent lists and launch defaults take to the
         // server; the online frame carries neither.
-        // NEW-78: whether the doctor carries the microphone row.
-        let listening = cx.update(|cx| crate::speak_replies::push_to_talk_here(cx));
+        // NEW-78 / NEW-55: the voice rows the doctor carries.
+        let voice = cx.update(|cx| crate::device_readiness::voice_rows(cx));
         register_device(
             Arc::clone(&trpc),
             device_id.clone(),
@@ -208,7 +208,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             &settings2,
             Some(&report),
             &register_dir,
-            listening,
+            voice,
             &cx.background_executor(),
         );
         let _ = cx.update(|cx| {
@@ -269,6 +269,19 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_history_page: steer::HistoryPageFn = Arc::new(move |ask, reply| {
                 steer::serve_history_page(&page_runtime, page_dir.clone(), ask, reply);
             });
+            // NEW-55: the relay rings this device for a streamed call; the
+            // socket loop only hands it over, the IDE answers on its thread
+            // (`voice_call::on_ring`). The task ends with the channel.
+            let (ring_tx, ring_rx) = flume::unbounded::<steer::control_channel::CallRing>();
+            cx.spawn(async move |cx| {
+                while let Ok(ring) = ring_rx.recv_async().await {
+                    let _ = cx.update(|cx| crate::voice_call::on_ring(ring.call_id, ring.agent_id, cx));
+                }
+            })
+            .detach();
+            let on_call_ring: steer::control_channel::CallRingFn = Arc::new(move |ring| {
+                let _ = ring_tx.send(ring);
+            });
             let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
             let handle = spawn_control_channel(
                 &runtime,
@@ -277,6 +290,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 on_check_in,
                 on_history_request,
                 on_history_page,
+                on_call_ring,
             );
 
             let channels = ControlChannels::global(cx);
@@ -363,7 +377,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
         &settings,
         Some(&report),
         &auth.data_dir,
-        crate::speak_replies::push_to_talk_here(cx),
+        crate::device_readiness::voice_rows(cx),
         &cx.background_executor(),
     );
     if let Some(channels) = ControlChannels::global_ref(cx) {
@@ -394,7 +408,7 @@ fn register_device(
     settings: &coding::Settings,
     report: Option<&coding::DoctorReport>,
     data_dir: &std::path::Path,
-    listening: bool,
+    voice: crate::device_readiness::VoiceRows,
     executor: &gpui::BackgroundExecutor,
 ) {
     let agents = advertisement.agents.clone();
@@ -432,7 +446,7 @@ fn register_device(
     executor
         .spawn(async move {
             let doctor = doctor.and_then(|mut doctor| {
-                crate::device_readiness::add_microphone_row(&mut doctor, listening);
+                crate::device_readiness::add_voice_rows(&mut doctor, voice);
                 serde_json::to_value(doctor).ok()
             });
             let _ = api::devices::register(

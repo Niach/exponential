@@ -139,6 +139,7 @@ pub mod list_item;
 pub mod message_conversation;
 /// NEW-53: exponentialTalk voice settings + spoken-reply rules (`voice.json`).
 pub mod voice;
+pub mod voice_call;
 pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;

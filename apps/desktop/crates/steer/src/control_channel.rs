@@ -24,8 +24,8 @@
 //!    rides the ticket mint only: EXP-672 left `online` carrying the
 //!    `deviceId` alone.
 //! 3. mint control ticket → dial the returned URL as-is → send `online`.
-//! 4. inbound `check_in` / `history_request` / `history_page` → the host's
-//!    non-blocking callbacks. `bye`/`error`/`kill` on this socket are
+//! 4. inbound `check_in` / `history_request` / `history_page` / (NEW-55)
+//!    `call_ring` → the host's non-blocking callbacks. `bye`/`error`/`kill` on this socket are
 //!    logged; `kill` is not session-scoped here → no-op.
 //! 5. reconnect with exponential backoff (250ms → 30s cap, full jitter);
 //!    each attempt re-mints (tickets last ~60s). Backoff resets after a
@@ -147,6 +147,21 @@ pub type HistoryPageReply = Box<dyn Fn(ClientFrame<'_>) + Send>;
 /// the live publisher does), so the viewer learns "nothing older".
 pub type HistoryPageFn = Arc<dyn Fn(HistoryPageAsk, HistoryPageReply) + Send + Sync>;
 
+/// NEW-55: one inbound `call_ring` — a phone or web caller dialed this
+/// device (the member's voice device) for a voice call with `agent_id`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallRing {
+    pub call_id: String,
+    pub agent_id: String,
+}
+
+/// NEW-55: an inbound `call_ring`. Same non-blocking contract as
+/// [`CheckInFn`]: the host mints its `call_host` ticket
+/// (`voice.callHostTicket`) and dials it on a task, never on the socket
+/// loop; a device that cannot take the call (no voice, already in one) does
+/// nothing and the relay's ring timer answers the caller `no_answer`.
+pub type CallRingFn = Arc<dyn Fn(CallRing) + Send + Sync>;
+
 /// Stop handle for the channel task. Dropping it does NOT stop the task —
 /// call [`ControlChannelHandle::stop`] (sign-out / account switch).
 pub struct ControlChannelHandle {
@@ -174,6 +189,7 @@ pub fn spawn_control_channel(
     on_check_in: CheckInFn,
     on_history_request: HistoryRequestFn,
     on_history_page: HistoryPageFn,
+    on_call_ring: CallRingFn,
 ) -> ControlChannelHandle {
     let stopped = Arc::new(AtomicBool::new(false));
     let (stop_tx, stop_rx) = flume::bounded::<()>(1);
@@ -187,6 +203,7 @@ pub fn spawn_control_channel(
         on_check_in,
         on_history_request,
         on_history_page,
+        on_call_ring,
         stopped,
         stop_rx,
     ));
@@ -248,6 +265,7 @@ async fn run_control_loop(
     on_check_in: CheckInFn,
     on_history_request: HistoryRequestFn,
     on_history_page: HistoryPageFn,
+    on_call_ring: CallRingFn,
     stopped: Arc<AtomicBool>,
     stop_rx: flume::Receiver<()>,
 ) {
@@ -335,6 +353,7 @@ async fn run_control_loop(
                 &on_check_in,
                 &on_history_request,
                 &on_history_page,
+                &on_call_ring,
                 &stop_rx,
             )
             .await
@@ -368,6 +387,7 @@ async fn connect_and_listen(
     on_check_in: &CheckInFn,
     on_history_request: &HistoryRequestFn,
     on_history_page: &HistoryPageFn,
+    on_call_ring: &CallRingFn,
     stop_rx: &flume::Receiver<()>,
 ) -> ConnectionOutcome {
     let mut ws = match dial(url).await {
@@ -473,6 +493,12 @@ async fn connect_and_listen(
                                 HistoryPageAsk { session_id, request_id, before_seq, limit },
                                 reply,
                             );
+                        }
+                        // NEW-55: a caller rings this voice device.
+                        // Non-blocking by contract (see [`CallRingFn`]).
+                        Some(ServerFrame::CallRing { call_id, agent_id }) => {
+                            log::info!("steer control: call_ring {call_id}");
+                            on_call_ring(CallRing { call_id, agent_id });
                         }
                         Some(other) => {
                             // bye/error/kill here: logged; kill is not

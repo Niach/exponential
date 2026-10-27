@@ -13,6 +13,14 @@ static LOADED: Mutex<Option<&'static Runtime>> = Mutex::new(None);
 /// Listen's readiness check never wait on the network.
 static FETCHING: Mutex<()> = Mutex::new(());
 
+/// #NEW-80: run a model download under the runtime's lock: the speaker's
+/// and the transcriber's downloads (`artifact::ensure_all` into the same
+/// `talk/models` dir) never run at once.
+pub fn fetching<T>(download: impl FnOnce() -> T) -> T {
+    let _fetching = FETCHING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    download()
+}
+
 /// The runtime already loaded, if any.
 pub fn loaded() -> Option<&'static Runtime> {
     *LOADED.lock().unwrap_or_else(|poisoned| poisoned.into_inner())

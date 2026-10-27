@@ -8873,6 +8873,7 @@ public object ExpIcons {
         "ui-warning" -> `triangle-alert`
         "ui-watch" -> `eye`
         "ui-widget" -> `megaphone`
+        "voice-call" -> `phone`
         "work-faces" -> `layers-2`
         "work-results" -> `images`
         else -> null
@@ -9430,6 +9431,8 @@ public object ExpIcons {
     public val uiWatch: ImageVector get() = `eye`
     /** Concept `ui-widget`. */
     public val uiWidget: ImageVector get() = `megaphone`
+    /** Concept `voice-call`. */
+    public val voiceCall: ImageVector get() = `phone`
     /** Concept `work-faces`. */
     public val workFaces: ImageVector get() = `layers-2`
     /** Concept `work-results`. */

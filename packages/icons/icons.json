@@ -159,6 +159,7 @@
     "settings-account": "circle-user",
     "settings-notifications": "bell",
     "settings-voice": "mic",
+    "voice-call": "phone",
     "settings-api": "key",
     "settings-servers": "server",
     "settings-mcp": "plug",

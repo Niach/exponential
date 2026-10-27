@@ -17,6 +17,13 @@
 //!
 //! The constants and the pure functions are fixture-locked by
 //! `packages/domain-contract/fixtures/talk-listen.json`.
+//!
+//! NEW-55: a [`Call`] runs the same pipeline continuously
+//! (`voice-call.json`): every closed segment is answered at once as
+//! [`talk::Event::Said`], the open one alone is the Partial, speech of
+//! [`talk::BARGE_IN_MS`] is [`talk::Event::SpeechStarted`], segments close
+//! after [`talk::CALL_MIN_SILENCE_MS`], and the audio before the next
+//! possible segment is dropped so an hour-long call stays bounded.
 
 use talk::{Event, ListenFailure, LEVEL_BANDS};
 
@@ -183,8 +190,15 @@ pub struct Segment {
 }
 
 /// Speech probabilities, one per frame, into segments.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Segmenter {
+    /// NEW-55: the silence (in frames) that closes a segment:
+    /// [`MIN_SILENCE_MS`] for push to talk, [`talk::CALL_MIN_SILENCE_MS`] in
+    /// a call.
+    min_silence: usize,
+    /// NEW-55: the speech frames (at or above [`THRESHOLD`]) of the open
+    /// segment.
+    voiced: usize,
     /// Frames scored so far.
     frame: usize,
     /// The first speech frame of the open segment.
@@ -195,7 +209,19 @@ pub struct Segmenter {
     floor: usize,
 }
 
+impl Default for Segmenter {
+    /// Push to talk's: [`MIN_SILENCE_MS`].
+    fn default() -> Self {
+        Segmenter::new(MIN_SILENCE_MS)
+    }
+}
+
 impl Segmenter {
+    /// NEW-55: a segmenter closing segments after `min_silence_ms`.
+    pub fn new(min_silence_ms: usize) -> Self {
+        Segmenter { min_silence: frames(min_silence_ms), voiced: 0, frame: 0, speech_start: None, silence_start: None, floor: 0 }
+    }
+
     /// Score the next frame; a segment that just finished comes back.
     pub fn push(&mut self, probability: f32) -> Option<Segment> {
         let index = self.frame;
@@ -203,16 +229,18 @@ impl Segmenter {
         let Some(start) = self.speech_start else {
             if probability >= THRESHOLD {
                 self.speech_start = Some(index);
+                self.voiced = 1;
             }
             return None;
         };
         if probability >= THRESHOLD {
             self.silence_start = None;
+            self.voiced += 1;
         } else if probability < NEG_THRESHOLD && self.silence_start.is_none() {
             self.silence_start = Some(index);
         }
         if let Some(silence) = self.silence_start {
-            if self.frame - silence >= frames(MIN_SILENCE_MS) {
+            if self.frame - silence >= self.min_silence {
                 return self.close(start, silence);
             }
         }
@@ -223,6 +251,19 @@ impl Segmenter {
             return cut;
         }
         None
+    }
+
+    /// NEW-55: the speech in the open segment, in frames (0 = none open).
+    pub fn open_voiced(&self) -> usize {
+        if self.speech_start.is_some() { self.voiced } else { 0 }
+    }
+
+    /// NEW-55: the first frame any segment still to come can reach back to
+    /// (the open one's padded start, else the padding before the next frame,
+    /// never before the previous segment's end). Audio before it is never
+    /// read again.
+    pub fn keep_from(&self) -> usize {
+        self.open_start().unwrap_or_else(|| self.frame.saturating_sub(frames(PAD_MS)).max(self.floor))
     }
 
     /// No more frames (the key was released): close the open segment.
@@ -242,6 +283,7 @@ impl Segmenter {
         let end = (speech_end + frames(PAD_MS)).min(self.frame);
         self.speech_start = None;
         self.silence_start = None;
+        self.voiced = 0;
         if speech_end - start < frames(MIN_SPEECH_MS) {
             return None;
         }
@@ -363,6 +405,122 @@ impl Utterance {
     }
 }
 
+/// NEW-55: a call, from its first sample to Hangup: Level per frame, Said
+/// per closed segment, Partial for the open one (GPU only), SpeechStarted
+/// once per utterance at [`talk::BARGE_IN_MS`] of speech. Never Heard or
+/// Empty.
+pub struct Call {
+    id: String,
+    language: String,
+    /// The samples from absolute sample `base` on (older ones are dropped).
+    audio: Vec<f32>,
+    base: usize,
+    /// Samples already metered (absolute, a whole number of frames).
+    metered: usize,
+    meter: Meter,
+    segmenter: Segmenter,
+    /// SpeechStarted went out for the open utterance.
+    announced: bool,
+    /// The absolute sample count at the last partial decode.
+    partial_at: usize,
+    last_partial: String,
+}
+
+/// NEW-55: dropped audio is drained in steps of at least this many samples
+/// (one memmove a second, not one per chunk).
+const DRAIN_STEP: usize = RATE;
+
+impl Call {
+    pub fn new(id: impl Into<String>, language: impl Into<String>) -> Self {
+        Call {
+            id: id.into(),
+            language: language.into(),
+            audio: Vec::new(),
+            base: 0,
+            metered: 0,
+            meter: Meter::default(),
+            segmenter: Segmenter::new(talk::CALL_MIN_SILENCE_MS),
+            announced: false,
+            partial_at: 0,
+            last_partial: String::new(),
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// The samples held now (bounded: see [`Segmenter::keep_from`]).
+    pub fn buffered(&self) -> usize {
+        self.audio.len()
+    }
+
+    /// Muted: the open utterance and everything held are dropped; the next
+    /// audio (after unmute, with a fresh VAD) starts clean.
+    pub fn reset(&mut self) {
+        *self = Call { meter: std::mem::take(&mut self.meter), ..Call::new(std::mem::take(&mut self.id), std::mem::take(&mut self.language)) };
+    }
+
+    /// Take the next samples; Level, Partial, SpeechStarted and Said go to
+    /// `emit`.
+    pub fn feed(
+        &mut self,
+        samples: &[f32],
+        vad: &mut dyn Vad,
+        transcriber: &mut dyn Transcriber,
+        emit: &mut dyn FnMut(Event),
+    ) -> Result<(), (ListenFailure, String)> {
+        self.audio.extend_from_slice(samples);
+        let end = self.base + self.audio.len();
+        while self.metered + FRAME <= end {
+            let at = self.metered - self.base;
+            let (level, bands) = self.meter.frame(&self.audio[at..at + FRAME]);
+            self.metered += FRAME;
+            emit(Event::Level { id: self.id.clone(), level, bands });
+        }
+        let probabilities = vad.push(samples).map_err(|err| (ListenFailure::Failed, err))?;
+        for probability in probabilities {
+            if let Some(segment) = self.segmenter.push(probability) {
+                let text = normalize_transcript(&self.transcribe(segment.start, segment.end, transcriber)?);
+                self.last_partial.clear();
+                if !text.is_empty() {
+                    emit(Event::Said { id: self.id.clone(), text });
+                }
+            }
+            if self.segmenter.open_start().is_none() {
+                self.announced = false;
+            } else if !self.announced && self.segmenter.open_voiced() >= frames(talk::BARGE_IN_MS) {
+                self.announced = true;
+                emit(Event::SpeechStarted { id: self.id.clone() });
+            }
+        }
+        if transcriber.partials() && end - self.partial_at >= PARTIAL_EVERY {
+            if let Some(start) = self.segmenter.open_start() {
+                self.partial_at = end;
+                let text = normalize_transcript(&self.transcribe(start, usize::MAX, transcriber)?);
+                if !text.is_empty() && text != self.last_partial {
+                    self.last_partial = text.clone();
+                    emit(Event::Partial { id: self.id.clone(), text });
+                }
+            }
+        }
+        // Bounded: nothing before the next possible segment (nor anything
+        // not metered yet) is ever read again.
+        let keep = (self.segmenter.keep_from() * FRAME).min(self.metered);
+        if keep >= self.base + DRAIN_STEP {
+            self.audio.drain(..keep - self.base);
+            self.base = keep;
+        }
+        Ok(())
+    }
+
+    /// Transcribe frames `[start, end)` (`end` past the audio = all of it).
+    fn transcribe(&self, start: usize, end: usize, transcriber: &mut dyn Transcriber) -> Result<String, (ListenFailure, String)> {
+        let clip = |frame: usize| frame.saturating_mul(FRAME).saturating_sub(self.base).min(self.audio.len());
+        transcriber.transcribe(&self.audio[clip(start)..clip(end)], &self.language).map_err(|err| (ListenFailure::Failed, err))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +623,151 @@ mod tests {
         assert!(partials.len() >= 3, "{partials:?}");
         assert!(matches!(events.last(), Some(Event::Heard { .. })));
     }
+
+    fn call(audio: &[f32], partials: bool, chunk: usize) -> (Vec<Event>, Vec<usize>) {
+        let mut call = Call::new("c1", "en");
+        let mut vad = EnergyVad(Vec::new());
+        let mut transcriber = Lengths { partials, clips: Vec::new() };
+        let mut events = Vec::new();
+        for samples in audio.chunks(chunk) {
+            call.feed(samples, &mut vad, &mut transcriber, &mut |event| events.push(event)).unwrap();
+        }
+        (events, transcriber.clips)
+    }
+
+    fn said(events: &[Event]) -> Vec<&str> {
+        events.iter().filter_map(|event| if let Event::Said { text, .. } = event { Some(text.as_str()) } else { None }).collect()
+    }
+
+    /// NEW-55: a call answers each utterance as it ends, never Heard/Empty.
+    #[test]
+    fn a_call_says_each_utterance_as_it_ends() {
+        let audio = [tone(0.5, 0.0), tone(1.0, 0.3), tone(0.6, 0.0), tone(0.8, 0.3), tone(0.5, 0.0)].concat();
+        for chunk in [320, 512, 1000, 4800] {
+            let (events, clips) = call(&audio, false, chunk);
+            assert_eq!(clips.len(), 2, "chunk {chunk}");
+            assert_eq!(said(&events), ["clip1", "clip2"], "chunk {chunk}");
+            assert!(!events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::Empty { .. } | Event::Partial { .. })));
+            let levels = events.iter().filter(|event| matches!(event, Event::Level { .. })).count();
+            assert_eq!(levels, audio.len() / FRAME);
+        }
+        // The first Said comes in the silence after the first phrase, before
+        // the second one starts.
+        let (events, _) = call(&audio, false, 512);
+        let first_said = events.iter().position(|event| matches!(event, Event::Said { .. })).unwrap();
+        let levels_before = events[..first_said].iter().filter(|event| matches!(event, Event::Level { .. })).count();
+        assert!(levels_before * FRAME < (RATE as f32 * 2.1) as usize, "said after {levels_before} frames");
+    }
+
+    /// NEW-55: 250 ms of silence closes a call's segment (push to talk: 300).
+    #[test]
+    fn a_call_closes_after_250_ms_of_silence() {
+        let mut call = Segmenter::new(talk::CALL_MIN_SILENCE_MS);
+        let mut push_to_talk = Segmenter::default();
+        let (mut call_closed, mut ptt_closed) = (None, None);
+        for frame in 0..60 {
+            let probability = if frame < 20 { 0.9 } else { 0.05 };
+            if call.push(probability).is_some() {
+                call_closed.get_or_insert(frame);
+            }
+            if push_to_talk.push(probability).is_some() {
+                ptt_closed.get_or_insert(frame);
+            }
+        }
+        // Silence starts at frame 20; 250 ms = 8 frames, 300 ms = 10.
+        assert_eq!(call_closed, Some(27));
+        assert_eq!(ptt_closed, Some(29));
+    }
+
+    /// NEW-55: SpeechStarted once per utterance, at 250 ms of speech.
+    #[test]
+    fn speech_started_fires_once_at_250_ms_of_speech() {
+        let audio = [tone(0.3, 0.0), tone(1.0, 0.3), tone(0.5, 0.0), tone(0.1, 0.3), tone(0.5, 0.0), tone(0.6, 0.3), tone(0.5, 0.0)].concat();
+        let (events, _) = call(&audio, false, 512);
+        let started: Vec<usize> = events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| matches!(event, Event::SpeechStarted { .. }))
+            .map(|(index, _)| events[..index].iter().filter(|event| matches!(event, Event::Level { .. })).count())
+            .collect();
+        // Two utterances (the 100 ms blip never reaches 250 ms).
+        assert_eq!(started.len(), 2, "{started:?}");
+        // Speech starts at frame 9 (0.3 s); 250 ms = 8 speech frames.
+        let first = started[0] as f32 * FRAME as f32 / RATE as f32;
+        assert!((0.53..=0.6).contains(&first), "SpeechStarted at {first} s");
+        assert_eq!(said(&events).len(), 2);
+    }
+
+    /// NEW-55: the open utterance alone is the Partial (the GPU's).
+    #[test]
+    fn a_calls_partial_is_the_open_utterance_only() {
+        let audio = [tone(0.2, 0.0), tone(1.0, 0.3), tone(0.5, 0.0), tone(1.0, 0.3), tone(0.5, 0.0)].concat();
+        let (events, clips) = call(&audio, true, 1600);
+        let said_at = events.iter().position(|event| matches!(event, Event::Said { .. })).unwrap();
+        let partials_after: Vec<&Event> = events[said_at..].iter().filter(|event| matches!(event, Event::Partial { .. })).collect();
+        assert!(!partials_after.is_empty());
+        // Lengths names every decode; a Partial never joins an earlier Said.
+        for event in partials_after {
+            let Event::Partial { text, .. } = event else { unreachable!() };
+            assert!(!text.contains(' '), "only the open segment: {text}");
+        }
+        assert!(clips.len() > 2);
+    }
+
+    /// NEW-55: a long call stays bounded (speech and silence alike): the
+    /// buffer peaks within the first phrase and never grows past it, so an
+    /// hour holds what ten minutes hold (ten minutes keep the test fast).
+    #[test]
+    fn a_long_call_holds_a_bounded_buffer() {
+        let mut call = Call::new("c1", "en");
+        let mut vad = EnergyVad(Vec::new());
+        let mut transcriber = Lengths { partials: false, clips: Vec::new() };
+        let phrase = [tone(4.0, 0.3), tone(1.0, 0.0)].concat();
+        let mut most = 0;
+        let mut first = 0;
+        let mut said = 0;
+        // 120 x 5 s = ten minutes.
+        for round in 0..120 {
+            for samples in phrase.chunks(320) {
+                call.feed(samples, &mut vad, &mut transcriber, &mut |event| said += usize::from(matches!(event, Event::Said { .. })))
+                    .unwrap();
+                most = most.max(call.buffered());
+            }
+            if round == 1 {
+                first = most;
+            }
+        }
+        assert_eq!(said, 120);
+        assert!(most <= 6 * RATE, "at most the open phrase plus a second: {most}");
+        assert_eq!(most, first, "no growth after the first phrases");
+        // One long monologue is cut at MAX_SEGMENT_MS and stays bounded too.
+        let mut call = Call::new("c2", "en");
+        let speech = tone(120.0, 0.3);
+        let mut most = 0;
+        for samples in speech.chunks(1600) {
+            call.feed(samples, &mut vad, &mut transcriber, &mut |_| {}).unwrap();
+            most = most.max(call.buffered());
+        }
+        assert!(most <= (MAX_SEGMENT_MS / 1000 + 2) * RATE, "{most}");
+    }
+
+    /// NEW-55: muting drops the open utterance.
+    #[test]
+    fn a_reset_drops_the_open_utterance() {
+        let mut call = Call::new("c1", "en");
+        let mut vad = EnergyVad(Vec::new());
+        let mut transcriber = Lengths { partials: false, clips: Vec::new() };
+        let mut events = Vec::new();
+        call.feed(&tone(1.0, 0.3), &mut vad, &mut transcriber, &mut |event| events.push(event)).unwrap();
+        call.reset();
+        assert_eq!(call.buffered(), 0);
+        let mut vad = EnergyVad(Vec::new());
+        call.feed(&tone(1.0, 0.0), &mut vad, &mut transcriber, &mut |event| events.push(event)).unwrap();
+        assert!(said(&events).is_empty(), "the muted phrase is never said");
+        assert_eq!(call.id(), "c1");
+    }
+
+
 
     const FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/talk-listen.json");
 

@@ -6,7 +6,8 @@
 //
 // The relay is a dumb pipe with auth + ephemeral presence: it verifies
 // short-lived HS256 tickets (minted by the web app's `steer` tRPC router with
-// the shared STEER_RELAY_SECRET), holds device presence + session rooms in
+// the shared STEER_RELAY_SECRET), holds device presence + session rooms (and,
+// NEW-55, voice call rooms whose binary Opus frames it forwards undecoded) in
 // memory, and never persists a byte. `STEER_RELAY_SECRET` unset ⇒ the relay
 // refuses connections (503) — the web app equally treats the subsystem as off
 // when STEER_RELAY_URL is unset.
@@ -227,6 +228,8 @@ function adapt(ws: ServerWebSocket<WsData>): RelaySocket {
   if (!adapter) {
     adapter = {
       send: (data: string) => void ws.send(data),
+      // NEW-55: a Uint8Array goes out as a BINARY frame.
+      sendBinary: (data: Uint8Array) => void ws.send(data),
       close: (code, reason) => ws.close(code, reason),
       bufferedAmount: () => ws.getBufferedAmount(),
     }
@@ -265,7 +268,12 @@ export default {
       // relay no longer serves (EXP-90 removed the anonymous `public_viewer`
       // audience) — a stale instance that still mints one gets 401, never a
       // socket. Counts as failed auth: it never gets a socket either.
-      if (![`control`, `publisher`, `viewer`].includes(verdict.claims.role)) {
+      // NEW-55 adds the voice call pair, `caller` and `call_host`.
+      if (
+        ![`control`, `publisher`, `viewer`, `caller`, `call_host`].includes(
+          verdict.claims.role
+        )
+      ) {
         if (!rateLimitHit(`failed:${clientIp(req.headers)}`, RATE_LIMIT_FAILED_MAX)) {
           rateLimitedRejections += 1
           return new Response(`Rate limit exceeded`, { status: 429 })
@@ -291,11 +299,16 @@ export default {
     open(ws: ServerWebSocket<WsData>) {
       hub.onOpen(adapt(ws), ws.data.claims)
     },
-    // Text frames only: the hub speaks JSON. Anything binary is dropped here
-    // rather than handed down.
+    // Text frames are the hub's JSON. NEW-55: binary frames (Bun hands them
+    // over as a Buffer) go to `onBinary`, which forwards only a paired call
+    // room's audio and drops a binary frame from every other role, exactly
+    // as this handler used to.
     message(ws: ServerWebSocket<WsData>, message: string | Buffer) {
-      if (typeof message !== `string`) return
-      hub.onMessage(adapt(ws), message)
+      if (typeof message === `string`) {
+        hub.onMessage(adapt(ws), message)
+        return
+      }
+      hub.onBinary(adapt(ws), message)
     },
     // REV2-X: Bun routes protocol-level ping frames HERE, not to `message`.
     // The desktop publisher pings every 30s during idle/plan-mode; without

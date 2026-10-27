@@ -125,6 +125,7 @@ public enum DeviceReadiness {
         "screen_recording": "Screen Recording",
         "accessibility": "Accessibility",
         "microphone": "Microphone",
+        "speech": "Speech",
     ]
 
     /// Fixture `states`; an unknown state is a muted dash.

@@ -1217,6 +1217,8 @@ export const deviceDoctorKeys = [
   `accessibility`,
   // NEW-78: the voice device's microphone (IDE only, Push to talk on).
   `microphone`,
+  // NEW-55: whether the voice device can speak (IDE only, Speak replies on).
+  `speech`,
 ] as const
 export const deviceDoctorGroups = [`required`, `agents`, `computer_use`, `voice`] as const
 export const deviceDoctorStates = [

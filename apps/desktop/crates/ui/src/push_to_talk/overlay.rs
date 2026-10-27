@@ -4,7 +4,9 @@
 //! bottom centre of the display under the pointer, [`EDGE`] px above its
 //! edge. Wayland places it itself. The window is the capsule's measured
 //! size ([`capsule_size`], at most the display less [`EDGE`] each side): it
-//! opens again, wider, when a longer line no longer fits.
+//! opens again, wider, when a longer line no longer fits. NEW-55: a call
+//! (`voice_call`) opens its own window of the same kind with the call's
+//! face ([`Face::Call`]).
 
 use exponential_ui::voice_wave::Activity;
 use gpui::{
@@ -14,17 +16,26 @@ use gpui::{
 use gpui_component::ActiveTheme as _;
 
 use domain::voice::PttOverlay;
+use domain::voice_call::{CallView, VOICE_CALL};
 
-use crate::voice_overlay::{capsule, capsule_size, Capsule};
+use crate::voice_overlay::{call_capsule, capsule, capsule_size, Capsule};
 
 /// The air between the capsule and the display's edge.
 const EDGE: f32 = 24.;
 /// The window's air around the capsule (its shadow).
 const AIR: f32 = 8.;
 
+/// What the window shows.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Face {
+    Ptt(PttOverlay),
+    /// NEW-55: a call: the lead pill (Mute / Unmute) and End call.
+    Call(CallView),
+}
+
 /// The window, open while the capsule shows.
 #[derive(Default)]
-pub(super) struct Overlay {
+pub(crate) struct Overlay {
     window: Option<WindowHandle<OverlayView>>,
     /// The open window's width: a line that needs more reopens it.
     width: f32,
@@ -32,7 +43,7 @@ pub(super) struct Overlay {
 
 impl Overlay {
     /// Show `view` (None = close the window).
-    pub(super) fn show(&mut self, view: Option<PttOverlay>, cx: &mut App) {
+    pub(crate) fn show(&mut self, view: Option<Face>, cx: &mut App) {
         let Some(view) = view else {
             if let Some(window) = self.window.take() {
                 let _ = window.update(cx, |_, window, _| window.remove_window());
@@ -69,20 +80,20 @@ impl Overlay {
 
     /// Whether `id` is the overlay's own window (it opens again, wider, for
     /// a longer line mid-hold: never the IDE window the key is held in).
-    pub(super) fn owns(&self, id: gpui::WindowId) -> bool {
+    pub(crate) fn owns(&self, id: gpui::WindowId) -> bool {
         self.window.as_ref().is_some_and(|window| window.window_id() == id)
     }
 
     /// A new level frame: redraw the wave.
-    pub(super) fn refresh(&self, cx: &mut App) {
+    pub(crate) fn refresh(&self, cx: &mut App) {
         if let Some(window) = self.window.as_ref() {
             let _ = window.update(cx, |_, _, cx| cx.notify());
         }
     }
 }
 
-pub(super) struct OverlayView {
-    view: PttOverlay,
+pub(crate) struct OverlayView {
+    view: Face,
 }
 
 /// The fixture's activity key as the wave's.
@@ -97,15 +108,28 @@ pub(crate) fn activity(key: &str) -> Activity {
 }
 
 /// The capsule for `view`, without the live level (the words size it).
-fn specimen(view: &PttOverlay) -> Capsule {
-    Capsule {
-        activity: activity(view.activity),
-        level: 0.,
-        bands: Vec::new(),
-        state: SharedString::from(view.state.clone()),
-        line: SharedString::from(view.line.clone()),
-        pill: SharedString::from(view.pill.clone()),
-        primary: view.primary,
+fn specimen(view: &Face) -> Capsule {
+    match view {
+        Face::Ptt(view) => Capsule {
+            activity: activity(view.activity),
+            level: 0.,
+            bands: Vec::new(),
+            state: SharedString::from(view.state.clone()),
+            line: SharedString::from(view.line.clone()),
+            pill: SharedString::from(view.pill.clone()),
+            primary: view.primary,
+            lead: None,
+        },
+        Face::Call(view) => Capsule {
+            activity: activity(view.activity),
+            level: 0.,
+            bands: Vec::new(),
+            state: SharedString::from(view.state.clone()),
+            line: SharedString::from(view.line.clone()),
+            pill: SharedString::from(VOICE_CALL.copy.end_call.clone()),
+            primary: true,
+            lead: Some(SharedString::from(view.mute.clone())),
+        },
     }
 }
 
@@ -113,8 +137,23 @@ impl Render for OverlayView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // No `Root` here: the rem and the font are set like the banner's.
         window.set_rem_size(cx.theme().font_size);
-        let (level, bands) = if self.view.activity == "listening" { super::level(cx) } else { (0., Vec::new()) };
-        let c = Capsule { level, bands, ..specimen(&self.view) };
+        let c = specimen(&self.view);
+        let (level, bands) = match &self.view {
+            Face::Ptt(view) if view.activity == "listening" => super::level(cx),
+            Face::Call(view) if view.activity == "listening" => crate::voice_call::level(cx),
+            _ => (0., Vec::new()),
+        };
+        let c = Capsule { level, bands, ..c };
+        let face = match &self.view {
+            Face::Ptt(_) => capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx)),
+            Face::Call(_) => call_capsule(
+                "voice-call-overlay",
+                &c,
+                std::rc::Rc::new(crate::voice_call::toggle_mute),
+                std::rc::Rc::new(crate::voice_call::end),
+                cx,
+            ),
+        };
         div()
             .size_full()
             .flex()
@@ -123,7 +162,7 @@ impl Render for OverlayView {
             .font_family(cx.theme().font_family.clone())
             // The window never takes focus; a click still lands: the pill's
             // action (Stop, Unmute).
-            .child(capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx)))
+            .child(face)
     }
 }
 

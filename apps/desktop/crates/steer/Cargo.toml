@@ -34,6 +34,9 @@ serde_json = { workspace = true }
 flume = { workspace = true }
 uuid = { workspace = true }
 log = "0.4"
+# NEW-55: the call host's audio: Opus in pure Rust (a port of libopus 1.6,
+# BSD-3), so no cmake on any runner.
+opus-rs = "=0.1.40"
 # Secret-redaction patterns for the public activity emitter (§P7). Already in
 # the workspace lock via transitive deps — adds no new build.
 regex = "1"

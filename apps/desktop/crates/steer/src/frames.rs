@@ -1830,6 +1830,13 @@ pub enum ServerFrame {
         before_seq: u64,
         limit: u32,
     },
+    /// NEW-55: a caller dialed this device (the member's voice device) for a
+    /// voice call with `agent_id`; control socket only. The IDE mints a
+    /// `call_host` ticket for `call_id` (tRPC `voice.callHostTicket`) and
+    /// joins within the relay's ring timeout (voice-call.json
+    /// `constants.ringTimeoutMs`), or the caller is told `no_answer`.
+    #[serde(rename_all = "camelCase")]
+    CallRing { call_id: String, agent_id: String },
     /// EXP-481: fire-and-forget check-in nudge — the web server persisted
     /// new work for this device (a queued command, edited launch defaults);
     /// heartbeat NOW instead of on the next cadence. No reply frame exists;
@@ -3322,6 +3329,16 @@ mod tests {
             }
         );
         assert_eq!(ServerFrame::parse(r#"{"t":"history_request"}"#), None);
+        // NEW-55: the relay rings the voice device for a call.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1","agentId":"agent-1"}"#)
+                .unwrap(),
+            ServerFrame::CallRing {
+                call_id: "call-1".to_string(),
+                agent_id: "agent-1".to_string(),
+            }
+        );
+        assert_eq!(ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1"}"#), None);
         // EXP-783/796: a page ask, on a publisher OR a control socket.
         assert_eq!(
             ServerFrame::parse(

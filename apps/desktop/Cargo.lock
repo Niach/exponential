@@ -2027,6 +2027,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
+name = "decibri-aec"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c082148c8441fc7db2c9c31aeb69842cf754ef9b8a853b40e086a2f383860fd"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "defmt"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5763,6 +5772,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
+name = "opus-rs"
+version = "0.1.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d664b01dda81206fd3c80582eafd8dfef0e936eea1c2ac90ed408823bbb410c"
+
+[[package]]
 name = "ordered-float"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7848,6 +7863,7 @@ dependencies = [
  "flume 0.11.1",
  "futures-util",
  "log",
+ "opus-rs",
  "regex",
  "serde",
  "serde_json",
@@ -8218,6 +8234,7 @@ checksum = "c0e973b34477b7823833469eb0f5a3a60370fef7a453e02d751b59180d0a5a05"
 name = "talk"
 version = "0.14.79"
 dependencies = [
+ "base64 0.22.1",
  "block2 0.6.2",
  "cpal",
  "log",
@@ -9671,7 +9688,9 @@ version = "0.14.79"
 dependencies = [
  "cpal",
  "crispasr",
+ "decibri-aec",
  "log",
+ "opus-rs",
  "serde_json",
  "talk",
 ]

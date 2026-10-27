@@ -168,6 +168,8 @@ pub(crate) struct SpeakReplies {
     /// voice.json `voices`: the languages the worker reported it speaks
     /// (empty until it answers, and without a usable GPU).
     voices: Vec<String>,
+    /// NEW-55: the worker answered `Voices` since it (re)started.
+    voices_known: bool,
     pub speaking: Option<Speaking>,
     pub download: Download,
     /// #NEW-54: the worker answered `Ready` and has not exited since (the
@@ -205,6 +207,7 @@ pub fn install(cx: &mut App) {
             account: None,
             crashes: 0,
             voices: Vec::new(),
+            voices_known: false,
             speaking: None,
             download: Download::Idle,
             worker_ready: false,
@@ -216,6 +219,18 @@ pub fn install(cx: &mut App) {
         while let Ok(event) = rx.recv_async().await {
             let Some(entity) = weak.upgrade() else { break };
             let _ = cx.update(|cx| {
+                // NEW-55 review: a worker crash ends a running call too
+                // (Speak replies then restarts the worker as before).
+                if matches!(event, talk::Event::Exited) {
+                    crate::voice_call::on_worker_event(talk::Event::Exited, cx);
+                }
+                // NEW-55: a running call's events (its microphone, its
+                // streamed reply audio) go to the call first.
+                if crate::voice_call::owns(&event, cx) {
+                    crate::voice_call::on_worker_event(event, cx);
+                    cx.refresh_windows();
+                    return;
+                }
                 // #NEW-54: what the microphone heard goes to push to talk.
                 if crate::push_to_talk::is_listen_event(&event) {
                     crate::push_to_talk::on_worker_event(event, cx);
@@ -231,6 +246,11 @@ pub fn install(cx: &mut App) {
 
 fn global(cx: &App) -> Option<Entity<SpeakReplies>> {
     cx.try_global::<SpeakRepliesGlobal>().map(|global| global.0.clone())
+}
+
+/// NEW-55: the doctor's `speech` row for THIS device.
+pub(crate) fn speech_state(cx: &App) -> Option<coding::device_doctor::SpeechState> {
+    global(cx)?.read(cx).speech_state(cx)
 }
 
 /// The watcher itself (the voice tray observes it).
@@ -307,7 +327,7 @@ pub(crate) fn stop(cx: &mut App) {
 /// Settings → Voice save): adopt them and start or stop the voice here.
 pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
-    let listened = push_to_talk_here(cx);
+    let rows = crate::device_readiness::voice_rows(cx);
     // #NEW-54: push to talk first, so a Listen it drops is cancelled before
     // this may end the worker.
     crate::push_to_talk::settings_changed(&settings, cx);
@@ -320,9 +340,12 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
         // The voice tray follows the settings.
         cx.notify();
     });
-    // NEW-78: Push to talk moved here or away — the doctor's microphone row
-    // follows now (the refresh nudges the beat), not a beat later.
-    if push_to_talk_here(cx) != listened {
+    // NEW-55: a call that can no longer run here ends.
+    crate::voice_call::settings_changed(cx);
+    // NEW-78 / NEW-55: Push to talk or Speak replies moved here or away —
+    // the doctor's voice rows follow now (the refresh nudges the beat), not
+    // a beat later.
+    if crate::device_readiness::voice_rows(cx) != rows {
         if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
             crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
         }
@@ -337,6 +360,22 @@ fn session_account(cx: &App) -> Option<String> {
 }
 
 impl SpeakReplies {
+    /// NEW-55: the doctor's `speech` row (None = no row: not the voice
+    /// device, Speak replies off, or the worker has not answered yet).
+    fn speech_state(&self, cx: &App) -> Option<coding::device_doctor::SpeechState> {
+        use coding::device_doctor::SpeechState;
+        if !self.own_voice(cx).speaks() || self.download == Download::Unavailable {
+            return None;
+        }
+        if matches!(self.download, Download::Running { .. }) {
+            return Some(SpeechState::Downloading);
+        }
+        if !self.voices_known {
+            return None;
+        }
+        Some(if self.voices.is_empty() { SpeechState::NoGpu } else { SpeechState::Ready })
+    }
+
     /// THIS device's share of the member's voice settings. A method, not a
     /// read of the global: every caller already runs inside this entity's
     /// update, where a read panics.
@@ -353,6 +392,8 @@ impl SpeakReplies {
         self.account = account;
         // #NEW-54 (carry a): a Listen in flight is cancelled first.
         crate::push_to_talk::signed_out(cx);
+        // NEW-55: and a call ends (deferred: ending it stops this speaker).
+        cx.defer(crate::voice_call::end);
         // Another account (or none): silence, end the worker, forget the
         // history; the new account's settings prepare it again.
         if let Some(client) = self.client.as_ref() {
@@ -365,6 +406,7 @@ impl SpeakReplies {
         self.settings = domain::voice::VoiceSettings::default();
         self.crashes = 0;
         self.voices.clear();
+        self.voices_known = false;
         self.speaking = None;
         self.download = Download::Idle;
         cx.notify();
@@ -411,6 +453,7 @@ impl SpeakReplies {
             client.shutdown();
             self.worker_ready = false;
             self.voices.clear();
+            self.voices_known = false;
             self.speaking = None;
             self.download = Download::Idle;
         }
@@ -429,7 +472,9 @@ impl SpeakReplies {
             return;
         }
         let voice = self.own_voice(cx);
-        let Some(agent_id) = voice.agent_id.as_deref().filter(|_| voice.speak_replies) else {
+        // NEW-55: while a call runs, ITS agent's conversation is spoken.
+        let call_agent = crate::voice_call::agent_id(cx);
+        let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speak_replies) else {
             return;
         };
         let Some(conversation) = crate::session_data::my_conversation(agent_id, cx) else { return };
@@ -481,6 +526,7 @@ impl SpeakReplies {
 
     fn on_event(&mut self, event: talk::Event, cx: &mut Context<Self>) {
         let download_before = self.download.clone();
+        let speech_before = self.speech_state(cx);
         match event {
             talk::Event::Downloading { received, total } => self.download = Download::Running { received, total },
             talk::Event::ModelReady => self.download = Download::Idle,
@@ -492,6 +538,7 @@ impl SpeakReplies {
                     log::info!("[ui] speak replies: no usable GPU here; replies are shown, never spoken");
                 }
                 self.voices = voices;
+                self.voices_known = true;
             }
             talk::Event::DownloadFailed { error } => {
                 log::warn!("[ui] speak replies: voice download failed: {error}");
@@ -525,6 +572,17 @@ impl SpeakReplies {
             | talk::Event::Heard { .. }
             | talk::Event::Empty { .. }
             | talk::Event::ListenFailed { .. } => {}
+            // NEW-55: call events (talk protocol 4) belong to the call.
+            _ => {}
+        }
+        // NEW-55: the doctor's speech row follows (callers enable the
+        // telephone from it), now rather than a beat later.
+        if self.speech_state(cx) != speech_before {
+            cx.defer(|cx| {
+                if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
+                    crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
+                }
+            });
         }
         // Settings → Voice draws the download as the Speak replies detail.
         if self.download != download_before {
@@ -542,6 +600,7 @@ impl SpeakReplies {
         self.worker_ready = false;
         // A new worker reports its voices again.
         self.voices.clear();
+        self.voices_known = false;
         if matches!(self.download, Download::Running { .. }) {
             self.download = Download::Idle;
         }

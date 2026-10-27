@@ -158,6 +158,27 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
     })
 }
 
+/// NEW-78 / NEW-55: the voice rows THIS device adds, read on the main thread.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct VoiceRows {
+    /// Push to talk listens here: the `microphone` row.
+    pub listening: bool,
+    /// Speak replies runs here and the worker answered: the `speech` row.
+    pub speech: Option<device_doctor::SpeechState>,
+}
+
+pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
+    VoiceRows { listening: crate::speak_replies::push_to_talk_here(cx), speech: crate::speak_replies::speech_state(cx) }
+}
+
+/// Both voice rows; background executor only (the microphone probe).
+pub(crate) fn add_voice_rows(doctor: &mut DeviceDoctor, rows: VoiceRows) {
+    add_microphone_row(doctor, rows.listening);
+    if let Some(speech) = rows.speech {
+        device_doctor::add_speech(doctor, speech);
+    }
+}
+
 /// NEW-78: the IDE's `microphone` row, appended only while THIS device
 /// listens (`speak_replies::listens_here`); the CLI daemon never adds it.
 /// Probes the OS (`talk::microphone`, a `pactl` run on Linux): background

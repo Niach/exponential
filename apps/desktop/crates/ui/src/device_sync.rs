@@ -431,9 +431,10 @@ struct BeatSnapshot {
     inflight_logins: Arc<Mutex<HashSet<String>>>,
     /// See [`DeviceSyncState::doctor_soon`].
     doctor_soon: Arc<AtomicBool>,
-    /// NEW-78: this device listens (the member's voice device, Push to talk
-    /// on): the readiness block carries the microphone row.
-    listening: bool,
+    /// NEW-78 / NEW-55: the voice rows the readiness block carries (the
+    /// member's voice device: the microphone with Push to talk on, speech
+    /// with Speak replies on).
+    voice: crate::device_readiness::VoiceRows,
 }
 
 /// What this loop last SENT, so an unchanged payload is left off the beat
@@ -527,7 +528,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         doctor,
         inflight_logins,
         doctor_soon,
-        listening: crate::speak_replies::push_to_talk_here(cx),
+        voice: crate::device_readiness::voice_rows(cx),
     })
 }
 
@@ -652,7 +653,7 @@ fn beat(
     // the last accepted beat (and never before the first doctor probe).
     let device_doctor = snapshot.doctor.as_ref().map(|report| {
         let mut doctor = coding::device_doctor::current(&snapshot.settings, &snapshot.data_dir, report);
-        crate::device_readiness::add_microphone_row(&mut doctor, snapshot.listening);
+        crate::device_readiness::add_voice_rows(&mut doctor, snapshot.voice);
         doctor
     });
     let doctor_write = device_doctor.as_ref().and_then(|doctor| {
@@ -960,7 +961,7 @@ pub(crate) fn push_local_defaults_if_changed(
         doctor: None,
         inflight_logins: Arc::new(Mutex::new(HashSet::new())),
         doctor_soon: Arc::new(AtomicBool::new(false)),
-        listening: false,
+        voice: Default::default(),
     };
     push_defaults(&snapshot, &settings, &marker);
 }

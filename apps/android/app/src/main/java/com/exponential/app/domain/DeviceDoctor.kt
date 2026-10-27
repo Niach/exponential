@@ -140,6 +140,7 @@ object DeviceReadiness {
         "screen_recording" to "Screen Recording",
         "accessibility" to "Accessibility",
         "microphone" to "Microphone",
+        "speech" to "Speech",
     )
 
     /** Fixture `actions`: label + whether ANOTHER device may run it. */
