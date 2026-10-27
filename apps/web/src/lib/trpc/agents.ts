@@ -13,6 +13,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { agents, attachments, conversations, messages, sessionIssues, sessions, type Agent } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
 import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
+import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import { assertRunnerVocabulary, resolveSessionDevice } from "@/lib/sessions/send"
 
@@ -225,6 +226,9 @@ export const agentsRouter = router({
                   tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, ids))
                 )
               )
+            // #EXP-1409: what a private chat's bus wrote in full while only
+            // the owner read these trees goes neutral for their new readers.
+            await hidePrivateLinesInTx(tx, ids)
           }
         }
         const { triggerState: _state, ...rest } = updated!

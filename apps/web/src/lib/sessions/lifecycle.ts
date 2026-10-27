@@ -93,17 +93,30 @@ export async function endRowsInTx(
     endedIds.push(row.id)
     await postSystemCard(tx, row.id, { kind: `event`, event: `session_ended`, sessionId: row.id })
     await busReport(tx, row, named?.id === row.id ? named.summary : null)
-    // NEW-2: the builtin `session.ended` event.
+    // NEW-2: the builtin `session.ended` event. #EXP-1409: the row syncs
+    // to the whole team, so a PRIVATE session's carries its ids only (its
+    // title is often the prompt); the full payload reaches only a trigger
+    // firing whose readers may see the session (`askHidden`).
     const [endedRow] = await tx
-      .select({ teamId: sessions.teamId, rootId: sessions.rootId, title: sessions.title, branch: sessions.branch })
+      .select({
+        teamId: sessions.teamId,
+        rootId: sessions.rootId,
+        title: sessions.title,
+        branch: sessions.branch,
+        shared: sessions.shared,
+        userId: sessions.userId,
+      })
       .from(sessions)
       .where(eq(sessions.id, row.id))
       .limit(1)
     if (endedRow) {
+      const ids = { sessionId: row.id, rootId: endedRow.rootId }
+      const full = { ...ids, title: endedRow.title, branch: endedRow.branch }
       await emitEventInTx(tx, {
         teamId: endedRow.teamId,
         name: `session.ended`,
-        payload: { sessionId: row.id, rootId: endedRow.rootId, title: endedRow.title, branch: endedRow.branch },
+        payload: endedRow.shared ? full : ids,
+        ...(endedRow.shared ? {} : { privateDetail: { origin: endedRow, payload: full } }),
         emittedBy: { server: true },
       })
     }

@@ -3,7 +3,7 @@ import type { EventEmitter } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { events, issues, type Event } from "@/db/schema"
-import { fireEventTriggersInTx } from "@/lib/agents/triggers"
+import { fireEventTriggersInTx, type EventPrivateDetail } from "@/lib/agents/triggers"
 import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-2: EVENTS, the team's event stream (synced `events` shape). A row =
@@ -12,7 +12,11 @@ import type { Tx } from "@/lib/sessions/tx"
 // emitted by the writers that make those moments; anything else comes over
 // MCP `events_emit`. Every emit fans out to the agents listening on the
 // name (an event trigger) inside the same transaction, as pending input in
-// their owners' conversation sessions.
+// their owners' conversation sessions. #EXP-1409: the payload of an event
+// about a session not visible to the whole team names ids only
+// (`session.ended`); `pr.*` and `issue.*` carry team-visible rows (the
+// `pull_requests` / `issues` shapes sync them to every member anyway), and
+// an `events_emit` payload is what its emitter chose to publish.
 
 export interface EmitEventArgs {
   teamId: string
@@ -20,6 +24,11 @@ export interface EmitEventArgs {
   payload?: Record<string, unknown> | null
   /** The emitter: a session (its id), a person, or the server. */
   emittedBy: { sessionId: string } | { userId: string } | { server: true }
+  /** #EXP-1409: an event about a PRIVATE session (`origin`): the row (synced
+   *  to every member) keeps `payload` (ids only); a trigger firing into a
+   *  conversation whose readers may see the origin (`askHidden` false)
+   *  carries this payload instead. Never stored. */
+  privateDetail?: EventPrivateDetail
 }
 
 export async function emitEventInTx(tx: Tx, args: EmitEventArgs): Promise<Event> {
@@ -36,7 +45,7 @@ export async function emitEventInTx(tx: Tx, args: EmitEventArgs): Promise<Event>
       userId: `userId` in args.emittedBy ? args.emittedBy.userId : null,
     })
     .returning()
-  await fireEventTriggersInTx(tx, row!)
+  await fireEventTriggersInTx(tx, row!, args.privateDetail)
   return row!
 }
 
