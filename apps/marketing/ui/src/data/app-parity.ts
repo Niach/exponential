@@ -966,7 +966,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "checkbox",
     "title": "Checkbox",
-    "blurb": "A 16px rounded square that holds a TABLE's selection — the bulk-select column of an issue list and nothing else. It is deliberately NOT the multi-select affordance in a picker: every option row on all four clients marks itself with the leading circle pair (ui-selected / ui-unselected), so a checkbox inside a picker would make web the only client drawing selection twice. Checked takes the primary fill under the primary foreground; indeterminate is the same box with a minus.",
+    "blurb": "THE check ×4 (owner 2026-10-27: every check and selection mark is this square): 16px box, 1px glass stroke-strong over the row fill, 4px corner; checked = the primary fill under the primary-foreground ui-check (indeterminate: ui-minus). It holds a table's selection (the issue list's bulk-select column on every form factor), a multi-select ask/plan choice and a markdown task item; the chat list's select badge is the same look at 18px.",
     "components": [
       "Checkbox"
     ],
@@ -980,15 +980,17 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::inputs::checkbox",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs",
-        "note": "glass box (row fill, strong stroke, radius SM), primary when checked, ui-check / ui-minus; bulk-select + checklist rows"
+        "note": "glass box (row fill, strong stroke, 4px corner), primary when checked, ui-check / ui-minus; bulk-select, task items, multi choices"
       },
       "ios": {
-        "status": "n/a",
-        "note": "no checkbox exists: a multi-select row draws the ui-selected / ui-unselected circle pair"
+        "status": "ok",
+        "symbol": "ExpCheckbox",
+        "file": "apps/ios/ExpUI/Sources/ExpCheckbox.swift"
       },
       "android": {
-        "status": "n/a",
-        "note": "same as iOS — the sheet's option rows carry the circle glyph pair, never a box"
+        "status": "ok",
+        "symbol": "ExpCheckbox",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/ExpCheckbox.kt"
       }
     }
   },
