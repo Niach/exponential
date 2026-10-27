@@ -62,7 +62,7 @@ pub struct ChatsToastCopy {
 #[serde(rename_all = "camelCase")]
 pub struct ChatsSelectionCopy {
     pub select: String,
-    /// `{n} selected`.
+    /// `{n}`: the bare count (the issue bulk bar's).
     pub count: String,
     pub mark_read: String,
     pub mark_unread: String,
@@ -271,6 +271,12 @@ pub struct ChatsShell {
     pub board_menu: ChatsBoardMenu,
     pub header: ChatsHeader,
     pub lead_disc: f32,
+    /// Touch-only select badge on a selected row's disc (#EXP-1388); the IDE keeps the checkbox column.
+    pub select_badge: f32,
+    pub select_badge_ring: f32,
+    pub select_badge_glyph: f32,
+    /// The Archived row's plain ui-archive glyph, no disc behind it (#EXP-1388).
+    pub archived_glyph: f32,
     pub bubble: f32,
     pub bubble_ring: f32,
 }
@@ -1144,7 +1150,8 @@ pub fn chat_selection_failed_title(failed: usize, total: usize) -> String {
     }
 }
 
-/// #EXP-1388: `copy.selection.count`.
+/// #EXP-1388: `copy.selection.count` = the bare number (`{n}`), the issue
+/// bulk bar's count (owner on #1283).
 pub fn chat_selection_count(count: usize) -> String {
     CHATS.copy.selection.count.replace("{n}", &count.to_string())
 }
@@ -1377,6 +1384,11 @@ mod tests {
         assert_eq!(CHATS.copy.title, "Chats");
         assert_eq!(CHATS.surface_card.reply_event, "reply");
         assert_eq!(CHATS.shell.tabs, ["board", "chats", "apps", "team"]);
+        assert_eq!(CHATS.shell.archived_glyph, 24.);
+        assert_eq!(
+            (CHATS.shell.select_badge, CHATS.shell.select_badge_ring, CHATS.shell.select_badge_glyph),
+            (18., 2., 12.)
+        );
     }
 
     #[test]
@@ -1630,7 +1642,8 @@ mod tests {
         assert_eq!(chat_delete_title(3), "Delete 3 chats?");
         assert_eq!(chat_selection_failed_title(2, 5), "2 of 5 chats couldn't be updated");
         assert_eq!(chat_selection_failed_title(5, 5), CHATS.copy.toasts.selection_failed);
-        assert_eq!(chat_selection_count(2), "2 selected");
+        // The bare number, like the issue bar's count (owner on #1283).
+        assert_eq!(chat_selection_count(2), "2");
     }
 
     #[test]

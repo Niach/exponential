@@ -315,6 +315,9 @@ fn root_agent(root: Option<&SessionRow>) -> Option<coding::CodingAgent> {
 gpui::actions!(
     threads_view,
     [
+        /// #EXP-1388 (cmd-a/ctrl-a): select every visible chat row, in
+        /// list order (the issue list's `SelectAll`).
+        SelectAllChats,
         /// #EXP-1388 (escape): leave the Chats selection.
         ClearChatSelection,
     ]
@@ -323,12 +326,14 @@ gpui::actions!(
 const KEY_CONTEXT: &str = "ChatsPage";
 
 /// Register the Chats page's keys (call once from `ui::init`).
+/// The issue list's bindings, scoped to the Chats page.
 pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([gpui::KeyBinding::new(
-        "escape",
-        ClearChatSelection,
-        Some("ChatsPage && !Input && !MarkdownEditor && !MentionInput && !Terminal"),
-    )]);
+    const BINDING_CONTEXT: &str = "ChatsPage && !Input && !MarkdownEditor && !MentionInput && !Terminal";
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([gpui::KeyBinding::new("cmd-a", SelectAllChats, Some(BINDING_CONTEXT))]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([gpui::KeyBinding::new("ctrl-a", SelectAllChats, Some(BINDING_CONTEXT))]);
+    cx.bind_keys([gpui::KeyBinding::new("escape", ClearChatSelection, Some(BINDING_CONTEXT))]);
 }
 
 pub struct ThreadsView {
@@ -343,6 +348,9 @@ pub struct ThreadsView {
     /// The last clicked row (shift-click's range start).
     anchor: Option<String>,
     focus_handle: FocusHandle,
+    /// The page's measured width (the issue list's probe): the bar shows
+    /// its labels at or above `chat_bar_label_min_width` (EXP-698's rule).
+    measured_width: std::rc::Rc<std::cell::Cell<gpui::Pixels>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -359,6 +367,7 @@ impl ThreadsView {
             selected: Vec::new(),
             anchor: None,
             focus_handle: cx.focus_handle(),
+            measured_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             _subscriptions: subscriptions,
         };
         view.apply_dev_selection();
@@ -442,43 +451,53 @@ impl ThreadsView {
 
 /// A row's click (`session_id`, the event).
 type OnRowClick = std::rc::Rc<dyn Fn(&str, &ClickEvent, &mut Window, &mut App)>;
-/// The menu's Select (`session_id`).
-type OnSelect = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
+/// The menu's Select (`session_id`, false: only ever adds) and the checkbox
+/// cell (true: toggles).
+type OnSelect = std::rc::Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 
-/// #EXP-1380: one Chats page row — THE list row ([`crate::chat_list`]),
-/// hover-lit; a click opens the chat (or toggles it while selecting,
-/// #EXP-1388), a right-click its menu: Select, then the chat's entries.
-/// `selected` = `None` while not selecting.
-fn chats_page_row(row: &ChatRow, selected: Option<bool>, on_click: OnRowClick, on_select: OnSelect, cx: &App) -> gpui::AnyElement {
+/// #EXP-1380: one Chats page row — THE list row ([`crate::chat_list`]) in
+/// the issue row's selectable frame ([`crate::chat_list::chat_selectable`],
+/// #EXP-1388): the checkbox cell (hover-revealed, pinned while selecting;
+/// its click toggles), the flat hover / selected fill; a click opens the
+/// chat (or toggles it while selecting), a right-click its menu: Select,
+/// then the chat's entries.
+fn chats_page_row(
+    row: &ChatRow,
+    selected: bool,
+    selecting: bool,
+    on_click: OnRowClick,
+    on_select: OnSelect,
+    cx: &App,
+) -> gpui::AnyElement {
     use crate::controls::PointerContextMenuExt as _;
     use gpui::StatefulInteractiveElement as _;
     let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
-    let lead = crate::chat_list::chat_lead_disc(row.lead, agent, cx);
+    let lead = crate::chat_list::chat_lead_disc(row.lead, agent, selected, cx);
     let session_id = row.session_id.clone();
+    let toggle_id = row.session_id.clone();
     let menu_root = row.session_id.clone();
-    gpui::div()
-        .id(SharedString::from(format!("{}-{}", CHATS.test_ids.chat_row, row.session_id)))
-        .w_full()
-        .min_w_0()
-        .px_2()
-        .rounded_lg()
-        .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().list_hover))
-        .when(selected == Some(true), |this| this.bg(cx.theme().list_active))
-        .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
-        .child(crate::chat_list::chat_selectable(selected, &row.session_id, crate::chat_list::chat_row(row, lead, cx), cx))
-        .pointer_context_menu(move |menu, _, cx| {
-            let root = menu_root.clone();
-            let on_select = on_select.clone();
-            let menu = menu.min_w(px(220.)).item(crate::controls::pointer_menu_item(
-                Some(registry::UI_SELECTED),
-                CHATS.copy.selection.select.clone(),
-                |_| None,
-                move |window, cx| on_select(&root, window, cx),
-            ));
-            crate::chat_actions::chat_menu_items(menu, &menu_root, true, cx)
-        })
-        .into_any_element()
+    let on_toggle = on_select.clone();
+    crate::chat_list::chat_selectable(
+        SharedString::from(format!("{}-{}", CHATS.test_ids.chat_row, row.session_id)),
+        &row.session_id,
+        Some((selected, selecting)),
+        move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_toggle(&toggle_id, true, window, cx),
+        crate::chat_list::chat_row(row, lead, cx),
+        cx,
+    )
+    .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
+    .pointer_context_menu(move |menu, _, cx| {
+        let root = menu_root.clone();
+        let on_select = on_select.clone();
+        let menu = menu.min_w(px(220.)).item(crate::controls::pointer_menu_item(
+            Some(registry::UI_SELECTED),
+            CHATS.copy.selection.select.clone(),
+            |_| None,
+            move |window, cx| on_select(&root, false, window, cx),
+        ));
+        crate::chat_actions::chat_menu_items(menu, &menu_root, true, cx)
+    })
+    .into_any_element()
 }
 
 /// #EXP-1380: a bubble's click opens the agent's chat, its right-click the
@@ -541,9 +560,9 @@ impl Render for ThreadsView {
         };
         let on_select: OnSelect = {
             let view = entity.clone();
-            std::rc::Rc::new(move |id, window, cx| {
+            std::rc::Rc::new(move |id, toggle, window, cx| {
                 view.update(cx, |view, cx| {
-                    if !view.selected.iter().any(|selected| selected == id) {
+                    if toggle || !view.selected.iter().any(|selected| selected == id) {
                         view.toggle(id, window, cx);
                     }
                 })
@@ -562,24 +581,18 @@ impl Render for ThreadsView {
             let archived_entry = (view_kind == ChatListView::List && filter == ChatFilter::All && model.list.archived > 0)
                 .then(|| {
                     let view = entity.clone();
-                    gpui::div()
-                        .id(SharedString::from(CHATS.test_ids.chat_archived.clone()))
-                        .w_full()
-                        .min_w_0()
-                        .px_2()
-                        .rounded_lg()
-                        .cursor_pointer()
-                        .hover(|style| style.bg(cx.theme().list_hover))
-                        .on_click(move |_: &ClickEvent, _window: &mut Window, cx: &mut App| {
-                            view.update(cx, |view, cx| view.set_view(ChatListView::Archived, cx)).ok();
-                        })
-                        .child(crate::chat_list::chat_selectable(
-                            None,
-                            "",
-                            crate::chat_list::chat_archived_row(model.list.archived, cx),
-                            cx,
-                        ))
-                        .into_any_element()
+                    crate::chat_list::chat_selectable(
+                        SharedString::from(CHATS.test_ids.chat_archived.clone()),
+                        "",
+                        None,
+                        |_, _, _| {},
+                        crate::chat_list::chat_archived_row(model.list.archived, cx),
+                        cx,
+                    )
+                    .on_click(move |_: &ClickEvent, _window: &mut Window, cx: &mut App| {
+                        view.update(cx, |view, cx| view.set_view(ChatListView::Archived, cx)).ok();
+                    })
+                    .into_any_element()
                 });
             // The empty state for an empty filter too (web `ChatList`).
             let list = if rows.is_empty() && archived_entry.is_none() {
@@ -594,8 +607,8 @@ impl Render for ThreadsView {
                     .min_w_0()
                     .children(archived_entry)
                     .children(rows.iter().map(|row| {
-                        let selected = selecting.then(|| self.selected.contains(&row.session_id));
-                        chats_page_row(row, selected, on_click.clone(), on_select.clone(), cx)
+                        let selected = self.selected.contains(&row.session_id);
+                        chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), cx)
                     }))
                     .into_any_element()
             };
@@ -625,18 +638,27 @@ impl Render for ThreadsView {
                 // Room under the last row for the floating bar.
                 .when(selecting, |this| this.pb(px(72.)))
         };
+        // EXP-698's rule, the issue list's: the bar's labels show while the
+        // measured page is as wide as the labeled bar needs.
+        let mut label_min_w = None;
         let bar = selecting.then(|| {
             let ids = self.selected.clone();
             let actions = domain::chats::chat_selection_actions(
                 &crate::chat_actions::selection_rows(&ids, &rows, cx),
                 view_kind,
             );
+            let min_w = crate::chat_list::chat_bar_label_min_width(
+                &actions.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+            );
+            label_min_w = Some(min_w);
+            let labels = self.measured_width.get() >= min_w;
             let clear = entity.clone();
             let act = entity.clone();
             crate::chat_list::chat_selection_bar(
                 ids.len(),
                 actions,
                 false,
+                labels,
                 move |_, _, cx| {
                     clear.update(cx, |view, cx| view.clear_selection(cx)).ok();
                 },
@@ -648,12 +670,45 @@ impl Render for ThreadsView {
                 cx,
             )
         });
+        let measured_width = self.measured_width.clone();
+        let rendered_labels = label_min_w.map(|min_w| measured_width.get() >= min_w);
         v_flex()
             .id("chats-page")
             .size_full()
             .relative()
+            .child(
+                // Width probe (the issue list's): re-render once when a
+                // resize crosses the bar's label threshold. The notify is
+                // deferred, this view is leased while it prepaints.
+                gpui::canvas(
+                    move |bounds, _, cx| {
+                        measured_width.set(bounds.size.width);
+                        let (Some(min_w), Some(rendered)) = (label_min_w, rendered_labels) else {
+                            return;
+                        };
+                        if (bounds.size.width >= min_w) != rendered {
+                            let entity = entity.clone();
+                            cx.defer(move |cx| {
+                                entity.update(cx, |_, cx| cx.notify()).ok();
+                            });
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &SelectAllChats, _, cx| {
+                let model = this.model(cx);
+                let ids: Vec<String> = this.visible_rows(&model).into_iter().map(|row| row.session_id).collect();
+                if ids.is_empty() {
+                    return;
+                }
+                this.selected = ids;
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ClearChatSelection, _, cx| {
                 if this.selected.is_empty() {
                     cx.propagate();
@@ -662,16 +717,7 @@ impl Render for ThreadsView {
                 this.clear_selection(cx);
             }))
             .child(page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W))
-            .children(bar.map(|bar| {
-                h_flex()
-                    .absolute()
-                    .bottom_4()
-                    .left_0()
-                    .right_0()
-                    .justify_center()
-                    .px_4()
-                    .child(bar)
-            }))
+            .children(bar.map(crate::issue_list::bulk_bar_dock))
     }
 }
 

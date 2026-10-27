@@ -13,6 +13,7 @@ import {
   Pill,
   Checkbox,
   SelectionCheck,
+  selectableRowClass,
   SkeletonRows,
   UserAvatar,
   useIsMobile,
@@ -276,7 +277,7 @@ const IssueRow = memo(function IssueRow({
         // templates. The mobile fill is chosen here rather than by class
         // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
         // utilities, so which one won would come down to stylesheet order.
-        className={`relative max-md:flex max-md:items-center max-md:gap-2 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
+        className={`relative max-md:flex max-md:items-center max-md:gap-2 md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 group/row cursor-pointer ${selectableRowClass({ selected: isSelected, rest: `max-md:bg-glass-row max-md:border-glass-stroke` })}`}
         onClick={() => {
           // A macOS ctrl-click (a right-click that Firefox follows with a
           // click) is swallowed by the menu host itself (gestures.ts), so a

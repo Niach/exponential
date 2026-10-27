@@ -11,7 +11,8 @@ import SwiftUI
 /// newest activity first). A row opens the chat; a bubble's hold its agent
 /// menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
 /// multi-selection with that row (the row's touch menu is gone); while
-/// selecting every row leads with the issue list's selection glyph, a tap
+/// selecting nothing shifts, a selected row is a full-width tint with the
+/// check badge on its disc, a tap
 /// toggles and THE BAR (the issue list's bulk bar, in the tab bar's slot)
 /// acts on the selection (`chatSelectionActions`). The Archived entry row
 /// pushes the same list in `view: .archived` (the Archived page).
@@ -228,7 +229,7 @@ struct ChatsView: View {
             .trimmingCharacters(in: .whitespaces)
         default: nil
         }
-        let selected: Bool? = selectionActive ? selectedIds.contains(row.sessionId) : nil
+        let selected = selectionActive && selectedIds.contains(row.sessionId)
         return ChatRowView(
             title: row.title,
             time: row.time,
@@ -238,12 +239,16 @@ struct ChatsView: View {
             needsYou: row.needsYou,
             unreadCount: row.unreadCount,
             word: row.word?.text,
-            wordIcon: row.word == .stack ? AppIcons.prStack : nil
+            wordIcon: row.word == .stack ? AppIcons.prStack : nil,
+            selected: selected
         ) {
             ChatLeadMark(lead: row.lead, cli: lists.clis[row.sessionId])
         }
-        .chatSelectionLead(selected)
-        .glassLongPress(
+        .chatSelectedTint(selected)
+        // The issue row's tap + long-press (`bulkSelectable`): the same hold,
+        // the release never toggles the row back out, ONE haptic (the list's).
+        .bulkSelectable(
+            selecting: selectionActive,
             onTap: {
                 if selectionActive {
                     toggleSelection(row.sessionId)
@@ -251,7 +256,7 @@ struct ChatsView: View {
                     pushRoute(.thread(accountId: accountId, threadId: row.sessionId))
                 }
             },
-            onHold: { enterSelection(with: row.sessionId) }
+            onLongPress: { enterSelection(with: row.sessionId) }
         )
         .accessibilityIdentifier(Chats.TestIds.chatRow)
     }
@@ -259,10 +264,7 @@ struct ChatsView: View {
     // MARK: - Selection (#EXP-1388)
 
     private func enterSelection(with rootId: String) {
-        if selectionActive {
-            if !selectedIds.contains(rootId) { selectedIds.append(rootId) }
-            return
-        }
+        guard !selectionActive else { return }
         withAnimation(motion.standard) {
             selectionActive = true
             selectedIds = [rootId]

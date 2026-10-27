@@ -63,20 +63,28 @@ use crate::queries::{self, BoardData};
 const ROW_HEIGHT: f32 = 28.;
 /// The list's base left padding (`px_3`) — EXP-980's tree gutters are
 /// measured off it, exactly like the session rows' `ROW_PAD`.
-const ROW_PAD: f32 = 12.;
+pub(crate) const ROW_PAD: f32 = 12.;
 /// The list stacks its rows with no gap, so the connector bridges nothing.
 const ROW_GAP: f32 = 0.;
 /// EXP-998: the gutters start under the PRIORITY glyph, not at the row's
 /// edge — past the 20px select cell, plus the 5 that put a 14px gutter's
 /// centre (7) under a 24px cell's glyph (12). The web's `GUIDE_INSET` on top
 /// of its checkbox column.
-const GUIDE_INSET: f32 = 20. + 5.;
+const GUIDE_INSET: f32 = SELECT_CELL_W + SELECT_CELL_GAP;
+/// The leading bulk-select cell's width (web's checkbox column, `w-5`) —
+/// THE select cell of every selectable list ([`select_cell`]: the issue rows
+/// and #EXP-1388's chat rows).
+pub(crate) const SELECT_CELL_W: f32 = 20.;
+/// What sits between the select cell and the row's first glyph: the issue
+/// row's 24px priority cell centres its 14px glyph 5px in, so a row whose
+/// next glyph starts flush (the chat row's lead disc) leaves these 5px.
+pub(crate) const SELECT_CELL_GAP: f32 = 5.;
 /// Group header height (web py-1.5 + text-sm, compacted).
 const HEADER_HEIGHT: f32 = 28.;
 /// The row's hover group (web `group/row`) — reveals the bulk-select
 /// checkbox. Reused per row: gpui resolves `group_hover` against the
 /// innermost enclosing group with the name.
-const ROW_GROUP: &str = "issue-row";
+pub(crate) const ROW_GROUP: &str = "issue-row";
 /// The list root's key context (the issue-detail pattern) — scopes the
 /// select-all / clear-selection bindings to a focused issue list.
 const KEY_CONTEXT: &str = "IssueList";
@@ -654,10 +662,7 @@ impl IssueListView {
             .cursor_pointer()
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.3))
-            .when(is_selected || is_active, |style| {
-                style.bg(cx.theme().colors.list_active)
-            })
-            .hover(|style| style.bg(cx.theme().colors.list_hover))
+            .map(|row| selectable_row_fill(row, is_selected || is_active, cx))
             // Row click: Cmd/Ctrl toggles the selection, Shift extends the
             // range from the anchor, plain navigates to the detail. The
             // selection SURVIVES navigation (EXP-68): peeking into an issue
@@ -681,22 +686,15 @@ impl IssueListView {
             // while ANY selection exists (web `group-hover/row` parity).
             .child({
                 let toggle_id = issue.id.clone();
-                control_cell(row_id("select-cell", &issue.id))
-                    .w_5()
-                    .when(!any_selected, |cell| {
-                        cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
-                    })
-                    .child(
-                        crate::controls::checkbox(
-                            row_id("select", &issue.id),
-                            is_selected.into(),
-                            false,
-                            cx,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.toggle_selected(toggle_id.clone(), cx);
-                        })),
-                    )
+                select_cell(
+                    &issue.id,
+                    is_selected,
+                    any_selected,
+                    cx.listener(move |this, _, _, cx| {
+                        this.toggle_selected(toggle_id.clone(), cx);
+                    }),
+                    cx,
+                )
             })
             // 24px priority dropdown cell (stop_propagation wrapper, §4.6).
             .child(
@@ -894,7 +892,6 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
 ) -> gpui::AnyElement {
     let count = ids.len();
     let list = cx.entity().downgrade();
-    let danger = cx.theme().danger;
     // Hidden on a solo team (see `assignee_menu` below).
     let users = queries::team_users(cx, &team_id);
     let agents = queries::team_agents(cx, &team_id);
@@ -1231,15 +1228,8 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
     let delete_menu = {
         let ids = ids.clone();
         let list = list.clone();
-        with_label(
-            Button::new("bulk-delete")
-                .ghost()
-                .web_sm()
-                .icon(Icon::new(registry::UI_DELETE).text_color(danger))
-                // Destructive: the whole control reads danger, web parity.
-                .text_color(danger),
-            "Delete",
-        )
+        // Destructive: the whole control reads danger, web parity.
+        bulk_bar_button("bulk-delete", registry::UI_DELETE, "Delete", labels, true, cx)
             .tooltip("Delete selected")
             .disabled(busy)
             .on_click(move |_, window, cx| {
@@ -1712,6 +1702,81 @@ impl Render for IssueListView {
 
 /// A fixed control cell that swallows clicks so opening the control never
 /// triggers the row navigation (§4.6 — the web wrapper's `stopPropagation`).
+/// THE selectable row's fill ×2 (the issue rows, #EXP-1388's chat rows): a
+/// selected (or open) row = the flat full-width `list_active` fill, no
+/// radius; hover = `list_hover`. The caller's row also carries
+/// `.group(ROW_GROUP)` so its [`select_cell`] reveals on hover.
+pub(crate) fn selectable_row_fill(
+    row: gpui::Stateful<gpui::Div>,
+    selected: bool,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let colors = &cx.theme().colors;
+    let (active, hover) = (colors.list_active, colors.list_hover);
+    row.when(selected, |row| row.bg(active))
+        .hover(move |style| style.bg(hover))
+}
+
+/// THE leading bulk-select cell ×2 (the issue rows, #EXP-1388's chat rows):
+/// the [`SELECT_CELL_W`] cell holding THE checkbox, hover-revealed (the
+/// enclosing [`ROW_GROUP`]) and pinned visible while ANY selection exists
+/// (web `group-hover/row` parity); a click on it toggles `key`'s row (the
+/// cell swallows the click, so the row never sees it). `key` = the row's id.
+pub(crate) fn select_cell(
+    key: &str,
+    selected: bool,
+    any_selected: bool,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    control_cell(row_id("select-cell", key))
+        .w(px(SELECT_CELL_W))
+        .when(!any_selected, |cell| {
+            cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
+        })
+        .child(crate::controls::checkbox(row_id("select", key), selected.into(), false, cx).on_click(on_toggle))
+}
+
+/// THE bulk bar's dock ×2 (the board's issue list, #EXP-1388's Chats page):
+/// floated over the bottom of the list pane, centred, content-sized — the
+/// rows under it never move (EXP-289).
+pub(crate) fn bulk_bar_dock(bar: gpui::AnyElement) -> gpui::Div {
+    h_flex()
+        .absolute()
+        .bottom_4()
+        .left_0()
+        .right_0()
+        .justify_center()
+        .px_4()
+        .child(bar)
+}
+
+/// One bulk bar action button ×2 (the issue bar's Delete, every chat
+/// selection action): ghost `web_sm`, the icon, the label only while the
+/// bar shows `labels` (the EXP-698 width gate); a destructive one reads
+/// danger throughout. The caller adds the tooltip, `disabled` and click.
+pub(crate) fn bulk_bar_button(
+    id: impl Into<ElementId>,
+    icon: ExpIcon,
+    label: impl Into<SharedString>,
+    labels: bool,
+    destructive: bool,
+    cx: &App,
+) -> Button {
+    let danger = cx.theme().danger;
+    let mut icon = Icon::new(icon);
+    if destructive {
+        icon = icon.text_color(danger);
+    }
+    let button = Button::new(id).ghost().web_sm().icon(icon);
+    let button = if destructive { button.text_color(danger) } else { button };
+    if labels {
+        button.label(label.into())
+    } else {
+        button
+    }
+}
+
 pub(crate) fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)

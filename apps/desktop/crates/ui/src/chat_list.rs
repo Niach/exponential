@@ -12,8 +12,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, App, Div, FontWeight, InteractiveElement as _, IntoElement as _, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, AnyElement, App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement as _, IntoElement as _,
+    ParentElement as _, Pixels, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
@@ -21,6 +21,7 @@ use domain::chats::{chat_filter_label, chat_selection_count, ChatSelectionAction
 use domain::session_tree::ThreadRowWord;
 
 use crate::icons::registry;
+use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
 use crate::surface::{glass_pill, PillMode, PillSize};
 
 /// The glyph inside the lead disc / a bubble (web `size-6`).
@@ -41,9 +42,16 @@ fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
 
 /// The 52 lead DISC (bg muted) and what it holds: the brand mark with the
 /// amber badge, the working mark, the root's PR glyph, else the bare brand
-/// mark. `agent` = the root's CLI.
-pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>, cx: &App) -> AnyElement {
+/// mark. `agent` = the root's CLI. #EXP-1388: a `selected` row's disc steps
+/// one grey notch up (the glass `fillActive` over muted, web
+/// `ChatLeadDisc selected`) so it never blends into the selected fill.
+pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>, selected: bool, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    let ground = if selected {
+        theme.muted.blend(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+    } else {
+        theme.muted
+    };
     let brand = || {
         crate::coding_selects::agent_mark(agent.unwrap_or_default())
             .with_size(px(GLYPH_PX))
@@ -67,7 +75,7 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
         .size(px(CHATS.shell.lead_disc))
         .flex_shrink_0()
         .rounded_full()
-        .bg(theme.muted)
+        .bg(ground)
         .flex()
         .items_center()
         .justify_center()
@@ -81,7 +89,7 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
                     .size(px(14.))
                     .rounded_full()
                     .border_2()
-                    .border_color(theme.muted)
+                    .border_color(ground)
                     .bg(theme::tokens::YELLOW.to_hsla()),
             )
         })
@@ -231,20 +239,25 @@ fn chat_row_frame(
         )
 }
 
-/// #EXP-1388 THE ARCHIVED ENTRY: the same row with `ui-archive` in its lead
-/// disc, `copy.archived.entry` as its title and the count in the time slot
-/// (muted), no preview line.
+/// #EXP-1388 THE ARCHIVED ENTRY: the chat row whose lead cell holds the
+/// PLAIN `ui-archive` glyph (`shell.archivedGlyph`, muted foreground, no
+/// disc behind it) centred in the `leadDisc`-wide column so it lines up
+/// with the chats' discs; `copy.archived.entry` as its title and the count
+/// in the time slot (muted), no preview line, so the row is as tall as its
+/// text line plus the chat row's vertical padding.
 pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
     let theme = cx.theme();
     let lead = div()
-        .size(px(CHATS.shell.lead_disc))
+        .w(px(CHATS.shell.lead_disc))
         .flex_shrink_0()
-        .rounded_full()
-        .bg(theme.muted)
         .flex()
         .items_center()
         .justify_center()
-        .child(Icon::new(registry::UI_ARCHIVE).with_size(px(GLYPH_PX)).text_color(theme.foreground))
+        .child(
+            Icon::new(registry::UI_ARCHIVE)
+                .with_size(px(CHATS.shell.archived_glyph))
+                .text_color(theme.muted_foreground),
+        )
         .into_any_element();
     chat_row_frame(
         lead,
@@ -257,72 +270,91 @@ pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
     )
 }
 
-/// #EXP-1388: while selecting, a row leads with the issue list's select
-/// cell: the same 20px cell holding the same [`crate::controls::checkbox`]
-/// square (the row's own click toggles it); `None` = not selecting (the row
-/// as is). `id` = the row's session id.
-pub(crate) fn chat_selectable(selected: Option<bool>, id: &str, row: Div, cx: &App) -> Div {
-    let Some(selected) = selected else {
-        return row;
+/// #EXP-1388 (owner on #1283): THE selectable chat row = the issue row's
+/// frame, its pieces shared with [`crate::issue_list`]: the [`ROW_PAD`]
+/// gutter, THE select cell ([`select_cell`]: the checkbox, revealed on row
+/// hover, pinned while `selecting`; its click = `on_toggle`), the
+/// [`SELECT_CELL_GAP`], then `row`; the flat full-width selected / hover
+/// fill ([`selectable_row_fill`]). `select` = `(selected, selecting)`;
+/// `None` = a row that is never selected (the Archived entry): the cell's
+/// room only, so its disc lines up. `key` = the row's session id. The
+/// caller hangs the row's click and menu.
+pub(crate) fn chat_selectable(
+    id: impl Into<ElementId>,
+    key: &str,
+    select: Option<(bool, bool)>,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    row: Div,
+    cx: &App,
+) -> Stateful<Div> {
+    let cell = match select {
+        Some((selected, selecting)) => select_cell(key, selected, selecting, on_toggle, cx).into_any_element(),
+        None => div().w(px(SELECT_CELL_W)).flex_shrink_0().into_any_element(),
     };
-    h_flex()
+    let frame = div()
+        .id(id)
+        .group(ROW_GROUP)
         .w_full()
         .min_w_0()
-        .gap_2()
+        .px(px(ROW_PAD))
+        .flex()
         .items_center()
-        .child(
-            div()
-                .w_5()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(crate::controls::checkbox(
-                    SharedString::from(format!("chat-select-{id}")),
-                    selected.into(),
-                    false,
-                    cx,
-                )),
-        )
-        .child(row)
+        .gap(px(SELECT_CELL_GAP))
+        .cursor_pointer()
+        .child(cell)
+        .child(row.flex_1().min_w_0());
+    selectable_row_fill(frame, select.is_some_and(|(selected, _)| selected), cx)
 }
 
 /// A selection bar action pick.
 pub(crate) type OnSelectionAction = Rc<dyn Fn(ChatSelectionAction, Vec<String>, &mut Window, &mut App)>;
 
-/// #EXP-1388 THE BAR: the issue list's bulk capsule
-/// ([`crate::issue_list::bulk_bar_capsule`]): ✕, `copy.selection.count`,
-/// then `chat_selection_actions` as ghost icon + label buttons, the
-/// hairline before the destructive Delete.
+/// The panel width the LABELED chat bar needs on one line — the issue
+/// bar's rule (`issue_list::bulk_bar_label_min_width`, EXP-698) summed over
+/// the chat bar's controls: the same chrome (32 the hosting row's px_4
+/// gutters + 20 bar padding + 32 the ✕ + 16 the count), per action a ghost
+/// `web_sm` icon + label (44 + ~6.5 per character, the issue bar's measured
+/// Status / Delete) and its 8px gap, and the 9px hairline before Delete.
+pub(crate) fn chat_bar_label_min_width(actions: &[ChatSelectionAction]) -> Pixels {
+    let buttons: f32 = actions
+        .iter()
+        .map(|action| 44. + 6.5 * action.label().chars().count() as f32 + 8.)
+        .sum();
+    let rule = if actions.iter().any(|action| action.destructive()) { 9. } else { 0. };
+    px(32. + 20. + 32. + 16. + buttons + rule)
+}
+
+/// #EXP-1388 THE BAR = the issue list's bulk bar: its capsule
+/// ([`crate::issue_list::bulk_bar_capsule`]: ✕ + the bare count,
+/// `copy.selection.count`), `chat_selection_actions` as its buttons
+/// ([`crate::issue_list::bulk_bar_button`], labels only while `labels`:
+/// [`chat_bar_label_min_width`]), the hairline before the destructive
+/// Delete. The caller docks it ([`crate::issue_list::bulk_bar_dock`]).
 pub(crate) fn chat_selection_bar(
     count: usize,
     actions: Vec<(ChatSelectionAction, Vec<String>)>,
     busy: bool,
+    labels: bool,
     on_clear: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_action: Option<OnSelectionAction>,
     cx: &App,
 ) -> AnyElement {
-    use gpui_component::button::{Button, ButtonVariants as _};
     use gpui_component::Disableable as _;
-    use crate::controls::WebControl as _;
-    let danger = cx.theme().danger;
     let mut bar = crate::issue_list::bulk_bar_capsule(chat_selection_count(count).into(), on_clear, cx);
     for (action, ids) in actions {
-        let mut icon = Icon::new(registry::concept_by_name(action.icon()).unwrap_or(registry::UI_CHECK));
         if action.destructive() {
-            icon = icon.text_color(danger);
             bar = bar.child(crate::issue_list::bulk_bar_rule());
         }
-        let mut button = Button::new(SharedString::from(format!("chat-bulk-{}", action.key())))
-            .ghost()
-            .web_sm()
-            .icon(icon)
-            .label(action.label())
-            .tooltip(action.label())
-            .disabled(busy);
-        if action.destructive() {
-            button = button.text_color(danger);
-        }
+        let mut button = crate::issue_list::bulk_bar_button(
+            SharedString::from(format!("chat-bulk-{}", action.key())),
+            registry::concept_by_name(action.icon()).unwrap_or(registry::UI_CHECK),
+            action.label(),
+            labels,
+            action.destructive(),
+            cx,
+        )
+        .tooltip(action.label())
+        .disabled(busy);
         if let Some(on_action) = on_action.clone() {
             button = button.on_click(move |_, window, cx| on_action(action, ids.clone(), window, cx));
         }

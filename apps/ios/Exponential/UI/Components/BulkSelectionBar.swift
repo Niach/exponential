@@ -111,15 +111,116 @@ struct ChatSelectionBar: View {
     }
 }
 
-extension View {
-    /// #EXP-1388: a chat row leads with the selection glyph cell while the
-    /// list selects (`selected` nil = not selecting).
-    func chatSelectionLead(_ selected: Bool?) -> some View {
-        HStack(spacing: 12) {
-            if let selected {
-                SelectionGlyph(selected: selected)
+/// THE bulk-selection row mechanics (EXP-239 / EXP-698 r5), shared by the
+/// issue list and the Chats list (#EXP-1388: "exactly like the issue list's
+/// bulk selection"): the long-press that enters, the tap that toggles, the
+/// selected row's wash + hairline.
+enum BulkSelection {
+    /// The row's hold that enters the selection.
+    static let longPressDuration: Double = 0.35
+    /// The selected-row wash and its hairline, on the row card's radius.
+    static let highlightRadius: CGFloat = 10
+    static let highlightFill = DesignTokens.Palette.primary.opacity(0.12)
+    static let highlightStroke = DesignTokens.Palette.primary.opacity(0.45)
+    /// The issue card's content inset (`issueRowContent`'s 12pt) and its
+    /// glyph → first column gap (the row HStack's 10pt).
+    static let rowInset: CGFloat = 12
+    static let glyphGap: CGFloat = 10
+}
+
+/// One armed tap-swallow (EXP-698 r5). A long-press flips the selection on
+/// while the finger is still DOWN; the release that follows arrives at the
+/// row as an ordinary tap, which in selection mode means "toggle" — so the
+/// row the press just selected would deselect itself. The row arms this and
+/// its next tap consumes it.
+///
+/// The window has to outlast a comfortable hold (the press registers at
+/// 0.35s, the finger may stay down well past that) while still expiring,
+/// because a system-cancelled touch never sends the release that would
+/// consume it.
+private struct TapSuppression {
+    static let window: Duration = .seconds(2)
+
+    let armedAt = ContinuousClock.now
+
+    var isExpired: Bool { armedAt.duration(to: ContinuousClock.now) > Self.window }
+}
+
+/// ONE Button for both modes (EXP-698 r5): the mode is decided at tap time
+/// (`onTap` toggles while selecting, opens otherwise) rather than by swapping
+/// two Buttons, and the long-press is simultaneous so the plain tap keeps
+/// working. The haptic is the HOST's (`sensoryFeedback` on its selection).
+private struct BulkSelectableRow: ViewModifier {
+    let selecting: Bool
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+    @State private var suppression: TapSuppression?
+
+    func body(content: Content) -> some View {
+        Button {
+            // The release that ended the long-press, not a tap: it would
+            // toggle the just-selected row straight back out (and, as the
+            // only selected row, leave selection mode again).
+            if let armed = suppression {
+                suppression = nil
+                if !armed.isExpired { return }
             }
-            self
+            onTap()
+        } label: {
+            content
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: BulkSelection.longPressDuration).onEnded { _ in
+                guard !selecting else { return }
+                suppression = TapSuppression()
+                onLongPress()
+            }
+        )
+    }
+}
+
+extension View {
+    /// The bulk-selectable row's tap + long-press (see `BulkSelectableRow`).
+    func bulkSelectable(
+        selecting: Bool,
+        onTap: @escaping () -> Void,
+        onLongPress: @escaping () -> Void
+    ) -> some View {
+        modifier(BulkSelectableRow(selecting: selecting, onTap: onTap, onLongPress: onLongPress))
+    }
+
+    /// The selected row's unmistakable neutral wash + hairline on top of the
+    /// row (the check glyph alone is easy to miss mid-scroll). `verticalInset`
+    /// pulls it in for rows that stack with no gap of their own.
+    func selectedRowHighlight(_ selected: Bool, verticalInset: CGFloat = 0) -> some View {
+        overlay {
+            if selected {
+                RoundedRectangle(cornerRadius: BulkSelection.highlightRadius)
+                    .fill(BulkSelection.highlightFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BulkSelection.highlightRadius)
+                            .stroke(BulkSelection.highlightStroke, lineWidth: 1)
+                    )
+                    .padding(.vertical, verticalInset)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// #EXP-1388 (owner on #1286, WhatsApp's reference): a chat row while
+    /// the list selects. NOTHING shifts (no leading control column); a
+    /// SELECTED row wears a full-width flat tint (glass fillActive, edge to
+    /// edge of the screen past the list's `screenInset`, no radius, no
+    /// hairline). The badge on the disc is `ChatRowView(selected:)`'s.
+    func chatSelectedTint(_ selected: Bool, screenInset: CGFloat = 16) -> some View {
+        background {
+            if selected {
+                Rectangle()
+                    .fill(GlassTokens.fillActive)
+                    .padding(.horizontal, -screenInset)
+                    .allowsHitTesting(false)
+            }
         }
     }
 }

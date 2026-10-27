@@ -49,6 +49,9 @@ import com.exponential.app.ui.components.ChatArchivedRow
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.ChatRow
 import com.exponential.app.ui.components.ChatSelectionBar
+import com.exponential.app.ui.components.SelectionBarSlot
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.exponential.app.ui.components.BottomNavDefaults
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.domain.DomainContract
@@ -123,6 +126,7 @@ fun ThreadsScreen(
         viewModel.clearNotice()
     }
 
+    val haptics = LocalHapticFeedback.current
     var agentMenuFor by remember { mutableStateOf<SessionTree.AgentRow?>(null) }
     var deleteFor by remember { mutableStateOf<List<String>?>(null) }
 
@@ -169,7 +173,11 @@ fun ThreadsScreen(
                 agentOf = { facts[it]?.agent },
                 onSelectFilter = viewModel::selectFilter,
                 onOpenChat = onOpenThread,
-                onLongPressChat = { row -> selected = listOf(row.sessionId) },
+                onLongPressChat = { row ->
+                    // The issue list's entry: the haptic, then the one row.
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    selected = listOf(row.sessionId)
+                },
                 onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
                 onLongPressAgent = { agentMenuFor = it },
                 onOpenInbox = onOpenInbox,
@@ -183,7 +191,9 @@ fun ThreadsScreen(
             )
         }
         if (selecting) {
-            // The issue list's placement: the nav bar's own gutter, in its slot.
+            // THE issue list's slot (this Box sits outside the Scaffold, so it
+            // adds the nav-bar inset the issue list's Scaffold applied).
+            SelectionBarSlot(Modifier.navigationBarsPadding()) {
             ChatSelectionBar(
                 count = selected.size,
                 actions = actions,
@@ -201,12 +211,8 @@ fun ThreadsScreen(
                     // Every action leaves the selection.
                     selected = emptyList()
                 },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = BottomNavDefaults.HorizontalInset)
-                    .padding(bottom = 8.dp),
             )
+            }
         }
     }
 

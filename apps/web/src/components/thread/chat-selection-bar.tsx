@@ -23,8 +23,9 @@ import { trpc } from "@/lib/trpc-client"
 
 // #EXP-1388 (chats.json SELECTION + ARCHIVE): the Chats list's selection bar
 // = THE issue list's bulk bar (the same `BulkBarCapsule` in the same
-// `BulkBarDock`): close, `{n} selected`, then `chatSelectionActions` as icon
-// buttons (labelled on md+). Mark read / unread = `sessions.setRead`,
+// `BulkBarDock`): close, the count (`copy.selection.count`, the bare
+// number like the issue bar), then `chatSelectionActions` as icon buttons
+// (labelled on md+). Mark read / unread = `sessions.setRead`,
 // Archive / Unarchive = `sessions.setArchived` (batched, 200 ids a call),
 // Stop = `sessions.end` per chat, Delete asks first (`chatDeleteTitle`) then
 // `sessions.delete` per chat, at most `IN_FLIGHT` at once (each ends a tree

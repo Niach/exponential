@@ -13,6 +13,14 @@ public enum ChatListMetrics {
     /// inside the ring (`shell.bubbleRing`).
     public static let bubble = CGFloat(Chats.Shell.bubble)
     public static let bubbleRing = CGFloat(Chats.Shell.bubbleRing)
+    /// #EXP-1388 touch selection: the select badge (`shell.selectBadge`),
+    /// its ground ring (`shell.selectBadgeRing`) and check
+    /// (`shell.selectBadgeGlyph`); the Archived entry's plain glyph
+    /// (`shell.archivedGlyph`).
+    public static let selectBadge = CGFloat(Chats.Shell.selectBadge)
+    public static let selectBadgeRing = CGFloat(Chats.Shell.selectBadgeRing)
+    public static let selectBadgeGlyph = CGFloat(Chats.Shell.selectBadgeGlyph)
+    public static let archivedGlyph = CGFloat(Chats.Shell.archivedGlyph)
     /// Lead → text column.
     public static let gap: CGFloat = 14
     public static let rowVerticalPadding: CGFloat = 12
@@ -35,6 +43,12 @@ public struct ChatRowView<Lead: View>: View {
     private let unreadCount: Int
     private let word: String?
     private let wordIcon: String?
+    /// #EXP-1388: the row is selected (touch: the stronger disc + the
+    /// select badge; the host paints the full-width tint).
+    private let selected: Bool
+    /// false = the lead is a plain glyph centred in the disc column, no
+    /// disc, the row as tall as its text (the Archived entry).
+    private let leadDisc: Bool
     private let lead: Lead
 
     public init(
@@ -47,6 +61,8 @@ public struct ChatRowView<Lead: View>: View {
         unreadCount: Int = 0,
         word: String? = nil,
         wordIcon: String? = nil,
+        selected: Bool = false,
+        leadDisc: Bool = true,
         @ViewBuilder lead: () -> Lead
     ) {
         self.title = title
@@ -58,6 +74,8 @@ public struct ChatRowView<Lead: View>: View {
         self.unreadCount = unreadCount
         self.word = word
         self.wordIcon = wordIcon
+        self.selected = selected
+        self.leadDisc = leadDisc
         self.lead = lead()
     }
 
@@ -70,10 +88,7 @@ public struct ChatRowView<Lead: View>: View {
 
     public var body: some View {
         HStack(alignment: .center, spacing: ChatListMetrics.gap) {
-            lead
-                .frame(width: ChatListMetrics.leadDisc, height: ChatListMetrics.leadDisc)
-                .background(DesignTokens.Palette.muted, in: Circle())
-                .clipShape(Circle())
+            leadCell
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -122,13 +137,35 @@ public struct ChatRowView<Lead: View>: View {
             }
             .padding(.vertical, ChatListMetrics.rowVerticalPadding)
             .overlay(alignment: .bottom) {
+                // A selected row's band has no line inside it (the
+                // hairline keeps its height, nothing reflows).
                 Rectangle()
-                    .fill(GlassTokens.strokeCard)
+                    .fill(selected ? Color.clear : GlassTokens.strokeCard)
                     .frame(height: GlassTokens.hairline)
             }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var leadCell: some View {
+        if leadDisc {
+            lead
+                .frame(width: ChatListMetrics.leadDisc, height: ChatListMetrics.leadDisc)
+                .background {
+                    // A selected disc steps one grey notch up (fillActive
+                    // over muted) so it never blends into the row's tint.
+                    Circle().fill(DesignTokens.Palette.muted)
+                        .overlay { if selected { Circle().fill(GlassTokens.fillActive) } }
+                }
+                .clipShape(Circle())
+                .overlay(alignment: .bottomTrailing) {
+                    if selected { ChatSelectBadge() }
+                }
+        } else {
+            lead.frame(width: ChatListMetrics.leadDisc)
+        }
     }
 
     private func previewText(_ preview: String) -> Text {
@@ -142,9 +179,33 @@ public struct ChatRowView<Lead: View>: View {
     }
 }
 
-/// #EXP-1388 THE ARCHIVED ENTRY: the same chat row with `ui-archive` in its
-/// lead disc, the title `copy.archived.entry` and the archived count in the
-/// trailing time slot (muted), no preview line.
+/// #EXP-1388 touch selection (WhatsApp's reference): the filled primary
+/// check badge on a selected row's disc, ringed in the selected row's ground
+/// (the screen background under the fillActive tint) so it reads cut out of
+/// the disc; its outer box sits flush with the disc's bottom-right corner.
+public struct ChatSelectBadge: View {
+    public init() {}
+
+    public var body: some View {
+        let ring = ChatListMetrics.selectBadgeRing
+        let badge = ChatListMetrics.selectBadge
+        ZStack {
+            Circle().fill(DesignTokens.Palette.background)
+            Circle().fill(GlassTokens.fillActive)
+            Circle().fill(DesignTokens.Palette.primary)
+                .frame(width: badge, height: badge)
+            AppIcon(AppIcons.uiCheck, size: ChatListMetrics.selectBadgeGlyph, weight: .bold)
+                .foregroundStyle(DesignTokens.Palette.primaryForeground)
+        }
+        .frame(width: badge + 2 * ring, height: badge + 2 * ring)
+        .accessibilityHidden(true)
+    }
+}
+
+/// #EXP-1388 THE ARCHIVED ENTRY: the same chat row with the PLAIN
+/// `ui-archive` glyph (no disc) centred in the disc column, the title
+/// `copy.archived.entry` and the archived count in the trailing time slot
+/// (muted), no preview line; the row as tall as its text line.
 public struct ChatArchivedRow: View {
     let count: Int
 
@@ -153,8 +214,8 @@ public struct ChatArchivedRow: View {
     }
 
     public var body: some View {
-        ChatRowView(title: Chats.Copy.Archived.entry, time: "\(count)", preview: nil) {
-            AppIcon(AppIcons.uiArchive, size: 24)
+        ChatRowView(title: Chats.Copy.Archived.entry, time: "\(count)", preview: nil, leadDisc: false) {
+            AppIcon(AppIcons.uiArchive, size: ChatListMetrics.archivedGlyph)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
         .accessibilityIdentifier(Chats.TestIds.chatArchived)

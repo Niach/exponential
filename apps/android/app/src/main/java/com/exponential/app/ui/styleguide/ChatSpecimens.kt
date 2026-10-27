@@ -41,6 +41,7 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.ChatMenuSheetFace
 import com.exponential.app.ui.components.ChatSelectionBar
+import com.exponential.app.ui.components.SelectionBarSlot
 import com.exponential.app.ui.components.BottomNavDefaults
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.exponential.app.ui.components.ChatLeadDisc
@@ -205,7 +206,8 @@ fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatS
 )
 
 /** THE Chats list in selection mode: the Archived entry first, listCases[0]
- *  with two rows selected (the selection glyphs), THE BAR in the tab bar's
+ *  with two rows selected (nothing shifts: the full-width tint + the select
+ *  badge on the stronger disc), THE BAR (the bare count) in the tab bar's
  *  slot (shot `sg_chat-selection`). */
 @Composable
 fun ChatSelectionSpecimenScreen() {
@@ -230,17 +232,15 @@ fun ChatSelectionSpecimenScreen() {
                     modifier = Modifier.padding(padding),
                 )
             }
-            ChatSelectionBar(
-                count = CHAT_SELECTION_IDS.size,
-                actions = chatSelectionSpecimenActions(),
-                onClear = {},
-                onAction = {},
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = BottomNavDefaults.HorizontalInset)
-                    .padding(bottom = 8.dp),
-            )
+            // THE issue list's slot (outside the Scaffold: + the nav-bar inset).
+            SelectionBarSlot(Modifier.navigationBarsPadding()) {
+                ChatSelectionBar(
+                    count = CHAT_SELECTION_IDS.size,
+                    actions = chatSelectionSpecimenActions(),
+                    onClear = {},
+                    onAction = {},
+                )
+            }
         }
     }
 }

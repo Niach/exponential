@@ -1,11 +1,12 @@
-import { createContext, useContext, useEffect, type RefObject } from "react"
+import { createContext, useContext, useEffect, useState, type RefObject } from "react"
 
-// EXP-1074 — the phone's "Select" item (FEED-12: a long-press opens the menu,
-// so selection mode starts from a menu item, not a competing recognizer).
-// The menu host sits above every list, so a list REGISTERS its selection
-// here while mounted; the host picks the adapter whose root holds the row.
-// #EXP-1388: the Chats list registers the same shape (ids = chat roots;
-// `toggle` = its menu's Select / a touch long-press, entering the selection).
+// EXP-1074 — a list's selection, as the menu host sees it. The menu host
+// sits above every list, so a list REGISTERS its selection here while
+// mounted; the host picks the adapter whose root holds the row.
+// #EXP-1388 (owner 2026-10-27, chats.json): on touch a long-press on a row
+// of a registered list (issues or chats) ENTERS the selection with that row
+// instead of opening a menu (`useLongPressSelects`); a pointer's menu keeps
+// its Select item.
 
 export interface IssueMenuSelection {
   /** The list's element — which adapter a row belongs to. */
@@ -29,4 +30,27 @@ export function useIssueMenuSelection(adapter: IssueMenuSelection | null): void 
       registry.delete(adapter)
     }
   }, [registry, adapter])
+}
+
+/** A touch-first device: a long-press is a gesture, not a right-click. */
+const coarsePointer = (): boolean =>
+  typeof window !== `undefined` && window.matchMedia?.(`(pointer: coarse)`).matches === true
+
+/** #EXP-1388: true when this menu open is a touch long-press on a row of a
+ *  selecting list: the row is toggled into the selection and the menu
+ *  closes at once (the caller then renders nothing). */
+export function useLongPressSelects(
+  selection: IssueMenuSelection | undefined,
+  id: string,
+  open: boolean,
+  onOpenChange: (open: boolean) => void
+): boolean {
+  const [touch] = useState(coarsePointer)
+  const selects = Boolean(selection) && touch
+  useEffect(() => {
+    if (!selects || !open) return
+    selection?.toggle(id)
+    onOpenChange(false)
+  }, [selects, open, selection, id, onOpenChange])
+  return selects
 }

@@ -103,7 +103,9 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomNavDefaults
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.SelectionBarShell
+import com.exponential.app.ui.components.SelectionBarSlot
 import com.exponential.app.ui.components.SelectionGlyph
+import com.exponential.app.ui.components.selectedRowHighlight
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LabelDot
@@ -483,20 +485,8 @@ fun IssueListScreen(
         // back to the bottom overlay so entering multi-select never reflows
         // the list; mirrors GatedServersBanner). Outcomes are toasts (EXP-1031).
         if (selectionActive) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    // The nav bar's OWN gutter — the selection bar stands in
-                    // its slot, so it has to start on the same x.
-                    .padding(horizontal = BottomNavDefaults.HorizontalInset)
-                    // While the selection bar is up it IS the bottom chrome:
-                    // it sits where the nav bar's pill did (the Scaffold has
-                    // already applied the system inset), so the stack only
-                    // clears the nav bar when the nav bar is still there.
-                    .padding(bottom = if (selectionActive) 8.dp else BottomBarInset),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            // #EXP-1388: THE slot the Chats selection bar stands in too.
+            SelectionBarSlot {
                 if (selectionActive) {
                     SelectionBar(
                         count = selectedIds.size,
@@ -887,7 +877,6 @@ internal fun IssueRow(
 ) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
-    val rowShape = RoundedCornerShape(GlassTokens.RowRadius)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -897,15 +886,8 @@ internal fun IssueRow(
             .testTag("issue-row-${issue.identifier}")
             .glassRow()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .then(
-                if (selected == true) {
-                    Modifier
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), rowShape)
-                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), rowShape)
-                } else {
-                    Modifier
-                },
-            )
+            // #EXP-1388: THE selected-row paint (the Chats rows' too).
+            .selectedRowHighlight(selected == true)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
             // Content height floor, so a row is the same height regardless of
             // WHICH optional glyphs it happens to hold — the selection
@@ -1012,7 +994,7 @@ internal fun IssueRow(
 
 // Horizontal gutter every list item carries; the sticky status header band is
 // deliberately NOT inset by it (EXP-614).
-private val ListGutter = 16.dp
+private val ListGutter = com.exponential.app.ui.components.SelectionRowGutter
 
 /** The list's own row spacing — what a nesting connector has to bridge. */
 private val RowGap = 3.dp

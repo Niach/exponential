@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {
   agentMenuEntries,
@@ -17,7 +17,7 @@ import {
   type MenuEntry,
   type MenuSessionProps,
 } from "@exp/ui"
-import type { IssueMenuSelection } from "@/components/issue-context-menu/selection"
+import { useLongPressSelects, type IssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useSessionRow, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
@@ -143,10 +143,6 @@ export function useChatMenuEntries(
 
 const SelectIcon = conceptIcon(`ui-selected`)
 
-/** A touch-first device: a long-press is a gesture, not a right-click. */
-const coarsePointer = (): boolean =>
-  typeof window !== `undefined` && window.matchMedia?.(`(pointer: coarse)`).matches === true
-
 /** The `thread` kind's menu at the pointer (a sheet titled with the chat's
  *  title on a phone). #EXP-1388: on the Chats list (`selection` = the list's
  *  adapter) a pointer's menu starts with Select; a touch long-press enters
@@ -165,13 +161,7 @@ export function ChatMenuSession({
   const rootRows = useMemo(() => (root ? [root] : []), [root])
   const { titles } = useSessionTitles(rootRows)
   const chatEntries = useChatMenuEntries(root, actions)
-  const [touch] = useState(coarsePointer)
-  const longPressSelects = Boolean(selection) && touch
-  useEffect(() => {
-    if (!longPressSelects || !open) return
-    selection?.toggle(target.id)
-    onOpenChange(false)
-  }, [longPressSelects, open, selection, target.id, onOpenChange])
+  const longPressSelects = useLongPressSelects(selection, target.id, open, onOpenChange)
   if (longPressSelects) return null
   const entries: MenuEntry[] = selection
     ? [

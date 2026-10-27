@@ -64,7 +64,8 @@ struct ChatListSpecimens: View {
     )
 
     /// #EXP-1388 `chat-selection`: the selected ids (nil = not selecting):
-    /// the Archived entry first, the rows lead with the selection glyph and
+    /// the Archived entry first, a selected row tinted full width with the
+    /// check badge on its disc (nothing shifts) and
     /// THE BAR stands in the tab bar's slot.
     var selection: [String]?
 
@@ -134,9 +135,10 @@ struct ChatListSpecimens: View {
                                 needsYou: row.needsYou,
                                 unreadCount: row.unread,
                                 word: row.word?.text,
-                                wordIcon: row.word == .stack ? AppIcons.prStack : nil
+                                wordIcon: row.word == .stack ? AppIcons.prStack : nil,
+                                selected: selection?.contains(row.id) == true
                             ) { ChatLeadMark(lead: row.lead) }
-                            .chatSelectionLead(selection.map { $0.contains(row.id) })
+                            .chatSelectedTint(selection?.contains(row.id) == true)
                         }
                     }
                     .padding(.horizontal, 16)

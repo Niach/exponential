@@ -466,7 +466,7 @@ final class ChatsTests: XCTestCase {
             "markUnread": C.Selection.markUnread, "archive": C.Selection.archive, "unarchive": C.Selection.unarchive,
             "stop": C.Selection.stop, "delete": C.Selection.delete, "confirmDeleteMany": C.Selection.confirmDeleteMany,
         ])
-        XCTAssertEqual(C.Selection.countLine(2), "2 selected")
+        XCTAssertEqual(C.Selection.countLine(2), "2")
         XCTAssertEqual(copy["archived"] as? [String: String], [
             "entry": C.Archived.entry, "title": C.Archived.title, "empty": C.Archived.empty,
         ])
@@ -530,9 +530,14 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Set(header.keys), ["pages", "buttons", "circle"])
         XCTAssertEqual(Set(shell.keys), [
             "tabs", "tabIcons", "bar", "boardTab", "boardMenu", "header", "boardChips", "leadDisc",
+            "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "archivedGlyph",
             "bubble", "bubbleRing",
         ])
         XCTAssertEqual(shell["leadDisc"] as? Double, Chats.Shell.leadDisc)
+        XCTAssertEqual(shell["selectBadge"] as? Double, Chats.Shell.selectBadge)
+        XCTAssertEqual(shell["selectBadgeRing"] as? Double, Chats.Shell.selectBadgeRing)
+        XCTAssertEqual(shell["selectBadgeGlyph"] as? Double, Chats.Shell.selectBadgeGlyph)
+        XCTAssertEqual(shell["archivedGlyph"] as? Double, Chats.Shell.archivedGlyph)
         XCTAssertEqual(shell["bubble"] as? Double, Chats.Shell.bubble)
         XCTAssertEqual(shell["bubbleRing"] as? Double, Chats.Shell.bubbleRing)
 

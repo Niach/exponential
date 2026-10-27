@@ -103,7 +103,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .children(agent_bubbles_row(&bubbles, |_, _, bubble| bubble.into_any_element(), cx))
         .child(chat_filter_chips(&list.counts, ChatFilter::All, None, cx))
         .child(v_flex().w_full().children(list.rows.iter().map(|row| {
-            chat_row(row, chat_lead_disc(row.lead, None, cx), cx).into_any_element()
+            chat_row(row, chat_lead_disc(row.lead, None, false, cx), cx).into_any_element()
         })))
 }
 

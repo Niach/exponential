@@ -376,6 +376,51 @@ async function recipeOpenBoardBulkEdit(page: Page): Promise<void> {
     .waitFor({ timeout: 15_000 })
 }
 
+/**
+ * #EXP-1388: the Chats list in selection mode, entered the way a person
+ * does, like `openBoardBulkEdit`: wide = the rows' hover-revealed checkbox
+ * column (two clicks); a phone = the row's long-press (the menu host turns a
+ * touch long-press into the selection; a fine pointer gets the menu's
+ * Select), then a tap on the next row.
+ */
+async function recipeOpenChatSelection(page: Page): Promise<void> {
+  const rows = page.locator(`[data-testid="chat-row"]`)
+  await rows.first().waitFor({ timeout: 20_000 })
+  const bar = page.getByTestId(`bulk-action-bar`).filter({ visible: true }).first()
+  // Wide: the rows' checkbox column; phones: the row's long-press (a touch
+  // menu open = the selection), then taps.
+  const select = async (indices: number[]) => {
+    const boxes = page.getByRole(`checkbox`, { name: /^Select / })
+    if (await boxes.first().isVisible().catch(() => false)) {
+      for (const index of indices) await boxes.nth(index).click()
+      return
+    }
+    const [first, ...rest] = indices
+    await rows.nth(first!).click({ button: `right` })
+    const item = page.getByRole(`menuitem`, { name: `Select`, exact: true })
+    if (await appears(item, 2_000)) await item.click()
+    for (const index of rest) await rows.nth(index).click()
+  }
+  // The shot shows the Archived entry (#EXP-1388): archive the last chat
+  // once when the seed has none archived yet.
+  if (!(await appears(page.getByTestId(`chat-archived`), 1_500))) {
+    await select([(await rows.count()) - 1])
+    await bar.getByRole(`button`, { name: `Archive`, exact: true }).click()
+    await page.getByTestId(`chat-archived`).waitFor({ timeout: 15_000 })
+    await bar.waitFor({ state: `hidden`, timeout: 15_000 }).catch(() => {})
+  }
+  const wanted = Math.min(await rows.count(), 2)
+  if (wanted < 2) {
+    throw new Error(
+      `the Chats list has ${wanted} row(s) — a selection needs at least two. Re-seed: bun run seed:screenshots`
+    )
+  }
+  await select([0, 1])
+  await bar.waitFor({ timeout: 15_000 })
+  // Off the rows: the shot shows the selection, not a hovered row.
+  await page.mouse.move(0, 0)
+}
+
 // ---------------------------------------------------------------- reviews
 
 /**
@@ -704,6 +749,7 @@ export const RECIPES: Record<string, Recipe> = {
   scrollToComments: recipeScrollToComments,
   openSearch: recipeOpenSearch,
   openBoardBulkEdit: recipeOpenBoardBulkEdit,
+  openChatSelection: recipeOpenChatSelection,
   openFirstBoardSettings: recipeOpenFirstBoardSettings,
   openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
