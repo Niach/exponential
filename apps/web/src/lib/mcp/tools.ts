@@ -1999,6 +1999,24 @@ export function registerExponentialTools(
     async ({ issueId: issueIdInput, body, attachmentIds, parentId, audience }) => {
       try {
         const target = await resolveIssueTarget(issueIdInput)
+        // SLOP-4: a reporter reply EMAILS an outside address with text the
+        // reporter chose, so it needs a person behind it: never a
+        // board-confined OAuth grant or scoped key, never an unattended run.
+        // The reporter's OWN reply (the caller IS the report's reporter,
+        // NEW-19) is one too: it reaches the team and reopens the issue.
+        if (audience === `reporter` || target.kind === `reporter`) {
+          if (!access.full) {
+            throw new Error(
+              `audience "reporter" needs a full-access credential: this connection is confined to chosen teams/boards. Post a team comment instead.`
+            )
+          }
+          const own = await loadCallerSession()
+          if (own?.unattended) {
+            throw new Error(
+              `audience "reporter" is refused in an unattended session: a person must send replies to a reporter. Post a team comment instead.`
+            )
+          }
+        }
         if (target.kind === `reporter`) {
           // NEW-19: the reporter answers through the SAME write as the
           // magic-link page (lib/reporter/reply.ts): a top-level reporter
@@ -2025,22 +2043,6 @@ export function registerExponentialTools(
             audience: `reporter`,
             createdAt: reply.message.createdAt,
           })
-        }
-        // SLOP-4: a reporter reply EMAILS an outside address with text the
-        // reporter chose, so it needs a person behind it: never a
-        // board-confined OAuth grant or scoped key, never an unattended run.
-        if (audience === `reporter`) {
-          if (!access.full) {
-            throw new Error(
-              `audience "reporter" needs a full-access credential: this connection is confined to chosen teams/boards. Post a team comment instead.`
-            )
-          }
-          const own = await loadCallerSession()
-          if (own?.unattended) {
-            throw new Error(
-              `audience "reporter" is refused in an unattended session: a person must send replies to a reporter. Post a team comment instead.`
-            )
-          }
         }
         // The member gate above already checked the grant and the team.
         const { issueId } = target

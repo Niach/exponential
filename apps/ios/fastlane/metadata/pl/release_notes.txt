@@ -1,6 +1,7 @@
-- Push to talk (beta): przytrzymaj skrót na swoim urządzeniu głosowym, mów i puść; to, co powiedziałeś, trafia do twojego agenta, a odpowiedź jest czytana na głos
-- Czytanie odpowiedzi (beta, angielski i niemiecki): wybierz swoje urządzenie głosowe w "Settings > Voice" i pozwól IDE czytać na głos odpowiedzi twojego agenta, wbudowanym głosem lub głosem sklonowanym z twojego własnego nagrania
-- "Settings > Voice" obowiązuje dla ciebie na wszystkich urządzeniach: urządzenie głosowe, agent, czytanie odpowiedzi, push to talk i jego skrót, fraza wybudzająca, język (English lub Deutsch), plik głosu i jego transkrypcja; te same przełączniki są w zasobniku systemowym twojego urządzenia głosowego
-- Wkrótce: dzwonienie do agenta z telefonu, oraz słowo wybudzające
-- Przełączniki głosowe pozostają wyłączone po usunięciu ich agenta
-- Długa tura nie pokazuje już błędnie "needs input", a sesje na współdzielonej maszynie są wyświetlane pod właściwym hostem
+- Zadzwoń do agenta (beta): dzwoń do agenta swojego urządzenia głosowego z iPhone'a, przeglądarki lub aplikacji desktopowej i rozmawiaj bez użycia rąk
+- Słowo wybudzające (beta): powiedz frazę wybudzającą przy urządzeniu głosowym, aby zacząć mówić, bez skrótu klawiszowego
+- Odpowiedzi głosowe (beta): odpowiedzi są czytane na głos po angielsku i niemiecku, a niemiecki zaczyna teraz mówić znacznie szybciej
+- Propozycje głosowe (beta): gdy agent chce coś zmienić głosowo, pokazuje kartę i czeka na Twoje tak
+- Przerwane sesje wznawiają się same, sesje w kolejce czekają na swoje urządzenie, a karty planu i pytań trafiają do agenta zespołu
+- Zaznacz kilka czatów, aby oznaczyć je jako przeczytane, zarchiwizować lub usunąć; archiwizacja ukrywa je tylko dla Ciebie
+- Wszystkie pola wyboru są teraz kwadratowe, strona Urządzenia pokazuje jeden wiersz na komputer, a odrzucony merge pojawia się w wątku z opcją Ponów

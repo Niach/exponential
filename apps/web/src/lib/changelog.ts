@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-release-train`,
+    date: `2026-10-27`,
+    title: `Release 2026-10-27: call your agent (beta), with the train's fixes`,
+    summary: `This release adds voice calls to your agent from the phone, the web and the IDE, the wake word and voice proposal cards, all in beta. Interrupted sessions now resume by themselves, queued sessions wait for their device, and chats can be selected and archived.`,
+    body: `- **Calls (beta)**: call your voice device's agent from iPhone, Android, the web or the IDE; a call on the desktop's own speakers no longer interrupts the agent's voice.
+- **Wake word (beta)**: say the wake phrase on your voice device instead of holding push to talk; a red dot shows while the microphone listens, Mute is remembered, and a sidebar voice button stands in where no tray shows.
+- **Spoken replies (beta)**: German now starts speaking as fast as English.
+- **Proposal cards (beta)**: a voice agent proposes changes on a card and only acts after your yes.
+- **Sessions**: interruptions resume by themselves, queued sessions wait for their device, an idle session's transcript opens on every device, and plan and question cards reach the team agent's conversation and show inline on Android.
+- **Merges**: a refused merge lands in the thread with Retry, and automerge also runs when a turn or session ends or a PR opens.
+- **Chats and Devices**: select chats to mark read, archive (just for you), stop or delete them; every check is the square checkbox; Devices shows one line per machine, and team owners can remove a shared machine.
+- **Privacy**: a private chat's text never shows up in a conversation that may not see it.
+- **Store builds**: the IDE and CLI 0.14.80 (an older 0.14.79 daemon cannot resume interrupted runs, please update), Android 0.14.72; iOS 0.14.70 is in TestFlight.`,
+  },
+  {
     id: `2026-10-27-devices-one-line`,
     date: `2026-10-27`,
     title: `Devices: one line per machine, warnings behind one icon`,

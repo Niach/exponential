@@ -50,7 +50,7 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[host-spoofing.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { assertDeviceHost, resolveSessionHost } = await import(`@/lib/sessions/host`)
+const { assertDeviceHost, lockDeviceShares, resolveSessionHost } = await import(`@/lib/sessions/host`)
 const { guardAndCleanupTeamsForUserDeletion } = await import(`@/lib/account-deletion`)
 const { devicesRouter } = await import(`@/lib/trpc/devices`)
 const { teamMembersRouter } = await import(`@/lib/trpc/team-members`)
@@ -216,6 +216,41 @@ describe.skipIf(!ready.ok)(`FEED-148: a registered machine id is not the host`, 
     const next = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `again` } })).sessionId
     const [started] = await db.select().from(sessions).where(eq(sessions.id, next))
     expect(await resolveSessionHost(started!)).toBe(w.boxOwner)
+  })
+})
+
+// #EXP-1259: a start reads the box INSIDE its transaction under the machine's
+// share lock (shared), so it queues behind a withdrawal holding the lock
+// (`devices.setShared`, the roster leave) and then reads the box without its
+// share: never a run committed onto a box whose consent is gone.
+describe.skipIf(!ready.ok)(`#EXP-1259: a start waits for the share lock`, () => {
+  it(`a start reaching the box under a withdrawal reads it unshared`, async () => {
+    const w = await world()
+    let settled = false
+    let start: Promise<{ ok: boolean; code?: string }> = Promise.resolve({ ok: true })
+    await db.transaction(async (tx) => {
+      await lockDeviceShares(tx, w.deviceId)
+      start = sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `late start` } }).then(
+        () => ({ ok: true }),
+        (e: { code?: string }) => ({ ok: false, code: e.code })
+      )
+      void start.finally(() => {
+        settled = true
+      })
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      // Parked on the lock, not committed.
+      expect(settled).toBe(false)
+      await tx
+        .update(devices)
+        .set({ sharedTeamIds: [] })
+        .where(and(eq(devices.userId, w.boxOwner), eq(devices.deviceId, w.deviceId)))
+    })
+    expect(await start).toEqual({ ok: false, code: `NOT_FOUND` })
+    const started = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.teamId, w.teamId), eq(sessions.userId, w.mate), eq(sessions.deviceId, w.deviceId)))
+    expect(started.map((r) => r.id)).toEqual([w.hosted])
   })
 })
 

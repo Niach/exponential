@@ -1,6 +1,7 @@
-- Push to talk (béta): tartsd lenyomva a gyorsbillentyűt a hangeszközödön, beszélj, majd engedd el; amit mondtál, az ügynöködhöz kerül, a válasz pedig felolvasásra kerül
-- Válaszok felolvasása (béta, angolul és németül): válaszd ki a hangeszközödet a "Settings > Voice" alatt, és az IDE felolvassa az ügynököd válaszait beépített hanggal vagy a saját felvételedből klónozott hanggal
-- A "Settings > Voice" minden eszközödön a tiéd: hangeszköz, ügynök, válaszok felolvasása, push to talk és a gyorsbillentyűje, az ébresztő kifejezés, nyelv (English vagy Deutsch), egy hangfájl és annak átirata; ugyanezek a kapcsolók a hangeszközöd tálcáján is ott vannak
-- Hamarosan: az ügynököd hívása telefonról, és az ébresztőszó
-- A hangkapcsolók kikapcsolva maradnak, miután az ügynöküket törölték
-- Egy hosszú kör már nem mutat tévesen "needs input" állapotot, és a megosztott gépen futó munkamenetek a megfelelő gazda alatt jelennek meg
+- Hívd fel az ügynököt (beta): hívd fel a hangeszközöd ügynökét iPhone-ról, a webről vagy az asztali alkalmazásból, és beszélj vele kihangosítva
+- Ébresztőszó (beta): mondd ki az ébresztő kifejezést a hangeszközöd közelében, és beszélhetsz, billentyűparancs nélkül
+- Felolvasott válaszok (beta): a válaszok angolul és németül hangzanak el, a német pedig most sokkal hamarabb kezd beszélni
+- Hangalapú javaslatok (beta): ha az ügynök hanggal módosítana valamit, kártyát mutat, és megvárja az igenedet
+- A megszakított munkamenetek maguktól folytatódnak, a sorban álló munkamenetek megvárják az eszközüket, a terv- és kérdéskártyák pedig eljutnak a csapat ügynökéhez
+- Jelölj ki több csevegést, hogy olvasottnak jelöld, archiváld vagy töröld őket; az archiválás csak előled rejti el őket
+- Minden jelölőnégyzet szögletes lett, az Eszközök oldal gépenként egy sort mutat, és az elutasított merge az Újra gombbal jelenik meg a szálban

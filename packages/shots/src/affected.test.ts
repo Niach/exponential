@@ -124,7 +124,7 @@ describe(`desktop attribution`, () => {
     // `chat`'s drive), and so is its open "+" menu (`composer-menu`).
     // EXP-1293 retired the action-chip and Create action views. Thread
     // 58cb32df: the `chat-*` styleguide views share the stem, a harmless
-    // over-capture.
+    // over-capture; EXP-1388 added `chat-selection` (the list's bulk bar).
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
@@ -132,6 +132,7 @@ describe(`desktop attribution`, () => {
       `chat-issues`,
       `chat-list`,
       `chat-menus`,
+      `chat-selection`,
       `chat-transcript`,
       `composer-menu`,
     ])

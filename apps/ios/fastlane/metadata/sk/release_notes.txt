@@ -1,6 +1,7 @@
-- Push to talk (beta): podržte skratku na svojom hlasovom zariadení, hovorte a pustite; čo ste povedali, ide vášmu agentovi a odpoveď sa prečíta nahlas
-- Čítanie odpovedí (beta, anglicky a nemecky): vyberte v "Settings > Voice" svoje hlasové zariadenie a nechajte IDE čítať odpovede agenta nahlas, vstavaným hlasom alebo hlasom naklonovaným z vašej vlastnej nahrávky
-- "Settings > Voice" platí pre vás na všetkých zariadeniach: hlasové zariadenie, agent, čítanie odpovedí, push to talk a jeho skratka, fráza na prebudenie, jazyk (English alebo Deutsch), hlasový súbor a jeho prepis; rovnaké prepínače nájdete v systémovej lište hlasového zariadenia
-- Pripravujeme: volanie agentovi z telefónu a slovo na prebudenie
-- Hlasové prepínače zostanú vypnuté po vymazaní ich agenta
-- Dlhý ťah už omylom neukazuje "needs input" a relácie na zdieľanom počítači sa zobrazujú pod správnym hostiteľom
+- Volanie agentovi (beta): zavolajte agentovi svojho hlasového zariadenia z iPhonu, webu alebo desktopovej aplikácie a hovorte s ním bez rúk
+- Prebúdzacie slovo (beta): povedzte prebúdzaciu frázu pri svojom hlasovom zariadení a začnite hovoriť, bez klávesovej skratky
+- Hovorené odpovede (beta): odpovede sa čítajú nahlas po anglicky a po nemecky, nemčina teraz začne hovoriť oveľa rýchlejšie
+- Hlasové návrhy (beta): keď chce agent hlasom niečo zmeniť, ukáže kartu a počká na vaše áno
+- Prerušené relácie pokračujú samy, relácie vo fronte čakajú na svoje zariadenie a karty s plánom a otázkami sa dostanú k tímovému agentovi
+- Vyberte viac chatov a označte ich ako prečítané, archivujte alebo odstráňte; archivácia ich skryje len vám
+- Všetky začiarkavacie políčka sú teraz hranaté, stránka Zariadenia ukazuje jeden riadok na počítač a odmietnutý merge sa objaví vo vlákne s možnosťou Skúsiť znova

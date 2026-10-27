@@ -385,12 +385,13 @@ fn reclaim_left_behind(
     };
     if !idle.is_empty() || !unstarted.is_empty() {
         let trpc = Arc::clone(&trpc);
+        let device_id = device_id.to_string();
         std::thread::spawn(move || {
             for session_id in unstarted {
-                pickup::settle_unstarted(&trpc, &session_id);
+                pickup::settle_unstarted_on(&trpc, &session_id, Some(&device_id));
             }
             for session_id in idle {
-                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
+                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report(&device_id)) {
                     log::warn!("[pickup] reclaim: session {session_id} not reported idle: {err}");
                 }
             }
@@ -407,6 +408,7 @@ fn reclaim_left_behind(
         let at = fingerprints.get(row.id.as_str()).cloned().unwrap_or_default();
         let deps = Arc::clone(&deps);
         let trpc = Arc::clone(&trpc);
+        let device_id = device_id.to_string();
         spawn_step(row.id.clone(), at, cx, move || {
             let id = row.id.as_str();
             match pickup::continue_after_restart(&row, &deps) {
@@ -415,7 +417,7 @@ fn reclaim_left_behind(
                     StepOutcome::Progressed
                 }
                 Ok(false) => {
-                    match api::session_device::report(&trpc, id, &idle_report()) {
+                    match api::session_device::report(&trpc, id, &idle_report(&device_id)) {
                         Ok(()) => log::info!(
                             "[pickup] reclaim: session {id} was mid-turn with no run record here — now idle"
                         ),
@@ -433,10 +435,13 @@ fn reclaim_left_behind(
 }
 
 /// NEW-5: a re-claimed session between turns — idle and not working.
-fn idle_report() -> api::session_device::SessionReport {
+/// Stamped with this host's device id so the server's stale-host guard
+/// ignores a copy of a session that has since moved (#EXP-1389).
+fn idle_report(device_id: &str) -> api::session_device::SessionReport {
     api::session_device::SessionReport {
         status: Some(api::session_device::ReportStatus::Idle),
         busy: Some(false),
+        device_id: Some(device_id.to_string()),
         ..api::session_device::SessionReport::default()
     }
 }

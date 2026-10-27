@@ -1,6 +1,7 @@
-- Push to talk (Beta): Kürzel auf dem Sprachgerät gedrückt halten, sprechen, loslassen; das Gesagte geht an deinen Agenten und die Antwort wird vorgelesen
-- Antworten vorlesen (Beta, Englisch und Deutsch): wähle in "Settings > Voice" dein Sprachgerät und lass die IDE die Antworten deines Agenten vorlesen, mit einer eingebauten Stimme oder einer aus deinem eigenen Clip geklonten
-- "Settings > Voice" gilt für dich auf allen Geräten: Sprachgerät, Agent, Antworten vorlesen, Push to talk samt Kürzel, die Weckphrase, Sprache (English oder Deutsch), eine Stimmdatei und ihr Transkript; dieselben Schalter sitzen in der Taskleiste deines Sprachgeräts
-- Demnächst: deinen Agenten vom Telefon aus anrufen, und das Weckwort
-- Sprachschalter bleiben aus, nachdem ihr Agent gelöscht wurde
-- Ein langer Zug zeigt nicht mehr fälschlich "needs input", und Sitzungen auf einem geteilten Rechner stehen unter dem richtigen Host
+- Agent anrufen (beta): ruf den Agenten deines Sprachgeräts vom iPhone, im Web oder in der Desktop-App an und sprich freihändig mit ihm
+- Aktivierungswort (beta): sag die Aktivierungsphrase in der Nähe deines Sprachgeräts und leg los, ganz ohne Tastenkürzel
+- Gesprochene Antworten (beta): Antworten werden auf Englisch und Deutsch vorgelesen, Deutsch beginnt jetzt viel schneller zu sprechen
+- Sprachvorschläge (beta): will dein Agent per Sprache etwas ändern, zeigt er eine Karte und wartet auf dein Ja
+- Unterbrochene Sitzungen laufen von selbst weiter, wartende Sitzungen warten auf ihr Gerät, und Plan- und Fragekarten erreichen deinen Team-Agenten
+- Wähle mehrere Chats aus, um sie als gelesen zu markieren, zu archivieren oder zu löschen; archivierte Chats verschwinden nur für dich
+- Alle Checkboxen sind jetzt eckig, die Geräteseite zeigt eine Zeile pro Rechner, und ein abgelehnter Merge erscheint im Thread mit Erneut versuchen

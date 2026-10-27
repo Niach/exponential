@@ -67,7 +67,7 @@ export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
   const now = new Date()
   const ended = await tx
     .update(sessions)
-    .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, blocked: null, updatedAt: now })
+    .set({ status: `ended`, endedAt: now, busy: false, background: false, needsInput: false, blocked: null, updatedAt: now })
     .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), isNull(sessions.agentId)))
     .returning({ id: sessions.id })
   const endedIds = ended.map((row) => row.id)
@@ -111,7 +111,9 @@ export async function endRowsInTx(
       .where(eq(sessions.id, row.id))
       .limit(1)
     if (endedRow) {
-      const ids = { sessionId: row.id, rootId: endedRow.rootId }
+      // #EXP-1409: rootId first, the order migration 0200 and
+      // `private-lines.ts` print, so a neutralised firing matches a fresh one.
+      const ids = { rootId: endedRow.rootId, sessionId: row.id }
       const full = { ...ids, title: endedRow.title, branch: endedRow.branch }
       await emitEventInTx(tx, {
         teamId: endedRow.teamId,
@@ -159,8 +161,13 @@ export async function stopSession(args: {
   const ghost = live && !(await sessionDeviceOnline(session))
   // EXP-1413: an interrupted busy turn holds the yolo automerge until the
   // session works again (`sessions.report`). Stopping requested work that
-  // never started merges nothing either: no edge here.
-  const stopped = live && session.busy ? { stoppedAt: new Date() } : {}
+  // never started merges nothing either: no edge here. `busy` is read IN
+  // the write (the row's own value): a Stop landing after the turn ended
+  // by itself stamps nothing, else it would hold the merge until the next
+  // turn for no interruption at all.
+  const stopped = live
+    ? { stoppedAt: sql`CASE WHEN ${sessions.busy} THEN now() ELSE ${sessions.stoppedAt} END` }
+    : {}
   const txid = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     // A re-queued session keeps `started_at`: Stop never ends a session
@@ -170,13 +177,13 @@ export async function stopSession(args: {
     } else if (ghost) {
       await tx
         .update(sessions)
-        .set({ status: `idle`, busy: false, ...stopped, updatedAt: new Date() })
+        .set({ status: `idle`, busy: false, background: false, ...stopped, updatedAt: new Date() })
         .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
     } else {
       await tx
         .update(sessions)
         .set({ ...stopped, updatedAt: new Date() })
-        .where(eq(sessions.id, session.id))
+        .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
     }
     return txid
   })
@@ -364,7 +371,7 @@ export async function pauseDeviceAgents(
   if (paused.length > 0) {
     await tx
       .update(sessions)
-      .set({ status: `idle`, busy: false, updatedAt: new Date() })
+      .set({ status: `idle`, busy: false, background: false, updatedAt: new Date() })
       .where(
         and(
           inArray(sessions.agentId, paused.map((row) => row.id)),

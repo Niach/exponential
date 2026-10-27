@@ -65,7 +65,7 @@ import {
   type MoveTarget,
 } from "@/lib/sessions/move"
 import { SHARING_ORDER } from "@/lib/sessions/host"
-import type { Tx } from "@/lib/sessions/tx"
+import type { Db, Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
@@ -179,9 +179,10 @@ async function assertAgentTreeTeam(input: SessionsSendInput, caller: Session | n
 export async function resolveSessionDevice(
   userId: string,
   teamId: string,
-  deviceId: string
+  deviceId: string,
+  exec: Db = db
 ): Promise<{ shared: boolean; ownerId: string }> {
-  const rows = await db
+  const rows = await exec
     .select({ userId: devices.userId, sharedTeamIds: devices.sharedTeamIds })
     .from(devices)
     .where(eq(devices.deviceId, deviceId))
@@ -201,6 +202,23 @@ export async function resolveSessionDevice(
     code: `NOT_FOUND`,
     message: `This device is not yours and not shared with the team`,
   })
+}
+
+/** #EXP-1259 (FEED-149): a start's device, read INSIDE its transaction
+ *  under the machine's share lock, SHARED. `devices.setShared` and the
+ *  roster leave take the same key EXCLUSIVELY (`lockDeviceShares`,
+ *  lib/sessions/host.ts: `device-share:<deviceId>`, hashtextextended) and
+ *  read the runs they end under it, so a start either commits before the
+ *  withdrawal (and is in that set) or reads the box without its share
+ *  (NOT_FOUND): never a run on a box whose consent is gone. */
+export async function resolveSessionDeviceInTx(
+  tx: Tx,
+  userId: string,
+  teamId: string,
+  deviceId: string
+): Promise<{ shared: boolean; ownerId: string }> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`device-share:${deviceId}`}, 0))`)
+  return resolveSessionDevice(userId, teamId, deviceId, tx)
 }
 
 async function assertRepositoryInTeam(tx: Tx, teamId: string, repositoryId: string) {
@@ -633,6 +651,9 @@ function moveRaced(): never {
 /** A queued row re-targets (guarded on the device and status the plan was
  *  made for: a row the device claimed since is CONFLICT, never re-targeted). */
 async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
+  // #EXP-1259: the plan read the target outside this transaction; the
+  // share is re-read under its lock before the row names the box.
+  await resolveSessionDeviceInTx(tx, session.userId, session.teamId, target.deviceId)
   const from = deviceName(
     await loadDeviceRow(session.deviceId, await sessionDeviceOwner(session)),
     session.deviceId
@@ -694,9 +715,9 @@ async function messageSession(
   if (move.kind === `relocate`) {
     // A live session moves: it ends here (its children re-parent onto the
     // continuation, its watchers follow) and continues on the target.
-    const device = await resolveSessionDevice(userId, target.teamId, move.target.deviceId)
     const outcome = await db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
+      const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, move.target.deviceId)
       const [fresh] = await tx
         .select({ status: sessions.status, deviceId: sessions.deviceId })
         .from(sessions)
@@ -711,7 +732,7 @@ async function messageSession(
       await postMovedMessage(tx, target, movedText(fromName, move.target.name))
       const ended = await tx
         .update(sessions)
-        .set({ status: `ended`, endedAt: new Date(), busy: false, needsInput: false, blocked: null, updatedAt: new Date() })
+        .set({ status: `ended`, endedAt: new Date(), busy: false, background: false, needsInput: false, blocked: null, updatedAt: new Date() })
         .where(eq(sessions.id, target.id))
         .returning({ id: sessions.id })
       await closeAskMirrorsOf(tx, [target.id])
@@ -821,9 +842,9 @@ async function messageSession(
     if (!moveTarget && input.account !== undefined && input.account !== target.account) {
       await assertSessionAccount(target, input.account, cli)
     }
-    const device = await resolveSessionDevice(userId, target.teamId, deviceId)
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
+      const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, deviceId)
       const result = await reviveRoot(tx, {
         root: target,
         userId,
@@ -846,9 +867,9 @@ async function messageSession(
   if (deviceId === target.deviceId && input.account !== undefined && input.account !== target.account) {
     await assertSessionAccount(target, input.account, cli)
   }
-  const device = await resolveSessionDevice(userId, target.teamId, deviceId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, deviceId)
     const result = await continueSession(tx, {
       ended: target,
       userId,
@@ -984,6 +1005,7 @@ async function reviveRoot(
       status: `idle`,
       endedAt: null,
       busy: false,
+      background: false,
       needsInput: false,
       blocked: null,
       deviceId: args.device.deviceId,
@@ -1129,13 +1151,19 @@ async function startChild(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The parent is in another team` })
   }
   const deviceId = input.deviceId ?? parent.deviceId
-  const device = await resolveSessionDevice(userId, parent.teamId, deviceId)
 
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    const device = await resolveSessionDeviceInTx(tx, userId, parent.teamId, deviceId)
     await assertTreeRoom(tx, parent.rootId, parent.depth + 1)
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, parent.rootId)).limit(1)
     if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    // A private tree's child runs on the caller's OWN device only: on a
+    // teammate's shared box its daemon would host prompts that account
+    // cannot read (the tree is private to the caller).
+    if (!root.shared && device.ownerId !== userId) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `A private session's child runs on your own device` })
+    }
     const mcpServerIds =
       (await assertMcpServersInTeam(tx, parent.teamId, input.mcpServerIds)) ?? parent.mcpServerIds
     const id = crypto.randomUUID()
@@ -1237,10 +1265,9 @@ async function startRoot(
   if (!deviceId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a device for the new session` })
   }
-  const device = await resolveSessionDevice(userId, teamId, deviceId)
-
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
     if (input.issueIds) await assertIssuesInTeam(tx, teamId, input.issueIds)
     if (input.repositoryId) await assertRepositoryInTeam(tx, teamId, input.repositoryId)
     const mcpServerIds = await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)

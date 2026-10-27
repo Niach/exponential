@@ -1,6 +1,7 @@
-- Push to talk (beta): mantén pulsado el atajo en tu dispositivo de voz, habla y suelta; lo que dijiste va a tu agente y la respuesta se lee en voz alta
-- Leer respuestas (beta, inglés y alemán): elige tu dispositivo de voz en "Settings > Voice" y deja que el IDE lea en voz alta las respuestas de tu agente, con una voz integrada o una clonada de tu propio clip
-- "Settings > Voice" es tuyo en todos tus dispositivos: dispositivo de voz, agente, leer respuestas, push to talk y su atajo, la frase de activación, idioma (English o Deutsch), un archivo de voz y su transcripción; los mismos interruptores están en la bandeja del sistema de tu dispositivo de voz
-- Próximamente: llamar a tu agente desde el teléfono, y la palabra de activación
-- Los interruptores de voz siguen apagados después de borrar su agente
-- Un turno largo ya no muestra "needs input" por error, y las sesiones en una máquina compartida aparecen bajo el host correcto
+- Llama a tu agente (beta): llama al agente de tu dispositivo de voz desde el iPhone, la web o la app de escritorio y háblale con las manos libres
+- Palabra de activación (beta): di la frase de activación cerca de tu dispositivo de voz para empezar a hablar, sin atajo
+- Respuestas habladas (beta): las respuestas se leen en voz alta en inglés y alemán, y el alemán ahora empieza a hablar mucho antes
+- Propuestas por voz (beta): cuando tu agente quiere cambiar algo por voz, muestra una tarjeta y espera tu sí
+- Las sesiones interrumpidas se reanudan solas, las sesiones en cola esperan a su dispositivo y las tarjetas de plan y de pregunta llegan a tu agente de equipo
+- Selecciona varios chats para marcarlos como leídos, archivarlos o eliminarlos; archivar solo los oculta para ti
+- Todas las casillas son ahora cuadradas, la página Dispositivos muestra una línea por equipo y un merge rechazado aparece en el hilo con Reintentar

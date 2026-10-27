@@ -1,6 +1,7 @@
-- Push to talk (beta): ține apăsată scurtătura pe dispozitivul tău vocal, vorbește și dă drumul; ce ai spus ajunge la agentul tău, iar răspunsul este citit cu voce tare
-- Citirea răspunsurilor (beta, engleză și germană): alege dispozitivul tău vocal în "Settings > Voice" și lasă IDE-ul să citească cu voce tare răspunsurile agentului tău, cu o voce încorporată sau una clonată din propriul tău clip
-- "Settings > Voice" este al tău pe toate dispozitivele: dispozitiv vocal, agent, citirea răspunsurilor, push to talk și scurtătura lui, fraza de activare, limba (English sau Deutsch), un fișier de voce și transcrierea lui; aceleași comutatoare stau în bara de sistem a dispozitivului tău vocal
-- În curând: apelarea agentului tău de pe telefon, și cuvântul de activare
-- Comutatoarele vocale rămân oprite după ștergerea agentului lor
-- O tură lungă nu mai arată greșit "needs input", iar sesiunile de pe o mașină partajată apar sub gazda corectă
+- Sună-ți agentul (beta): sună agentul dispozitivului tău vocal de pe iPhone, din web sau din aplicația desktop și vorbește cu el fără mâini
+- Cuvânt de activare (beta): rostește fraza de activare lângă dispozitivul vocal ca să începi să vorbești, fără scurtătură
+- Răspunsuri vorbite (beta): răspunsurile sunt citite cu voce tare în engleză și germană, iar germana începe acum să vorbească mult mai repede
+- Propuneri vocale (beta): când agentul vrea să schimbe ceva prin voce, afișează un card și așteaptă acordul tău
+- Sesiunile întrerupte se reiau singure, sesiunile din coadă își așteaptă dispozitivul, iar cardurile de plan și de întrebare ajung la agentul echipei
+- Selectează mai multe conversații pentru a le marca drept citite, a le arhiva sau a le șterge; arhivarea le ascunde doar pentru tine
+- Toate casetele de bifat sunt acum pătrate, pagina Dispozitive arată un rând per calculator, iar un merge refuzat apare în fir cu Reîncearcă

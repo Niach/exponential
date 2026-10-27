@@ -1,6 +1,7 @@
-- Push to talk (beta): hold snarveien inne på stemmeenheten din, snakk og slipp; det du sa går til agenten din, og svaret leses høyt
-- Opplesing av svar (beta, engelsk og tysk): velg stemmeenheten din i "Settings > Voice" og la IDE-en lese agentens svar høyt, med en innebygd stemme eller en klonet fra ditt eget klipp
-- "Settings > Voice" gjelder for deg på alle enheter: stemmeenhet, agent, opplesing av svar, push to talk og snarveien dens, vekkefrasen, språk (English eller Deutsch), en stemmefil og utskriften dens; de samme bryterne ligger i systemstatusfeltet på stemmeenheten
-- Kommer: ring agenten din fra telefonen, og vekkeordet
-- Stemmebrytere forblir av etter at agenten deres er slettet
-- En lang tur viser ikke lenger "needs input" ved en feil, og økter på en delt maskin vises under riktig vert
+- Ring agenten din (beta): ring agenten på taleenheten din fra iPhone, nettet eller skrivebordsappen og snakk med den håndfritt
+- Vekkeord (beta): si vekkefrasen nær taleenheten din for å begynne å snakke, uten hurtigtast
+- Opplest svar (beta): svar leses høyt på engelsk og tysk, og tysk begynner nå å snakke mye raskere
+- Taleforslag (beta): når agenten vil endre noe med tale, viser den et kort og venter på ja fra deg
+- Avbrutte økter fortsetter av seg selv, økter i kø venter på enheten sin, og plan- og spørsmålskort når frem til teamagenten
+- Velg flere chatter for å merke dem som lest, arkivere eller slette dem; arkivering skjuler dem bare for deg
+- Alle avkrysningsbokser er nå firkantede, siden Enheter viser én linje per maskin, og en avvist merge vises i tråden med Prøv igjen

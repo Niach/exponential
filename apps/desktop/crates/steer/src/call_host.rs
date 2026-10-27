@@ -248,6 +248,19 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
 mod tests {
     use super::*;
 
+    /// Wave review of #1265: the wire constants are voice-call.json's
+    /// (`domain::voice_call::VOICE_CALL`), never free-standing numbers.
+    #[test]
+    fn wire_constants_match_the_fixture() {
+        let spec = &*domain::voice_call::VOICE_CALL;
+        assert_eq!(KIND_UP, spec.wire.kinds.up);
+        assert_eq!(KIND_DOWN, spec.wire.kinds.down);
+        assert_eq!(MAX_FRAME_BYTES, spec.wire.max_frame_bytes);
+        assert_eq!(FRAME_MS, spec.constants.frame_ms);
+        assert_eq!(UP_RATE, spec.constants.up_rate);
+        assert_eq!(DOWN_BITRATE, i32::try_from(spec.constants.down_kbps * 1000).unwrap());
+    }
+
     #[test]
     fn frames_round_trip() {
         let frame = audio_frame(KIND_DOWN, 0xfffe, &[7, 8, 9]);

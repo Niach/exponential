@@ -1,6 +1,7 @@
-- Push to talk (beta): hold the shortcut on your voice device, speak and let go; what you said goes to your agent and the reply is read aloud
-- Speak replies (beta, English and German): pick your voice device in Settings > Voice and let the IDE read your agent's replies aloud, in a built-in voice or one cloned from your own clip
-- Settings > Voice is yours across devices: voice device, agent, Speak replies, Push to talk and its shortcut, the wake phrase, Language (English or Deutsch), a voice file and its transcript; the same switches sit in your voice device's system tray
-- Coming next: calling your agent from the phone, and the wake word
-- Voice switches stay off after their agent is deleted
-- A long turn no longer shows "needs input" by mistake, and sessions on a shared machine are listed under the right host
+- Call your agent (beta): call your voice device's agent from your iPhone, the web or the desktop app and talk to it hands free
+- Wake word (beta): say the wake phrase near your voice device to start talking, no shortcut needed
+- Spoken replies (beta): replies are read aloud in English and German, and German now starts speaking much faster
+- Voice proposals (beta): when your agent wants to change something by voice, it shows a card and waits for your yes
+- Interrupted sessions resume by themselves, queued sessions wait for their device, and plan and question cards reach your team agent
+- Select several chats to mark them read, archive or delete them; archiving only hides them for you
+- Every checkbox is now square, the Devices page shows one line per machine, and a refused merge appears in the thread with Retry

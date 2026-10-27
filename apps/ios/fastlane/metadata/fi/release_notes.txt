@@ -1,6 +1,7 @@
-- Push to talk (beta): pidä pikanäppäintä pohjassa äänilaitteellasi, puhu ja päästä irti; sanomasi menee agentillesi ja vastaus luetaan ääneen
-- Vastausten lukeminen ääneen (beta, englanti ja saksa): valitse äänilaitteesi kohdassa "Settings > Voice" ja anna IDE:n lukea agenttisi vastaukset ääneen, sisäänrakennetulla äänellä tai omasta äänitteestäsi kloonatulla
-- "Settings > Voice" on sinun kaikilla laitteillasi: äänilaite, agentti, vastausten lukeminen, push to talk ja sen pikanäppäin, herätyslause, kieli (English tai Deutsch), äänitiedosto ja sen litterointi; samat kytkimet ovat äänilaitteesi ilmaisinalueella
-- Tulossa: soitto agentillesi puhelimesta, ja herätyssana
-- Äänikytkimet pysyvät pois päältä, kun niiden agentti on poistettu
-- Pitkä vuoro ei enää näytä virheellisesti "needs input", ja jaetun koneen istunnot näkyvät oikean isännän alla
+- Soita agentille (beta): soita puhelaitteesi agentille iPhonesta, verkosta tai työpöytäsovelluksesta ja puhu sille kädet vapaina
+- Herätesana (beta): sano herätelause puhelaitteesi lähellä ja aloita puhuminen ilman pikanäppäintä
+- Puhutut vastaukset (beta): vastaukset luetaan ääneen englanniksi ja saksaksi, ja saksa alkaa nyt puhua paljon nopeammin
+- Puheehdotukset (beta): kun agentti haluaa muuttaa jotain puheella, se näyttää kortin ja odottaa kyllä-vastaustasi
+- Keskeytyneet istunnot jatkuvat itsestään, jonossa olevat istunnot odottavat laitettaan, ja suunnitelma- ja kysymyskortit tavoittavat tiimin agentin
+- Valitse useita keskusteluja merkitäksesi ne luetuiksi, arkistoidaksesi tai poistaaksesi ne; arkistointi piilottaa ne vain sinulta
+- Kaikki valintaruudut ovat nyt neliöitä, Laitteet-sivu näyttää yhden rivin konetta kohden, ja hylätty merge näkyy ketjussa Yritä uudelleen -painikkeen kanssa

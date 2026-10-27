@@ -871,7 +871,7 @@ mod tests {
         assert!(is_listen_event(&talk::Event::Heard { id: "u".into(), text: "x".into() }));
         assert!(is_listen_event(&talk::Event::Woke { id: "wake-1".into() }));
         assert!(is_listen_event(&talk::Event::WakeListening { listening: true, reason: None }));
-        assert!(!is_listen_event(&talk::Event::Ready { protocol: 4 }));
+        assert!(!is_listen_event(&talk::Event::Ready { protocol: talk::PROTOCOL }));
         assert!(!is_listen_event(&talk::Event::Finished { id: "m".into(), stopped: false }));
     }
 }

@@ -3295,6 +3295,46 @@ describe(`the reporter's view over MCP (NEW-19)`, () => {
     })
   })
 
+  // SLOP-4 holds for the reporter's own reply too: it reaches the team and
+  // reopens the issue, so a confined grant or an unattended run whose user's
+  // verified email matches a report never posts one.
+  it(`the reporter's reply needs a person: a confined grant and an unattended run are refused`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    const scoped = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
+      `exponential_comments_create`
+    )!({ issueId: `FEED-144`, body: `Still broken` })
+    expect(scoped.isError).toBe(true)
+    expect(scoped.content[0].text).toContain(`confined`)
+
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: `ws-1`,
+        rootId: SESSION,
+        parentId: UUID,
+        userId: `user-1`,
+        hostUserId: null,
+        rootAgentId: null,
+        watched: null,
+      },
+    ]
+    const unattended = await collectTools(USER, SESSION).get(`exponential_comments_create`)!({
+      issueId: `FEED-144`,
+      body: `Still broken`,
+    })
+    expect(unattended.isError).toBe(true)
+    expect(unattended.content[0].text).toContain(`unattended`)
+    expect(h.reporter.postReporterReply).not.toHaveBeenCalled()
+    expect(caller.comments.create).not.toHaveBeenCalled()
+  })
+
   it(`refuses threads, attachments and team audience for the reporter`, async () => {
     membership.resolveTeamAccess.mockRejectedValue(notMember())
     h.reporter.findIssueForReporter.mockResolvedValue(resolved)

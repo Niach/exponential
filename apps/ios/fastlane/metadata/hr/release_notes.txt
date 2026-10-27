@@ -1,6 +1,7 @@
-- Push to talk (beta): držite prečac na svom glasovnom uređaju, govorite i pustite; ono što ste rekli ide vašem agentu, a odgovor se čita naglas
-- Čitanje odgovora (beta, engleski i njemački): odaberite svoj glasovni uređaj u "Settings > Voice" i pustite da IDE naglas čita odgovore vašeg agenta, ugrađenim glasom ili glasom kloniranim iz vašeg vlastitog isječka
-- "Settings > Voice" vrijedi za vas na svim uređajima: glasovni uređaj, agent, čitanje odgovora, push to talk i njegov prečac, fraza za buđenje, jezik (English ili Deutsch), glasovna datoteka i njezin transkript; isti prekidači nalaze se u programskoj traci vašeg glasovnog uređaja
-- Uskoro: poziv agentu s telefona, i riječ za buđenje
-- Glasovni prekidači ostaju isključeni nakon brisanja njihovog agenta
-- Dugi potez više pogrešno ne prikazuje "needs input", a sesije na dijeljenom računalu prikazuju se pod ispravnim domaćinom
+- Nazovite agenta (beta): nazovite agenta svog glasovnog uređaja s iPhonea, weba ili desktop aplikacije i razgovarajte bez ruku
+- Riječ za buđenje (beta): izgovorite frazu za buđenje blizu glasovnog uređaja i počnite govoriti, bez prečaca
+- Izgovoreni odgovori (beta): odgovori se čitaju naglas na engleskom i njemačkom, a njemački sada počinje govoriti puno brže
+- Glasovni prijedlozi (beta): kad agent želi nešto promijeniti glasom, prikaže karticu i čeka vaše da
+- Prekinute sesije nastavljaju same, sesije u redu čekaju svoj uređaj, a kartice s planom i pitanjima stižu do agenta tima
+- Odaberite više razgovora da ih označite kao pročitane, arhivirate ili izbrišete; arhiviranje ih skriva samo vama
+- Svi potvrdni okviri sada su četvrtasti, stranica Uređaji prikazuje jedan redak po računalu, a odbijeni merge pojavljuje se u niti s opcijom Pokušaj ponovno
