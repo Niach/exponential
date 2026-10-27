@@ -401,6 +401,21 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
   return menu
 }
 
+/** #NEW-56: what the tray icon's state reads. */
+export interface TrayIconContext {
+  deviceIsVoiceDevice: boolean
+  /** The speech worker reported the wake word's microphone open. */
+  wakeListening: boolean
+  muted: boolean
+}
+
+/** #NEW-56: the tray icon; `listening` = the always-on microphone dot,
+ *  null = no tray on this device. */
+export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
+  if (!context.deviceIsVoiceDevice) return null
+  return context.wakeListening && !context.muted ? `listening` : `app`
+}
+
 const GB = 1_000_000_000
 const MB = 1_000_000
 

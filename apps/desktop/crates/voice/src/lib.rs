@@ -33,6 +33,10 @@
 //! `Finished { stopped: true }` goes out first) and only then is
 //! `SpeechStarted` emitted. The first clause of a reply is synthesized on
 //! its own ([`first_clause`]) for a faster first audio (target < 400 ms).
+//!
+//! #NEW-56: `Wake` keeps the microphone open for the wake word between
+//! Listens ([`wake`], no model of its own); a heard phrase silences the voice
+//! like a Listen and starts a turn the listener ends itself.
 
 pub mod builtin;
 pub mod capture;
@@ -41,6 +45,7 @@ pub mod listen;
 pub mod listener;
 pub mod runtime;
 pub mod sink;
+pub mod wake;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -233,6 +238,9 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 // Replies play locally again at once.
                 listening.end(&id);
                 let _ = listen.send(listener::Job::Hangup { id });
+            }
+            Request::Wake { phrase, language } => {
+                let _ = listen.send(listener::Job::Wake { phrase, language });
             }
         }
     }

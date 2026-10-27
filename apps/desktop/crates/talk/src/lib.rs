@@ -22,7 +22,13 @@
 //! worker answers [`Event::Heard`] (or [`Event::Empty`] when nobody spoke);
 //! [`SpeechClient::cancel_listen`] drops the utterance without an answer.
 //!
-//! NEW-55 (protocol 4) calls (`packages/domain-contract/fixtures/voice-call.json`):
+//! NEW-56 (protocol 4) wakes: [`SpeechClient::wake`] keeps the microphone
+//! open for the member's wake phrase (empty = off); the worker answers
+//! [`Event::WakeListening`] as the microphone opens or closes for it, and a
+//! heard phrase starts a turn of its own, [`Event::Woke`], followed by the
+//! same Level, Partial and Heard or Empty as a Listen.
+//!
+//! NEW-55 (protocol 5) calls (`packages/domain-contract/fixtures/voice-call.json`):
 //! [`SpeechClient::call`] listens continuously, from the microphone or (a
 //! `remote` call, a phone or the web streaming to the voice device) from the
 //! [`SpeechClient::call_audio`] the host decoded. Every finished utterance
@@ -95,6 +101,9 @@ pub enum Request {
     CallMute { id: String, muted: bool },
     /// NEW-55: end call `id` (no answer events).
     Hangup { id: String },
+    /// #NEW-56: listen for `phrase` (already resolved: `Hey {agent}` when
+    /// the member left it empty) in `language`; an empty phrase = off.
+    Wake { phrase: String, language: String },
 }
 
 /// Worker → host, one JSON object per line.
@@ -142,6 +151,12 @@ pub enum Event {
     /// base64 of i16 LE mono samples at `rate` Hz (the voice's, 24000), at
     /// most [`SPEECH_AUDIO_CHUNK_MS`] per event, between Started and Finished.
     SpeechAudio { id: String, pcm: String, rate: u32 },
+    /// #NEW-56: the wake phrase was heard: turn `id` runs like a Listen
+    /// (Level, Partial) and the worker ends it itself (Heard or Empty).
+    Woke { id: String },
+    /// #NEW-56: the microphone is open for the wake word (`false`: off,
+    /// muted, or it could not open; `reason` says why when it failed).
+    WakeListening { listening: bool, reason: Option<ListenFailure> },
     /// Host-side: the worker process ended (crash, kill, EOF). Never sent
     /// by the worker itself.
     Exited,
@@ -365,6 +380,17 @@ impl SpeechClient {
     /// NEW-78: listen for utterance `id` in `language` (stops speech).
     pub fn listen(&self, id: impl Into<String>, language: impl Into<String>) {
         self.send(&Request::Listen { id: id.into(), language: language.into() });
+    }
+
+    /// #NEW-56: listen for the wake `phrase` (empty = stop listening; that
+    /// never spawns a worker).
+    pub fn wake(&self, phrase: impl Into<String>, language: impl Into<String>) {
+        let request = Request::Wake { phrase: phrase.into(), language: language.into() };
+        if matches!(&request, Request::Wake { phrase, .. } if phrase.is_empty()) {
+            self.send_if_running(&request);
+        } else {
+            self.send(&request);
+        }
     }
 
     /// #NEW-54: bring the worker up without a request (push to talk wants
@@ -666,6 +692,22 @@ mod tests {
     }
 
     #[test]
+    fn protocol_4_wakes() {
+        assert_eq!(
+            serde_json::to_string(&Request::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap(),
+            r#"{"t":"wake","phrase":"Hey Studio","language":"en"}"#
+        );
+        let event: Event = serde_json::from_str(r#"{"t":"woke","id":"wake-1"}"#).unwrap();
+        assert_eq!(event, Event::Woke { id: "wake-1".into() });
+        assert_eq!(
+            serde_json::to_string(&Event::WakeListening { listening: false, reason: Some(ListenFailure::Downloading) }).unwrap(),
+            r#"{"t":"wakeListening","listening":false,"reason":"downloading"}"#
+        );
+        let event: Event = serde_json::from_str(r#"{"t":"wakeListening","listening":true,"reason":null}"#).unwrap();
+        assert_eq!(event, Event::WakeListening { listening: true, reason: None });
+    }
+
+    #[test]
     fn only_a_local_absolute_wav_with_a_transcript_is_a_voice_file() {
         let dir = std::env::temp_dir().join(format!("talk-voice-file-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -719,6 +761,7 @@ mod tests {
         client.call_audio("c1", &[0, 1, -1]);
         client.call_mute("c1", true);
         client.hangup("c1");
+        client.wake("", "en");
         client.shutdown();
     }
 }

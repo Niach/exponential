@@ -29,7 +29,8 @@ use domain::voice::{VoiceContext, VoiceMessage, VOICE};
 pub(crate) struct DeviceVoice {
     pub agent_id: Option<String>,
     pub speak_replies: bool,
-    /// #NEW-54: push to talk listens here (the worker stays resident for it).
+    /// #NEW-54: push to talk or (#NEW-56) the wake word listens here (the
+    /// worker stays resident for it).
     pub listen: bool,
     /// NEW-74: the language and voice file the worker speaks with.
     pub voice: talk::VoiceChoice,
@@ -61,15 +62,16 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     let settings = settings.clone().clear_on_none();
     // NEW-74: the worker is prepared for every language; whether it speaks
     // is what it reports back (`voices`, empty without a usable GPU).
-    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, listen: settings.push_to_talk, voice }
+    let listen = settings.push_to_talk || settings.wake_word;
+    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, listen, voice }
 }
 
 /// NEW-78: THIS device listens: it is the member's voice device and Push to
-/// talk is on (after voice.json `clearOnNone`). Only then does its doctor
-/// carry the `microphone` row.
+/// talk or (#NEW-56) the wake word is on (after voice.json `clearOnNone`).
+/// Only then does its doctor carry the `microphone` row.
 pub(crate) fn listens_here(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
     let settings = settings.clone().clear_on_none();
-    settings.push_to_talk && settings.voice_device_id.as_deref() == Some(own_device_id)
+    (settings.push_to_talk || settings.wake_word) && settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
 /// [`listens_here`] for the member's current settings (false before the
@@ -574,16 +576,25 @@ impl SpeakReplies {
                     self.speaking = None;
                 }
             }
-            talk::Event::Exited => self.on_exited(cx),
-            talk::Event::Ready { .. } => self.worker_ready = true,
+            talk::Event::Exited => {
+                self.on_exited(cx);
+                // #NEW-56: a new worker is told the wake word again.
+                crate::push_to_talk::worker_changed(false, cx);
+            }
+            talk::Event::Ready { .. } => {
+                self.worker_ready = true;
+                crate::push_to_talk::worker_changed(true, cx);
+            }
             talk::Event::Started { .. } => {}
             // #NEW-54: routed to push to talk before they get here.
             talk::Event::Level { .. }
             | talk::Event::Partial { .. }
             | talk::Event::Heard { .. }
             | talk::Event::Empty { .. }
-            | talk::Event::ListenFailed { .. } => {}
-            // NEW-55: call events (talk protocol 4) belong to the call.
+            | talk::Event::ListenFailed { .. }
+            | talk::Event::Woke { .. }
+            | talk::Event::WakeListening { .. } => {}
+            // NEW-55: call events (talk protocol 5) belong to the call.
             _ => {}
         }
         // NEW-55: the doctor's speech row follows (callers enable the
@@ -665,6 +676,11 @@ mod tests {
         assert!(!listens_here(&settings, "pc"));
         let off = domain::voice::VoiceSettings { push_to_talk: false, ..settings.clone() };
         assert!(!listens_here(&off, "mac"));
+        // #NEW-56: the wake word alone listens too, and keeps the worker up.
+        let wake = domain::voice::VoiceSettings { wake_word: true, ..off.clone() };
+        assert!(listens_here(&wake, "mac"));
+        assert!(voice_here(&wake, "mac").active());
+        assert!(!voice_here(&off, "mac").active());
         // clearOnNone: no agent picked = nothing listens.
         let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
         assert!(!listens_here(&no_agent, "mac"));

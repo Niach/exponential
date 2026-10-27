@@ -15,11 +15,14 @@
 //! that can't be held system-wide says so on the Push to talk item.
 //! While the tray is up, closing the last window keeps the IDE running
 //! ([`keeps_running`], read by the shell) so the speech worker stays resident.
+//! #NEW-56: while the wake word holds the microphone open the icon carries a
+//! dot (`domain::voice::tray_icon`), and Mute takes the wake word's
+//! microphone away too.
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
 
 use api::voice::VoiceUpdate;
-use domain::voice::{tray_menu, TrayContext, TrayItem, TrayItemId, VoiceSettings};
+use domain::voice::{tray_icon, tray_menu, TrayContext, TrayIcon, TrayItem, TrayItemId, VoiceSettings};
 
 /// The app icon (the one `desktop_integration` installs on Linux).
 const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/logo-white.svg");
@@ -37,13 +40,25 @@ struct IconFrame {
 /// The icon as the platform draws it. Windows: the white disc gains a dark
 /// ring, so it reads on a light taskbar as well as on the default dark one
 /// (macOS tints its template image itself; Linux panels are dark by default,
-/// like the hicolor icon `desktop_integration` installs).
-fn icon_svg() -> std::borrow::Cow<'static, [u8]> {
-    if cfg!(target_os = "windows") {
-        std::borrow::Cow::Owned(ringed(ICON_SVG))
-    } else {
-        std::borrow::Cow::Borrowed(ICON_SVG)
+/// like the hicolor icon `desktop_integration` installs). #NEW-56: `Listening`
+/// adds the always-on microphone dot.
+fn icon_svg(icon: TrayIcon) -> std::borrow::Cow<'static, [u8]> {
+    let svg = if cfg!(target_os = "windows") { std::borrow::Cow::Owned(ringed(ICON_SVG)) } else { std::borrow::Cow::Borrowed(ICON_SVG) };
+    match icon {
+        TrayIcon::App => svg,
+        TrayIcon::Listening => std::borrow::Cow::Owned(dotted(&svg)),
     }
+}
+
+/// The icon with the microphone dot in its lower right corner: the
+/// design tokens' `destructive` red, cut out of the disc by a dark ring.
+fn dotted(svg: &[u8]) -> Vec<u8> {
+    String::from_utf8_lossy(svg)
+        .replace(
+            "</svg>",
+            "  <circle cx=\"86\" cy=\"86\" r=\"21\" fill=\"#ff6467\" stroke=\"#27272a\" stroke-width=\"7\"></circle>\n</svg>",
+        )
+        .into_bytes()
 }
 
 /// The icon with a dark ring around its disc.
@@ -56,8 +71,8 @@ fn ringed(svg: &[u8]) -> Vec<u8> {
         .into_bytes()
 }
 
-fn icon_frames(sizes: &[u32]) -> Vec<IconFrame> {
-    let Ok(tree) = resvg::usvg::Tree::from_data(&icon_svg(), &resvg::usvg::Options::default()) else {
+fn icon_frames(icon: TrayIcon, sizes: &[u32]) -> Vec<IconFrame> {
+    let Ok(tree) = resvg::usvg::Tree::from_data(&icon_svg(icon), &resvg::usvg::Options::default()) else {
         return Vec::new();
     };
     sizes
@@ -91,6 +106,20 @@ pub(crate) enum TrayEvent {
     /// The tray host went away (Linux): with no window open, bring one back
     /// so the IDE never hides with no way in.
     HostLost,
+}
+
+/// #NEW-76: two activations closer than this are one (a Windows double-click
+/// sends a click and a double-click; the IDE opened twice).
+const ACTIVATE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// #NEW-76: whether an activation at `now` counts (and remember it if so).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn activation_counts(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    if last.is_some_and(|last| now.saturating_duration_since(last) < ACTIVATE_DEBOUNCE) {
+        return false;
+    }
+    *last = Some(now);
+    true
 }
 
 /// A menu entry's stable id across the OS boundary.
@@ -135,6 +164,8 @@ pub(crate) struct VoiceTray {
     device_id: String,
     /// The menu the OS shows (None = no tray).
     menu: Option<Vec<TrayItem>>,
+    /// #NEW-56: the icon the OS shows.
+    icon: Option<TrayIcon>,
     backend: backend::Backend,
 }
 
@@ -162,7 +193,7 @@ pub fn install(cx: &mut App) {
         if let Some(call) = crate::voice_call::entity(cx) {
             cx.observe(&call, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
-        VoiceTray { muted: false, pending: None, generation: 0, device_id, menu: None, backend: backend::Backend::new(tx) }
+        VoiceTray { muted: false, pending: None, generation: 0, device_id, menu: None, icon: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
     let weak = entity.downgrade();
@@ -205,6 +236,7 @@ pub(crate) fn set_muted(muted: bool, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| {
             this.muted = muted;
+            crate::push_to_talk::mute_changed(muted, cx);
             this.sync(cx);
         });
     }
@@ -241,6 +273,8 @@ impl VoiceTray {
         // portal's trigger.
         let mic_available = crate::speak_replies::listens_here(&settings, &self.device_id) && crate::speak_replies::worker_ready(cx);
         let status = crate::push_to_talk::status(cx);
+        let device_is_voice_device = settings.voice_device_id.as_deref() == Some(self.device_id.as_str());
+        let icon = tray_icon(device_is_voice_device, crate::push_to_talk::wake_listening(cx), self.muted);
         let menu = tray_menu(
             &settings,
             &TrayContext {
@@ -249,11 +283,17 @@ impl VoiceTray {
                 // NEW-55: Call shows while a call can start here.
                 call_available: crate::voice_call::unavailable(cx).is_none(),
                 mic_available,
-                device_is_voice_device: settings.voice_device_id.as_deref() == Some(self.device_id.as_str()),
+                device_is_voice_device,
                 shortcut_unavailable: status.reason().is_some(),
                 shortcut_label: status.trigger(),
             },
         );
+        if icon != self.icon {
+            self.icon = icon;
+            if let Some(icon) = icon {
+                self.backend.set_icon(icon);
+            }
+        }
         if menu == self.menu {
             return;
         }
@@ -276,6 +316,7 @@ impl VoiceTray {
             TrayItemId::SpeakReplies | TrayItemId::PushToTalk | TrayItemId::WakeWord => self.toggle(id, cx),
             TrayItemId::Mute => {
                 self.muted = !self.muted;
+                crate::push_to_talk::mute_changed(self.muted, cx);
                 self.sync(cx);
             }
             TrayItemId::Open => open_ide(cx),
@@ -347,7 +388,7 @@ use linux as backend;
 /// macOS and Windows: the native tray, on gpui's main thread.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod backend {
-    use domain::voice::{TrayItem, TrayItemId};
+    use domain::voice::{TrayIcon as IconState, TrayItem, TrayItemId};
     use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -372,6 +413,14 @@ mod backend {
         tray: Option<TrayIcon>,
         rows: Vec<Row>,
         shape: Vec<(u8, Option<TrayItemId>)>,
+        /// #NEW-56: the icon to draw (the microphone dot or not).
+        icon: IconState,
+    }
+
+    /// The rasterized icon in `state`.
+    fn icon(state: IconState) -> Option<Icon> {
+        let frame = super::icon_frames(state, &[64]).pop()?;
+        Icon::from_rgba(frame.rgba, frame.width, frame.height).ok()
     }
 
     impl Backend {
@@ -384,6 +433,9 @@ mod backend {
             }));
             // Windows: a left click on the icon brings the IDE up (the menu
             // is a right click). macOS opens the menu, which leads with Open.
+            // #NEW-76: a double-click (a click, then a double-click) opens once.
+            #[cfg(target_os = "windows")]
+            let last = std::sync::Mutex::new(None);
             #[cfg(target_os = "windows")]
             tray_icon::TrayIconEvent::set_event_handler(Some(move |event: tray_icon::TrayIconEvent| {
                 use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
@@ -392,13 +444,30 @@ mod backend {
                     TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
                         | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. }
                 );
-                if open {
+                let mut last = last.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                if open && super::activation_counts(&mut last, std::time::Instant::now()) {
                     let _ = clicks.send(super::TrayEvent::Activate);
                 }
             }));
             #[cfg(not(target_os = "windows"))]
             let _ = clicks;
-            Self { tray: None, rows: Vec::new(), shape: Vec::new() }
+            Self { tray: None, rows: Vec::new(), shape: Vec::new(), icon: IconState::App }
+        }
+
+        /// #NEW-56: draw `state` (now, or when the tray appears).
+        pub(super) fn set_icon(&mut self, state: IconState) {
+            if state == self.icon {
+                return;
+            }
+            self.icon = state;
+            let Some(tray) = self.tray.as_ref() else { return };
+            #[cfg(target_os = "macos")]
+            let set = tray.set_icon_templated(icon(state));
+            #[cfg(not(target_os = "macos"))]
+            let set = tray.set_icon(icon(state));
+            if let Err(err) = set {
+                log::warn!("[ui] voice tray: icon: {err}");
+            }
         }
 
         pub(super) fn set(&mut self, menu: Option<Vec<TrayItem>>) {
@@ -439,17 +508,15 @@ mod backend {
             {
                 builder = builder.with_menu_on_left_click(false);
             }
-            if let Some(frame) = super::icon_frames(&[64]).pop() {
-                if let Ok(icon) = Icon::from_rgba(frame.rgba, frame.width, frame.height) {
-                    // The menu bar tints a template image for light and dark.
-                    #[cfg(target_os = "macos")]
-                    {
-                        builder = builder.with_icon_templated(icon);
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        builder = builder.with_icon(icon);
-                    }
+            if let Some(icon) = icon(self.icon) {
+                // The menu bar tints a template image for light and dark.
+                #[cfg(target_os = "macos")]
+                {
+                    builder = builder.with_icon_templated(icon);
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    builder = builder.with_icon(icon);
                 }
             }
             match builder.build() {
@@ -501,7 +568,7 @@ mod backend {
 /// Elsewhere: no tray.
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 mod backend {
-    use domain::voice::TrayItem;
+    use domain::voice::{TrayIcon, TrayItem};
 
     pub(super) struct Backend;
 
@@ -509,6 +576,8 @@ mod backend {
         pub(super) fn new(_clicks: flume::Sender<super::TrayEvent>) -> Self {
             Self
         }
+
+        pub(super) fn set_icon(&mut self, _icon: TrayIcon) {}
 
         pub(super) fn set(&mut self, _menu: Option<Vec<TrayItem>>) {}
 
@@ -552,9 +621,48 @@ mod tests {
 
     #[test]
     fn the_app_icon_rasterizes() {
-        let frames = icon_frames(&[22, 64]);
+        let frames = icon_frames(TrayIcon::App, &[22, 64]);
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[1].rgba.len(), 64 * 64 * 4);
         assert!(frames[1].rgba.chunks_exact(4).any(|pixel| pixel[3] > 0), "not blank");
+    }
+
+    /// #NEW-56: the always-on microphone dot: red pixels in the lower right
+    /// corner, none in the plain icon.
+    #[test]
+    fn the_listening_icon_carries_the_microphone_dot() {
+        let red = |frame: &IconFrame| {
+            frame
+                .rgba
+                .chunks_exact(4)
+                .enumerate()
+                .filter(|(index, pixel)| {
+                    let (x, y) = (*index as u32 % frame.width, *index as u32 / frame.width);
+                    x > frame.width / 2 && y > frame.height / 2 && pixel[3] > 200 && pixel[0] > 200 && pixel[1] < 140
+                })
+                .count()
+        };
+        let plain = icon_frames(TrayIcon::App, &[64]).pop().unwrap();
+        let listening = icon_frames(TrayIcon::Listening, &[64]).pop().unwrap();
+        assert_eq!(red(&plain), 0);
+        assert!(red(&listening) > 60, "{} red pixels", red(&listening));
+        // EXP_TRAY_ICON_PNG=<path>: write the listening icon for the PR.
+        if let Ok(path) = std::env::var("EXP_TRAY_ICON_PNG") {
+            let big = icon_frames(TrayIcon::Listening, &[256]).pop().unwrap();
+            let mut pixmap = resvg::tiny_skia::Pixmap::new(big.width, big.height).unwrap();
+            for (pixel, rgba) in pixmap.pixels_mut().iter_mut().zip(big.rgba.chunks_exact(4)) {
+                *pixel = resvg::tiny_skia::ColorU8::from_rgba(rgba[0], rgba[1], rgba[2], rgba[3]).premultiply();
+            }
+            pixmap.save_png(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_double_click_activates_once() {
+        let start = std::time::Instant::now();
+        let mut last = None;
+        assert!(activation_counts(&mut last, start));
+        assert!(!activation_counts(&mut last, start + std::time::Duration::from_millis(250)), "the double-click");
+        assert!(activation_counts(&mut last, start + ACTIVATE_DEBOUNCE), "a later click");
     }
 }

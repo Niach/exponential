@@ -3,6 +3,13 @@
 //! through CrispASR ([`Engines`]), and turns `Listen` / `EndListen` /
 //! `CancelListen` into Level, Partial, Heard, Empty and ListenFailed.
 //!
+//! #NEW-56: `Wake` keeps the microphone open between Listens for the wake
+//! word ([`crate::wake`]): Silero scores it, the start of each speech
+//! segment goes once through the resident Parakeet, and a match starts a
+//! turn the thread ends by itself (Woke, then Level, Partial, Heard or
+//! Empty). A Listen borrows the open microphone; the wake word resumes after
+//! every turn, Listen and call.
+//!
 //! Parakeet runs on the GPU when ggml finds one with [`MIN_GPU_BYTES`] free
 //! (CUDA 10-30 ms per clip of up to 4 s on the 4090, so the open segment is
 //! re-transcribed for partials), else on the CPU (110-540 ms per segment:
@@ -36,6 +43,7 @@ use talk::{Event, ListenFailure};
 use crate::capture::{self, Capture};
 use crate::echo::{Echo, FarEnd};
 use crate::listen::{Call, Transcriber, Utterance, Vad, RATE};
+use crate::wake::{turn_ended, WakeScanner};
 use crate::{emit, retry_after, runtime};
 
 /// The CrispASR backend of the transcriber.
@@ -44,6 +52,9 @@ const BACKEND: &str = "parakeet";
 pub const MIN_GPU_BYTES: u64 = 1_600_000_000;
 /// A held key longer than this ends the Listen as if released.
 pub const MAX_HOLD: Duration = Duration::from_secs(120);
+/// #NEW-56: how long the wake word waits before opening the microphone
+/// again after it failed (no device, the model still downloading).
+pub const WAKE_RETRY: Duration = Duration::from_secs(5);
 
 /// The listening models, in `{data_dir}/talk/models/`.
 const MODELS: [artifact::Artifact; 2] = [models::PARAKEET_TDT_0_6B_V3, models::SILERO_VAD_V6_2];
@@ -154,6 +165,8 @@ pub enum Job {
     Audio { id: String, samples: Vec<f32> },
     Mute { id: String, muted: bool },
     Hangup { id: String },
+    /// #NEW-56: listen for `phrase` between Listens (empty = off).
+    Wake { phrase: String, language: String },
 }
 
 impl Job {
@@ -275,13 +288,32 @@ impl<H: Hearing> Active<H> {
     }
 }
 
-/// A push-to-talk Listen: the key is held.
+/// A push-to-talk Listen: the key is held (or #NEW-56 a wake turn).
 struct Held<H: Hearing> {
     utterance: Utterance,
     mic: H::Mic,
     vad: H::Vad,
     started: Instant,
+    /// A wake turn: the thread ends it after the quiet ([`turn_ended`]).
+    woken: bool,
 }
+
+/// #NEW-56: the wake word's microphone between turns.
+struct Scan<H: Hearing> {
+    mic: H::Mic,
+    vad: H::Vad,
+    scanner: WakeScanner,
+}
+
+/// #NEW-56: the wake word as the host asked for it.
+#[derive(Clone, PartialEq, Eq)]
+struct WakeWord {
+    phrase: String,
+    language: &'static str,
+}
+
+/// #NEW-56: what the host was last told about the wake word's microphone.
+type WakeReport = (bool, Option<ListenFailure>);
 
 /// NEW-55: a call.
 struct Calling<H: Hearing> {
@@ -494,17 +526,44 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     // Jobs read while the engines loaded, handled before new ones.
     let mut backlog: VecDeque<Job> = VecDeque::new();
     let emit = |event: Event| (links.emit)(&event);
+    // #NEW-56: the wake word, its microphone between turns, and when it may
+    // try to open that again.
+    let mut wake: Option<WakeWord> = None;
+    let mut scan: Option<Scan<H>> = None;
+    let mut wake_retry: Option<Instant> = None;
+    let mut reported: WakeReport = (false, None);
+    let mut turns = 0u64;
+    let mut report = |now: WakeReport| {
+        if now != reported {
+            reported = now;
+            emit(Event::WakeListening { listening: now.0, reason: now.1 });
+        }
+    };
     loop {
         hearing.poll();
+        if wake.is_some() && active.is_none() && scan.is_none() && wake_retry.is_none_or(|at| Instant::now() >= at) {
+            match open_scan(hearing) {
+                Ok(opened) => {
+                    scan = Some(opened);
+                    wake_retry = None;
+                    report((true, None));
+                }
+                Err((reason, detail)) => {
+                    eprintln!("wake word: the microphone did not open ({reason:?}): {detail}");
+                    wake_retry = Some(Instant::now() + WAKE_RETRY);
+                    report((false, Some(reason)));
+                }
+            }
+        }
         let job = if let Some(job) = backlog.pop_front() {
             Some(job)
-        } else if active.as_ref().is_some_and(Active::hears_a_mic) {
+        } else if active.as_ref().is_some_and(Active::hears_a_mic) || scan.is_some() {
             match rx.try_recv() {
                 Ok(job) => Some(job),
                 Err(TryRecvError::Empty) => None,
                 Err(TryRecvError::Disconnected) => break,
             }
-        } else if hearing.downloading() || active.is_some() {
+        } else if hearing.downloading() || active.is_some() || wake.is_some() {
             // A remote call hears its audio as jobs.
             match rx.recv_timeout(Duration::from_millis(250)) {
                 Ok(job) => Some(job),
@@ -517,64 +576,142 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 Err(_) => break,
             }
         };
-        if let Some(job) = job {
-            handle(job, &mut active, hearing, rx, &mut backlog, links);
-            continue;
+        match job {
+            Some(Job::Wake { phrase, language }) => {
+                let wanted = (!phrase.trim().is_empty()).then(|| WakeWord { phrase, language: language_of(&language) });
+                if wanted.is_none() {
+                    scan = None;
+                    report((false, None));
+                }
+                if wanted != wake {
+                    // A new phrase or language: the next segment hears it.
+                    wake_retry = None;
+                }
+                wake = wanted;
+                continue;
+            }
+            Some(job) => {
+                // #NEW-56: a Listen borrows the wake word's open microphone;
+                // a call opens its own (behind its echo canceller).
+                let lent = match &job {
+                    Job::Start { .. } => scan.take().map(|scan| (scan.vad, scan.mic)),
+                    Job::Call { .. } => {
+                        scan = None;
+                        None
+                    }
+                    _ => None,
+                };
+                handle(job, &mut active, hearing, rx, &mut backlog, links, lent);
+                continue;
+            }
+            None => {}
         }
-        let Some(running) = active.as_mut() else { continue };
-        let engines = hearing.engines();
-        match running {
-            Active::Listen(held) => match held.mic.recv_timeout(Duration::from_millis(20)) {
-                Ok(samples) => {
-                    let mut sink = emit;
-                    if let Err((reason, detail)) = held.utterance.feed(&samples, &mut held.vad, engines, &mut sink) {
+        if let Some(running) = active.as_mut() {
+            let engines = hearing.engines();
+            match running {
+                Active::Listen(held) => match held.mic.recv_timeout(Duration::from_millis(20)) {
+                    Ok(samples) => {
+                        let mut sink = emit;
+                        if let Err((reason, detail)) = held.utterance.feed(&samples, &mut held.vad, engines, &mut sink) {
+                            let id = held.utterance.id().to_string();
+                            active = None;
+                            links.listening.end(&id);
+                            emit(Event::ListenFailed { id, reason, detail });
+                        } else if held.started.elapsed() >= MAX_HOLD || held.woken && turn_ended(&held.utterance) {
+                            let Some(Active::Listen(held)) = active.take() else { unreachable!("a listen") };
+                            let id = held.utterance.id().to_string();
+                            finish(held, engines, links);
+                            links.listening.end(&id);
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
+                        let Some(Active::Listen(held)) = active.take() else { unreachable!("a listen") };
                         let id = held.utterance.id().to_string();
+                        if held.utterance.seconds() == 0.0 {
+                            emit(Event::ListenFailed {
+                                id: id.clone(),
+                                reason: ListenFailure::NoMicrophone,
+                                detail: "the microphone closed".into(),
+                            });
+                        } else {
+                            // The device went away mid-utterance: answer what was heard.
+                            finish(held, engines, links);
+                        }
+                        links.listening.end(&id);
+                    }
+                },
+                Active::Call(calling) => {
+                    let received = calling.mic.as_ref().map(|mic| mic.recv_timeout(Duration::from_millis(20)));
+                    let failed = match received {
+                        Some(Ok(samples)) => calling.hear(&samples, engines, links).err(),
+                        Some(Err(RecvTimeoutError::Timeout)) | None => None,
+                        Some(Err(RecvTimeoutError::Disconnected)) => {
+                            Some((ListenFailure::NoMicrophone, "the microphone closed".to_string()))
+                        }
+                    };
+                    if let Some((reason, detail)) = failed {
+                        let id = calling.call.id().to_string();
                         active = None;
                         links.listening.end(&id);
                         emit(Event::ListenFailed { id, reason, detail });
-                    } else if held.started.elapsed() >= MAX_HOLD {
-                        let Some(Active::Listen(held)) = active.take() else { unreachable!("a listen") };
-                        let id = held.utterance.id().to_string();
-                        finish(held, engines, links);
-                        links.listening.end(&id);
                     }
                 }
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {
-                    let Some(Active::Listen(held)) = active.take() else { unreachable!("a listen") };
-                    let id = held.utterance.id().to_string();
-                    if held.utterance.seconds() == 0.0 {
-                        emit(Event::ListenFailed {
-                            id: id.clone(),
-                            reason: ListenFailure::NoMicrophone,
-                            detail: "the microphone closed".into(),
-                        });
-                    } else {
-                        // The device went away mid-utterance: answer what was heard.
-                        finish(held, engines, links);
-                    }
-                    links.listening.end(&id);
+            }
+            continue;
+        }
+        let (Some(scanning), Some(word)) = (scan.as_mut(), wake.as_ref()) else { continue };
+        match scanning.mic.recv_timeout(Duration::from_millis(20)) {
+            Ok(samples) => match crate::wake::scan(
+                &mut scanning.scanner,
+                &mut scanning.vad,
+                hearing.engines(),
+                &samples,
+                &word.phrase,
+                word.language,
+            ) {
+                Ok(None) => {}
+                Ok(Some(matched)) => {
+                    let Scan { mic, vad, scanner } = scan.take().expect("scanning");
+                    turns += 1;
+                    let id = format!("wake-{turns}");
+                    let utterance = match crate::wake::turn(&id, word.language, &word.phrase, &scanner, matched, hearing.engines()) {
+                        Ok(utterance) => utterance,
+                        Err((reason, detail)) => {
+                            eprintln!("wake word: the turn failed to start ({reason:?}): {detail}");
+                            continue;
+                        }
+                    };
+                    links.listening.begin(&id);
+                    // Like a Listen: the voice stops for the person.
+                    (links.barge)();
+                    emit(Event::Woke { id });
+                    active = Some(Active::Listen(Held { utterance, mic, vad, started: Instant::now(), woken: true }));
+                }
+                Err(detail) => {
+                    eprintln!("wake word: {detail}");
+                    scan = None;
+                    wake_retry = Some(Instant::now() + WAKE_RETRY);
+                    report((false, Some(ListenFailure::Failed)));
                 }
             },
-            Active::Call(calling) => {
-                let received = calling.mic.as_ref().map(|mic| mic.recv_timeout(Duration::from_millis(20)));
-                let failed = match received {
-                    Some(Ok(samples)) => calling.hear(&samples, engines, links).err(),
-                    Some(Err(RecvTimeoutError::Timeout)) | None => None,
-                    Some(Err(RecvTimeoutError::Disconnected)) => {
-                        Some((ListenFailure::NoMicrophone, "the microphone closed".to_string()))
-                    }
-                };
-                if let Some((reason, detail)) = failed {
-                    let id = calling.call.id().to_string();
-                    active = None;
-                    links.listening.end(&id);
-                    emit(Event::ListenFailed { id, reason, detail });
-                }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                scan = None;
+                wake_retry = Some(Instant::now() + WAKE_RETRY);
+                report((false, Some(ListenFailure::NoMicrophone)));
             }
         }
     }
-    // EOF: `active` drops here, closing the microphone.
+    // EOF: `active` and `scan` drop here, closing the microphone.
+}
+
+/// #NEW-56: the engines, then the wake word's own VAD and microphone.
+fn open_scan<H: Hearing>(hearing: &mut H) -> Result<Scan<H>, (ListenFailure, String)> {
+    hearing.prepare(true)?;
+    let vad = hearing.vad()?;
+    let mic = hearing.mic()?;
+    Ok(Scan { mic, vad, scanner: WakeScanner::default() })
 }
 
 /// One job from the reader (or the backlog).
@@ -585,6 +722,7 @@ fn handle<H: Hearing>(
     rx: &Receiver<Job>,
     backlog: &mut VecDeque<Job>,
     links: &Links,
+    lent: Option<(H::Vad, H::Mic)>,
 ) {
     let calling = |active: &mut Option<Active<H>>, id: &str| -> bool {
         matches!(active, Some(Active::Call(calling)) if calling.call.id() == id)
@@ -595,7 +733,7 @@ fn handle<H: Hearing>(
             if let Some(replaced) = active.take() {
                 links.listening.end(replaced.id());
             }
-            *active = start(hearing, rx, backlog, id.clone(), language_of(&language), links).map(Active::Listen);
+            *active = start(hearing, rx, backlog, id.clone(), language_of(&language), links, lent).map(Active::Listen);
             if active.is_none() {
                 links.listening.end(&id);
             }
@@ -666,6 +804,8 @@ fn handle<H: Hearing>(
             }
             links.listening.end(&id);
         }
+        // The loop keeps the wake word.
+        Job::Wake { .. } => {}
     }
 }
 
@@ -679,6 +819,7 @@ fn start<H: Hearing>(
     id: String,
     language: &str,
     links: &Links,
+    lent: Option<(H::Vad, H::Mic)>,
 ) -> Option<Held<H>> {
     let fail = |reason: ListenFailure, detail: String| {
         (links.emit)(&Event::ListenFailed { id: id.clone(), reason, detail });
@@ -700,15 +841,21 @@ fn start<H: Hearing>(
         // Replaced before it began (no answer, as for a running one).
         return None;
     }
-    let vad = match hearing.vad() {
-        Ok(vad) => vad,
-        Err((reason, detail)) => return fail(reason, detail),
+    // #NEW-56: the wake word's open microphone, when it lent it.
+    let (vad, mic) = match lent {
+        Some(lent) => lent,
+        None => {
+            let vad = match hearing.vad() {
+                Ok(vad) => vad,
+                Err((reason, detail)) => return fail(reason, detail),
+            };
+            match hearing.mic() {
+                Ok(mic) => (vad, mic),
+                Err((reason, detail)) => return fail(reason, detail),
+            }
+        }
     };
-    let mic = match hearing.mic() {
-        Ok(mic) => mic,
-        Err((reason, detail)) => return fail(reason, detail),
-    };
-    Some(Held { utterance: Utterance::new(id, language), mic, vad, started: Instant::now() })
+    Some(Held { utterance: Utterance::new(id, language), mic, vad, started: Instant::now(), woken: false })
 }
 
 /// NEW-55: like [`start`]: the engines, then (unless a Hangup or a newer
@@ -965,6 +1112,49 @@ mod tests {
         assert!(listening.remote_call());
         listening.end("c2");
         assert!(!listening.active() && !listening.remote_call());
+    }
+
+    /// #NEW-56: the wake word opens the microphone between Listens, and a
+    /// Listen borrows it instead of opening a second one.
+    #[test]
+    fn a_listen_borrows_the_wake_words_microphone() {
+        let (probe, opened, _) = Probe::new(false);
+        let listening = Arc::new(Listening::default());
+        let hearing = probe.hearing();
+        let (tx, thread) = spawn(move || hearing, Links::new(listening.clone()));
+        tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap();
+        opened.recv_timeout(Duration::from_secs(5)).expect("the wake word opens the microphone");
+        listening.begin("u1");
+        tx.send(Job::Start { id: "u1".into(), language: "en".into() }).unwrap();
+        // Let the Listen start before anything that would end it is queued.
+        std::thread::sleep(Duration::from_millis(200));
+        tx.send(Job::Wake { phrase: String::new(), language: "en".into() }).unwrap();
+        tx.send(Job::End { id: "u1".into() }).unwrap();
+        drop(tx);
+        thread.join().unwrap();
+        let mics = probe.opened.lock().unwrap();
+        assert_eq!(mics.len(), 1, "the Listen borrowed the open microphone");
+        assert!(mics[0].load(Ordering::SeqCst), "closed at the end");
+        assert!(!listening.active());
+    }
+
+    #[test]
+    fn a_wake_word_off_closes_its_microphone() {
+        let (probe, opened, _) = Probe::new(false);
+        let hearing = probe.hearing();
+        let (tx, thread) = spawn(move || hearing, Links::new(Arc::new(Listening::default())));
+        tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap();
+        opened.recv_timeout(Duration::from_secs(5)).expect("opened");
+        tx.send(Job::Wake { phrase: " ".into(), language: "en".into() }).unwrap();
+        let closed = probe.opened.lock().unwrap()[0].clone();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !closed.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "a blank phrase closes the microphone");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(tx);
+        thread.join().unwrap();
+        assert_eq!(probe.opened.lock().unwrap().len(), 1, "never reopened while off");
     }
 
     #[test]

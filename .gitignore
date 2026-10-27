@@ -42,3 +42,6 @@ apps/web/public/mcp-apps/
 /packages/exponential-ui/eval/out/
 .bench/
 packages/exponential-ui-swift/Tests/ExponentialUITests/Resources/bench/*.json
+
+# #NEW-56: local measuring data (wake-word recordings: own and consenting voices only, never committed).
+/out/

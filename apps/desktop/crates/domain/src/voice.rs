@@ -262,6 +262,32 @@ pub fn wake_phrase_placeholder(agent_name: &str) -> String {
     VOICE.copy.wake_phrase_placeholder.replace("{agent}", agent_name)
 }
 
+/// #NEW-56: the phrase the wake word listens for: the member's, else
+/// `Hey {agent}` (None while that needs an agent name nobody knows yet).
+pub fn wake_phrase(settings: &VoiceSettings, agent: Option<&str>) -> Option<String> {
+    match settings.wake_phrase.trim() {
+        "" => agent.map(wake_phrase_placeholder),
+        phrase => Some(phrase.to_string()),
+    }
+}
+
+/// #NEW-56: the tray icon (`trayIcon`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayIcon {
+    App,
+    /// The app icon with the always-on microphone dot.
+    Listening,
+}
+
+/// #NEW-56: the tray icon; None = no tray on this device.
+pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, muted: bool) -> Option<TrayIcon> {
+    if !device_is_voice_device {
+        return None;
+    }
+    Some(if wake_listening && !muted { TrayIcon::Listening } else { TrayIcon::App })
+}
+
 /// #NEW-68: one tray menu entry's identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -315,10 +341,7 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
     let label = context.shortcut_label.map(str::to_string).unwrap_or_else(|| shortcut_label(&settings.ptt_shortcut));
     let shortcut =
         if context.shortcut_unavailable { VOICE.ptt_copy.shortcut_unavailable.replace("{shortcut}", &label) } else { label };
-    let phrase = match settings.wake_phrase.trim() {
-        "" => wake_phrase_placeholder(agent),
-        phrase => phrase.to_string(),
-    };
+    let phrase = wake_phrase(settings, Some(agent)).unwrap_or_default();
     let check = |id, label: String, on: bool| TrayItem::Check { id, label, checked: on && ready, enabled: ready };
     let mut menu = vec![TrayItem::Action { id: TrayItemId::Open, label: copy.tray_open.clone(), enabled: true }];
     if context.call_available {
@@ -1299,6 +1322,29 @@ mod tests {
             let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
             assert_eq!(menu, expected, "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn tray_icon_matches_the_fixture() {
+        for case in fixture()["trayIconCases"].as_array().unwrap() {
+            let context = &case["context"];
+            let icon = tray_icon(
+                context["deviceIsVoiceDevice"].as_bool().unwrap(),
+                context["wakeListening"].as_bool().unwrap(),
+                context["muted"].as_bool().unwrap(),
+            );
+            let expected: Option<TrayIcon> = serde_json::from_value(case["icon"].clone()).unwrap();
+            assert_eq!(icon, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_wake_phrase_is_the_members_or_hey_agent() {
+        let mut settings = VoiceSettings { wake_phrase: "  Computer ".into(), ..Default::default() };
+        assert_eq!(wake_phrase(&settings, None).as_deref(), Some("Computer"));
+        settings.wake_phrase.clear();
+        assert_eq!(wake_phrase(&settings, Some("Studio")).as_deref(), Some("Hey Studio"));
+        assert_eq!(wake_phrase(&settings, None), None, "never `Hey …`");
     }
 
     fn os_of(value: &Value) -> (VoiceOs, Option<VoiceSession>) {

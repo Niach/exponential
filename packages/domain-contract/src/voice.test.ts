@@ -18,6 +18,7 @@ import {
   shouldSpeak,
   spokenText,
   trayHeader,
+  trayIcon,
   trayMenu,
   utteranceInput,
   voiceDeviceOptions,
@@ -80,6 +81,9 @@ describe(`voice.json`, () => {
   }
   for (const c of fixture.trayMenuCases) {
     it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))
+  }
+  for (const c of fixture.trayIconCases) {
+    it(`trayIcon: ${c.name}`, () => expect(trayIcon(c.context)).toBe(c.icon as `app` | `listening` | null))
   }
   for (const c of fixture.shortcutSupportCases) {
     it(`shortcutSupport ${c.os} ${c.session} ${c.shortcut} portal=${c.portal}`, () =>

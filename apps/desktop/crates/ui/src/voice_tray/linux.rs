@@ -11,12 +11,17 @@
 //! watcher appears or its host changes (a panel restart); while no host
 //! shows it (GNOME without the AppIndicator extension) the last window quits
 //! as before, and losing the host with no window open brings one back.
+//!
+//! #NEW-76: the watcher's listener (its own session-bus connection) runs only
+//! while a tray is wanted, i.e. while this IDE is the voice device; hiding
+//! the tray stops it. #NEW-56: a new icon (the microphone dot) is announced
+//! with `NewIcon`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use domain::voice::TrayItem;
+use domain::voice::{TrayIcon, TrayItem};
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
@@ -37,6 +42,8 @@ enum Command {
     /// A watcher came or went, or its host changed: register again and
     /// re-read whether a host shows us.
     Recheck,
+    /// #NEW-56: draw this icon.
+    Icon(TrayIcon),
 }
 
 pub(super) struct Backend {
@@ -53,12 +60,15 @@ impl Backend {
         if let Err(err) = spawned {
             log::warn!("[ui] voice tray: thread failed to start: {err}");
         }
-        watch(tx.clone());
         Self { tx, registered }
     }
 
     pub(super) fn set(&mut self, menu: Option<Vec<TrayItem>>) {
         let _ = self.tx.send(Command::Menu(menu));
+    }
+
+    pub(super) fn set_icon(&mut self, icon: TrayIcon) {
+        let _ = self.tx.send(Command::Icon(icon));
     }
 
     /// A host shows the item right now.
@@ -67,10 +77,65 @@ impl Backend {
     }
 }
 
+/// The watcher's listener; dropping it ends its thread and closes its
+/// session-bus connection (#NEW-76).
+struct Watch {
+    _stop: flume::Sender<()>,
+}
+
 /// Recheck whenever `org.kde.StatusNotifierWatcher` changes owner (a panel
 /// restarts, the AppIndicator extension toggles) or announces a host change.
-fn watch(tx: flume::Sender<Command>) {
-    let rules = [
+fn watch(tx: flume::Sender<Command>) -> Option<Watch> {
+    let (stop, stopped) = flume::bounded::<()>(1);
+    let spawned = std::thread::Builder::new().name("voice-tray-watch".into()).spawn(move || {
+        async_io::block_on(async move {
+            use futures_util::StreamExt as _;
+            let connection = match zbus::Connection::session().await {
+                Ok(connection) => connection,
+                Err(err) => {
+                    log::info!("[ui] voice tray: cannot watch the tray host: {err}");
+                    return;
+                }
+            };
+            let mut streams = Vec::new();
+            for rule in watch_rules() {
+                match rule {
+                    Ok(rule) => match zbus::MessageStream::for_match_rule(rule, &connection, None).await {
+                        Ok(stream) => streams.push(stream),
+                        Err(err) => log::info!("[ui] voice tray: cannot watch the tray host: {err}"),
+                    },
+                    Err(err) => log::info!("[ui] voice tray: cannot watch the tray host: {err}"),
+                }
+            }
+            let mut signals = futures_util::stream::select_all(streams);
+            loop {
+                let signal = std::pin::pin!(signals.next());
+                let stopping = std::pin::pin!(stopped.recv_async());
+                match futures_util::future::select(signal, stopping).await {
+                    futures_util::future::Either::Left((Some(_), _)) => {
+                        if tx.send(Command::Recheck).is_err() {
+                            break;
+                        }
+                    }
+                    // The streams ended, or the tray is no longer wanted.
+                    _ => break,
+                }
+            }
+        });
+    });
+    match spawned {
+        Ok(_) => Some(Watch { _stop: stop }),
+        Err(err) => {
+            log::warn!("[ui] voice tray: watch thread failed to start: {err}");
+            None
+        }
+    }
+}
+
+/// The watcher's owner changing, and its host registering (#NEW-76: never
+/// every signal of the watcher, or another app's item would re-register ours).
+fn watch_rules() -> [zbus::Result<zbus::MatchRule<'static>>; 2] {
+    [
         zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .sender("org.freedesktop.DBus")
@@ -83,31 +148,7 @@ fn watch(tx: flume::Sender<Command>) {
             .interface(WATCHER)
             .and_then(|rule| rule.member("StatusNotifierHostRegistered"))
             .map(|rule| rule.build()),
-    ];
-    for rule in rules {
-        let tx = tx.clone();
-        let spawned = std::thread::Builder::new().name("voice-tray-watch".into()).spawn(move || {
-            let iterator = rule.and_then(|rule| {
-                let connection = Connection::session()?;
-                zbus::blocking::MessageIterator::for_match_rule(rule, &connection, None)
-            });
-            let iterator = match iterator {
-                Ok(iterator) => iterator,
-                Err(err) => {
-                    log::info!("[ui] voice tray: cannot watch the tray host: {err}");
-                    return;
-                }
-            };
-            for _ in iterator {
-                if tx.send(Command::Recheck).is_err() {
-                    break;
-                }
-            }
-        });
-        if let Err(err) = spawned {
-            log::warn!("[ui] voice tray: watch thread failed to start: {err}");
-        }
-    }
+    ]
 }
 
 /// The menu the dbusmenu object serves, shared with its zbus handlers.
@@ -123,16 +164,25 @@ struct Live {
     name: String,
 }
 
-fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registered: Arc<AtomicBool>) {
-    let icon: Vec<Pixmap> = super::icon_frames(&[22, 32, 48, 64])
+/// The icon in `state` as SNI pixmaps.
+fn pixmaps(state: TrayIcon) -> Vec<Pixmap> {
+    super::icon_frames(state, &[22, 32, 48, 64])
         .into_iter()
         .map(|frame| {
             let argb = frame.rgba.chunks_exact(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect();
             (frame.width as i32, frame.height as i32, argb)
         })
-        .collect();
+        .collect()
+}
+
+fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registered: Arc<AtomicBool>) {
+    let mut drawn = TrayIcon::App;
+    let icon = Arc::new(Mutex::new(pixmaps(drawn)));
     let state = Arc::new(Mutex::new(MenuState::default()));
     let mut live: Option<Live> = None;
+    // #NEW-76: the watcher's listener, only while a tray is wanted.
+    let mut watching: Option<Watch> = None;
+    let (recheck, rechecks) = flume::unbounded::<Command>();
     // Whether a tray is wanted (this IDE is the voice device).
     let mut wanted = false;
     // A fresh well-known name per connection (`-{pid}-{n}`).
@@ -143,10 +193,35 @@ fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registere
             let _ = clicks.send(TrayEvent::HostLost);
         }
     };
-    while let Ok(command) = rx.recv() {
+    loop {
+        let command = flume::Selector::new()
+            .recv(&rx, |command| command.ok())
+            .recv(&rechecks, |command| command.ok())
+            .wait();
+        let Some(command) = command else { break };
         match command {
+            Command::Icon(next) => {
+                if next != drawn {
+                    drawn = next;
+                    *icon.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = pixmaps(next);
+                    if let Some(live) = live.as_ref() {
+                        let announced = live.connection.emit_signal(
+                            None::<zbus::names::BusName<'_>>,
+                            ITEM_PATH,
+                            "org.kde.StatusNotifierItem",
+                            "NewIcon",
+                            &(),
+                        );
+                        if let Err(err) = announced {
+                            log::warn!("[ui] voice tray: NewIcon: {err}");
+                        }
+                    }
+                }
+                continue;
+            }
             Command::Menu(None) => {
                 wanted = false;
+                watching = None;
                 // Closing the connection drops the name; the watcher forgets it.
                 live = None;
                 // Hidden on purpose: not a lost host.
@@ -155,6 +230,9 @@ fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registere
             }
             Command::Menu(Some(items)) => {
                 wanted = true;
+                if watching.is_none() {
+                    watching = watch(recheck.clone());
+                }
                 let revision = {
                     let mut state = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                     state.items = items;
@@ -202,9 +280,14 @@ fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registere
     }
 }
 
-fn connect(serial: u32, icon: &[Pixmap], state: &Arc<Mutex<MenuState>>, clicks: &flume::Sender<TrayEvent>) -> zbus::Result<Live> {
+fn connect(
+    serial: u32,
+    icon: &Arc<Mutex<Vec<Pixmap>>>,
+    state: &Arc<Mutex<MenuState>>,
+    clicks: &flume::Sender<TrayEvent>,
+) -> zbus::Result<Live> {
     let name = format!("org.kde.StatusNotifierItem-{}-{serial}", std::process::id());
-    let item = Item { icon: icon.to_vec(), clicks: clicks.clone() };
+    let item = Item { icon: icon.clone(), clicks: clicks.clone() };
     let menu = DbusMenu { state: state.clone(), clicks: clicks.clone() };
     let connection = zbus::blocking::connection::Builder::session()?
         .name(name.as_str())?
@@ -241,7 +324,8 @@ fn host_registered(connection: &Connection) -> bool {
 
 /// `org.kde.StatusNotifierItem`.
 struct Item {
-    icon: Vec<Pixmap>,
+    /// #NEW-56: swapped for the microphone dot (then `NewIcon`).
+    icon: Arc<Mutex<Vec<Pixmap>>>,
     clicks: flume::Sender<TrayEvent>,
 }
 
@@ -291,7 +375,7 @@ impl Item {
 
     #[zbus(property)]
     fn icon_pixmap(&self) -> Vec<Pixmap> {
-        self.icon.clone()
+        self.icon.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
     }
 
     #[zbus(property)]
