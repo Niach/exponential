@@ -16,6 +16,7 @@ import { generateTxId } from "@/lib/trpc"
 import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
 import { answeredCard } from "@/lib/sessions/card-answer"
 import type { Db, Tx } from "@/lib/sessions/tx"
+import { closeAskMirrors } from "@/lib/sessions/bus"
 
 // EXP-1280/NEW-1: answering a question/plan card. ONE write path for the
 // thread card (`sessions.answer`, a person), the device's write-back
@@ -100,6 +101,7 @@ export async function stampAnsweredCardInTx(
     .where(and(eq(messages.id, messageId), isNull(messages.answeredAt)))
     .returning({ id: messages.id })
   if (claimed.length === 0) return false
+  await closeAskMirrors(tx, sessionId, [messageId], now)
   if (card.kind === `plan` && card.decision === `approved`) {
     await tx
       .update(sessions)

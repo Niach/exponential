@@ -53,6 +53,9 @@ object Chats {
         const val PREVIEW_PICTURE = "Picture"
         const val PREVIEW_SURFACE = "Preview"
         const val PREVIEW_EMPTY = "No messages yet"
+        /** #EXP-1399: the bus's `askText` leads (`copy.preview.askQuestionLead` / `askPlanLead`). */
+        const val PREVIEW_ASK_QUESTION_LEAD = "Asks: "
+        const val PREVIEW_ASK_PLAN_LEAD = "Proposes a plan:"
 
         const val TIME_YESTERDAY = "Yesterday"
         val WEEKDAYS_SHORT: List<String> = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -493,6 +496,26 @@ object Chats {
         .replace(WHITESPACE, " ")
         .trim()
 
+    private val BLANK_LINE = Regex("""\n\s*\n""")
+
+    /** A plan / question card's preview (kind + filled copy). #EXP-1399: an
+     *  `ask` mirror reads its body, the bus's `askText` (`Asks: <question>`
+     *  on its first line with text | `Proposes a plan:` then the plan's first
+     *  block), which the list digest keeps too. */
+    private fun askPreview(message: SessionTree.Message): ChatPreview {
+        val card = message.card!!
+        fun question(text: String) = ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", text))
+        fun plan(text: String) = ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", text))
+        if (card.kind() == DomainContract.messageCardKindPlan) return plan(plainLine(card.textOf("plan")))
+        if (card.kind() != DomainContract.messageCardKindAsk) return question(plainLine(card.textOf("question")))
+        val body = message.body.trim()
+        if (body.startsWith(Copy.PREVIEW_ASK_PLAN_LEAD)) {
+            return plan(plainLine(body.substring(Copy.PREVIEW_ASK_PLAN_LEAD.length).trim().split(BLANK_LINE).first()))
+        }
+        val first = body.split("\n").firstOrNull { plainLine(it) != "" } ?: ""
+        return question(plainLine(first.removePrefix(Copy.PREVIEW_ASK_QUESTION_LEAD)))
+    }
+
     /** The root conversation's preview line (`previewCases`). */
     fun chatPreview(rootId: String, messages: List<SessionTree.Message>, needsYou: Boolean, busy: Boolean): ChatPreview {
         val own = messages
@@ -510,14 +533,7 @@ object Chats {
                         it == DomainContract.messageCardKindAsk
                 }
             }
-            if (waiting != null) {
-                val card = waiting.card!!
-                return if (card.kind() == DomainContract.messageCardKindPlan) {
-                    ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", plainLine(card.textOf("plan"))))
-                } else {
-                    ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", plainLine(card.textOf("question"))))
-                }
-            }
+            if (waiting != null) return askPreview(waiting)
         }
         if (busy) return ChatPreview("working", Copy.PREVIEW_WORKING)
         val newest = own.firstOrNull() ?: return ChatPreview("empty", Copy.PREVIEW_EMPTY)
@@ -533,10 +549,8 @@ object Chats {
                 val title = (card["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim().orEmpty()
                 ChatPreview("surface", title.ifEmpty { Copy.PREVIEW_SURFACE })
             }
-            DomainContract.messageCardKindQuestion, DomainContract.messageCardKindAsk ->
-                ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", plainLine(card.textOf("question"))))
-            DomainContract.messageCardKindPlan ->
-                ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", plainLine(card.textOf("plan"))))
+            DomainContract.messageCardKindQuestion, DomainContract.messageCardKindAsk, DomainContract.messageCardKindPlan ->
+                askPreview(newest)
             else -> ChatPreview("agent", plainLine(newest.body))
         }
     }

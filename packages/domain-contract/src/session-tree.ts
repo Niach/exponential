@@ -527,6 +527,43 @@ export type ThreadRow =
   /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
   | { type: `surface`; id: string; sessionId: string; title: string | null; surface: CardSurface }
 
+/** A `question` / `plan` card's Conversation row (its own thread, or an
+ *  escalated card read from its origin message). */
+function askRow(
+  message: TreeMessage,
+  card: NonNullable<TreeMessage[`card`]>
+): Extract<ThreadRow, { type: `question` | `plan` }> {
+  if (card.kind === `question`) {
+    return {
+      type: `question`,
+      id: message.id,
+      sessionId: message.sessionId,
+      question: String(card.question ?? ``),
+      options: questionOptions(card),
+      custom: card.custom !== false,
+      multi: card.multi === true,
+      surface: cardSurface(card.surface),
+      answer: typeof card.answer === `string` ? card.answer : null,
+      answers: stringList(card.answers),
+      surfaceData: dataRecord(card.surfaceData),
+      answered: message.answeredAt !== null,
+    }
+  }
+  return {
+    type: `plan`,
+    id: message.id,
+    sessionId: message.sessionId,
+    plan: String(card.plan ?? ``),
+    questions: planQuestions(card),
+    surface: cardSurface(card.surface),
+    decision: typeof card.decision === `string` ? card.decision : null,
+    fresh: card.fresh === true,
+    answers: planAnswers(card.answers),
+    feedback: typeof card.feedback === `string` && card.feedback !== `` ? card.feedback : null,
+    surfaceData: dataRecord(card.surfaceData),
+  }
+}
+
 /** EXP-1323: one suggested task: `open` (× · Options · Do it here ·
  *  Start), `started` (the child's card once synced), `here` (sent to the
  *  posting session), `filed` (the issue it became). Dismissed items drop. */
@@ -870,6 +907,8 @@ export function buildSessionThread(input: {
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   )
   const rows: ThreadRow[] = []
+  const messagesById = new Map(input.messages.map((m) => [m.id, m]))
+  const escalated = new Set<string>()
   for (const message of conversation) {
     const card = message.card
     if (!card) {
@@ -907,35 +946,8 @@ export function buildSessionThread(input: {
         break
       }
       case `question`:
-        rows.push({
-          type: `question`,
-          id: message.id,
-          sessionId: message.sessionId,
-          question: String(card.question ?? ``),
-          options: questionOptions(card),
-          custom: card.custom !== false,
-          multi: card.multi === true,
-          surface: cardSurface(card.surface),
-          answer: typeof card.answer === `string` ? card.answer : null,
-          answers: stringList(card.answers),
-          surfaceData: dataRecord(card.surfaceData),
-          answered: message.answeredAt !== null,
-        })
-        break
       case `plan`:
-        rows.push({
-          type: `plan`,
-          id: message.id,
-          sessionId: message.sessionId,
-          plan: String(card.plan ?? ``),
-          questions: planQuestions(card),
-          surface: cardSurface(card.surface),
-          decision: typeof card.decision === `string` ? card.decision : null,
-          fresh: card.fresh === true,
-          answers: planAnswers(card.answers),
-          feedback: typeof card.feedback === `string` && card.feedback !== `` ? card.feedback : null,
-          surfaceData: dataRecord(card.surfaceData),
-        })
+        rows.push(askRow(message, card))
         break
       case `surface`: {
         const surface = cardSurface(card.surface)
@@ -998,8 +1010,20 @@ export function buildSessionThread(input: {
       }
       // NEW-1: a child's ask mirrored into its parent (`ask`): the child's
       // own card already surfaces in the Conversation (`asks`), so the
-      // mirror draws nothing here.
-      case `ask`:
+      // mirror draws nothing here. #EXP-1399: a mirror from ANOTHER tree
+      // (an agent's conversation watching a thread, `escalate`) = the
+      // origin's session card + THE origin card, read from its message.
+      case `ask`: {
+        const target = typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
+        const origin = typeof card.messageId === `string` ? messagesById.get(card.messageId) : undefined
+        if (!target || treeIds.has(target.id) || !origin || origin.sessionId !== target.id) break
+        if (origin.card?.kind !== `question` && origin.card?.kind !== `plan`) break
+        if (escalated.has(origin.id)) break
+        escalated.add(origin.id)
+        rows.push({ type: `session`, id: message.id, card: sessionCard(target, titles.get(target.id) ?? ``, now) })
+        rows.push(askRow(origin, origin.card))
+        break
+      }
       default:
         break
     }

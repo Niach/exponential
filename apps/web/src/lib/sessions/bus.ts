@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import { ASK_PLAN_LEAD, ASK_QUESTION_LEAD } from "@exp/domain-contract/chats"
 import { messages, sessions, type Session } from "@/db/schema"
 import { insertMessage } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
@@ -145,7 +146,7 @@ export function askText(
       card.custom !== false ? `free text allowed` : null,
     ].filter(Boolean)
     return [
-      `Asks: ${card.question}`,
+      `${ASK_QUESTION_LEAD}${card.question}`,
       options.length
         ? `Options: ${options.join(` | `)}${flags.length ? ` (${flags.join(`, `)})` : ``}`
         : null,
@@ -159,7 +160,7 @@ export function askText(
       `- ${question.id}: ${question.prompt} (${question.options.map((option) => option.label).join(` | `)})`
   )
   return [
-    `Proposes a plan:`,
+    ASK_PLAN_LEAD,
     clip(card.plan, ASK_PLAN_MAX),
     questions.length ? `Questions:\n${questions.join(`\n`)}` : null,
     `Decide with ${send} where answer = {decision: "approved" | "rejected", answers: {"<question id>": ["<option>"]}, feedback: "<text>"} if it is yours to decide; otherwise end your turn, a person decides in the card.`,
@@ -182,6 +183,29 @@ export async function busAsk(
     card: { kind: `ask`, sessionId: child.id, messageId },
     waking: true,
   })
+}
+
+/** #EXP-1399: `child`'s card(s) `messageIds` were answered (or superseded):
+ *  every `ask` mirror of them closes too (`answered_at`), so a list or a
+ *  Dock reading the mirror alone stops waiting on it. */
+export async function closeAskMirrors(
+  tx: Tx,
+  childId: string,
+  messageIds: readonly string[],
+  at: Date = new Date()
+): Promise<void> {
+  if (messageIds.length === 0) return
+  await tx
+    .update(messages)
+    .set({ answeredAt: at, updatedAt: at })
+    .where(
+      and(
+        eq(messages.authorSessionId, childId),
+        isNull(messages.answeredAt),
+        sql`${messages.card}->>'kind' = 'ask'`,
+        inArray(sql`${messages.card}->>'messageId'`, [...messageIds])
+      )
+    )
 }
 
 const minutes = contract.sessionWatchdog

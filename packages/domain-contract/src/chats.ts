@@ -130,6 +130,25 @@ export function plainLine(markdown: string): string {
     .trim()
 }
 
+/** A plan / question card's preview kind + plain text. #EXP-1399: an
+ *  `ask` mirror reads its body, the bus's `askText` (`Asks: <question>`
+ *  on its first line with text | `Proposes a plan:` then the plan's first block),
+ *  which the list digest keeps too. */
+export function askPreview(message: Pick<TreeMessage, `card` | `body`>): { kind: `plan` | `question`; text: string } {
+  const card = message.card!
+  if (card.kind === `plan`) return { kind: `plan`, text: plainLine(String(card.plan ?? ``)) }
+  if (card.kind !== `ask`) return { kind: `question`, text: plainLine(String(card.question ?? ``)) }
+  const body = message.body.trim()
+  if (body.startsWith(ASK_PLAN_LEAD)) {
+    return { kind: `plan`, text: plainLine(body.slice(ASK_PLAN_LEAD.length).trim().split(/\n\s*\n/)[0] ?? ``) }
+  }
+  const first = body.split(`\n`).find((line) => plainLine(line) !== ``) ?? ``
+  return { kind: `question`, text: plainLine(first.startsWith(ASK_QUESTION_LEAD) ? first.slice(ASK_QUESTION_LEAD.length) : first) }
+}
+
+export const ASK_QUESTION_LEAD = fixture.copy.preview.askQuestionLead
+export const ASK_PLAN_LEAD = fixture.copy.preview.askPlanLead
+
 /** The root conversation's preview line (`previewCases`). */
 export function chatPreview(input: {
   rootId: string
@@ -147,9 +166,8 @@ export function chatPreview(input: {
       (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
     )
     if (waiting) {
-      const kind = waiting.card!.kind === `plan` ? `plan` : `question`
-      const body = kind === `plan` ? String(waiting.card!.plan ?? ``) : String(waiting.card!.question ?? ``)
-      return { kind, text: copy[kind].replace(`{text}`, plainLine(body)) }
+      const { kind, text } = askPreview(waiting)
+      return { kind, text: copy[kind].replace(`{text}`, text) }
     }
   }
   if (input.busy) return { kind: `working`, text: copy.working }
@@ -170,9 +188,10 @@ export function chatPreview(input: {
       }
     case `question`:
     case `ask`:
-      return { kind: `question`, text: copy.question.replace(`{text}`, plainLine(String(newest.card.question ?? ``))) }
-    case `plan`:
-      return { kind: `plan`, text: copy.plan.replace(`{text}`, plainLine(String(newest.card.plan ?? ``))) }
+    case `plan`: {
+      const { kind, text } = askPreview(newest)
+      return { kind, text: copy[kind].replace(`{text}`, text) }
+    }
     default:
       return { kind: `agent`, text: plainLine(newest.body) }
   }

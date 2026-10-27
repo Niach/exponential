@@ -623,6 +623,21 @@ fn thread_view(
         }
     }
     picked.extend(first.into_values().map(|(_, message)| message));
+    // #EXP-1399: an `ask` mirror from another tree draws THE origin card,
+    // read from the origin message (`card.messageId`): load those by id.
+    let mut picked_ids: HashSet<&str> = picked.iter().map(|message| message.id.as_str()).collect();
+    let origins: Vec<&MessageRow> = picked
+        .iter()
+        .filter_map(|message| {
+            let card = message.card.as_ref()?;
+            (card.get("kind")?.as_str()? == domain::contract::MESSAGE_CARD_KIND_ASK)
+                .then(|| card.get("messageId")?.as_str())
+                .flatten()
+        })
+        .filter_map(|id| all_messages.get(id))
+        .filter(|origin| picked_ids.insert(origin.id.as_str()))
+        .collect();
+    picked.extend(origins);
     let keyed: Vec<MessageRow> = domain::message_conversation::key_messages_by_session(picked, &owners);
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     // VAPP-110: the tree's plain messages re-homed onto the root (cards stay

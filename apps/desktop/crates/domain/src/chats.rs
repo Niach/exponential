@@ -89,6 +89,7 @@ pub struct ChatsBoardMenuCopy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatsPreviewCopy {
     pub working: String,
     pub question: String,
@@ -97,6 +98,8 @@ pub struct ChatsPreviewCopy {
     pub picture: String,
     pub surface: String,
     pub empty: String,
+    pub ask_question_lead: String,
+    pub ask_plan_lead: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -651,6 +654,29 @@ fn is_author(message: &MessageRow, kind: &str) -> bool {
     message.author_kind.as_deref() == Some(kind)
 }
 
+static BLANK_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n\s*\n").unwrap());
+
+/// A plan / question card's preview kind + plain text. #EXP-1399: an `ask`
+/// mirror reads its body, the bus's `askText` (`Asks: <question>` on its
+/// first line with text | `Proposes a plan:` then the plan's first block),
+/// which the list digest keeps too.
+pub fn ask_preview(message: &MessageRow) -> (ChatPreviewKind, String) {
+    let copy = &CHATS.copy.preview;
+    match card_kind(message) {
+        Some("plan") => return (ChatPreviewKind::Plan, plain_line(&card_text(message, "plan"))),
+        Some("ask") => {}
+        _ => return (ChatPreviewKind::Question, plain_line(&card_text(message, "question"))),
+    }
+    let body = message.body.as_deref().unwrap_or_default().trim();
+    if let Some(rest) = body.strip_prefix(copy.ask_plan_lead.as_str()) {
+        let block = BLANK_LINE.split(rest.trim()).next().unwrap_or_default();
+        return (ChatPreviewKind::Plan, plain_line(block));
+    }
+    let first = body.split('\n').find(|line| !plain_line(line).is_empty()).unwrap_or_default();
+    let first = first.strip_prefix(copy.ask_question_lead.as_str()).unwrap_or(first);
+    (ChatPreviewKind::Question, plain_line(first))
+}
+
 /// The root conversation's preview line (`previewCases`). `messages` may
 /// hold other sessions' rows: only `root_id`'s own count.
 pub fn chat_preview(root_id: &str, messages: &[&MessageRow], needs_you: bool, busy: bool) -> ChatPreview {
@@ -671,19 +697,17 @@ pub fn chat_preview(root_id: &str, messages: &[&MessageRow], needs_you: bool, bu
             .then_with(|| b.id.cmp(&a.id))
     });
     let fill = |template: &str, text: &str| template.replace("{text}", &plain_line(text));
+    let asked = |message: &MessageRow| {
+        let (kind, text) = ask_preview(message);
+        let template = if kind == ChatPreviewKind::Plan { &copy.plan } else { &copy.question };
+        ChatPreview { kind, text: template.replace("{text}", &text) }
+    };
     if needs_you {
         let waiting = own.iter().find(|m| {
             m.answered_at.is_none() && matches!(card_kind(m), Some("question" | "plan" | "ask"))
         });
         if let Some(waiting) = waiting {
-            return if card_kind(waiting) == Some("plan") {
-                ChatPreview { kind: ChatPreviewKind::Plan, text: fill(&copy.plan, &card_text(waiting, "plan")) }
-            } else {
-                ChatPreview {
-                    kind: ChatPreviewKind::Question,
-                    text: fill(&copy.question, &card_text(waiting, "question")),
-                }
-            };
+            return asked(waiting);
         }
     }
     if busy {
@@ -720,11 +744,7 @@ pub fn chat_preview(root_id: &str, messages: &[&MessageRow], needs_you: bool, bu
                 text: title.map(str::to_string).unwrap_or_else(|| copy.surface.clone()),
             }
         }
-        Some("question" | "ask") => ChatPreview {
-            kind: ChatPreviewKind::Question,
-            text: fill(&copy.question, &card_text(newest, "question")),
-        },
-        Some("plan") => ChatPreview { kind: ChatPreviewKind::Plan, text: fill(&copy.plan, &card_text(newest, "plan")) },
+        Some("question" | "ask" | "plan") => asked(newest),
         _ => ChatPreview { kind: ChatPreviewKind::Agent, text: plain_line(body) },
     }
 }

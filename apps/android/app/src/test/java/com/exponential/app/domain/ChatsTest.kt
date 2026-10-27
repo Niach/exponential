@@ -351,7 +351,9 @@ class ChatsTest {
         assertEquals(preview.str("picture"), Chats.Copy.PREVIEW_PICTURE)
         assertEquals(preview.str("surface"), Chats.Copy.PREVIEW_SURFACE)
         assertEquals(preview.str("empty"), Chats.Copy.PREVIEW_EMPTY)
-        assertEquals(7, preview.size)
+        assertEquals(preview.str("askQuestionLead"), Chats.Copy.PREVIEW_ASK_QUESTION_LEAD)
+        assertEquals(preview.str("askPlanLead"), Chats.Copy.PREVIEW_ASK_PLAN_LEAD)
+        assertEquals(9, preview.size)
         val time = copy.getValue("time").jsonObject
         assertEquals(time.str("yesterday"), Chats.Copy.TIME_YESTERDAY)
         assertEquals(time.getValue("weekdaysShort").jsonArray.map { it.jsonPrimitive.content }, Chats.Copy.WEEKDAYS_SHORT)

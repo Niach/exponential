@@ -103,6 +103,17 @@ public enum SessionQueries {
             """, arguments: [rootId])
     }
 
+    /// #EXP-1399: messages by id (an `ask` mirror's ORIGIN card, which lives
+    /// in another tree), oldest first; an unsynced id reads nothing.
+    public static func messages(db: Database, ids: [String]) throws -> [SessionMessage] {
+        guard !ids.isEmpty else { return [] }
+        let marks = Array(repeating: "?", count: ids.count).joined(separator: ", ")
+        return try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "messages"."id" IN (\(marks))
+            ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
+            """, arguments: StatementArguments(ids))
+    }
+
     /// One session's own messages (its conversation's), oldest first.
     public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """

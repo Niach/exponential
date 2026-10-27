@@ -19,7 +19,7 @@ import { PLAN_CARD_COPY, resolveUpload, type AskCardLike } from "@exp/domain-con
 import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { busAsk } from "@/lib/sessions/bus"
+import { busAsk, closeAskMirrors } from "@/lib/sessions/bus"
 import { postAgentMessage, postOwnAskCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
@@ -344,7 +344,9 @@ export async function supersedeWaitingPlans(tx: Tx, sessionId: string): Promise<
       )
     )
     .returning({ id: messages.id })
-  return superseded.map((row) => row.id)
+  const ids = superseded.map((row) => row.id)
+  await closeAskMirrors(tx, sessionId, ids, now)
+  return ids
 }
 
 /**

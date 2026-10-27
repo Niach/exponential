@@ -784,10 +784,11 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
     [rootId, sessions]
   )
   const newest = useNewestMessages({ key: rootId, rootId, sessionIds })
+  const origins = useMirrorOrigins(newest.rows)
   const { conversations } = useConversationSessions()
   return useMemo(
     () =>
-      Object.assign(keyMessageRows(newest.rows, conversations), {
+      Object.assign(keyMessageRows([...newest.rows, ...origins], conversations), {
         page: {
           more: newest.more,
           loaded: newest.rows.length,
@@ -797,8 +798,36 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
           },
         } satisfies MessagePage,
       }),
-    [newest.rows, newest.more, newest.isReady, conversations, rootId]
+    [newest.rows, origins, newest.more, newest.isReady, conversations, rootId]
   )
+}
+
+/** #EXP-1399 (session-thread.json): the ORIGIN cards of the `ask` mirrors
+ *  among `rows` that live in another tree (an escalated card draws the
+ *  origin message); a mirror whose origin is already loaded adds nothing.
+ *  The shape's visibility rule decides: an origin the viewer cannot see
+ *  never syncs, and its mirror draws no card. */
+function useMirrorOrigins(rows: readonly SyncedMessageRow[]): SyncedMessageRow[] {
+  const missing = useMemo(() => {
+    const loaded = new Set(rows.map((row) => row.id))
+    const ids = new Set<string>()
+    for (const row of rows) {
+      const card = row.card as { kind?: unknown; messageId?: unknown } | null
+      if (card?.kind === `ask` && typeof card.messageId === `string` && !loaded.has(card.messageId)) {
+        ids.add(card.messageId)
+      }
+    }
+    return [...ids].sort()
+  }, [rows])
+  const key = missing.join(`,`)
+  const { data } = useLiveQuery(
+    (query) =>
+      missing.length > 0
+        ? query.from({ messages: messageCollection }).where(({ messages }) => inArray(messages.id, missing))
+        : undefined,
+    [key]
+  )
+  return useMemo(() => (missing.length > 0 ? ((data ?? []) as SyncedMessageRow[]) : []), [missing, data])
 }
 
 /** EXP-1341: THE display title (`sessionTitles`, fixture

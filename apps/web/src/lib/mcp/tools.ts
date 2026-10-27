@@ -159,6 +159,7 @@ import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
+import { escalateCard } from "@/lib/sessions/escalate"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
 import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postAskCard, postSurfaceCard } from "@/lib/sessions/plan"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
@@ -2766,6 +2767,26 @@ export function registerExponentialTools(
           })
         )
         return ok({ sessionId: rootId, issueId, ...(isRecord(result) ? result : {}) })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #EXP-1399: lift a waiting card into the team agent's conversation that
+  // manages its thread (THE same card there, one answer source).
+  server.registerTool(
+    `exponential_sessions_escalate`,
+    {
+      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its thread, so a person answers it there. The same card: an answer either side answers both. From inside that thread or from the agent's conversation. Idempotent.`,
+      inputSchema: strictInput({ messageId: uuidString }),
+    },
+    async ({ messageId }) => {
+      try {
+        const own = await loadCallerSession()
+        if (!own) throw new Error(noSessionMessage(`exponential_sessions_escalate`))
+        if (!access.full) assertTeamFullyGranted(access, own.teamId)
+        return ok(await escalateCard({ userId: user.id, caller: own, messageId }))
       } catch (e) {
         return err(e)
       }

@@ -17,6 +17,7 @@ import com.exponential.app.data.steer.SteerConnection
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.steer.steerDeviceFlow
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -73,6 +74,20 @@ internal fun referencedSessionIds(messages: List<SessionTree.Message>): List<Str
         val card = message.card ?: continue
         take(card)
         for (value in card.values) (value as? kotlinx.serialization.json.JsonArray)?.forEach(::take)
+    }
+    return out.toList()
+}
+
+/** #EXP-1399: the ORIGIN message ids the `ask` mirrors name (an agent's
+ *  conversation watching another thread draws THAT card, read from its
+ *  message), sorted. */
+internal fun askOriginIds(messages: List<SessionTree.Message>): List<String> {
+    val out = sortedSetOf<String>()
+    for (message in messages) {
+        val card = message.card ?: continue
+        if ((card["kind"] as? kotlinx.serialization.json.JsonPrimitive)?.content != DomainContract.messageCardKindAsk) continue
+        (card["messageId"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.takeIf { it.isNotEmpty() }?.let(out::add)
     }
     return out.toList()
 }
@@ -208,6 +223,22 @@ class ThreadViewModel @Inject constructor(
         }
     }
 
+    /** #EXP-1399: the origin messages the tree's `ask` mirrors name outside
+     *  the tree (an escalated question / plan card), by id. */
+    private val askOrigins: Flow<List<SessionTree.Message>> = treeMessages
+        .map { messages ->
+            val own = messages.mapTo(HashSet()) { it.id }
+            askOriginIds(messages).filter { it !in own }
+        }
+        .distinctUntilChanged()
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeByIds(ids)) }
+            }
+        }
+
     /** chats.json PERF: the clock ticks only while a session the chat paints
      *  a CARD for is live (a child, a `thread_started` root: their elapsed
      *  ladder). The root never has a card, so an idle agent chat or a lone
@@ -268,8 +299,9 @@ class ThreadViewModel @Inject constructor(
         combine(root, tree, referencedSessions) { r, t, refs -> Triple(r, t, refs) },
         combine(linksFlow, allIssues, issueParents) { l, i, p -> l to i.map { SessionTree.issue(it, p[it.id]) } },
         // A named session's title rows may already be the tree's own: once each.
-        combine(treeMessages, referencedTitleMessages) { own, titles ->
-            if (titles.isEmpty()) own else (own + titles).distinctBy { it.id }
+        // #EXP-1399: + the escalated cards' origin messages.
+        combine(treeMessages, referencedTitleMessages, askOrigins) { own, titles, origins ->
+            if (titles.isEmpty() && origins.isEmpty()) own else (own + titles + origins).distinctBy { it.id }
         },
         pullRequests,
         clock,

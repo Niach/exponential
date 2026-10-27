@@ -41,6 +41,9 @@ public enum Chats {
             public static let picture = "Picture"
             public static let surface = "Preview"
             public static let empty = "No messages yet"
+            /// #EXP-1399: the bus's `askText` leads an `ask` mirror's body.
+            public static let askQuestionLead = "Asks: "
+            public static let askPlanLead = "Proposes a plan:"
         }
         public enum Time {
             public static let yesterday = "Yesterday"
@@ -468,6 +471,29 @@ public enum Chats {
         template.replacingOccurrences(of: "{text}", with: text)
     }
 
+    /// A plan / question card's preview kind + plain text. #EXP-1399: an
+    /// `ask` mirror reads its body, the bus's `askText` (`Asks: <question>`
+    /// on its first line with text | `Proposes a plan:` then the plan's first
+    /// block), which the list digest keeps too.
+    public static func askPreview(_ message: TreeMessage) -> (kind: ChatPreviewKind, text: String) {
+        let card = message.card
+        if card?.kind == "plan" { return (.plan, plainLine(card?.plan ?? "")) }
+        if card?.kind != "ask" { return (.question, plainLine(card?.question ?? "")) }
+        let body = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.hasPrefix(Copy.Preview.askPlanLead) {
+            let rest = String(body.dropFirst(Copy.Preview.askPlanLead.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let block = rest.range(of: #"\n\s*\n"#, options: .regularExpression)
+                .map { String(rest[..<$0.lowerBound]) } ?? rest
+            return (.plan, plainLine(block))
+        }
+        let first = body.components(separatedBy: "\n").first(where: { !plainLine($0).isEmpty }) ?? ""
+        let question = first.hasPrefix(Copy.Preview.askQuestionLead)
+            ? String(first.dropFirst(Copy.Preview.askQuestionLead.count))
+            : first
+        return (.question, plainLine(question))
+    }
+
     /// The root conversation's preview line (`previewCases`).
     public static func chatPreview(rootId: String, messages: [TreeMessage], needsYou: Bool, busy: Bool) -> ChatPreview {
         let own = messages
@@ -484,12 +510,9 @@ public enum Chats {
         if needsYou,
            let waiting = own.first(where: { m in
                m.answeredAt == nil && ["question", "plan", "ask"].contains(m.card?.kind ?? "")
-           }),
-           let card = waiting.card {
-            if card.kind == "plan" {
-                return ChatPreview(kind: .plan, text: fill(Copy.Preview.plan, plainLine(card.plan ?? "")))
-            }
-            return ChatPreview(kind: .question, text: fill(Copy.Preview.question, plainLine(card.question ?? "")))
+           }) {
+            let (kind, text) = askPreview(waiting)
+            return ChatPreview(kind: kind, text: fill(kind == .plan ? Copy.Preview.plan : Copy.Preview.question, text))
         }
         if busy { return ChatPreview(kind: .working, text: Copy.Preview.working) }
         guard let newest = own.first else { return ChatPreview(kind: .empty, text: Copy.Preview.empty) }
@@ -505,10 +528,9 @@ public enum Chats {
         case "surface":
             let title = newest.card?.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return ChatPreview(kind: .surface, text: title.isEmpty ? Copy.Preview.surface : title)
-        case "question", "ask":
-            return ChatPreview(kind: .question, text: fill(Copy.Preview.question, plainLine(newest.card?.question ?? "")))
-        case "plan":
-            return ChatPreview(kind: .plan, text: fill(Copy.Preview.plan, plainLine(newest.card?.plan ?? "")))
+        case "question", "ask", "plan":
+            let (kind, text) = askPreview(newest)
+            return ChatPreview(kind: kind, text: fill(kind == .plan ? Copy.Preview.plan : Copy.Preview.question, text))
         default:
             return ChatPreview(kind: .agent, text: plainLine(newest.body))
         }

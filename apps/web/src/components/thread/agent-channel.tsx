@@ -59,7 +59,8 @@ import { trpc } from "@/lib/trpc-client"
 // the time, the body); a thread it started (`thread_started`) or a session
 // it spawned (`session`) is THE session card under it, opening that thread
 // (a root) or that session (a child). Question and plan cards answer in the
-// card. Model = `buildSessionThread` over the conversation root with the
+// card; #EXP-1399: an escalated card (a thread's `ask` mirror) is its origin
+// session's card over THE origin card, answered at the origin. Model = `buildSessionThread` over the conversation root with the
 // team's sessions as card targets.
 
 /** A card's answer (`sessions.answer`): a question's text + its picked
@@ -158,7 +159,8 @@ export function AgentChannel({
     const targets = new Set<string>()
     for (const message of messages) {
       const card = message.card as { kind?: unknown; sessionId?: unknown } | null
-      if ((card?.kind === `session` || card?.kind === `thread_started`) && typeof card.sessionId === `string`) {
+      // #EXP-1399: an escalated card (`ask`) heads with its origin's card too.
+      if ((card?.kind === `session` || card?.kind === `thread_started` || card?.kind === `ask`) && typeof card.sessionId === `string`) {
         targets.add(card.sessionId)
       }
     }
