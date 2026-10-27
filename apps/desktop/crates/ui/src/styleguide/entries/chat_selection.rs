@@ -3,7 +3,7 @@
 //! web `ChatSelectionSpecimen`. The IDE's Chats page paints the same pieces
 //! ([`crate::chat_list`]): the Archived entry first (ui-archive in the lead
 //! disc, the count in the time slot), then `listCases[0]`'s rows, each led by
-//! the selection glyph (two selected), over THE bar (the issue list's bulk
+//! the issue list's checkbox (two selected), over THE bar (the issue list's bulk
 //! capsule) holding `chat_selection_actions` for those two.
 
 use gpui::{div, px, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
@@ -71,12 +71,12 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(
             v_flex()
                 .w_full()
-                .child(row_frame(false, chat_selectable(None, chat_archived_row(archived, cx), cx), cx))
+                .child(row_frame(false, chat_selectable(None, "", chat_archived_row(archived, cx), cx), cx))
                 .children(list.rows.iter().map(|row| {
                     let is_selected = selected.contains(&row.session_id);
                     row_frame(
                         is_selected,
-                        chat_selectable(Some(is_selected), chat_row(row, chat_lead_disc(row.lead, None, cx), cx), cx),
+                        chat_selectable(Some(is_selected), &row.session_id, chat_row(row, chat_lead_disc(row.lead, None, cx), cx), cx),
                         cx,
                     )
                 })),

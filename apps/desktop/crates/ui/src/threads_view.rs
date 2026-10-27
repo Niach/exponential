@@ -466,7 +466,7 @@ fn chats_page_row(row: &ChatRow, selected: Option<bool>, on_click: OnRowClick, o
         .hover(|style| style.bg(cx.theme().list_hover))
         .when(selected == Some(true), |this| this.bg(cx.theme().list_active))
         .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
-        .child(crate::chat_list::chat_selectable(selected, crate::chat_list::chat_row(row, lead, cx), cx))
+        .child(crate::chat_list::chat_selectable(selected, &row.session_id, crate::chat_list::chat_row(row, lead, cx), cx))
         .pointer_context_menu(move |menu, _, cx| {
             let root = menu_root.clone();
             let on_select = on_select.clone();
@@ -575,6 +575,7 @@ impl Render for ThreadsView {
                         })
                         .child(crate::chat_list::chat_selectable(
                             None,
+                            "",
                             crate::chat_list::chat_archived_row(model.list.archived, cx),
                             cx,
                         ))

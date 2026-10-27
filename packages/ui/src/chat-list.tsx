@@ -15,6 +15,7 @@ import {
 import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/session-tree"
 import { AgentBrandMark, AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
+import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
 import { SelectionCheck } from "./bulk-bar"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
@@ -36,7 +37,7 @@ import { SkeletonRows } from "./skeleton"
 //   ChatFilterChips  All · Needs you N · Running N · Unread N (select Pills)
 //   ChatRow          one flat WhatsApp row: 52 lead disc, title + time,
 //                    two-line preview, word, unread badge; while the list
-//                    SELECTS (#EXP-1388) it leads with the selection glyph
+//                    SELECTS (#EXP-1388) it leads with the issue rows' control
 //   ChatArchivedRow  the Archived entry (#EXP-1388): the same row, ui-archive
 //                    in the disc, the count in the time slot, no preview
 //   ChatList         the rows (or the skeleton / the empty state)
@@ -46,6 +47,7 @@ const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PrStackIcon = conceptIcon(`pr-stack`)
 const ArchiveIcon = conceptIcon(`ui-archive`)
+const CheckIcon = conceptIcon(`ui-check`)
 
 /** #EXP-1388: the selection bar's action glyphs (`chatSelectionActions`). */
 export const CHAT_SELECTION_ICONS: Record<ChatSelectionAction, ReturnType<typeof conceptIcon>> = {
@@ -250,7 +252,8 @@ const ROW_CLASS = `flex w-full items-center gap-4 text-left outline-none transit
 /** One chat (a ROOT session) as the flat list row. Right-click / long-press
  *  opens its menu through the platform's ONE menu host
  *  (`menuProps('thread', sessionId)`). While the list selects (#EXP-1388)
- *  the row leads with the selection glyph and `onRowClick` gets every
+ *  the row leads with the issue rows' selection control (wide: the
+ *  Checkbox square, phones: SelectionCheck) and `onRowClick` gets every
  *  click (a toggle, never an open). */
 export function ChatRow({
   row,
@@ -297,7 +300,26 @@ export function ChatRow({
       }
       className={cn(ROW_CLASS, className)}
     >
-      {selecting && <SelectionCheck selected={selected} aria-label={`Select ${row.title}`} className="-mr-1" />}
+      {/* The issue rows' selection cell (owner on #1283): phones the round
+          SelectionCheck, wide the Checkbox's square (its recipe painted
+          here: the row is already the button, a Radix button cannot nest). */}
+      {selecting && (
+        <SelectionCheck selected={selected} aria-label={`Select ${row.title}`} className="-mr-1 md:hidden" />
+      )}
+      {selecting && (
+        <span className="hidden w-5 shrink-0 items-center justify-center md:flex">
+          <span
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={`Select ${row.title}`}
+            data-slot="checkbox"
+            data-state={selected ? `checked` : `unchecked`}
+            className={cn(CHECKBOX_CLASSES.root, `flex items-center justify-center`)}
+          >
+            {selected && <CheckIcon className={CHECKBOX_CLASSES.icon} />}
+          </span>
+        </span>
+      )}
       <ChatLeadDisc lead={row.lead} agent={agent} />
       <span className="flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5">
         <span className="flex min-w-0 items-baseline gap-2">

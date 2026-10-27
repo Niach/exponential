@@ -257,17 +257,13 @@ pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
     )
 }
 
-/// #EXP-1388: while selecting, a row leads with the selection glyph
-/// (`ui-selected` foreground / `ui-unselected` muted) in the issue list's
-/// select cell width; `None` = not selecting (the row as is).
-pub(crate) fn chat_selectable(selected: Option<bool>, row: Div, cx: &App) -> Div {
+/// #EXP-1388: while selecting, a row leads with the issue list's select
+/// cell: the same 20px cell holding the same [`crate::controls::checkbox`]
+/// square (the row's own click toggles it); `None` = not selecting (the row
+/// as is). `id` = the row's session id.
+pub(crate) fn chat_selectable(selected: Option<bool>, id: &str, row: Div, cx: &App) -> Div {
     let Some(selected) = selected else {
         return row;
-    };
-    let (glyph, tint) = if selected {
-        (registry::UI_SELECTED, cx.theme().foreground)
-    } else {
-        (registry::UI_UNSELECTED, cx.theme().muted_foreground)
     };
     h_flex()
         .w_full()
@@ -281,7 +277,12 @@ pub(crate) fn chat_selectable(selected: Option<bool>, row: Div, cx: &App) -> Div
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(Icon::new(glyph).with_size(px(18.)).text_color(tint)),
+                .child(crate::controls::checkbox(
+                    SharedString::from(format!("chat-select-{id}")),
+                    selected.into(),
+                    false,
+                    cx,
+                )),
         )
         .child(row)
 }

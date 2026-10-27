@@ -15,11 +15,11 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1388`,
   title: `Chat selection`,
-  blurb: `The Chats list's MULTI-SELECTION ×4. Touch: a long-press on a chat row enters it with that row (no row menu on touch). Pointers: the row's right-click menu starts with "${COPY.selection.select}", cmd/ctrl-click toggles, shift-click selects the range from the last clicked row. While selecting every row leads with the issue list's selection glyph, a tap toggles and nothing opens; the last deselect, the close, Escape or back leave it. THE bar = the issue list's bulk action bar (the same capsule, placement and phone chrome swap): close, "${COPY.selection.count.replace(`{n}`, `2`)}", then "${COPY.selection.markRead}" (any unread) or "${COPY.selection.markUnread}", "${COPY.selection.archive}" (the list) or "${COPY.selection.unarchive}" (the Archived page), "${COPY.selection.stop}" while a chat is live, "${COPY.selection.delete}" when every chat may be deleted (confirm "${COPY.selection.confirmDeleteMany.replace(`{n}`, `2`)}"). A failure toasts "${COPY.toasts.selectionFailed}". Archive is per viewer; while chats are archived (filter All) the list's first row is the "${COPY.archived.entry}" entry (ui-archive in the lead disc, the count in the time slot) opening the Archived page (empty: "${COPY.archived.empty}").`,
+  blurb: `The Chats list's MULTI-SELECTION ×4. Touch: a long-press on a chat row enters it with that row (no row menu on touch). Pointers: the row's right-click menu starts with "${COPY.selection.select}", cmd/ctrl-click toggles, shift-click selects the range from the last clicked row. While selecting every row leads with the issue rows' own selection control (wide web + the IDE: the Checkbox square; touch: the round selection glyph), a tap toggles and nothing opens; the last deselect, the close, Escape or back leave it. THE bar = the issue list's bulk action bar (the same capsule, placement and phone chrome swap): close, "${COPY.selection.count.replace(`{n}`, `2`)}", then "${COPY.selection.markRead}" (any unread) or "${COPY.selection.markUnread}", "${COPY.selection.archive}" (the list) or "${COPY.selection.unarchive}" (the Archived page), "${COPY.selection.stop}" while a chat is live, "${COPY.selection.delete}" when every chat may be deleted (confirm "${COPY.selection.confirmDeleteMany.replace(`{n}`, `2`)}"). A failure toasts "${COPY.toasts.selectionFailed}". Archive is per viewer; while chats are archived (filter All) the list's first row is the "${COPY.archived.entry}" entry (ui-archive in the lead disc, the count in the time slot) opening the Archived page (empty: "${COPY.archived.empty}").`,
   status: {
     web: {
       state: `ok`,
-      symbol: `ChatSelectionSpecimen / ChatList / ChatArchivedRow / BulkBarCapsule / SelectionCheck`,
+      symbol: `ChatSelectionSpecimen / ChatList / ChatArchivedRow / BulkBarCapsule / SelectionCheck (phones) + the Checkbox recipe (wide)`,
       file: `packages/ui/src/chat-specimens.tsx`,
       note: `routes/t/$teamSlug/threads/index.tsx + components/thread/chat-selection-bar.tsx (?view=archived)`,
     },
@@ -27,7 +27,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `chat_row`,
       file: `apps/desktop/crates/ui/src/chat_list.rs`,
-      note: `the IDE Chats page selection + the bulk bar`,
+      note: `controls::checkbox (the issue list's select cell) + the bulk bar`,
     },
     ios: { state: `ok`, symbol: `ChatRow`, file: `apps/ios/ExpUI/Sources/ChatList.swift`, note: `the selection glyph + the bulk bar` },
     android: {
