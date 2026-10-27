@@ -74,6 +74,11 @@ pub const ECHO_MARGIN_DB: f32 = 12.0;
 /// ([`ECHO_INITIAL_FLOOR_DB`] until [`ECHO_FLOOR_MIN_FRAMES`] were seen).
 pub const ECHO_FLOOR_FRAMES: usize = 64;
 pub const ECHO_FLOOR_MIN_FRAMES: usize = 8;
+/// A frame that counts towards barge-in is the member, not the echo: it
+/// stays out of the floor for the utterance's first this many ms (so a
+/// member talking over the reply never raises the bar against themself;
+/// after it, a canceller that diverged still teaches the floor).
+pub const ECHO_FLOOR_HOLD_MS: usize = 2000;
 /// An unconverged canceller passes the echo at full level (the loopback's
 /// worst case: the microphone as loud as the reference).
 pub const ECHO_INITIAL_FLOOR_DB: f32 = 0.0;
@@ -135,13 +140,19 @@ impl EchoGate {
     }
 
     /// Whether a frame (speech `probability`, its level after the canceller
-    /// in dBFS) counts towards barge-in; an audible frame joins the floor.
-    pub fn frame(&mut self, probability: f32, level_db: f32, echo: EchoState) -> bool {
+    /// in dBFS) counts towards barge-in; `utterance` = the frames the open
+    /// utterance has run (`None` = none open: nothing counts). An audible
+    /// frame joins the floor unless it counted within [`ECHO_FLOOR_HOLD_MS`].
+    pub fn frame(&mut self, probability: f32, level_db: f32, echo: EchoState, utterance: Option<usize>) -> bool {
+        let voiced = probability >= THRESHOLD && utterance.is_some();
         if !echo.replying() {
-            return probability >= THRESHOLD;
+            return voiced;
         }
         let above = level_db - echo.reference_db;
-        let counts = probability >= THRESHOLD && above >= self.floor() + ECHO_MARGIN_DB;
+        let counts = voiced && above >= self.floor() + ECHO_MARGIN_DB;
+        if counts && utterance.is_some_and(|run| run < frames(ECHO_FLOOR_HOLD_MS)) {
+            return true;
+        }
         self.history.push_back(above);
         if self.history.len() > ECHO_FLOOR_FRAMES {
             self.history.pop_front();
@@ -622,9 +633,10 @@ pub struct Call {
     /// SpeechStarted went out for the open utterance.
     announced: bool,
     /// #NEW-92: the open utterance's frames that count towards barge-in
-    /// ([`EchoGate`]), the frames scored so far, and the echo canceller's
-    /// word on the samples being fed.
+    /// ([`EchoGate`]), whether a reply was audible during it, the frames
+    /// scored so far, and the echo canceller's word on the samples being fed.
     barging: usize,
+    over_reply: bool,
     scored: usize,
     echo: EchoState,
     gate: EchoGate,
@@ -649,6 +661,7 @@ impl Call {
             segmenter: Segmenter::new(talk::CALL_MIN_SILENCE_MS),
             announced: false,
             barging: 0,
+            over_reply: false,
             scored: 0,
             echo: EchoState::default(),
             gate: EchoGate::default(),
@@ -704,21 +717,28 @@ impl Call {
             let frame = self.scored;
             self.scored += 1;
             if let Some(segment) = self.segmenter.push(probability) {
-                let text = normalize_transcript(&self.transcribe(segment.start, segment.end, transcriber)?);
                 self.last_partial.clear();
-                if !text.is_empty() {
-                    emit(Event::Said { id: self.id.clone(), text });
+                // #NEW-92: heard over a reply and never cleared the gate =
+                // the reply's echo: never transcribed, never said.
+                if !self.over_reply || self.announced {
+                    let text = normalize_transcript(&self.transcribe(segment.start, segment.end, transcriber)?);
+                    if !text.is_empty() {
+                        emit(Event::Said { id: self.id.clone(), text });
+                    }
                 }
             }
             let at = (frame * FRAME).saturating_sub(self.base).min(self.audio.len());
             let level = crate::echo::dbfs(&self.audio[at..(at + FRAME).min(self.audio.len())]);
+            let utterance = self.segmenter.open_start().map(|start| frame + 1 - start.min(frame));
             // Every frame: the echo floor learns from the reply's silences too.
-            let counts = self.gate.frame(probability, level, self.echo);
-            if self.segmenter.open_start().is_none() {
+            let counts = self.gate.frame(probability, level, self.echo, utterance);
+            if utterance.is_none() {
                 self.announced = false;
                 self.barging = 0;
+                self.over_reply = false;
                 continue;
             }
+            self.over_reply |= self.echo.replying();
             if counts {
                 self.barging += 1;
             }
@@ -727,7 +747,9 @@ impl Call {
                 emit(Event::SpeechStarted { id: self.id.clone() });
             }
         }
-        if transcriber.partials() && end - self.partial_at >= PARTIAL_EVERY {
+        // #NEW-92: no partial of what may still be the reply's echo.
+        let echo_only = self.over_reply && !self.announced;
+        if transcriber.partials() && end - self.partial_at >= PARTIAL_EVERY && !echo_only {
             if let Some(start) = self.segmenter.open_start() {
                 self.partial_at = end;
                 let text = normalize_transcript(&self.transcribe(start, usize::MAX, transcriber)?);
@@ -1092,6 +1114,7 @@ mod tests {
         assert_eq!(f(&c["marginDb"]), ECHO_MARGIN_DB);
         assert_eq!(c["echoFloorFrames"], ECHO_FLOOR_FRAMES);
         assert_eq!(c["echoFloorMinFrames"], ECHO_FLOOR_MIN_FRAMES);
+        assert_eq!(c["echoFloorHoldMs"], ECHO_FLOOR_HOLD_MS);
         assert_eq!(f(&c["initialFloorDb"]), ECHO_INITIAL_FLOOR_DB);
         assert_eq!(f(&c["convergedFloorDb"]), CONVERGED_FLOOR_DB);
         assert_eq!(c["bargeInMs"], talk::BARGE_IN_MS);
@@ -1117,10 +1140,14 @@ mod tests {
                     frames_in.push((f(&run[0]), f(&run[1]), echo));
                 }
             }
+            // The closing silence: the utterance ends (said or dropped).
+            let last = frames_in.last().unwrap().2;
+            frames_in.extend(std::iter::repeat_n((0.1, -60.0, last), 10));
             let mut vad = Scripted(frames_in.iter().map(|frame| frame.0).collect(), 0);
             let mut transcriber = Lengths { partials: false, clips: Vec::new() };
             let mut call = Call::new("c1", "en");
             let mut started = None;
+            let mut said = false;
             for (index, (_, level_db, echo)) in frames_in.iter().enumerate() {
                 call.set_echo(*echo);
                 // A sine at the frame's level (dBFS = 20·log10(A/√2)).
@@ -1130,11 +1157,13 @@ mod tests {
                     if matches!(event, Event::SpeechStarted { .. }) && started.is_none() {
                         started = Some(index);
                     }
+                    said |= matches!(event, Event::Said { .. });
                 })
                 .unwrap();
             }
             let expected = case["speechStartedAt"].as_u64().map(|at| at as usize);
             assert_eq!(started, expected, "{}", case["name"]);
+            assert_eq!(said, case["said"].as_bool().unwrap(), "said: {}", case["name"]);
         }
 
         for case in gate["echoTextCases"].as_array().unwrap() {
