@@ -543,8 +543,8 @@ private struct DockCardSpecimens: View {
     ]
 
     /// EXP-1374: the session's own state cards (session-card.json `banner`,
-    /// web `STATE_ROWS`): interrupted (its device went offline) and
-    /// background tasks.
+    /// web `STATE_ROWS`): interrupted (its device went offline), background
+    /// tasks and (#EXP-1405) queued, waiting for its device.
     private static let stateRows: [Dock.Row] = Dock.rows([
         .banner(
             id: SessionState.interrupted.rawValue, icon: SessionState.interrupted.icon,
@@ -554,6 +554,10 @@ private struct DockCardSpecimens: View {
         .banner(
             id: SessionState.background.rawValue, icon: SessionState.background.icon,
             label: SessionState.background.word, text: SessionTree.CardCopy.bannerBackground, tone: .muted, action: nil
+        ),
+        .banner(
+            id: SessionState.queued.rawValue, icon: SessionState.queued.icon,
+            label: SessionState.queued.word, text: SessionTree.CardCopy.bannerQueued, tone: .muted, action: nil
         ),
     ])
 

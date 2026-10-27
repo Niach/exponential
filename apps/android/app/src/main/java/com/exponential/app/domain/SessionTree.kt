@@ -163,6 +163,10 @@ object SessionTree {
             "restarted" to "Its runner restarted mid-turn. It continues by itself.",
         )
         const val BANNER_BACKGROUND = "The turn is over; background tasks still run on its device."
+        /** #EXP-1405 `copy.queuedKind`: a queued row waits for its device. */
+        const val QUEUED_KIND = "Queued · waiting for the device"
+        /** #EXP-1405 `banner.queued`. */
+        const val BANNER_QUEUED = "Waiting for its device to pick it up. It starts by itself once the device is online."
     }
 
     object ThreadCopy {
@@ -336,6 +340,8 @@ object SessionTree {
      * `states.blocked` ("Usage limit").
      */
     fun sessionKindWord(session: Session, state: SessionState): String {
+        // #EXP-1405: a queued row names what it waits for (its device).
+        if (state == SessionState.Queued) return CardCopy.QUEUED_KIND
         // EXP-1374: an interruption reads its own word, not the blocked one.
         if (state == SessionState.Interrupted) {
             session.blocked?.kind?.let { kind -> CardCopy.INTERRUPTED_KINDS[kind] }?.let { return it }
@@ -390,12 +396,14 @@ object SessionTree {
             get() = Dock.Source.Banner(id, icon, label, text, Dock.Tint.Muted, action)
     }
 
-    /** EXP-1374 (TS `sessionBanner`): null unless interrupted or background. */
+    /** EXP-1374 (TS `sessionBanner`): null unless interrupted, background or
+     *  (#EXP-1405) queued, waiting for its device. */
     fun sessionBanner(session: Session): SessionBanner? {
         val state = sessionState(session)
         val text = when (state) {
             SessionState.Interrupted -> session.blocked?.kind?.let { CardCopy.BANNER_INTERRUPTED[it] } ?: return null
             SessionState.Background -> CardCopy.BANNER_BACKGROUND
+            SessionState.Queued -> CardCopy.BANNER_QUEUED
             else -> return null
         }
         return SessionBanner(

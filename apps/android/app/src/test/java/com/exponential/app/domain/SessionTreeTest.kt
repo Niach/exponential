@@ -697,6 +697,9 @@ class SessionTreeTest {
             assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BANNER_INTERRUPTED[key])
         }
         assertEquals(banner.str("background"), SessionTree.CardCopy.BANNER_BACKGROUND)
+        // #EXP-1405: a queued row waits for its device.
+        assertEquals(banner.str("queued"), SessionTree.CardCopy.BANNER_QUEUED)
+        assertEquals(cardFixture.getValue("copy").jsonObject.str("queuedKind"), SessionTree.CardCopy.QUEUED_KIND)
     }
 
     @Test

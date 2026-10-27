@@ -83,7 +83,9 @@ enum SessionDock {
                 tone: .warning, action: nil
             ))
         }
-        if model.phase == .starting, !paused, hasFeed {
+        // #EXP-1405: an idle row's transcript waits for its next turn, not
+        // for a start: only a busy run is "starting".
+        if model.phase == .starting, !paused, hasFeed, row.busy {
             out.append(.banner(
                 id: "starting", icon: "ui-loading", label: "Starting",
                 text: "The agent is starting. Waiting for the live stream…", tone: .muted, action: nil
