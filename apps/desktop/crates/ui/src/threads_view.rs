@@ -472,7 +472,7 @@ fn chats_page_row(
     use crate::controls::PointerContextMenuExt as _;
     use gpui::StatefulInteractiveElement as _;
     let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
-    let lead = crate::chat_list::chat_lead_disc(row.lead, agent, cx);
+    let lead = crate::chat_list::chat_lead_disc(row.lead, agent, selected, cx);
     let session_id = row.session_id.clone();
     let toggle_id = row.session_id.clone();
     let menu_root = row.session_id.clone();

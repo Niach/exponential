@@ -1,10 +1,11 @@
 //! #EXP-1388: `chat-selection` (Special components): the Chats list's
 //! MULTI-SELECTION (`fixtures/chats.json` SELECTION + ARCHIVE), the twin of
 //! web `ChatSelectionSpecimen`. The IDE's Chats page paints the same pieces
-//! ([`crate::chat_list`]): the Archived entry first (ui-archive in the lead
-//! disc, the count in the time slot), then `listCases[0]`'s rows in the issue
-//! row's selectable frame (the checkbox cell, two selected on the flat
-//! `list_active` fill, the lead discs unchanged), over THE bar (the issue
+//! ([`crate::chat_list`]): the Archived entry first (the plain ui-archive
+//! glyph centred in the disc column, the count in the time slot), then
+//! `listCases[0]`'s rows in the issue row's selectable frame (the checkbox
+//! cell, two selected on the flat `list_active` fill, their lead discs one
+//! notch stronger), over THE bar (the issue
 //! list's bulk bar: capsule, bare count, labeled buttons, the hairline before
 //! Delete) holding `chat_selection_actions` for those two.
 
@@ -87,7 +88,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                         &row.session_id,
                         Some((is_selected, true)),
                         |_, _, _| {},
-                        chat_row(row, chat_lead_disc(row.lead, None, cx), cx),
+                        chat_row(row, chat_lead_disc(row.lead, None, is_selected, cx), cx),
                         cx,
                     )
                 }))

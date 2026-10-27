@@ -42,9 +42,16 @@ fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
 
 /// The 52 lead DISC (bg muted) and what it holds: the brand mark with the
 /// amber badge, the working mark, the root's PR glyph, else the bare brand
-/// mark. `agent` = the root's CLI.
-pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>, cx: &App) -> AnyElement {
+/// mark. `agent` = the root's CLI. #EXP-1388: a `selected` row's disc steps
+/// one grey notch up (the glass `fillActive` over muted, web
+/// `ChatLeadDisc selected`) so it never blends into the selected fill.
+pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>, selected: bool, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    let ground = if selected {
+        theme.muted.blend(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+    } else {
+        theme.muted
+    };
     let brand = || {
         crate::coding_selects::agent_mark(agent.unwrap_or_default())
             .with_size(px(GLYPH_PX))
@@ -68,7 +75,7 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
         .size(px(CHATS.shell.lead_disc))
         .flex_shrink_0()
         .rounded_full()
-        .bg(theme.muted)
+        .bg(ground)
         .flex()
         .items_center()
         .justify_center()
@@ -82,7 +89,7 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
                     .size(px(14.))
                     .rounded_full()
                     .border_2()
-                    .border_color(theme.muted)
+                    .border_color(ground)
                     .bg(theme::tokens::YELLOW.to_hsla()),
             )
         })
@@ -232,20 +239,25 @@ fn chat_row_frame(
         )
 }
 
-/// #EXP-1388 THE ARCHIVED ENTRY: the same row with `ui-archive` in its lead
-/// disc, `copy.archived.entry` as its title and the count in the time slot
-/// (muted), no preview line.
+/// #EXP-1388 THE ARCHIVED ENTRY: the chat row whose lead cell holds the
+/// PLAIN `ui-archive` glyph (`shell.archivedGlyph`, muted foreground, no
+/// disc behind it) centred in the `leadDisc`-wide column so it lines up
+/// with the chats' discs; `copy.archived.entry` as its title and the count
+/// in the time slot (muted), no preview line, so the row is as tall as its
+/// text line plus the chat row's vertical padding.
 pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
     let theme = cx.theme();
     let lead = div()
-        .size(px(CHATS.shell.lead_disc))
+        .w(px(CHATS.shell.lead_disc))
         .flex_shrink_0()
-        .rounded_full()
-        .bg(theme.muted)
         .flex()
         .items_center()
         .justify_center()
-        .child(Icon::new(registry::UI_ARCHIVE).with_size(px(GLYPH_PX)).text_color(theme.foreground))
+        .child(
+            Icon::new(registry::UI_ARCHIVE)
+                .with_size(px(CHATS.shell.archived_glyph))
+                .text_color(theme.muted_foreground),
+        )
         .into_any_element();
     chat_row_frame(
         lead,
