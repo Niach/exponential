@@ -8,7 +8,8 @@
 // CI's unit job sets an unreachable dummy URL (db/connection.ts throws at
 // import without one), and a fresh checkout may not have applied the custom
 // triggers yet. `realDbReady` names what is missing so a skip is never silent
-// about why.
+// about why. #NEW-90: with REAL_DB_REQUIRED set (the release suite) a database
+// that is not ready FAILS the suite instead, so a green run means they ran.
 import { Pool } from "pg"
 import { db } from "@/db/connection"
 
@@ -18,6 +19,12 @@ export type RealDbTx = Parameters<Parameters<typeof import("@/db/connection").db
 /** Probes DATABASE_URL once, with a short timeout. `requires` = SQL that must
  *  answer one row with a true `ok` (the schema/trigger state a suite needs). */
 export async function probeRealDb(requires: string): Promise<{ ok: boolean; reason: string }> {
+  const probe = await probeOnce(requires)
+  if (!probe.ok && process.env.REAL_DB_REQUIRED) throw new Error(`real-DB suite required but not ready: ${probe.reason}`)
+  return probe
+}
+
+async function probeOnce(requires: string): Promise<{ ok: boolean; reason: string }> {
   const url = process.env.DATABASE_URL
   if (!url) return { ok: false, reason: `DATABASE_URL is not set` }
   const pool = new Pool({ connectionString: url, connectionTimeoutMillis: 1500, max: 1 })
