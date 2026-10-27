@@ -86,6 +86,44 @@ public enum VoiceCall {
         public static let failedCode = "dropped"
     }
 
+    /// #NEW-89: the phone's audio session around a call (iOS).
+    public enum AudioSessionRules {
+        /// An AVAudioSession interruption drops the call only when it BEGAN
+        /// now: a `.began` carrying `wasSuspended` reports the app's earlier
+        /// suspension (delivered late, on resume), not another call.
+        public static func interruptionDropsCall(began: Bool, wasSuspended: Bool) -> Bool {
+            began && !wasSuspended
+        }
+
+        /// What the capture chain (the tap and its resampler) does when the
+        /// engine's configuration changes (a route change: AirPods connect
+        /// or disconnect mid-call). A different input format rebuilds it; a
+        /// route without an input (rate or channels 0) drops the call.
+        public enum CaptureChange: Equatable, Sendable { case keep, rebuild, drop }
+
+        public struct InputFormat: Equatable, Sendable {
+            public let sampleRate: Double
+            public let channels: Int
+
+            public init(sampleRate: Double, channels: Int) {
+                self.sampleRate = sampleRate
+                self.channels = channels
+            }
+
+            public var usable: Bool { sampleRate > 0 && channels > 0 }
+        }
+
+        public static func captureChange(built: InputFormat?, route: InputFormat) -> CaptureChange {
+            guard route.usable else { return .drop }
+            return built == route ? .keep : .rebuild
+        }
+
+        /// The tap's buffer size: one `frameMs` frame at the input's rate.
+        public static func tapFrames(sampleRate: Double) -> Int {
+            Int(sampleRate * Double(Constants.frameMs) / 1000)
+        }
+    }
+
     /// Cuts the captured `upRate` samples into `frameMs` frames for the
     /// encoder. While muted every frame is SILENCE, never nothing: the relay
     /// ends a call after `idleTimeoutMs` without a frame and the host only
