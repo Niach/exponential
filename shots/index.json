@@ -3288,8 +3288,8 @@
         "file": "shots/feedback-states/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 34636,
-        "sha256": "12a4870317a97671251b412618021a271f8f8d64c17ba1fb5d2b5a5eac937c5f"
+        "bytes": 34058,
+        "sha256": "300d833eef204f73a6ad9100f976ced024d4382ed41f12c70a7809c923c56613"
       },
       "desktop": {
         "file": "shots/feedback-states/desktop.webp",
@@ -3302,8 +3302,8 @@
         "file": "shots/feedback-states/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 24152,
-        "sha256": "ee277fcc4c10d10b7ea80237ebf1d40470aa3f200a8813eaac10136ff4929f06"
+        "bytes": 28314,
+        "sha256": "52add02001f818b09d6c75badb62ca29091f733716ba26d03cd4b96ec9d4e99e"
       },
       "web": {
         "file": "shots/feedback-states/web.webp",
