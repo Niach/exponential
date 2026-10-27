@@ -209,6 +209,23 @@ describe(`the web caller's wire`, () => {
     }
   })
 
+  it(`a browser without WebCodecs Opus toasts unsupported and never dials`, async () => {
+    const { call, toasts, startCall } = await dialed({
+      openAudio: async () => {
+        throw new CallAudioError(`unsupported`)
+      },
+    })
+    expect(call.active).toBe(false)
+    expect(startCall).not.toHaveBeenCalled()
+    expect(toasts).toEqual([fixture.copy.failed.unsupported])
+  })
+
+  it(`the relay's busy refusal toasts the device's other call`, async () => {
+    const { socket, toasts } = await dialed()
+    socket.text({ t: `error`, code: `busy` })
+    expect(toasts).toEqual([fixture.copy.failed.busy.replace(`{device}`, `mint`)])
+  })
+
   it(`voice.startCall refusing toasts its reason and frees the microphone`, async () => {
     const reason = fixture.copy.reasons.offline.replace(`{device}`, `mint`)
     const { call, audio, toasts } = await dialed({

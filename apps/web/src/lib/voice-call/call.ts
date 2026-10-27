@@ -5,7 +5,9 @@
 // `up` frames and the reply comes down as `down` frames, while the host's
 // `call_event`s drive the SAME `callStep` machine the voice device runs.
 // Mute = `call_mute`, End call = `call_end`; a refusal, an `error` code or a
-// socket that simply went away ends the call with the fixture's toast.
+// socket that simply went away ends the call with the fixture's toast. A
+// browser without WebCodecs Opus toasts `unsupported` before the microphone
+// opens and never dials (Opus only: the host decodes nothing else).
 
 import { CALL_IDLE, callStep, type CallEvent, type CallState } from "@exp/domain-contract/voice-call"
 
