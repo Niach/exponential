@@ -5947,7 +5947,7 @@
       "group": "coding",
       "title": "Voice call",
       "blurb": "THE in-call view (NEW-69, voice-call.json): full screen on the phones, a glass card holding VoiceWave (xl) with the brand mark, the state, the line, End call primary + Mute. Opens from the telephone in the agent chat's header; the call streams to the member's voice device.",
-      "order": 43,
+      "order": 44,
       "ios": {
         "shot": "sg_voice-call",
         "lane": "styleguide"
