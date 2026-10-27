@@ -1,6 +1,7 @@
 //! NEW-55: the call's latency budget, measured on this machine.
 //!
 //!   cargo run --release -p voice --example call_latency -- <data-dir> [runs]
+//!   cargo run --release -p voice --example call_latency -- <data-dir> [runs] --first-audio [q8_0.gguf]
 //!
 //! The data dir must already hold the runtime and the four models
 //! (`talk/crispasr-*`, `talk/models`): nothing is downloaded here. Loads the
@@ -14,6 +15,11 @@
 //!    real-time pace;
 //! 3. speech start → first `Partial`;
 //! 4. Opus encode + decode per 20 ms frame (16 kHz up, 24 kHz down).
+//!
+//! NEW-91: `--first-audio` measures only the options for the first audio
+//! (shorter first chunk, the session's sentence streaming, the voice
+//! prefill's share, Q8_0 for the first chunk given its GGUF, Qwen3-TTS's own
+//! streaming) and skips the transcriber.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -69,6 +75,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let data_dir = PathBuf::from(args.first().expect("usage: call_latency <data-dir> [runs]"));
     let runs: usize = args.get(1).and_then(|runs| runs.parse().ok()).unwrap_or(20);
+    let first_audio = args.iter().position(|arg| arg == "--first-audio");
 
     // ---- load both engines, like a call on the voice device ----
     let started = Instant::now();
@@ -86,6 +93,11 @@ fn main() {
         )
         .expect("open tts");
     let tts_rate = tts.sample_rate();
+    if let Some(at) = first_audio {
+        let q8 = args.get(at + 1).map(PathBuf::from);
+        first_audio_options(runtime, &data_dir, &models_dir, tts, runs, q8.as_deref());
+        return;
+    }
     let mut engines = Engines::load(&data_dir, false).expect("load the transcriber");
     eprintln!("loaded tts ({tts_rate} Hz) + asr ({:?}) in {} ms", engines.device(), started.elapsed().as_millis());
     assert_eq!(engines.device(), Device::Gpu, "the transcriber must be on the GPU");
@@ -128,7 +140,7 @@ fn main() {
                     times.push(at.elapsed().as_secs_f64() * 1000.0);
                     audio_ms.push(pcm.len() as f64 * 1000.0 / f64::from(tts_rate));
                 }
-                let worker = if clause.is_none() || kind == "clause" { " (= worker's first call)" } else { "" };
+                let worker = if clause.is_none() || kind == "clause" { " (= the Windows worker's first call)" } else { "" };
                 println!(
                     "| {language} | {kind}{worker}: \"{text}\" | {} | {:.0} | {:.0} | {:.0} | {:.0} |",
                     text.split_whitespace().count(),
@@ -217,6 +229,205 @@ fn main() {
     let up: Vec<f32> = clips.iter().flat_map(|(_, _, clip)| clip.iter().copied()).collect();
     opus_leg("up 16 kHz 24 kbps FEC", &up, 16_000, 24_000, true);
     opus_leg("down 24 kHz 32 kbps", &downlink_pcm, 24_000, 32_000, false);
+}
+
+/// NEW-91: the options for a faster first audio, each timed `runs` times
+/// per reply (first sentence), resident and warm.
+fn first_audio_options(
+    runtime: &crispasr::Runtime,
+    data_dir: &std::path::Path,
+    models_dir: &std::path::Path,
+    mut tts: crispasr::TtsSession<'_>,
+    runs: usize,
+    q8: Option<&std::path::Path>,
+) {
+    let voices = data_dir.join("talk").join("voices");
+    let model = models_dir.join(models::QWEN3_TTS_0_6B_BASE.keep[0].1);
+    let codec = models_dir.join(models::QWEN3_TTS_CODEC.keep[0].1);
+    let voice_of = |language: &str| {
+        let builtin = voice::builtin::for_language(language);
+        (voice::builtin::materialize(&voices, builtin).expect("materialize"), builtin)
+    };
+    let mut stream = runtime.open_streaming_tts(&model, &codec, Device::Gpu).expect("open the streaming tts");
+    let mut quantized = q8.map(|path| runtime.open_tts("qwen3-tts", path, &codec, Device::Gpu).expect("open q8_0"));
+    let ms = |at: Instant| at.elapsed().as_secs_f64() * 1000.0;
+    let row = |language: &str, option: &str, text: &str, times: &[f64], extra: String| {
+        println!(
+            "| {language} | {option} | \"{text}\" | {:.0} | {:.0} | {:.0} | {extra} |",
+            percentile(times, 50.0),
+            percentile(times, 95.0),
+            percentile(times, 100.0)
+        );
+    };
+    let mut summary: Vec<(String, String, Vec<f64>)> = Vec::new();
+    let mut keep = |language: &str, option: &str, times: &[f64]| {
+        match summary.iter_mut().find(|(l, o, _)| l == language && o == option) {
+            Some((_, _, all)) => all.extend_from_slice(times),
+            None => summary.push((language.into(), option.into(), times.to_vec())),
+        }
+    };
+    println!("\n## NEW-91: time to first audio per option ({runs} runs per row, resident, warm)");
+    println!("| lang | option | first synthesis | p50 ms | p95 ms | max ms | notes |");
+    println!("|---|---|---|---|---|---|---|");
+    for (language, replies) in REPLIES {
+        let (wav, builtin) = voice_of(language);
+        let at = Instant::now();
+        tts.set_voice(&wav, builtin.transcript, builtin.language).expect("set voice");
+        let set_voice_ms = ms(at);
+        stream.set_voice(&wav, builtin.transcript, builtin.language).expect("set voice");
+        if let Some(quantized) = quantized.as_mut() {
+            quantized.set_voice(&wav, builtin.transcript, builtin.language).expect("set voice");
+        }
+        for _ in 0..3 {
+            tts.synthesize("Hello, this is a quick voice check.").expect("warm-up");
+            stream.synthesize("Hello, this is a quick voice check.", 8, &mut |_| {}).expect("warm-up");
+            if let Some(quantized) = quantized.as_mut() {
+                quantized.synthesize("Hello, this is a quick voice check.").expect("warm-up");
+            }
+        }
+        // C: what a reused prefill could save at most = the fixed cost of a
+        // call (a one-word reply) and re-installing the voice.
+        let word = if *language == "de" { "Ja." } else { "Yes." };
+        let fixed: Vec<f64> = (0..runs)
+            .map(|_| {
+                let at = Instant::now();
+                tts.synthesize(word).expect("synthesize");
+                ms(at)
+            })
+            .collect();
+        row(language, "C fixed cost per call (bound on prefill reuse)", word, &fixed, format!("set_voice {set_voice_ms:.0} ms"));
+        for reply in *replies {
+            let sentence = first_sentence(reply);
+            let today = voice::first_clause(sentence).map_or(sentence, |(front, _)| front);
+            let time = |tts: &mut crispasr::TtsSession<'_>, text: &str| -> (Vec<f64>, f64) {
+                let mut audio = 0.0;
+                let times = (0..runs)
+                    .map(|_| {
+                        let at = Instant::now();
+                        let pcm = tts.synthesize(text).expect("synthesize");
+                        audio = pcm.len() as f64 * 1000.0 / f64::from(tts.sample_rate());
+                        ms(at)
+                    })
+                    .collect();
+                (times, audio)
+            };
+            let (times, audio) = time(&mut tts, today);
+            row(language, "today (first clause, else sentence)", today, &times, format!("audio {audio:.0} ms"));
+            keep(language, "today", &times);
+            // B: crispasr_session_synthesize_streaming splits at . ! ? only and
+            // calls crispasr_session_synthesize per sentence (0.8.45
+            // crispasr_c_api.cpp): its first callback = the whole sentence.
+            let (times, audio) = time(&mut tts, sentence);
+            row(language, "B session synthesize_streaming (= whole sentence)", sentence, &times, format!("audio {audio:.0} ms"));
+            keep(language, "B session streaming", &times);
+            // A: a shorter first chunk, the first N words.
+            let words: Vec<&str> = sentence.split_whitespace().collect();
+            for n in [3usize, 4, 5] {
+                if words.len() <= n {
+                    continue;
+                }
+                let front = {
+                    let end = sentence.match_indices(' ').nth(n - 1).map_or(sentence.len(), |(index, _)| index);
+                    &sentence[..end]
+                };
+                let (times, audio) = time(&mut tts, front);
+                row(language, &format!("A first {n} words"), front, &times, format!("audio {audio:.0} ms"));
+                keep(language, &format!("A first {n} words"), &times);
+            }
+            // D: Q8_0 for the first chunk.
+            if let Some(quantized) = quantized.as_mut() {
+                let (times, audio) = time(quantized, today);
+                row(language, "D Q8_0 first chunk", today, &times, format!("audio {audio:.0} ms"));
+                keep(language, "D Q8_0", &times);
+            }
+            // E: Qwen3-TTS's own streaming on the whole first sentence.
+            for frames in [4u32, 8] {
+                let mut first = Vec::new();
+                let mut totals = Vec::new();
+                let mut underruns = 0;
+                let mut worst_gap: f64 = 0.0;
+                for _ in 0..runs {
+                    let at = Instant::now();
+                    let mut first_at: Option<f64> = None;
+                    let mut queued = 0.0;
+                    let mut starved = false;
+                    stream
+                        .synthesize(sentence, frames, &mut |pcm| {
+                            let now = ms(at);
+                            let start = *first_at.get_or_insert(now);
+                            // Playback started at `start`; this chunk is late
+                            // if the audio before it has already run out.
+                            let gap = now - (start + queued);
+                            if gap > 0.0 {
+                                starved = true;
+                                worst_gap = worst_gap.max(gap);
+                            }
+                            queued += pcm.len() as f64 * 1000.0 / f64::from(crispasr::QWEN3_TTS_RATE);
+                        })
+                        .expect("stream");
+                    first.push(first_at.unwrap_or(f64::NAN));
+                    totals.push(ms(at));
+                    underruns += usize::from(starved);
+                }
+                row(
+                    language,
+                    &format!("E qwen3_tts_synthesize_streaming, {frames} frames"),
+                    sentence,
+                    &first,
+                    format!("whole sentence p50 {:.0} ms; underruns {underruns}/{runs} (worst {worst_gap:.0} ms)", percentile(&totals, 50.0)),
+                );
+                keep(language, &format!("E stream {frames} frames"), &first);
+            }
+        }
+    }
+    println!("\n### per language and option, all replies pooled");
+    println!("| lang | option | n | p50 ms | p95 ms | max ms |");
+    println!("|---|---|---|---|---|---|");
+    for (language, option, times) in &summary {
+        println!(
+            "| {language} | {option} | {} | {:.0} | {:.0} | {:.0} |",
+            times.len(),
+            percentile(times, 50.0),
+            percentile(times, 95.0),
+            percentile(times, 100.0)
+        );
+    }
+
+    // The voice: the stream joins into the whole-clip synthesis (same seed),
+    // and the watermark is found in both.
+    println!("\n### same voice, same mark (seed 42, first sentences)");
+    println!("| lang | sentence | samples stream / whole | max abs diff | SNR dB | mark: session / stream / unmarked |");
+    println!("|---|---|---|---|---|---|");
+    for (language, replies) in REPLIES {
+        let (wav, builtin) = voice_of(language);
+        stream.set_voice(&wav, builtin.transcript, builtin.language).expect("set voice");
+        tts.set_voice(&wav, builtin.transcript, builtin.language).expect("set voice");
+        for reply in *replies {
+            let sentence = first_sentence(reply);
+            stream.set_seed(42);
+            let whole = stream.synthesize_unmarked(sentence).expect("whole");
+            stream.set_seed(42);
+            let mut streamed = Vec::new();
+            stream.synthesize(sentence, 8, &mut |pcm| streamed.extend_from_slice(pcm)).expect("stream");
+            let session = tts.synthesize(sentence).expect("session");
+            let n = whole.len().min(streamed.len());
+            let diff = (0..n).map(|i| (whole[i] - streamed[i]).abs()).fold(0.0f32, f32::max);
+            let signal: f64 = whole[..n].iter().map(|v| f64::from(*v).powi(2)).sum();
+            let noise: f64 = (0..n).map(|i| f64::from(whole[i] - streamed[i]).powi(2)).sum();
+            let score = |pcm: &[f32]| runtime.watermark_score(pcm).map_or("-".to_string(), |v| format!("{v:.2}"));
+            println!(
+                "| {language} | \"{sentence}\" | {} / {} | {diff:.4} | {:.1} | {} / {} / {} |",
+                streamed.len(),
+                whole.len(),
+                10.0 * (signal / noise.max(1e-20)).log10(),
+                score(&session),
+                score(&streamed),
+                score(&whole)
+            );
+        }
+    }
+    println!("\n## GPU memory (session F16 + stream F16{})", if q8.is_some() { " + Q8_0" } else { "" });
+    print_gpu_memory();
 }
 
 /// The worker's sentence split (`.`/`!`/`?` + space), first sentence only.

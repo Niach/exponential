@@ -16,6 +16,7 @@ import {
   shortcutReason,
   shortcutSupport,
   shouldSpeak,
+  speechChunks,
   spokenText,
   trayHeader,
   trayIcon,
@@ -108,6 +109,9 @@ describe(`voice.json`, () => {
   for (const c of fixture.utteranceCases) {
     it(`utteranceInput: ${c.name}`, () =>
       expect(utteranceInput(c.heard, { teamId: c.teamId, agentId: c.agentId, conversationId: c.conversationId })).toEqual(c.input))
+  }
+  for (const c of fixture.speechChunkCases) {
+    it(`speechChunks: ${c.name}`, () => expect(speechChunks(c.text, c.streaming)).toEqual(c.chunks))
   }
   it(`the overlay specimens read the overlay copy`, () => {
     const ptt = fixture.pttCopy

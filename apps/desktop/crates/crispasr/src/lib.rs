@@ -12,6 +12,9 @@
 //!   12 Hz codec; NEW-78: Parakeet TDT 0.6B v3 and Silero VAD).
 //! - NEW-78: [`AsrSession`] (speech to text) and [`VadStream`] (speech
 //!   probability per 32 ms frame, streaming) for the transcriber.
+//! - NEW-91: [`StreamingTts`], Qwen3-TTS on its own streaming entry point
+//!   (audio every few codec frames, watermarked here), where the build
+//!   exports it ([`Runtime::streams_tts`]).
 
 pub mod artifact;
 pub mod models;
@@ -146,6 +149,45 @@ struct Fns {
     vad_n_probs: unsafe extern "C" fn(VadPtr) -> c_int,
     vad_probs: unsafe extern "C" fn(VadPtr) -> *mut f32,
     vad_free: unsafe extern "C" fn(VadPtr),
+    // NEW-91: Qwen3-TTS's own entry points (`src/qwen3_tts.h` of v0.8.45),
+    // exported by the Linux and macOS builds; the Windows DLL exports only
+    // the session ABI, so they are optional.
+    qwen3: Option<Qwen3Fns>,
+}
+
+type Qwen3Ptr = *mut c_void;
+
+/// `qwen3_tts_context_params` (qwen3_tts.h, v0.8.45).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Qwen3Params {
+    n_threads: c_int,
+    verbosity: c_int,
+    use_gpu: bool,
+    temperature: f32,
+    seed: u64,
+    max_codec_steps: c_int,
+    flash_attn: bool,
+}
+
+type Qwen3PcmCallback = unsafe extern "C" fn(*const f32, c_int, c_int, *mut c_void);
+
+struct Qwen3Fns {
+    default_params: unsafe extern "C" fn() -> Qwen3Params,
+    init: unsafe extern "C" fn(*const c_char, Qwen3Params) -> Qwen3Ptr,
+    free: unsafe extern "C" fn(Qwen3Ptr),
+    set_codec_path: unsafe extern "C" fn(Qwen3Ptr, *const c_char) -> c_int,
+    set_voice: unsafe extern "C" fn(Qwen3Ptr, *const c_char, *const c_char) -> c_int,
+    set_language: unsafe extern "C" fn(Qwen3Ptr, *const c_char) -> c_int,
+    set_seed: unsafe extern "C" fn(Qwen3Ptr, u64),
+    synthesize: unsafe extern "C" fn(Qwen3Ptr, *const c_char, *mut c_int) -> *mut f32,
+    synthesize_streaming:
+        unsafe extern "C" fn(Qwen3Ptr, *const c_char, c_int, c_int, Option<Qwen3PcmCallback>, *mut c_void, *mut c_int) -> *mut f32,
+    pcm_free: unsafe extern "C" fn(*mut f32),
+    /// `crispasr_watermark_embed`: the mark `crispasr_session_synthesize`
+    /// puts on every clip (alpha < 0 = its default strength).
+    watermark_embed: unsafe extern "C" fn(*mut f32, c_int, f32),
+    watermark_detect: unsafe extern "C" fn(*const f32, c_int) -> f32,
 }
 
 /// The loaded CrispASR library. Every session borrows it.
@@ -244,6 +286,7 @@ impl Runtime {
             vad_n_probs: symbol!(library, "whisper_vad_n_probs"),
             vad_probs: symbol!(library, "whisper_vad_probs"),
             vad_free: symbol!(library, "whisper_vad_free"),
+            qwen3: qwen3_fns(&library),
         };
         // NEW-78: CrispASR logs every VAD call and every decode at INFO; the
         // worker's stderr is the IDE's log, so only warnings and errors pass.
@@ -255,6 +298,56 @@ impl Runtime {
             }
         }
         Ok(Runtime { fns, build, open_lock: Mutex::new(()), _ggml: ggml, _library: library })
+    }
+
+    /// NEW-91: whether this build exports Qwen3-TTS's streaming entry point
+    /// ([`Runtime::open_streaming_tts`]).
+    pub fn streams_tts(&self) -> bool {
+        self.fns.qwen3.is_some()
+    }
+
+    /// NEW-91: CrispASR's watermark detector on `pcm` (its score; the same
+    /// detector for session and streamed output).
+    pub fn watermark_score(&self, pcm: &[f32]) -> Option<f32> {
+        let qwen3 = self.fns.qwen3.as_ref()?;
+        // SAFETY: a valid slice, read only.
+        Some(unsafe { (qwen3.watermark_detect)(pcm.as_ptr(), pcm.len() as c_int) })
+    }
+
+    /// NEW-91: open Qwen3-TTS (`model` + its `codec`) on its own streaming
+    /// entry point, opened like a `qwen3-tts` session (same threads, GPU
+    /// preference and flash attention). Err where the build lacks it.
+    pub fn open_streaming_tts(&self, model: &Path, codec: &Path, device: Device) -> Result<StreamingTts<'_>, String> {
+        let qwen3 = self.fns.qwen3.as_ref().ok_or("this CrispASR build has no qwen3-tts streaming")?;
+        let backend_name = CString::new(match device {
+            Device::Gpu => platform::GPU_BACKEND,
+            Device::Cpu => "cpu",
+        })
+        .expect("static");
+        let model_path = path_c(model)?;
+        let codec_path = path_c(codec)?;
+        let ctx = {
+            let _open = self.open_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            // SAFETY: a by-value struct, valid C strings; the pointer is checked.
+            unsafe {
+                (self.fns.set_gpu_backend)(backend_name.as_ptr());
+                let mut params = (qwen3.default_params)();
+                params.n_threads = default_threads();
+                params.verbosity = 0;
+                params.use_gpu = device == Device::Gpu;
+                params.flash_attn = true;
+                (qwen3.init)(model_path.as_ptr(), params)
+            }
+        };
+        if ctx.is_null() {
+            return Err(format!("qwen3-tts failed to open {}", model.display()));
+        }
+        let tts = StreamingTts { qwen3, ctx };
+        // SAFETY: a live context and a valid C string.
+        if unsafe { (qwen3.set_codec_path)(ctx, codec_path.as_ptr()) } != 0 {
+            return Err(format!("qwen3-tts failed to load the codec {}", codec.display()));
+        }
+        Ok(tts)
     }
 
     /// NEW-78: the build this runtime was loaded from.
@@ -350,6 +443,30 @@ impl Runtime {
         }
         Ok(session)
     }
+}
+
+fn qwen3_fns(library: &libloading::Library) -> Option<Qwen3Fns> {
+    macro_rules! optional {
+        ($name:literal) => {
+            // SAFETY: the signature matches CrispASR v0.8.45's qwen3_tts.h /
+            // crispasr.h.
+            *unsafe { library.get(concat!($name, "\0").as_bytes()) }.ok()?
+        };
+    }
+    Some(Qwen3Fns {
+        default_params: optional!("qwen3_tts_context_default_params"),
+        init: optional!("qwen3_tts_init_from_file"),
+        free: optional!("qwen3_tts_free"),
+        set_codec_path: optional!("qwen3_tts_set_codec_path"),
+        set_voice: optional!("qwen3_tts_set_voice_prompt_with_text"),
+        set_language: optional!("qwen3_tts_set_language_by_name"),
+        set_seed: optional!("qwen3_tts_set_seed"),
+        synthesize: optional!("qwen3_tts_synthesize"),
+        synthesize_streaming: optional!("qwen3_tts_synthesize_streaming"),
+        pcm_free: optional!("qwen3_tts_pcm_free"),
+        watermark_embed: optional!("crispasr_watermark_embed"),
+        watermark_detect: optional!("crispasr_watermark_detect"),
+    })
 }
 
 type LogSet = unsafe extern "C" fn(Option<LogCallback>, *mut c_void);
@@ -449,6 +566,130 @@ impl Drop for TtsSession<'_> {
     }
 }
 
+/// NEW-91: Qwen3-TTS on its own streaming entry point: the same model,
+/// voice prompt and sampling as a `qwen3-tts` [`TtsSession`], but the audio
+/// arrives every `chunk_frames` codec frames (12.5 per second) while the
+/// talker still generates. The codec decodes each window with 96 frames of
+/// left context, so the chunks join into the whole-clip decode. Every chunk
+/// is watermarked here (`crispasr_watermark_embed`, the mark the session
+/// puts on its clips). Output at 24 kHz. Not shared between threads.
+pub struct StreamingTts<'a> {
+    qwen3: &'a Qwen3Fns,
+    ctx: Qwen3Ptr,
+}
+
+/// The codec's output rate.
+pub const QWEN3_TTS_RATE: u32 = 24_000;
+
+impl StreamingTts<'_> {
+    /// Clone the voice of `wav` (its transcript `ref_text`), spoken in
+    /// `language` (ISO 639-1, as a session's target language).
+    pub fn set_voice(&mut self, wav: &Path, ref_text: &str, language: &str) -> Result<(), String> {
+        let wav_c = path_c(wav)?;
+        let text_c = CString::new(ref_text).map_err(|_| "the transcript has a NUL byte".to_string())?;
+        let name = CString::new(qwen3_language(language)).map_err(|err| err.to_string())?;
+        // SAFETY: a live context and valid C strings.
+        unsafe {
+            if (self.qwen3.set_voice)(self.ctx, wav_c.as_ptr(), text_c.as_ptr()) != 0 {
+                return Err(format!("the voice {} failed to load", wav.display()));
+            }
+            (self.qwen3.set_language)(self.ctx, name.as_ptr());
+        }
+        Ok(())
+    }
+
+    /// Synthesize `text`, handing each watermarked chunk to `on_chunk` as it
+    /// is decoded (the first after `chunk_frames` frames).
+    pub fn synthesize(&mut self, text: &str, chunk_frames: u32, on_chunk: &mut dyn FnMut(&[f32])) -> Result<(), String> {
+        struct Hook<'h> {
+            embed: unsafe extern "C" fn(*mut f32, c_int, f32),
+            on_chunk: &'h mut dyn FnMut(&[f32]),
+            panicked: bool,
+        }
+        unsafe extern "C" fn trampoline(pcm: *const f32, samples: c_int, _final: c_int, user: *mut c_void) {
+            // SAFETY: `user` is the `Hook` below, alive for the call.
+            let hook = unsafe { &mut *(user as *mut Hook<'_>) };
+            if pcm.is_null() || samples <= 0 || hook.panicked {
+                return;
+            }
+            // SAFETY: CrispASR's chunk, valid for the callback.
+            let mut chunk = unsafe { std::slice::from_raw_parts(pcm, samples as usize) }.to_vec();
+            // SAFETY: our own buffer.
+            unsafe { (hook.embed)(chunk.as_mut_ptr(), chunk.len() as c_int, -1.0) };
+            let on_chunk = &mut hook.on_chunk;
+            // Never unwind into C.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| on_chunk(&chunk))).is_err() {
+                hook.panicked = true;
+            }
+        }
+        let text_c = CString::new(text).map_err(|_| "the text has a NUL byte".to_string())?;
+        let mut hook = Hook { embed: self.qwen3.watermark_embed, on_chunk, panicked: false };
+        let mut samples: c_int = 0;
+        // SAFETY: a live context; `hook` outlives the call; the returned
+        // buffer (the whole clip) is freed at once.
+        let pcm = unsafe {
+            (self.qwen3.synthesize_streaming)(
+                self.ctx,
+                text_c.as_ptr(),
+                chunk_frames.max(1) as c_int,
+                -1,
+                Some(trampoline),
+                &mut hook as *mut Hook<'_> as *mut c_void,
+                &mut samples,
+            )
+        };
+        if pcm.is_null() {
+            return Err("synthesis failed".into());
+        }
+        // SAFETY: the clip CrispASR returned, freed exactly once.
+        unsafe { (self.qwen3.pcm_free)(pcm) };
+        if hook.panicked {
+            return Err("the audio sink panicked".into());
+        }
+        Ok(())
+    }
+
+    /// The whole clip at once (unmarked; for comparing with the stream).
+    pub fn synthesize_unmarked(&mut self, text: &str) -> Result<Vec<f32>, String> {
+        let text_c = CString::new(text).map_err(|_| "the text has a NUL byte".to_string())?;
+        let mut samples: c_int = 0;
+        // SAFETY: a live context; the buffer is copied and freed once.
+        unsafe {
+            let pcm = (self.qwen3.synthesize)(self.ctx, text_c.as_ptr(), &mut samples);
+            if pcm.is_null() {
+                return Err("synthesis failed".into());
+            }
+            let out = std::slice::from_raw_parts(pcm, samples.max(0) as usize).to_vec();
+            (self.qwen3.pcm_free)(pcm);
+            Ok(out)
+        }
+    }
+
+    /// The sampler's seed (the next synthesis starts from it).
+    pub fn set_seed(&mut self, seed: u64) {
+        // SAFETY: a live context.
+        unsafe { (self.qwen3.set_seed)(self.ctx, seed) };
+    }
+}
+
+impl Drop for StreamingTts<'_> {
+    fn drop(&mut self) {
+        // SAFETY: freed exactly once.
+        unsafe { (self.qwen3.free)(self.ctx) };
+    }
+}
+
+/// qwen3-tts names its languages in English (`German`), as the session's
+/// `ca_iso_to_english_lang` maps a target language (the engine speaks
+/// `en` and `de`).
+fn qwen3_language(language: &str) -> &str {
+    match language {
+        "en" => "English",
+        "de" => "German",
+        other => other,
+    }
+}
+
 /// NEW-78: one open speech-to-text session (a resident model). Not shared
 /// between threads.
 pub struct AsrSession<'a> {
@@ -535,5 +776,21 @@ impl Drop for VadStream<'_> {
     fn drop(&mut self) {
         // SAFETY: freed exactly once.
         unsafe { (self.runtime.fns.vad_free)(self.vad) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn qwen3_params_match_the_c_layout() {
+        // qwen3_tts_context_params (v0.8.45): int, int, bool, float, uint64_t, int, bool.
+        assert_eq!(std::mem::size_of::<super::Qwen3Params>(), 32);
+        assert_eq!(std::mem::align_of::<super::Qwen3Params>(), 8);
+    }
+
+    #[test]
+    fn qwen3_names_languages_in_english() {
+        assert_eq!(super::qwen3_language("de"), "German");
+        assert_eq!(super::qwen3_language("en"), "English");
     }
 }
