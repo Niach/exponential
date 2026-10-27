@@ -206,8 +206,8 @@ fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatS
 )
 
 /** THE Chats list in selection mode: the Archived entry first, listCases[0]
- *  with two rows selected (the selection glyphs + the issue card's selected
- *  paint), THE BAR (the bare count) in the tab bar's
+ *  with two rows selected (nothing shifts: the full-width tint + the select
+ *  badge on the stronger disc), THE BAR (the bare count) in the tab bar's
  *  slot (shot `sg_chat-selection`). */
 @Composable
 fun ChatSelectionSpecimenScreen() {

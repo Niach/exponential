@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -48,7 +49,6 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
 
 // Thread 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
 // phone shell (the header is the shared [PageHeader]) — the agent bubbles,
@@ -72,10 +72,13 @@ fun ChatLeadDisc(
     agent: String?,
     modifier: Modifier = Modifier,
     size: Dp = Chats.Shell.LEAD_DISC.dp,
+    selected: Boolean = false,
 ) {
     val glyph = size * 0.5f
     Box(
-        modifier = modifier.size(size).clip(CircleShape).background(DiscFill, CircleShape),
+        modifier = modifier.size(size).clip(CircleShape).background(DiscFill, CircleShape)
+            // #EXP-1388: a selected row's disc steps one grey notch up.
+            .then(if (selected) Modifier.background(GlassTokens.RowFillActive, CircleShape) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         when (lead) {
@@ -116,10 +119,10 @@ fun ChatLeadDisc(
  * The hairline runs under the text column only. A tap opens the chat; a
  * long-press enters the selection ([onLongClick], null = none; #EXP-1388;
  * the caller fires the haptic when it ENTERS, like the issue list).
- * While selecting ([selected] non-null) the row leads with THE selection
- * glyph cell at the issue card's x, and a selected row wears the issue
- * card's selected paint (its glass card + [selectedRowHighlight]) in the
- * same gutter and radius.
+ * While selecting ([selected] non-null) NOTHING shifts (touch, WhatsApp's
+ * selection): an unselected row looks as it does outside the selection; a
+ * selected row = the full-width flat `fillActive` tint + [ChatSelectBadge]
+ * on its (one notch stronger) lead disc.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -139,29 +142,24 @@ fun ChatRow(
         unread -> MaterialTheme.colorScheme.onSurface
         else -> muted
     }
-    // The row sits in the issue list's gutter so a selected one is the issue
-    // card; the text keeps its 20dp edges (20 = gutter + [ChatRowInner]).
     val isSelected = selected == true
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // Half the issue list's 3dp row gap each side, so two selected
-            // neighbours read as two cards.
-            .padding(horizontal = SelectionRowGutter, vertical = 1.5.dp)
-            .clip(RoundedCornerShape(GlassTokens.RowRadius))
-            .then(if (isSelected) Modifier.glassRow() else Modifier)
-            .selectedRowHighlight(isSelected)
+            // Edge to edge, no radius, no hairline.
+            .then(if (isSelected) Modifier.background(GlassTokens.RowFillActive) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .testTag(Chats.TestIds.CHAT_ROW)
-            // Selecting: the glyph cell starts where the issue card's does.
-            .padding(start = if (selected != null) GlassTokens.RowPaddingH else ChatRowInner, end = 0.dp),
+            .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (selected != null) SelectionGlyph(selected)
-        ChatLeadDisc(row.lead, agent)
+        Box {
+            ChatLeadDisc(row.lead, agent, selected = isSelected)
+            if (isSelected) ChatSelectBadge(Modifier.align(Alignment.BottomEnd))
+        }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Column(modifier = Modifier.padding(end = ChatRowInner, top = 14.dp, bottom = 14.dp)) {
+            Column(modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         row.title,
@@ -195,10 +193,10 @@ fun ChatRow(
                 }
             }
             if (divider) {
-                // A selected card's border closes it; the hairline keeps its
+                // A selected row is one flat tint; the hairline keeps its
                 // height so selecting never reflows the list.
                 Box(
-                    Modifier.fillMaxWidth().padding(end = ChatRowInner).height(GlassTokens.Hairline)
+                    Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline)
                         .then(if (isSelected) Modifier else Modifier.background(GlassTokens.StrokeCard)),
                 )
             }
@@ -206,16 +204,46 @@ fun ChatRow(
     }
 }
 
-/** A chat row's inner edge inside the [SelectionRowGutter] (20dp from the
- *  screen edge in all). */
-private val ChatRowInner: Dp = 20.dp - SelectionRowGutter
+/** A chat row's text edge from the screen edge (both sides). */
+private val ChatRowEdge: Dp = 20.dp
+
+/** The selected row's ground: the screen under the `fillActive` tint. */
+private val SelectedRowGround: Color = GlassTokens.RowFillActive.compositeOver(DesignTokens.Palette.Background)
+
+/**
+ * #EXP-1388 THE SELECT BADGE (styleguide `chat-selection`): a
+ * `shell.selectBadge` filled primary circle holding ui-check
+ * (`shell.selectBadgeGlyph`, primary-foreground) inside a
+ * `shell.selectBadgeRing` ring in the selected row's ground, so it reads cut
+ * out of the disc. Its outer box sits flush with the disc's bottom-right.
+ */
+@Composable
+fun ChatSelectBadge(modifier: Modifier = Modifier) {
+    val ring = Chats.Shell.SELECT_BADGE_RING.dp
+    Box(
+        modifier = modifier
+            .size(Chats.Shell.SELECT_BADGE.dp + ring * 2)
+            .background(SelectedRowGround, CircleShape)
+            .padding(ring)
+            .background(MaterialTheme.colorScheme.primary, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            ExpIcons.uiCheck,
+            contentDescription = "Selected",
+            tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(Chats.Shell.SELECT_BADGE_GLYPH.dp),
+        )
+    }
+}
 
 /**
  * #EXP-1388 THE ARCHIVED ENTRY: the list's first row while chats are
- * archived (filter All) = a chat row with ui-archive in its lead disc, the
- * title `copy.archived.entry` and the count in the time slot (muted), no
- * preview line. A tap opens the Archived page ([onClick] null = inert, while
- * selecting).
+ * archived (filter All) = a chat row whose lead cell holds the PLAIN
+ * ui-archive glyph (`shell.archivedGlyph`, muted, no disc, centred in the
+ * `leadDisc` column), the title `copy.archived.entry` and the count in the
+ * time slot (muted), no preview line; as tall as its text line. A tap opens
+ * the Archived page ([onClick] null = inert, while selecting); it never moves.
  */
 @Composable
 fun ChatArchivedRow(
@@ -230,24 +258,21 @@ fun ChatArchivedRow(
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .testTag(Chats.TestIds.CHAT_ARCHIVED)
-            .padding(start = 20.dp, end = 0.dp),
+            .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp).clip(CircleShape).background(DiscFill, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
+        Box(modifier = Modifier.width(Chats.Shell.LEAD_DISC.dp), contentAlignment = Alignment.Center) {
             Icon(
                 ExpIcons.uiArchive,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp * 0.42f),
+                tint = muted,
+                modifier = Modifier.size(Chats.Shell.ARCHIVED_GLYPH.dp),
             )
         }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(
-                modifier = Modifier.padding(end = 20.dp, top = 14.dp, bottom = 14.dp).heightIn(min = 24.dp),
+                modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -269,7 +294,7 @@ fun ChatArchivedRow(
                 )
             }
             if (divider) {
-                Box(Modifier.fillMaxWidth().padding(end = 20.dp).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
+                Box(Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
             }
         }
     }

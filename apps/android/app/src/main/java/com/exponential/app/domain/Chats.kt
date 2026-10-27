@@ -218,6 +218,16 @@ object Chats {
 
         val BOARD_CHIPS: List<String> = listOf("all", "mine", "drafts")
         const val LEAD_DISC = 52
+
+        /** #EXP-1388 the touch SELECT BADGE on a selected row's lead disc:
+         *  the filled primary circle, its ring (the row's ground) and the
+         *  ui-check glyph inside (dp). */
+        const val SELECT_BADGE = 18
+        const val SELECT_BADGE_RING = 2
+        const val SELECT_BADGE_GLYPH = 12
+
+        /** The Archived entry's plain ui-archive glyph (dp). */
+        const val ARCHIVED_GLYPH = 24
         const val BUBBLE = 66
         const val BUBBLE_RING = 3
     }
