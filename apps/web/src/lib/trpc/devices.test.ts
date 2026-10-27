@@ -461,6 +461,18 @@ describe(`devices.remove`, () => {
     expect(result).toMatchObject({ ok: true })
     expect(h.state.deletes).toBe(1)
   })
+
+  it(`clears the voice settings that named it (#NEW-71: no FK)`, async () => {
+    h.state.updates = []
+    await caller.remove({ deviceId: `dev-1` })
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.state.updates[0]!.set).toMatchObject({
+      voiceDeviceId: null,
+      speakReplies: false,
+      pushToTalk: false,
+      wakeWord: false,
+    })
+  })
 })
 
 // EXP-432: sharing a server device with a team.

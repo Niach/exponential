@@ -43,6 +43,7 @@ pub mod microphone;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -157,8 +158,9 @@ pub enum Event {
     /// #NEW-56: the microphone is open for the wake word (`false`: off,
     /// muted, or it could not open; `reason` says why when it failed).
     WakeListening { listening: bool, reason: Option<ListenFailure> },
-    /// Host-side: the worker process ended (crash, kill, EOF). Never sent
-    /// by the worker itself.
+    /// Host-side: the worker process ended on its own (a crash, a failed
+    /// write). Never sent by the worker itself, nor (#NEW-66) after
+    /// [`SpeechClient::shutdown`].
     Exited,
 }
 
@@ -344,11 +346,99 @@ pub fn data_dir_arg() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// The worker's whole speech data under `data_dir` (#NEW-63): the CrispASR
+/// runtime, `models/`, `voices/`, `no-gpu.txt` and any partial download.
+pub fn voice_data_dir(data_dir: &std::path::Path) -> PathBuf {
+    data_dir.join("talk")
+}
+
+/// #NEW-63: this device stopped being the voice device of every account
+/// signed in here: free its speech data (GBs). Call only with no worker
+/// running ([`SpeechClient::remove_voice_data`] makes sure). `Ok(true)` = it
+/// was there and is gone.
+pub fn remove_voice_data(data_dir: &std::path::Path) -> std::io::Result<bool> {
+    let Some(aside) = set_voice_data_aside(data_dir)? else { return Ok(false) };
+    remove_set_aside(data_dir, &aside);
+    Ok(true)
+}
+
+/// The prefix of a speech data directory renamed aside for deletion.
+const ASIDE_PREFIX: &str = "talk.removing-";
+
+/// #1278 review: `{data_dir}/talk` renamed aside (one instant rename), so a
+/// worker started right after begins on a fresh `talk/` and never loads from
+/// or downloads into the tree being deleted. `None` = nothing there (a
+/// non-directory goes at once).
+fn set_voice_data_aside(data_dir: &std::path::Path) -> std::io::Result<Option<PathBuf>> {
+    let dir = voice_data_dir(data_dir);
+    // Never through a symlink: only our own directory goes.
+    match std::fs::symlink_metadata(&dir) {
+        Ok(meta) if meta.is_dir() => {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or_default();
+            let aside = data_dir.join(format!("{ASIDE_PREFIX}{}-{nanos}", std::process::id()));
+            std::fs::rename(&dir, &aside)?;
+            Ok(Some(aside))
+        }
+        Ok(_) => std::fs::remove_file(&dir).map(|()| None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Delete `aside` and any tree an earlier removal left aside (the app quit
+/// mid-delete).
+fn remove_set_aside(data_dir: &std::path::Path, aside: &std::path::Path) {
+    if let Err(err) = std::fs::remove_dir_all(aside) {
+        log::warn!("talk: removing the speech data failed: {err}");
+    }
+    let Ok(entries) = std::fs::read_dir(data_dir) else { return };
+    for entry in entries.flatten() {
+        let leftover = entry.file_name().to_string_lossy().starts_with(ASIDE_PREFIX)
+            && entry.file_type().is_ok_and(|kind| kind.is_dir());
+        if leftover {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// #NEW-63: the voice turned off here: drop what a killed download left
+/// (`*.part`, up to 1.8 GB, and `*.tmp`) anywhere under the speech data; the
+/// verified downloads stay. Call only with no worker running
+/// ([`SpeechClient::remove_partial_downloads`] makes sure). Answers how many
+/// files went.
+pub fn remove_partial_downloads(data_dir: &std::path::Path) -> usize {
+    fn sweep(dir: &std::path::Path, removed: &mut usize) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else { continue };
+            let path = entry.path();
+            if kind.is_dir() {
+                sweep(&path, removed);
+            } else if kind.is_file()
+                && path.extension().is_some_and(|extension| extension == "part" || extension == "tmp")
+                && std::fs::remove_file(&path).is_ok()
+            {
+                *removed += 1;
+            }
+        }
+    }
+    let mut removed = 0;
+    sweep(&voice_data_dir(data_dir), &mut removed);
+    removed
+}
+
 type Callback = Arc<dyn Fn(Event) + Send + Sync>;
 
 struct Worker {
     child: Child,
     stdin: ChildStdin,
+    /// #NEW-66: set by [`SpeechClient::shutdown`] before the kill: the
+    /// exit was asked for, so no `Exited` goes out (a quick off/on never
+    /// counts the old worker's end as a crash of the new setting).
+    ended: Arc<AtomicBool>,
 }
 
 /// The host's handle on the speech worker. Cheap to clone; every clone
@@ -459,10 +549,50 @@ impl SpeechClient {
     pub fn shutdown(&self) {
         if let Ok(mut guard) = self.worker.lock() {
             if let Some(mut worker) = guard.take() {
+                worker.ended.store(true, Ordering::SeqCst);
                 let _ = worker.child.kill();
                 let _ = worker.child.wait();
             }
         }
+    }
+
+    /// #NEW-63 / #1278 review: free the speech data, on the worker's own
+    /// lock, so no worker starts while it is set aside. `false` = skipped: a
+    /// worker runs (it may be downloading into it); ask again once it is
+    /// shut down. The tree is renamed aside at once and deleted on a thread
+    /// of its own.
+    pub fn remove_voice_data(&self) -> bool {
+        let Ok(guard) = self.worker.lock() else { return false };
+        if guard.is_some() {
+            return false;
+        }
+        match set_voice_data_aside(&self.data_dir) {
+            Ok(Some(aside)) => {
+                drop(guard);
+                let data_dir = self.data_dir.clone();
+                let _ = std::thread::Builder::new()
+                    .name("talk-cleanup".into())
+                    .spawn(move || remove_set_aside(&data_dir, &aside));
+                log::info!("talk: not the voice device of any account here; removed the speech data");
+                true
+            }
+            Ok(None) => true,
+            Err(err) => {
+                log::warn!("talk: setting the speech data aside failed: {err}");
+                false
+            }
+        }
+    }
+
+    /// #NEW-63 / #1278 review: [`remove_partial_downloads`] on the worker's
+    /// lock: skipped (0) while a worker runs, since its `.part` is a download
+    /// in progress; a worker starting meanwhile waits for the sweep.
+    pub fn remove_partial_downloads(&self) -> usize {
+        let Ok(guard) = self.worker.lock() else { return 0 };
+        if guard.is_some() {
+            return 0;
+        }
+        remove_partial_downloads(&self.data_dir)
     }
 
     fn send(&self, request: &Request) {
@@ -514,6 +644,8 @@ impl SpeechClient {
         let stdout = child.stdout.take().expect("piped");
         let stderr = child.stderr.take().expect("piped");
         let on_event = self.on_event.clone();
+        let ended = Arc::new(AtomicBool::new(false));
+        let asked = ended.clone();
         std::thread::Builder::new().name("talk-events".into()).spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
@@ -523,7 +655,9 @@ impl SpeechClient {
                     Err(err) => log::debug!("talk: unreadable worker line ({err}): {line}"),
                 }
             }
-            on_event(Event::Exited);
+            if !asked.load(Ordering::SeqCst) {
+                on_event(Event::Exited);
+            }
         })?;
         std::thread::Builder::new().name("talk-stderr".into()).spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
@@ -531,7 +665,7 @@ impl SpeechClient {
             }
         })?;
         log::info!("talk: speech worker started (pid {})", child.id());
-        Ok(Worker { child, stdin })
+        Ok(Worker { child, stdin, ended })
     }
 }
 
@@ -763,5 +897,110 @@ mod tests {
         client.hangup("c1");
         client.wake("", "en");
         client.shutdown();
+    }
+
+    #[test]
+    fn voice_data_goes_partials_first_then_all_of_it() {
+        let data = std::env::temp_dir().join(format!("talk-data-{}", std::process::id()));
+        let talk = voice_data_dir(&data);
+        std::fs::create_dir_all(talk.join("models")).unwrap();
+        std::fs::create_dir_all(talk.join("crispasr-0.8.45")).unwrap();
+        std::fs::write(talk.join("models").join("qwen3-tts.gguf"), "model").unwrap();
+        std::fs::write(talk.join("models").join("qwen3-tts.part"), "half").unwrap();
+        std::fs::write(talk.join("crispasr-0.8.45").join("lib.part"), "half").unwrap();
+        std::fs::write(talk.join("crispasr-0.8.45").join("x.tmp"), "half").unwrap();
+        std::fs::write(talk.join("no-gpu.txt"), "").unwrap();
+        // Outside the speech data: never touched.
+        std::fs::write(data.join("other.part"), "mine").unwrap();
+
+        assert_eq!(remove_partial_downloads(&data), 3);
+        assert!(talk.join("models").join("qwen3-tts.gguf").is_file(), "verified downloads stay");
+        assert!(talk.join("no-gpu.txt").is_file());
+        assert!(data.join("other.part").is_file());
+
+        assert!(remove_voice_data(&data).unwrap());
+        assert!(!talk.exists());
+        assert!(data.join("other.part").is_file());
+        assert!(!remove_voice_data(&data).unwrap(), "nothing left to remove");
+        assert_eq!(remove_partial_downloads(&data), 0);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_shutdown_is_no_crash_but_a_death_is() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("talk-exit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = |name: &str, body: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let exits = |exe: PathBuf| {
+            let seen = Arc::new(Mutex::new(0usize));
+            let counter = seen.clone();
+            let client = SpeechClient::new(exe, dir.clone(), move |event| {
+                if event == Event::Exited {
+                    *counter.lock().unwrap() += 1;
+                }
+            });
+            (client, seen)
+        };
+        let (client, seen) = exits(script("lives", "exec sleep 30"));
+        client.start();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        client.shutdown();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(*seen.lock().unwrap(), 0, "an asked-for exit sends no Exited");
+
+        let (client, seen) = exits(script("dies", "exit 1"));
+        client.start();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(*seen.lock().unwrap(), 1, "a worker that dies on its own is reported");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// #1278 review: the cleanup is ordered against the worker: nothing goes
+    /// while one runs (a download in progress), and a worker started right
+    /// after a removal never sees the tree being deleted.
+    #[cfg(unix)]
+    #[test]
+    fn the_cleanup_waits_for_the_worker_and_a_new_one_starts_fresh() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = std::env::temp_dir().join(format!("talk-order-{}", std::process::id()));
+        let talk = voice_data_dir(&data);
+        std::fs::create_dir_all(talk.join("models")).unwrap();
+        std::fs::write(talk.join("models").join("qwen3-tts.gguf"), "model").unwrap();
+        std::fs::write(talk.join("models").join("qwen3-tts.part"), "downloading").unwrap();
+        let exe = data.join("worker");
+        std::fs::write(&exe, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let client = SpeechClient::new(exe, data.clone(), |_| {});
+
+        client.start();
+        assert_eq!(client.remove_partial_downloads(), 0, "a running worker's .part is a download in progress");
+        assert!(!client.remove_voice_data(), "skipped while a worker runs");
+        assert!(talk.join("models").join("qwen3-tts.part").is_file());
+        assert!(talk.join("models").join("qwen3-tts.gguf").is_file());
+
+        client.shutdown();
+        assert_eq!(client.remove_partial_downloads(), 1);
+        assert!(client.remove_voice_data());
+        assert!(!talk.exists(), "set aside before the call returns");
+        // The worker comes back at once and downloads into a fresh talk/.
+        client.start();
+        std::fs::create_dir_all(talk.join("models")).unwrap();
+        std::fs::write(talk.join("models").join("qwen3-tts.part"), "again").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::fs::read_dir(&data).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(ASIDE_PREFIX)) {
+            assert!(std::time::Instant::now() < deadline, "the set-aside tree is deleted");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(talk.join("models").join("qwen3-tts.part").is_file(), "the new download is untouched");
+        client.shutdown();
+        assert!(client.remove_voice_data());
+        assert!(client.remove_voice_data(), "nothing left is done too");
+        let _ = std::fs::remove_dir_all(&data);
     }
 }

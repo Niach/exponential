@@ -177,6 +177,64 @@ pub(crate) struct SpeakReplies {
     /// #NEW-54: the worker answered `Ready` and has not exited since (the
     /// tray's Mute shows only then).
     pub worker_ready: bool,
+    /// #NEW-63: when the machine's speech data goes.
+    cleanup: Cleanup,
+}
+
+/// #NEW-63 / #1278 review: `{data_dir}/talk` belongs to the MACHINE, shared
+/// by every account signed in here. It goes only once the same account's
+/// confirmed settings move the voice device away from here (never on the
+/// first settings after an account change) and no signed-in account's last
+/// confirmed settings still name this device.
+#[derive(Debug, Default)]
+struct Cleanup {
+    /// Per account: its last confirmed settings named this device.
+    /// Persisted ([`CLAIMS_FILE`]): an account not active now still counts.
+    claims: std::collections::BTreeMap<String, bool>,
+    /// The account whose settings were taken last in this process.
+    account: Option<String>,
+    /// A transition away was seen; the data goes once no signed-in account
+    /// claims it and no worker runs.
+    pending: bool,
+}
+
+/// `{data_dir}/voice-device-claims.json`, beside (never inside) `talk/`.
+const CLAIMS_FILE: &str = "voice-device-claims.json";
+
+impl Cleanup {
+    fn load(data_dir: &std::path::Path) -> Self {
+        let claims = std::fs::read(data_dir.join(CLAIMS_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        Self { claims, ..Self::default() }
+    }
+
+    fn save(&self, data_dir: &std::path::Path) {
+        let Ok(bytes) = serde_json::to_vec(&self.claims) else { return };
+        if let Err(err) = std::fs::write(data_dir.join(CLAIMS_FILE), bytes) {
+            log::warn!("[ui] speak replies: saving the voice device claims failed: {err}");
+        }
+    }
+
+    /// `account`'s confirmed settings arrived (`names_here` = they pick this
+    /// device); `signed_in` = the accounts signed in on this machine.
+    /// Answers whether the speech data should go now, and whether the
+    /// claims changed (to persist).
+    fn take(&mut self, account: &str, names_here: bool, signed_in: &[String]) -> (bool, bool) {
+        let before = self.claims.clone();
+        let previous = self.claims.insert(account.to_string(), names_here);
+        self.claims.retain(|id, _| id == account || signed_in.iter().any(|signed| signed == id));
+        let switched = self.account.as_deref().is_some_and(|last| last != account);
+        self.account = Some(account.to_string());
+        if previous == Some(true) && !names_here && !switched {
+            self.pending = true;
+        } else if names_here {
+            self.pending = false;
+        }
+        let claimed = self.claims.values().any(|here| *here);
+        (self.pending && !claimed, self.claims != before)
+    }
 }
 
 struct SpeakRepliesGlobal(Entity<SpeakReplies>);
@@ -196,6 +254,11 @@ pub fn install(cx: &mut App) {
         })
     });
     let state = store.state();
+    // #NEW-66: the account signed in now, so the first state notification
+    // of an already-synced store is no account change (it would end a
+    // worker that is still preparing, a download included).
+    let account = session_account(cx);
+    let cleanup = Cleanup::load(&crate::session::AuthContext::global(cx).data_dir);
     let entity = cx.new(|cx: &mut Context<SpeakReplies>| {
         cx.observe(&messages, |this: &mut SpeakReplies, collection, cx| this.on_messages(&collection, cx))
             .detach();
@@ -206,13 +269,14 @@ pub fn install(cx: &mut App) {
             client,
             prepared: DeviceVoice::default(),
             settings: domain::voice::VoiceSettings::default(),
-            account: None,
+            account,
             crashes: 0,
             voices: Vec::new(),
             voices_known: false,
             speaking: None,
             download: Download::Idle,
             worker_ready: false,
+            cleanup,
         }
     });
     cx.set_global(SpeakRepliesGlobal(entity.clone()));
@@ -333,6 +397,13 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
     // #NEW-54: push to talk first, so a Listen it drops is cancelled before
     // this may end the worker.
     crate::push_to_talk::settings_changed(&settings, cx);
+    // #NEW-63: whose settings these are (the active account's: the
+    // heartbeat delivers only its own), taken before the update.
+    let auth = crate::session::AuthContext::global(cx);
+    let data_dir = auth.data_dir.clone();
+    let names_here = settings_name_this_device(&settings, &steer::persistent_device_id(&data_dir));
+    let signed_in: Vec<String> = auth.auth.signed_in_accounts().into_iter().map(|account| account.id).collect();
+    let account = crate::queries::active_account(cx).map(|account| account.id);
     entity.update(cx, |this, cx| {
         if this.settings == settings {
             return;
@@ -344,6 +415,20 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
     });
     // NEW-55: a call that can no longer run here ends.
     crate::voice_call::settings_changed(cx);
+    // #NEW-63: no account here has this device as its voice device any
+    // more: its speech data goes (on the worker's lock; a running worker
+    // defers it to a later beat).
+    if let Some(account) = account {
+        entity.update(cx, |this, _| {
+            let (due, changed) = this.cleanup.take(&account, names_here, &signed_in);
+            if changed {
+                this.cleanup.save(&data_dir);
+            }
+            if due && this.client.as_ref().is_some_and(talk::SpeechClient::remove_voice_data) {
+                this.cleanup.pending = false;
+            }
+        });
+    }
     // NEW-78 / NEW-55: Push to talk or Speak replies moved here or away —
     // the doctor's voice rows follow now (the refresh nudges the beat), not
     // a beat later.
@@ -352,6 +437,11 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
             crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
         }
     }
+}
+
+/// #NEW-63: delivered settings that pick this device as the voice device.
+fn settings_name_this_device(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
+    settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
 fn session_account(cx: &App) -> Option<String> {
@@ -453,6 +543,16 @@ impl SpeakReplies {
             }
         } else {
             client.shutdown();
+            // #NEW-63: the worker is gone; a download it was killed in
+            // leaves a `.part` (up to 1.8 GB) that nothing else frees. On
+            // the worker's lock: a worker started meanwhile keeps its own.
+            let sweeper = client.clone();
+            std::thread::spawn(move || {
+                let removed = sweeper.remove_partial_downloads();
+                if removed > 0 {
+                    log::info!("[ui] speak replies: removed {removed} partial voice download(s)");
+                }
+            });
             self.worker_ready = false;
             self.voices.clear();
             self.voices_known = false;
@@ -722,6 +822,71 @@ mod tests {
         let mut gate = Gate::default();
         assert!(gate.observe(true, std::iter::empty()).is_empty());
         assert_eq!(gate.armed_at(), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn only_settings_naming_this_device_claim_its_speech_data() {
+        let mine = domain::voice::VoiceSettings { voice_device_id: Some("d-mint".into()), ..Default::default() };
+        assert!(settings_name_this_device(&mine, "d-mint"), "the voice device keeps its data");
+        assert!(!settings_name_this_device(&mine, "d-mac"));
+        // Speak replies off on the voice device keeps the download (#NEW-63 plan v3).
+        let off = domain::voice::VoiceSettings { speak_replies: false, ..mine.clone() };
+        assert!(settings_name_this_device(&off, "d-mint"));
+        assert!(!settings_name_this_device(&domain::voice::VoiceSettings::default(), "d-mint"));
+    }
+
+    fn signed_in(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn an_account_switch_never_frees_another_accounts_speech_data() {
+        let both = signed_in(&["a", "b"]);
+        let mut cleanup = Cleanup::default();
+        assert_eq!(cleanup.take("a", true, &both), (false, true), "A's voice device is here");
+        assert_eq!(cleanup.take("a", true, &both), (false, false), "every beat again: nothing to save");
+        // Switch to B, whose voice device is elsewhere (or none).
+        assert_eq!(cleanup.take("b", false, &both), (false, true), "B's first settings never free A's data");
+        assert_eq!(cleanup.take("b", false, &both).0, false);
+        // B had picked this device and moves away: A still claims it.
+        let mut cleanup = Cleanup::default();
+        cleanup.take("a", true, &both);
+        cleanup.take("b", true, &both);
+        assert!(!cleanup.take("b", false, &both).0, "A's claim keeps the data");
+        // A signs out: its claim no longer counts, B's transition is pending.
+        assert!(cleanup.take("b", false, &signed_in(&["b"])).0);
+    }
+
+    #[test]
+    fn the_same_account_moving_away_frees_the_speech_data() {
+        let only = signed_in(&["a"]);
+        let mut cleanup = Cleanup::default();
+        cleanup.take("a", true, &only);
+        assert!(cleanup.take("a", false, &only).0, "a confirmed transition for the same account");
+        // A worker still ran: it stays pending for the next beat.
+        assert!(cleanup.take("a", false, &only).0);
+        cleanup.pending = false;
+        assert!(!cleanup.take("a", false, &only).0, "once gone, later beats leave it");
+        // Settings that never named this device: no transition.
+        assert!(!Cleanup::default().take("a", false, &only).0);
+        // Picked here again before it went: nothing goes.
+        let mut cleanup = Cleanup::default();
+        cleanup.take("a", true, &only);
+        cleanup.take("a", false, &only);
+        assert!(!cleanup.take("a", true, &only).0);
+    }
+
+    #[test]
+    fn the_first_settings_after_an_account_change_never_free_it() {
+        let both = signed_in(&["a", "b"]);
+        // B named this device in an earlier stint (persisted), A was active.
+        let mut cleanup = Cleanup::default();
+        cleanup.take("b", true, &both);
+        cleanup.take("a", false, &both);
+        assert!(!cleanup.take("b", false, &both).0, "B's first settings after the switch");
+        // Across a restart (no account taken yet) the persisted claim is A's own.
+        let mut restarted = Cleanup { claims: [("a".to_string(), true)].into(), ..Cleanup::default() };
+        assert!(restarted.take("a", false, &signed_in(&["a"])).0);
     }
 
     #[test]

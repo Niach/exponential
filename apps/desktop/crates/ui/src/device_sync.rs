@@ -307,8 +307,14 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             }
             if let Some(voice) = outcome.voice {
                 // NEW-67: the member's voice settings (Settings → Voice) —
-                // speak replies follows them on the foreground.
-                let _ = cx.update(|cx| crate::speak_replies::set_settings(voice, cx));
+                // speak replies follows them on the foreground. #1278
+                // review: only while this loop's account is still the
+                // active one (a switch mid-beat never hands A's settings to B).
+                let _ = cx.update(|cx| {
+                    if crate::queries::active_account(cx).is_some_and(|active| active.id == account_id) {
+                        crate::speak_replies::set_settings(voice, cx);
+                    }
+                });
             }
             if outcome.defaults_changed {
                 // The server copy landed in settings.json — reload the hub
