@@ -301,10 +301,12 @@ internal class VoiceCallAudio(
             if (NoiseSuppressor.isAvailable()) {
                 noise = runCatching { NoiseSuppressor.create(record.audioSessionId)?.apply { enabled = true } }.getOrNull()
             }
-            encoder = MediaCodec.createEncoderByType(MIME).apply {
-                configure(upFormat(), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                start()
-            }
+            // Explicit receiver: inside `apply` lint resolved `start()` to this
+            // class's Q-gated `start()` and failed `lintProductionDebug` (NewApi).
+            val codec = MediaCodec.createEncoderByType(MIME)
+            codec.configure(upFormat(), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+            encoder = codec
             try {
                 record.startRecording()
             } catch (t: Throwable) {
@@ -378,10 +380,11 @@ internal class VoiceCallAudio(
     private fun decode() {
         var decoder: MediaCodec? = null
         try {
-            decoder = MediaCodec.createDecoderByType(MIME).apply {
-                configure(downFormat(), null, null, 0)
-                start()
-            }
+            // Explicit receiver, see capture(): lint's NewApi check.
+            val codec = MediaCodec.createDecoderByType(MIME)
+            codec.configure(downFormat(), null, null, 0)
+            codec.start()
+            decoder = codec
             val info = MediaCodec.BufferInfo()
             var ptsUs = 0L
             var channels = 1
