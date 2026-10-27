@@ -329,8 +329,9 @@ pub enum CardAnswer {
 
 /// What a card's answer means: blank or the deny label = deny, the allow
 /// label = allow; else a leading no / deny phrase = deny, a bare yes /
-/// allow phrase = allow, `[yes] [,] but …` = a change, anything else =
-/// other (never a change: "don't delete it" must not pre-approve).
+/// allow phrase = allow, `{yes} [,] but …` = a change, anything else =
+/// other (never a change: "don't delete it" must not pre-approve, and
+/// #NEW-90: "but …" / "and …" without a yes is not one either).
 pub fn read_answer(answer: &str) -> CardAnswer {
     let policy = &*VOICE_POLICY;
     let phrases = &policy.phrases;
@@ -351,8 +352,10 @@ pub fn read_answer(answer: &str) -> CardAnswer {
     if lead.is_some_and(|taken| taken == plain.len()) {
         return CardAnswer::Allow;
     }
-    if take_change(&words[lead.unwrap_or(0)..]).is_some() {
-        return CardAnswer::Change(answer.to_string());
+    if let Some(lead) = lead {
+        if take_change(&words[lead..]).is_some() {
+            return CardAnswer::Change(answer.to_string());
+        }
     }
     CardAnswer::Other(answer.to_string())
 }
@@ -371,18 +374,67 @@ pub enum Verdict {
 #[derive(Debug, Default)]
 pub struct VoiceLedger {
     waiting: HashMap<String, String>,
-    approved: HashMap<String, (u64, Tier)>,
+    approved: HashMap<String, Approval>,
+}
+
+/// #NEW-90: what a change pre-approved: until when, at which tier, the
+/// changed call's input and the change's words (the redo is bound to them).
+#[derive(Debug)]
+struct Approval {
+    until_ms: u64,
+    tier: Tier,
+    input: Value,
+    change: Vec<String>,
+}
+
+/// A field value that counts as absent: missing, null, blank, `[]`, `{}`.
+fn absent(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => true,
+        Some(Value::String(text)) => text.trim().is_empty(),
+        Some(Value::Array(items)) => items.is_empty(),
+        Some(Value::Object(fields)) => fields.is_empty(),
+        _ => false,
+    }
+}
+
+/// `needle` as consecutive words of `words`.
+fn says(words: &[String], needle: &[String]) -> bool {
+    !needle.is_empty() && words.windows(needle.len()).any(|window| window == needle)
+}
+
+/// #NEW-90: the redo is bound to the change: every field that differs from
+/// the changed call (added, changed or dropped; `op` and the target are the
+/// approval key already) was said in the change: a new scalar value word
+/// for word, a dropped field by its key in words.
+fn bound(first: &Value, redo: &Value, change: &[String]) -> bool {
+    let empty = Map::new();
+    let first = first.as_object().unwrap_or(&empty);
+    let redo = redo.as_object().unwrap_or(&empty);
+    first.keys().chain(redo.keys()).filter(|key| key.as_str() != "op").all(|key| {
+        let (before, after) = (first.get(key), redo.get(key));
+        if absent(before) && absent(after) || before == after {
+            return true;
+        }
+        if absent(after) {
+            return says(change, &normalise(&key_words(key)));
+        }
+        after.and_then(scalar).is_some_and(|value| says(change, &normalise(&value)))
+    })
 }
 
 impl VoiceLedger {
-    /// A call about to show `card`: `true` = a change pre-approved exactly
-    /// this tool, op and target at this tier or lower, so it runs now
-    /// (once).
-    pub fn take_approval(&mut self, card: &Card, now_ms: u64) -> bool {
-        self.approved.retain(|_, (until, _)| *until > now_ms);
+    /// A call about to show `card` with `input`: `true` = a change
+    /// pre-approved exactly this tool, op and target at this tier or lower,
+    /// and every field it changes is one the change said (#NEW-90), so it
+    /// runs now (once).
+    pub fn take_approval(&mut self, card: &Card, input: &Value, now_ms: u64) -> bool {
+        self.approved.retain(|_, approval| approval.until_ms > now_ms);
         let Some(key) = &card.approval_key else { return false };
         match self.approved.get(key) {
-            Some((_, tier)) if card.tier.rank() <= tier.rank() => {
+            Some(approval)
+                if card.tier.rank() <= approval.tier.rank() && bound(&approval.input, input, &approval.change) =>
+            {
                 self.approved.remove(key);
                 true
             }
@@ -406,8 +458,8 @@ impl VoiceLedger {
         }
     }
 
-    /// The person answered `card`.
-    pub fn answered(&mut self, card: &Card, answer: &CardAnswer, now_ms: u64) -> Verdict {
+    /// The person answered `card` (asked for a call with `input`).
+    pub fn answered(&mut self, card: &Card, input: &Value, answer: &CardAnswer, now_ms: u64) -> Verdict {
         let copy = &VOICE_POLICY.copy;
         match answer {
             CardAnswer::Allow => Verdict::Allow,
@@ -415,7 +467,15 @@ impl VoiceLedger {
             CardAnswer::Other(words) => Verdict::Deny(copy.answered.replace("{answer}", words)),
             CardAnswer::Change(words) => match &card.approval_key {
                 Some(key) => {
-                    self.approved.insert(key.clone(), (now_ms + VOICE_POLICY.pre_approved_for_ms, card.tier));
+                    self.approved.insert(
+                        key.clone(),
+                        Approval {
+                            until_ms: now_ms + VOICE_POLICY.pre_approved_for_ms,
+                            tier: card.tier,
+                            input: input.clone(),
+                            change: normalise(words),
+                        },
+                    );
                     Verdict::Deny(copy.changed.replace("{answer}", words))
                 }
                 None => Verdict::Deny(copy.changed_ask.replace("{answer}", words)),
@@ -737,9 +797,9 @@ mod tests {
             let mut ledger = VoiceLedger::default();
             let first = built(&case["first"]);
             assert!(first.tier.asks(), "{case}");
-            assert!(!ledger.take_approval(&first, 0), "{case}");
+            assert!(!ledger.take_approval(&first, &case["first"]["input"], 0), "{case}");
             let answer = case["answer"].as_str().unwrap();
-            let verdict = ledger.answered(&first, &read_answer(answer), 0);
+            let verdict = ledger.answered(&first, &case["first"]["input"], &read_answer(answer), 0);
             let expected = match case["reply"].as_str().unwrap() {
                 "allow" => Verdict::Allow,
                 "rejected" => Verdict::Deny(copy.rejected.clone()),
@@ -751,8 +811,9 @@ mod tests {
             assert_eq!(verdict, expected, "{case}");
             let redo = built(&case["redo"]);
             let at = case["afterMs"].as_u64().unwrap();
-            assert_eq!(ledger.take_approval(&redo, at), case["runs"].as_bool().unwrap(), "{case}");
-            assert_eq!(ledger.take_approval(&redo, at + 1), case["thenAgain"].as_bool().unwrap(), "{case}");
+            let input = &case["redo"]["input"];
+            assert_eq!(ledger.take_approval(&redo, input, at), case["runs"].as_bool().unwrap(), "{case}");
+            assert_eq!(ledger.take_approval(&redo, input, at + 1), case["thenAgain"].as_bool().unwrap(), "{case}");
         }
     }
 

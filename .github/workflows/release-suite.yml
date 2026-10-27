@@ -8,7 +8,8 @@ name: release-suite
 # requires it; a red run is a release blocker the release session reads.
 #
 # Contents: the web gate again (typecheck + unit) plus the small bun suites
-# and package tests (`extras`), the real-DB suites (`real-db`), the push-relay
+# and package tests (`extras`), the real-DB suites (in `migrations`, on its
+# service Postgres; a not-ready DB fails them), the push-relay
 # image smoke build, marketing + styleguide builds + shots:check, the full
 # desktop cargo test + Rust licence inventory, the desktop fuzz targets (short
 # runs, NEW-88), Android unit tests + lint +
@@ -219,9 +220,15 @@ jobs:
         # triggers; the unit job runs them too but they skip without a DB.
         # NEW-6: the plan-card suite mints Guide upload URLs, which need a
         # secret; any value does for a throwaway CI database.
+        # #NEW-90: every `*.real-db.test.ts` (vitest's file filter: the old
+        # unglobbed `src/lib/**` pattern missed src/db and src/lib's own
+        # files), and REAL_DB_REQUIRED turns a not-ready database into a
+        # failure instead of a silent skip (#NEW-79's voicePolicy and
+        # owner-only card answers live in sessions.real-db.test.ts).
         env:
           BETTER_AUTH_SECRET: ci-only-real-db-secret
-        run: cd apps/web && bunx vitest run src/lib/**/*.real-db.test.ts
+          REAL_DB_REQUIRED: '1'
+        run: cd apps/web && bunx vitest run real-db.test
       - name: Duplicate device-share check (the pre-deploy check, on the migrated DB)
         # FEED-149: the same script gates every deploy against the target
         # database (.github/workflows/README.md); here it proves it still runs

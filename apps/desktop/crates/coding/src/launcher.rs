@@ -950,13 +950,17 @@ pub fn claude_flag_settings(
     }
 }
 
-/// #NEW-79: the built-ins and always-on servers the voice conversation's
-/// flag layer `ask`s for, so neither a user `allow` rule nor a PreToolUse
-/// allow skips `can_use_tool` (where the engine applies
-/// `fixtures/voice-policy.json`). Read-only built-ins stay unasked: the
-/// policy allows them anyway. Every team server of the launch is added by
+/// #NEW-79: the tools the voice conversation's flag layer `ask`s for, so
+/// neither a user `allow` rule nor a PreToolUse allow skips `can_use_tool`
+/// (where the engine applies `fixtures/voice-policy.json`). #NEW-90: `*`
+/// first = deny-by-default: claude 2.1.310 asks for EVERY tool under it
+/// (built-ins and MCP tools alike, an unlisted KillShell, a future built-in
+/// or a plugin's server included; measured, docs/talk-spike.md), and the
+/// policy allows the read-only ones at once. The named rules stay in case a
+/// CLI stops honouring `*`. Every team server of the launch is added by
 /// [`voice_ask_tools`].
-pub const VOICE_ASK_TOOLS: [&str; 11] = [
+pub const VOICE_ASK_TOOLS: [&str; 12] = [
+    "*",
     "Bash",
     "Edit",
     "Write",
@@ -3966,6 +3970,7 @@ mod tests {
         assert!(ask.contains(&"mcp__linear") && ask.contains(&"mcp__computer"), "{ask:?}");
         assert_eq!(ask.iter().filter(|tool| **tool == "mcp__codemode").count(), 1, "deduped");
         assert!(ask.contains(&"Skill") && ask.contains(&"Agent") && ask.contains(&"Task"));
+        assert_eq!(ask.first(), Some(&"*"), "#NEW-90: every tool asks (deny-by-default)");
         assert!(plain.get("sandbox").is_none());
         let confined: serde_json::Value = serde_json::from_str(&claude_flag_settings(
             Some(Path::new("/data/scratch/r/s")),
