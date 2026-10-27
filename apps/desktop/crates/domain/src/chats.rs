@@ -62,7 +62,7 @@ pub struct ChatsToastCopy {
 #[serde(rename_all = "camelCase")]
 pub struct ChatsSelectionCopy {
     pub select: String,
-    /// `{n} selected`.
+    /// `{n}`: the bare count (the issue bulk bar's).
     pub count: String,
     pub mark_read: String,
     pub mark_unread: String,
@@ -1144,7 +1144,8 @@ pub fn chat_selection_failed_title(failed: usize, total: usize) -> String {
     }
 }
 
-/// #EXP-1388: `copy.selection.count`.
+/// #EXP-1388: `copy.selection.count` = the bare number (`{n}`), the issue
+/// bulk bar's count (owner on #1283).
 pub fn chat_selection_count(count: usize) -> String {
     CHATS.copy.selection.count.replace("{n}", &count.to_string())
 }
@@ -1630,7 +1631,8 @@ mod tests {
         assert_eq!(chat_delete_title(3), "Delete 3 chats?");
         assert_eq!(chat_selection_failed_title(2, 5), "2 of 5 chats couldn't be updated");
         assert_eq!(chat_selection_failed_title(5, 5), CHATS.copy.toasts.selection_failed);
-        assert_eq!(chat_selection_count(2), "2 selected");
+        // The bare number, like the issue bar's count (owner on #1283).
+        assert_eq!(chat_selection_count(2), "2");
     }
 
     #[test]

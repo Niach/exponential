@@ -243,7 +243,10 @@ struct ChatsView: View {
             ChatLeadMark(lead: row.lead, cli: lists.clis[row.sessionId])
         }
         .chatSelectionLead(selected)
-        .glassLongPress(
+        // The issue row's tap + long-press (`bulkSelectable`): the same hold,
+        // the release never toggles the row back out, ONE haptic (the list's).
+        .bulkSelectable(
+            selecting: selectionActive,
             onTap: {
                 if selectionActive {
                     toggleSelection(row.sessionId)
@@ -251,7 +254,7 @@ struct ChatsView: View {
                     pushRoute(.thread(accountId: accountId, threadId: row.sessionId))
                 }
             },
-            onHold: { enterSelection(with: row.sessionId) }
+            onLongPress: { enterSelection(with: row.sessionId) }
         )
         .accessibilityIdentifier(Chats.TestIds.chatRow)
     }
@@ -259,10 +262,7 @@ struct ChatsView: View {
     // MARK: - Selection (#EXP-1388)
 
     private func enterSelection(with rootId: String) {
-        if selectionActive {
-            if !selectedIds.contains(rootId) { selectedIds.append(rootId) }
-            return
-        }
+        guard !selectionActive else { return }
         withAnimation(motion.standard) {
             selectionActive = true
             selectedIds = [rootId]

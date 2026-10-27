@@ -91,7 +91,7 @@ object Chats {
 
         /** #EXP-1388 `copy.selection`. */
         const val SELECTION_SELECT = "Select"
-        const val SELECTION_COUNT = "{n} selected"
+        const val SELECTION_COUNT = "{n}"
         const val SELECTION_MARK_READ = "Mark read"
         const val SELECTION_MARK_UNREAD = "Mark unread"
         const val SELECTION_ARCHIVE = "Archive"

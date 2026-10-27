@@ -16,7 +16,7 @@ import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/sessio
 import { AgentBrandMark, AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
 import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
-import { SelectionCheck } from "./bulk-bar"
+import { SelectionCheck, selectableRowClass } from "./bulk-bar"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
 import { PageHeader } from "./page-header"
@@ -251,15 +251,19 @@ const ROW_CLASS = `flex w-full items-center gap-4 text-left outline-none transit
 
 /** One chat (a ROOT session) as the flat list row. Right-click / long-press
  *  opens its menu through the platform's ONE menu host
- *  (`menuProps('thread', sessionId)`). While the list selects (#EXP-1388)
- *  the row leads with the issue rows' selection control (wide: the
- *  Checkbox square, phones: SelectionCheck) and `onRowClick` gets every
- *  click (a toggle, never an open). */
+ *  (`menuProps('thread', sessionId)`). A SELECTABLE row (#EXP-1388,
+ *  `onSelectToggle`) is the issue row's: wide, the Checkbox column leads
+ *  every row (shown on hover, always while selecting; a click toggles),
+ *  the row fills on hover; phones lead with SelectionCheck while selecting
+ *  and a selected row sits on the issue row's selected card
+ *  (`selectableRowClass`). While selecting `onRowClick` gets every click (a
+ *  toggle, never an open). */
 export function ChatRow({
   row,
   agent = null,
   onOpen,
   onRowClick,
+  onSelectToggle,
   selecting = false,
   selected = false,
   className,
@@ -271,10 +275,14 @@ export function ChatRow({
   /** #EXP-1388: the click with its modifiers (cmd/ctrl toggles, shift
    *  ranges); wins over `onOpen`. */
   onRowClick?: (sessionId: string, event: ReactMouseEvent<HTMLButtonElement>) => void
+  /** #EXP-1388: the wide checkbox cell's click (shift = the range); set =
+   *  the row is selectable. */
+  onSelectToggle?: (sessionId: string, event: ReactMouseEvent<HTMLElement>) => void
   /** #EXP-1388: the list is selecting (every row leads with the glyph). */
   selecting?: boolean
   selected?: boolean
 }) {
+  const selectable = Boolean(onSelectToggle) || selecting
   const unread = row.unreadCount > 0
   const { prefix, rest } = previewParts(row)
   const word = row.word ? (THREAD_ROW_WORDS[row.word] ?? null) : null
@@ -298,23 +306,42 @@ export function ChatRow({
             ? () => onOpen(row.sessionId)
             : undefined
       }
-      className={cn(ROW_CLASS, className)}
+      className={cn(
+        ROW_CLASS,
+        selectable &&
+          cn(`group/row -mx-3 px-3`, selectableRowClass({ selected: selecting && selected, rest: `max-md:border-transparent` })),
+        className
+      )}
     >
       {/* The issue rows' selection cell (owner on #1283): phones the round
-          SelectionCheck, wide the Checkbox's square (its recipe painted
-          here: the row is already the button, a Radix button cannot nest). */}
+          SelectionCheck while selecting, wide the Checkbox column on every
+          row (hover-revealed like the issue row's; its recipe painted here:
+          the row is already the button, a Radix button cannot nest). */}
       {selecting && (
         <SelectionCheck selected={selected} aria-label={`Select ${row.title}`} className="-mr-1 md:hidden" />
       )}
-      {selecting && (
-        <span className="hidden w-5 shrink-0 items-center justify-center md:flex">
+      {selectable && (
+        <span
+          className="hidden shrink-0 items-center self-stretch md:flex"
+          onMouseDown={(event) => {
+            if (event.shiftKey) event.preventDefault()
+          }}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelectToggle?.(row.sessionId, event)
+          }}
+        >
           <span
             role="checkbox"
             aria-checked={selected}
             aria-label={`Select ${row.title}`}
             data-slot="checkbox"
             data-state={selected ? `checked` : `unchecked`}
-            className={cn(CHECKBOX_CLASSES.root, `flex items-center justify-center`)}
+            className={cn(
+              CHECKBOX_CLASSES.root,
+              `flex items-center justify-center transition-opacity`,
+              selecting ? `opacity-100` : `opacity-0 group-hover/row:opacity-100`
+            )}
           >
             {selected && <CheckIcon className={CHECKBOX_CLASSES.icon} />}
           </span>
@@ -380,17 +407,25 @@ export function ChatRow({
 export function ChatArchivedRow({
   count,
   onOpen,
+  aligned = false,
   className,
   ...props
-}: Omit<ComponentProps<`button`>, `onClick`> & { count: number; onOpen?: () => void }) {
+}: Omit<ComponentProps<`button`>, `onClick`> & {
+  count: number
+  onOpen?: () => void
+  /** Over selectable rows: the same inset and (wide) the checkbox column's
+   *  room, so the discs line up. */
+  aligned?: boolean
+}) {
   return (
     <button
       type="button"
       data-testid={CHATS_TEST_IDS.chatArchived}
       {...props}
       onClick={onOpen}
-      className={cn(ROW_CLASS, className)}
+      className={cn(ROW_CLASS, aligned && `-mx-3 px-3 md:hover:bg-glass-row`, className)}
     >
+      {aligned && <span aria-hidden className="hidden size-4 shrink-0 md:block" />}
       <ChatLeadDisc lead="waiting" agent={null} icon={<ArchiveIcon className="size-6 text-muted-foreground" />} />
       <span className="flex min-w-0 flex-1 items-center gap-2 self-stretch border-b border-glass-stroke py-3.5">
         <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-foreground">
@@ -416,6 +451,7 @@ export function ChatList({
   onOpenArchived,
   selection = null,
   onRowClick,
+  onSelectToggle,
   className,
 }: {
   rows: readonly ChatRowModel[]
@@ -433,6 +469,8 @@ export function ChatList({
   /** #EXP-1388: the selected ids while selecting, else null. */
   selection?: ReadonlySet<string> | null
   onRowClick?: (sessionId: string, event: ReactMouseEvent<HTMLButtonElement>) => void
+  /** #EXP-1388: the rows are selectable (the wide checkbox column). */
+  onSelectToggle?: (sessionId: string, event: ReactMouseEvent<HTMLElement>) => void
   className?: string
 }) {
   if (loading) return <SkeletonRows rowHeight={76} />
@@ -441,7 +479,13 @@ export function ChatList({
   }
   return (
     <div data-slot="chat-list" data-testid="chat-list" className={cn(`flex flex-col`, className)}>
-      {archived > 0 && <ChatArchivedRow count={archived} onOpen={onOpenArchived} />}
+      {archived > 0 && (
+        <ChatArchivedRow
+          count={archived}
+          onOpen={onOpenArchived}
+          aligned={Boolean(onSelectToggle) || selection !== null}
+        />
+      )}
       {rows.map((row) => (
         <ChatRow
           key={row.sessionId}
@@ -450,6 +494,7 @@ export function ChatList({
           className={entering?.(row.sessionId)}
           onOpen={onOpen}
           onRowClick={onRowClick}
+          onSelectToggle={onSelectToggle}
           selecting={selection !== null}
           selected={selection?.has(row.sessionId) ?? false}
         />

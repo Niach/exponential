@@ -14,6 +14,7 @@ import { Separator } from "./separator"
 //   BulkBarCapsule   the card + close + count + separator + children
 //   BulkBarAction    one icon button (its label beside it on md+)
 //   SelectionCheck   a row's leading selection glyph while selecting
+//   SELECTABLE_ROW   a selectable row's hover + selected fill (the issue row's)
 
 const CloseIcon = conceptIcon(`ui-close`)
 const CheckIcon = conceptIcon(`ui-check`)
@@ -40,7 +41,7 @@ export function BulkBarCapsule({
   className,
   ...props
 }: Omit<ComponentProps<`div`>, `children`> & {
-  /** The count cell (the issue bar: the number; chats: `{n} selected`). */
+  /** The count cell: the number (the issue bar and chats alike). */
   count: ReactNode
   onClear: () => void
   iconOnly?: boolean
@@ -108,6 +109,18 @@ export function BulkBarAction({
       {icon}
       {!iconOnly && <span className="hidden md:inline">{label}</span>}
     </Button>
+  )
+}
+
+/** The issue list's selectable-row look, shared by the issue row and the
+ *  chat row (#EXP-1388, owner on #1283): md+ a flat glass-row fill on hover
+ *  (the checkbox column says what is selected), phones a selected row on
+ *  the glass-active card with the active hairline. `rest` = the phone's
+ *  unselected look (the issue row's card, the chat row's flat line). */
+export function selectableRowClass({ selected, rest }: { selected: boolean; rest: string }): string {
+  return cn(
+    `md:hover:bg-glass-row max-md:rounded-md max-md:border`,
+    selected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : rest
   )
 }
 

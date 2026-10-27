@@ -466,7 +466,7 @@ final class ChatsTests: XCTestCase {
             "markUnread": C.Selection.markUnread, "archive": C.Selection.archive, "unarchive": C.Selection.unarchive,
             "stop": C.Selection.stop, "delete": C.Selection.delete, "confirmDeleteMany": C.Selection.confirmDeleteMany,
         ])
-        XCTAssertEqual(C.Selection.countLine(2), "2 selected")
+        XCTAssertEqual(C.Selection.countLine(2), "2")
         XCTAssertEqual(copy["archived"] as? [String: String], [
             "entry": C.Archived.entry, "title": C.Archived.title, "empty": C.Archived.empty,
         ])

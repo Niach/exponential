@@ -22,7 +22,7 @@
 use gpui::{
     div, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex};
+use gpui_component::v_flex;
 
 use crate::issue_list::{IssueListView, IssueQuery};
 
@@ -72,15 +72,6 @@ impl Render for BoardView {
             .size_full()
             .relative()
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
-            .children(bulk_bar.map(|bulk| {
-                h_flex()
-                    .absolute()
-                    .bottom_4()
-                    .left_0()
-                    .right_0()
-                    .justify_center()
-                    .px_4()
-                    .child(bulk)
-            }))
+            .children(bulk_bar.map(crate::issue_list::bulk_bar_dock))
     }
 }

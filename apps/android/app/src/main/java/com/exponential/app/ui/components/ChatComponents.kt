@@ -48,6 +48,7 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassRow
 
 // Thread 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
 // phone shell (the header is the shared [PageHeader]) — the agent bubbles,
@@ -113,9 +114,12 @@ fun ChatLeadDisc(
  * unread, else muted) · the preview (muted, up to two lines; `working…`
  * italic), the row word (with its glyph) and the unread badge on line 2.
  * The hairline runs under the text column only. A tap opens the chat; a
- * long-press enters the selection ([onLongClick], null = none; #EXP-1388).
+ * long-press enters the selection ([onLongClick], null = none; #EXP-1388;
+ * the caller fires the haptic when it ENTERS, like the issue list).
  * While selecting ([selected] non-null) the row leads with THE selection
- * glyph cell (the issue list's) and a tap toggles it.
+ * glyph cell at the issue card's x, and a selected row wears the issue
+ * card's selected paint (its glass card + [selectedRowHighlight]) in the
+ * same gutter and radius.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -128,7 +132,6 @@ fun ChatRow(
     divider: Boolean = true,
     selected: Boolean? = null,
 ) {
-    val haptics = LocalHapticFeedback.current
     val unread = row.unreadCount > 0
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     val timeColor = when {
@@ -136,27 +139,29 @@ fun ChatRow(
         unread -> MaterialTheme.colorScheme.onSurface
         else -> muted
     }
+    // The row sits in the issue list's gutter so a selected one is the issue
+    // card; the text keeps its 20dp edges (20 = gutter + [ChatRowInner]).
+    val isSelected = selected == true
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick?.let { long ->
-                    {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        long()
-                    }
-                },
-            )
+            // Half the issue list's 3dp row gap each side, so two selected
+            // neighbours read as two cards.
+            .padding(horizontal = SelectionRowGutter, vertical = 1.5.dp)
+            .clip(RoundedCornerShape(GlassTokens.RowRadius))
+            .then(if (isSelected) Modifier.glassRow() else Modifier)
+            .selectedRowHighlight(isSelected)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .testTag(Chats.TestIds.CHAT_ROW)
-            .padding(start = 20.dp, end = 0.dp),
+            // Selecting: the glyph cell starts where the issue card's does.
+            .padding(start = if (selected != null) GlassTokens.RowPaddingH else ChatRowInner, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selected != null) SelectionGlyph(selected)
         ChatLeadDisc(row.lead, agent)
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Column(modifier = Modifier.padding(end = 20.dp, top = 14.dp, bottom = 14.dp)) {
+            Column(modifier = Modifier.padding(end = ChatRowInner, top = 14.dp, bottom = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         row.title,
@@ -190,11 +195,20 @@ fun ChatRow(
                 }
             }
             if (divider) {
-                Box(Modifier.fillMaxWidth().padding(end = 20.dp).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
+                // A selected card's border closes it; the hairline keeps its
+                // height so selecting never reflows the list.
+                Box(
+                    Modifier.fillMaxWidth().padding(end = ChatRowInner).height(GlassTokens.Hairline)
+                        .then(if (isSelected) Modifier else Modifier.background(GlassTokens.StrokeCard)),
+                )
             }
         }
     }
 }
+
+/** A chat row's inner edge inside the [SelectionRowGutter] (20dp from the
+ *  screen edge in all). */
+private val ChatRowInner: Dp = 20.dp - SelectionRowGutter
 
 /**
  * #EXP-1388 THE ARCHIVED ENTRY: the list's first row while chats are

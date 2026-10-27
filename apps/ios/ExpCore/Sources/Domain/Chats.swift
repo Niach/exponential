@@ -107,7 +107,7 @@ public enum Chats {
         /// #EXP-1388: the chat list's selection bar.
         public enum Selection {
             public static let select = "Select"
-            public static let count = "{n} selected"
+            public static let count = "{n}"
             public static let markRead = "Mark read"
             public static let markUnread = "Mark unread"
             public static let archive = "Archive"

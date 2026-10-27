@@ -2,16 +2,20 @@
 //! MULTI-SELECTION (`fixtures/chats.json` SELECTION + ARCHIVE), the twin of
 //! web `ChatSelectionSpecimen`. The IDE's Chats page paints the same pieces
 //! ([`crate::chat_list`]): the Archived entry first (ui-archive in the lead
-//! disc, the count in the time slot), then `listCases[0]`'s rows, each led by
-//! the issue list's checkbox (two selected), over THE bar (the issue list's bulk
-//! capsule) holding `chat_selection_actions` for those two.
+//! disc, the count in the time slot), then `listCases[0]`'s rows in the issue
+//! row's selectable frame (the checkbox cell, two selected on the flat
+//! `list_active` fill, the lead discs unchanged), over THE bar (the issue
+//! list's bulk bar: capsule, bare count, labeled buttons, the hairline before
+//! Delete) holding `chat_selection_actions` for those two.
 
-use gpui::{div, px, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _};
+use gpui::{px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use domain::chats::{chat_selection_actions, ChatList, ChatListView, ChatSelectionRow};
 
-use crate::chat_list::{chat_archived_row, chat_lead_disc, chat_row, chat_selectable, chat_selection_bar};
+use crate::chat_list::{
+    chat_archived_row, chat_bar_label_min_width, chat_lead_disc, chat_row, chat_selectable, chat_selection_bar,
+};
 
 pub(crate) const ID: &str = "chat-selection";
 pub(crate) const OWNER: &str = "EXP-1388";
@@ -54,54 +58,49 @@ fn selection_rows(list: &ChatList, selected: &[String]) -> Vec<ChatSelectionRow>
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let (list, archived, selected) = model();
     let actions = chat_selection_actions(&selection_rows(&list, &selected), ChatListView::List);
-    let row_frame = |selected_row: bool, row: Div, cx: &App| {
-        div()
-            .w_full()
-            .px_2()
-            .rounded_lg()
-            .when_selected(selected_row, cx)
-            .child(row)
-    };
+    // The page's rule at the specimen's width.
+    let labels = px(COLUMN_W) >= chat_bar_label_min_width(&actions.iter().map(|(action, _)| *action).collect::<Vec<_>>());
     v_flex()
         .w(px(COLUMN_W))
-        .p_4()
+        .py_4()
         .gap_4()
         .rounded_xl()
         .bg(cx.theme().background)
+        // The list pane: the bar docks over its bottom like the page's.
         .child(
             v_flex()
+                .relative()
                 .w_full()
-                .child(row_frame(false, chat_selectable(None, "", chat_archived_row(archived, cx), cx), cx))
+                .pb(px(72.))
+                .child(chat_selectable(
+                    SharedString::from("chat-selection-archived"),
+                    "",
+                    None,
+                    |_, _, _| {},
+                    chat_archived_row(archived, cx),
+                    cx,
+                ))
                 .children(list.rows.iter().map(|row| {
                     let is_selected = selected.contains(&row.session_id);
-                    row_frame(
-                        is_selected,
-                        chat_selectable(Some(is_selected), &row.session_id, chat_row(row, chat_lead_disc(row.lead, None, cx), cx), cx),
+                    chat_selectable(
+                        SharedString::from(format!("chat-selection-{}", row.session_id)),
+                        &row.session_id,
+                        Some((is_selected, true)),
+                        |_, _, _| {},
+                        chat_row(row, chat_lead_disc(row.lead, None, cx), cx),
                         cx,
                     )
-                })),
+                }))
+                .child(crate::issue_list::bulk_bar_dock(chat_selection_bar(
+                    selected.len(),
+                    actions,
+                    false,
+                    labels,
+                    |_, _, _| {},
+                    None,
+                    cx,
+                ))),
         )
-        .child(
-            h_flex()
-                .w_full()
-                .justify_center()
-                .child(chat_selection_bar(selected.len(), actions, false, |_, _, _| {}, None, cx)),
-        )
-}
-
-trait SelectedExt {
-    fn when_selected(self, selected: bool, cx: &App) -> Self;
-}
-
-impl SelectedExt for Div {
-    /// A selected row's fill (the Chats page's `list_active`).
-    fn when_selected(self, selected: bool, cx: &App) -> Self {
-        if selected {
-            self.bg(cx.theme().list_active)
-        } else {
-            self
-        }
-    }
 }
 
 #[cfg(test)]

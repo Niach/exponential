@@ -49,7 +49,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-10-27`,
     title: `Select chats, mark them read and archive them`,
     summary: `Select several chats at once to mark them read or unread, archive, stop or delete them, and keep your Chats list tidy with an Archived page of your own.`,
-    body: `- **Select**: long-press a chat on a phone, or pick Select from a chat's right-click menu; cmd or ctrl click adds a chat, shift click adds a range. Tapping a chat while selecting toggles it.
+    body: `- **Select**: exactly like selecting issues. Long-press a chat on a phone; on a computer tick the checkbox that shows when you hover a chat, or pick Select from its right-click menu; cmd or ctrl click adds a chat, shift click adds a range, cmd or ctrl A selects them all. Tapping a chat while selecting toggles it, and a selected chat looks like a selected issue.
 - **The bar**: the same bar as the issue list's selection: Mark read or Mark unread, Archive, Stop while a chat runs and Delete when you may delete every selected chat.
 - **Archived**: archiving is yours alone, your teammates keep their list. Archived chats move to the Archived row at the top of Chats, and a chat that needs you comes back on its own.
 - **The Chats dot**: an archived chat no longer lights it.`,

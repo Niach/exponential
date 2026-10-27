@@ -47,13 +47,15 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 // #EXP-1388 (SELECTION + ARCHIVE): the list SELECTS — a touch long-press or
 // the pointer menu's Select enters it (through the layout's menu host, the
 // list registered like the issue list), cmd/ctrl-click toggles, shift-click
-// ranges; while selecting the rows lead with the selection glyph, a click
-// toggles, and THE bulk bar (`ChatSelectionBar`) acts. `?view=archived` =
+// ranges, the wide checkbox column (hover-revealed, the issue row's) toggles
+// and Cmd/Ctrl+A selects every row; while selecting the rows lead with the
+// selection glyph, a click toggles, and THE bulk bar (`ChatSelectionBar`) acts. `?view=archived` =
 // the Archived page (phones: the pushed page header with the back control;
 // wide: a back link to Chats over the same page), opened from the list's
 // Archived entry.
 
 const COPY = CHATS_COPY
+const OPEN_OVERLAY = `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"]`
 const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/threads/`)({
@@ -126,6 +128,37 @@ function ThreadsPage() {
     if (next.open) openChat(sessionId)
     else setSelection(next.selection)
   }
+
+  // The wide checkbox column: a click toggles (shift = the range), the
+  // issue row's checkbox cell.
+  const onSelectToggle = (sessionId: string, event: MouseEvent<HTMLElement>) => {
+    const next = chatSelectionClick(selectionRef.current, {
+      id: sessionId,
+      order,
+      toggle: true,
+      range: event.shiftKey,
+    })
+    setSelection(next.selection)
+  }
+
+  // Cmd/Ctrl+A selects every row, the issue list's rule: never while an
+  // overlay is up or a field (or anything outside the list) has focus.
+  const orderRef = useRef(order)
+  orderRef.current = order
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== `a`) return
+      if (document.querySelector(OPEN_OVERLAY) !== null) return
+      const active = document.activeElement
+      if (active !== null && active !== document.body && !listRef.current?.contains(active)) return
+      if (orderRef.current.length === 0) return
+      event.preventDefault()
+      const ids = orderRef.current
+      setSelection({ ids, anchor: ids[ids.length - 1] ?? null })
+    }
+    window.addEventListener(`keydown`, onKey)
+    return () => window.removeEventListener(`keydown`, onKey)
+  }, [])
 
   const selectionRows = useMemo((): ChatSelectionRow[] => {
     if (!selection) return []
@@ -213,6 +246,7 @@ function ThreadsPage() {
               }
               selection={selectedIds}
               onRowClick={onRowClick}
+              onSelectToggle={isMobile ? undefined : onSelectToggle}
             />
           </div>
         </div>
