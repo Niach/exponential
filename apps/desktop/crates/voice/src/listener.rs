@@ -8,7 +8,9 @@
 //! segment goes once through the resident Parakeet, and a match starts a
 //! turn the thread ends by itself (Woke, then Level, Partial, Heard or
 //! Empty). A Listen borrows the open microphone; the wake word resumes after
-//! every turn, Listen and call.
+//! every turn, Listen and call. A call owns the microphone until Hangup: it
+//! closes the wake word's, the scan pauses for the whole call, and a Listen
+//! during it is refused (Empty) (talk-listen.json `micOwnerCases`).
 //!
 //! Parakeet runs on the GPU when ggml finds one with [`MIN_GPU_BYTES`] free
 //! (CUDA 10-30 ms per clip of up to 4 s on the 4090, so the open segment is
@@ -193,9 +195,17 @@ pub enum Mode {
 pub struct Listening(Mutex<Option<(String, Mode)>>);
 
 impl Listening {
-    /// The reader sent `Listen { id }`.
-    pub fn begin(&self, id: &str) {
-        *self.lock() = Some((id.to_string(), Mode::Listen));
+    /// The reader sent `Listen { id }` (or #NEW-56 the wake word woke):
+    /// false while a call runs, which owns the microphone until Hangup
+    /// (talk-listen.json `micOwnerCases`).
+    #[must_use]
+    pub fn begin(&self, id: &str) -> bool {
+        let mut current = self.lock();
+        if matches!(*current, Some((_, Mode::Call { .. }))) {
+            return false;
+        }
+        *current = Some((id.to_string(), Mode::Listen));
+        true
     }
 
     /// NEW-55: the reader sent `Call { id, remote }`.
@@ -219,6 +229,11 @@ impl Listening {
     /// Push to talk runs: a Speak is answered unplayed.
     pub fn refuses_speech(&self) -> bool {
         matches!(*self.lock(), Some((_, Mode::Listen)))
+    }
+
+    /// NEW-55: a call runs (it owns the microphone until Hangup).
+    pub fn in_call(&self) -> bool {
+        matches!(*self.lock(), Some((_, Mode::Call { .. })))
     }
 
     /// NEW-55: a remote call runs: replies stream as SpeechAudio.
@@ -612,7 +627,11 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 let lent = match &job {
                     Job::Start { .. } => scan.take().map(|scan| (scan.vad, scan.mic)),
                     Job::Call { .. } => {
+                        // A call takes precedence: the scan pauses until
+                        // Hangup (the tray's dot goes out, also when the
+                        // call replaces a wake turn).
                         scan = None;
+                        report((false, None));
                         None
                     }
                     _ => None,
@@ -705,7 +724,11 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                             continue;
                         }
                     };
-                    links.listening.begin(&id);
+                    if !links.listening.begin(&id) {
+                        // A call was asked for meanwhile: it takes the
+                        // microphone (the turn and its scan close here).
+                        continue;
+                    }
                     // Like a Listen: the voice stops for the person.
                     (links.barge)();
                     emit(Event::Woke { id });
@@ -752,7 +775,13 @@ fn handle<H: Hearing>(
     };
     match job {
         Job::Start { id, language } => {
-            // A new Listen replaces the running Listen or Call (no answer).
+            // A call owns the microphone until Hangup: a Listen during it
+            // is refused, nothing heard (talk-listen.json `micOwnerCases`).
+            if matches!(active, Some(Active::Call(_))) {
+                (links.emit)(&Event::Empty { id });
+                return;
+            }
+            // A new Listen replaces the running Listen (no answer).
             if let Some(replaced) = active.take() {
                 links.listening.end(replaced.id());
             }
@@ -1121,8 +1150,8 @@ mod tests {
     fn the_listening_gate_ends_only_its_own_listen() {
         let listening = Listening::default();
         assert!(!listening.active());
-        listening.begin("u1");
-        listening.begin("u2");
+        assert!(listening.begin("u1"));
+        assert!(listening.begin("u2"));
         listening.end("u1");
         assert!(listening.active(), "u2 replaced u1 and still runs");
         assert!(listening.refuses_speech());
@@ -1133,6 +1162,9 @@ mod tests {
         assert!(listening.active() && !listening.refuses_speech() && !listening.remote_call());
         listening.begin_call("c2", true);
         assert!(listening.remote_call());
+        // A call owns the microphone: push to talk is refused.
+        assert!(!listening.begin("u3"));
+        assert!(listening.remote_call(), "the call goes on");
         listening.end("c2");
         assert!(!listening.active() && !listening.remote_call());
     }
@@ -1147,7 +1179,7 @@ mod tests {
         let (tx, thread) = spawn(move || hearing, Links::new(listening.clone()));
         tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap();
         opened.recv_timeout(Duration::from_secs(5)).expect("the wake word opens the microphone");
-        listening.begin("u1");
+        assert!(listening.begin("u1"));
         tx.send(Job::Start { id: "u1".into(), language: "en".into() }).unwrap();
         // Let the Listen start before anything that would end it is queued.
         std::thread::sleep(Duration::from_millis(200));
@@ -1186,7 +1218,7 @@ mod tests {
         let listening = Arc::new(Listening::default());
         let hearing = probe.hearing();
         let (tx, thread) = spawn(move || hearing, Links::new(listening.clone()));
-        listening.begin("u1");
+        assert!(listening.begin("u1"));
         tx.send(Job::Start { id: "u1".into(), language: "en".into() }).unwrap();
         tx.send(Job::End { id: "u1".into() }).unwrap();
         release.unwrap().send(()).unwrap();
@@ -1416,7 +1448,7 @@ mod tests {
     }
 
     /// NEW-55: a remote call never opens the microphone; its audio comes as
-    /// jobs, and a Listen replaces it.
+    /// jobs, and a Listen during it is refused.
     #[test]
     fn a_remote_call_hears_streamed_audio() {
         let harness = Harness::new();
@@ -1432,17 +1464,98 @@ mod tests {
         assert!(events.iter().any(|event| matches!(event, Event::Level { id, .. } if id == "c1")));
         assert!(harness.probe.opened.lock().unwrap().is_empty(), "no microphone");
         assert!(harness.listening.remote_call());
-        // Push to talk replaces the call (no answer for it).
-        harness.listening.begin("u1");
+        // Push to talk is refused: the call goes on (micOwnerCases).
         harness.send(Job::Start { id: "u1".into(), language: "en".into() });
-        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the Listen opened the microphone");
-        assert!(harness.listening.refuses_speech());
+        harness.until(|events| events.iter().any(|event| matches!(event, Event::Empty { id } if id == "u1")));
+        assert!(harness.probe.opened.lock().unwrap().is_empty(), "no microphone opened");
+        assert!(harness.listening.remote_call());
         for chunk in phrase(0.8).chunks(320) {
             harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
         }
-        harness.send(Job::End { id: "u1".into() });
-        let events = harness.until(|events| events.iter().any(|event| matches!(event, Event::Empty { .. } | Event::Heard { .. })));
-        assert_eq!(said(&events).len(), 1, "the replaced call says nothing more");
+        harness.said(2);
         harness.close();
+    }
+
+    /// #1265 review: talk-listen.json `micOwnerCases`. A call takes
+    /// precedence: it closes the wake word's microphone, the scan pauses for
+    /// the whole call and comes back after Hangup; a Listen during a call is
+    /// refused. Never two microphones open at once.
+    #[test]
+    fn mic_owner_cases() {
+        const FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/talk-listen.json");
+        let fixture: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        for case in fixture["micOwnerCases"]["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let harness = Harness::new();
+            let mut listens = 0;
+            for (index, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+                let at = format!("{name}, step {index}");
+                let before = harness.events.lock().unwrap().len();
+                let answer = step["answer"].as_str();
+                match step["do"].as_str().unwrap() {
+                    "wake" => harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() }),
+                    "call" => harness.call("c1", false),
+                    "remoteCall" => harness.call("c1", true),
+                    "hangup" => {
+                        harness.listening.end("c1");
+                        harness.send(Job::Hangup { id: "c1".into() });
+                    }
+                    "listen" => {
+                        listens += 1;
+                        let id = format!("u{listens}");
+                        // The reader's gate refuses it; the loop does too.
+                        assert!(!harness.listening.begin(&id), "{at}: the gate refuses a Listen during a call");
+                        harness.send(Job::Start { id, language: "en".into() });
+                    }
+                    "phrase" => say_the_phrase(&harness),
+                    other => panic!("{at}: unknown step {other}"),
+                }
+                let produced = |events: &[Event]| -> Option<&'static str> {
+                    events[before..].iter().find_map(|event| match event {
+                        Event::Woke { .. } => Some("woke"),
+                        Event::Said { .. } => Some("said"),
+                        Event::Empty { .. } | Event::Heard { .. } => Some("empty"),
+                        _ => None,
+                    })
+                };
+                // The tray's dot: lit while the wake word holds the microphone.
+                let dot = |events: &[Event]| {
+                    let last = events.iter().rev().find_map(|event| match event {
+                        Event::WakeListening { listening, .. } => Some(*listening),
+                        _ => None,
+                    });
+                    last.unwrap_or(false)
+                };
+                let scanning = matches!(step["mic"].as_str(), Some("wake" | "listen"));
+                let events = harness.until(|events| {
+                    produced(events) == answer && dot(events) == scanning && mic_owner(&harness) == step["mic"].as_str()
+                });
+                assert_eq!(produced(&events), answer, "{at}: {:?}", without_levels(&events[before..]));
+                assert_eq!(mic_owner(&harness), step["mic"].as_str(), "{at}: the microphone's owner");
+                if answer == Some("said") {
+                    assert!(woke(&events[before..]).is_empty(), "{at}: no wake match during a call");
+                }
+                assert_eq!(dot(&events), scanning, "{at}: the tray's dot");
+            }
+            let events = harness.close();
+            // A replaced wake turn is never answered.
+            assert!(!events.iter().any(|event| matches!(event, Event::Heard { id, .. } | Event::Empty { id } if id.starts_with("wake-"))), "{name}");
+        }
+    }
+
+    /// Who holds the device's microphone: `wake`, `listen`, `call` or none
+    /// (never two at once).
+    fn mic_owner(harness: &Harness) -> Option<&'static str> {
+        let open = harness.probe.opened.lock().unwrap().iter().filter(|closed| !closed.load(Ordering::SeqCst)).count();
+        assert!(open <= 1, "{open} microphones open");
+        if open == 0 {
+            None
+        } else if harness.listening.in_call() {
+            Some("call")
+        } else if harness.listening.refuses_speech() {
+            Some("listen")
+        } else {
+            Some("wake")
+        }
     }
 }

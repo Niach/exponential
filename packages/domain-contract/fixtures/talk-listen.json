@@ -55,7 +55,7 @@
     { "name": "a long monologue is cut at maxSegment", "probabilities": [[0.9, 1300]], "segments": [[0, 625], [625, 1250], [1250, 1300]] }
   ],
   "wake": {
-    "_": "#NEW-56 (voice plan V7, approved 2026-10-27): the wake word, with NO wake-word model. While it is on (the voice device, an agent picked, Wake word on, the tray's Mute off) the speech worker keeps the microphone open and Silero scoring it (the segment rules above); in silence that is all it does. The start of every speech segment is transcribed ONCE by the resident Parakeet, a window sized to the phrase (`window`: windowBaseMs + windowPerLetterMs × the phrase's letters, clamped to windowMinMs … windowMaxMs; `Hey Studio` = 9 letters = 1500 ms; owner decision 2026-10-27: a 2 s window cost 29 % of a CPU core under continuous talk): as soon as the open segment is that long, or when a shorter segment closes (`checks`: [start, end) in frames, padding included, one per segment; a dropped segment is never checked; a segment cut at maxSegmentMs is a new segment). MATCH (`match`): the transcript's `words` are its runs of letters and digits, lowercased, the accents Parakeet writes folded to ASCII (ä→a, ö→o, ü→u, ß→ss, é→e …), an apostrophe joining (What's = whats), anything else separating. The phrase (Settings → Voice `wakePhrase`, empty = `Hey {agent}`) must OPEN the segment: its letters with the spaces dropped are compared (Levenshtein) with the transcript's first 1 … n+2 words joined (n = the phrase's words), the closest wins, and it matches within floor(letters × maxEditRatio) edits (`Hey Studio` = 9 letters = 2 edits; a 5-letter phrase tolerates 1, so `Hey Al` hears `Hey all`: pick a longer name). A phrase without a letter or digit never matches. `rest` = the text after the matched words, leading punctuation and spaces dropped, its first letter capitalised (null = no match). TURN: a match is a push-to-talk key-down for one turn (worker event `woke`, then the same level / partial / heard / empty as a Listen, the capsule ×1): the segment from its padded start seeds the utterance, everything heard is joined as above and loses the phrase (`rest` again; unchanged when the longer transcript no longer opens with it), and the worker ends the turn itself (`turn`): never while a segment is open, after turnEndMs of quiet (since the last segment's padded end) once a command was heard, after noCommandMs while only the phrase was (empty: a false wake costs one capsule and sends nothing), and at maxTurnMs regardless. A push-to-talk key-down replaces a running turn (no answer for it) and borrows the open microphone; the wake word resumes after every turn and Listen. NO SELF-WAKE (#1263 review): while a reply is being spoken, and for echoTailMs after it ends, every frame the microphone hears counts as the reply's: a segment whose padded start falls among those frames is never checked (no transcription), so the agent's own voice can neither wake it nor barge in on itself; a phrase said after the reply wakes as usual. Wake word off (or Mute) ends a wake turn in flight in the worker, unanswered, and a `woke` that reaches the host after the wake word was taken back is cancelled there (CancelListen), never sent.",
+    "_": "#NEW-56 (voice plan V7, approved 2026-10-27): the wake word, with NO wake-word model. While it is on (the voice device, an agent picked, Wake word on, the tray's Mute off) the speech worker keeps the microphone open and Silero scoring it (the segment rules above); in silence that is all it does. The start of every speech segment is transcribed ONCE by the resident Parakeet, a window sized to the phrase (`window`: windowBaseMs + windowPerLetterMs × the phrase's letters, clamped to windowMinMs … windowMaxMs; `Hey Studio` = 9 letters = 1500 ms; owner decision 2026-10-27: a 2 s window cost 29 % of a CPU core under continuous talk): as soon as the open segment is that long, or when a shorter segment closes (`checks`: [start, end) in frames, padding included, one per segment; a dropped segment is never checked; a segment cut at maxSegmentMs is a new segment). MATCH (`match`): the transcript's `words` are its runs of letters and digits, lowercased, the accents Parakeet writes folded to ASCII (ä→a, ö→o, ü→u, ß→ss, é→e …), an apostrophe joining (What's = whats), anything else separating. The phrase (Settings → Voice `wakePhrase`, empty = `Hey {agent}`) must OPEN the segment: its letters with the spaces dropped are compared (Levenshtein) with the transcript's first 1 … n+2 words joined (n = the phrase's words), the closest wins, and it matches within floor(letters × maxEditRatio) edits (`Hey Studio` = 9 letters = 2 edits; a 5-letter phrase tolerates 1, so `Hey Al` hears `Hey all`: pick a longer name). A phrase without a letter or digit never matches. `rest` = the text after the matched words, leading punctuation and spaces dropped, its first letter capitalised (null = no match). TURN: a match is a push-to-talk key-down for one turn (worker event `woke`, then the same level / partial / heard / empty as a Listen, the capsule ×1): the segment from its padded start seeds the utterance, everything heard is joined as above and loses the phrase (`rest` again; unchanged when the longer transcript no longer opens with it), and the worker ends the turn itself (`turn`): never while a segment is open, after turnEndMs of quiet (since the last segment's padded end) once a command was heard, after noCommandMs while only the phrase was (empty: a false wake costs one capsule and sends nothing), and at maxTurnMs regardless. A push-to-talk key-down replaces a running turn (no answer for it) and borrows the open microphone; the wake word resumes after every turn and Listen. A CALL TAKES PRECEDENCE (`micOwnerCases` at the top level). NO SELF-WAKE (#1263 review): while a reply is being spoken, and for echoTailMs after it ends, every frame the microphone hears counts as the reply's: a segment whose padded start falls among those frames is never checked (no transcription), so the agent's own voice can neither wake it nor barge in on itself; a phrase said after the reply wakes as usual. Wake word off (or Mute) ends a wake turn in flight in the worker, unanswered, and a `woke` that reaches the host after the wake word was taken back is cancelled there (CancelListen), never sent.",
     "constants": { "windowBaseMs": 600, "windowPerLetterMs": 100, "windowMinMs": 1200, "windowMaxMs": 2000, "maxEditRatio": 0.25, "turnEndMs": 900, "noCommandMs": 4000, "maxTurnMs": 60000, "echoTailMs": 300 },
     "window": [
       { "phrase": "Hey Studio", "windowMs": 1500 },
@@ -108,6 +108,42 @@
       { "name": "only the phrase, waiting for the command", "open": false, "quietMs": 3000, "command": false, "elapsedMs": 4000, "over": false },
       { "name": "only the phrase, nobody went on", "open": false, "quietMs": 4000, "command": false, "elapsedMs": 5000, "over": true },
       { "name": "the longest turn ends even mid-sentence", "open": true, "quietMs": 0, "command": true, "elapsedMs": 60000, "over": true }
+    ]
+  },
+  "micOwnerCases": {
+    "_": "#NEW-56 + NEW-55 (#1265 review): who owns the voice device's microphone. ONE owner at a time, never two capture streams: `wake` (the wake word's scan), `listen` (a push-to-talk Listen or a wake turn, which borrows the scan's microphone), `call` (a local call, behind its echo canceller) or null (closed; a REMOTE call hears the caller's stream and keeps the device's microphone closed). A CALL TAKES PRECEDENCE: Call closes the wake word's microphone (a wake turn in flight is replaced, unanswered), the wake scan pauses for the WHOLE call (a phrase said into a local call is the call's utterance, `said`, never a `woke`; Wake handed over during a call is kept and waits), and it comes back after Hangup; a push-to-talk Listen during a call is refused at once (`empty`: nothing heard, nothing sent, the call and its reply go on). Steps in order: `do` = wake (the host hands the phrase) | call | remoteCall | hangup | listen (a key-down) | phrase (the person says the wake phrase into the device); `mic` = the owner once the step settled; `answer` = what the step produced: woke | said | empty | null (nothing). Replayed by the speech worker's tests (apps/desktop/crates/voice/src/listener.rs).",
+    "cases": [
+      { "name": "a call pauses the wake scan; Hangup resumes it", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "phrase", "mic": "call", "answer": "said" },
+        { "do": "hangup", "mic": "wake", "answer": null },
+        { "do": "phrase", "mic": "listen", "answer": "woke" }
+      ] },
+      { "name": "push to talk during a call is refused", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "listen", "mic": "call", "answer": "empty" },
+        { "do": "phrase", "mic": "call", "answer": "said" },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "a call replaces a wake turn in flight, unanswered", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "phrase", "mic": "listen", "answer": "woke" },
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "a remote call keeps the device's microphone closed", "steps": [
+        { "do": "wake", "mic": "wake", "answer": null },
+        { "do": "remoteCall", "mic": null, "answer": null },
+        { "do": "listen", "mic": null, "answer": "empty" },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] },
+      { "name": "the wake word turned on during a call waits for Hangup", "steps": [
+        { "do": "call", "mic": "call", "answer": null },
+        { "do": "wake", "mic": "call", "answer": null },
+        { "do": "hangup", "mic": "wake", "answer": null }
+      ] }
     ]
   }
 }

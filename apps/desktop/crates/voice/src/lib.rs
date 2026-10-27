@@ -211,8 +211,13 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 silence(&shared);
             }
             Request::Listen { id, language } => {
+                // A call owns the microphone until Hangup: refused, nothing
+                // heard, its reply keeps playing.
+                if !listening.begin(&id) {
+                    (shared.emit)(&Event::Empty { id });
+                    continue;
+                }
                 // Barge-in: the person talks over the reply.
-                listening.begin(&id);
                 shared.generation.fetch_add(1, Ordering::SeqCst);
                 silence(&shared);
                 let _ = listen.send(listener::Job::Start { id, language });
