@@ -1132,6 +1132,7 @@ private fun SelectionBar(
                 )
             }
             if (showStartCoding) {
+                Spacer(Modifier.width(4.dp))
                 // The ONE primary action starts the selection on the composer
                 // at once (one issue, or a batch of several): a menu with a
                 // single entry was a tap for nothing (web parity).

@@ -92,13 +92,13 @@ fun SelectionBarShell(
                 maxLines = 1,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
-            // The actions spread over the rest of the bar, the last one on
-            // its far edge (the issue bar's Start coding + Delete, the Chats
-            // bar's Mark read … Delete alike).
+            // The actions take the rest of the bar, packed on its far edge
+            // like iOS's bar (the issue bar's Start coding + Delete, the
+            // Chats bar's Mark read … Delete alike).
             Row(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 content = content,
             )
         }
