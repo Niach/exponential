@@ -25,8 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ToastAction
-import com.exponential.app.domain.ToastKind
-import com.exponential.app.domain.ToastItem
 import com.exponential.app.ui.components.BlockingSurface
 import com.exponential.app.ui.components.FeedbackMark
 import com.exponential.app.ui.components.InlineStatus
@@ -34,7 +32,6 @@ import com.exponential.app.ui.components.InlineStatusState
 import com.exponential.app.ui.components.PendingPill
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.ToastCard
 import com.exponential.app.ui.components.ToastHost
 import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
@@ -61,6 +58,13 @@ fun FeedbackStatesScreen() {
             "The server did not answer.",
             ToastAction(FeedbackStates.RETRY) {},
         )
+        // EXP-1391 + EXP-1378: the check gate's refusal offers Merge anyway
+        // instead of Retry (`errors.mergeRefusal`); in front, the Retry one peeks.
+        toaster.error(
+            FeedbackStates.errorTitle("merge", "the PR"),
+            "Checks are still running on PR #7: \"gate\". ${FeedbackStates.MERGE_HANDOFF}",
+            ToastAction(FeedbackStates.MERGE_ANYWAY) {},
+        )
     }
     AppBackground {
         Box(modifier = Modifier.fillMaxSize().testTag(FeedbackStatesScreenTestId)) {
@@ -69,8 +73,8 @@ fun FeedbackStatesScreen() {
                     .fillMaxSize()
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    // The top clears the error toast raised over the screen.
-                    .padding(start = 16.dp, end = 16.dp, top = 112.dp, bottom = 72.dp),
+                    // The top clears the error toasts raised over the screen.
+                    .padding(start = 16.dp, end = 16.dp, top = 136.dp, bottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Kind("Inline") {
@@ -137,20 +141,6 @@ fun FeedbackStatesScreen() {
                         // `errors.inline.size`: the rose line under its field.
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.error,
-                    )
-                    // EXP-1391 + EXP-1378: the check gate's refusal offers
-                    // Merge anyway instead of Retry (`errors.mergeRefusal`).
-                    ToastCard(
-                        item = ToastItem(
-                            id = "merge-refused",
-                            kind = ToastKind.Error,
-                            title = FeedbackStates.errorTitle("merge", "the PR"),
-                            description = "Checks are still running on PR #7: \"gate\". ${FeedbackStates.MERGE_HANDOFF}",
-                            action = ToastAction(FeedbackStates.MERGE_ANYWAY) {},
-                        ),
-                        onDismiss = {},
-                        onExpandToggle = {},
-                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
