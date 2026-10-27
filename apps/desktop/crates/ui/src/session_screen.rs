@@ -225,10 +225,23 @@ fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
 
 /// The back link row: `← <title>`, muted, foreground on hover.
 fn back_link(screen: Screen, title: String, cx: &App) -> AnyElement {
+    // Back to the root when it is the previous entry (no ping-pong).
+    back_link_row("session-back-link", title, move |window, cx| {
+        crate::navigation::go_back_to(window, cx, screen.clone());
+    }, cx)
+}
+
+/// THE back link row's look (#EXP-1388: the Archived page's `← Chats` too).
+pub(crate) fn back_link_row(
+    id: &'static str,
+    title: String,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let hover = cx.theme().foreground;
     h_flex()
-        .id("session-back-link")
+        .id(id)
         .min_w_0()
         .gap_1p5()
         .items_center()
@@ -238,10 +251,7 @@ fn back_link(screen: Screen, title: String, cx: &App) -> AnyElement {
         .hover(move |style| style.text_color(hover))
         .child(Icon::new(registry::UI_BACK).small())
         .child(div().min_w_0().truncate().child(SharedString::from(title)))
-        // Back to the root when it is the previous entry (no ping-pong).
-        .on_click(move |_, window, cx| {
-            crate::navigation::go_back_to(window, cx, screen.clone());
-        })
+        .on_click(move |_, window, cx| on_click(window, cx))
         .into_any_element()
 }
 

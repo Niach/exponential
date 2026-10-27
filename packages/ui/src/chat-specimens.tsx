@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react"
 import chats from "@exp/domain-contract/fixtures/chats.json"
 import {
   agentMenuEntries,
+  chatSelectionActions,
   threadMenuEntries,
   type AgentBubble,
   type ChatFilter,
@@ -9,7 +10,8 @@ import {
 } from "@exp/domain-contract/chats"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
 import { BoardGlyph } from "./board-glyph"
-import { AgentBubbles, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
+import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
+import { AgentBubbles, CHAT_SELECTION_ICONS, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
 import { Dialog } from "./dialog"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
@@ -26,6 +28,7 @@ import { TooltipProvider } from "./tooltip"
 
 // Thread 58cb32df (#EXP-1373, fixtures/chats.json): THE chat + phone-shell specimens,
 // one source for the styleguide entries (`chat-list`, `chat-menus`,
+// #EXP-1388 `chat-selection`,
 // `chat-transcript`, `phone-tab-bar`; #EXP-1384 `phone-board-menu`,
 // `phone-page-header`) and the app's DEV-ONLY `?dev=<id>`
 // captures on the Agent route; the natives' specimens draw the same.
@@ -59,6 +62,66 @@ export function ChatListSpecimen() {
       <AgentBubbles bubbles={BUBBLES} />
       <ChatFilterChips value={filter} counts={LIST.counts} onChange={setFilter} />
       <ChatList rows={rows} agentOf={() => `claude`} />
+    </div>
+  )
+}
+
+// ── chat-selection ───────────────────────────────────────────────────────
+// #EXP-1388 (chats.json SELECTION + ARCHIVE): the list in selection mode:
+// the Archived entry first (listCases[4]'s count), the rows of listCases[0]
+// with two selected (a running chat and an unread one), over THE bulk bar
+// with `chatSelectionActions` for them (the phone's icon-only cells).
+
+const ARCHIVED_COUNT = chats.listCases[4]!.expected.archived
+const SELECTED = new Set([`b`, `c`])
+export function ChatSelectionSpecimen() {
+  const [selected, setSelected] = useState<ReadonlySet<string>>(SELECTED)
+  const toggle = (id: string) =>
+    setSelected((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next.size === 0 ? SELECTED : next
+    })
+  const actions = chatSelectionActions({
+    rows: LIST_ROWS.filter((row) => selected.has(row.sessionId)).map((row) => ({
+      sessionId: row.sessionId,
+      rootStatus: row.group === `recent` ? `ended` : `running`,
+      unreadCount: row.unreadCount,
+      canSteer: true,
+      canDelete: true,
+    })),
+  })
+  return (
+    <div
+      data-testid="chat-selection-specimen"
+      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4"
+    >
+      <ChatFilterChips value="all" counts={LIST.counts} onChange={noop} />
+      <ChatList
+        rows={LIST_ROWS}
+        agentOf={() => `claude`}
+        archived={ARCHIVED_COUNT}
+        selection={selected}
+        onRowClick={toggle}
+      />
+      <div className="flex justify-center pt-2">
+        <BulkBarCapsule count={COPY.selection.count.replace(`{n}`, String(selected.size))} onClear={noop} iconOnly>
+          {actions.map(({ action }) => {
+            const Icon = CHAT_SELECTION_ICONS[action]
+            return (
+              <span key={action} className="contents">
+                {action === `delete` && <BulkBarSeparator iconOnly />}
+                <BulkBarAction
+                  icon={<Icon className="size-4" />}
+                  label={COPY.selection[action]}
+                  destructive={action === `delete`}
+                  iconOnly
+                />
+              </span>
+            )
+          })}
+        </BulkBarCapsule>
+      </div>
     </div>
   )
 }

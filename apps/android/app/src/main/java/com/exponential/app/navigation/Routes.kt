@@ -14,6 +14,9 @@ object Routes {
     const val HOME = MainTabs.AGENT
     const val THREADS = MainTabs.THREADS
 
+    /** #EXP-1388: the Chats tab's Archived page (pushed from its entry row). */
+    const val CHATS_ARCHIVED = "threads-archived"
+
     /** `tab` = the tab the thread opens on (`guide` for a `?view=guide`
      *  link); absent = the Conversation. */
     const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}"

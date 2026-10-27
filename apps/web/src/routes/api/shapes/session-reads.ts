@@ -11,6 +11,7 @@ export const SESSION_READ_COLUMNS = [
   `user_id`,
   `session_id`,
   `read_at`,
+  `archived_at`,
   `created_at`,
   `updated_at`,
 ]

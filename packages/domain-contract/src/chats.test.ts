@@ -7,7 +7,12 @@ import {
   agentBubbles,
   agentInstructionsChanged,
   agentMenuEntries,
+  chatDeleteTitle,
+  chatSelectionFailedTitle,
   chatList,
+  chatSelectionActions,
+  chatSelectionRange,
+  chatsUnread,
   chatPreview,
   chatTimeLabel,
   commandDivider,
@@ -36,6 +41,18 @@ describe(`chats.json`, () => {
   for (const c of fixture.plainCases) test(`plain: ${JSON.stringify(c.text)}`, () => expect(plainLine(c.text)).toBe(c.expected))
   for (const c of fixture.digestCases)
     test(`digest: ${c.name}`, () => expect(digestMessages(c.sessionId, c.digest as never)).toEqual(c.messages as never))
+  for (const c of fixture.selectionCases) test(`selection: ${c.name}`, () => expect(chatSelectionActions(c.input as never)).toEqual(c.expected as never))
+  for (const c of fixture.rangeCases) test(`range: ${c.name}`, () => expect(chatSelectionRange(c.order, c.anchor, c.target)).toEqual(c.expected))
+  for (const c of fixture.dotCases) test(`dot: ${c.name}`, () => expect(chatsUnread(c.input.groups as never, c.input.reads as never)).toBe(c.expected))
+  test(`delete titles`, () => {
+    expect(chatDeleteTitle(1)).toBe(fixture.copy.confirmDelete.title)
+    expect(chatDeleteTitle(3)).toBe(`Delete 3 chats?`)
+  })
+  test(`selection failure titles`, () => {
+    expect(chatSelectionFailedTitle(2, 5)).toBe(`2 of 5 chats couldn't be updated`)
+    expect(chatSelectionFailedTitle(5, 5)).toBe(fixture.copy.toasts.selectionFailed)
+    expect(chatSelectionFailedTitle(1, 1)).toBe(fixture.copy.toasts.selectionFailed)
+  })
   test(`every menu entry and tab has copy`, () => {
     for (const e of [`stop`, `stopAndDelete`, `delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()
     for (const t of fixture.shell.tabs) expect(fixture.copy.tabs[t as keyof typeof fixture.copy.tabs]).toBeTruthy()

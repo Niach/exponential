@@ -10,6 +10,7 @@ import {
   DockCardSpecimen,
   PlanCardSpecimen,
   ChatListSpecimen,
+  ChatSelectionSpecimen,
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
   PhoneTabBarSpecimen,
@@ -71,7 +72,7 @@ const str = (value: unknown): string | undefined =>
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
 // `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
-// `phone-page-header` the chats.json specimens) (identical
+// `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens) (identical
 // ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -82,6 +83,7 @@ const DEV_VIEWS = [
   `plan-card`,
   `chat-list`,
   `chat-menus`,
+  `chat-selection`,
   `chat-transcript`,
   `phone-tab-bar`,
   `phone-board-menu`,
@@ -134,6 +136,8 @@ function AgentRoute() {
           <ChatListSpecimen />
         ) : dev === `chat-menus` ? (
           <ChatMenusSpecimen />
+        ) : dev === `chat-selection` ? (
+          <ChatSelectionSpecimen />
         ) : dev === `chat-transcript` ? (
           <ChatTranscriptSpecimen />
         ) : dev === `phone-tab-bar` ? (

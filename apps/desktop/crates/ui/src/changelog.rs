@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-27-chat-selection-archive",
+    date: "2026-10-27",
+    title: "Select chats, mark them read and archive them",
+    summary: "Select several chats at once to mark them read or unread, archive, stop or delete them, and keep your Chats list tidy with an Archived page of your own.",
+    body: r#"- **Select**: long-press a chat on a phone, or pick Select from a chat's right-click menu; cmd or ctrl click adds a chat, shift click adds a range. Tapping a chat while selecting toggles it.
+- **The bar**: the same bar as the issue list's selection: Mark read or Mark unread, Archive, Stop while a chat runs and Delete when you may delete every selected chat.
+- **Archived**: archiving is yours alone, your teammates keep their list. Archived chats move to the Archived row at the top of Chats, and a chat that needs you comes back on its own.
+- **The Chats dot**: an archived chat no longer lights it."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_101: ChangelogEntry = ChangelogEntry {
     id: "2026-10-27-wake-word-follow-ups",
     date: "2026-10-27",
     title: "Wake word: a pause after each turn, Listening in Settings, Mute remembered",

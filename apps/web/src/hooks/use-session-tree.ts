@@ -279,9 +279,18 @@ export function useSessionReads(): TreeSessionRead[] {
   const { data } = useLiveQuery((query) => query.from({ reads: sessionReadsCollection }), [])
   return useMemo(
     () =>
-      ((data ?? []) as { sessionId: string; readAt: Date | string }[]).map((read) => ({
+      (
+        (data ?? []) as {
+          sessionId: string
+          readAt: Date | string
+          archivedAt?: Date | string | null
+        }[]
+      ).map((read) => ({
         sessionId: read.sessionId,
         readAt: read.readAt instanceof Date ? read.readAt.toISOString() : read.readAt,
+        // #EXP-1388: the viewer's archive of the chat (chatList's `view`).
+        archivedAt:
+          read.archivedAt instanceof Date ? read.archivedAt.toISOString() : (read.archivedAt ?? null),
       })),
     [data]
   )

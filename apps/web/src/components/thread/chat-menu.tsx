@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {
   agentMenuEntries,
@@ -17,6 +17,7 @@ import {
   type MenuEntry,
   type MenuSessionProps,
 } from "@exp/ui"
+import type { IssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useSessionRow, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
@@ -140,21 +141,52 @@ export function useChatMenuEntries(
   })
 }
 
+const SelectIcon = conceptIcon(`ui-selected`)
+
+/** A touch-first device: a long-press is a gesture, not a right-click. */
+const coarsePointer = (): boolean =>
+  typeof window !== `undefined` && window.matchMedia?.(`(pointer: coarse)`).matches === true
+
 /** The `thread` kind's menu at the pointer (a sheet titled with the chat's
- *  title on a phone). */
+ *  title on a phone). #EXP-1388: on the Chats list (`selection` = the list's
+ *  adapter) a pointer's menu starts with Select; a touch long-press enters
+ *  the selection with the row instead of opening a menu. */
 export function ChatMenuSession({
   target,
   open,
   onOpenChange,
   actions,
-}: MenuSessionProps & { actions: ReturnType<typeof useChatActions> }) {
+  selection,
+}: MenuSessionProps & { actions: ReturnType<typeof useChatActions>; selection?: IssueMenuSelection }) {
   const { row } = useSessionRow(target.id)
   const root = row && row.parentId === null && !row.agentId ? row : null
   // #EXP-1380 (chats.json LIST DATA): the title reads the digest, never a
   // transcript.
   const rootRows = useMemo(() => (root ? [root] : []), [root])
   const { titles } = useSessionTitles(rootRows)
-  const entries = useChatMenuEntries(root, actions)
+  const chatEntries = useChatMenuEntries(root, actions)
+  const [touch] = useState(coarsePointer)
+  const longPressSelects = Boolean(selection) && touch
+  useEffect(() => {
+    if (!longPressSelects || !open) return
+    selection?.toggle(target.id)
+    onOpenChange(false)
+  }, [longPressSelects, open, selection, target.id, onOpenChange])
+  if (longPressSelects) return null
+  const entries: MenuEntry[] = selection
+    ? [
+        {
+          kind: `item`,
+          id: `select`,
+          label: COPY.selection.select,
+          icon: SelectIcon,
+          "data-testid": `chat-menu-select`,
+          onSelect: () => selection.toggle(target.id),
+        },
+        ...(chatEntries.length > 0 ? [{ kind: `separator` as const, id: `select-separator` }] : []),
+        ...chatEntries,
+      ]
+    : chatEntries
   if (entries.length === 0) return null
   const title = (root ? titles.get(root.id) : undefined) || COPY.title
   return (

@@ -45,8 +45,16 @@ import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.ChatDeleteConfirm
 import com.exponential.app.ui.components.ChatFilterChips
+import com.exponential.app.ui.components.ChatArchivedRow
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.ChatRow
+import com.exponential.app.ui.components.ChatSelectionBar
+import com.exponential.app.ui.components.BottomNavDefaults
+import com.exponential.app.ui.components.LocalBottomBarSuppression
+import com.exponential.app.domain.DomainContract
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.layout.navigationBarsPadding
 import com.exponential.app.ui.components.LocalPageHeaderActions
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PageHeaderActions
@@ -69,9 +77,13 @@ import com.exponential.app.ui.theme.flatRow
  * in-content headline `copy.title` with its search + inbox circles, the
  * agent BUBBLES row, the filter chips, then ONE flat list of the active
  * team's chats ([Chats.chatList]: the roots of partitionThreads by
- * activity, no bands, no nesting). A row opens its chat; a long-press opens
- * THE chat menu sheet (Stop · Stop and delete live, Delete ended; Delete asks
- * first). A bubble opens the agent's chat; its long-press the agent menu.
+ * activity, no bands, no nesting). A row opens its chat. #EXP-1388: a
+ * long-press ENTERS THE SELECTION with that row (taps toggle, nothing opens;
+ * the bar = the issue list's bulk bar in the tab bar's slot: Mark read /
+ * unread, Archive / Unarchive, Stop, Delete); the Archived entry (first,
+ * filter All) pushes the Archived page ([view] Archived: the page header
+ * with back, the archived rows). A bubble opens the agent's chat; its
+ * long-press the agent menu.
  */
 @Composable
 fun ThreadsScreen(
@@ -86,8 +98,15 @@ fun ThreadsScreen(
     onOpenAgentSettings: (agentId: String) -> Unit = {},
     /** The inbox circle's dot: any notification unread. */
     inboxUnread: Boolean = false,
+    /** #EXP-1388: the list, or the pushed Archived page. */
+    view: Chats.ChatListView = Chats.ChatListView.List,
+    /** #EXP-1388: the Archived entry pushes the Archived page. */
+    onOpenArchived: () -> Unit = {},
+    /** #EXP-1388: the Archived page's back control. */
+    onBack: () -> Unit = {},
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
+    LaunchedEffect(view) { viewModel.setView(view) }
     val list by viewModel.chatList.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
@@ -104,50 +123,93 @@ fun ThreadsScreen(
         viewModel.clearNotice()
     }
 
-    var menuFor by remember { mutableStateOf<Chats.ChatRow?>(null) }
     var agentMenuFor by remember { mutableStateOf<SessionTree.AgentRow?>(null) }
-    var deleteFor by remember { mutableStateOf<String?>(null) }
+    var deleteFor by remember { mutableStateOf<List<String>?>(null) }
 
-    Scaffold(containerColor = Color.Transparent) { padding ->
-        ChatsContent(
-            list = list,
-            filter = filter,
-            bubbles = bubbles,
-            agentOf = { facts[it]?.agent },
-            onSelectFilter = viewModel::selectFilter,
-            onOpenChat = onOpenThread,
-            onLongPressChat = { row ->
-                // A viewer who cannot steer the chat gets no menu.
-                val root = facts[row.sessionId]
-                if (root != null && Chats.threadMenuEntries(root.status, root.canSteer, root.mine || isOwner).isNotEmpty()) menuFor = row
+    // #EXP-1388: the selection, in selection order; it keeps only rows still
+    // in the list, and leaving it (empty, close, back) hands the tab bar's
+    // slot back.
+    var selected by remember { mutableStateOf(emptyList<String>()) }
+    val rowIds = list.rows.map { it.sessionId }
+    LaunchedEffect(rowIds) {
+        val kept = selected.filter { it in rowIds }
+        if (kept.size != selected.size) selected = kept
+    }
+    val selecting = selected.isNotEmpty()
+    val barSuppression = LocalBottomBarSuppression.current
+    DisposableEffect(selecting) {
+        barSuppression?.suppressed = selecting
+        onDispose { barSuppression?.suppressed = false }
+    }
+    BackHandler(enabled = selecting) { selected = emptyList() }
+    val actions = remember(selected, list, facts, isOwner, view) {
+        val byId = list.rows.associateBy { it.sessionId }
+        Chats.chatSelectionActions(
+            selected.mapNotNull { id ->
+                val row = byId[id] ?: return@mapNotNull null
+                val root = facts[id]
+                Chats.ChatSelectionRow(
+                    sessionId = id,
+                    rootStatus = root?.status ?: DomainContract.sessionStatusEnded,
+                    unreadCount = row.unreadCount,
+                    canSteer = root?.canSteer == true,
+                    canDelete = root != null && (root.mine || isOwner),
+                )
             },
-            onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
-            onLongPressAgent = { agentMenuFor = it },
-            onOpenInbox = onOpenInbox,
-            inboxUnread = inboxUnread,
-            modifier = Modifier.padding(padding),
+            view,
         )
     }
 
-    menuFor?.let { row ->
-        val root = facts[row.sessionId]
-        val entries = root?.let { Chats.threadMenuEntries(it.status, it.canSteer, it.mine || isOwner) }.orEmpty()
-        ChatMenuSheet(
-            title = row.title,
-            items = chatMenuItems(
-                entries,
-                onStop = {
-                    menuFor = null
-                    viewModel.stopChat(row.sessionId)
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(containerColor = Color.Transparent) { padding ->
+            ChatsContent(
+                list = list,
+                filter = filter,
+                bubbles = if (view == Chats.ChatListView.Archived) emptyList() else bubbles,
+                agentOf = { facts[it]?.agent },
+                onSelectFilter = viewModel::selectFilter,
+                onOpenChat = onOpenThread,
+                onLongPressChat = { row -> selected = listOf(row.sessionId) },
+                onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
+                onLongPressAgent = { agentMenuFor = it },
+                onOpenInbox = onOpenInbox,
+                inboxUnread = inboxUnread,
+                view = view,
+                onOpenArchived = onOpenArchived,
+                onBack = onBack,
+                selected = selected,
+                onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
+                modifier = Modifier.padding(padding),
+            )
+        }
+        if (selecting) {
+            // The issue list's placement: the nav bar's own gutter, in its slot.
+            ChatSelectionBar(
+                count = selected.size,
+                actions = actions,
+                onClear = { selected = emptyList() },
+                onAction = { entry ->
+                    val ids = entry.sessionIds
+                    when (entry.action) {
+                        Chats.ChatSelectionAction.MarkRead -> viewModel.setRead(ids, read = true)
+                        Chats.ChatSelectionAction.MarkUnread -> viewModel.setRead(ids, read = false)
+                        Chats.ChatSelectionAction.Archive -> viewModel.setArchived(ids, archived = true)
+                        Chats.ChatSelectionAction.Unarchive -> viewModel.setArchived(ids, archived = false)
+                        Chats.ChatSelectionAction.Stop -> viewModel.stopChats(ids)
+                        Chats.ChatSelectionAction.Delete -> deleteFor = ids
+                    }
+                    // Every action leaves the selection.
+                    selected = emptyList()
                 },
-                onDelete = {
-                    menuFor = null
-                    deleteFor = row.sessionId
-                },
-            ),
-            onDismiss = { menuFor = null },
-        )
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = BottomNavDefaults.HorizontalInset)
+                    .padding(bottom = 8.dp),
+            )
+        }
     }
+
     agentMenuFor?.let { agent ->
         val conversation = conversations[agent.agentId]
         ChatMenuSheet(
@@ -164,18 +226,20 @@ fun ThreadsScreen(
             onDismiss = { agentMenuFor = null },
         )
     }
-    deleteFor?.let { rootId ->
+    deleteFor?.let { rootIds ->
         ChatDeleteConfirm(
+            title = Chats.chatDeleteTitle(rootIds.size),
             onConfirm = {
                 deleteFor = null
-                viewModel.deleteChat(rootId)
+                viewModel.deleteChats(rootIds)
             },
             onDismiss = { deleteFor = null },
         )
     }
 }
 
-/** The Chats tab's stateless body (the styleguide's `chat-list` draws it). */
+/** The Chats tab's stateless body (the styleguide's `chat-list` and
+ *  `chat-selection` draw it). */
 @Composable
 fun ChatsContent(
     list: Chats.ChatList,
@@ -190,6 +254,13 @@ fun ChatsContent(
     onOpenInbox: () -> Unit,
     inboxUnread: Boolean,
     modifier: Modifier = Modifier,
+    /** #EXP-1388: the list, or the Archived page. */
+    view: Chats.ChatListView = Chats.ChatListView.List,
+    onOpenArchived: () -> Unit = {},
+    onBack: () -> Unit = {},
+    /** #EXP-1388: the selection (empty = not selecting). */
+    selected: List<String> = emptyList(),
+    onToggleSelect: (rootSessionId: String) -> Unit = {},
 ) {
     // #EXP-1384: the header's search pushes the phone search; the inbox
     // circle is this list's own (the specimen drives it).
@@ -199,15 +270,23 @@ fun ChatsContent(
         onInbox = onOpenInbox,
         inboxUnread = inboxUnread,
     )
+    val archivedPage = view == Chats.ChatListView.Archived
+    val selecting = selected.isNotEmpty()
     val rows = list.rows
+    // #EXP-1388: the Archived entry leads while chats are archived (filter All).
+    val archivedEntry = !archivedPage && list.archived > 0 && filter == Chats.ChatFilter.All
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
         contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
     ) {
         item(key = "__header__") {
-            PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
+            if (archivedPage) {
+                PageHeader(title = Chats.Copy.ARCHIVED_TITLE, onBack = onBack, actions = headerActions)
+            } else {
+                PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
+            }
         }
-        if (bubbles.isNotEmpty()) {
+        if (bubbles.isNotEmpty() && !archivedPage) {
             item(key = "__bubbles__") {
                 AgentBubbles(bubbles = bubbles, onOpen = onOpenAgent, onLongPress = onLongPressAgent)
             }
@@ -215,18 +294,30 @@ fun ChatsContent(
         item(key = "__filters__") {
             ChatFilterChips(selected = filter, counts = list.counts, onSelect = onSelectFilter)
         }
-        if (rows.isEmpty()) {
+        if (archivedEntry) {
+            item(key = "__archived__") {
+                ChatArchivedRow(
+                    count = list.archived,
+                    onClick = if (selecting) null else onOpenArchived,
+                    divider = rows.isNotEmpty(),
+                )
+            }
+        }
+        if (rows.isEmpty() && !archivedEntry) {
             item(key = "__empty__") {
-                Box(Modifier.fillMaxWidth().height(320.dp)) { EmptyState(EmptyStateCopy.threads) }
+                Box(Modifier.fillMaxWidth().height(320.dp)) {
+                    EmptyState(if (archivedPage) EmptyStateCopy.threads.copy(id = "archived", iconConcept = "ui-archive", title = Chats.Copy.ARCHIVED_EMPTY) else EmptyStateCopy.threads)
+                }
             }
         }
         itemsIndexed(rows, key = { _, row -> "chat_${row.sessionId}" }) { index, row ->
             ChatRow(
                 row = row,
                 agent = agentOf(row.sessionId),
-                onClick = { onOpenChat(row.sessionId) },
-                onLongClick = { onLongPressChat(row) },
+                onClick = { if (selecting) onToggleSelect(row.sessionId) else onOpenChat(row.sessionId) },
+                onLongClick = { if (selecting) onToggleSelect(row.sessionId) else onLongPressChat(row) },
                 divider = index < rows.lastIndex,
+                selected = if (selecting) row.sessionId in selected else null,
             )
         }
     }

@@ -132,9 +132,17 @@ pub(crate) fn confirm_delete(root_id: &str, window: &mut Window, cx: &mut App) {
 
 /// THE delete confirm's spec (the styleguide draws the same).
 pub(crate) fn delete_alert(on_ok: impl Fn(&mut Window, &mut App) -> bool + 'static) -> crate::native_dialog::AlertSpec {
+    delete_alert_for(1, on_ok)
+}
+
+/// #EXP-1388: the confirm for `count` chats (`chat_delete_title`).
+pub(crate) fn delete_alert_for(
+    count: usize,
+    on_ok: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> crate::native_dialog::AlertSpec {
     let copy = &CHATS.copy;
     crate::native_dialog::AlertSpec::new(
-        copy.confirm_delete.title.clone(),
+        domain::chats::chat_delete_title(count),
         copy.confirm_delete.body.clone(),
         copy.menu.delete.clone(),
     )
@@ -166,6 +174,122 @@ pub(crate) fn delete_chat(root_id: &str, cx: &mut App) {
     })
     .detach();
 }
+
+/// #EXP-1388: the selection's rows as the bar reads them (`rootStatus`,
+/// `unreadCount`, `canSteer`, `canDelete`), in `ids` order; an id that is
+/// no chat root drops out.
+pub(crate) fn selection_rows(
+    ids: &[String],
+    rows: &[domain::chats::ChatRow],
+    cx: &App,
+) -> Vec<domain::chats::ChatSelectionRow> {
+    ids.iter()
+        .filter_map(|id| {
+            let root = crate::session_data::session(id, cx)?;
+            let unread_count = rows.iter().find(|row| &row.session_id == id).map_or(0, |row| row.unread_count);
+            let steer = is_chat_root(&root) && can_steer(&root, cx);
+            Some(domain::chats::ChatSelectionRow {
+                session_id: id.clone(),
+                root_status: root.status.clone().unwrap_or_default(),
+                unread_count,
+                can_steer: steer,
+                can_delete: steer && can_delete(&root, cx),
+            })
+        })
+        .collect()
+}
+
+/// #EXP-1388: run a selection bar action over `ids` (the caller already left
+/// the selection). Mark read/unread and Archive/Unarchive batch (200 ids a
+/// call); Stop = `sessions.end` per chat; Delete asks first
+/// (`chat_delete_title`) then `sessions.delete` per chat. Any failure = ONE
+/// toast, `chat_selection_failed_title` (`{n} of {m}` when only some failed).
+pub(crate) fn run_selection_action(
+    action: domain::chats::ChatSelectionAction,
+    ids: Vec<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    use domain::chats::ChatSelectionAction as A;
+    if ids.is_empty() {
+        return;
+    }
+    if action == A::Delete {
+        let spec = delete_alert_for(ids.len(), move |_, cx| {
+            spawn_selection(A::Delete, ids.clone(), cx);
+            true
+        });
+        crate::native_dialog::open_alert(window, cx, spec);
+        return;
+    }
+    spawn_selection(action, ids, cx);
+}
+
+/// The selection's server calls on one background task.
+fn spawn_selection(action: domain::chats::ChatSelectionAction, ids: Vec<String>, cx: &mut App) {
+    use domain::chats::ChatSelectionAction as A;
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        failed(&CHATS.copy.toasts.selection_failed, None, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let total = ids.len();
+        let (done, error): (Vec<String>, Option<api::ApiError>) = cx
+            .background_executor()
+            .spawn(async move {
+                let mut done = Vec::new();
+                let mut first_err = None;
+                let mut record = |id: &[String], result: Result<api::sessions::TxOutput, api::ApiError>| match result {
+                    Ok(_) => done.extend_from_slice(id),
+                    Err(err) => {
+                        first_err.get_or_insert(err);
+                    }
+                };
+                match action {
+                    A::MarkRead | A::MarkUnread | A::Archive | A::Unarchive => {
+                        for chunk in ids.chunks(SELECTION_CHUNK) {
+                            let result = match action {
+                                A::MarkRead => api::sessions::set_read(&trpc, chunk, true),
+                                A::MarkUnread => api::sessions::set_read(&trpc, chunk, false),
+                                A::Archive => api::sessions::set_archived(&trpc, chunk, true),
+                                _ => api::sessions::set_archived(&trpc, chunk, false),
+                            };
+                            record(chunk, result);
+                        }
+                    }
+                    A::Stop | A::Delete => {
+                        for id in &ids {
+                            let result = if action == A::Stop {
+                                api::sessions::end(&trpc, id)
+                            } else {
+                                api::sessions::delete(&trpc, id)
+                            };
+                            record(std::slice::from_ref(id), result);
+                        }
+                    }
+                }
+                (done, first_err)
+            })
+            .await;
+        let _ = cx.update(|cx| {
+            if action == A::Delete {
+                // The deleted chats' screens close, after a partial failure too.
+                for id in &done {
+                    close_chat_screens(id, cx);
+                }
+            }
+            if let Some(err) = &error {
+                log::warn!("[chats] selection {} failed: {err}", action.key());
+                let title = domain::chats::chat_selection_failed_title(total - done.len(), total);
+                failed(&title, Some(err), cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// `sessions.setRead` / `setArchived` take up to 200 ids a call.
+const SELECTION_CHUNK: usize = 200;
 
 /// The deleted chat's screens close: the root's thread and every session of
 /// its tree (a child's own tab would sit on rows that no longer exist) lose

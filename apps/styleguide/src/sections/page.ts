@@ -162,6 +162,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`phone-page-header`]: `Surfaces`,
   [`chat-transcript`]: `Surfaces`,
   [`chat-menus`]: `Surfaces`,
+  [`chat-selection`]: `Lists & rows`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

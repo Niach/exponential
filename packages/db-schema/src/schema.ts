@@ -2389,6 +2389,9 @@ export const sessionReads = pgTable(
       .notNull()
       .references(() => sessions.id, { onDelete: `cascade` }),
     readAt: timestamp(`read_at`, { withTimezone: true }).notNull().defaultNow(),
+    // #EXP-1388: the viewer archived the chat (on the ROOT's row; NULL = in
+    // the list). Per viewer, like the read; `sessions.setArchived`.
+    archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [

@@ -17,10 +17,11 @@ import {
   treeGuides,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
+import { chatsUnread } from "@exp/domain-contract/chats"
+import type { TreeSessionRead } from "@exp/domain-contract/session-tree"
 import {
   THREADS_LIST_COPY,
   railThreads,
-  threadsUnread,
   type ThreadRowWord,
   type ThreadsListGroup,
   type ThreadsListRow,
@@ -81,15 +82,19 @@ export interface SidebarThreads {
 
 /** The nav's live state for the Threads entry: green while anything runs,
  *  amber while something needs you; EXP-1323: else the unread dot while a
- *  thread holds a reply the viewer has not read (`threadsUnread`). */
-export function threadsNavState(groups: readonly ThreadsListGroup[]): {
+ *  thread holds a reply the viewer has not read; #EXP-1388: an archived
+ *  chat never lights it (`chatsUnread(groups, reads)`). */
+export function threadsNavState(
+  groups: readonly ThreadsListGroup[],
+  reads: readonly TreeSessionRead[] = []
+): {
   live: boolean
   needsYou: boolean
   unread: boolean
 } {
   const needsYou = groups.some((group) => group.key === `needs_you` && group.rows.length > 0)
   const running = groups.some((group) => group.key === `running` && group.rows.length > 0)
-  return { live: needsYou || running, needsYou, unread: threadsUnread(groups) }
+  return { live: needsYou || running, needsYou, unread: chatsUnread(groups, reads) }
 }
 
 /** The sidebar row's left padding = `SidebarMenuButton`'s own 8px. */

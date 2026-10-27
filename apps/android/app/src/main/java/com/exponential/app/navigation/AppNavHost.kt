@@ -493,7 +493,11 @@ private fun AuthenticatedNav(
     val onDevicesPage = currentRoute == Routes.TEAM_SETTINGS_PATTERN &&
         backStackEntry?.arguments?.getString("section") == SettingsNav.DEVICES
     val barVisible = !needsOnboarding &&
-        (currentRoute in MainTabs.routes || currentRoute == "board/{boardId}" || onDevicesPage)
+        (
+            currentRoute in MainTabs.routes || currentRoute == "board/{boardId}" || onDevicesPage ||
+                // #EXP-1388: the Archived page keeps the bar, the Chats tab lit.
+                currentRoute == Routes.CHATS_ARCHIVED
+            )
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
     // bar of its own — today the issue list's multi-select bar. The switch is
     // provided to the whole NavHost; the chrome below reads it directly.
@@ -737,6 +741,20 @@ private fun AuthenticatedNav(
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
                 inboxUnread = unreadCount > 0,
+                // #EXP-1388: the Archived entry pushes the Archived page.
+                onOpenArchived = { navController.navigate(Routes.CHATS_ARCHIVED) { launchSingleTop = true } },
+            )
+        }
+        composable(Routes.CHATS_ARCHIVED) {
+            // #EXP-1388: the viewer's archived chats (the page header with
+            // back; the selection bar unarchives).
+            ThreadsScreen(
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
+                onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
+                inboxUnread = unreadCount > 0,
+                view = com.exponential.app.domain.Chats.ChatListView.Archived,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(MainTabs.TEAM) {

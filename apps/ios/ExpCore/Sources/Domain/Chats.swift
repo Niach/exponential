@@ -76,6 +76,8 @@ public enum Chats {
             public static let stopFailed = "Couldn't stop the chat"
             public static let deleteFailed = "Couldn't delete the chat"
             public static let stopNotDelivered = "The device didn't get the stop"
+            public static let selectionFailed = "Couldn't update every chat"
+            public static let selectionPartial = "{n} of {m} chats couldn't be updated"
         }
         public enum Dividers {
             public static let new = "New conversation"
@@ -102,6 +104,28 @@ public enum Chats {
         public static let loadEarlier = "Load earlier"
         /// #EXP-1380: the transcript's ONE status line while the chat works.
         public static let working = "Working…"
+        /// #EXP-1388: the chat list's selection bar.
+        public enum Selection {
+            public static let select = "Select"
+            public static let count = "{n} selected"
+            public static let markRead = "Mark read"
+            public static let markUnread = "Mark unread"
+            public static let archive = "Archive"
+            public static let unarchive = "Unarchive"
+            public static let stop = "Stop"
+            public static let delete = "Delete"
+            public static let confirmDeleteMany = "Delete {n} chats?"
+
+            public static func countLine(_ n: Int) -> String {
+                count.replacingOccurrences(of: "{n}", with: String(n))
+            }
+        }
+        /// #EXP-1388: the Archived entry row and page.
+        public enum Archived {
+            public static let entry = "Archived"
+            public static let title = "Archived"
+            public static let empty = "No archived chats"
+        }
     }
 
     /// Fixture `transcript` (#EXP-1380 WINDOW + FOLLOW ×4): a chat paints
@@ -146,6 +170,8 @@ public enum Chats {
         public static let searchButton = "header-search"
         public static let loadEarlier = "transcript-load-earlier"
         public static let jumpToBottom = "jump-to-bottom"
+        public static let chatArchived = "chat-archived"
+        public static let selectionBar = "bulk-action-bar"
     }
 
     /// Fixture `shell`.
@@ -361,6 +387,74 @@ public enum Chats {
         public let rows: [ChatRow]
         /// Chip counts (All has none).
         public let counts: [ChatFilter: Int]
+        /// #EXP-1388: archived chats of the active team (the Archived entry).
+        public let archived: Int
+
+        public init(rows: [ChatRow], counts: [ChatFilter: Int], archived: Int = 0) {
+            self.rows = rows
+            self.counts = counts
+            self.archived = archived
+        }
+    }
+
+    /// #EXP-1388: the list's view: the chats, or the Archived page.
+    public enum ChatListView: String, Equatable, Sendable {
+        case list, archived
+    }
+
+    public enum ChatSelectionAction: String, Equatable, Sendable, CaseIterable {
+        case markRead, markUnread, archive, unarchive, stop, delete
+
+        public var label: String {
+            switch self {
+            case .markRead: Copy.Selection.markRead
+            case .markUnread: Copy.Selection.markUnread
+            case .archive: Copy.Selection.archive
+            case .unarchive: Copy.Selection.unarchive
+            case .stop: Copy.Selection.stop
+            case .delete: Copy.Selection.delete
+            }
+        }
+
+        /// Concept icon.
+        public var icon: String {
+            switch self {
+            case .markRead: "ui-mark-read"
+            case .markUnread: "ui-mark-unread"
+            case .archive: "ui-archive"
+            case .unarchive: "ui-unarchive"
+            case .stop: "coding-stop"
+            case .delete: "ui-delete"
+            }
+        }
+
+        public var destructive: Bool { self == .delete }
+    }
+
+    public struct ChatSelectionRow: Equatable, Sendable {
+        public let sessionId: String
+        public let rootStatus: String
+        public let unreadCount: Int
+        public let canSteer: Bool
+        public let canDelete: Bool
+
+        public init(sessionId: String, rootStatus: String, unreadCount: Int, canSteer: Bool, canDelete: Bool) {
+            self.sessionId = sessionId
+            self.rootStatus = rootStatus
+            self.unreadCount = unreadCount
+            self.canSteer = canSteer
+            self.canDelete = canDelete
+        }
+    }
+
+    public struct ChatSelectionItem: Equatable, Sendable {
+        public let action: ChatSelectionAction
+        public let sessionIds: [String]
+
+        public init(action: ChatSelectionAction, sessionIds: [String]) {
+            self.action = action
+            self.sessionIds = sessionIds
+        }
     }
 
     public enum AgentRing: String, Equatable, Sendable {
@@ -639,11 +733,15 @@ public enum Chats {
         prStates: [String: [String]] = [:],
         words: [String: ThreadRowWord] = [:],
         filter: ChatFilter,
+        view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int,
         visible: Set<String>? = nil
     ) -> ChatList {
-        let all: [ChatRow] = groups.flatMap { group in
+        let archivedIds = Set(reads.filter { ($0.archivedAt ?? "").isEmpty == false }.map(\.sessionId))
+        let isArchived = { (row: ChatRow) -> Bool in !row.needsYou && archivedIds.contains(row.sessionId) }
+        let wantArchived = view == .archived
+        let rows: [ChatRow] = groups.flatMap { group in
             group.rows.filter { $0.depth == 0 }.map { row -> ChatRow in
                 let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
                 let lead: ChatLead
@@ -685,14 +783,64 @@ public enum Chats {
             if ta != tb { return ta > tb }
             return a.sessionId < b.sessionId
         }
+        let all = rows.filter { isArchived($0) == wantArchived }
         return ChatList(
             rows: all.filter { keep($0, filter) },
             counts: [
                 .needsYou: all.filter { keep($0, .needsYou) }.count,
                 .running: all.filter { keep($0, .running) }.count,
                 .unread: all.filter { keep($0, .unread) }.count,
-            ]
+            ],
+            archived: rows.filter(isArchived).count
         )
+    }
+
+    /// #EXP-1388 (`dotCases`): the Chats nav dot = an unread root outside
+    /// the archive (a chat that needs you is never archived).
+    public static func chatsUnread(groups: [ThreadsListGroup], reads: [TreeSessionRead] = []) -> Bool {
+        let archived = Set(reads.filter { ($0.archivedAt ?? "").isEmpty == false }.map(\.sessionId))
+        return groups.contains { group in
+            group.rows.contains { row in
+                row.depth == 0 && row.unread && (row.needsYou || !archived.contains(row.sessionId))
+            }
+        }
+    }
+
+    /// #EXP-1388 (`selectionCases`): the selection bar's actions in bar
+    /// order, each with the chats it acts on (selection order).
+    public static func chatSelectionActions(rows: [ChatSelectionRow], view: ChatListView = .list) -> [ChatSelectionItem] {
+        guard !rows.isEmpty else { return [] }
+        let ids = rows.map(\.sessionId)
+        var out: [ChatSelectionItem] = [
+            ChatSelectionItem(action: rows.contains { $0.unreadCount > 0 } ? .markRead : .markUnread, sessionIds: ids),
+            ChatSelectionItem(action: view == .archived ? .unarchive : .archive, sessionIds: ids),
+        ]
+        let live = rows.filter { $0.canSteer && $0.rootStatus != "ended" }
+        if !live.isEmpty { out.append(ChatSelectionItem(action: .stop, sessionIds: live.map(\.sessionId))) }
+        if rows.allSatisfy({ $0.canSteer && $0.canDelete }) { out.append(ChatSelectionItem(action: .delete, sessionIds: ids)) }
+        return out
+    }
+
+    /// #EXP-1388 (`rangeCases`): a pointer's range select.
+    public static func chatSelectionRange(order: [String], anchor: String?, target: String) -> [String] {
+        guard let to = order.firstIndex(of: target) else { return [] }
+        guard let anchor, let from = order.firstIndex(of: anchor) else { return [target] }
+        return Array(order[min(from, to)...max(from, to)])
+    }
+
+    /// #EXP-1388: the (multi-)delete confirm's title.
+    public static func chatDeleteTitle(_ count: Int) -> String {
+        count == 1 ? Copy.ConfirmDelete.title
+            : Copy.Selection.confirmDeleteMany.replacingOccurrences(of: "{n}", with: String(count))
+    }
+
+    /// #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+    /// SOME of the `total` chats failed, else `selectionFailed`.
+    public static func chatSelectionFailedTitle(failed: Int, total: Int) -> String {
+        guard failed > 0, failed < total else { return Copy.Toasts.selectionFailed }
+        return Copy.Toasts.selectionPartial
+            .replacingOccurrences(of: "{n}", with: String(failed))
+            .replacingOccurrences(of: "{m}", with: String(total))
     }
 
     /// A chip's label: its copy, then its count when there is one.

@@ -246,6 +246,10 @@ describe(`the nav state`, () => {
       rows: [row(`t-new`, `Fix flaky scroll`, { unread: true })],
     }
     expect(threadsNavState([recent])).toEqual({ live: false, needsYou: false, unread: true })
+    // #EXP-1388: an archived chat never lights the Chats dot.
+    expect(
+      threadsNavState([recent], [{ sessionId: `t-new`, readAt: `2026-01-01T00:00:00Z`, archivedAt: `2026-01-02T00:00:00Z` }])
+    ).toEqual({ live: false, needsYou: false, unread: false })
   })
 
   it(`maps a row onto the run mark`, () => {

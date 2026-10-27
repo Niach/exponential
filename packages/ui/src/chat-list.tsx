@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react"
+import type { ComponentProps, MouseEvent as ReactMouseEvent, ReactNode } from "react"
 import {
   CHAT_FILTERS,
   CHATS_COPY,
@@ -10,10 +10,13 @@ import {
   type ChatLead,
   type ChatList as ChatListModel,
   type ChatRow as ChatRowModel,
+  type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
 import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/session-tree"
 import { AgentBrandMark, AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
+import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
+import { SelectionCheck } from "./bulk-bar"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
 import { PageHeader } from "./page-header"
@@ -33,13 +36,28 @@ import { SkeletonRows } from "./skeleton"
 //   AgentBubbles     the team's agents as 66px rings, scrolling sideways
 //   ChatFilterChips  All · Needs you N · Running N · Unread N (select Pills)
 //   ChatRow          one flat WhatsApp row: 52 lead disc, title + time,
-//                    two-line preview, word, unread badge
+//                    two-line preview, word, unread badge; while the list
+//                    SELECTS (#EXP-1388) it leads with the issue rows' control
+//   ChatArchivedRow  the Archived entry (#EXP-1388): the same row, ui-archive
+//                    in the disc, the count in the time slot, no preview
 //   ChatList         the rows (or the skeleton / the empty state)
 
 const ChatsIcon = conceptIcon(`nav-threads`)
 const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PrStackIcon = conceptIcon(`pr-stack`)
+const ArchiveIcon = conceptIcon(`ui-archive`)
+const CheckIcon = conceptIcon(`ui-check`)
+
+/** #EXP-1388: the selection bar's action glyphs (`chatSelectionActions`). */
+export const CHAT_SELECTION_ICONS: Record<ChatSelectionAction, ReturnType<typeof conceptIcon>> = {
+  markRead: conceptIcon(`ui-mark-read`),
+  markUnread: conceptIcon(`ui-mark-unread`),
+  archive: ArchiveIcon,
+  unarchive: conceptIcon(`ui-unarchive`),
+  stop: conceptIcon(`coding-stop`),
+  delete: conceptIcon(`ui-delete`),
+}
 
 /** The Chats page header: THE page header (`page-header.tsx`, chats.json
  *  `shell.header`) titled `copy.title`. */
@@ -176,16 +194,20 @@ export function ChatFilterChips({
 export function ChatLeadDisc({
   lead,
   agent,
+  icon,
   className,
 }: {
   lead: ChatLead
   /** The root's agent CLI (its brand mark). */
   agent: string | null
+  /** #EXP-1388: a glyph instead of the lead (the Archived entry's). */
+  icon?: ReactNode
   className?: string
 }) {
   const size = CHATS_SHELL.leadDisc
   let body: ReactNode
-  if (lead === `working`) body = <AgentWorkingMark agent={agent} className="size-6" />
+  if (icon) body = icon
+  else if (lead === `working`) body = <AgentWorkingMark agent={agent} className="size-6" />
   else if (lead === `open`) body = <PrOpenIcon className="size-6 text-emerald-500" />
   else if (lead === `merged`) body = <PrMergedIcon className="size-6 text-violet-400" />
   else body = <AgentBrandMark agent={agent} className="size-6" />
@@ -197,7 +219,7 @@ export function ChatLeadDisc({
       style={{ width: size, height: size }}
     >
       {body}
-      {lead === `needs_you` && (
+      {lead === `needs_you` && !icon && (
         <span
           aria-hidden
           data-slot="run-mark-badge"
@@ -224,19 +246,34 @@ function previewParts(row: ChatRowModel): { prefix: string; rest: string } {
   return { prefix: ``, rest: row.preview.text }
 }
 
+/** The row's button classes, shared by a chat and the Archived entry. */
+const ROW_CLASS = `flex w-full items-center gap-4 text-left outline-none transition-colors duration-fast active:bg-glass-active/40 focus-visible:bg-glass-active/40`
+
 /** One chat (a ROOT session) as the flat list row. Right-click / long-press
  *  opens its menu through the platform's ONE menu host
- *  (`menuProps('thread', sessionId)`). */
+ *  (`menuProps('thread', sessionId)`). While the list selects (#EXP-1388)
+ *  the row leads with the issue rows' selection control (wide: the
+ *  Checkbox square, phones: SelectionCheck) and `onRowClick` gets every
+ *  click (a toggle, never an open). */
 export function ChatRow({
   row,
   agent = null,
   onOpen,
+  onRowClick,
+  selecting = false,
+  selected = false,
   className,
   ...props
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: ChatRowModel
   agent?: string | null
   onOpen?: (sessionId: string) => void
+  /** #EXP-1388: the click with its modifiers (cmd/ctrl toggles, shift
+   *  ranges); wins over `onOpen`. */
+  onRowClick?: (sessionId: string, event: ReactMouseEvent<HTMLButtonElement>) => void
+  /** #EXP-1388: the list is selecting (every row leads with the glyph). */
+  selecting?: boolean
+  selected?: boolean
 }) {
   const unread = row.unreadCount > 0
   const { prefix, rest } = previewParts(row)
@@ -246,14 +283,43 @@ export function ChatRow({
       type="button"
       data-testid={CHATS_TEST_IDS.chatRow}
       data-session-id={row.sessionId}
+      data-selected={selecting ? selected : undefined}
+      aria-pressed={selecting ? selected : undefined}
       {...menuProps(`thread`, row.sessionId)}
       {...props}
-      onClick={onOpen ? () => onOpen(row.sessionId) : undefined}
-      className={cn(
-        `flex w-full items-center gap-4 text-left outline-none transition-colors duration-fast active:bg-glass-active/40 focus-visible:bg-glass-active/40`,
-        className
-      )}
+      // Shift-click ranges: never the browser's text selection.
+      onMouseDown={(event) => {
+        if (event.shiftKey) event.preventDefault()
+      }}
+      onClick={
+        onRowClick
+          ? (event) => onRowClick(row.sessionId, event)
+          : onOpen
+            ? () => onOpen(row.sessionId)
+            : undefined
+      }
+      className={cn(ROW_CLASS, className)}
     >
+      {/* The issue rows' selection cell (owner on #1283): phones the round
+          SelectionCheck, wide the Checkbox's square (its recipe painted
+          here: the row is already the button, a Radix button cannot nest). */}
+      {selecting && (
+        <SelectionCheck selected={selected} aria-label={`Select ${row.title}`} className="-mr-1 md:hidden" />
+      )}
+      {selecting && (
+        <span className="hidden w-5 shrink-0 items-center justify-center md:flex">
+          <span
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={`Select ${row.title}`}
+            data-slot="checkbox"
+            data-state={selected ? `checked` : `unchecked`}
+            className={cn(CHECKBOX_CLASSES.root, `flex items-center justify-center`)}
+          >
+            {selected && <CheckIcon className={CHECKBOX_CLASSES.icon} />}
+          </span>
+        </span>
+      )}
       <ChatLeadDisc lead={row.lead} agent={agent} />
       <span className="flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5">
         <span className="flex min-w-0 items-baseline gap-2">
@@ -307,8 +373,38 @@ export function ChatRow({
   )
 }
 
-/** The flat list (`chatList(...).rows`): rows, the skeleton while the
- *  shapes load, else the empty state. */
+/** #EXP-1388: the Archived entry, the list's first row while chats are
+ *  archived (and the filter is All): the chat row with `ui-archive` in its
+ *  lead disc, `copy.archived.entry` and the count in the (muted) time slot,
+ *  no preview line. */
+export function ChatArchivedRow({
+  count,
+  onOpen,
+  className,
+  ...props
+}: Omit<ComponentProps<`button`>, `onClick`> & { count: number; onOpen?: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid={CHATS_TEST_IDS.chatArchived}
+      {...props}
+      onClick={onOpen}
+      className={cn(ROW_CLASS, className)}
+    >
+      <ChatLeadDisc lead="waiting" agent={null} icon={<ArchiveIcon className="size-6 text-muted-foreground" />} />
+      <span className="flex min-w-0 flex-1 items-center gap-2 self-stretch border-b border-glass-stroke py-3.5">
+        <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-foreground">
+          {CHATS_COPY.archived.entry}
+        </span>
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{count}</span>
+      </span>
+    </button>
+  )
+}
+
+/** The flat list (`chatList(...).rows`): the Archived entry (when
+ *  `archived` > 0), the rows, the skeleton while the shapes load, else the
+ *  empty state. `selection` non-null = the list SELECTS (#EXP-1388). */
 export function ChatList({
   rows,
   agentOf,
@@ -316,6 +412,10 @@ export function ChatList({
   entering,
   emptyTitle,
   onOpen,
+  archived = 0,
+  onOpenArchived,
+  selection = null,
+  onRowClick,
   className,
 }: {
   rows: readonly ChatRowModel[]
@@ -326,14 +426,22 @@ export function ChatList({
   entering?: (sessionId: string) => string
   emptyTitle?: string
   onOpen?: (sessionId: string) => void
+  /** #EXP-1388: the archived count for the entry row (0 = no entry; the
+   *  caller passes 0 unless the filter is All). */
+  archived?: number
+  onOpenArchived?: () => void
+  /** #EXP-1388: the selected ids while selecting, else null. */
+  selection?: ReadonlySet<string> | null
+  onRowClick?: (sessionId: string, event: ReactMouseEvent<HTMLButtonElement>) => void
   className?: string
 }) {
   if (loading) return <SkeletonRows rowHeight={76} />
-  if (rows.length === 0) {
+  if (rows.length === 0 && archived === 0) {
     return <EmptyState icon={ChatsIcon} title={emptyTitle ?? THREADS_LIST_COPY.empty} size="page" />
   }
   return (
     <div data-slot="chat-list" data-testid="chat-list" className={cn(`flex flex-col`, className)}>
+      {archived > 0 && <ChatArchivedRow count={archived} onOpen={onOpenArchived} />}
       {rows.map((row) => (
         <ChatRow
           key={row.sessionId}
@@ -341,6 +449,9 @@ export function ChatList({
           agent={agentOf?.(row.sessionId) ?? null}
           className={entering?.(row.sessionId)}
           onOpen={onOpen}
+          onRowClick={onRowClick}
+          selecting={selection !== null}
+          selected={selection?.has(row.sessionId) ?? false}
         />
       ))}
     </div>

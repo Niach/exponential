@@ -468,8 +468,11 @@ import androidx.room.TypeConverters
     // v101 (EXP-1374): sessions.background (busy only on background tasks).
     //      Explicit [MIGRATION_100_101] adds the column as 0 and refetches
     //      only the sessions shape.
+    // v102 (#EXP-1388): session_reads.archived_at (the viewer's per-chat
+    //      archive). Explicit [MIGRATION_101_102] adds the nullable column
+    //      and refetches only the session_reads shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 101,
+    version = 102,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

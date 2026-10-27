@@ -245,6 +245,16 @@ private struct SessionIdInput: Encodable {
     let sessionId: String
 }
 
+private struct SetReadInput: Encodable {
+    let sessionIds: [String]
+    let read: Bool
+}
+
+private struct SetArchivedInput: Encodable {
+    let sessionIds: [String]
+    let archived: Bool
+}
+
 private struct LinkIssuesInput: Encodable {
     let sessionId: String
     let issueIds: [String]
@@ -434,6 +444,36 @@ public final class SessionsApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId, path: "sessions.markRead", input: SessionIdInput(sessionId: sessionId)
         )
+    }
+
+    /// #EXP-1388: the chat selection's Mark read (`read` true = now) /
+    /// Mark unread (the server sets the read just before the newest agent
+    /// message). The server takes up to 200 roots per call: bigger
+    /// selections go in 200-id batches.
+    public func setRead(accountId: String, sessionIds: [String], read: Bool) async throws {
+        for batch in Self.selectionBatches(sessionIds) {
+            try await trpc.mutationVoid(
+                accountId: accountId, path: "sessions.setRead", input: SetReadInput(sessionIds: batch, read: read)
+            )
+        }
+    }
+
+    /// #EXP-1388: archive / unarchive chats for the viewer
+    /// (`session_reads.archived_at`), in 200-id batches like `setRead`.
+    public func setArchived(accountId: String, sessionIds: [String], archived: Bool) async throws {
+        for batch in Self.selectionBatches(sessionIds) {
+            try await trpc.mutationVoid(
+                accountId: accountId, path: "sessions.setArchived",
+                input: SetArchivedInput(sessionIds: batch, archived: archived)
+            )
+        }
+    }
+
+    /// `sessions.setRead` / `setArchived` take up to 200 ids a call.
+    static let selectionBatch = 200
+
+    static func selectionBatches(_ ids: [String]) -> [[String]] {
+        stride(from: 0, to: ids.count, by: selectionBatch).map { Array(ids[$0..<min($0 + selectionBatch, ids.count)]) }
     }
 
     /// EXP-1323: start one suggested task — a child (on `deviceId` / with

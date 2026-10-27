@@ -23,9 +23,10 @@ fun Toaster.failedAction(
     verb: String,
     thing: String,
     message: String? = null,
+    title: String? = null,
     retry: (() -> Unit)? = null,
 ): String = this.error(
-    FeedbackStates.errorTitle(verb, thing),
+    title ?: FeedbackStates.errorTitle(verb, thing),
     description = message?.trim()?.takeIf { it.isNotEmpty() },
     action = retry?.let { ToastAction(FeedbackStates.RETRY, it) },
 )
@@ -38,6 +39,8 @@ data class FailedAction(
     val verb: String,
     val thing: String,
     val message: String? = null,
+    /** Replaces `Couldn't <verb> <thing>` (e.g. chats.json `selectionPartial`). */
+    val title: String? = null,
     val retry: (() -> Unit)? = null,
 )
 
@@ -48,7 +51,7 @@ fun FailedActionToast(failure: FailedAction?, onShown: () -> Unit) {
     val currentOnShown by rememberUpdatedState(onShown)
     LaunchedEffect(failure) {
         val f = failure ?: return@LaunchedEffect
-        toaster.failedAction(f.verb, f.thing, f.message, f.retry)
+        toaster.failedAction(f.verb, f.thing, f.message, f.title, f.retry)
         currentOnShown()
     }
 }
@@ -63,7 +66,7 @@ fun ClaimedFailedActionToast(failure: FailedAction?, claim: (FailedAction) -> Bo
     val currentClaim by rememberUpdatedState(claim)
     LaunchedEffect(failure) {
         val f = failure ?: return@LaunchedEffect
-        if (currentClaim(f)) toaster.failedAction(f.verb, f.thing, f.message, f.retry)
+        if (currentClaim(f)) toaster.failedAction(f.verb, f.thing, f.message, f.title, f.retry)
     }
 }
 

@@ -151,6 +151,7 @@ public enum AppIcons {
         "activity",
         "anchor",
         "archive",
+        "archive-restore",
         "arrow-down",
         "arrow-down-left",
         "arrow-left",
@@ -281,6 +282,7 @@ public enum AppIcons {
         "log-in",
         "log-out",
         "mail",
+        "mail-open",
         "map",
         "map-pin",
         "maximize-2",
@@ -634,6 +636,8 @@ public enum AppIcons {
         "ui-link": "link",
         "ui-loading": "loader-circle",
         "ui-mail": "mail",
+        "ui-mark-read": "mail-open",
+        "ui-mark-unread": "mail",
         "ui-mcp": "plug",
         "ui-member": "shield-check",
         "ui-menu": "menu",
@@ -670,6 +674,7 @@ public enum AppIcons {
         "ui-success": "circle-check",
         "ui-swap": "arrow-left-right",
         "ui-team": "users",
+        "ui-unarchive": "archive-restore",
         "ui-unassigned": "user-x",
         "ui-undo": "undo-2",
         "ui-undock": "arrow-up-right",
@@ -1149,6 +1154,10 @@ public enum AppIcons {
     public static let uiLoading: String = "loader-circle"
     /// Concept `ui-mail`.
     public static let uiMail: String = "mail"
+    /// Concept `ui-mark-read`.
+    public static let uiMarkRead: String = "mail-open"
+    /// Concept `ui-mark-unread`.
+    public static let uiMarkUnread: String = "mail"
     /// Concept `ui-mcp`.
     public static let uiMcp: String = "plug"
     /// Concept `ui-member`.
@@ -1221,6 +1230,8 @@ public enum AppIcons {
     public static let uiSwap: String = "arrow-left-right"
     /// Concept `ui-team`.
     public static let uiTeam: String = "users"
+    /// Concept `ui-unarchive`.
+    public static let uiUnarchive: String = "archive-restore"
     /// Concept `ui-unassigned`.
     public static let uiUnassigned: String = "user-x"
     /// Concept `ui-undo`.

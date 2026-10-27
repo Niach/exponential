@@ -1695,6 +1695,47 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () 
     })
   })
 
+  it(`setRead / setArchived (#EXP-1388): bulk read marks and the per-viewer archive`, async () => {
+    const w = await world()
+    const { postAgentMessage } = await import(`@/lib/sessions/messages`)
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const quiet = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `q` } })
+    await db.transaction((tx) => postAgentMessage(tx, root.sessionId, `done`))
+    const readOf = async (sessionId: string) =>
+      (
+        await db
+          .select()
+          .from(sessionReads)
+          .where(and(eq(sessionReads.sessionId, sessionId), eq(sessionReads.userId, w.owner)))
+      )[0]
+    // Archive first: a fresh row starts unread (epoch) and carries archived_at.
+    await caller(w.owner).setArchived({ sessionIds: [root.sessionId, quiet.sessionId], archived: true })
+    expect((await readOf(root.sessionId))!.archivedAt).toBeInstanceOf(Date)
+    expect((await readOf(root.sessionId))!.readAt.getTime()).toBe(0)
+    await caller(w.owner).setRead({ sessionIds: [root.sessionId, quiet.sessionId], read: true })
+    expect((await readOf(root.sessionId))!.readAt.getTime()).toBeGreaterThan(0)
+    expect((await readOf(root.sessionId))!.archivedAt).toBeInstanceOf(Date)
+    // Unread = just before the newest agent message; none = unchanged.
+    const quietRead = (await readOf(quiet.sessionId))!.readAt.getTime()
+    await caller(w.owner).setRead({ sessionIds: [root.sessionId, quiet.sessionId], read: false })
+    const [agent] = await db
+      .select({ createdAt: messages.createdAt })
+      .from(messages)
+      .where(and(eq(messages.sessionId, root.sessionId), eq(messages.authorKind, `agent`)))
+    expect((await readOf(root.sessionId))!.readAt.getTime()).toBe(agent!.createdAt.getTime() - 1)
+    expect((await readOf(quiet.sessionId))!.readAt.getTime()).toBe(quietRead)
+    await caller(w.owner).setArchived({ sessionIds: [root.sessionId], archived: false })
+    expect((await readOf(root.sessionId))!.archivedAt).toBeNull()
+    // A child is not a chat; a private chat is not the teammate's.
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    await expect(caller(w.owner).setArchived({ sessionIds: [child.sessionId], archived: true })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+    })
+    await expect(caller(w.mate).setRead({ sessionIds: [root.sessionId], read: true })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+  })
+
   it(`suggestions: start as a child, do it here, dismiss, file as an issue`, async () => {
     const w = await world()
     const issueId = await w.issue(`Gallery`)

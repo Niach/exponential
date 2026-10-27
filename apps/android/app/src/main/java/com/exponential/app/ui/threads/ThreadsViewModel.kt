@@ -110,8 +110,9 @@ class ThreadsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** EXP-1323: the Threads nav dot (`threadsUnread`): a thread has news. */
-    val unread: StateFlow<Boolean> = groups.map(SessionTree::threadsUnread)
+    /** #EXP-1388: the Chats nav dot (`chatsUnread`): an unread chat outside
+     *  the viewer's archive (one that needs you counts anyway). */
+    val unread: StateFlow<Boolean> = combine(groups, inputs) { g, input -> Chats.chatsUnread(g, input.reads) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
@@ -208,6 +209,14 @@ class ThreadsViewModel @Inject constructor(
         _filter.value = filter
     }
 
+    private val _view = MutableStateFlow(Chats.ChatListView.List)
+    /** #EXP-1388: the chats, or the Archived page (its own pushed route). */
+    val view: StateFlow<Chats.ChatListView> = _view
+
+    fun setView(view: Chats.ChatListView) {
+        _view.value = view
+    }
+
     /** The list's clock: the time labels re-read once a minute. */
     private val minuteClock: Flow<Long> = flow {
         while (true) {
@@ -228,9 +237,9 @@ class ThreadsViewModel @Inject constructor(
         combine(groups, inputs) { g, i -> g to i },
         prStates,
         words,
-        _filter,
+        combine(_filter, _view) { f, v -> f to v },
         minuteClock,
-    ) { (g, input), states, w, filter, now ->
+    ) { (g, input), states, w, (filter, view), now ->
         Chats.chatList(
             groups = g,
             messages = input.messages,
@@ -238,6 +247,7 @@ class ThreadsViewModel @Inject constructor(
             prStates = states,
             words = w,
             filter = filter,
+            view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
@@ -304,8 +314,15 @@ class ThreadsViewModel @Inject constructor(
                 onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                // `Couldn't stop the chat` / `Couldn't delete the chat`.
-                _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""))
+                // `Couldn't stop the chat` / `Couldn't delete the chat`;
+                // a partial Stop / Delete = `{n} of {m} chats couldn't be updated`.
+                val partial = t as? PartialSelectionFailure
+                _failure.value = FailedAction(
+                    verb,
+                    thing,
+                    trpcErrorMessage(partial?.first ?: t, ""),
+                    title = partial?.let { Chats.chatSelectionFailedTitle(it.failed, it.total) },
+                )
             }
         }
     }
@@ -317,6 +334,44 @@ class ThreadsViewModel @Inject constructor(
      *  live, then deletes the tree). */
     fun deleteChat(rootId: String, onDeleted: () -> Unit = {}) =
         call("delete", onDeleted) { sessionsApi.delete(it, rootId) }
+
+    // ── the selection bar's calls (chats.json SELECTION + ARCHIVE) ─────────
+
+    /** One selection action; any refusal = `copy.toasts.selectionFailed`. */
+    private fun selectionCall(block: suspend (accountId: String) -> Unit) =
+        call(SELECTION_VERB, thing = SELECTION_THING, block = block)
+
+    /** Mark read / unread = `sessions.setRead` (one batch of up to 200). */
+    fun setRead(rootIds: List<String>, read: Boolean) = selectionCall { accountId ->
+        rootIds.chunked(SELECTION_BATCH).forEach { sessionsApi.setRead(accountId, it, read) }
+    }
+
+    /** Archive / Unarchive = `sessions.setArchived` (per viewer). */
+    fun setArchived(rootIds: List<String>, archived: Boolean) = selectionCall { accountId ->
+        rootIds.chunked(SELECTION_BATCH).forEach { sessionsApi.setArchived(accountId, it, archived) }
+    }
+
+    /** Stop = `sessions.end` per chat (every one tried, then one toast). */
+    fun stopChats(rootIds: List<String>) = selectionCall { accountId -> each(rootIds) { sessionsApi.end(accountId, it) } }
+
+    /** Delete = `sessions.delete` per chat (after the confirm). */
+    fun deleteChats(rootIds: List<String>) = selectionCall { accountId -> each(rootIds) { sessionsApi.delete(accountId, it) } }
+
+    /** One chat at a time; every one is tried, then the failures counted. */
+    private suspend fun each(ids: List<String>, block: suspend (String) -> Unit) {
+        var first: Throwable? = null
+        var failed = 0
+        for (id in ids) {
+            try {
+                block(id)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                first = first ?: t
+                failed += 1
+            }
+        }
+        first?.let { throw PartialSelectionFailure(failed, ids.size, it) }
+    }
 
     /** The agent menu's Stop = `sessions.stop` (the TURN interrupt). */
     fun stopTurn(sessionId: String) = call("stop") { accountId ->
@@ -352,6 +407,16 @@ class ThreadsViewModel @Inject constructor(
 
 /** The thing every chat menu call names (`Couldn't stop the chat`). */
 internal const val CHAT_THING = "the chat"
+
+/** #EXP-1388 `copy.toasts.selectionFailed` = `Couldn't update every chat`. */
+internal const val SELECTION_VERB = "update"
+internal const val SELECTION_THING = "every chat"
+
+/** A Stop / Delete selection that failed for [failed] of its [total] chats. */
+private class PartialSelectionFailure(val failed: Int, val total: Int, val first: Throwable) : Exception(first)
+
+/** `sessions.setRead` / `setArchived` take up to 200 ids per call. */
+private const val SELECTION_BATCH = 200
 
 /** A Threads row's extras: the first linked issue's identifier, the root's
  *  agent (its brand mark) and the root's device (the trailing icon). */

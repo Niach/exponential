@@ -1278,20 +1278,44 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
     // mobile bars, same shape. It stays `flex_shrink_0`: the capsule is
     // one line by construction, and the label gate above — not a
     // squeeze — is what makes it fit.
+    bulk_bar_capsule(
+        SharedString::from(count.to_string()),
+        cx.listener(|this: &mut V, _: &ClickEvent, _, cx| {
+            this.clear_selection(cx);
+        }),
+        cx,
+    )
+    // EXP-863: the narrow side list folds the capsule (see the fn docs).
+    .when(wrap, |bar| bar.flex_wrap().justify_center().max_w_full())
+        .child(status_menu)
+        .child(priority_menu)
+        .when_some(assignee_menu, |this, btn| this.child(btn))
+        .child(labels_menu)
+        .child(start_coding)
+        // The hairline before the destructive action (web's separator).
+        .child(bulk_bar_rule())
+        .child(delete_menu)
+        .into_any_element()
+}
+
+/// THE bulk bar's capsule ×2 (the issue bar above, #EXP-1388's chat
+/// selection bar): the opaque glass bar, the clear ✕, then `count` (the
+/// caller appends its actions).
+pub(crate) fn bulk_bar_capsule(
+    count: SharedString,
+    on_clear: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
     crate::surface::glass_bar(cx)
         .id("bulk-action-bar")
         .flex_shrink_0()
-        // EXP-863: the narrow side list folds the capsule (see the fn docs).
-        .when(wrap, |bar| bar.flex_wrap().justify_center().max_w_full())
         .child(
             Button::new("bulk-clear")
                 .ghost()
                 .web_icon_sm()
                 .icon(Icon::new(registry::UI_CLOSE))
                 .tooltip("Clear selection")
-                .on_click(cx.listener(|this: &mut V, _: &ClickEvent, _, cx| {
-                    this.clear_selection(cx);
-                })),
+                .on_click(on_clear),
         )
         .child(
             // The bare COUNT, like web/iOS/Android — the ✕ beside it and
@@ -1301,24 +1325,18 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
                 .whitespace_nowrap()
-                .child(SharedString::from(count.to_string())),
+                .child(count),
         )
-        .child(status_menu)
-        .child(priority_menu)
-        .when_some(assignee_menu, |this, btn| this.child(btn))
-        .child(labels_menu)
-        .child(start_coding)
-        // The hairline before the destructive action (web's separator).
-        .child(
-            div()
-                .w_px()
-                .h(px(20.))
-                .mx_1()
-                .flex_shrink_0()
-                .bg(theme::tokens::glass::STROKE_CARD.to_hsla()),
-        )
-        .child(delete_menu)
-        .into_any_element()
+}
+
+/// The bulk bar's hairline before its destructive action (web's separator).
+pub(crate) fn bulk_bar_rule() -> gpui::Div {
+    div()
+        .w_px()
+        .h(px(20.))
+        .mx_1()
+        .flex_shrink_0()
+        .bg(theme::tokens::glass::STROKE_CARD.to_hsla())
 }
 
 // Fluent `when` helper (gpui's FluentBuilder) — imported via prelude below.

@@ -125,6 +125,46 @@ struct ChatActions {
         }
     }
 
+    /// #EXP-1388: the selection bar's actions (Delete runs after its
+    /// confirm through `deleteAll`). Mark read / unread and (un)archive batch
+    /// (200 ids a call); Stop ends each chat, one at a time. A failure = ONE
+    /// toast, `chatSelectionFailedTitle` (`{n} of {m}` when only some failed).
+    func run(_ item: Chats.ChatSelectionItem) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let toaster = toaster
+        let ids = item.sessionIds
+        Task {
+            var failed: Error?
+            var failures = 0
+            switch item.action {
+            case .markRead, .markUnread:
+                do { try await api.setRead(accountId: accountId, sessionIds: ids, read: item.action == .markRead) } catch { failed = error }
+            case .archive, .unarchive:
+                do { try await api.setArchived(accountId: accountId, sessionIds: ids, archived: item.action == .archive) } catch { failed = error }
+            case .stop:
+                for id in ids {
+                    do { try await api.end(accountId: accountId, sessionId: id) } catch { failed = failed ?? error; failures += 1 }
+                }
+            case .delete:
+                for id in ids {
+                    do { try await api.delete(accountId: accountId, sessionId: id) } catch { failed = failed ?? error; failures += 1 }
+                }
+            }
+            if let failed {
+                toaster.error(
+                    Chats.chatSelectionFailedTitle(failed: failures, total: ids.count),
+                    description: failed.userFacingMessage
+                )
+            }
+        }
+    }
+
+    /// #EXP-1388: the confirmed multi-delete (`sessions.delete` per chat).
+    func deleteAll(rootIds: [String]) {
+        run(Chats.ChatSelectionItem(action: .delete, sessionIds: rootIds))
+    }
+
     /// The TURN interrupt (composer stop, the agent menu's Stop).
     func interrupt(sessionId: String) {
         let api = deps.sessionsApi
@@ -161,21 +201,33 @@ struct ChatActions {
 extension View {
     /// `copy.confirmDelete` ×4: the destructive confirm before a delete.
     func chatDeleteConfirm(target: Binding<String?>, onConfirm: @escaping (String) -> Void) -> some View {
+        chatDeleteConfirm(
+            targets: Binding(
+                get: { target.wrappedValue.map { [$0] } },
+                set: { target.wrappedValue = $0?.first }
+            ),
+            onConfirm: { ids in if let id = ids.first { onConfirm(id) } }
+        )
+    }
+
+    /// #EXP-1388: the same confirm for the selection's Delete, titled
+    /// `chatDeleteTitle(n)`.
+    func chatDeleteConfirm(targets: Binding<[String]?>, onConfirm: @escaping ([String]) -> Void) -> some View {
         background {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
                 .glassAlert(item: Binding(
-                    get: { target.wrappedValue.map(ChatDeleteTarget.init) },
-                    set: { target.wrappedValue = $0?.id }
+                    get: { targets.wrappedValue.map(ChatDeleteTarget.init) },
+                    set: { targets.wrappedValue = $0?.ids }
                 )) { item in
                     GlassAlert(
-                        title: Chats.Copy.ConfirmDelete.title,
+                        title: Chats.chatDeleteTitle(item.ids.count),
                         message: Chats.Copy.ConfirmDelete.body,
                         actions: [
                             GlassAlertAction(PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel") {},
                             GlassAlertAction(Chats.Copy.Menu.delete, role: .destructive, id: "delete") {
-                                onConfirm(item.id)
+                                onConfirm(item.ids)
                             },
                         ]
                     )
@@ -185,5 +237,6 @@ extension View {
 }
 
 private struct ChatDeleteTarget: Identifiable {
-    let id: String
+    let ids: [String]
+    var id: String { ids.joined(separator: ",") }
 }

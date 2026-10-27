@@ -153,10 +153,13 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
 public struct TreeSessionRead: Equatable, Sendable {
     public let sessionId: String
     public let readAt: String
+    /// #EXP-1388: the viewer archived the chat (nil = not).
+    public let archivedAt: String?
 
-    public init(sessionId: String, readAt: String) {
+    public init(sessionId: String, readAt: String, archivedAt: String? = nil) {
         self.sessionId = sessionId
         self.readAt = readAt
+        self.archivedAt = archivedAt
     }
 }
 

@@ -42,7 +42,7 @@ import {
   blockingLabel,
   whileBlocking,
 } from "@exp/ui"
-import { useAgents, useThreadsList } from "@/hooks/use-session-tree"
+import { useAgents, useSessionReads, useThreadsList } from "@/hooks/use-session-tree"
 import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
@@ -187,7 +187,8 @@ export function TeamSidebar({
     groups: threadsList.groups,
     wordOf: (row) => threadWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
   }
-  const threadsNav = threadsNavState(threadsList.groups)
+  const sessionReads = useSessionReads()
+  const threadsNav = threadsNavState(threadsList.groups, sessionReads)
   const { agents } = useAgents(team?.id, session?.user?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold

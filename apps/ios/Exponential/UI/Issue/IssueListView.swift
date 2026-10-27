@@ -432,8 +432,7 @@ struct IssueListView: View {
                 // Multi-select indicator (EXP-239) — same glyphs as the
                 // Start-coding picker so "selected" reads identically.
                 if let selected {
-                    AppIcon(selected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
-                        .foregroundStyle(selected ? DesignTokens.Palette.primary : .white.opacity(TextOpacity.tertiary))
+                    SelectionGlyph(selected: selected)
                 }
                 // Priority icon (16pt column, Android parity)
                 inlineEditableIcon(
@@ -661,26 +660,8 @@ struct IssueListView: View {
     private func selectionBar(_ vm: IssueListViewModel) -> some View {
         // Bare count (not "N selected") so ✕ + four property buttons + the
         // Start-coding capsule never clip at ~375pt (EXP-247).
-        HStack(spacing: 0) {
-            Button {
-                exitSelection()
-            } label: {
-                AppIcon(AppIcons.uiClose, size: 15, weight: .semibold)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Clear selection")
-
-            Text("\(selectedIds.count)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.trailing, 2)
-
-            Spacer(minLength: 4)
-
+        // #EXP-1388: the shell (✕, count, capsule) is shared with the Chats bar.
+        BulkSelectionBar(count: "\(selectedIds.count)", testId: "bulk-selection-bar", onClose: exitSelection) {
             // Status — the shared status glyph when the selection agrees,
             // else a neutral checklist mark.
             barIconButton(
@@ -772,35 +753,16 @@ struct IssueListView: View {
                 .padding(.leading, 4)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        // The tab pill's height: the bar stands in its slot, so it must be its
-        // size too (EXP-698 r5).
-        .frame(height: 52)
-        .glassCard(cornerRadius: 24, isOpaque: true)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        // EXP-642: the styleguide capture addresses the bar directly.
-        // `contain` keeps its buttons queryable.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("bulk-selection-bar")
     }
 
     /// One 32pt property button in the selection bar (EXP-247).
-    @ViewBuilder
     private func barIconButton(
         iconName: String,
         color: Color,
         accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            AppIcon(iconName, size: AppIcon.Size.medium)
-                .foregroundStyle(color)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibility)
+        BulkBarIconButton(icon: iconName, color: color, accessibility: accessibility, action: action)
     }
 
     // MARK: - Selection-bar bulk pickers (EXP-247)

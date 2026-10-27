@@ -511,6 +511,21 @@ val MIGRATION_100_101: Migration = object : Migration(100, 101) {
     }
 }
 
+/**
+ * v102 (#EXP-1388): `session_reads.archived_at`, the viewer's per-chat
+ * archive beside read_at. Only the session_reads shape refetches so
+ * already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_101_102: Migration = object : Migration(101, 102) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `session_reads` ADD COLUMN `archived_at` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'session_reads'",
+        )
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

@@ -721,7 +721,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
         // the Threads list's bold rows + nav dot. Static per user like
         // `pins`. Byte-matches the proxy's allowlist (apps/web
         // routes/api/shapes/session-reads.ts).
-        columns: &["id", "user_id", "session_id", "read_at", "created_at", "updated_at"],
+        // #EXP-1388: `archived_at` = the viewer's per-chat archive.
+        columns: &["id", "user_id", "session_id", "read_at", "archived_at", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {

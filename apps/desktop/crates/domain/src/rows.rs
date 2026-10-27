@@ -968,6 +968,9 @@ pub struct SessionReadRow {
     pub session_id: String,
     #[serde(default)]
     pub read_at: Option<String>,
+    /// #EXP-1388: the viewer archived the chat (per viewer, on the root).
+    #[serde(default)]
+    pub archived_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

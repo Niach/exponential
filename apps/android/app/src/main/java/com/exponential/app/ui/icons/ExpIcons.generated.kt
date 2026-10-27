@@ -164,6 +164,52 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `archive-restore`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "archive-restore",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M3 3H21A1 1 0 0 1 22 4V7A1 1 0 0 1 21 8H3A1 1 0 0 1 2 7V4A1 1 0 0 1 3 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 8v11a2 2 0 0 0 2 2h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M20 8v11a2 2 0 0 1-2 2h-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m9 15 3-3 3 3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 12v9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `arrow-down`: ImageVector by lazy {
         ImageVector.Builder(
             name = "arrow-down",
@@ -4675,6 +4721,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `mail-open`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "mail-open",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `map`: ImageVector by lazy {
         ImageVector.Builder(
             name = "map",
@@ -8347,6 +8418,7 @@ public object ExpIcons {
         "activity" -> `activity`
         "anchor" -> `anchor`
         "archive" -> `archive`
+        "archive-restore" -> `archive-restore`
         "arrow-down" -> `arrow-down`
         "arrow-down-left" -> `arrow-down-left`
         "arrow-left" -> `arrow-left`
@@ -8477,6 +8549,7 @@ public object ExpIcons {
         "log-in" -> `log-in`
         "log-out" -> `log-out`
         "mail" -> `mail`
+        "mail-open" -> `mail-open`
         "map" -> `map`
         "map-pin" -> `map-pin`
         "maximize-2" -> `maximize-2`
@@ -8825,6 +8898,8 @@ public object ExpIcons {
         "ui-link" -> `link`
         "ui-loading" -> `loader-circle`
         "ui-mail" -> `mail`
+        "ui-mark-read" -> `mail-open`
+        "ui-mark-unread" -> `mail`
         "ui-mcp" -> `plug`
         "ui-member" -> `shield-check`
         "ui-menu" -> `menu`
@@ -8861,6 +8936,7 @@ public object ExpIcons {
         "ui-success" -> `circle-check`
         "ui-swap" -> `arrow-left-right`
         "ui-team" -> `users`
+        "ui-unarchive" -> `archive-restore`
         "ui-unassigned" -> `user-x`
         "ui-undo" -> `undo-2`
         "ui-undock" -> `arrow-up-right`
@@ -9335,6 +9411,10 @@ public object ExpIcons {
     public val uiLoading: ImageVector get() = `loader-circle`
     /** Concept `ui-mail`. */
     public val uiMail: ImageVector get() = `mail`
+    /** Concept `ui-mark-read`. */
+    public val uiMarkRead: ImageVector get() = `mail-open`
+    /** Concept `ui-mark-unread`. */
+    public val uiMarkUnread: ImageVector get() = `mail`
     /** Concept `ui-mcp`. */
     public val uiMcp: ImageVector get() = `plug`
     /** Concept `ui-member`. */
@@ -9407,6 +9487,8 @@ public object ExpIcons {
     public val uiSwap: ImageVector get() = `arrow-left-right`
     /** Concept `ui-team`. */
     public val uiTeam: ImageVector get() = `users`
+    /** Concept `ui-unarchive`. */
+    public val uiUnarchive: ImageVector get() = `archive-restore`
     /** Concept `ui-unassigned`. */
     public val uiUnassigned: ImageVector get() = `user-x`
     /** Concept `ui-undo`. */

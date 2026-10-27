@@ -86,6 +86,27 @@ object Chats {
         const val TOAST_STOP_FAILED = "Couldn't stop the chat"
         const val TOAST_DELETE_FAILED = "Couldn't delete the chat"
         const val TOAST_STOP_NOT_DELIVERED = "The device didn't get the stop"
+        const val TOAST_SELECTION_FAILED = "Couldn't update every chat"
+        const val TOAST_SELECTION_PARTIAL = "{n} of {m} chats couldn't be updated"
+
+        /** #EXP-1388 `copy.selection`. */
+        const val SELECTION_SELECT = "Select"
+        const val SELECTION_COUNT = "{n} selected"
+        const val SELECTION_MARK_READ = "Mark read"
+        const val SELECTION_MARK_UNREAD = "Mark unread"
+        const val SELECTION_ARCHIVE = "Archive"
+        const val SELECTION_UNARCHIVE = "Unarchive"
+        const val SELECTION_STOP = "Stop"
+        const val SELECTION_DELETE = "Delete"
+        const val SELECTION_CONFIRM_DELETE_MANY = "Delete {n} chats?"
+
+        /** #EXP-1388 `copy.archived`. */
+        const val ARCHIVED_ENTRY = "Archived"
+        const val ARCHIVED_TITLE = "Archived"
+        const val ARCHIVED_EMPTY = "No archived chats"
+
+        /** `copy.selection.count` filled. */
+        fun selectionCount(n: Int): String = SELECTION_COUNT.replace("{n}", n.toString())
 
         const val DIVIDER_NEW = "New conversation"
         const val DIVIDER_COMPACT = "Conversation compacted"
@@ -217,6 +238,8 @@ object Chats {
         const val SEARCH_BUTTON = "header-search"
         const val LOAD_EARLIER = "transcript-load-earlier"
         const val JUMP_TO_BOTTOM = "jump-to-bottom"
+        const val CHAT_ARCHIVED = "chat-archived"
+        const val SELECTION_BAR = "bulk-action-bar"
     }
 
     /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
@@ -337,7 +360,12 @@ object Chats {
         }
     }
 
-    data class ChatList(val rows: List<ChatRow>, val counts: ChatCounts)
+    /** [rows] / [counts] of the requested view; [archived] = the team's
+     *  archived chats either way (#EXP-1388, the Archived entry). */
+    data class ChatList(val rows: List<ChatRow>, val counts: ChatCounts, val archived: Int = 0)
+
+    /** #EXP-1388: the list's view: the chats, or the Archived page. */
+    enum class ChatListView(val wire: String) { List("list"), Archived("archived") }
 
     private fun ms(iso: String?): Long? = if (iso.isNullOrEmpty()) null else WireTimestamps.parseEpochMs(iso)
 
@@ -644,12 +672,17 @@ object Chats {
         /** threadRowWord by session id (absent = none). */
         words: Map<String, SessionTree.ThreadRowWord?> = emptyMap(),
         filter: ChatFilter,
+        /** #EXP-1388: the chats, or the Archived page. */
+        view: ChatListView = ChatListView.List,
         now: String,
         utcOffsetMinutes: Int,
         /** #EXP-1399 review: the viewer's synced session ids ([chatPreview]). */
         visible: Set<String>? = null,
     ): ChatList {
-        val all = groups
+        val archivedIds = reads.filter { !it.archivedAt.isNullOrEmpty() }.map { it.sessionId }.toSet()
+        fun isArchived(row: ChatRow) = !row.needsYou && row.sessionId in archivedIds
+        val wantArchived = view == ChatListView.Archived
+        val rows = groups
             .flatMap { group -> group.rows.filter { it.depth == 0 }.map { it to group.key } }
             .map { (row, group) ->
                 val mark = SessionTree.threadRowMarkState(row.needsYou, row.busy)
@@ -682,6 +715,7 @@ object Chats {
                 )
             }
             .sortedWith(compareByDescending<ChatRow> { ms(it.activityAt) ?: 0L }.thenBy { it.sessionId })
+        val all = rows.filter { isArchived(it) == wantArchived }
         return ChatList(
             rows = all.filter { keep(it, filter) },
             counts = ChatCounts(
@@ -689,7 +723,93 @@ object Chats {
                 running = all.count { keep(it, ChatFilter.Running) },
                 unread = all.count { keep(it, ChatFilter.Unread) },
             ),
+            archived = rows.count(::isArchived),
         )
+    }
+
+    /** #EXP-1388 (`dotCases`): the Chats nav dot = an unread depth-0 chat
+     *  outside the archive (a chat that needs you counts anyway). */
+    fun chatsUnread(groups: List<SessionTree.ThreadsListGroup>, reads: List<SessionTree.SessionRead> = emptyList()): Boolean {
+        val archived = reads.filter { !it.archivedAt.isNullOrEmpty() }.map { it.sessionId }.toSet()
+        return groups.any { group ->
+            group.rows.any { it.depth == 0 && it.unread && (it.needsYou || it.sessionId !in archived) }
+        }
+    }
+
+    enum class ChatSelectionAction(val wire: String) {
+        MarkRead("markRead"),
+        MarkUnread("markUnread"),
+        Archive("archive"),
+        Unarchive("unarchive"),
+        Stop("stop"),
+        Delete("delete"),
+    }
+
+    data class ChatSelectionRow(
+        val sessionId: String,
+        val rootStatus: String,
+        val unreadCount: Int,
+        val canSteer: Boolean,
+        val canDelete: Boolean,
+    )
+
+    data class ChatSelectionEntry(val action: ChatSelectionAction, val sessionIds: List<String>)
+
+    /** #EXP-1388 (`selectionCases`): the selection bar's actions in bar
+     *  order, each with the chats it acts on (selection order): Mark read
+     *  when any is unread, else Mark unread (all); Archive in the list,
+     *  Unarchive on the Archived page (all); Stop while any is live and
+     *  steerable (those); Delete only when every one may be deleted (all). */
+    fun chatSelectionActions(rows: List<ChatSelectionRow>, view: ChatListView = ChatListView.List): List<ChatSelectionEntry> {
+        if (rows.isEmpty()) return emptyList()
+        val ids = rows.map { it.sessionId }
+        val out = mutableListOf(
+            ChatSelectionEntry(
+                if (rows.any { it.unreadCount > 0 }) ChatSelectionAction.MarkRead else ChatSelectionAction.MarkUnread,
+                ids,
+            ),
+            ChatSelectionEntry(
+                if (view == ChatListView.Archived) ChatSelectionAction.Unarchive else ChatSelectionAction.Archive,
+                ids,
+            ),
+        )
+        val live = rows.filter { it.canSteer && it.rootStatus != DomainContract.sessionStatusEnded }
+        if (live.isNotEmpty()) out += ChatSelectionEntry(ChatSelectionAction.Stop, live.map { it.sessionId })
+        if (rows.all { it.canSteer && it.canDelete }) out += ChatSelectionEntry(ChatSelectionAction.Delete, ids)
+        return out
+    }
+
+    /** #EXP-1388 (`rangeCases`): a pointer's range select: the ids between
+     *  [anchor] and [target] in list order, both included; no anchor = the
+     *  target alone. */
+    fun chatSelectionRange(order: List<String>, anchor: String?, target: String): List<String> {
+        val to = order.indexOf(target)
+        if (to < 0) return emptyList()
+        val from = if (anchor == null) -1 else order.indexOf(anchor)
+        if (from < 0) return listOf(target)
+        return order.subList(minOf(from, to), maxOf(from, to) + 1).toList()
+    }
+
+    /** #EXP-1388: the multi-delete confirm's title. */
+    fun chatDeleteTitle(count: Int): String =
+        if (count == 1) Copy.CONFIRM_DELETE_TITLE else Copy.SELECTION_CONFIRM_DELETE_MANY.replace("{n}", count.toString())
+
+    /** #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+     *  SOME of the [total] chats failed, else `selectionFailed`. */
+    fun chatSelectionFailedTitle(failed: Int, total: Int): String =
+        if (failed in 1 until total) {
+            Copy.TOAST_SELECTION_PARTIAL.replace("{n}", failed.toString()).replace("{m}", total.toString())
+        } else {
+            Copy.TOAST_SELECTION_FAILED
+        }
+
+    fun chatSelectionLabel(action: ChatSelectionAction): String = when (action) {
+        ChatSelectionAction.MarkRead -> Copy.SELECTION_MARK_READ
+        ChatSelectionAction.MarkUnread -> Copy.SELECTION_MARK_UNREAD
+        ChatSelectionAction.Archive -> Copy.SELECTION_ARCHIVE
+        ChatSelectionAction.Unarchive -> Copy.SELECTION_UNARCHIVE
+        ChatSelectionAction.Stop -> Copy.SELECTION_STOP
+        ChatSelectionAction.Delete -> Copy.SELECTION_DELETE
     }
 
     /** A chip's label: its copy, then its count when there is one. */

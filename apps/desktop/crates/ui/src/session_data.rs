@@ -882,6 +882,8 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ChatsModel {
     pub(crate) list: domain::chats::ChatList,
+    /// #EXP-1388: the Archived page's list (view `archived`, filter All).
+    pub(crate) archived: domain::chats::ChatList,
     pub(crate) bubbles: Vec<domain::chats::AgentBubble>,
 }
 
@@ -985,25 +987,37 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
     // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
     let visible: HashSet<&str> = sessions.iter().map(|session| session.id.as_str()).collect();
-    let list = domain::chats::chat_list(domain::chats::ChatListInput {
-        groups,
-        messages: &messages,
-        reads: &reads,
-        pr_states: &pr_states,
-        words: &words,
-        filter: domain::chats::ChatFilter::All,
-        now: &now,
-        utc_offset_minutes: offset,
-        visible_session_ids: Some(&visible),
-    });
+    let list_of = |view| {
+        domain::chats::chat_list(domain::chats::ChatListInput {
+            groups,
+            messages: &messages,
+            reads: &reads,
+            pr_states: &pr_states,
+            words: &words,
+            filter: domain::chats::ChatFilter::All,
+            view,
+            now: &now,
+            utc_offset_minutes: offset,
+            visible_session_ids: Some(&visible),
+        })
+    };
+    let list = list_of(domain::chats::ChatListView::List);
+    let archived = list_of(domain::chats::ChatListView::Archived);
     let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
-    ChatsModel { list, bubbles }
+    ChatsModel { list, archived, bubbles }
 }
 
 /// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has
 /// an agent reply the viewer has not read (`threads_unread`).
+/// #EXP-1388: an archived chat never lights it (`chats_unread`).
 pub(crate) fn rail_threads_unread(team_id: &str, cx: &mut App) -> bool {
-    domain::session_tree::threads_unread(&thread_lists(team_id, cx))
+    let groups = thread_lists(team_id, cx);
+    let Some(store) = Store::try_global(cx) else {
+        return domain::session_tree::threads_unread(&groups);
+    };
+    let session_reads = store.collections().session_reads.read(cx);
+    let reads: Vec<&SessionReadRow> = session_reads.iter().filter(|read| read.archived_at.is_some()).collect();
+    domain::chats::chats_unread(&groups, &reads)
 }
 
 // ---------------------------------------------------------------------------

@@ -8,11 +8,20 @@ import SwiftUI
 /// native search and INBOX circles), the team agents as BUBBLES, the filter chips All · Needs you ·
 /// Running · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
 /// chats (`Chats.chatList` over `partitionThreads`: no bands, no nesting,
-/// newest activity first). A row opens the chat; a long press opens THE
-/// menu's sheet titled with the chat (Stop · Stop and delete, or Delete); a
-/// bubble's hold its agent menu.
+/// newest activity first). A row opens the chat; a bubble's hold its agent
+/// menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
+/// multi-selection with that row (the row's touch menu is gone); while
+/// selecting every row leads with the issue list's selection glyph, a tap
+/// toggles and THE BAR (the issue list's bulk bar, in the tab bar's slot)
+/// acts on the selection (`chatSelectionActions`). The Archived entry row
+/// pushes the same list in `view: .archived` (the Archived page).
 struct ChatsView: View {
+    /// #EXP-1388: `.archived` = the pushed Archived page.
+    var view: Chats.ChatListView = .list
+
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.motion) private var motion
+    @Environment(TabBarChrome.self) private var tabBarChrome: TabBarChrome?
     @Environment(SessionListsModel.self) private var lists
     @Environment(TeamState.self) private var teamState
     @Environment(\.accountId) private var accountId
@@ -28,6 +37,11 @@ struct ChatsView: View {
     @State private var agentSettings: AgentSettingsTarget?
     /// The clock the time labels read (a minute tick keeps "Yesterday" true).
     @State private var now = Date()
+    /// #EXP-1388: the multi-selection (selection order kept for the bar).
+    @State private var selectionActive = false
+    @State private var selectedIds: [String] = []
+    /// The bar's Delete confirm (`chatDeleteTitle(n)`).
+    @State private var deleteSelection: [String]?
 
     var body: some View {
         ZStack {
@@ -42,7 +56,39 @@ struct ChatsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .pageHeader(Chats.Copy.Headers.chats)
+        .pageHeader(view == .archived ? Chats.Copy.Archived.title : Chats.Copy.Headers.chats, pushed: view == .archived)
+        // #EXP-1388 THE BAR: the issue list's bulk bar in the tab bar's slot
+        // (the tab bar stands down while it is up).
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 8) {
+                if selectionActive {
+                    ChatSelectionBar(
+                        count: selectedIds.count,
+                        items: selectionItems,
+                        onClose: exitSelection,
+                        onAction: runSelection
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 4)
+        }
+        .onChange(of: selectionActive) { _, active in
+            tabBarChrome?.suppressed = active
+        }
+        .onAppear { tabBarChrome?.suppressed = selectionActive }
+        .onDisappear { tabBarChrome?.suppressed = false }
+        .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
+        // The selection keeps only rows still in the list.
+        .onChange(of: list.rows.map(\.sessionId)) { _, ids in
+            guard selectionActive else { return }
+            let kept = selectedIds.filter { ids.contains($0) }
+            if kept.isEmpty { exitSelection() } else if kept != selectedIds { selectedIds = kept }
+        }
+        .chatDeleteConfirm(targets: $deleteSelection) { ids in
+            exitSelection()
+            actions.deleteAll(rootIds: ids)
+        }
         .sheet(item: $menu, onDismiss: runPendingPick) { target in
             ChatMenuSheet(title: target.title, entries: target.entries) { entry in
                 pendingPick = (target, entry)
@@ -80,6 +126,7 @@ struct ChatsView: View {
             prStates: lists.prStates,
             words: lists.words,
             filter: filter,
+            view: view,
             now: Self.iso.string(from: now),
             utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60,
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
@@ -110,7 +157,7 @@ struct ChatsView: View {
     @ViewBuilder
     private var content: some View {
         let list = list
-        let bubbles = bubbles
+        let bubbles = view == .archived ? [] : bubbles
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if !bubbles.isEmpty {
@@ -125,10 +172,25 @@ struct ChatsView: View {
                 }
                 filterChips(list.counts)
                     .padding(.bottom, 4)
+                // #EXP-1388 THE ARCHIVED ENTRY: first while archived > 0 and
+                // the filter is All.
+                if view == .list, list.archived > 0, filter == .all {
+                    ChatArchivedRow(count: list.archived)
+                        .glassLongPress(enabled: false, onTap: {
+                            guard !selectionActive else { return }
+                            pushRoute(.archivedChats(accountId: accountId))
+                        }, onHold: {})
+                }
                 if list.rows.isEmpty {
-                    EmptyState(.threads)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 48)
+                    Group {
+                        if view == .archived {
+                            EmptyState(title: Chats.Copy.Archived.empty, icon: AppIcons.uiArchive)
+                        } else {
+                            EmptyState(.threads)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 48)
                 } else {
                     ForEach(list.rows) { row in
                         chatRow(row)
@@ -166,6 +228,7 @@ struct ChatsView: View {
             .trimmingCharacters(in: .whitespaces)
         default: nil
         }
+        let selected: Bool? = selectionActive ? selectedIds.contains(row.sessionId) : nil
         return ChatRowView(
             title: row.title,
             time: row.time,
@@ -179,12 +242,74 @@ struct ChatsView: View {
         ) {
             ChatLeadMark(lead: row.lead, cli: lists.clis[row.sessionId])
         }
+        .chatSelectionLead(selected)
         .glassLongPress(
-            enabled: canSteer(row.sessionId),
-            onTap: { pushRoute(.thread(accountId: accountId, threadId: row.sessionId)) },
-            onHold: { openThreadMenu(row) }
+            onTap: {
+                if selectionActive {
+                    toggleSelection(row.sessionId)
+                } else {
+                    pushRoute(.thread(accountId: accountId, threadId: row.sessionId))
+                }
+            },
+            onHold: { enterSelection(with: row.sessionId) }
         )
         .accessibilityIdentifier(Chats.TestIds.chatRow)
+    }
+
+    // MARK: - Selection (#EXP-1388)
+
+    private func enterSelection(with rootId: String) {
+        if selectionActive {
+            if !selectedIds.contains(rootId) { selectedIds.append(rootId) }
+            return
+        }
+        withAnimation(motion.standard) {
+            selectionActive = true
+            selectedIds = [rootId]
+        }
+    }
+
+    private func toggleSelection(_ rootId: String) {
+        if let index = selectedIds.firstIndex(of: rootId) {
+            selectedIds.remove(at: index)
+        } else {
+            selectedIds.append(rootId)
+        }
+        // Deselecting the last row leaves the selection.
+        if selectedIds.isEmpty { exitSelection() }
+    }
+
+    private func exitSelection() {
+        withAnimation(motion.standard) {
+            selectionActive = false
+            selectedIds = []
+        }
+    }
+
+    /// `chatSelectionActions` over the selected rows (selection order).
+    private var selectionItems: [Chats.ChatSelectionItem] {
+        let rows = list.rows
+        let selection: [Chats.ChatSelectionRow] = selectedIds.compactMap { id in
+            guard let row = rows.first(where: { $0.sessionId == id }) else { return nil }
+            return Chats.ChatSelectionRow(
+                sessionId: id,
+                rootStatus: lists.rootStatus[id] ?? "",
+                unreadCount: row.unreadCount,
+                canSteer: canSteer(id),
+                canDelete: canDelete(id)
+            )
+        }
+        return Chats.chatSelectionActions(rows: selection, view: view)
+    }
+
+    /// Every action leaves the selection; Delete asks first.
+    private func runSelection(_ item: Chats.ChatSelectionItem) {
+        if item.action == .delete {
+            deleteSelection = item.sessionIds
+            return
+        }
+        exitSelection()
+        actions.run(item)
     }
 
     // MARK: - Menus
@@ -203,16 +328,6 @@ struct ChatsView: View {
     /// The starter or a team owner deletes a chat (`sessions.delete`).
     private func canDelete(_ rootId: String) -> Bool {
         isOwner || isStarter(rootId)
-    }
-
-    private func openThreadMenu(_ row: Chats.ChatRow) {
-        let entries = Chats.threadMenuEntries(
-            rootStatus: lists.rootStatus[row.sessionId] ?? "",
-            canSteer: canSteer(row.sessionId),
-            canDelete: canDelete(row.sessionId)
-        )
-        guard !entries.isEmpty else { return }
-        menu = ChatMenuTarget(id: row.sessionId, title: row.title, entries: entries.map { .thread($0) })
     }
 
     private func openAgentMenu(_ agentId: String) {

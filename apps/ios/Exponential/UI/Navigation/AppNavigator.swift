@@ -27,6 +27,8 @@ enum AppRoute: Hashable {
     /// EXP-1291: the Threads tab (it replaced Reviews) — the agents, then
     /// the thread roots Needs you · Running · Recent.
     case threads
+    /// #EXP-1388: the Chats list's Archived page (the Archived entry row).
+    case archivedChats(accountId: String)
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// EXP-1241: an issue's page scrolled to one comment, which briefly
@@ -750,6 +752,8 @@ struct MainNavigator: View {
         if case .board = top { return true }
         // #EXP-1384: Devices (a Team page row) keeps the bar, Team lit.
         if case .teamSettingsSection(_, _, .devices) = top { return true }
+        // #EXP-1388: the Archived page (pushed over Chats) keeps it too.
+        if case .archivedChats = top { return true }
         return false
     }
 
@@ -1027,6 +1031,9 @@ extension MainNavigator {
         case .threads:
             ChatsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        case let .archivedChats(accountId):
+            ChatsView(view: .archived)
+                .environment(\.accountId, accountId)
         case let .board(accountId, id):
             IssueListView(boardId: id)
                 .environment(\.accountId, accountId)

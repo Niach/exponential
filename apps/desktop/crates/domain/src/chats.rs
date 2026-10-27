@@ -9,7 +9,9 @@
 //! [`transcript_window_start`]),
 //! the surface card's reply rule ([`surface_reply`]) + its ENTER motion
 //! spec, [`plain_line`], and the lists' per-conversation digest
-//! ([`digest_messages`], `digestCases`). Byte-locked by `fixtures/chats.json`; pure.
+//! ([`digest_messages`], `digestCases`), and #EXP-1388's selection + archive
+//! ([`chat_selection_actions`], [`chat_selection_range`], [`chats_unread`],
+//! [`chat_delete_title`]). Byte-locked by `fixtures/chats.json`; pure.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
@@ -49,6 +51,35 @@ pub struct ChatsToastCopy {
     pub stop_failed: String,
     pub delete_failed: String,
     pub stop_not_delivered: String,
+    /// #EXP-1388: a selection action that failed for some chat.
+    pub selection_failed: String,
+    /// #EXP-1388: Stop / Delete failed for some of the chats (`{n} of {m}`).
+    pub selection_partial: String,
+}
+
+/// `copy.selection` (#EXP-1388: the Chats multi-selection).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsSelectionCopy {
+    pub select: String,
+    /// `{n} selected`.
+    pub count: String,
+    pub mark_read: String,
+    pub mark_unread: String,
+    pub archive: String,
+    pub unarchive: String,
+    pub stop: String,
+    pub delete: String,
+    /// `Delete {n} chats?`.
+    pub confirm_delete_many: String,
+}
+
+/// `copy.archived` (#EXP-1388: the Archived entry + page).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatsArchivedCopy {
+    pub entry: String,
+    pub title: String,
+    pub empty: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -136,6 +167,8 @@ pub struct ChatsCopy {
     pub time: ChatsTimeCopy,
     pub load_earlier: String,
     pub working: String,
+    pub selection: ChatsSelectionCopy,
+    pub archived: ChatsArchivedCopy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -148,6 +181,10 @@ pub struct ChatsTestIds {
     pub divider: String,
     pub load_earlier: String,
     pub jump_to_bottom: String,
+    /// #EXP-1388: the Archived entry row.
+    pub chat_archived: String,
+    /// #EXP-1388: the selection bar (the issue bar's id).
+    pub selection_bar: String,
 }
 
 /// `transcript` (#EXP-1380 WINDOW + FOLLOW): a chat paints its newest
@@ -634,6 +671,17 @@ pub struct ChatCounts {
 pub struct ChatList {
     pub rows: Vec<ChatRow>,
     pub counts: ChatCounts,
+    /// #EXP-1388: archived chats of the active team (the Archived entry).
+    pub archived: usize,
+}
+
+/// #EXP-1388: the list's view: the chats, or the Archived page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatListView {
+    #[default]
+    List,
+    Archived,
 }
 
 const PREVIEW_CARDS: [&str; 5] = ["question", "plan", "ask", "picture", "surface"];
@@ -861,6 +909,8 @@ pub struct ChatListInput<'a> {
     /// `thread_row_word` by session id (absent = none).
     pub words: &'a HashMap<String, ThreadRowWord>,
     pub filter: ChatFilter,
+    /// #EXP-1388: the chats (`List`) or the Archived page.
+    pub view: ChatListView,
     pub now: &'a str,
     pub utc_offset_minutes: i32,
     /// #EXP-1399 review: the viewer's synced session ids (`chat_preview`).
@@ -894,7 +944,10 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
         by_session.entry(message.session_id.as_str()).or_default().push(message);
     }
     let none: Vec<&MessageRow> = Vec::new();
-    let mut all: Vec<ChatRow> = input
+    let archived_ids = archived_ids(input.reads);
+    let is_archived = |row: &ChatRow| !row.needs_you && archived_ids.contains(row.session_id.as_str());
+    let want_archived = input.view == ChatListView::Archived;
+    let mut rows: Vec<ChatRow> = input
         .groups
         .iter()
         .flat_map(|group| group.rows.iter().filter(|row| row.depth == 0).map(move |row| (row, group.key)))
@@ -928,19 +981,172 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
             }
         })
         .collect();
-    all.sort_by(|a, b| {
+    rows.sort_by(|a, b| {
         ms(Some(&b.activity_at))
             .unwrap_or(0)
             .cmp(&ms(Some(&a.activity_at)).unwrap_or(0))
             .then_with(|| a.session_id.cmp(&b.session_id))
     });
+    let archived = rows.iter().filter(|row| is_archived(row)).count();
+    let all: Vec<ChatRow> = rows.into_iter().filter(|row| is_archived(row) == want_archived).collect();
     let count = |filter| all.iter().filter(|row| keeps(row, filter)).count();
     let counts = ChatCounts {
         needs_you: count(ChatFilter::NeedsYou),
         running: count(ChatFilter::Running),
         unread: count(ChatFilter::Unread),
     };
-    ChatList { rows: all.into_iter().filter(|row| keeps(row, input.filter)).collect(), counts }
+    ChatList { rows: all.into_iter().filter(|row| keeps(row, input.filter)).collect(), counts, archived }
+}
+
+/// The roots the viewer archived (a read with `archived_at`).
+fn archived_ids<'a>(reads: &[&'a SessionReadRow]) -> std::collections::HashSet<&'a str> {
+    reads
+        .iter()
+        .filter(|read| read.archived_at.as_deref().is_some_and(|at| !at.is_empty()))
+        .map(|read| read.session_id.as_str())
+        .collect()
+}
+
+/// #EXP-1388 (`dotCases`): the Chats nav dot = an unread depth-0 row whose
+/// root is not archived (a row that needs you counts anyway).
+pub fn chats_unread(groups: &[ThreadsListGroup], reads: &[&SessionReadRow]) -> bool {
+    let archived = archived_ids(reads);
+    groups.iter().any(|group| {
+        group
+            .rows
+            .iter()
+            .any(|row| row.depth == 0 && row.unread && (row.needs_you || !archived.contains(row.session_id.as_str())))
+    })
+}
+
+/// #EXP-1388: a selection bar action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ChatSelectionAction {
+    MarkRead,
+    MarkUnread,
+    Archive,
+    Unarchive,
+    Stop,
+    Delete,
+}
+
+impl ChatSelectionAction {
+    /// The fixture key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::MarkRead => "markRead",
+            Self::MarkUnread => "markUnread",
+            Self::Archive => "archive",
+            Self::Unarchive => "unarchive",
+            Self::Stop => "stop",
+            Self::Delete => "delete",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        let copy = &CHATS.copy.selection;
+        match self {
+            Self::MarkRead => &copy.mark_read,
+            Self::MarkUnread => &copy.mark_unread,
+            Self::Archive => &copy.archive,
+            Self::Unarchive => &copy.unarchive,
+            Self::Stop => &copy.stop,
+            Self::Delete => &copy.delete,
+        }
+    }
+
+    /// The icon concept.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::MarkRead => "ui-mark-read",
+            Self::MarkUnread => "ui-mark-unread",
+            Self::Archive => "ui-archive",
+            Self::Unarchive => "ui-unarchive",
+            Self::Stop => "coding-stop",
+            Self::Delete => "ui-delete",
+        }
+    }
+
+    pub fn destructive(self) -> bool {
+        matches!(self, Self::Delete)
+    }
+}
+
+/// #EXP-1388: one selected chat as the bar reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatSelectionRow {
+    pub session_id: String,
+    pub root_status: String,
+    pub unread_count: usize,
+    pub can_steer: bool,
+    pub can_delete: bool,
+}
+
+/// #EXP-1388 (`selectionCases`): the bar's actions in order, each with the
+/// chats it acts on (selection order): Mark read when any chat is unread,
+/// else Mark unread (all); Archive in the list, Unarchive on the Archived
+/// page (all); Stop while any chat is live and steerable (those); Delete
+/// only when the viewer may steer and delete every one (all).
+pub fn chat_selection_actions(rows: &[ChatSelectionRow], view: ChatListView) -> Vec<(ChatSelectionAction, Vec<String>)> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let ids = |list: &mut dyn Iterator<Item = &ChatSelectionRow>| list.map(|row| row.session_id.clone()).collect::<Vec<_>>();
+    let read = if rows.iter().any(|row| row.unread_count > 0) {
+        ChatSelectionAction::MarkRead
+    } else {
+        ChatSelectionAction::MarkUnread
+    };
+    let archive = match view {
+        ChatListView::Archived => ChatSelectionAction::Unarchive,
+        ChatListView::List => ChatSelectionAction::Archive,
+    };
+    let mut out = vec![(read, ids(&mut rows.iter())), (archive, ids(&mut rows.iter()))];
+    let live = ids(&mut rows.iter().filter(|row| row.can_steer && row.root_status != "ended"));
+    if !live.is_empty() {
+        out.push((ChatSelectionAction::Stop, live));
+    }
+    if rows.iter().all(|row| row.can_steer && row.can_delete) {
+        out.push((ChatSelectionAction::Delete, ids(&mut rows.iter())));
+    }
+    out
+}
+
+/// #EXP-1388 (`rangeCases`): a shift-click's range: the ids between the
+/// anchor and the target in list order, both included; a missing anchor =
+/// the target alone; a target not in the list = nothing.
+pub fn chat_selection_range(order: &[String], anchor: Option<&str>, target: &str) -> Vec<String> {
+    let Some(to) = order.iter().position(|id| id == target) else {
+        return Vec::new();
+    };
+    let Some(from) = anchor.and_then(|anchor| order.iter().position(|id| id == anchor)) else {
+        return vec![target.to_string()];
+    };
+    order[from.min(to)..=from.max(to)].to_vec()
+}
+
+/// #EXP-1388: the (multi-)delete confirm's title.
+pub fn chat_delete_title(count: usize) -> String {
+    if count == 1 {
+        CHATS.copy.confirm_delete.title.clone()
+    } else {
+        CHATS.copy.selection.confirm_delete_many.replace("{n}", &count.to_string())
+    }
+}
+
+/// #EXP-1388: the selection bar's failure toast: `selectionPartial` when
+/// SOME of the `total` chats failed, else `selectionFailed`.
+pub fn chat_selection_failed_title(failed: usize, total: usize) -> String {
+    if failed > 0 && failed < total {
+        CHATS.copy.toasts.selection_partial.replace("{n}", &failed.to_string()).replace("{m}", &total.to_string())
+    } else {
+        CHATS.copy.toasts.selection_failed.clone()
+    }
+}
+
+/// #EXP-1388: `copy.selection.count`.
+pub fn chat_selection_count(count: usize) -> String {
+    CHATS.copy.selection.count.replace("{n}", &count.to_string())
 }
 
 /// A chip's label: its copy, then its count when there is one.
@@ -1365,6 +1571,10 @@ mod tests {
             let words: HashMap<String, ThreadRowWord> =
                 serde_json::from_value(input["words"].clone()).unwrap_or_default();
             let filter = ChatFilter::parse(input["filter"].as_str().unwrap()).unwrap();
+            let view = match input["view"].as_str() {
+                Some("archived") => ChatListView::Archived,
+                _ => ChatListView::List,
+            };
             let got = chat_list(ChatListInput {
                 groups: &groups,
                 messages: &refs,
@@ -1372,15 +1582,82 @@ mod tests {
                 pr_states: &pr_states,
                 words: &words,
                 filter,
+                view,
                 now: input["now"].as_str().unwrap(),
                 utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
                 visible_session_ids: None,
             });
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
-            let labels: Vec<String> = ChatFilter::ALL.iter().map(|f| chat_filter_label(*f, &got.counts)).collect();
-            assert_eq!(labels, ["All", "Needs you 1", "Running 1", "Unread 1"]);
+            if got.archived == 0 {
+                let labels: Vec<String> =
+                    ChatFilter::ALL.iter().map(|f| chat_filter_label(*f, &got.counts)).collect();
+                assert_eq!(labels, ["All", "Needs you 1", "Running 1", "Unread 1"]);
+            }
         }
         assert_eq!(chat_filter_label(ChatFilter::Unread, &ChatCounts::default()), "Unread");
+    }
+
+    #[test]
+    fn selection_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["selectionCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let rows: Vec<ChatSelectionRow> = input["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| ChatSelectionRow {
+                    session_id: row["sessionId"].as_str().unwrap().to_string(),
+                    root_status: row["rootStatus"].as_str().unwrap().to_string(),
+                    unread_count: row["unreadCount"].as_u64().unwrap() as usize,
+                    can_steer: row["canSteer"].as_bool().unwrap(),
+                    can_delete: row["canDelete"].as_bool().unwrap(),
+                })
+                .collect();
+            let view = match input["view"].as_str() {
+                Some("archived") => ChatListView::Archived,
+                _ => ChatListView::List,
+            };
+            let got: Vec<Value> = chat_selection_actions(&rows, view)
+                .into_iter()
+                .map(|(action, ids)| serde_json::json!({ "action": action.key(), "sessionIds": ids }))
+                .collect();
+            assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
+        }
+        assert_eq!(chat_delete_title(1), CHATS.copy.confirm_delete.title);
+        assert_eq!(chat_delete_title(3), "Delete 3 chats?");
+        assert_eq!(chat_selection_failed_title(2, 5), "2 of 5 chats couldn't be updated");
+        assert_eq!(chat_selection_failed_title(5, 5), CHATS.copy.toasts.selection_failed);
+        assert_eq!(chat_selection_count(2), "2 selected");
+    }
+
+    #[test]
+    fn range_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["rangeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let order: Vec<String> = serde_json::from_value(case["order"].clone()).unwrap();
+            let got = chat_selection_range(&order, case["anchor"].as_str(), case["target"].as_str().unwrap());
+            let want: Vec<String> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(got, want, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn dot_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["dotCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let groups: Vec<ThreadsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
+            let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
+            assert_eq!(Some(chats_unread(&groups, &read_refs)), case["expected"].as_bool(), "{}", case["name"]);
+        }
     }
 
     #[test]

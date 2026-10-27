@@ -86,8 +86,9 @@ final class SessionListsModel {
         groups.contains { $0.key == .needsYou && $0.rows.contains { teamId == nil || $0.teamId == teamId } }
     }
 
+    /// #EXP-1388 (`dotCases`): an archived chat never lights the dot.
     func chatsUnread(teamId: String?) -> Bool {
-        SessionTree.threadsUnread(teamGroups(teamId))
+        Chats.chatsUnread(groups: teamGroups(teamId), reads: reads)
     }
 
     /// `partitionThreads` narrowed to one team (empty groups dropped).

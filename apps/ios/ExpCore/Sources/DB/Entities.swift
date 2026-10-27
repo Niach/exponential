@@ -864,6 +864,8 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
     public let userId: String
     public let sessionId: String
     public let readAt: String
+    /// #EXP-1388: the viewer archived the chat (nil = not).
+    public let archivedAt: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -872,6 +874,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
         userId: String,
         sessionId: String,
         readAt: String,
+        archivedAt: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -879,6 +882,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
         self.userId = userId
         self.sessionId = sessionId
         self.readAt = readAt
+        self.archivedAt = archivedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -888,6 +892,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
         case userId = "user_id"
         case sessionId = "session_id"
         case readAt = "read_at"
+        case archivedAt = "archived_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
