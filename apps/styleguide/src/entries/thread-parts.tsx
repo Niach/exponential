@@ -98,14 +98,19 @@ const CARDS = [
   sessionCard({ ...BASE, status: `ended`, endedAt: `2026-10-13T09:51:10.000Z` }, `Bump the CLI floor to 0.14.72`, NOW),
 ]
 
+/** EXP-1334: the folded case, found by NAME (a case inserted upstream once
+ *  shifted the index and broke the whole styleguide suite). */
+const FOLDED_CASE = threadFixture.cases.find((fixtureCase) =>
+  fixtureCase.name.startsWith(`EXP-1334: the root has no chip or card`)
+)!
 const issueTitle = (issueId: string) =>
-  [...threadFixture.cases[0]!.input.issues, ...threadFixture.cases[11]!.input.issues, ...EXTRA_ISSUES].find(
+  [...threadFixture.cases[0]!.input.issues, ...FOLDED_CASE.input.issues, ...EXTRA_ISSUES].find(
     (issue) => issue.id === issueId
   )?.title ?? issueId
 
 /** EXP-1334: the folded case (sub-issues + a session subtree), plus two
  *  more issues so the strip has something to fold. */
-const FOLDED = buildSessionThread(threadFixture.cases[11]!.input as unknown as ThreadInput)
+const FOLDED = buildSessionThread(FOLDED_CASE.input as unknown as ThreadInput)
 const EXTRA_ISSUES = [
   { id: `i-5`, identifier: `EXP-25`, title: `Context ring` },
   { id: `i-6`, identifier: `EXP-26`, title: `Model picker` },

@@ -124,6 +124,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`draft-leave-dialog`]: `Surfaces`,
   [`readiness-checklist`]: `Surfaces`,
   [`device-readiness`]: `Surfaces`,
+  [`device-attention`]: `Lists & rows`,
   toast: `Feedback`,
   [`session-row`]: `Lists & rows`,
   [`pr-row`]: `Lists & rows`,

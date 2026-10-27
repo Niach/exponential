@@ -45,6 +45,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   DEVICE_READINESS_COPY,
   Prompt,
@@ -211,6 +212,7 @@ export function AccountChipMenu({
   row,
   accountLabel,
   onSignIn,
+  header,
   trigger,
 }: {
   /** The device that HOLDS this login (one of the caller's own). */
@@ -224,6 +226,8 @@ export function AccountChipMenu({
    *  route level; the caller owns the request so this module stays off the
    *  dialog's import graph). */
   onSignIn: () => void
+  /** A-16: the login's limits, drawn above the entries. */
+  header?: ReactNode
   trigger: ReactNode
 }) {
   const [busy, setBusy] = useState(false)
@@ -274,6 +278,12 @@ export function AccountChipMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent align="start">
+          {header && (
+            <>
+              <div className="px-2 py-1.5">{header}</div>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {actions.includes(ACTION_SIGN_IN) && (
             <DropdownMenuItem onSelect={signIn}>
               <SignInIcon />

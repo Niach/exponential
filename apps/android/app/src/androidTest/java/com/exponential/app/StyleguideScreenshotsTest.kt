@@ -640,14 +640,18 @@ class StyleguideScreenshotsTest {
         // --- My Issues: thread 58cb32df — the board's My issues chip
         // (chats.json `shell.boardChips`), the active team's assigned issues
         // grouped by status; back to All issues after.
-        val mineChip = hasTestTag("${Chats.TestIds.BOARD_CHIP}-mine")
-        flow.waitFor(mineChip, NAV_TIMEOUT)
-        composeRule.onNode(mineChip).performClick()
-        flow.waitFor(hasText(MY_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_my-issues")
-        composeRule.onNode(hasTestTag("${Chats.TestIds.BOARD_CHIP}-all")).performClick()
-        flow.settle()
+        // Gated like the other self-contained steps: a scoped run that does
+        // not want it never blocks the later shots on its seed.
+        if (ScreenshotFlow.anyRequested("sg_my-issues")) {
+            val mineChip = hasTestTag("${Chats.TestIds.BOARD_CHIP}-mine")
+            flow.waitFor(mineChip, NAV_TIMEOUT)
+            composeRule.onNode(mineChip).performClick()
+            flow.waitFor(hasText(MY_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_my-issues")
+            composeRule.onNode(hasTestTag("${Chats.TestIds.BOARD_CHIP}-all")).performClick()
+            flow.settle()
+        }
 
         // --- Devices (EXP-686, the renamed Agents surface): since EXP-642
         // this lane needs the relay stub (`screenshots:desktop`) — the demo
@@ -658,10 +662,8 @@ class StyleguideScreenshotsTest {
         // accounts shot too.
         openDevices()
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
-        // EXP-944: device rows are collapsed by default; the shot opens the
-        // demo device so its logins and their usage are in frame.
-        composeRule.onAllNodes(hasText(DEMO_DEVICE_NAME, substring = true)).onFirst().performClick()
-        flow.waitFor(hasTestTag("device-login-row"), NETWORK_TIMEOUT)
+        // A-16: nothing folds — every device's logins ride its line as chips.
+        flow.waitFor(hasTestTag("device-login-chip"), NETWORK_TIMEOUT)
         // FEED-149: the demo user OWNS the demo team, so the seeded teammate's
         // shared server ("Acme build server") carries the owner's Remove.
         flow.waitFor(hasTestTag("device-remove-share-button"), NETWORK_TIMEOUT)

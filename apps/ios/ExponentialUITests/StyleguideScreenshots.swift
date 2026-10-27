@@ -473,20 +473,19 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.network,
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
-        // EXP-944: device rows are COLLAPSED by default; the shot opens the
-        // demo device so its logins and their usage are in frame.
-        let deviceRow = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH 'device-row-'"))
-            .firstMatch
-        expect(deviceRow, within: Wait.nav, "No foldable device row")
-        deviceRow.tap()
-        // EXP-909: the machine's own logins sit under its row — the subject
-        // the retired `sg_usage` shot used to have a section of its own for.
+        // A-16 (`devices-list.json`): nothing folds any more — a device is
+        // ONE line with its logins as chips, so the demo login is in frame
+        // straight away.
         expect(
             anyElement(app, containing: Self.demoAccountEmail),
             within: Wait.network,
-            "No \(Self.demoAccountEmail) login row — is the stub device reporting agent accounts?"
+            "No \(Self.demoAccountEmail) login chip — is the stub device reporting agent accounts?"
         )
+        // A-16: the outdated demo desktop (the server's
+        // CLIENT_LATEST_VERSION_DESKTOP above its version) wears the attention
+        // icon; soft — an instance that advertises no latest build has none.
+        _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'device-attention-'"))
+            .firstMatch.waitForExistence(timeout: Wait.sync)
         // FEED-149: the demo user OWNS Acme, so the teammate's shared build
         // server carries the owner's Remove in the gear's slot.
         expect(

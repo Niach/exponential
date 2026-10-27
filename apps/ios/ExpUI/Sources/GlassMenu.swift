@@ -285,14 +285,14 @@ public struct AgentPickerTriggerLabel: View {
 /// `EnvironmentKey.defaultValue` under strict concurrency (a non-Sendable
 /// static), and the closure it carries captures view state that is main-actor
 /// bound by construction — the same shape SwiftUI's own `DismissAction` has.
-final class GlassMenuDismissAction: @unchecked Sendable {
+public final class GlassMenuDismissAction: @unchecked Sendable {
     private let handler: () -> Void
 
     init(_ handler: @escaping () -> Void) {
         self.handler = handler
     }
 
-    func callAsFunction() {
+    public func callAsFunction() {
         handler()
     }
 }
@@ -304,7 +304,9 @@ private struct GlassMenuDismissKey: EnvironmentKey {
 extension EnvironmentValues {
     /// Closes the enclosing `GlassMenu`. Read by `GlassMenuItem`; a call site
     /// with a hand-rolled row can read it too.
-    var glassMenuDismiss: GlassMenuDismissAction {
+    /// A-16: public so a row that is not a `GlassMenuItem` (the Devices
+    /// page's attention card, whose actions are pills) closes the menu too.
+    public internal(set) var glassMenuDismiss: GlassMenuDismissAction {
         get { self[GlassMenuDismissKey.self] }
         set { self[GlassMenuDismissKey.self] = newValue }
     }

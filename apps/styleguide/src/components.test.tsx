@@ -35,6 +35,7 @@ import {
   compileUiCss,
   renderIsland,
 } from "@exp/ui/island"
+import { ENTRIES } from "./entries/index.ts"
 import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
 import { APP_PARITY } from "../../marketing/ui/src/data/app-parity.ts"
 
@@ -48,7 +49,6 @@ import {
   isIsland,
 } from "./components.tsx"
 import type { ComponentSpec } from "./components.tsx"
-import { ENTRIES } from "./entries/index.ts"
 import { escapeHtml } from "./html.ts"
 import { SECTIONS, SECTION_ENTRY_IDS } from "./sections/index.ts"
 import {
@@ -649,8 +649,16 @@ describe(`status table`, () => {
       )
     }
     const undeclared: string[] = []
-    for (const spec of COMPONENTS) {
-      const status = spec.status.desktop
+    // #1287 review: the styleguide ENTRIES carry the same table, so their
+    // desktop names are held to it too.
+    const tables = [
+      ...COMPONENTS.map((spec) => ({ id: spec.id, status: spec.status.desktop })),
+      ...ENTRIES.flatMap((entry) =>
+        entry.status ? [{ id: entry.id, status: entry.status.desktop }] : []
+      ),
+    ]
+    for (const spec of tables) {
+      const status = spec.status
       if (status.state !== `ok` || status.symbol === undefined || status.file === undefined) continue
       const source = readFileSync(resolve(REPO_ROOT, status.file), `utf8`)
       for (const name of symbolNames(status.symbol)) {

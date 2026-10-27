@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-27-devices-one-line",
+    date: "2026-10-27",
+    title: "Devices: one line per machine, warnings behind one icon",
+    summary: "The Devices page lists each machine on one line with its logins beside it. Limits show when you hover a login, and anything that needs a fix sits behind one warning icon.",
+    body: r#"- **One line**: each device shows its name, version and status, then one chip per login. Nothing folds any more.
+- **Limits on hover**: hover a login to see its 5h, week and model limits. Click or tap it for Sign in, Sign out and Remove account, with the same limits on top.
+- **One warning icon**: a login that needs signing in again, a signed-out login or an available update show behind a single icon, each with its own button.
+- **No false "Signed out"**: a coding agent you installed but never signed in to no longer marks the device as signed out. A device without any login says No account.
+- **Offline last**: offline devices sit under an Offline label at the end, dimmed."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_103: ChangelogEntry = ChangelogEntry {
     id: "2026-10-27-rail-voice-button",
     date: "2026-10-27",
     title: "Wake word: a voice button in the sidebar when there's no tray",

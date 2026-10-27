@@ -24,7 +24,7 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `phone_board_menu`,
+      symbol: `render`,
       file: `apps/desktop/crates/ui/src/styleguide/entries/phone_board_menu.rs`,
       note: `the IDE has no phone shell; the styleguide twin paints the open menu`,
     },

@@ -44,7 +44,7 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `getting_started`,
+      symbol: `derive_getting_started / inline_list`,
       file: `apps/desktop/crates/ui/src/getting_started.rs`,
     },
     ios: {

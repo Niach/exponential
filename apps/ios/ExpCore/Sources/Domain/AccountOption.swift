@@ -190,6 +190,12 @@ public enum AccountOptions {
         return min(1, max(0, percent / 100))
     }
 
+    /// A-16: a login's limit bars outside the picker (the Devices page's
+    /// login chip menu) — the same derivation the picker's rows read.
+    public static func limits(_ row: AgentProfileUsageRow) -> AccountLimits? {
+        optionLimits(row)
+    }
+
     private static func optionLimits(_ row: AgentProfileUsageRow) -> AccountLimits? {
         let windows = row.usage?.windows ?? []
         if windows.isEmpty { return nil }

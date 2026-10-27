@@ -265,32 +265,6 @@ impl AgentAccount {
             None => Health::from_signed_in(self.signed_in),
         }
     }
-
-    /// The WORST health this account reports — its own, folded with every
-    /// profile row's. The device row's badge (interface A) is this, folded
-    /// across agents.
-    pub fn worst_health(&self) -> Health {
-        self.profiles
-            .iter()
-            .fold(self.health(), |worst, row| worst.worse(row.health()))
-    }
-}
-
-/// The worst health across a whole [`AgentAccounts`] map — what a DEVICE row
-/// badges. An empty map (a device that reported no agents at all) is
-/// [`Health::Unknown`], never `Ok`.
-pub fn worst_health(accounts: &AgentAccounts) -> Health {
-    let mut worst: Option<Health> = None;
-    for account in accounts.values() {
-        let health = account.worst_health();
-        worst = Some(match worst {
-            Some(seen) => seen.worse(health),
-            // Never fold over a seeded `Unknown`: it outranks `Ok`, so a
-            // machine whose single login is healthy would badge "unknown".
-            None => health,
-        });
-    }
-    worst.unwrap_or(Health::Unknown)
 }
 
 /// `{ agent: account }`, keyed by the contract `codingAgent` id. `BTreeMap`
@@ -676,11 +650,22 @@ mod tests {
         account.health = Some(Health::Ok.as_str().to_string());
         assert!(serde_json::to_string(&account).unwrap().contains(r#""health":"ok""#));
 
-        // A device with one healthy login badges `ok`, not the seeded
-        // `unknown`; one broken profile makes the whole device loud.
         let mut map = AgentAccounts::new();
         map.insert("claude".into(), account.clone());
-        assert_eq!(worst_health(&map), Health::Ok);
+        map.insert(
+            "codex".into(),
+            AgentAccount {
+                health: Some(Health::SignedOut.as_str().into()),
+                ..AgentAccount::default()
+            },
+        );
+        map.get_mut("claude").unwrap().profiles = vec![AgentProfileEntry {
+            id: "4e5f6a7b".into(),
+            signed_in: true,
+            active: true,
+            health: Some(Health::Ok.as_str().into()),
+            ..AgentProfileEntry::default()
+        }];
         map.get_mut("claude").unwrap().profiles = vec![
             AgentProfileEntry {
                 id: "4e5f6a7b".into(),
@@ -696,8 +681,6 @@ mod tests {
                 ..AgentProfileEntry::default()
             },
         ];
-        assert_eq!(worst_health(&map), Health::NeedsRelogin);
-        assert_eq!(worst_health(&AgentAccounts::new()), Health::Unknown);
 
         // And the heartbeat ships it: health alone moves the key.
         let healthy = map.clone();
