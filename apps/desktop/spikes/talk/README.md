@@ -48,3 +48,11 @@ through a PipeWire sink monitor; on macOS `scripts/os-voice-mac.sh` writes
 the `say` clips straight to files and times each call. `scripts/record.sh` is for a human set of the
 same 20 phrases (not recorded yet). `out/` and `models/` are gitignored;
 `numbers.json` (mint) and `numbers-macbook.json` are the committed results.
+
+NEW-56 wake-word false accepts: `scripts/wake_corpus.py mix` builds 8.5 h of
+public speech (LibriSpeech, MLS German, CC BY 4.0) over CC0 game audio per
+language, `scripts/wake_corpus.py positives` has Qwen3-TTS CustomVoice's
+built-in speakers say the phrases, `cargo run --release -p voice --example
+wake -- ... --checks-out F` measures (GPU steps inside `scripts/lanes/lane.sh
+heavy`), and `scripts/wake_sweep.py` replays other tolerances over the logged
+transcripts. The audio stays outside git; `wake-numbers.json` is the result.
