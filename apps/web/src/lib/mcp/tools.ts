@@ -200,6 +200,7 @@ import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
+import { yoloEdge } from "@/lib/yolo-tree-merge"
 import {
   assertFullAccess,
   assertBoardGranted,
@@ -2968,6 +2969,8 @@ export function registerExponentialTools(
           ...(issueIds.length > 0 ? { issueIds } : {}),
         })
         for (const id of issueIds) noteAgentIssueActivity(id, user.id)
+        // EXP-1413: `pr_open` is a yolo edge (quiet while the opener works).
+        yoloEdge(own?.rootId)
         return ok(result)
       } catch (e) {
         return err(e)

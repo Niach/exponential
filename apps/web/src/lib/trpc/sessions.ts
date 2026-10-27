@@ -63,6 +63,7 @@ import {
   startSuggestion,
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
+import { yoloEdge } from "@/lib/yolo-tree-merge"
 import {
   effectiveCli,
   isRunnerModel,
@@ -743,6 +744,8 @@ export const sessionsRouter = router({
         return txid
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)
+      // EXP-1413: a turn ending (or a child's process going) is a yolo edge.
+      if (turnEnded) yoloEdge(session.rootId)
       return { txid }
     }),
 

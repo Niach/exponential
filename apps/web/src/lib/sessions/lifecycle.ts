@@ -13,6 +13,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
+import { yoloEdge } from "@/lib/yolo-tree-merge"
 
 // EXP-1291/NEW-1: the session lifecycle — queued → running ⇄ idle → ended.
 // Merging ends nothing; a session ends only explicitly (End, the agent's
@@ -172,6 +173,7 @@ export async function stopSession(args: {
     }
     return txid
   })
+  if (session.status === `queued` && !session.startedAt) yoloEdge(session.rootId)
   // Chats: `delivered` = the device got the interrupt; a queued, ghost,
   // ended or idle (not busy) session has nothing to deliver (true).
   if (session.status === `queued` || session.status === `ended` || ghost) return { txid, delivered: true }
@@ -210,6 +212,7 @@ export async function endSession(args: {
     return { txid, endedIds }
   })
   await relayKillSessionsBestEffort(result.endedIds)
+  if (result.endedIds.length > 0) yoloEdge(session.rootId)
   return result
 }
 
@@ -309,15 +312,24 @@ export async function foreignHostedSessionIds(
  *  write committed (rows that ended meanwhile stay as they are). */
 export async function endHostedSessions(ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return []
-  const endedIds = await db.transaction(async (tx) => {
+  const endedRows = await db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, agentId: sessions.agentId })
+      .select({
+        id: sessions.id,
+        parentId: sessions.parentId,
+        depth: sessions.depth,
+        agentId: sessions.agentId,
+        rootId: sessions.rootId,
+      })
       .from(sessions)
       .where(and(inArray(sessions.id, [...ids]), ne(sessions.status, `ended`)))
       .orderBy(desc(sessions.depth), asc(sessions.createdAt))
-    return endRowsInTx(tx, rows)
+    const ended = await endRowsInTx(tx, rows)
+    return rows.filter((row) => ended.includes(row.id))
   })
+  const endedIds = endedRows.map((row) => row.id)
   await relayKillSessionsBestEffort(endedIds)
+  for (const rootId of new Set(endedRows.map((row) => row.rootId))) yoloEdge(rootId)
   return endedIds
 }
 
