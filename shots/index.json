@@ -775,8 +775,8 @@
         "file": "shots/dock-card/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 60760,
-        "sha256": "fc64abf903a9ca7d0c7f9b185c786edb7283df8629b8d3fda940aa9a1e90a02a"
+        "bytes": 61422,
+        "sha256": "6f6be36f9b36dc232b6ee50601b6bb3e9d01f60d1f6091a696020a9b2ef5c048"
       },
       "ios": {
         "file": "shots/dock-card/ios.webp",
