@@ -389,7 +389,13 @@ export function ChatRow({
         selected={isSelected}
         badge={isSelected ? <ChatSelectBadge className="md:hidden" /> : undefined}
       />
-      <span className="flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5">
+      <span
+        className={cn(
+          `flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5`,
+          // Phones: no hairline inside the selected band (WhatsApp's).
+          isSelected && `max-md:border-transparent`
+        )}
+      >
         <span className="flex min-w-0 items-baseline gap-2">
           <span
             className={cn(
