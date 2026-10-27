@@ -60,6 +60,17 @@ struct FeedbackStatesScreen: View {
                                 .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                                 .foregroundStyle(DesignTokens.Semantic.red)
                         }
+                        // EXP-1391 + EXP-1378: the check gate's refusal offers
+                        // Merge anyway instead of Retry (`errors.mergeRefusal`).
+                        ToastCard(
+                            item: ToastItem(
+                                kind: .error,
+                                title: FeedbackStates.Errors.title(verb: "merge", thing: "the PR"),
+                                description: "Checks are still running on PR #7: \"gate\". \(FeedbackStates.Errors.MergeRefusal.handoff)",
+                                action: ToastAction(label: FeedbackStates.Errors.MergeRefusal.force) {}
+                            ),
+                            onDismiss: {}
+                        )
                     }
                 }
                 .padding(16)

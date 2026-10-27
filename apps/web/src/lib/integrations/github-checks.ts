@@ -6,10 +6,11 @@ import type { GitHubFetch } from "@/lib/integrations/github-pr"
 // own auto-merge waits for the REQUIRED checks; our merge call does not, so
 // it reads them first. Required = the base branch's rulesets plus classic
 // branch protection; a repo that requires nothing gates on every check that
-// reported on the head commit. A read that fails (no `checks`/`statuses`
-// permission on the App, GitHub down) answers null and the merge path
-// refuses (fails closed, `checksUnreadableRefusal`): a person may still
-// Merge anyway.
+// reported on the head commit. ANY read that fails (no `checks`/`statuses`
+// permission on the App, a rate limit, GitHub down; a 404 on branch
+// protection only means none) answers null and the merge path refuses
+// (fails closed, `checksUnreadableRefusal`): a person may still Merge
+// anyway. The verdict carries the head sha it judged; the merge pins it.
 
 export type ChecksVerdict =
   | { state: `green` }
@@ -72,17 +73,51 @@ export function evaluateChecks(
   return { state: `green` }
 }
 
-async function readJson(
-  doFetch: GitHubFetch,
-  url: string,
-  token: string | null | undefined
-): Promise<unknown | null> {
+type Read = { ok: true; data: unknown } | { ok: false; status: number }
+
+async function read(doFetch: GitHubFetch, url: string, token: string | null | undefined): Promise<Read> {
   const res = await doFetch(url, { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) })
-  if (!res.ok) return null
-  return res.json()
+  if (!res.ok) return { ok: false, status: res.status }
+  return { ok: true, data: await res.json() }
 }
 
-/** The base branch's required check names (rulesets + classic protection). */
+/** Thrown inside the gate: a read it cannot do without (a 403/429/5xx), so
+ *  the verdict is null. */
+class Unreadable extends Error {}
+
+async function readOrThrow(doFetch: GitHubFetch, url: string, token: string | null | undefined): Promise<unknown> {
+  const answer = await read(doFetch, url, token)
+  if (!answer.ok) throw new Unreadable(`HTTP ${answer.status} on ${url}`)
+  return answer.data
+}
+
+const PAGE = 100
+/** A head with more than 1000 checks is not a head we judge. */
+const MAX_PAGES = 10
+
+/** Every page of a commit's check runs / statuses (`key` = the list field). */
+async function readAll<T>(
+  doFetch: GitHubFetch,
+  url: string,
+  key: `check_runs` | `statuses`,
+  token: string | null | undefined
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let page = 1; ; page++) {
+    if (page > MAX_PAGES) throw new Unreadable(`more than ${MAX_PAGES} pages on ${url}`)
+    const data = (await readOrThrow(doFetch, `${url}?per_page=${PAGE}&page=${page}`, token)) as {
+      total_count?: number
+    } & Record<string, unknown>
+    const list = Array.isArray(data?.[key]) ? (data[key] as T[]) : []
+    rows.push(...list)
+    const total = typeof data?.total_count === `number` ? data.total_count : null
+    if (list.length < PAGE || (total != null && rows.length >= total)) return rows
+  }
+}
+
+/** The base branch's required check names (rulesets + classic protection).
+ *  A 404 = nothing of that kind configured; any other failure throws (an
+ *  unreadable requirement never reads as "none required"). */
 async function requiredChecks(
   doFetch: GitHubFetch,
   repo: string,
@@ -90,13 +125,15 @@ async function requiredChecks(
   token: string | null | undefined
 ): Promise<string[]> {
   const branch = encodeURIComponent(base)
+  const optional = async (url: string): Promise<unknown> => {
+    const answer = await read(doFetch, url, token)
+    if (answer.ok) return answer.data
+    if (answer.status === 404) return null
+    throw new Unreadable(`HTTP ${answer.status} on ${url}`)
+  }
   const [rules, protection] = await Promise.all([
-    readJson(doFetch, `https://api.github.com/repos/${repo}/rules/branches/${branch}`, token),
-    readJson(
-      doFetch,
-      `https://api.github.com/repos/${repo}/branches/${branch}/protection/required_status_checks`,
-      token
-    ),
+    optional(`https://api.github.com/repos/${repo}/rules/branches/${branch}`),
+    optional(`https://api.github.com/repos/${repo}/branches/${branch}/protection/required_status_checks`),
   ])
   const names: string[] = []
   if (Array.isArray(rules)) {
@@ -115,18 +152,23 @@ async function requiredChecks(
   return [...new Set(names)]
 }
 
+/** The gate's answer: the verdict over the head commit it read (`sha`). The
+ *  merge pins that sha, so a push after the read is refused by GitHub. */
+export type PullRequestChecks = ChecksVerdict & { sha: string }
+
 /** The check gate for one open PR: its head commit against its base's
  *  required checks. Null = the gate could not read GitHub (the merge
- *  refuses). */
+ *  refuses): the PR, the required checks (a 404 = none), or EITHER list
+ *  failed (403 permission, 429 rate limit, 5xx). Never a partial verdict. */
 export async function pullRequestChecks(opts: {
   repo: string
   prNumber: number
   token: string | null | undefined
   fetchImpl?: GitHubFetch
-}): Promise<ChecksVerdict | null> {
+}): Promise<PullRequestChecks | null> {
   const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
   try {
-    const pull = (await readJson(
+    const pull = (await readOrThrow(
       doFetch,
       `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
       opts.token
@@ -134,24 +176,32 @@ export async function pullRequestChecks(opts: {
     const sha = pull?.head?.sha
     const base = pull?.base?.ref
     if (!sha || !base) return null
+    const commit = `https://api.github.com/repos/${opts.repo}/commits/${sha}`
     const [required, runs, statuses] = await Promise.all([
       requiredChecks(doFetch, opts.repo, base, opts.token),
-      readJson(
-        doFetch,
-        `https://api.github.com/repos/${opts.repo}/commits/${sha}/check-runs?per_page=100`,
-        opts.token
-      ) as Promise<{ check_runs?: CheckRunRow[] } | null>,
-      readJson(
-        doFetch,
-        `https://api.github.com/repos/${opts.repo}/commits/${sha}/status?per_page=100`,
-        opts.token
-      ) as Promise<{ statuses?: CommitStatusRow[] } | null>,
+      readAll<CheckRunRow>(doFetch, `${commit}/check-runs`, `check_runs`, opts.token),
+      readAll<CommitStatusRow>(doFetch, `${commit}/status`, `statuses`, opts.token),
     ])
-    // Neither list readable (the App lacks the permission): no verdict.
-    if (!runs && !statuses) return null
-    return evaluateChecks(required, runs?.check_runs ?? [], statuses?.statuses ?? [])
+    return { ...evaluateChecks(required, runs, statuses), sha }
   } catch (err) {
-    console.warn(`[checks] ${opts.repo}#${opts.prNumber}:`, err)
+    console.warn(`[checks] ${opts.repo}#${opts.prNumber}:`, err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/** The PR's current head commit (null = unreadable). */
+export async function pullRequestHeadSha(opts: {
+  repo: string
+  prNumber: number
+  token: string | null | undefined
+  fetchImpl?: GitHubFetch
+}): Promise<string | null> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  try {
+    const answer = await read(doFetch, `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`, opts.token)
+    if (!answer.ok) return null
+    return (answer.data as { head?: { sha?: string } } | null)?.head?.sha ?? null
+  } catch {
     return null
   }
 }

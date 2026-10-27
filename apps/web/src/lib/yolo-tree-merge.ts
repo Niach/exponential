@@ -10,7 +10,9 @@
 // EXP-324 heal moved it there (`mergePullRequestOrThrow` awaits that heal).
 // A refused PR stays open and only its own descendants wait on it; EXP-1391:
 // the refusal is posted into the thread's root (it wakes and deals with it,
-// one unread line per PR). EXP-1378: the check gate applies (no force).
+// one line per PR, head and reason). EXP-1378: the check gate applies (no
+// force, no wait); running checks post nothing, and a check that finishes
+// re-runs this (`check_suite` / `status` webhooks).
 // Merging never ends a session.
 import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -104,7 +106,7 @@ async function mergeNow(rootId: string): Promise<YoloResult> {
       outcomes[id] = result.queued ? { kind: `queued` } : { kind: `merged` }
     } catch (err) {
       outcomes[id] = { kind: `failed`, error: err instanceof Error ? err.message : String(err) }
-      await postMergeRefusal({ pullRequestId: id, actorUserId: root.userId, error: err })
+      await postMergeRefusal({ pullRequestId: id, actorUserId: root.userId, error: err, automerge: true })
     }
   }
   return { status: `merged`, outcomes }

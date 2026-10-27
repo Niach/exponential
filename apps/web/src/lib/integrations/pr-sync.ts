@@ -1,5 +1,5 @@
-import { isPartPullRequest } from "@exp/domain-contract/issue-lifecycle"
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
+import { partsLanded, pullRequestPart } from "@exp/domain-contract/issue-lifecycle"
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -436,17 +436,45 @@ async function applyLandedInTx(
   actorUserId: string | null
 ): Promise<string[]> {
   const held = await heldMergedAboveInTx(tx, pr.id)
-  // EXP-1378: a PART PR ("(1/2)") lands nothing; its last part does.
-  const landing = await tx
-    .select({ id: pullRequests.id, title: pullRequests.title })
-    .from(pullRequests)
-    .where(inArray(pullRequests.id, [pr.id, ...held.map((row) => row.id)]))
-  const whole = landing.filter((row) => !isPartPullRequest(row.title)).map((row) => row.id)
-  if (whole.length === 0) return []
-  const rows = await tx
-    .select({ id: pullRequestIssues.issueId })
+  const landingIds = [pr.id, ...held.map((row) => row.id)]
+  // EXP-1378: an issue a PART PR ("… (1/2)") links lands only once every
+  // part of it merged (any order); a whole PR lands its issues at once.
+  const links = await tx
+    .select({ issueId: pullRequestIssues.issueId, title: pullRequests.title })
     .from(pullRequestIssues)
-    .where(inArray(pullRequestIssues.pullRequestId, whole))
+    .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
+    .where(inArray(pullRequestIssues.pullRequestId, landingIds))
+  const landed = new Set<string>()
+  const partIssues = new Map<string, number>()
+  for (const link of links) {
+    const part = pullRequestPart(link.title)
+    if (!part) landed.add(link.issueId)
+    else partIssues.set(link.issueId, part.of)
+  }
+  const waiting = [...partIssues.keys()].filter((id) => !landed.has(id))
+  if (waiting.length > 0) {
+    const merged = await tx
+      .select({ issueId: pullRequestIssues.issueId, title: pullRequests.title })
+      .from(pullRequestIssues)
+      .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
+      .where(
+        and(
+          inArray(pullRequestIssues.issueId, waiting),
+          or(eq(pullRequests.state, `merged`), inArray(pullRequests.id, landingIds))
+        )
+      )
+    for (const issueId of waiting) {
+      const of = partIssues.get(issueId)!
+      const parts = merged
+        .filter((row) => row.issueId === issueId)
+        .map((row) => pullRequestPart(row.title))
+        .filter((part) => part?.of === of)
+        .map((part) => part!.part)
+      if (partsLanded(of, parts)) landed.add(issueId)
+    }
+  }
+  if (landed.size === 0) return []
+  const rows = [...landed].map((id) => ({ id }))
   return applyPrEventToIssuesInTx(tx, {
     teamId: pr.teamId,
     issueIds: rows.map((row) => row.id),

@@ -134,6 +134,9 @@ object FeedbackStates {
     const val MERGE_CHECKS_CODE = "PRECONDITION_REQUIRED"
     const val MERGE_ANYWAY = "Merge anyway"
 
+    /** `errors.mergeRefusal.handoff`: ends the server's message once the refusal went into the thread. */
+    const val MERGE_HANDOFF = "Sent to the thread."
+
     /**
      * Where a failure renders, by who started the work (the fixture's `kind`
      * -> `render`): `action` = toast, `input` = inline, `background` (sync,

@@ -32,14 +32,18 @@ export class MergeRefusal extends TRPCError {
   readonly kind: MergeRefusalKind
   /** The refused PR (stamped by the merge path). */
   prNumber: number | null = null
+  /** The head commit the check gate judged (check refusals only). */
+  readonly headSha: string | null
 
   constructor(opts: {
     kind: MergeRefusalKind
     message: string
     code?: `PRECONDITION_FAILED` | `PRECONDITION_REQUIRED`
+    headSha?: string | null
   }) {
     super({ code: opts.code ?? `PRECONDITION_FAILED`, message: opts.message })
     this.kind = opts.kind
+    this.headSha = opts.headSha ?? null
   }
 }
 
@@ -105,13 +109,14 @@ export function prMergeFailureError(
 
 /** EXP-1378: the check gate's refusal (the code `force` overrides). */
 export function checksRefusal(
-  verdict: { state: `pending` | `red`; names: string[] },
+  verdict: { state: `pending` | `red`; names: string[]; sha?: string },
   prNumber: number
 ): MergeRefusal {
   const names = verdict.names.map((name) => `"${name}"`).join(`, `)
   return new MergeRefusal({
     kind: verdict.state === `pending` ? `checks_pending` : `checks_failed`,
     code: `PRECONDITION_REQUIRED`,
+    headSha: verdict.sha ?? null,
     message:
       verdict.state === `pending`
         ? `Checks are still running on PR #${prNumber}: ${names}.`
@@ -127,5 +132,15 @@ export function checksUnreadableRefusal(prNumber: number): MergeRefusal {
     kind: `checks_unreadable`,
     code: `PRECONDITION_REQUIRED`,
     message: `Couldn't read the checks on PR #${prNumber}.`,
+  })
+}
+
+/** EXP-1378: a stack member got a new commit after the gate passed it (its
+ *  new head's checks decide; merging again re-reads them). */
+export function headMovedRefusal(prNumber: number): MergeRefusal {
+  return new MergeRefusal({
+    kind: `checks_pending`,
+    code: `PRECONDITION_REQUIRED`,
+    message: `PR #${prNumber} got a new commit while its checks were read.`,
   })
 }

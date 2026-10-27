@@ -49,9 +49,14 @@ export async function postMergeRefusal(args: {
   /** Who merged (the thread's starter for the automerge). */
   actorUserId: string
   error: unknown
+  /** The automerge: running checks post nothing (green re-runs it), and
+   *  the same refusal on the same head is posted once, read or not, so a
+   *  turn ending on it never wakes the root again. */
+  automerge?: boolean
 }): Promise<boolean> {
   if (!isMergeRefusal(args.error)) return false
   const refusal = args.error
+  if (args.automerge && refusal.kind === `checks_pending`) return false
   try {
     return await db.transaction(async (tx) => {
       const [pr] = await tx
@@ -80,29 +85,51 @@ export async function postMergeRefusal(args: {
           : []
       const target = opener && askHidden(root, opener) ? opener : root
       const live = target.status !== `ended`
+      const body = mergeRefusalText(pr.number, refusal.message, refusal.kind)
+      const ofThisPr = and(
+        eq(messages.sessionId, target.id),
+        sql`${messages.card}->>'event' = 'pr_merge_refused'`,
+        sql`${messages.card}->>'pullRequestId' = ${args.pullRequestId}`
+      )
       // One unread line per PR: a repeat click or an automerge pass while
       // the last refusal still waits adds nothing.
       if (live) {
         const [waiting] = await tx
           .select({ id: messages.id })
           .from(messages)
+          .where(and(ofThisPr, isNull(messages.consumedAt)))
+          .limit(1)
+        if (waiting) return true
+      }
+      // An ended target (display only) or the automerge: the same refusal on
+      // the same head is already there, read or not.
+      if (!live || args.automerge) {
+        const [same] = await tx
+          .select({ id: messages.id })
+          .from(messages)
           .where(
             and(
-              eq(messages.sessionId, target.id),
-              isNull(messages.consumedAt),
-              sql`${messages.card}->>'event' = 'pr_merge_refused'`,
-              sql`${messages.card}->>'pullRequestId' = ${args.pullRequestId}`
+              ofThisPr,
+              eq(messages.body, body),
+              refusal.headSha
+                ? sql`${messages.card}->>'headSha' = ${refusal.headSha}`
+                : sql`${messages.card}->>'headSha' is null`
             )
           )
           .limit(1)
-        if (waiting) return true
+        if (same) return false
       }
       await generateTxId(tx)
       await insertMessage(tx, target, {
         authorKind: `user`,
         authorId: args.actorUserId,
-        body: mergeRefusalText(pr.number, refusal.message, refusal.kind),
-        card: { kind: `event`, event: `pr_merge_refused`, pullRequestId: args.pullRequestId },
+        body,
+        card: {
+          kind: `event`,
+          event: `pr_merge_refused`,
+          pullRequestId: args.pullRequestId,
+          ...(refusal.headSha ? { headSha: refusal.headSha } : {}),
+        },
         consumedAt: live ? null : new Date(),
       })
       return live

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
   ISSUE_LIFECYCLE_CASES,
-  isPartPullRequest,
   issueLifecycleTarget,
   PART_PR_CASES,
+  PARTS_LANDED_CASES,
+  partsLanded,
+  pullRequestPart,
 } from "./issue-lifecycle"
 
 describe(`issue-lifecycle.json`, () => {
@@ -18,7 +20,12 @@ describe(`issue-lifecycle.json`, () => {
 describe(`issue-lifecycle.json partPr`, () => {
   for (const entry of PART_PR_CASES) {
     test(entry.name, () => {
-      expect(isPartPullRequest(entry.title)).toBe(entry.expected)
+      expect(pullRequestPart(entry.title)).toEqual(entry.expected)
+    })
+  }
+  for (const entry of PARTS_LANDED_CASES) {
+    test(entry.name, () => {
+      expect(partsLanded(entry.of, entry.parts)).toBe(entry.expected)
     })
   }
 })

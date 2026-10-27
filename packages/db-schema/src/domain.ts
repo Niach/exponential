@@ -1298,6 +1298,8 @@ export type MessageCard =
       triggerId?: string | null
       eventId?: string | null
       name?: string | null
+      /** EXP-1378 `pr_merge_refused`: the head the check gate judged. */
+      headSha?: string | null
     }
   | { kind: `thread_started`; sessionId: string }
   /** A child's end (or a turn's relay when `final` is false) in its parent. */
