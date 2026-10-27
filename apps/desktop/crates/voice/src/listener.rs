@@ -552,6 +552,10 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     let mut turns = 0u64;
     // #1263 review: when the voice last played (its echo tail).
     let mut spoke: Option<Instant> = None;
+    // #NEW-86: whether a wake turn ran on the last pass, and when one last
+    // ended (its cooldown).
+    let mut woken = false;
+    let mut last_turn: Option<Instant> = None;
     let mut report = |now: WakeReport| {
         if now != reported {
             reported = now;
@@ -560,6 +564,11 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     };
     loop {
         hearing.poll();
+        let woken_now = matches!(&active, Some(Active::Listen(held)) if held.woken);
+        if woken && !woken_now {
+            last_turn = Some(Instant::now());
+        }
+        woken = woken_now;
         let due = wake_retry.is_none_or(|at| Instant::now() >= at);
         if let (Some(word), None, None, true) = (wake.as_ref(), active.as_ref(), scan.as_ref(), due) {
             match open_scan(hearing, &word.phrase) {
@@ -709,7 +718,9 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     if (links.speaking)() {
                         spoke = Some(Instant::now());
                     }
+                    // #NEW-86: nor does a wake turn's tail open a second one.
                     spoke.is_some_and(|at| at.elapsed() < Duration::from_millis(crate::wake::ECHO_TAIL_MS as u64))
+                        || crate::wake::cooling(last_turn.map(|at| at.elapsed().as_millis() as usize))
                 },
             ) {
                 Ok(None) => {}
@@ -1345,6 +1356,40 @@ mod tests {
         say_the_phrase(&harness);
         let events = harness.until(|events| !woke(events).is_empty());
         assert_eq!(woke(&events), ["wake-1"], "never transcribed before: the first clip wakes");
+        harness.close();
+    }
+
+    /// #NEW-86: for the cooldown after a wake turn ends the scan checks
+    /// nothing it hears (the phrase said again at once is not transcribed);
+    /// after it the phrase wakes again.
+    #[test]
+    fn a_wake_turn_cools_down_before_the_next() {
+        let harness = Harness::new();
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        say_the_phrase(&harness);
+        harness.until(|events| !woke(events).is_empty());
+        // The turn ends after the quiet (its answer does not matter here).
+        for chunk in tone(crate::wake::NO_COMMAND_MS as f32 / 1000.0 + 0.5, 0.0).chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+        let ended = |events: &[Event]| events.iter().any(|event| matches!(event, Event::Heard { id, .. } | Event::Empty { id } if id == "wake-1"));
+        let events = harness.until(ended);
+        assert!(ended(&events), "{:?}", without_levels(&events));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while harness.probe.opened.lock().unwrap().len() < 2 {
+            assert!(Instant::now() < deadline, "the scan reopened");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // The next transcription would be clip3: listen for that.
+        harness.send(Job::Wake { phrase: "Clip3".into(), language: "en".into() });
+        say_the_phrase(&harness);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(woke(&harness.events.lock().unwrap()), ["wake-1"], "inside the cooldown: never transcribed");
+        std::thread::sleep(Duration::from_millis(crate::wake::COOLDOWN_MS as u64));
+        say_the_phrase(&harness);
+        let events = harness.until(|events| woke(events).len() == 2);
+        assert_eq!(woke(&events), ["wake-1", "wake-2"], "after the cooldown the phrase wakes");
         harness.close();
     }
 

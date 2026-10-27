@@ -9,7 +9,8 @@
 //! The rows come from [`domain::voice::tray_menu`]; a toggle writes
 //! `voice.update` optimistically like Settings → Voice (the menu flips at
 //! once, the stored value goes to `speak_replies::set_settings`, a refusal
-//! reverts and toasts). Mute microphone is IDE-local: it shows while push to
+//! reverts and toasts). Mute microphone is device-local (#NEW-86: kept in
+//! `{data_dir}/voice-tray.json` across restarts, never synced): it shows while push to
 //! talk listens here and the speech worker is up (`micAvailable`), and push
 //! to talk never opens the microphone while it is on (#NEW-54). A shortcut
 //! that can't be held system-wide says so on the Push to talk item.
@@ -153,9 +154,40 @@ fn item_of(key: &str) -> Option<TrayItemId> {
     .find(|id| item_key(*id) == key)
 }
 
-pub(crate) struct VoiceTray {
-    /// Mute microphone: IDE-local, never stored.
+/// #NEW-86: the device-local file Mute microphone persists in.
+const STATE_FILE: &str = "voice-tray.json";
+
+/// #NEW-86: what the tray keeps on this device across restarts.
+#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct TrayState {
+    #[serde(default)]
     muted: bool,
+}
+
+/// #NEW-86: Mute as this device last left it (a missing or unreadable file
+/// = not muted).
+fn load_muted(data_dir: &std::path::Path) -> bool {
+    std::fs::read(data_dir.join(STATE_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<TrayState>(&bytes).ok())
+        .is_some_and(|state| state.muted)
+}
+
+/// #NEW-86: keep Mute for the next start.
+fn save_muted(data_dir: &std::path::Path, muted: bool) {
+    let written = serde_json::to_vec(&TrayState { muted })
+        .map_err(std::io::Error::other)
+        .and_then(|bytes| std::fs::write(data_dir.join(STATE_FILE), bytes));
+    if let Err(err) = written {
+        log::warn!("[ui] voice tray: cannot keep Mute: {err}");
+    }
+}
+
+pub(crate) struct VoiceTray {
+    /// Mute microphone: device-local, kept across restarts (#NEW-86).
+    muted: bool,
+    /// Where Mute is kept.
+    data_dir: std::path::PathBuf,
     /// The optimistic settings while a toggle's write is in flight.
     pending: Option<VoiceSettings>,
     /// The newest toggle; an older write's answer leaves `pending` alone.
@@ -177,7 +209,14 @@ impl Global for VoiceTrayGlobal {}
 /// settings that watcher holds).
 pub fn install(cx: &mut App) {
     let Some(speaker) = crate::speak_replies::entity(cx) else { return };
-    let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
+    let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+    let device_id = steer::persistent_device_id(&data_dir);
+    // #NEW-86: Mute as this device left it; push to talk and the wake word
+    // hear it before they first open the microphone.
+    let muted = load_muted(&data_dir);
+    if muted {
+        crate::push_to_talk::mute_changed(true, cx);
+    }
     let (tx, rx) = flume::unbounded::<TrayEvent>();
     let entity = cx.new(|cx: &mut Context<VoiceTray>| {
         cx.observe(&speaker, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
@@ -193,7 +232,7 @@ pub fn install(cx: &mut App) {
         if let Some(call) = crate::voice_call::entity(cx) {
             cx.observe(&call, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
-        VoiceTray { muted: false, pending: None, generation: 0, device_id, menu: None, icon: None, backend: backend::Backend::new(tx) }
+        VoiceTray { muted, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
     let weak = entity.downgrade();
@@ -218,6 +257,11 @@ fn global(cx: &App) -> Option<Entity<VoiceTray>> {
     cx.try_global::<VoiceTrayGlobal>().map(|global| global.0.clone())
 }
 
+/// The tray (Settings → Voice follows its Mute, #NEW-86).
+pub(crate) fn entity(cx: &App) -> Option<Entity<VoiceTray>> {
+    global(cx)
+}
+
 /// The tray is up: the last window closing keeps the IDE running.
 pub(crate) fn keeps_running(cx: &App) -> bool {
     global(cx).is_some_and(|entity| {
@@ -234,11 +278,7 @@ pub(crate) fn muted(cx: &App) -> bool {
 /// #NEW-54: the overlay's Unmute.
 pub(crate) fn set_muted(muted: bool, cx: &mut App) {
     if let Some(entity) = global(cx) {
-        entity.update(cx, |this, cx| {
-            this.muted = muted;
-            crate::push_to_talk::mute_changed(muted, cx);
-            this.sync(cx);
-        });
+        entity.update(cx, |this, cx| this.set_muted(muted, cx));
     }
 }
 
@@ -263,6 +303,18 @@ pub(crate) fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> 
 impl VoiceTray {
     fn settings(&self, cx: &App) -> VoiceSettings {
         self.pending.clone().unwrap_or_else(|| crate::speak_replies::settings(cx))
+    }
+
+    /// Mute microphone: push to talk and the wake word let the microphone
+    /// go (or take it again), and the device keeps it (#NEW-86).
+    fn set_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
+        if muted != self.muted {
+            self.muted = muted;
+            save_muted(&self.data_dir, muted);
+            cx.notify();
+        }
+        crate::push_to_talk::mute_changed(muted, cx);
+        self.sync(cx);
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
@@ -314,11 +366,7 @@ impl VoiceTray {
     fn on_click(&mut self, id: TrayItemId, cx: &mut Context<Self>) {
         match id {
             TrayItemId::SpeakReplies | TrayItemId::PushToTalk | TrayItemId::WakeWord => self.toggle(id, cx),
-            TrayItemId::Mute => {
-                self.muted = !self.muted;
-                crate::push_to_talk::mute_changed(self.muted, cx);
-                self.sync(cx);
-            }
+            TrayItemId::Mute => self.set_muted(!self.muted, cx),
             TrayItemId::Open => open_ide(cx),
             TrayItemId::Settings => crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx),
             TrayItemId::Quit => cx.quit(),
@@ -655,6 +703,23 @@ mod tests {
             }
             pixmap.save_png(path).unwrap();
         }
+    }
+
+    /// #NEW-86: Mute survives a restart on this device; no file (or a
+    /// broken one) reads as not muted.
+    #[test]
+    fn mute_is_kept_on_the_device() {
+        let dir = std::env::temp_dir().join(format!("exp-voice-tray-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join(STATE_FILE));
+        assert!(!load_muted(&dir), "no file");
+        save_muted(&dir, true);
+        assert!(load_muted(&dir), "kept");
+        save_muted(&dir, false);
+        assert!(!load_muted(&dir), "unmuted");
+        std::fs::write(dir.join(STATE_FILE), b"{not json").unwrap();
+        assert!(!load_muted(&dir), "unreadable");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

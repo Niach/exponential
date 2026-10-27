@@ -38,6 +38,9 @@ pub const MAX_TURN_MS: usize = 60_000;
 /// How long after a reply ends the microphone still counts as hearing it
 /// (its echo, the player's buffer): no self-wake.
 pub const ECHO_TAIL_MS: usize = 300;
+/// #NEW-86: how long after a wake turn ends the microphone still counts as
+/// the turn's (a trailing phrase, the command's echo): no second turn at once.
+pub const COOLDOWN_MS: usize = 1_500;
 
 const fn frames(ms: usize) -> usize {
     (ms * RATE / 1000).div_ceil(FRAME)
@@ -317,6 +320,12 @@ pub fn turn(
     Ok(utterance)
 }
 
+/// #NEW-86: whether a segment heard `since_turn_ms` after the last wake turn
+/// ended (None = no turn yet) falls in the cooldown, so it is never checked.
+pub fn cooling(since_turn_ms: Option<usize>) -> bool {
+    since_turn_ms.is_some_and(|ms| ms < COOLDOWN_MS)
+}
+
 /// Whether the turn has heard enough ([`turn_over`]).
 pub fn turn_ended(utterance: &Utterance) -> bool {
     turn_over(utterance.open(), utterance.quiet_ms(), utterance.has_command(), (utterance.seconds() * 1000.0) as usize)
@@ -357,6 +366,7 @@ mod tests {
         assert_eq!(c["noCommandMs"], NO_COMMAND_MS);
         assert_eq!(c["maxTurnMs"], MAX_TURN_MS);
         assert_eq!(c["echoTailMs"], ECHO_TAIL_MS);
+        assert_eq!(c["cooldownMs"], COOLDOWN_MS);
     }
 
     #[test]
@@ -401,6 +411,14 @@ mod tests {
             }
             let expected: Vec<[usize; 2]> = serde_json::from_value(case["checks"].clone()).unwrap();
             assert_eq!(checks, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_cooldown_follows_the_fixture() {
+        for case in wake()["cooldown"].as_array().unwrap() {
+            let since = case["msSinceTurn"].as_u64().map(|ms| ms as usize);
+            assert_eq!(!cooling(since), case["checked"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 
