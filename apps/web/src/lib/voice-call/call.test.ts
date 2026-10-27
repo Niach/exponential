@@ -44,7 +44,8 @@ class FakeSocket implements CallSocket {
 function fakeAudio() {
   const audio = {
     onPacket: null as CallAudio[`onPacket`],
-    onLevel: null,
+    onLevel: null as CallAudio[`onLevel`],
+    onError: null as CallAudio[`onError`],
     muted: false,
     played: [] as number[][],
     flushes: 0,
@@ -95,6 +96,8 @@ function deliver(call: VoiceCall, socket: FakeSocket, event: CallEvent) {
       return
     case `end`:
       return call.end()
+    case `hungUp`:
+      return socket.text({ t: `call_end`, ...(event.reason ? { reason: event.reason } : {}) })
     case `failed`:
       return event.code === `dropped` ? socket.drop() : socket.text({ t: `error`, code: event.code })
     default:
@@ -224,6 +227,93 @@ describe(`the web caller's wire`, () => {
     const { socket, toasts } = await dialed()
     socket.text({ t: `error`, code: `busy` })
     expect(toasts).toEqual([fixture.copy.failed.busy.replace(`{device}`, `mint`)])
+  })
+
+  it(`the relay's idle timeout or max length toasts dropped, muted or not`, async () => {
+    for (const reason of [`idle`, `max_length`]) {
+      const { call, socket, audio, toasts } = await dialed()
+      socket.text({ t: `call_ready` })
+      call.toggleMute()
+      socket.text({ t: `call_end`, reason })
+      expect(call.active).toBe(false)
+      expect(audio.closed).toBe(true)
+      expect(toasts).toEqual([fixture.copy.failed.dropped])
+    }
+  })
+
+  it(`muted, the microphone's frames (its silence) keep flowing`, async () => {
+    const { call, socket, audio } = await dialed()
+    socket.text({ t: `call_ready` })
+    call.toggleMute()
+    audio.onPacket?.(new Uint8Array([0]))
+    expect(socket.sent.filter((frame) => typeof frame !== `string`)).toHaveLength(1)
+  })
+
+  it(`a socket that simply goes away closes the audio and toasts dropped`, async () => {
+    const { call, socket, audio, toasts } = await dialed()
+    socket.text({ t: `call_ready` })
+    socket.drop()
+    expect(call.active).toBe(false)
+    expect(audio.closed).toBe(true)
+    expect(toasts).toEqual([fixture.copy.failed.dropped])
+  })
+
+  it(`a codec error ends it as dropped and closes the microphone`, async () => {
+    const { call, socket, audio, toasts } = await dialed()
+    socket.text({ t: `call_ready` })
+    audio.onError?.()
+    expect(call.active).toBe(false)
+    expect(audio.closed).toBe(true)
+    expect(socket.closed).toBe(true)
+    expect(toasts).toEqual([fixture.copy.failed.dropped])
+  })
+
+  it(`End call while the microphone prompt is open never dials and frees the microphone once granted`, async () => {
+    let grant: (audio: CallAudio) => void = () => {}
+    const audio = fakeAudio()
+    const startCall = vi.fn(async () => ({ url: `wss://relay` }))
+    const call = new VoiceCall({
+      startCall,
+      openSocket: () => new FakeSocket(),
+      openAudio: () => new Promise<CallAudio>((resolve) => (grant = resolve)),
+    })
+    const toasts: string[] = []
+    call.onToast = (message) => toasts.push(message)
+    const started = call.start(`agent-1`, `mint`)
+    expect(view(call)?.state).toBe(fixture.copy.connecting)
+    call.end()
+    expect(call.active).toBe(false)
+    grant(audio)
+    await started
+    expect(audio.closed).toBe(true)
+    expect(startCall).not.toHaveBeenCalled()
+    expect(toasts).toEqual([])
+  })
+
+  it(`the level is its own store: it never wakes the call's subscribers`, async () => {
+    const { call, socket, audio } = await dialed()
+    socket.text({ t: `call_ready` })
+    const onState = vi.fn()
+    const onLevel = vi.fn()
+    call.subscribe(onState)
+    call.subscribeLevel(onLevel)
+    audio.onLevel?.(0.5)
+    expect(call.getLevel()).toBe(0.5)
+    expect(onLevel).toHaveBeenCalledOnce()
+    expect(onState).not.toHaveBeenCalled()
+    call.toggleMute()
+    expect(call.getLevel()).toBe(0)
+  })
+
+  it(`voice.startCall failing for any other reason toasts dropped, never its raw message`, async () => {
+    const { call, audio, toasts } = await dialed({
+      startCall: async () => {
+        throw new Error(`Failed to fetch`)
+      },
+    })
+    expect(call.active).toBe(false)
+    expect(audio.closed).toBe(true)
+    expect(toasts).toEqual([fixture.copy.failed.dropped])
   })
 
   it(`voice.startCall refusing toasts its reason and frees the microphone`, async () => {

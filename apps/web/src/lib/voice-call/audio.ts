@@ -6,6 +6,8 @@
 // decoded by AudioDecoder into a playback worklet behind a `jitterMs` jitter
 // buffer, flushed on barge-in. The host sends a reply as fast as it is
 // synthesised, so the buffer queues a whole clause and plays it in time.
+// Mute disables the track and keeps encoding: its silence keeps the frames
+// flowing, so the relay's idle timeout never ends a muted call.
 
 import { VOICE_CALL_CONSTANTS } from "@exp/domain-contract/voice-call"
 
@@ -23,6 +25,8 @@ export interface CallAudio {
   /** One Opus packet of the microphone per `frameMs`; `level` = its 0..1 loudness. */
   onPacket: ((packet: Uint8Array) => void) | null
   onLevel: ((level: number) => void) | null
+  /** The encoder or decoder failed: the call is over. */
+  onError: (() => void) | null
   setMuted(muted: boolean): void
   /** One downlink Opus packet, in order. */
   play(packet: Uint8Array): void
@@ -221,13 +225,12 @@ export async function openCallAudio(): Promise<CallAudio> {
     }
   }
   try {
-    let muted = false
     let timestamp = 0
     const audio: CallAudio = {
       onPacket: null,
       onLevel: null,
+      onError: null,
       setMuted(next) {
-        muted = next
         for (const track of stream.getAudioTracks()) track.enabled = !next
         if (next) audio.onLevel?.(0)
       },
@@ -242,12 +245,11 @@ export async function openCallAudio(): Promise<CallAudio> {
     await addWorklet(capture.context, CAPTURE_WORKLET)
     const encoder = new AudioEncoder({
       output: (chunk) => {
-        if (muted) return
         const packet = new Uint8Array(chunk.byteLength)
         chunk.copyTo(packet)
         audio.onPacket?.(packet)
       },
-      error: () => {},
+      error: () => audio.onError?.(),
     })
     encoder.configure(ENCODER_CONFIG)
     closers.push(() => encoder.state !== `closed` && encoder.close())
@@ -259,7 +261,7 @@ export async function openCallAudio(): Promise<CallAudio> {
     tap.port.onmessage = (event: MessageEvent<Float32Array<ArrayBuffer>>) => {
       const samples = event.data
       timestamp += frameMs * 1000
-      if (muted || encoder.state !== `configured`) return
+      if (encoder.state !== `configured`) return
       let sum = 0
       for (const sample of samples) sum += sample * sample
       audio.onLevel?.(Math.min(1, Math.sqrt(sum / samples.length) * 4))
@@ -294,7 +296,7 @@ export async function openCallAudio(): Promise<CallAudio> {
         speaker.port.postMessage({ samples, rate: data.sampleRate }, [samples.buffer])
         data.close()
       },
-      error: () => {},
+      error: () => audio.onError?.(),
     })
     decoder.configure(DECODER_CONFIG)
     closers.push(() => decoder.state !== `closed` && decoder.close())

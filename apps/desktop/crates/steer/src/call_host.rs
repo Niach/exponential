@@ -65,6 +65,13 @@ pub struct CallHost {
 }
 
 impl CallHost {
+    /// A host whose socket is already gone: every send is dropped (the IDE's
+    /// call lifecycle tests).
+    #[doc(hidden)]
+    pub fn detached() -> Self {
+        Self { tx: flume::unbounded().0 }
+    }
+
     /// Forward one flow event (voice-call.json `flowCases` event) to the
     /// caller as `call_event`.
     pub fn send_event(&self, event: Value) {

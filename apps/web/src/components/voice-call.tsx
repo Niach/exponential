@@ -5,7 +5,8 @@
 // device's synced row); and while a call runs, THE call card
 // (`VoiceCallCard`, the `voice-call` entry) centred over the chat. The call
 // streams to the voice device (lib/voice-call/call.ts); leaving the chat
-// hangs up.
+// (or the page) hangs up. Only the card reads the microphone's level, so its
+// 50 Hz updates never re-render the chat.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
@@ -76,14 +77,22 @@ export function useVoiceCallAvailability(): VoiceCallAvailability {
   )
 }
 
-/** One call per chat; the chat going away (or another agent) hangs up. */
-export function useVoiceCall(agentId: string) {
+/** One call per chat; the chat going away (another agent, or the page
+ *  itself) hangs up. */
+export function useVoiceCall(agentId: string, deps: CallDeps = WEB_CALL_DEPS) {
   const call = useMemo(() => {
-    const next = new VoiceCall(WEB_CALL_DEPS)
+    const next = new VoiceCall(deps)
     next.onToast = (message) => void toast.error(message)
     return next
-  }, [agentId])
-  useEffect(() => () => call.end(), [call])
+  }, [agentId, deps])
+  useEffect(() => {
+    const hangUp = () => call.end()
+    window.addEventListener(`pagehide`, hangUp)
+    return () => {
+      window.removeEventListener(`pagehide`, hangUp)
+      hangUp()
+    }
+  }, [call])
   const snapshot = useSyncExternalStore(call.subscribe, call.getSnapshot, call.getSnapshot)
   return { call, snapshot }
 }
@@ -124,18 +133,19 @@ export function CallButton({
   )
 }
 
-/** The centred call card while a call runs: the card fill on the opaque
- *  base (`bg-glass-card-opaque`, the floating composer's), so the chat
- *  scrolling behind never shows through. */
+/** The centred call card while a call runs (THE `VoiceCallCard`, its
+ *  GlassCard frame opaque, exactly the styleguide entry); the only reader of
+ *  the microphone's level. */
 export function VoiceCallOverlay({ call, snapshot }: ReturnType<typeof useVoiceCall>) {
   const view = callView(snapshot.state)
+  const level = useSyncExternalStore(call.subscribeLevel, call.getLevel, call.getLevel)
   if (!view) return null
   return (
     <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-4">
       <VoiceCallCard
-        className="pointer-events-auto bg-glass-card-opaque"
+        className="pointer-events-auto"
         activity={view.activity}
-        level={snapshot.level}
+        level={level}
         state={view.state}
         line={view.line}
         mute={view.mute}

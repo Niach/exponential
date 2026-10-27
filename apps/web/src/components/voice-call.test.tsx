@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, renderHook, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/voice-call.json"
 import { TooltipProvider } from "@exp/ui"
 
-import { VoiceCall } from "@/lib/voice-call/call"
+import { VoiceCall, type CallDeps } from "@/lib/voice-call/call"
 
 // NEW-70 (voice-call.json): THE telephone in the web agent chat's header and
 // THE call card over it.
@@ -12,7 +12,7 @@ vi.mock(`@/lib/trpc-client`, () => ({ trpc: { voice: { get: { query: async () =>
 vi.mock(`@/lib/collections`, () => ({ deviceCollection: {} }))
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
 
-const { CallButton, VoiceCallOverlay } = await import(`./voice-call`)
+const { CallButton, useVoiceCall, VoiceCallOverlay } = await import(`./voice-call`)
 
 const testIds = fixture.testIds
 
@@ -66,7 +66,7 @@ describe(`VoiceCallOverlay`, () => {
       },
       close() {},
     }
-    const audio = { onPacket: null, onLevel: null, setMuted: vi.fn(), play() {}, flush() {}, close() {} }
+    const audio = { onPacket: null, onLevel: null, onError: null, setMuted: vi.fn(), play() {}, flush() {}, close() {} }
     const call = new VoiceCall({ startCall: async () => ({ url: `wss://r` }), openSocket: () => socket, openAudio: async () => audio })
     return { call, socket }
   }
@@ -95,5 +95,76 @@ describe(`VoiceCallOverlay`, () => {
     fireEvent.click(screen.getByTestId(testIds.end))
     rerender(<VoiceCallOverlay call={call} snapshot={call.getSnapshot()} />)
     expect(screen.queryByTestId(testIds.surface)).toBeNull()
+  })
+})
+
+describe(`useVoiceCall`, () => {
+  function deps() {
+    const sockets: { sent: unknown[]; closed: boolean }[] = []
+    const audios: { closed: boolean }[] = []
+    const value: CallDeps = {
+      startCall: async () => ({ url: `wss://r` }),
+      openSocket: () => {
+        const socket = {
+          binaryType: `blob` as BinaryType,
+          readyState: 1,
+          onopen: null,
+          onmessage: null,
+          onclose: null,
+          onerror: null,
+          sent: [] as unknown[],
+          closed: false,
+          send(data: unknown) {
+            socket.sent.push(data)
+          },
+          close() {
+            socket.closed = true
+          },
+        }
+        sockets.push(socket)
+        return socket
+      },
+      openAudio: async () => {
+        const audio = { onPacket: null, onLevel: null, onError: null, closed: false, setMuted() {}, play() {}, flush() {}, close() {
+          audio.closed = true
+        } }
+        audios.push(audio)
+        return audio
+      },
+    }
+    return { value, sockets, audios }
+  }
+
+  async function running(agentId = `agent-1`) {
+    const d = deps()
+    const hook = renderHook(({ agentId }) => useVoiceCall(agentId, d.value), { initialProps: { agentId } })
+    await hook.result.current.call.start(agentId, `mint`)
+    expect(hook.result.current.call.active).toBe(true)
+    return { ...d, hook }
+  }
+
+  it(`leaving the chat ends the call`, async () => {
+    const { hook, sockets, audios } = await running()
+    const { call } = hook.result.current
+    hook.unmount()
+    expect(call.active).toBe(false)
+    expect(sockets[0]!.closed).toBe(true)
+    expect(audios[0]!.closed).toBe(true)
+  })
+
+  it(`switching to another agent ends the call`, async () => {
+    const { hook, audios } = await running()
+    const first = hook.result.current.call
+    hook.rerender({ agentId: `agent-2` })
+    expect(first.active).toBe(false)
+    expect(audios[0]!.closed).toBe(true)
+    expect(hook.result.current.call).not.toBe(first)
+  })
+
+  it(`the page going away ends the call`, async () => {
+    const { hook, sockets } = await running()
+    window.dispatchEvent(new Event(`pagehide`))
+    expect(hook.result.current.call.active).toBe(false)
+    expect(sockets[0]!.sent).toContain(JSON.stringify({ t: `call_end` }))
   })
 })

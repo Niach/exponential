@@ -2,6 +2,7 @@ import type { HTMLAttributes } from "react"
 
 import { cn } from "./cn"
 import { ExponentialLogo } from "./exponential-logo"
+import { GlassCard } from "./glass-card"
 import { Pill } from "./pill"
 import { VoiceWave, type VoiceWaveActivity } from "./voice-wave"
 
@@ -12,8 +13,10 @@ import { VoiceWave, type VoiceWaveActivity } from "./voice-wave"
 // the queue, or what is said), then End call as the ONE primary pill and the
 // mute pill beside it. Exponential-specific, so it is no eUI primitive; the
 // desktop draws the same states in its voice capsule (voice-call-overlay).
+// The frame is THE `GlassCard` (opaque card fill, so the chat scrolling
+// behind never shows through); this adds only the layout.
 
-export const VOICE_CALL_CARD_CLASS = `flex w-[22rem] max-w-full flex-col items-center gap-4 rounded-xl border border-glass-stroke-card bg-glass-card px-6 py-6`
+export const VOICE_CALL_CARD_CLASS = `flex w-[22rem] max-w-full flex-col items-center gap-4 px-6 py-6`
 
 export interface VoiceCallCardProps extends Omit<HTMLAttributes<HTMLDivElement>, `onClick`> {
   activity: VoiceWaveActivity
@@ -48,7 +51,7 @@ export function VoiceCallCard({
   ...props
 }: VoiceCallCardProps) {
   return (
-    <div data-slot="voice-call" className={cn(VOICE_CALL_CARD_CLASS, className)} {...props}>
+    <GlassCard data-slot="voice-call" className={cn(VOICE_CALL_CARD_CLASS, className)} {...props}>
       <VoiceWave activity={activity} level={level} bands={bands} size="xl" label="Voice">
         <ExponentialLogo variant="light" size={56} />
       </VoiceWave>
@@ -66,6 +69,6 @@ export function VoiceCallCard({
           {mute}
         </Pill>
       </div>
-    </div>
+    </GlassCard>
   )
 }

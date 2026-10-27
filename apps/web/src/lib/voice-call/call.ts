@@ -4,12 +4,21 @@
 // `call_ready` once its host joined; from then on the microphone goes up as
 // `up` frames and the reply comes down as `down` frames, while the host's
 // `call_event`s drive the SAME `callStep` machine the voice device runs.
-// Mute = `call_mute`, End call = `call_end`; a refusal, an `error` code or a
-// socket that simply went away ends the call with the fixture's toast. A
+// Mute = `call_mute` (the microphone keeps sending its silence), End call =
+// `call_end`; a refusal, an `error` code, a codec error, a socket that
+// simply went away or the relay's `call_end` with a reason (`idle`,
+// `max_length`: the flow's `hungUp`) ends the call with the fixture's toast;
+// only a reason-less `call_end` (the host hung up) ends it silently. A
 // browser without WebCodecs Opus toasts `unsupported` before the microphone
 // opens and never dials (Opus only: the host decodes nothing else).
 
-import { CALL_IDLE, callStep, type CallEvent, type CallState } from "@exp/domain-contract/voice-call"
+import {
+  CALL_IDLE,
+  callStep,
+  VOICE_CALL_COPY,
+  type CallEvent,
+  type CallState,
+} from "@exp/domain-contract/voice-call"
 
 import { CallAudioError, type CallAudio } from "./audio"
 import { audioFrame, hostCallEvent, KIND_DOWN, KIND_UP, parseAudioFrame, parseControl, seqAfter } from "./wire"
@@ -32,17 +41,33 @@ export interface CallDeps {
   openAudio(): Promise<CallAudio>
 }
 
-/** What a call shows: the flow state and the microphone's level. */
+/** What a call shows (the microphone's level is its own store, read only
+ *  by the card: it changes every frame). */
 export interface CallSnapshot {
   state: CallState
-  level: number
 }
 
 const OPEN = 1
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, `\\$&`)
+
+/** The fixture's availability reasons, `{device}` = any name. */
+const REFUSALS = Object.values(VOICE_CALL_COPY.reasons).map(
+  (reason) => new RegExp(`^${reason.split(`{device}`).map(escapeRegExp).join(`.+`)}$`)
+)
+
+/** `voice.startCall`'s refusal when it is one of the fixture's availability
+ *  reasons (the server names the device), else null. */
+function refusalReason(error: unknown): string | null {
+  const message = error instanceof Error ? error.message.trim() : ``
+  return message && REFUSALS.some((refusal) => refusal.test(message)) ? message : null
+}
+
 export class VoiceCall {
-  private snapshot: CallSnapshot = { state: CALL_IDLE, level: 0 }
+  private snapshot: CallSnapshot = { state: CALL_IDLE }
   private listeners = new Set<() => void>()
+  private level = 0
+  private levelListeners = new Set<() => void>()
   private socket: CallSocket | null = null
   private audio: CallAudio | null = null
   private ready = false
@@ -62,18 +87,28 @@ export class VoiceCall {
 
   getSnapshot = () => this.snapshot
 
+  subscribeLevel = (listener: () => void) => {
+    this.levelListeners.add(listener)
+    return () => this.levelListeners.delete(listener)
+  }
+
+  getLevel = () => this.level
+
+  private setLevel(level: number) {
+    if (level === this.level) return
+    this.level = level
+    for (const listener of this.levelListeners) listener()
+  }
+
   get active(): boolean {
     return this.snapshot.state.phase !== `hidden`
   }
 
-  private set(patch: Partial<CallSnapshot>) {
-    this.snapshot = { ...this.snapshot, ...patch }
-    for (const listener of this.listeners) listener()
-  }
-
   private step(event: CallEvent) {
     const state = callStep(this.snapshot.state, event)
-    this.set({ state, level: state.phase === `hidden` || state.muted ? 0 : this.snapshot.level })
+    this.snapshot = { state }
+    for (const listener of this.listeners) listener()
+    if (state.phase === `hidden` || state.muted) this.setLevel(0)
     if (state.toast) this.onToast?.(state.toast)
   }
 
@@ -93,7 +128,10 @@ export class VoiceCall {
     if (generation !== this.generation) return audio.close()
     this.audio = audio
     audio.setMuted(this.snapshot.state.muted)
-    audio.onLevel = (level) => this.set({ level })
+    audio.onLevel = (level) => this.setLevel(level)
+    audio.onError = () => {
+      if (generation === this.generation) this.fail(`dropped`)
+    }
     audio.onPacket = (packet) => {
       if (!this.ready || this.socket?.readyState !== OPEN) return
       this.socket.send(audioFrame(KIND_UP, this.seq, packet))
@@ -105,10 +143,12 @@ export class VoiceCall {
     } catch (error) {
       if (generation !== this.generation) return
       this.teardown()
-      const message = error instanceof Error ? error.message.trim() : ``
+      // Only an availability refusal (the fixture's own words) is shown;
+      // anything else (a network error, a 500) is a dropped call.
+      const reason = refusalReason(error)
+      if (!reason) return this.step({ t: `failed`, code: `dropped` })
       this.step({ t: `end` })
-      if (message) this.onToast?.(message)
-      else this.step({ t: `failed`, code: `dropped` })
+      this.onToast?.(reason)
       return
     }
     if (generation !== this.generation) return
@@ -153,7 +193,7 @@ export class VoiceCall {
       }
       case `call_end`:
         this.teardown()
-        return this.step({ t: `end` })
+        return this.step({ t: `hungUp`, reason: frame.reason ?? null })
       case `error`:
         return this.fail(frame.code)
       case `bye`:
