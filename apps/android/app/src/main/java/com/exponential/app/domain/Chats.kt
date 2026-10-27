@@ -53,6 +53,15 @@ object Chats {
         const val PREVIEW_PICTURE = "Picture"
         const val PREVIEW_SURFACE = "Preview"
         const val PREVIEW_EMPTY = "No messages yet"
+        /** #EXP-1399: the bus's `askText` leads (`copy.preview.askQuestionLead` / `askPlanLead`). */
+        const val PREVIEW_ASK_QUESTION_LEAD = "Asks: "
+        const val PREVIEW_ASK_PLAN_LEAD = "Proposes a plan:"
+        /** #EXP-1399 review: the server's NEUTRAL mirror (a reader may not see
+         *  the origin) and the private preview lines. */
+        const val PREVIEW_ASK_PRIVATE_QUESTION_LEAD = "Asks a question in a private chat."
+        const val PREVIEW_ASK_PRIVATE_PLAN_LEAD = "Proposes a plan in a private chat."
+        const val PREVIEW_QUESTION_PRIVATE = "Question in a private chat"
+        const val PREVIEW_PLAN_PRIVATE = "Plan in a private chat"
 
         const val TIME_YESTERDAY = "Yesterday"
         val WEEKDAYS_SHORT: List<String> = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -493,8 +502,45 @@ object Chats {
         .replace(WHITESPACE, " ")
         .trim()
 
+    private val BLANK_LINE = Regex("""\n\s*\n""")
+
+    /** A plan / question card's preview (kind + filled copy). #EXP-1399: an
+     *  `ask` mirror reads its body, the bus's `askText` (`Asks: <question>`
+     *  on its first line with text | `Proposes a plan:` then the plan's first
+     *  block), which the list digest keeps too. A PRIVATE origin (the server's
+     *  neutral body, or a session outside [visible]) shows the private copy,
+     *  never its text. */
+    private fun askPreview(message: SessionTree.Message, visible: Set<String>?): ChatPreview {
+        val card = message.card!!
+        fun question(text: String) = ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", text))
+        fun plan(text: String) = ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", text))
+        if (card.kind() == DomainContract.messageCardKindPlan) return plan(plainLine(card.textOf("plan")))
+        if (card.kind() != DomainContract.messageCardKindAsk) return question(plainLine(card.textOf("question")))
+        val body = message.body.trim()
+        val isPlan = body.startsWith(Copy.PREVIEW_ASK_PLAN_LEAD) || body.startsWith(Copy.PREVIEW_ASK_PRIVATE_PLAN_LEAD)
+        val origin = (card["sessionId"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: message.authorSessionId ?: ""
+        val hidden = body.startsWith(Copy.PREVIEW_ASK_PRIVATE_PLAN_LEAD) ||
+            body.startsWith(Copy.PREVIEW_ASK_PRIVATE_QUESTION_LEAD) ||
+            (visible != null && origin !in visible)
+        if (hidden) {
+            return if (isPlan) ChatPreview("plan", Copy.PREVIEW_PLAN_PRIVATE) else ChatPreview("question", Copy.PREVIEW_QUESTION_PRIVATE)
+        }
+        if (body.startsWith(Copy.PREVIEW_ASK_PLAN_LEAD)) {
+            return plan(plainLine(body.substring(Copy.PREVIEW_ASK_PLAN_LEAD.length).trim().split(BLANK_LINE).first()))
+        }
+        val first = body.split("\n").firstOrNull { plainLine(it) != "" } ?: ""
+        return question(plainLine(first.removePrefix(Copy.PREVIEW_ASK_QUESTION_LEAD)))
+    }
+
     /** The root conversation's preview line (`previewCases`). */
-    fun chatPreview(rootId: String, messages: List<SessionTree.Message>, needsYou: Boolean, busy: Boolean): ChatPreview {
+    /** [visible] = the viewer's synced session ids (null = no check, #EXP-1399 review). */
+    fun chatPreview(
+        rootId: String,
+        messages: List<SessionTree.Message>,
+        needsYou: Boolean,
+        busy: Boolean,
+        visible: Set<String>? = null,
+    ): ChatPreview {
         val own = messages
             .filter {
                 it.sessionId == rootId &&
@@ -510,14 +556,7 @@ object Chats {
                         it == DomainContract.messageCardKindAsk
                 }
             }
-            if (waiting != null) {
-                val card = waiting.card!!
-                return if (card.kind() == DomainContract.messageCardKindPlan) {
-                    ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", plainLine(card.textOf("plan"))))
-                } else {
-                    ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", plainLine(card.textOf("question"))))
-                }
-            }
+            if (waiting != null) return askPreview(waiting, visible)
         }
         if (busy) return ChatPreview("working", Copy.PREVIEW_WORKING)
         val newest = own.firstOrNull() ?: return ChatPreview("empty", Copy.PREVIEW_EMPTY)
@@ -533,10 +572,8 @@ object Chats {
                 val title = (card["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim().orEmpty()
                 ChatPreview("surface", title.ifEmpty { Copy.PREVIEW_SURFACE })
             }
-            DomainContract.messageCardKindQuestion, DomainContract.messageCardKindAsk ->
-                ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", plainLine(card.textOf("question"))))
-            DomainContract.messageCardKindPlan ->
-                ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", plainLine(card.textOf("plan"))))
+            DomainContract.messageCardKindQuestion, DomainContract.messageCardKindAsk, DomainContract.messageCardKindPlan ->
+                askPreview(newest, visible)
             else -> ChatPreview("agent", plainLine(newest.body))
         }
     }
@@ -602,6 +639,8 @@ object Chats {
         filter: ChatFilter,
         now: String,
         utcOffsetMinutes: Int,
+        /** #EXP-1399 review: the viewer's synced session ids ([chatPreview]). */
+        visible: Set<String>? = null,
     ): ChatList {
         val all = groups
             .flatMap { group -> group.rows.filter { it.depth == 0 }.map { it to group.key } }
@@ -626,7 +665,7 @@ object Chats {
                     deviceId = row.deviceId,
                     group = group,
                     lead = lead,
-                    preview = chatPreview(row.sessionId, messages, row.needsYou, row.busy),
+                    preview = chatPreview(row.sessionId, messages, row.needsYou, row.busy, visible),
                     activityAt = row.activityAt,
                     time = chatTimeLabel(row.activityAt, now, utcOffsetMinutes),
                     unreadCount = unreadCount(row.sessionId, messages, reads),

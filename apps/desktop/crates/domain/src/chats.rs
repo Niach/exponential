@@ -11,7 +11,7 @@
 //! spec, [`plain_line`], and the lists' per-conversation digest
 //! ([`digest_messages`], `digestCases`). Byte-locked by `fixtures/chats.json`; pure.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -89,6 +89,7 @@ pub struct ChatsBoardMenuCopy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatsPreviewCopy {
     pub working: String,
     pub question: String,
@@ -97,6 +98,12 @@ pub struct ChatsPreviewCopy {
     pub picture: String,
     pub surface: String,
     pub empty: String,
+    pub ask_question_lead: String,
+    pub ask_plan_lead: String,
+    pub ask_private_question_lead: String,
+    pub ask_private_plan_lead: String,
+    pub question_private: String,
+    pub plan_private: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -651,9 +658,59 @@ fn is_author(message: &MessageRow, kind: &str) -> bool {
     message.author_kind.as_deref() == Some(kind)
 }
 
+static BLANK_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n\s*\n").unwrap());
+
+/// A plan / question card's preview line. #EXP-1399: an `ask` mirror reads
+/// its body, the bus's `askText` (`Asks: <question>` on its first line with
+/// text | `Proposes a plan:` then the plan's first block), which the list
+/// digest keeps too. A PRIVATE origin (the server's neutral body, or a
+/// session outside `visible`) shows the private copy, never its text.
+pub fn ask_preview(message: &MessageRow, visible: Option<&HashSet<&str>>) -> ChatPreview {
+    let copy = &CHATS.copy.preview;
+    let fill = |kind: ChatPreviewKind, text: &str| {
+        let template = if kind == ChatPreviewKind::Plan { &copy.plan } else { &copy.question };
+        ChatPreview { kind, text: template.replace("{text}", text) }
+    };
+    match card_kind(message) {
+        Some("plan") => return fill(ChatPreviewKind::Plan, &plain_line(&card_text(message, "plan"))),
+        Some("ask") => {}
+        _ => return fill(ChatPreviewKind::Question, &plain_line(&card_text(message, "question"))),
+    }
+    let body = message.body.as_deref().unwrap_or_default().trim();
+    let plan = body.starts_with(copy.ask_plan_lead.as_str()) || body.starts_with(copy.ask_private_plan_lead.as_str());
+    let origin = match message.card.as_ref().and_then(|card| card.get("sessionId")) {
+        Some(Value::String(id)) => id.as_str(),
+        _ => message.author_session_id.as_deref().unwrap_or_default(),
+    };
+    let hidden = body.starts_with(copy.ask_private_plan_lead.as_str())
+        || body.starts_with(copy.ask_private_question_lead.as_str())
+        || visible.is_some_and(|ids| !ids.contains(origin));
+    if hidden {
+        return if plan {
+            ChatPreview { kind: ChatPreviewKind::Plan, text: copy.plan_private.clone() }
+        } else {
+            ChatPreview { kind: ChatPreviewKind::Question, text: copy.question_private.clone() }
+        };
+    }
+    if let Some(rest) = body.strip_prefix(copy.ask_plan_lead.as_str()) {
+        let block = BLANK_LINE.split(rest.trim()).next().unwrap_or_default();
+        return fill(ChatPreviewKind::Plan, &plain_line(block));
+    }
+    let first = body.split('\n').find(|line| !plain_line(line).is_empty()).unwrap_or_default();
+    let first = first.strip_prefix(copy.ask_question_lead.as_str()).unwrap_or(first);
+    fill(ChatPreviewKind::Question, &plain_line(first))
+}
+
 /// The root conversation's preview line (`previewCases`). `messages` may
-/// hold other sessions' rows: only `root_id`'s own count.
-pub fn chat_preview(root_id: &str, messages: &[&MessageRow], needs_you: bool, busy: bool) -> ChatPreview {
+/// hold other sessions' rows: only `root_id`'s own count. `visible` = the
+/// viewer's synced session ids (`None` = no check, #EXP-1399 review).
+pub fn chat_preview(
+    root_id: &str,
+    messages: &[&MessageRow],
+    needs_you: bool,
+    busy: bool,
+    visible: Option<&HashSet<&str>>,
+) -> ChatPreview {
     let copy = &CHATS.copy.preview;
     let mut own: Vec<&MessageRow> = messages
         .iter()
@@ -671,19 +728,13 @@ pub fn chat_preview(root_id: &str, messages: &[&MessageRow], needs_you: bool, bu
             .then_with(|| b.id.cmp(&a.id))
     });
     let fill = |template: &str, text: &str| template.replace("{text}", &plain_line(text));
+    let asked = |message: &MessageRow| ask_preview(message, visible);
     if needs_you {
         let waiting = own.iter().find(|m| {
             m.answered_at.is_none() && matches!(card_kind(m), Some("question" | "plan" | "ask"))
         });
         if let Some(waiting) = waiting {
-            return if card_kind(waiting) == Some("plan") {
-                ChatPreview { kind: ChatPreviewKind::Plan, text: fill(&copy.plan, &card_text(waiting, "plan")) }
-            } else {
-                ChatPreview {
-                    kind: ChatPreviewKind::Question,
-                    text: fill(&copy.question, &card_text(waiting, "question")),
-                }
-            };
+            return asked(waiting);
         }
     }
     if busy {
@@ -720,11 +771,7 @@ pub fn chat_preview(root_id: &str, messages: &[&MessageRow], needs_you: bool, bu
                 text: title.map(str::to_string).unwrap_or_else(|| copy.surface.clone()),
             }
         }
-        Some("question" | "ask") => ChatPreview {
-            kind: ChatPreviewKind::Question,
-            text: fill(&copy.question, &card_text(newest, "question")),
-        },
-        Some("plan") => ChatPreview { kind: ChatPreviewKind::Plan, text: fill(&copy.plan, &card_text(newest, "plan")) },
+        Some("question" | "ask" | "plan") => asked(newest),
         _ => ChatPreview { kind: ChatPreviewKind::Agent, text: plain_line(body) },
     }
 }
@@ -809,6 +856,8 @@ pub struct ChatListInput<'a> {
     pub filter: ChatFilter,
     pub now: &'a str,
     pub utc_offset_minutes: i32,
+    /// #EXP-1399 review: the viewer's synced session ids (`chat_preview`).
+    pub visible_session_ids: Option<&'a HashSet<&'a str>>,
 }
 
 fn keeps(row: &ChatRow, filter: ChatFilter) -> bool {
@@ -862,7 +911,7 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
                 device_id: row.device_id.clone(),
                 group,
                 lead,
-                preview: chat_preview(&row.session_id, own, row.needs_you, row.busy),
+                preview: chat_preview(&row.session_id, own, row.needs_you, row.busy, input.visible_session_ids),
                 activity_at: row.activity_at.clone(),
                 time: chat_time_label(&row.activity_at, input.now, input.utc_offset_minutes),
                 unread_count: unread_count(&row.session_id, own, input.reads),
@@ -1263,11 +1312,15 @@ mod tests {
             let input = &case["input"];
             let all = messages(&input["messages"]);
             let refs: Vec<&MessageRow> = all.iter().collect();
+            let visible: Option<HashSet<&str>> = input["visibleSessionIds"]
+                .as_array()
+                .map(|ids| ids.iter().filter_map(Value::as_str).collect());
             let got = chat_preview(
                 input["rootId"].as_str().unwrap(),
                 &refs,
                 input["needsYou"].as_bool().unwrap(),
                 input["busy"].as_bool().unwrap(),
+                visible.as_ref(),
             );
             assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
         }
@@ -1314,6 +1367,7 @@ mod tests {
                 filter,
                 now: input["now"].as_str().unwrap(),
                 utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
+                visible_session_ids: None,
             });
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
             let labels: Vec<String> = ChatFilter::ALL.iter().map(|f| chat_filter_label(*f, &got.counts)).collect();

@@ -272,7 +272,19 @@ struct ThreadRows: Sendable {
         }
         var sessions = try SessionQueries.tree(db: db, rootId: root.id)
         if !sessions.contains(where: { $0.id == root.id }) { sessions.insert(root, at: 0) }
-        let messages = try SessionQueries.messages(db: db, rootId: root.id)
+        var messages = try SessionQueries.messages(db: db, rootId: root.id)
+        // #EXP-1399: an `ask` mirror from ANOTHER tree draws its ORIGIN card
+        // (session-thread.json), which lives outside this root: load those
+        // origins by id (an unsynced one stays out, and its mirror draws
+        // nothing).
+        let loaded = Set(messages.map(\.id))
+        let origins = Set(messages.compactMap { message -> String? in
+            guard let card = TreeMessageCard.parse(message.card), card.kind == "ask" else { return nil }
+            return card.messageId
+        }).subtracting(loaded)
+        if !origins.isEmpty {
+            messages += try SessionQueries.messages(db: db, ids: origins.sorted())
+        }
         let known = Set(sessions.map(\.id))
         let named = Set(messages.compactMap { TreeMessageCard.parse($0.card)?.sessionId })
             .subtracting(known)

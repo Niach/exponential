@@ -1680,6 +1680,9 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             .then_with(|| a.id.cmp(&b.id))
     });
     let mut rows: Vec<SessionThreadRow> = Vec::new();
+    let messages_by_id: HashMap<&str, &MessageRow> =
+        input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();
+    let mut escalated: HashSet<&str> = HashSet::new();
     for message in conversation {
         let Some(card) = message.card.as_ref() else {
             let author = match message.author_kind.as_deref() {
@@ -1776,7 +1779,35 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             }
             // NEW-1: a child's ask mirrored into its parent: the child's own
             // card already surfaces in the Conversation, so it draws nothing.
-            Some(MESSAGE_CARD_KIND_ASK) => {}
+            // #EXP-1399: a mirror from ANOTHER tree (an agent's conversation
+            // watching a thread, `escalate`) = the origin's session card +
+            // THE origin card, read from its message (first mirror wins).
+            Some(MESSAGE_CARD_KIND_ASK) => {
+                let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
+                    continue;
+                };
+                let Some(origin) = card_str(card, "messageId").and_then(|id| messages_by_id.get(id)) else {
+                    continue;
+                };
+                if tree_ids.contains(target.id.as_str()) || origin.session_id != target.id {
+                    continue;
+                }
+                // #EXP-1399 review: only the origin session's own mirror draws it.
+                if message.author_session_id.as_deref() != Some(target.id.as_str()) {
+                    continue;
+                }
+                let Some(origin_row) = ask_card_row(origin) else {
+                    continue;
+                };
+                if !escalated.insert(origin.id.as_str()) {
+                    continue;
+                }
+                rows.push(SessionThreadRow::Session {
+                    id: message.id.clone(),
+                    card: session_card(target, title_of(&titles, &target.id), now),
+                });
+                rows.push(origin_row);
+            }
             Some(MESSAGE_CARD_KIND_SURFACE) => rows.extend(surface_card_row(message)),
             _ => {}
         }

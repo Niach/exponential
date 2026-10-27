@@ -301,6 +301,8 @@ public struct TreeMessageCard: Equatable, Sendable {
     /// NEW-2 `trigger_fired`: the event name the card's `name` carries; nil =
     /// none (a schedule firing draws no line).
     public let eventName: String?
+    /// NEW-1 / #EXP-1399 `ask` mirror: the origin question / plan message.
+    public let messageId: String?
 
     public init(
         kind: String?,
@@ -331,10 +333,12 @@ public struct TreeMessageCard: Equatable, Sendable {
         pullRequestId: String? = nil,
         summary: String? = nil,
         items: [TreeSuggestionItem]? = nil,
-        eventName: String? = nil
+        eventName: String? = nil,
+        messageId: String? = nil
     ) {
         self.kind = kind
         self.eventName = eventName
+        self.messageId = messageId
         self.summary = summary
         self.items = items
         self.sessionId = sessionId
@@ -463,7 +467,8 @@ public struct TreeMessageCard: Equatable, Sendable {
                     )
                 }
             },
-            eventName: text("name")
+            eventName: text("name"),
+            messageId: text("messageId")
         )
     }
 
@@ -1550,6 +1555,9 @@ public enum SessionTree {
         }
         let conversation = asks.isEmpty ? own : (own + asks).sorted(by: chronological)
         var rows: [ThreadRow] = []
+        var messagesById: [String: TreeMessage] = [:]
+        for message in messages { messagesById[message.id] = message }
+        var escalated = Set<String>()
         for message in conversation {
             guard let card = message.card else {
                 let author = message.authorKind == "user" || message.authorKind == "agent"
@@ -1614,9 +1622,27 @@ public enum SessionTree {
                 }
             // NEW-1: a child's ask mirrored into its parent (`ask`): the
             // child's own card already surfaces in the Conversation, so the
-            // mirror draws nothing here.
+            // mirror draws nothing here. #EXP-1399: a mirror from ANOTHER
+            // tree (an agent's conversation watching a thread, `escalate`) =
+            // the origin's session card + THE origin card, read from its
+            // message (first mirror wins).
             case "ask":
-                break
+                guard let targetId = card.sessionId, let target = byId[targetId],
+                      !treeIds.contains(target.id),
+                      let originId = card.messageId, let origin = messagesById[originId],
+                      origin.sessionId == target.id,
+                      // #EXP-1399 review: only the origin session's own mirror draws it.
+                      message.authorSessionId == target.id,
+                      origin.card?.kind == "question" || origin.card?.kind == "plan",
+                      !escalated.contains(origin.id),
+                      let row = ThreadRow.askCard(origin)
+                else { break }
+                escalated.insert(origin.id)
+                rows.append(.session(
+                    id: message.id,
+                    card: sessionCard(target, title: titles[target.id] ?? "", now: now)
+                ))
+                rows.append(row)
             case "surface":
                 if let row = ThreadRow.surfaceCard(message) { rows.append(row) }
             default:

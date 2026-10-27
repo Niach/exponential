@@ -1473,6 +1473,17 @@
         "result": "none"
       },
       {
+        "name": "sessions_escalate",
+        "title": "Escalate card",
+        "blurb": "Shows a waiting question or plan in the agent's conversation that manages its thread.",
+        "progressive": "Escalating card",
+        "done": "Escalated card",
+        "progressiveMany": "Escalating {n} cards",
+        "doneMany": "Escalated {n} cards",
+        "subjectKey": "messageId",
+        "result": "none"
+      },
+      {
         "name": "sessions_unlink",
         "title": "Unlink issue from thread",
         "blurb": "Detaches an issue from a thread.",
@@ -1709,6 +1720,7 @@
       { "name": "session_self_show", "refs": "" },
       { "name": "sessions_configure", "refs": "session@" },
       { "name": "sessions_end", "refs": "" },
+      { "name": "sessions_escalate", "refs": "session@" },
       { "name": "sessions_get", "refs": "session@root" },
       { "name": "sessions_link", "refs": "session@ issue@$issueIds[]" },
       { "name": "sessions_list", "refs": "list:session@" },

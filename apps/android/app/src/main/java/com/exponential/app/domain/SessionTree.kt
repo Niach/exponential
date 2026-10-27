@@ -990,6 +990,8 @@ object SessionTree {
         }
         val conversation = (own + asks).sortedWith(messageOrder)
         val rows = mutableListOf<ThreadRow>()
+        val messagesById = messages.associateBy { it.id }
+        val escalated = mutableSetOf<String>()
         for (message in conversation) {
             val card = message.card
             if (card == null) {
@@ -1063,7 +1065,24 @@ object SessionTree {
                 DomainContract.messageCardKindSurface -> surfaceRow(message)?.let(rows::add)
                 // NEW-1: a child's ask mirrored into its parent: the child's own
                 // card already surfaces in the Conversation, the mirror draws nothing.
-                DomainContract.messageCardKindAsk -> Unit
+                // #EXP-1399: a mirror from ANOTHER tree (an agent's conversation
+                // watching a thread, `escalate`) = the origin's session card + THE
+                // origin card, read from its message.
+                DomainContract.messageCardKindAsk -> {
+                    val target = card.str("sessionId")?.let { byId[it] } ?: continue
+                    val origin = card.str("messageId")?.let { messagesById[it] } ?: continue
+                    if (target.id in treeIds || origin.sessionId != target.id) continue
+                    // #EXP-1399 review: only the origin session's own mirror draws it.
+                    if (message.authorSessionId != target.id) continue
+                    val originKind = origin.card?.str("kind")
+                    if (originKind != DomainContract.messageCardKindQuestion &&
+                        originKind != DomainContract.messageCardKindPlan
+                    ) continue
+                    if (!escalated.add(origin.id)) continue
+                    val ask = askRow(origin) ?: continue
+                    rows.add(ThreadRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
+                    rows.add(ask)
+                }
                 else -> Unit
             }
         }

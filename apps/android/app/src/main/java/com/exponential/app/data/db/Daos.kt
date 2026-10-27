@@ -415,6 +415,11 @@ interface MessageDao {
     )
     fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
 
+    // #EXP-1399: the given messages by id (an `ask` mirror's ORIGIN card,
+    // which lives in another tree than the conversation drawing it).
+    @Query("SELECT * FROM messages WHERE id IN (:ids) ORDER BY created_at, id")
+    fun observeByIds(ids: List<String>): Flow<List<MessageEntity>>
+
     // A session's person messages the device has not consumed (the queue bar).
     @Query(
         "SELECT * FROM messages WHERE conversation_id IN " +

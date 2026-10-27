@@ -528,8 +528,12 @@ describe(`guardAndCleanupTeamsForUserDeletion — sessions (EXP-445/1291)`, () =
     // Only a start on somebody ELSE's machine: no own devices row, a host.
     expect(whereShape(reassign!.where).slice(0, 2)).toEqual([`col:user_id`, USER])
     expect(whereShape(reassign!.where)).toContain(`col:device_id`)
-    // The visibility mirrors follow, or the cascade would take them.
-    expect(updatesTo(messages)).toHaveLength(1)
+    // The visibility mirrors follow, or the cascade would take them; then
+    // the ended rows' open `ask` mirrors close (#EXP-1399 review).
+    const [mirrors, asks] = updatesTo(messages)
+    expect(updatesTo(messages)).toHaveLength(2)
+    expect(mirrors!.values).not.toHaveProperty(`answeredAt`)
+    expect(asks!.values).toHaveProperty(`answeredAt`)
     expect(updatesTo(sessionIssues)).toHaveLength(1)
     // The conversation row too (it cascades with its owner, its messages with it).
     expect(updatesTo(conversations)).toHaveLength(1)

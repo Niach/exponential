@@ -135,6 +135,7 @@ class ChatsTest {
                 messages = input.list("messages").map(::message),
                 needsYou = input.bool("needsYou"),
                 busy = input.bool("busy"),
+                visible = input["visibleSessionIds"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet(),
             )
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
         }
@@ -351,7 +352,13 @@ class ChatsTest {
         assertEquals(preview.str("picture"), Chats.Copy.PREVIEW_PICTURE)
         assertEquals(preview.str("surface"), Chats.Copy.PREVIEW_SURFACE)
         assertEquals(preview.str("empty"), Chats.Copy.PREVIEW_EMPTY)
-        assertEquals(7, preview.size)
+        assertEquals(preview.str("askQuestionLead"), Chats.Copy.PREVIEW_ASK_QUESTION_LEAD)
+        assertEquals(preview.str("askPlanLead"), Chats.Copy.PREVIEW_ASK_PLAN_LEAD)
+        assertEquals(preview.str("askPrivateQuestionLead"), Chats.Copy.PREVIEW_ASK_PRIVATE_QUESTION_LEAD)
+        assertEquals(preview.str("askPrivatePlanLead"), Chats.Copy.PREVIEW_ASK_PRIVATE_PLAN_LEAD)
+        assertEquals(preview.str("questionPrivate"), Chats.Copy.PREVIEW_QUESTION_PRIVATE)
+        assertEquals(preview.str("planPrivate"), Chats.Copy.PREVIEW_PLAN_PRIVATE)
+        assertEquals(13, preview.size)
         val time = copy.getValue("time").jsonObject
         assertEquals(time.str("yesterday"), Chats.Copy.TIME_YESTERDAY)
         assertEquals(time.getValue("weekdaysShort").jsonArray.map { it.jsonPrimitive.content }, Chats.Copy.WEEKDAYS_SHORT)

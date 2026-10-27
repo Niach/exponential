@@ -25,6 +25,7 @@ import {
   verifications,
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
+import { closeAskMirrorsOf } from "@/lib/sessions/bus"
 import { hostedByCondition } from "@/lib/sessions/host"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
@@ -242,6 +243,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
     )
     .returning({ id: sessions.id })
   endedSessionIds.push(...hosted.map((row) => row.id))
+  await closeAskMirrorsOf(tx, endedSessionIds, now)
 
   const soloToDelete = solo
 

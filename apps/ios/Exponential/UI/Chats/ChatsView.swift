@@ -81,7 +81,9 @@ struct ChatsView: View {
             words: lists.words,
             filter: filter,
             now: Self.iso.string(from: now),
-            utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
+            utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60,
+            // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
+            visible: Set(lists.sessions.map(\.id))
         )
     }
 

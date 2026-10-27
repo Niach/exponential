@@ -71,8 +71,10 @@ export function useChatList(
       filter,
       now: nowIso,
       utcOffsetMinutes: offset,
+      // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
+      visibleSessionIds: tree.map((session) => session.id),
     })
-  }, [groups, messages, reads, prs, filter, nowIso, offset])
+  }, [groups, messages, reads, prs, filter, nowIso, offset, tree])
 
   const bubbles = useMemo(
     () => agentBubbles({ agents, sessions: tree, messages, reads, me: me ?? null }),

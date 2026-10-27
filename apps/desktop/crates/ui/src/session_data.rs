@@ -623,6 +623,21 @@ fn thread_view(
         }
     }
     picked.extend(first.into_values().map(|(_, message)| message));
+    // #EXP-1399: an `ask` mirror from another tree draws THE origin card,
+    // read from the origin message (`card.messageId`): load those by id.
+    let mut picked_ids: HashSet<&str> = picked.iter().map(|message| message.id.as_str()).collect();
+    let origins: Vec<&MessageRow> = picked
+        .iter()
+        .filter_map(|message| {
+            let card = message.card.as_ref()?;
+            (card.get("kind")?.as_str()? == domain::contract::MESSAGE_CARD_KIND_ASK)
+                .then(|| card.get("messageId")?.as_str())
+                .flatten()
+        })
+        .filter_map(|id| all_messages.get(id))
+        .filter(|origin| picked_ids.insert(origin.id.as_str()))
+        .collect();
+    picked.extend(origins);
     let keyed: Vec<MessageRow> = domain::message_conversation::key_messages_by_session(picked, &owners);
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     // VAPP-110: the tree's plain messages re-homed onto the root (cards stay
@@ -968,6 +983,8 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         .collect();
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
+    // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
+    let visible: HashSet<&str> = sessions.iter().map(|session| session.id.as_str()).collect();
     let list = domain::chats::chat_list(domain::chats::ChatListInput {
         groups,
         messages: &messages,
@@ -977,6 +994,7 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         filter: domain::chats::ChatFilter::All,
         now: &now,
         utc_offset_minutes: offset,
+        visible_session_ids: Some(&visible),
     });
     let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
     ChatsModel { list, bubbles }

@@ -2363,6 +2363,11 @@ export const messages = pgTable(
       .on(table.sessionId)
       .where(sql`author_kind = 'user' AND consumed_at IS NULL`),
     index(`idx_messages_author_session`).on(table.authorSessionId),
+    // #EXP-1399: one `ask` mirror of a card per conversation (escalate
+    // twice, or the bus and escalate, never insert twice).
+    uniqueIndex(`uq_messages_ask_mirror`)
+      .on(table.sessionId, sql`(card->>'messageId')`)
+      .where(sql`card->>'kind' = 'ask'`),
   ]
 )
 
