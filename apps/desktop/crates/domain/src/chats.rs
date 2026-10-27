@@ -104,6 +104,9 @@ pub struct ChatsPreviewCopy {
     pub ask_private_plan_lead: String,
     pub question_private: String,
     pub plan_private: String,
+    pub private_reply_lead: String,
+    pub private_report_lead: String,
+    pub private_pr_lead: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -772,6 +775,10 @@ pub fn chat_preview(
             }
         }
         Some("question" | "ask" | "plan") => asked(newest),
+        // #EXP-1408: the bus's neutral relay of a private chat: its lead only.
+        _ if body.starts_with(copy.private_reply_lead.as_str()) => {
+            ChatPreview { kind: ChatPreviewKind::Agent, text: copy.private_reply_lead.clone() }
+        }
         _ => ChatPreview { kind: ChatPreviewKind::Agent, text: plain_line(body) },
     }
 }

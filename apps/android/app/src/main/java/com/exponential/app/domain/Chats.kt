@@ -62,6 +62,10 @@ object Chats {
         const val PREVIEW_ASK_PRIVATE_PLAN_LEAD = "Proposes a plan in a private chat."
         const val PREVIEW_QUESTION_PRIVATE = "Question in a private chat"
         const val PREVIEW_PLAN_PRIVATE = "Plan in a private chat"
+        /** #EXP-1408: the bus's NEUTRAL lines for a private chat. */
+        const val PREVIEW_PRIVATE_REPLY_LEAD = "A private chat replied."
+        const val PREVIEW_PRIVATE_REPORT_LEAD = "A private chat finished."
+        const val PREVIEW_PRIVATE_PR_LEAD = "A private chat opened a pull request."
 
         const val TIME_YESTERDAY = "Yesterday"
         val WEEKDAYS_SHORT: List<String> = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -574,7 +578,10 @@ object Chats {
             }
             DomainContract.messageCardKindQuestion, DomainContract.messageCardKindAsk, DomainContract.messageCardKindPlan ->
                 askPreview(newest, visible)
-            else -> ChatPreview("agent", plainLine(newest.body))
+            // #EXP-1408: the bus's neutral relay of a private chat: its lead only.
+            else ->
+                if (newest.body.startsWith(Copy.PREVIEW_PRIVATE_REPLY_LEAD)) ChatPreview("agent", Copy.PREVIEW_PRIVATE_REPLY_LEAD)
+                else ChatPreview("agent", plainLine(newest.body))
         }
     }
 

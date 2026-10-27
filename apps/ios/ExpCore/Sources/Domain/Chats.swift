@@ -50,6 +50,10 @@ public enum Chats {
             public static let askPrivatePlanLead = "Proposes a plan in a private chat."
             public static let questionPrivate = "Question in a private chat"
             public static let planPrivate = "Plan in a private chat"
+            /// #EXP-1408: the bus's NEUTRAL lines for a private chat.
+            public static let privateReplyLead = "A private chat replied."
+            public static let privateReportLead = "A private chat finished."
+            public static let privatePrLead = "A private chat opened a pull request."
         }
         public enum Time {
             public static let yesterday = "Yesterday"
@@ -558,6 +562,10 @@ public enum Chats {
         case "question", "ask", "plan":
             return askPreview(newest, visible: visible)
         default:
+            // #EXP-1408: the bus's neutral relay of a private chat: its lead only.
+            if newest.body.hasPrefix(Copy.Preview.privateReplyLead) {
+                return ChatPreview(kind: .agent, text: Copy.Preview.privateReplyLead)
+            }
             return ChatPreview(kind: .agent, text: plainLine(newest.body))
         }
     }

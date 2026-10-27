@@ -374,6 +374,9 @@ final class ChatsTests: XCTestCase {
             "askPrivateQuestionLead": C.Preview.askPrivateQuestionLead,
             "askPrivatePlanLead": C.Preview.askPrivatePlanLead,
             "questionPrivate": C.Preview.questionPrivate, "planPrivate": C.Preview.planPrivate,
+            "privateReplyLead": C.Preview.privateReplyLead,
+            "privateReportLead": C.Preview.privateReportLead,
+            "privatePrLead": C.Preview.privatePrLead,
         ])
         let time = try XCTUnwrap(copy["time"] as? [String: Any])
         XCTAssertEqual(time["yesterday"] as? String, C.Time.yesterday)

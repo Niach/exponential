@@ -174,6 +174,11 @@ export const ASK_PLAN_LEAD = fixture.copy.preview.askPlanLead
  *  the origin): no card text. */
 export const ASK_PRIVATE_QUESTION_LEAD = fixture.copy.preview.askPrivateQuestionLead
 export const ASK_PRIVATE_PLAN_LEAD = fixture.copy.preview.askPrivatePlanLead
+/** #EXP-1408: the bus's NEUTRAL lines for a private chat (its reply, its
+ *  end report, its pull request) where a reader may not see it. */
+export const PRIVATE_REPLY_LEAD = fixture.copy.preview.privateReplyLead
+export const PRIVATE_REPORT_LEAD = fixture.copy.preview.privateReportLead
+export const PRIVATE_PR_LEAD = fixture.copy.preview.privatePrLead
 
 /** The root conversation's preview line (`previewCases`). */
 export function chatPreview(input: {
@@ -217,6 +222,8 @@ export function chatPreview(input: {
     case `plan`:
       return askPreview(newest, visible)
     default:
+      // #EXP-1408: the bus's neutral relay of a private chat: its lead only.
+      if (newest.body.startsWith(PRIVATE_REPLY_LEAD)) return { kind: `agent`, text: PRIVATE_REPLY_LEAD }
       return { kind: `agent`, text: plainLine(newest.body) }
   }
 }
