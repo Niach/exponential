@@ -15,6 +15,14 @@
 //! as on this page; Mute microphone follows them while the microphone
 //! listens: Push to talk on and its worker up), then
 //! Voice settings… (opens this page) and Quit.
+//!
+//! #NEW-97: while no tray host shows that item (GNOME without AppIndicator)
+//! and the wake word is on, the rail's footer carries a voice button beside
+//! Computer instead (`domain::voice::rail_voice`): the same ghost square
+//! with the settings-voice glyph, the rail's destructive dot while the wake
+//! word holds the microphone open, the tooltip "Listening for “{phrase}”"
+//! (or "Microphone muted"), and a pointer menu with the tray's rows minus
+//! Open Exponential and Quit.
 
 use gpui::{div, px, App, IntoElement, ParentElement as _, Styled as _, Window};
 use gpui_component::{input::InputState, v_flex};

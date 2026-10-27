@@ -254,8 +254,15 @@ pub(crate) fn mute_changed(muted: bool, cx: &mut App) {
 
 /// #NEW-56: the wake word holds the microphone open (the tray's dot).
 pub(crate) fn wake_listening(cx: &App) -> bool {
-    global(cx).is_some_and(|entity| entity.read(cx).wake_listening)
+    global(cx).is_some_and(|entity| entity.read(cx).wake_listening) || *DEV_WAKE_LISTENING
 }
+
+/// DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_WAKE_LISTENING=1`
+/// reads as if the speech worker held the wake word's microphone open (the
+/// tray dot, the rail's voice button dot, the Wake word row's Listening), so
+/// a capture needs no microphone or worker.
+static DEV_WAKE_LISTENING: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXP_DEV_WAKE_LISTENING").is_ok_and(|value| value == "1"));
 
 /// A listening event from the worker.
 pub(crate) fn on_worker_event(event: talk::Event, cx: &mut App) {
