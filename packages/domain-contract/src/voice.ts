@@ -321,6 +321,16 @@ export function wakePhrasePlaceholder(agentName: string): string {
   return fixture.copy.wakePhrasePlaceholder.replace(`{agent}`, agentName)
 }
 
+/** #NEW-56: a stored wake phrase needs `limits.wakePhraseMinLetters` letters
+ *  (letters only), so a short word can't fire on every segment; empty =
+ *  the placeholder, valid. The refusal's text, else null. */
+export function wakePhraseError(text: string): string | null {
+  const trimmed = text.trim()
+  if (trimmed === ``) return null
+  const letters = [...trimmed].filter((char) => /\p{L}/u.test(char)).length
+  return letters < fixture.limits.wakePhraseMinLetters ? fixture.copy.wakePhraseTooShort : null
+}
+
 /** #NEW-73: the Language row's trailing detail; every language speaks on
  *  the voice device's GPU only (#NEW-74). Null without a voice device. */
 export function languageNote(_language: string, deviceName: string | null): string | null {

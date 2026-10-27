@@ -565,7 +565,15 @@ impl PushToTalk {
     /// (its microphone is already open; the worker ends the turn itself).
     fn woke(&mut self, id: String, cx: &mut Context<Self>) {
         // A held key's Listen replaces the turn in the worker.
-        if self.held || self.armed.is_none() {
+        if self.held {
+            return;
+        }
+        // A Woke in flight when the member muted or turned the wake word
+        // off (or push to talk disarmed) never becomes a turn.
+        if self.wake_sent.is_none() || self.muted || self.armed.is_none() {
+            if let Some(client) = self.client.as_ref() {
+                client.cancel_listen(id);
+            }
             return;
         }
         if let Some(old) = self.utterance.take() {

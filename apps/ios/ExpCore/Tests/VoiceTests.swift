@@ -46,6 +46,7 @@ final class VoiceTests: XCTestCase {
             "wakeWord": Voice.Copy.wakeWord,
             "wakePhrase": Voice.Copy.wakePhrase,
             "wakePhrasePlaceholder": Voice.Copy.wakePhrasePlaceholder,
+            "wakePhraseTooShort": Voice.Copy.wakePhraseTooShort,
             "trayOpen": Voice.Copy.trayOpen,
             "trayCall": Voice.Copy.trayCall,
             "trayMute": Voice.Copy.trayMute,
@@ -97,6 +98,7 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(limits, [
             "voiceFile": Voice.Limits.voiceFile,
             "voiceTranscript": Voice.Limits.voiceTranscript,
+            "wakePhraseMinLetters": Voice.Limits.wakePhraseMinLetters,
         ])
     }
 
@@ -159,6 +161,14 @@ final class VoiceTests: XCTestCase {
     func testWakePhrasePlaceholderCases() throws {
         for testCase in try cases("wakePhrasePlaceholderCases") {
             XCTAssertEqual(Voice.wakePhrasePlaceholder(testCase["agent"] as? String ?? ""), testCase["placeholder"] as? String)
+        }
+    }
+
+    /// #NEW-56: WAKE PHRASE LENGTH.
+    func testWakePhraseErrorCases() throws {
+        for testCase in try cases("wakePhraseErrorCases") {
+            let text = testCase["in"] as? String ?? ""
+            XCTAssertEqual(Voice.wakePhraseError(text), testCase["error"] as? String, text)
         }
     }
 

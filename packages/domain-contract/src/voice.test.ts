@@ -23,6 +23,7 @@ import {
   utteranceInput,
   voiceDeviceOptions,
   wakePhrasePlaceholder,
+  wakePhraseError,
 } from "./voice"
 
 describe(`voice.json`, () => {
@@ -78,6 +79,9 @@ describe(`voice.json`, () => {
   })
   for (const c of fixture.wakePhrasePlaceholderCases) {
     it(`wakePhrasePlaceholder ${c.agent}`, () => expect(wakePhrasePlaceholder(c.agent)).toBe(c.placeholder))
+  }
+  for (const c of fixture.wakePhraseErrorCases) {
+    it(`wakePhraseError ${JSON.stringify(c.in)}`, () => expect(wakePhraseError(c.in)).toBe(c.error))
   }
   for (const c of fixture.trayMenuCases) {
     it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))

@@ -21,11 +21,13 @@ import {
   VOICE_SHORTCUTS,
   VOICE_TEST_IDS,
   voiceDeviceOptions,
+  wakePhraseError,
   wakePhrasePlaceholder,
   type VoiceAgentLike,
 } from "@exp/domain-contract/voice"
 import {
   devicePickerItems,
+  FieldError,
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
@@ -79,6 +81,9 @@ export function VoiceSettingsCard({
 }) {
   const [settings, setSettings] = useState<VoiceSettings>(initial)
   const [text, setText] = useState<Record<TextField, string>>(() => textOf(initial))
+  // #NEW-56: a too-short wake phrase is invalid input: never sent, its line
+  // shows under the field once it is left, until the next edit.
+  const [wakePhraseInvalid, setWakePhraseInvalid] = useState<string | null>(null)
   // Last write wins: only the newest request may settle or revert the state.
   const seqRef = useRef(0)
   const textTimersRef = useRef<Partial<Record<TextField, ReturnType<typeof setTimeout>>>>({})
@@ -138,11 +143,16 @@ export function VoiceSettingsCard({
       })
   }
 
-  const saveText = (field: TextField, value: string) => {
+  const saveText = (field: TextField, value: string, left = false) => {
     const timer = textTimersRef.current[field]
     if (timer) clearTimeout(timer)
     delete textTimersRef.current[field]
     const trimmed = value.trim()
+    const invalid = field === `wakePhrase` ? wakePhraseError(trimmed) : null
+    if (invalid) {
+      if (left) setWakePhraseInvalid(invalid)
+      return
+    }
     if (trimmed === sentTextRef.current[field]) return
     const previous = sentTextRef.current[field]
     sentTextRef.current[field] = trimmed
@@ -159,6 +169,7 @@ export function VoiceSettingsCard({
     // Control characters never reach the server (iPhone and Android strip them the same way).
     const value = raw.replace(/\p{Cc}/gu, ``)
     setText((current) => ({ ...current, [field]: value }))
+    if (field === `wakePhrase`) setWakePhraseInvalid(null)
     const timer = textTimersRef.current[field]
     if (timer) clearTimeout(timer)
     textTimersRef.current[field] = setTimeout(() => saveText(field, value), WAKE_PHRASE_DEBOUNCE_MS)
@@ -277,11 +288,16 @@ export function VoiceSettingsCard({
               label={VOICE_COPY.wakePhrase}
               placeholder={wakePhrasePlaceholder(agentName)}
               maxLength={64}
+              aria-invalid={wakePhraseInvalid !== null || undefined}
+              aria-describedby={wakePhraseInvalid === null ? undefined : `${VOICE_TEST_IDS.wakePhrase}-error`}
               value={text.wakePhrase}
               onChange={(event) => editText(`wakePhrase`, event.target.value)}
-              onBlur={() => saveText(`wakePhrase`, text.wakePhrase)}
+              onBlur={() => saveText(`wakePhrase`, text.wakePhrase, true)}
             />
           </GlassGroup>
+          <FieldError id={`${VOICE_TEST_IDS.wakePhrase}-error`} className="px-1">
+            {wakePhraseInvalid}
+          </FieldError>
         </>
       )}
     </div>

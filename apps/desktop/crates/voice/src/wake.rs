@@ -35,6 +35,9 @@ pub const TURN_END_MS: usize = 900;
 pub const NO_COMMAND_MS: usize = 4_000;
 /// The longest turn.
 pub const MAX_TURN_MS: usize = 60_000;
+/// How long after a reply ends the microphone still counts as hearing it
+/// (its echo, the player's buffer): no self-wake.
+pub const ECHO_TAIL_MS: usize = 300;
 
 const fn frames(ms: usize) -> usize {
     (ms * RATE / 1000).div_ceil(FRAME)
@@ -165,6 +168,9 @@ pub struct WakeScanner {
     base: usize,
     audio: Vec<f32>,
     scores: Vec<f32>,
+    /// Frames scored while the voice played: a segment starting before
+    /// this is the reply's and never checked.
+    played: usize,
 }
 
 impl WakeScanner {
@@ -177,6 +183,7 @@ impl WakeScanner {
             base: 0,
             audio: Vec::new(),
             scores: Vec::new(),
+            played: 0,
         }
     }
 
@@ -246,6 +253,10 @@ impl WakeScanner {
 /// One capture through the scan: score it, transcribe the checks it makes
 /// due, and match each against `phrase`. A match comes back with the scores
 /// of the capture's frames after it (the turn's utterance takes them).
+/// `playing` = a reply is being spoken (or just was, [`ECHO_TAIL_MS`]): the
+/// capture is the voice's own, and a segment that starts in it is never
+/// checked, so the agent can't wake itself.
+#[allow(clippy::too_many_arguments)]
 pub fn scan(
     scanner: &mut WakeScanner,
     vad: &mut dyn Vad,
@@ -253,11 +264,19 @@ pub fn scan(
     samples: &[f32],
     phrase: &str,
     language: &str,
+    playing: bool,
 ) -> Result<Option<(Check, Vec<f32>)>, String> {
     scanner.samples(samples);
     let probabilities = vad.push(samples)?;
     for (index, probability) in probabilities.iter().enumerate() {
-        let Some(check) = scanner.push(*probability) else { continue };
+        let check = scanner.push(*probability);
+        if playing {
+            scanner.played = scanner.frames();
+        }
+        let Some(check) = check else { continue };
+        if check.start < scanner.played {
+            continue;
+        }
         let heard = transcriber.transcribe(scanner.pcm(check), language)?;
         if wake_match(phrase, &heard).is_some() {
             return Ok(Some((check, probabilities[index + 1..].to_vec())));
@@ -321,6 +340,7 @@ mod tests {
         assert_eq!(c["turnEndMs"], TURN_END_MS);
         assert_eq!(c["noCommandMs"], NO_COMMAND_MS);
         assert_eq!(c["maxTurnMs"], MAX_TURN_MS);
+        assert_eq!(c["echoTailMs"], ECHO_TAIL_MS);
     }
 
     #[test]
@@ -417,12 +437,18 @@ mod tests {
     /// Runs `audio` through the scan and, on a match, the turn: what the
     /// turn answered (None = no wake) and the transcriptions spent.
     fn wake_on(audio: &[f32], says: &'static str) -> (Option<talk::Event>, usize) {
+        wake_on_playing(audio, says, 0)
+    }
+
+    /// [`wake_on`] while a reply plays over the first `played` samples.
+    fn wake_on_playing(audio: &[f32], says: &'static str, played: usize) -> (Option<talk::Event>, usize) {
         let mut vad = Loud(Vec::new());
         let mut engines = Says(says, 0);
         let mut scanner = WakeScanner::new(window_ms("Hey Studio"));
         let mut turn: Option<Utterance> = None;
         let mut answer = None;
-        for chunk in audio.chunks(320) {
+        for (index, chunk) in audio.chunks(320).enumerate() {
+            let playing = index * 320 < played;
             if let Some(utterance) = turn.as_mut() {
                 utterance.feed(chunk, &mut vad, &mut engines, &mut |_| {}).unwrap();
                 if turn_ended(utterance) {
@@ -431,7 +457,7 @@ mod tests {
                 }
                 continue;
             }
-            if let Some(matched) = scan(&mut scanner, &mut vad, &mut engines, chunk, "Hey Studio", "en").unwrap() {
+            if let Some(matched) = scan(&mut scanner, &mut vad, &mut engines, chunk, "Hey Studio", "en", playing).unwrap() {
                 turn = Some(super::turn("wake-1", "en", "Hey Studio", &scanner, matched, &mut engines).unwrap());
             }
         }
@@ -459,6 +485,23 @@ mod tests {
         let (answer, transcriptions) = wake_on(&audio, "They studied it.");
         assert_eq!(answer, None);
         assert_eq!(transcriptions, 2, "one check per segment; silence costs none");
+    }
+
+    /// #1263 review: the agent's own reply (heard back through the
+    /// microphone) never wakes it, also when its segment runs past the end
+    /// of the playback; the person's phrase after it does.
+    #[test]
+    fn the_voice_never_wakes_itself() {
+        let said = "Hey Studio, move NEW-78 to done.";
+        let reply = [tone(0.3, 0.0), tone(1.2, 0.3), tone(1.5, 0.0)].concat();
+        assert_eq!(wake_on_playing(&reply, said, reply.len()), (None, 0), "inside the playback: never transcribed");
+        let overrun = [tone(0.3, 0.0), tone(2.5, 0.3), tone(1.5, 0.0)].concat();
+        let ends = (0.3 + 1.0) * RATE as f32;
+        assert_eq!(wake_on_playing(&overrun, said, ends as usize).0, None, "began in the playback");
+        let after = [tone(0.3, 0.3), tone(1.0, 0.0), tone(1.2, 0.3), tone(1.5, 0.0)].concat();
+        let ends = 0.4 * RATE as f32;
+        let (answer, _) = wake_on_playing(&after, said, ends as usize);
+        assert_eq!(answer, Some(talk::Event::Heard { id: "wake-1".into(), text: "Move NEW-78 to done.".into() }), "the person's phrase after it");
     }
 
     #[test]

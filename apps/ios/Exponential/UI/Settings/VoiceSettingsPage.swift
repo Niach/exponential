@@ -11,7 +11,9 @@ import SwiftUI
 // picked the tray group under `trayHeader` (Push to talk, Shortcut, Wake
 // word, Wake phrase). Every switch reads off and is disabled while the device
 // or the agent is None. Each change saves at once with `voice.update`
-// (optimistic; a refusal reverts and toasts, feedback-states.json).
+// (optimistic; a refusal reverts and toasts, feedback-states.json). #NEW-56:
+// a wake phrase failing `wakePhraseError` is never sent; leaving or
+// submitting the field shows the line inline under it until the next edit.
 struct VoiceSettingsPage: View {
     let accountId: String
 
@@ -24,6 +26,9 @@ struct VoiceSettingsPage: View {
     @State private var wakePhrase = ""
     @State private var voiceFile = ""
     @State private var voiceTranscript = ""
+    /// #NEW-56: `wakePhraseError` of the phrase left or submitted, until the next edit.
+    @State private var wakePhraseError: String?
+    @FocusState private var focusedInput: TextInput?
     /// The pending debounced save per input row.
     @State private var textSaves: [TextInput: Task<Void, Never>] = [:]
     /// Last write wins: only the newest `voice.update` may settle or revert.
@@ -272,40 +277,64 @@ struct VoiceSettingsPage: View {
     }
 
     /// The input row (label + trailing field, the board form's Prefix row):
-    /// saved a beat after typing stops, and at once on submit.
+    /// saved a beat after typing stops, and at once on submit or leave. The
+    /// wake phrase's invalid-input line (FEED-79: red field border + 13pt
+    /// rose line) sits under its field.
     private func textRow(_ input: TextInput) -> some View {
-        HStack(spacing: 8) {
-            Text(input.title)
-                .foregroundStyle(.white.opacity(TextOpacity.primary))
-            Spacer(minLength: 8)
-            GlassTextField(
-                placeholder(input),
-                text: Binding(
-                    get: { draft(input) },
-                    set: { next in
-                        // One line (a pasted line break or tab reads as a
-                        // space), no control characters (Cc only: a format
-                        // character such as an emoji's ZWJ stays), at most
-                        // `limits` UTF-16 units, the server's count.
-                        let oneLine = next.replacingOccurrences(of: "\r\n", with: " ")
-                        let clean = Self.clipped(
-                            String(String.UnicodeScalarView(oneLine.unicodeScalars.compactMap { scalar in
-                                if scalar == "\n" || scalar == "\r" || scalar == "\t" { return " " }
-                                return scalar.properties.generalCategory == .control ? nil : scalar
-                            })),
-                            utf16Limit: input.limit
-                        )
-                        setDraft(input, clean)
-                        scheduleTextSave(input)
-                    }
-                ),
-                bordered: false,
-                accessibilityIdentifier: input.testId
-            )
-            .multilineTextAlignment(.trailing)
-            .autocorrectionDisabled()
-            .submitLabel(.done)
-            .onSubmit { saveText(input) }
+        let error = input == .wakePhrase ? wakePhraseError : nil
+        return VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(input.title)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                Spacer(minLength: 8)
+                GlassTextField(
+                    placeholder(input),
+                    text: Binding(
+                        get: { draft(input) },
+                        set: { next in
+                            // One line (a pasted line break or tab reads as a
+                            // space), no control characters (Cc only: a format
+                            // character such as an emoji's ZWJ stays), at most
+                            // `limits` UTF-16 units, the server's count.
+                            let oneLine = next.replacingOccurrences(of: "\r\n", with: " ")
+                            let clean = Self.clipped(
+                                String(String.UnicodeScalarView(oneLine.unicodeScalars.compactMap { scalar in
+                                    if scalar == "\n" || scalar == "\r" || scalar == "\t" { return " " }
+                                    return scalar.properties.generalCategory == .control ? nil : scalar
+                                })),
+                                utf16Limit: input.limit
+                            )
+                            if input == .wakePhrase, clean != wakePhrase { wakePhraseError = nil }
+                            setDraft(input, clean)
+                            scheduleTextSave(input)
+                        }
+                    ),
+                    bordered: false,
+                    accessibilityIdentifier: input.testId
+                )
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focusedInput, equals: input)
+                .onSubmit { saveText(input, committed: true) }
+                .onChange(of: focusedInput) { old, new in
+                    if old == input, new != input { saveText(input, committed: true) }
+                }
+                .overlay { invalidBorder(error != nil) }
+            }
+            if let error {
+                Text(error)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder private func invalidBorder(_ invalid: Bool) -> some View {
+        if invalid {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
+                .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
         }
     }
 
@@ -416,10 +445,17 @@ struct VoiceSettingsPage: View {
         }
     }
 
-    private func saveText(_ input: TextInput) {
+    /// `committed` = the field was submitted or left (the debounce is not):
+    /// only then does an invalid wake phrase show its line. An invalid one is
+    /// never sent, so the stored phrase stays.
+    private func saveText(_ input: TextInput, committed: Bool = false) {
         textSaves[input]?.cancel()
         guard let settings else { return }
         let trimmed = draft(input).trimmingCharacters(in: .whitespacesAndNewlines)
+        if input == .wakePhrase, let error = Voice.wakePhraseError(trimmed) {
+            if committed { wakePhraseError = error }
+            return
+        }
         guard trimmed != input.stored(settings) else { return }
         save(input.change(trimmed), input: input)
     }

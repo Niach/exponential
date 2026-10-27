@@ -94,7 +94,7 @@ fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, tally
             continue;
         }
         let checks = counting.1;
-        if let Some(matched) = scan(&mut scanner, &mut vad, &mut counting, chunk, phrase, language).expect("scan") {
+        if let Some(matched) = scan(&mut scanner, &mut vad, &mut counting, chunk, phrase, language, false).expect("scan") {
             active = Some(turn("bench", language, phrase, &scanner, matched, &mut counting).expect("turn"));
         }
         tally.checks += counting.1 - checks;

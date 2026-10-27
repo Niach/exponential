@@ -136,6 +136,18 @@ describe(`#NEW-71`, () => {
   })
 })
 
+describe(`#NEW-56 wake phrase length`, () => {
+  it(`refuses a phrase under the fixture's letters with its text; empty stays valid`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }], [{ userId: `me`, ...stored }]]
+    for (const c of fixture.wakePhraseErrorCases.filter((c) => c.error !== null)) {
+      await expect(caller.update({ wakePhrase: c.in })).rejects.toMatchObject({ code: `BAD_REQUEST`, message: c.error })
+    }
+    expect(h.state.upserts).toHaveLength(0)
+    expect(await caller.update({ wakePhrase: `` })).toMatchObject({ wakePhrase: `` })
+    expect(await caller.update({ wakePhrase: `Jürgen` })).toMatchObject({ wakePhrase: `Jürgen` })
+  })
+})
+
 describe(`#NEW-73 language and custom voice`, () => {
   it(`stores German and a trimmed voice file + transcript`, async () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored }]]

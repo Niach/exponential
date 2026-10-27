@@ -361,12 +361,14 @@ pub struct Links {
     /// NEW-55: the far-end reference a local call's canceller reads.
     pub far: Arc<FarEnd>,
     pub emit: Arc<dyn Fn(&Event) + Send + Sync>,
+    /// #1263 review: a reply is being spoken (the wake word ignores it).
+    pub speaking: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 impl Links {
     /// Events to stdout, no speaker (the loop's tests, the examples).
     pub fn new(listening: Arc<Listening>) -> Self {
-        Links { listening, barge: Arc::new(|| {}), far: Arc::default(), emit: Arc::new(emit) }
+        Links { listening, barge: Arc::new(|| {}), far: Arc::default(), emit: Arc::new(emit), speaking: Arc::new(|| false) }
     }
 }
 
@@ -533,6 +535,8 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     let mut wake_retry: Option<Instant> = None;
     let mut reported: WakeReport = (false, None);
     let mut turns = 0u64;
+    // #1263 review: when the voice last played (its echo tail).
+    let mut spoke: Option<Instant> = None;
     let mut report = |now: WakeReport| {
         if now != reported {
             reported = now;
@@ -582,6 +586,13 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 let wanted = (!phrase.trim().is_empty()).then(|| WakeWord { phrase, language: language_of(&language) });
                 if wanted.is_none() {
                     scan = None;
+                    // #1263 review: a wake turn in flight ends with it,
+                    // unanswered: nothing it heard is ever sent.
+                    if matches!(&active, Some(Active::Listen(held)) if held.woken) {
+                        if let Some(ended) = active.take() {
+                            links.listening.end(ended.id());
+                        }
+                    }
                     report((false, None));
                 }
                 if wanted != wake {
@@ -674,6 +685,13 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 &samples,
                 &word.phrase,
                 word.language,
+                {
+                    // #1263 review: the voice (and its echo tail) never wakes itself.
+                    if (links.speaking)() {
+                        spoke = Some(Instant::now());
+                    }
+                    spoke.is_some_and(|at| at.elapsed() < Duration::from_millis(crate::wake::ECHO_TAIL_MS as u64))
+                },
             ) {
                 Ok(None) => {}
                 Ok(Some(matched)) => {
@@ -1195,6 +1213,8 @@ mod tests {
         opened: Receiver<()>,
         listening: Arc<Listening>,
         events: Arc<Mutex<Vec<Event>>>,
+        /// What `Links::speaking` answers (a reply plays).
+        speaking: Arc<std::sync::atomic::AtomicBool>,
         tx: Option<Sender<Job>>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
@@ -1207,15 +1227,18 @@ mod tests {
             let listening = Arc::new(Listening::default());
             let events: Arc<Mutex<Vec<Event>>> = Arc::default();
             let (sink, barged) = (events.clone(), events.clone());
+            let speaking: Arc<std::sync::atomic::AtomicBool> = Arc::default();
+            let plays = speaking.clone();
             let links = Links {
                 listening: listening.clone(),
                 barge: Arc::new(move || barged.lock().unwrap().push(Event::Finished { id: BARGE.into(), stopped: true })),
                 far: Arc::default(),
                 emit: Arc::new(move |event| sink.lock().unwrap().push(event.clone())),
+                speaking: Arc::new(move || plays.load(Ordering::SeqCst)),
             };
             let hearing = probe.hearing();
             let (tx, thread) = spawn(move || hearing, links);
-            Harness { probe, opened, listening, events, tx: Some(tx), thread: Some(thread) }
+            Harness { probe, opened, listening, events, speaking, tx: Some(tx), thread: Some(thread) }
         }
 
         fn send(&self, job: Job) {
@@ -1259,6 +1282,59 @@ mod tests {
 
     fn without_levels(events: &[Event]) -> Vec<&Event> {
         events.iter().filter(|event| !matches!(event, Event::Level { .. })).collect()
+    }
+
+    fn woke(events: &[Event]) -> Vec<String> {
+        events.iter().filter_map(|event| if let Event::Woke { id } = event { Some(id.clone()) } else { None }).collect()
+    }
+
+    /// The fake transcriber's first clip is `clip1`: the phrase that wakes.
+    fn say_the_phrase(harness: &Harness) {
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+    }
+
+    /// #1263 review: while a reply plays (and its echo tail after) the wake
+    /// word never checks what it hears, so the agent can't wake itself or
+    /// barge in on itself; the person's phrase after the reply wakes.
+    #[test]
+    fn the_voice_never_wakes_itself() {
+        let harness = Harness::new();
+        harness.speaking.store(true, Ordering::SeqCst);
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the wake word opened the microphone");
+        say_the_phrase(&harness);
+        say_the_phrase(&harness);
+        std::thread::sleep(Duration::from_millis(1_000));
+        assert!(woke(&harness.events.lock().unwrap()).is_empty(), "the reply's own words never wake");
+        harness.speaking.store(false, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(crate::wake::ECHO_TAIL_MS as u64 + 200));
+        say_the_phrase(&harness);
+        let events = harness.until(|events| !woke(events).is_empty());
+        assert_eq!(woke(&events), ["wake-1"], "never transcribed before: the first clip wakes");
+        harness.close();
+    }
+
+    /// #1263 review: Wake word off (or Mute) ends a wake turn in flight in
+    /// the worker, unanswered: nothing it heard is sent.
+    #[test]
+    fn wake_word_off_ends_a_wake_turn_unanswered() {
+        let harness = Harness::new();
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        say_the_phrase(&harness);
+        let events = harness.until(|events| !woke(events).is_empty());
+        assert_eq!(woke(&events), ["wake-1"]);
+        assert!(harness.listening.active(), "the turn runs");
+        harness.send(Job::Wake { phrase: String::new(), language: "en".into() });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while harness.listening.active() {
+            assert!(Instant::now() < deadline, "the turn ended");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let events = harness.close();
+        assert!(!events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::Empty { .. } | Event::ListenFailed { .. })), "{:?}", without_levels(&events));
     }
 
     /// NEW-55: a local call opens the microphone and answers Said per

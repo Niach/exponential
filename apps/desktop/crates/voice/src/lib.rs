@@ -174,6 +174,10 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
         barge: Arc::new(move || barge(&barging)),
         far: shared.far.clone(),
         emit: emitter,
+        speaking: {
+            let shared = shared.clone();
+            Arc::new(move || shared.speaking().is_some())
+        },
     };
     let (listen, listener) = listener::spawn(hearing, links);
 
