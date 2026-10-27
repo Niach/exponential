@@ -42,7 +42,7 @@ public enum DomainContract {
     public static let messageAuthorKindValues: [String] = ["user", "agent", "system"]
     public static let conversationKindValues: [String] = ["dm", "channel", "session"]
     public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
-    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted"]
+    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -168,10 +168,6 @@ public enum DomainContract {
     public static let composerUiChatPlaceholder: String = "Ask the agent…"
     public static let composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     public static let composerUiDialogTitle: String = "Start a session"
-    public static let composerUiFixConflictsHeadline: String = "Fix merge conflicts"
-    public static let composerUiFixConflictsSubmit: String = "Fix conflicts"
-    public static let composerUiPrPlaceholder: String = "Select a pull request…"
-    public static let composerUiConflictNote: String = "Merge refused: the branch has conflicts."
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"
@@ -277,4 +273,5 @@ public enum DomainContract {
     public static let messageEventKindDeviceOffline: String = "device_offline"
     public static let messageEventKindTriggerFired: String = "trigger_fired"
     public static let messageEventKindSessionInterrupted: String = "session_interrupted"
+    public static let messageEventKindPrMergeRefused: String = "pr_merge_refused"
 }

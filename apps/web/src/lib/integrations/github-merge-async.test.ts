@@ -86,6 +86,27 @@ describe(`mergePullRequestAsync / pollAsyncMerge`, () => {
     })
   })
 
+  it(`EXP-1378: pins the checked head; a moved head's 409 is a refusal, never "enqueued"`, async () => {
+    const { impl, calls } = routedFetch([
+      {
+        match: `/merge-async`,
+        method: `PUT`,
+        status: 409,
+        body: { message: `Head branch was modified. Review and try the merge again.` },
+      },
+    ])
+    const merging = mergePullRequestAsync({
+      repo: `o/r`,
+      prNumber: 242,
+      token: `tok`,
+      sha: `abc`,
+      fetchImpl: impl as never,
+    })
+    await expect(merging).rejects.toBeInstanceOf(GitHubMergeError)
+    await expect(merging).rejects.toMatchObject({ status: 409 })
+    expect(JSON.parse(calls[0]!.body!)).toMatchObject({ sha: `abc` })
+  })
+
   it(`treats GitHub's 409 "already enqueued" as enqueued, not a failure`, async () => {
     const { impl } = routedFetch([
       {

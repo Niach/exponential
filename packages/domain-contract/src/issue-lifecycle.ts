@@ -49,3 +49,41 @@ export const ISSUE_LIFECYCLE_CASES = fixture.cases as {
   input: { event: IssueLifecycleEvent } & IssueLifecycleState
   expected: IssueLifecycleTarget | null
 }[]
+
+/** `(n/m)` at the very end of the title. */
+const PART_SUFFIX = /\(\s*(\d+)\s*\/\s*(\d+)\s*\)\s*$/
+
+export interface PullRequestPart {
+  part: number
+  of: number
+}
+
+/** EXP-1378: the PR's title ends in `(n/m)`, part n of m (1 <= n <= m,
+ *  m >= 2); null = a whole PR. fixtures/issue-lifecycle.json `partPr`. */
+export function pullRequestPart(title: string | null | undefined): PullRequestPart | null {
+  const match = title?.match(PART_SUFFIX)
+  if (!match) return null
+  const part = Number(match[1])
+  const of = Number(match[2])
+  return part >= 1 && of >= 2 && part <= of ? { part, of } : null
+}
+
+/** Every part 1..of merged (in any order): the issue lands. */
+export function partsLanded(of: number, parts: readonly number[]): boolean {
+  const merged = new Set(parts)
+  for (let part = 1; part <= of; part++) if (!merged.has(part)) return false
+  return true
+}
+
+export const PART_PR_CASES = fixture.partPr.cases as {
+  name: string
+  title: string | null
+  expected: PullRequestPart | null
+}[]
+
+export const PARTS_LANDED_CASES = fixture.partPr.landedCases as {
+  name: string
+  of: number
+  parts: number[]
+  expected: boolean
+}[]

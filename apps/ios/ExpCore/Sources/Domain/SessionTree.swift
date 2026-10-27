@@ -1266,6 +1266,8 @@ public enum SessionTree {
             "trigger_fired": "Trigger fired: {name}",
             // EXP-1374: a child's run stopped mid-turn (runner restart).
             "session_interrupted": "{session} interrupted: runner restarted",
+            // EXP-1391: a refused merge the server posted into the root.
+            "pr_merge_refused": "Merge of PR {pr} refused",
         ]
         public static let tabsTestId = "thread-tabs"
         /// EXP-1334: a zone's "+N" chip reads out as web's

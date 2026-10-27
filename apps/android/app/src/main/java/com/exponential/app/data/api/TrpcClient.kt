@@ -3,6 +3,7 @@ package com.exponential.app.data.api
 import android.util.Log
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
+import com.exponential.app.domain.FeedbackStates
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -121,16 +122,13 @@ fun isOfflineError(error: Throwable?): Boolean {
 }
 
 /**
- * Whether [error] is a REAL merge conflict — the only failure the builtin
- * "Fix merge conflicts" recovery run can do anything about. Everything else a
- * merge can fail with (branch protection, a stale base, an unreachable server)
- * must not offer it.
+ * EXP-1378: whether [error] is the server's check gate refusing a merge
+ * (`PRECONDITION_REQUIRED`, HTTP 428: required checks still running or red),
+ * the ONE refusal whose toast offers `Merge anyway` instead of Retry.
  */
-fun isConflictError(error: Throwable?): Boolean {
+fun isChecksRefusal(error: Throwable?): Boolean {
     val trpc = error as? TrpcException ?: return false
-    // A REAL content conflict is the server's CONFLICT (409); every other
-    // refusal (stale base, branch protection, policy) is PRECONDITION_FAILED.
-    return trpc.status == HttpStatusCode.Conflict
+    return trpc.code == FeedbackStates.MERGE_CHECKS_CODE || trpc.status?.value == 428
 }
 
 /**

@@ -1,6 +1,30 @@
 {
   "$comment": "NEW-1 (plan 3.7): the EXACT issue lifecycle a session drives, ONE rule ×4 (TS reference packages/domain-contract/src/issue-lifecycle.ts; the server applies it in lib/sessions/issue-lifecycle.ts; the natives move no status and only mirror the table when they render it, NEW-7). issueLifecycleTarget(event, state) = the ANCHOR status the issue moves to, or null = nothing moves. Events: `taken` = a WORKER session takes the issue: a session_issues row lands on a session that has a repository (`worker`: its branch comes at claim) through a link, issueIds on a start, a forward, a continuation, or a PERSON's message into such a session that holds it (bus rows never count); `pr_opened` = a PR links it; `pr_merged` = that PR landed in the default branch; `unlinked` = a worker dropped it; `filed` = a session CREATED the issue (EXP-1377: only when the create names it, sessionId or link: true = the caller's own; a create without either files an UNLINKED issue, never the caller's session by default): the row lands on the filer so the PR's share and the thread strip carry it, but filing is not working on it: nothing moves, in every state (the N-10 rule: an issue goes to In progress only when a session really takes it up). A later start, forward, link or a person's message into the filer takes it like any other row. State: `status` = the issue's anchor status (contract issueStatus), `openPr` = a live (open or draft) PR links it, `workers` = how many live sessions with a repository still hold it AFTER the event. Nothing else moves status: no settle-back when work stops, no move for a row on a session without a repository, no move on a message from a session. done, cancelled and duplicate never move here (people own them; a merge is the only automation into done). The team's PR automation (prOpened/prMerged targets, 'do nothing') maps the pr_* targets onto its rows as before; taken/unlinked always target the builtins.",
   "worker": "repository",
+  "partPr": {
+    "$comment": "EXP-1378: a PART PR lands its issues only once EVERY part landed. pullRequestPart(title) = {part: n, of: m} when the title ENDS in `(n/m)` (trailing spaces allowed, spaces inside allowed) with 1 <= n <= m and m >= 2; anything else (the fraction elsewhere in the title, brackets, words, n = 0, n > m, m = 1, no title) = null, a whole PR. When a part PR merges, `pr_merged` is still recorded on its issues and the thread gets its card, but the merge automation (pr_merged \u2192 done, issue-automation) moves an issue only when partsLanded(of, parts) holds: parts = the part numbers of the merged PRs linked to that issue whose title says the same m (the landing one included); true when every part 1..m is among them, in any merge order. Server-only (lib/integrations/pr-sync.ts applyLandedInTx); the natives move no status.",
+    "cases": [
+      { "name": "a part suffix", "title": "MA-1194 (1/2)", "expected": { "part": 1, "of": 2 } },
+      { "name": "spaces inside and after", "title": "Split the sync ( 2 / 3 )  ", "expected": { "part": 2, "of": 3 } },
+      { "name": "the last part is a part too", "title": "MA-1194 (2/2)", "expected": { "part": 2, "of": 2 } },
+      { "name": "not at the end", "title": "(1/2) scaffolding", "expected": null },
+      { "name": "a fraction mid-title", "title": "Use (1/2) of the width for the rail", "expected": null },
+      { "name": "brackets are no part", "title": "Split the sync [2/3]", "expected": null },
+      { "name": "words are no part", "title": "Voice beta, part 1 of 3", "expected": null },
+      { "name": "a plain title", "title": "Fix the merge flow", "expected": null },
+      { "name": "no title", "title": null, "expected": null },
+      { "name": "a zero part", "title": "Scaffolding (0/2)", "expected": null },
+      { "name": "a part beyond the count", "title": "Scaffolding (3/2)", "expected": null },
+      { "name": "one of one is whole", "title": "Scaffolding (1/1)", "expected": null }
+    ],
+    "landedCases": [
+      { "name": "every part merged", "of": 2, "parts": [1, 2], "expected": true },
+      { "name": "the last part first", "of": 3, "parts": [3], "expected": false },
+      { "name": "out of order, all there", "of": 3, "parts": [3, 1, 2], "expected": true },
+      { "name": "one missing", "of": 3, "parts": [1, 3], "expected": false },
+      { "name": "duplicates count once", "of": 2, "parts": [1, 1], "expected": false }
+    ]
+  },
   "rules": [
     { "event": "taken", "from": ["backlog", "in_review"], "to": "in_progress" },
     { "event": "pr_opened", "from": ["backlog", "in_progress"], "to": "in_review" },

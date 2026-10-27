@@ -58,6 +58,13 @@ fun FeedbackStatesScreen() {
             "The server did not answer.",
             ToastAction(FeedbackStates.RETRY) {},
         )
+        // EXP-1391 + EXP-1378: the check gate's refusal offers Merge anyway
+        // instead of Retry (`errors.mergeRefusal`); in front, the Retry one peeks.
+        toaster.error(
+            FeedbackStates.errorTitle("merge", "the PR"),
+            "Checks are still running on PR #7: \"gate\". ${FeedbackStates.MERGE_HANDOFF}",
+            ToastAction(FeedbackStates.MERGE_ANYWAY) {},
+        )
     }
     AppBackground {
         Box(modifier = Modifier.fillMaxSize().testTag(FeedbackStatesScreenTestId)) {
@@ -66,8 +73,8 @@ fun FeedbackStatesScreen() {
                     .fillMaxSize()
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    // The top clears the error toast raised over the screen.
-                    .padding(start = 16.dp, end = 16.dp, top = 112.dp, bottom = 72.dp),
+                    // The top clears the error toasts raised over the screen.
+                    .padding(start = 16.dp, end = 16.dp, top = 136.dp, bottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Kind("Inline") {

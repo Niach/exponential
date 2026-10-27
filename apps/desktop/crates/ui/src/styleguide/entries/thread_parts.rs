@@ -82,6 +82,9 @@ pub(super) fn case_named(prefix: &str) -> usize {
 /// The EXP-1323 dispatcher case's name prefix.
 pub(super) const DISPATCHER_CASE: &str = "EXP-1323: a live";
 
+/// The ended private thread's name prefix (its header carries the lock).
+pub(super) const PRIVATE_CASE: &str = "an ended private thread";
+
 /// Fixture case `index`, built through the shared model.
 pub(super) fn case(index: usize) -> Case {
     let fixture: serde_json::Value =
@@ -574,7 +577,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .use_keyed_state("sg-thread-parts-images", cx, |_, _| ImageCache::new(None))
         .clone();
     let first = case(0);
-    let second = case(1);
+    let second = case(case_named(PRIVATE_CASE));
     let mut conversation = v_flex().w(px(HEADER_W)).max_w_full().gap_5();
     for item in &first.view.rows {
         conversation = conversation.child(row(&first, item, &images, window, cx));
@@ -643,7 +646,7 @@ mod tests {
     #[test]
     fn the_demo_draws_every_row_kind() {
         let first = case(0);
-        let second = case(1);
+        let second = case(case_named(PRIVATE_CASE));
         let dispatcher = case(case_named(DISPATCHER_CASE));
         let kinds: std::collections::BTreeSet<&str> = first
             .view

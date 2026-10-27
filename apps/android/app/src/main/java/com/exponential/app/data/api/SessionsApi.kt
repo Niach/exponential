@@ -427,7 +427,12 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
 private data class PullRequestIdInput(val pullRequestId: String)
 
 @Serializable
-private data class MergePullRequestInput(val pullRequestId: String, val stack: Boolean? = null)
+private data class MergePullRequestInput(
+    val pullRequestId: String,
+    val stack: Boolean? = null,
+    /** EXP-1378: a person's explicit override of the check gate (`Merge anyway`). */
+    val force: Boolean? = null,
+)
 
 /** `pullRequests.merge`'s answer: [queued] = a merge queue took it; [error]
  *  = GitHub's refusal (render via `MergeFailure`). */
@@ -453,12 +458,20 @@ data class PullRequestFilesResult(val files: List<PullRequestFile> = emptyList()
 @Singleton
 class PullRequestsApi @Inject constructor(private val trpc: TrpcClient) {
 
-    /** Squash-merge; [stack] = merge THROUGH this member of a native stack. */
-    suspend fun merge(accountId: String, pullRequestId: String, stack: Boolean? = null): PullRequestMergeResult =
+    /**
+     * Squash-merge; [stack] = merge THROUGH this member of a native stack;
+     * [force] = past the check gate (EXP-1378, the toast's `Merge anyway`).
+     */
+    suspend fun merge(
+        accountId: String,
+        pullRequestId: String,
+        stack: Boolean? = null,
+        force: Boolean? = null,
+    ): PullRequestMergeResult =
         trpc.mutation(
             accountId,
             path = "pullRequests.merge",
-            input = MergePullRequestInput(pullRequestId, stack),
+            input = MergePullRequestInput(pullRequestId, stack, force),
             inputSerializer = MergePullRequestInput.serializer(),
             outputSerializer = PullRequestMergeResult.serializer(),
         )

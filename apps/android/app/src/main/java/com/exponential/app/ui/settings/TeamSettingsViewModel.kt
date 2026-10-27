@@ -183,7 +183,7 @@ class TeamSettingsViewModel @Inject constructor(
 
     /** FEED-79: `Couldn't <verb> <thing>` + the server's message, Retry when [retry] is safe. */
     private fun fail(verb: String, thing: String, error: Throwable?, retry: (() -> Unit)? = null) {
-        _transient.value = FailedAction(verb, thing, error?.let { trpcErrorMessage(it, "") }, retry)
+        _transient.value = FailedAction(verb, thing, error?.let { trpcErrorMessage(it, "") }, retry = retry)
     }
 
     init {

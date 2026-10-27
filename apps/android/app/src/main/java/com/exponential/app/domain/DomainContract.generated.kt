@@ -41,7 +41,7 @@ object DomainContract {
     val messageAuthorKindValues: List<String> = listOf("user", "agent", "system")
     val conversationKindValues: List<String> = listOf("dm", "channel", "session")
     val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface")
-    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted")
+    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -167,10 +167,6 @@ object DomainContract {
     const val composerUiChatPlaceholder: String = "Ask the agent…"
     const val composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     const val composerUiDialogTitle: String = "Start a session"
-    const val composerUiFixConflictsHeadline: String = "Fix merge conflicts"
-    const val composerUiFixConflictsSubmit: String = "Fix conflicts"
-    const val composerUiPrPlaceholder: String = "Select a pull request…"
-    const val composerUiConflictNote: String = "Merge refused: the branch has conflicts."
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"
@@ -276,4 +272,5 @@ object DomainContract {
     const val messageEventKindDeviceOffline: String = "device_offline"
     const val messageEventKindTriggerFired: String = "trigger_fired"
     const val messageEventKindSessionInterrupted: String = "session_interrupted"
+    const val messageEventKindPrMergeRefused: String = "pr_merge_refused"
 }

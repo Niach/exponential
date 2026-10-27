@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-merges-wait-for-checks`,
+    date: `2026-10-27`,
+    title: `A refused merge goes to the thread, and merges can wait for green checks`,
+    summary: `When a merge is refused, the thread's session gets GitHub's reason and takes it from there, so the Fix conflicts run is gone. Servers can also make merges wait for green checks, with Merge anyway as the override.`,
+    body: `- **Checks first** (when the server turns on the check gate): Merge PR, Merge stack, an agent's merge and yolo mode check the pull request's required checks before merging. An agent's merge waits up to five minutes for running checks.
+- **Merge anyway**: when checks are running or red, the error offers Merge anyway; GitHub's own branch rules still apply.
+- **Into the thread**: a refused merge (checks, conflicts, anything else) appears as Merge of PR #N refused in the thread and wakes its session with the reason and what to do; the error says Sent to the thread.
+- **Fix conflicts is gone** on web, the IDE, iPhone and Android: the session rebases and resolves conflicts itself.
+- **Parts**: a pull request titled as a part, like (1/2) or Part 1 of 3, no longer moves its issues to Done; the last part does.`,
+  },
+  {
     id: `2026-10-27-wake-word`,
     date: `2026-10-27`,
     title: `Wake word on your voice device`,

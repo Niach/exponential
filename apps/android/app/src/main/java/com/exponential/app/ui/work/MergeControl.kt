@@ -30,9 +30,8 @@ import com.exponential.app.ui.icons.ExpIcons
 // of the Issue / Run composer capsule. Labelled `Merge stack` while the PR
 // sits in an open stack (one confirm listing what lands), else `Merge PR`.
 
-/** What the Merge capsule merges — the PR. EXP-1233: always Merge — a
- *  conflict-refused merge opens the Fix merge conflicts composer from the
- *  host instead of swapping this control. */
+/** What the Merge capsule merges — the PR. Always Merge: a refused merge
+ *  toasts from the host (EXP-1391: the server hands it to the thread). */
 data class ChangesMergeControl(
     /** `Merge PR`, or `Merge stack` while [stackConfirm] is non-null. */
     val label: String,
@@ -53,9 +52,9 @@ data class ChangesMergeControl(
 /**
  * EXP-1154: the ONE Merge PR on a phone — the SOLID WHITE capsule (the
  * EXP-916 [BarSolidPill], 52dp, hugging its label) in the Guide's bar
- * cluster, running the confirm (or the ONE stack confirm). A real conflict
- * opens the Fix merge conflicts composer from the host (EXP-1233); any other
- * refusal toasts. The host builds it only while the PR is
+ * cluster, running the confirm (or the ONE stack confirm). A refusal toasts
+ * from the host (the check gate's offers `Merge anyway`, EXP-1378). The host
+ * builds it only while the PR is
  * open, so it self-hides with the PR. The Issue / Run bars carry the same
  * control as the glyph-only [MergeCircle] (EXP-1191).
  */

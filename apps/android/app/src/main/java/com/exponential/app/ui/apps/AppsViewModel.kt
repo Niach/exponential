@@ -181,7 +181,7 @@ class AppsViewModel @Inject constructor(
                 call(accountId)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _failure.value = FailedAction(verb, "the app", trpcErrorMessage(t, ""), retry)
+                _failure.value = FailedAction(verb, "the app", trpcErrorMessage(t, ""), retry = retry)
             } finally {
                 _busy.value = false
             }

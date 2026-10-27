@@ -56,7 +56,6 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.ToastAction
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.guideSectionPage
 import com.exponential.app.domain.parseSessionResultGroups
@@ -67,6 +66,7 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.deviceIcon
@@ -433,7 +433,6 @@ fun ThreadScreen(
                         pullRequestIssues = pullRequestIssues,
                         issues = syncedIssues,
                         padding = padding,
-                        onFixConflicts = { number -> viewModel.send(fixConflictsMessage(number)) },
                         onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
                     )
                 },
@@ -569,10 +568,6 @@ internal fun clockTime(wire: String): String? {
     val ms = WireTimestamps.parseEpochMs(wire) ?: return null
     return Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))
 }
-
-/** The message a refused (conflicting) merge offers to send to the root. */
-internal fun fixConflictsMessage(number: Int?): String =
-    "Rebase ${number?.let { "PR #$it" } ?: "the pull request"} onto its base, resolve the merge conflicts and push."
 
 /**
  * The thread screen's whole layout, stateless: the header band and the
@@ -876,8 +871,8 @@ private fun ThreadMenuSheet(
 // ── Issue page ──────────────────────────────────────────────────────────────
 
 /** An issue tab = that issue's [IssueScreen] embedded (EXP-1316): no own
- *  top bar, no `Threads` row, no Start; a merge refused by a conflict asks
- *  the thread's root to fix it ([onMessage]). */
+ *  top bar, no `Threads` row, no Start; a composer seed carrying text goes
+ *  to the thread's root as a message ([onMessage]). */
 @Composable
 private fun ThreadIssuePage(
     issueId: String,
@@ -910,8 +905,9 @@ private fun ThreadIssuePage(
  * [PullRequestStack] rule): it targets the stack's top and lands the whole
  * chain with `stack = true`, since the server refuses a plain merge of any
  * open-stack member.
- * A section's Changes row opens its diff page. A merge refused by a conflict
- * offers to message the root to fix it.
+ * A section's Changes row opens its diff page. A refused merge toasts (the
+ * server posts it into the root, whose agent takes it over, EXP-1391): the
+ * check gate's refusal offers `Merge anyway` (EXP-1378), any other Retry.
  */
 @Composable
 private fun ThreadGuidePage(
@@ -921,7 +917,6 @@ private fun ThreadGuidePage(
     pullRequestIssues: List<PullRequestIssueEntity>,
     issues: List<IssueEntity>,
     padding: PaddingValues,
-    onFixConflicts: (prNumber: Int?) -> Unit,
     onOpenThread: (rootSessionId: String) -> Unit,
 ) {
     val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
@@ -943,6 +938,8 @@ private fun ThreadGuidePage(
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
     }
     val throughError by (throughVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
+        .collectAsStateWithLifecycle()
+    val throughChecks by (throughVm?.actionErrorIsChecks ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
         .collectAsStateWithLifecycle()
     val guideStack = stackView?.let { view ->
         GuideStack(
@@ -971,7 +968,7 @@ private fun ThreadGuidePage(
         .collectAsStateWithLifecycle()
     val actionError by (changesVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
         .collectAsStateWithLifecycle()
-    val conflict by (changesVm?.actionErrorIsConflict ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
+    val checks by (changesVm?.actionErrorIsChecks ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
         .collectAsStateWithLifecycle()
     val linkedCount by (changesVm?.linkedIssueCount ?: remember { kotlinx.coroutines.flow.MutableStateFlow(0) })
         .collectAsStateWithLifecycle()
@@ -997,7 +994,8 @@ private fun ThreadGuidePage(
     LaunchedEffect(throughError) {
         val message = throughError ?: return@LaunchedEffect
         // The top member's VM IS the capsule's: its refusal toasts below.
-        if (throughVm !== changesVm) toaster.failedAction("merge", "the stack", message)
+        val vm = throughVm ?: return@LaunchedEffect
+        if (vm !== changesVm) toaster.mergeRefused("the stack", message, throughChecks, vm::retryMerge)
     }
     if (throughConfirmOpen && newest != null && throughPr != null && throughVm != null) {
         PullRequestStack.stackConfirm(newest, stackPool, through = throughPr)?.let { confirm ->
@@ -1008,17 +1006,10 @@ private fun ThreadGuidePage(
             )
         }
     }
-    LaunchedEffect(actionError, conflict) {
+    LaunchedEffect(actionError) {
         val message = actionError ?: return@LaunchedEffect
-        if (conflict) {
-            toaster.error(
-                FeedbackStates.errorTitle("merge", "the PR"),
-                description = message,
-                action = ToastAction(FIX_CONFLICTS) { onFixConflicts(pr?.number) },
-            )
-        } else {
-            toaster.failedAction("merge", "the PR", message)
-        }
+        val vm = changesVm ?: return@LaunchedEffect
+        toaster.mergeRefused("the PR", message, checks, vm::retryMerge)
     }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     val section = sectionName?.let(::parseSectionKey)
@@ -1048,8 +1039,20 @@ private fun ThreadGuidePage(
     }
 }
 
-/** The merge-conflict toast's action (contract `diffUi` has no word). */
-private const val FIX_CONFLICTS = "Fix conflicts"
+/**
+ * EXP-1391 + EXP-1378 (feedback-states.json `errors.mergeRefusal`): a refused
+ * merge's toast. The check gate's refusal ([checks]) offers `Merge anyway`
+ * (the same merge with `force`), every other refusal Retry.
+ */
+private fun Toaster.mergeRefused(thing: String, message: String, checks: Boolean, merge: (force: Boolean) -> Unit) {
+    failedAction(
+        "merge",
+        thing,
+        message,
+        retry = { merge(checks) },
+        retryLabel = if (checks) FeedbackStates.MERGE_ANYWAY else FeedbackStates.RETRY,
+    )
+}
 
 private fun sectionKeyName(key: GuideSectionKey): String = when (key) {
     is GuideSectionKey.Numbered -> key.index.toString()

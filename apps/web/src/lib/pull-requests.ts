@@ -80,7 +80,22 @@ import {
   stackStopBranches,
 } from "@/lib/pr-merge-guard"
 import { ensureGithubStack, GitHubStackForkError, inferBaseBranch, mergeThrough } from "@/lib/pr-stacks"
-import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
+import {
+  mergeCheckGateOn,
+  pullRequestChecks,
+  pullRequestHeadSha,
+  type PullRequestChecks,
+} from "@/lib/integrations/github-checks"
+import { emitEventInTx } from "@/lib/events"
+import { mergeRefusalText } from "@/lib/merge-refusal"
+import {
+  checksRefusal,
+  checksUnreadableRefusal,
+  headMovedRefusal,
+  isNotMergeable,
+  MergeRefusal,
+  prMergeFailureError,
+} from "@/lib/trpc/pr-merge-error"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import {
   effectiveDefaultBranch,
@@ -570,19 +585,75 @@ async function adoptByUrl(userId: string, url: string): Promise<PullRequest | nu
   return rows[0] ? adoptByNumber(userId, rows[0].id, number) : null
 }
 
-/** The internal merge, throwing TRPCErrors whose CODE is the signal
- *  (EXP-533: CONFLICT = a diagnosed content conflict). The tRPC router
- *  passes them through; `mergePullRequest` turns them into `error`. */
+const CHECKS_POLL_MS = 15_000
+
+/** EXP-1378: the check gate over every PR that lands. `waitMs` > 0 polls
+ *  while checks run (an agent's merge); red or still running at the
+ *  deadline refuses (PRECONDITION_REQUIRED, the code `force` overrides),
+ *  and so do checks it could not read (fails closed). Answers the head sha
+ *  each PR passed on: the merge pins the merged PR's, and a member that got
+ *  a new commit while a later one was still waiting refuses here. */
+async function gateOnChecks(opts: {
+  repo: string
+  token: string | null | undefined
+  prNumbers: number[]
+  waitMs: number
+}): Promise<Map<number, string>> {
+  const deadline = Date.now() + opts.waitMs
+  const passed = new Map<number, string>()
+  for (const prNumber of opts.prNumbers) {
+    let verdict: PullRequestChecks | null
+    for (;;) {
+      verdict = await pullRequestChecks({ repo: opts.repo, prNumber, token: opts.token })
+      if (verdict?.state !== `pending` || Date.now() + CHECKS_POLL_MS > deadline) break
+      await new Promise((resolve) => setTimeout(resolve, CHECKS_POLL_MS))
+    }
+    if (!verdict) throw checksUnreadableRefusal(prNumber)
+    if (verdict.state !== `green`) throw checksRefusal(verdict, prNumber)
+    passed.set(prNumber, verdict.sha)
+  }
+  // A stack: the members gated before the last one may have moved while it
+  // waited (the merged PR itself is pinned by `sha` on the merge call).
+  for (const prNumber of opts.prNumbers.slice(0, -1)) {
+    const head = await pullRequestHeadSha({ repo: opts.repo, prNumber, token: opts.token })
+    if (!head) throw checksUnreadableRefusal(prNumber)
+    if (head !== passed.get(prNumber)) throw headMovedRefusal(prNumber)
+  }
+  return passed
+}
+
+/** The internal merge, throwing TRPCErrors (EXP-1391: a refusal is a
+ *  `MergeRefusal` with its kind). The tRPC router passes them through;
+ *  `mergePullRequest` turns them into `error`. `force` (a person's explicit
+ *  override, EXP-1378) skips the check gate; `waitForChecksMs` lets the
+ *  gate wait for running checks. */
 export async function mergePullRequestOrThrow(args: {
   userId: string
   pullRequestId: string
   stack?: boolean
   callerSessionId?: string | null
+  force?: boolean
+  waitForChecksMs?: number
 }): Promise<{ merged: boolean; queued?: boolean; note?: string; mergedIds?: string[]; txid?: number }> {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
+  try {
+    return await mergeResolved(pr, args)
+  } catch (err) {
+    if (err instanceof MergeRefusal) err.prNumber ??= pr.number
+    throw err
+  }
+}
+
+async function mergeResolved(
+  pr: PullRequest,
+  args: Parameters<typeof mergePullRequestOrThrow>[0]
+): Promise<Awaited<ReturnType<typeof mergePullRequestOrThrow>>> {
   if (pr.state === `merged`) return { merged: true, mergedIds: [pr.id] }
   if (pr.state === `draft`) {
-    fail(`PRECONDITION_FAILED`, `PR #${pr.number} is a draft. Mark it ready for review first.`)
+    throw new MergeRefusal({
+      kind: `other`,
+      message: `PR #${pr.number} is a draft. Mark it ready for review first.`,
+    })
   }
   if (!isLivePrState(pr.state)) {
     fail(`PRECONDITION_FAILED`, `The pull request is ${pr.state}. Only open pull requests can be merged.`)
@@ -636,11 +707,23 @@ export async function mergePullRequestOrThrow(args: {
         stopBranches: stackStopBranches(defaults),
       })
     } catch (err) {
-      fail(`PRECONDITION_FAILED`, err instanceof Error ? err.message : String(err))
+      throw new MergeRefusal({ kind: `other`, message: err instanceof Error ? err.message : String(err) })
     }
   }
 
   const landed = landing ?? [{ id: pr.id, number: pr.number }]
+  // `force` (Merge anyway) pins nothing: the person merges whatever is there.
+  // `MERGE_CHECK_GATE` off = no gate at all (GitHub's own rules still apply).
+  let pinnedSha: string | undefined
+  if (!args.force && mergeCheckGateOn()) {
+    const passed = await gateOnChecks({
+      repo: repo.fullName,
+      token,
+      prNumbers: landed.map((member) => member.number),
+      waitMs: args.waitForChecksMs ?? 0,
+    })
+    pinnedSha = passed.get(pr.number)
+  }
   const viaAgent = Boolean(args.callerSessionId)
   for (const member of landed) claimPrMerge(repo.fullName, member.number, { userId: args.userId, viaAgent })
   const releaseClaims = () => {
@@ -652,6 +735,7 @@ export async function mergePullRequestOrThrow(args: {
     prNumber: pr.number,
     token,
     ...(pr.title ? { commitTitle: squashCommitTitle(identifier, pr.title, pr.number) } : {}),
+    ...(pinnedSha ? { sha: pinnedSha } : {}),
   }
   let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
   try {
@@ -680,6 +764,30 @@ export async function mergePullRequestOrThrow(args: {
       throw prMergeFailureError(err, diagnosis)
     }
     throw err
+  }
+
+  // EXP-1378: Merge anyway skipped the check gate: the team stream keeps
+  // who and when (`pr.merge_forced`, an audit row; no trigger offers it).
+  if (args.force) {
+    try {
+      await db.transaction((tx) =>
+        emitEventInTx(tx, {
+          teamId: pr.teamId,
+          name: `pr.merge_forced`,
+          payload: {
+            pullRequestId: pr.id,
+            number: pr.number,
+            url: pr.url,
+            repositoryId: pr.repositoryId,
+            rootSessionId: pr.rootSessionId,
+            landed: landed.map((member) => member.id),
+          },
+          emittedBy: { userId: args.userId },
+        })
+      )
+    } catch (err) {
+      console.error(`[merge] auditing the forced merge of ${repo.fullName}#${pr.number} failed`, err)
+    }
   }
 
   // FEED-43 R1/EXP-897: the merge queue took it; nothing landed yet. The
@@ -726,6 +834,7 @@ export async function mergePullRequest(args: {
   pullRequestId: string
   stack?: boolean
   callerSessionId?: string | null
+  waitForChecksMs?: number
 }): Promise<{ merged: boolean; queued?: boolean; error?: string; mergedIds?: string[] }> {
   try {
     const { txid: _txid, note: _note, ...result } = await mergePullRequestOrThrow(args)
@@ -733,6 +842,10 @@ export async function mergePullRequest(args: {
     void _note
     return result
   } catch (err) {
+    // EXP-1391: a refusal reads as the steps the agent takes next.
+    if (err instanceof MergeRefusal && err.prNumber != null) {
+      return { merged: false, error: mergeRefusalText(err.prNumber, err.message, err.kind) }
+    }
     if (err instanceof TRPCError && err.code !== `NOT_FOUND`) {
       return { merged: false, error: err.message }
     }

@@ -357,6 +357,8 @@ const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 // in attachments_get's JSON payload (anything bigger — or any other type —
 // rides only the signed downloadUrl, which has no size cap).
 const MAX_INLINE_TEXT_BYTES = 32 * 1024
+// EXP-1378: an agent's merge waits this long for running checks.
+const MCP_MERGE_CHECKS_WAIT_MS = 5 * 60 * 1000
 
 // EXP-705: every tool takes a STRICT object — an unknown key is an immediate
 // "unrecognized key" error the agent can self-correct on, never a silent drop.
@@ -2978,7 +2980,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge an open PR (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. Merge a tree root first.`,
+      description: `Squash-merge an open PR (via the GitHub App). Where the server gates merges on checks, it waits for running ones (up to 5 min) and refuses on red with what to do. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging never ends your session. Merge a tree root first.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
@@ -2993,6 +2995,7 @@ export function registerExponentialTools(
           pullRequestId: pr.id,
           ...(stack !== undefined ? { stack } : {}),
           callerSessionId,
+          waitForChecksMs: MCP_MERGE_CHECKS_WAIT_MS,
         })
         return ok({ ...prRef(pr), ...result })
       } catch (e) {

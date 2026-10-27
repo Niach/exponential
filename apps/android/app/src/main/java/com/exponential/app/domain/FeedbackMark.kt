@@ -127,6 +127,17 @@ object FeedbackStates {
         ERROR_TITLE_PATTERN.replace("{verb}", verb).replace("{thing}", thing)
 
     /**
+     * EXP-1391 + EXP-1378 (`errors.mergeRefusal`): the check gate's refusal
+     * code (HTTP 428) and the override its toast offers instead of Retry
+     * (`pullRequests.merge({force: true})`).
+     */
+    const val MERGE_CHECKS_CODE = "PRECONDITION_REQUIRED"
+    const val MERGE_ANYWAY = "Merge anyway"
+
+    /** `errors.mergeRefusal.handoff`: ends the server's message once the refusal went into the thread. */
+    const val MERGE_HANDOFF = "Sent to the thread."
+
+    /**
      * Where a failure renders, by who started the work (the fixture's `kind`
      * -> `render`): `action` = toast, `input` = inline, `background` (sync,
      * polling, a load on open or focus; anything unknown) = quiet, never a toast.

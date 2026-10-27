@@ -8,7 +8,9 @@ import SwiftUI
 /// through `pullRequests.merge`. EXP-1303: on a member of an open stack
 /// (`stackConfirm`, Android `PullRequestStack`) it reads "Merge stack", asks
 /// THE stack confirm and merges THROUGH the stack's top (`stack: true`). Every refusal toasts the server's words
-/// (a CONFLICT included: no retry clears it, web parity).
+/// (EXP-1391: the server also posts it into the thread's root, which takes it
+/// over). EXP-1378: the check gate's refusal offers `Merge anyway`
+/// (`force: true`); every other refusal, a conflict included, offers Retry.
 /// The host mounts it only while the PR is open.
 struct WorkMergePill: View {
     let pullRequest: PullRequestEntity
@@ -110,27 +112,32 @@ struct WorkMergePill: View {
 
     /// No local surgery on success: the `state` flip syncs back and the host
     /// unmounts the capsule.
-    private func merge() {
+    private func merge(force: Bool = false) {
         state.merging = true
         let pullRequestId = stackConfirm?.throughId ?? pullRequest.id
         let stack = stackConfirm != nil
+        let title = FeedbackStates.Errors.title(verb: "merge", thing: stack ? "the stack" : "the pull request")
         Task {
             do {
                 let result = try await deps.pullRequestsApi.merge(
                     accountId: accountId,
                     pullRequestId: pullRequestId,
-                    stack: stack ? true : nil
+                    stack: stack ? true : nil,
+                    force: force ? true : nil
                 )
                 if !result.merged, result.queued != true {
-                    toaster.error(
-                        FeedbackStates.Errors.title(verb: "merge", thing: stack ? "the stack" : "the pull request"),
-                        description: result.error
-                    )
+                    toaster.error(title, description: result.error)
                 }
             } catch {
+                let forces = FeedbackStates.Errors.MergeRefusal.offersForce(code: error.trpcErrorCode)
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "merge", thing: stack ? "the stack" : "the pull request"),
-                    description: error.userFacingMessage
+                    title,
+                    description: error.userFacingMessage,
+                    action: ToastAction(
+                        label: forces ? FeedbackStates.Errors.MergeRefusal.force : FeedbackStates.Errors.retry
+                    ) {
+                        Task { @MainActor in merge(force: forces || force) }
+                    }
                 )
             }
             state.merging = false

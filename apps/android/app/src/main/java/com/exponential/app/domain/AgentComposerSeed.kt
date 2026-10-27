@@ -5,8 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 /**
  * EXP-825: what a play button hands the Agent page composer. Every launcher
  * entry point is NAVIGATION now — the issue detail's Start coding, the bulk
- * bar, an action's Run, New action / a suggestion, a machine's play glyph, a
- * conflict-refused merge (EXP-1233) — and this is the preselection it carries, mirrored ×4
+ * bar, an action's Run, New action / a suggestion, a machine's play glyph —
+ * and this is the preselection it carries, mirrored ×4
  * (web search params on `/t/$teamSlug/agent`, desktop
  * `Navigation::pending_chat_seed`, iOS `AgentComposerSeed`). On Android it
  * rides the `agent?…` route's nullable query args ([agentRoute] mints them,
@@ -34,12 +34,6 @@ data class AgentComposerSeed(
     val text: String? = null,
     /** A curated icon name seeding the Create action builtin's `icon` input. */
     val icon: String? = null,
-    /**
-     * EXP-1233: a REFUSED merge opened the composer on the Fix merge
-     * conflicts builtin — its card says so under the branch row. Rides the
-     * route as `conflict=1` (web `?conflict=1`).
-     */
-    val conflict: Boolean = false,
     /**
      * EXP-1284: the THREAD the start joins (a thread page's "Start a run
      * here" / reply). Rides `steer.startSession({threadId})`; the composer
@@ -77,7 +71,6 @@ data class AgentComposerSeed(
             prIssueId = get(ARG_PR)?.takeIf { UUID_RE.matches(it) },
             text = get(ARG_TEXT)?.takeIf { it.isNotEmpty() },
             icon = get(ARG_ICON)?.takeIf { it.isNotEmpty() },
-            conflict = get(ARG_CONFLICT) == CONFLICT_FLAG,
             threadId = get(ARG_THREAD)?.takeIf { UUID_RE.matches(it) },
         )
 
@@ -93,7 +86,7 @@ data class AgentComposerSeed(
 /** The Agent page's route root — [agentRoute] appends the seed's query. */
 const val AGENT_ROUTE = "agent"
 
-// The route's eight optional query args, all nullable strings on the NavHost
+// The route's seven optional query args, all nullable strings on the NavHost
 // side (`AGENT_ROUTE_ARGS`). Named like the web search params so a link and a
 // push read the same.
 const val ARG_ISSUES = "issues"
@@ -102,15 +95,11 @@ const val ARG_DEVICE = "device"
 const val ARG_PR = "pr"
 const val ARG_TEXT = "text"
 const val ARG_ICON = "icon"
-const val ARG_CONFLICT = "conflict"
 const val ARG_THREAD = "thread"
-
-/** The ONE value of [ARG_CONFLICT] that reads as true (web `conflict=1`). */
-const val CONFLICT_FLAG = "1"
 
 /** Every query arg the `agent` destination declares, in pattern order. */
 val AGENT_ROUTE_ARGS: List<String> =
-    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_CONFLICT, ARG_THREAD)
+    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_THREAD)
 
 /**
  * The NavHost pattern: every arg is a `{placeholder}` query value so an absent
@@ -121,7 +110,7 @@ val AGENT_ROUTE_PATTERN: String =
 
 /**
  * The concrete route a play button navigates with: `agent` alone for an empty
- * seed, else `agent?issues=a,b&action=…&device=…&pr=…&text=…&icon=…&conflict=1` with
+ * seed, else `agent?issues=a,b&action=…&device=…&pr=…&text=…&icon=…&thread=…` with
  * EMPTY params omitted, so the route carries only what was picked. Values are
  * percent-encoded ([encodeRouteValue]) — the suggestion text carries newlines,
  * backticks and JSON — and Navigation decodes them back on the way in.
@@ -134,7 +123,6 @@ fun agentRoute(seed: AgentComposerSeed): String {
         seed.prIssueId?.takeIf { it.isNotEmpty() }?.let { add(ARG_PR to it) }
         seed.text?.takeIf { it.isNotEmpty() }?.let { add(ARG_TEXT to it) }
         seed.icon?.takeIf { it.isNotEmpty() }?.let { add(ARG_ICON to it) }
-        if (seed.conflict) add(ARG_CONFLICT to CONFLICT_FLAG)
         seed.threadId?.takeIf { it.isNotEmpty() }?.let { add(ARG_THREAD to it) }
     }
     if (params.isEmpty()) return AGENT_ROUTE

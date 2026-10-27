@@ -115,7 +115,14 @@ async function world() {
   const thread = async (issueIds: string[], text = `go`) =>
     (await sendSession({ userId: owner, input: { teamId, deviceId, issueIds, text } })).sessionId
   let prNumber = 0
-  const openPr = async (opts: { rootId: string; sessionId?: string; head: string; base?: string; issueIds: string[] }) => {
+  const openPr = async (opts: {
+    rootId: string
+    sessionId?: string
+    head: string
+    base?: string
+    issueIds: string[]
+    title?: string
+  }) => {
     prNumber += 1
     return (
       await recordPullRequestOpened({
@@ -126,7 +133,7 @@ async function world() {
         repoFullName: fullName,
         number: prNumber,
         url: `https://github.com/${fullName}/pull/${prNumber}`,
-        title: `PR ${prNumber}`,
+        title: opts.title ?? `PR ${prNumber}`,
         head: opts.head,
         base: opts.base ?? `main`,
         issueIds: opts.issueIds,
@@ -286,6 +293,37 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     await applyPullRequestMerged({ pullRequestId: bottom.id, actorUserId: w.owner })
     expect(await w.status(bottomIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
     expect(await w.status(topIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+  })
+
+  it(`EXP-1378: part PRs land their issue only once every part merged, in any order`, async () => {
+    const w = await world()
+    const split = await w.issue(`Split`)
+    const rootId = await w.thread([split.id])
+    const one = await w.openPr({ rootId, head: `exp/one`, issueIds: [split.id], title: `Split it (1/3)` })
+    const two = await w.openPr({ rootId, head: `exp/two`, issueIds: [split.id], title: `Split it (2/3)` })
+    const three = await w.openPr({ rootId, head: `exp/three`, issueIds: [split.id], title: `Split it (3/3)` })
+    // The last part first: nothing lands.
+    await applyPullRequestMerged({ pullRequestId: three.id, actorUserId: w.owner })
+    expect(await w.status(split.id)).toMatchObject({ status: `in_review` })
+    await applyPullRequestMerged({ pullRequestId: one.id, actorUserId: w.owner })
+    expect(await w.status(split.id)).toMatchObject({ status: `in_review` })
+    const merged = await db
+      .select({ id: issueEvents.id })
+      .from(issueEvents)
+      .where(and(eq(issueEvents.issueId, split.id), eq(issueEvents.type, `pr_merged`)))
+    expect(merged).toHaveLength(2)
+    // The missing part lands it.
+    await applyPullRequestMerged({ pullRequestId: two.id, actorUserId: w.owner })
+    expect(await w.status(split.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+  })
+
+  it(`EXP-1378: a part suffix mid-title is a whole PR; a whole PR beside the parts lands its issue`, async () => {
+    const w = await world()
+    const issue = await w.issue(`Fraction`)
+    const rootId = await w.thread([issue.id])
+    const pr = await w.openPr({ rootId, head: `exp/fraction`, issueIds: [issue.id], title: `Use (1/2) of the width` })
+    await applyPullRequestMerged({ pullRequestId: pr.id, actorUserId: w.owner })
+    expect(await w.status(issue.id)).toMatchObject({ status: `done` })
   })
 
   it(`a merge delivered with its base lands a PR retargeted onto the default branch`, async () => {

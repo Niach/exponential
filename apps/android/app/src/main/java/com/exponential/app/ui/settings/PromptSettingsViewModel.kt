@@ -156,7 +156,7 @@ class PromptSettingsViewModel @Inject constructor(
                 call(accountId)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _failure.value = FailedAction(verb, "the prompt", trpcErrorMessage(t, ""), retry)
+                _failure.value = FailedAction(verb, "the prompt", trpcErrorMessage(t, ""), retry = retry)
             } finally {
                 _state.value = _state.value.copy(saving = false)
             }

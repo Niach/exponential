@@ -1,23 +1,26 @@
+import feedbackStates from "@exp/domain-contract/fixtures/feedback-states.json"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 
+const MERGE_REFUSAL = feedbackStates.errors.mergeRefusal
+
+/** The check gate's override label (`Merge anyway`). */
+export const MERGE_ANYWAY_LABEL = MERGE_REFUSAL.force
+
 /**
- * EXP-533: what a refused merge means for the UI. `conflict` is the ONE gate
- * on the "Fix conflicts" recovery run: that run rebases, resolves and merges,
- * which only helps when the two trees actually disagree. A stale base, branch
- * protection, an unreachable server or a squash policy all refuse the merge
- * too, and offering the button there sends the agent in circles.
+ * EXP-1391 + EXP-1378: what a refused merge means for the UI. `checks` =
+ * the check gate refused (PRECONDITION_REQUIRED: required checks running or
+ * red): its toast offers `Merge anyway` (`force: true`) instead of Retry.
+ * Nothing reads a conflict any more: the refusal went into the thread and
+ * its session takes it over (the message says so).
  */
 export interface MergeFailure {
   message: string
-  conflict: boolean
+  checks: boolean
 }
 
 export function mergeFailure(error: unknown, fallback: string): MergeFailure {
-  return { message: trpcErrorMessage(error, fallback), conflict: isConflict(error) }
-}
-
-function isConflict(error: unknown): boolean {
-  // A REAL content conflict is the server's CONFLICT (409); every other
-  // refusal (stale base, branch protection, policy) is PRECONDITION_FAILED.
-  return trpcErrorCode(error) === `CONFLICT`
+  return {
+    message: trpcErrorMessage(error, fallback),
+    checks: trpcErrorCode(error) === MERGE_REFUSAL.checksCode,
+  }
 }

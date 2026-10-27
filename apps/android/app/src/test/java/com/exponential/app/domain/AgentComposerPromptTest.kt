@@ -72,12 +72,6 @@ class AgentComposerPromptTest {
         assertEquals("Start batch · 2", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(2)))
         assertEquals("Start batch · 30", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(30)))
         assertEquals("Start session", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Action))
-        // EXP-1233: the Fix merge conflicts builtin with a picked PR.
-        assertEquals("Fix conflicts", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.FixConflicts))
-        assertEquals(
-            DomainContract.composerUiFixConflictsSubmit,
-            AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.FixConflicts),
-        )
     }
 
     // EXP-1038: the headline verb over the composer — the contract's copy,
@@ -90,7 +84,6 @@ class AgentComposerPromptTest {
         assertEquals("Implement", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(7)))
         // NEW-2: a prompt's chip IS the headline (no verb).
         assertEquals("", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action))
-        assertEquals("Fix merge conflicts", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.FixConflicts))
     }
 
     @Test
@@ -102,14 +95,6 @@ class AgentComposerPromptTest {
         assertEquals(
             DomainContract.composerUiImplementHeadline,
             AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(2)),
-        )
-        assertEquals(
-            DomainContract.composerUiFixConflictsHeadline,
-            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.FixConflicts),
-        )
-        assertNotEquals(
-            AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.FixConflicts),
-            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.FixConflicts),
         )
         // The headline is the VERB, never the button's label.
         assertNotEquals(

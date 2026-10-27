@@ -170,6 +170,15 @@ final class FeedbackMarkTests: XCTestCase {
 
         let errors = try block("errors")
         XCTAssertEqual(FeedbackStates.Errors.retry, errors["retry"] as? String)
+        // EXP-1391 + EXP-1378: only the check gate's code offers `Merge anyway`.
+        let refusal = try XCTUnwrap(errors["mergeRefusal"] as? [String: Any])
+        XCTAssertEqual(FeedbackStates.Errors.MergeRefusal.checksCode, refusal["checksCode"] as? String)
+        XCTAssertEqual(FeedbackStates.Errors.MergeRefusal.force, refusal["force"] as? String)
+        XCTAssertEqual(FeedbackStates.Errors.MergeRefusal.handoff, refusal["handoff"] as? String)
+        XCTAssertTrue(FeedbackStates.Errors.MergeRefusal.offersForce(code: "PRECONDITION_REQUIRED"))
+        for code in ["CONFLICT", "PRECONDITION_FAILED", "FORBIDDEN", nil] as [String?] {
+            XCTAssertFalse(FeedbackStates.Errors.MergeRefusal.offersForce(code: code))
+        }
         let cases = try XCTUnwrap(errors["cases"] as? [[String: Any]])
         for c in cases where c["kind"] as? String == "action" {
             let verb = try XCTUnwrap(c["verb"] as? String)
