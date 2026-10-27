@@ -1718,31 +1718,6 @@ public object ExpIcons {
         }.build()
     }
 
-    public val `circle-minus`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "circle-minus",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M8 12h8"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
     public val `circle-question-mark`: ImageVector by lazy {
         ImageVector.Builder(
             name = "circle-question-mark",
@@ -6996,6 +6971,49 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `square`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "square",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `square-check`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "square-check",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m9 12 2 2 4-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `square-kanban`: ImageVector by lazy {
         ImageVector.Builder(
             name = "square-kanban",
@@ -7027,6 +7045,31 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M16 7v9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `square-minus`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "square-minus",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 12h8"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -8460,7 +8503,6 @@ public object ExpIcons {
         "circle-check" -> `circle-check`
         "circle-dashed" -> `circle-dashed`
         "circle-dot" -> `circle-dot`
-        "circle-minus" -> `circle-minus`
         "circle-question-mark" -> `circle-question-mark`
         "circle-slash" -> `circle-slash`
         "circle-stop" -> `circle-stop`
@@ -8626,7 +8668,10 @@ public object ExpIcons {
         "smartphone" -> `smartphone`
         "smile" -> `smile`
         "sparkles" -> `sparkles`
+        "square" -> `square`
+        "square-check" -> `square-check`
         "square-kanban" -> `square-kanban`
+        "square-minus" -> `square-minus`
         "square-pen" -> `square-pen`
         "square-slash" -> `square-slash`
         "square-terminal" -> `square-terminal`
@@ -8891,7 +8936,7 @@ public object ExpIcons {
         "ui-hide" -> `eye-off`
         "ui-history" -> `history`
         "ui-icon-placeholder" -> `circle-dashed`
-        "ui-indeterminate" -> `circle-minus`
+        "ui-indeterminate" -> `square-minus`
         "ui-info" -> `info`
         "ui-invite" -> `user-plus`
         "ui-issue" -> `file-text`
@@ -8920,7 +8965,7 @@ public object ExpIcons {
         "ui-remove-member" -> `user-minus`
         "ui-repeat" -> `repeat`
         "ui-repository" -> `code`
-        "ui-selected" -> `circle-check`
+        "ui-selected" -> `square-check`
         "ui-selector" -> `chevrons-up-down`
         "ui-send" -> `send`
         "ui-server" -> `server`
@@ -8942,7 +8987,7 @@ public object ExpIcons {
         "ui-undock" -> `arrow-up-right`
         "ui-unlock" -> `lock-open`
         "ui-unpin" -> `pin-off`
-        "ui-unselected" -> `circle`
+        "ui-unselected" -> `square`
         "ui-unsubscribe" -> `bell-off`
         "ui-update" -> `circle-arrow-up`
         "ui-usage" -> `chart-line`
@@ -9398,7 +9443,7 @@ public object ExpIcons {
     /** Concept `ui-icon-placeholder`. */
     public val uiIconPlaceholder: ImageVector get() = `circle-dashed`
     /** Concept `ui-indeterminate`. */
-    public val uiIndeterminate: ImageVector get() = `circle-minus`
+    public val uiIndeterminate: ImageVector get() = `square-minus`
     /** Concept `ui-info`. */
     public val uiInfo: ImageVector get() = `info`
     /** Concept `ui-invite`. */
@@ -9456,7 +9501,7 @@ public object ExpIcons {
     /** Concept `ui-repository`. */
     public val uiRepository: ImageVector get() = `code`
     /** Concept `ui-selected`. */
-    public val uiSelected: ImageVector get() = `circle-check`
+    public val uiSelected: ImageVector get() = `square-check`
     /** Concept `ui-selector`. */
     public val uiSelector: ImageVector get() = `chevrons-up-down`
     /** Concept `ui-send`. */
@@ -9500,7 +9545,7 @@ public object ExpIcons {
     /** Concept `ui-unpin`. */
     public val uiUnpin: ImageVector get() = `pin-off`
     /** Concept `ui-unselected`. */
-    public val uiUnselected: ImageVector get() = `circle`
+    public val uiUnselected: ImageVector get() = `square`
     /** Concept `ui-unsubscribe`. */
     public val uiUnsubscribe: ImageVector get() = `bell-off`
     /** Concept `ui-update`. */

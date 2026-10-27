@@ -198,7 +198,6 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "circle-check" => ExpIcon::CircleCheck,
         "circle-dashed" => ExpIcon::CircleDashed,
         "circle-dot" => ExpIcon::CircleDot,
-        "circle-minus" => ExpIcon::CircleMinus,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
         "circle-slash" => ExpIcon::CircleSlash,
         "circle-stop" => ExpIcon::CircleStop,
@@ -364,7 +363,10 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "smartphone" => ExpIcon::Smartphone,
         "smile" => ExpIcon::Smile,
         "sparkles" => ExpIcon::Sparkles,
+        "square" => ExpIcon::Square,
+        "square-check" => ExpIcon::SquareCheck,
         "square-kanban" => ExpIcon::SquareKanban,
+        "square-minus" => ExpIcon::SquareMinus,
         "square-pen" => ExpIcon::SquarePen,
         "square-slash" => ExpIcon::SquareSlash,
         "square-terminal" => ExpIcon::SquareTerminal,
@@ -849,8 +851,8 @@ pub const UI_HIDE: ExpIcon = ExpIcon::EyeOff;
 pub const UI_HISTORY: ExpIcon = ExpIcon::History;
 /// Registry concept `ui-icon-placeholder` -> Lucide `circle-dashed`.
 pub const UI_ICON_PLACEHOLDER: ExpIcon = ExpIcon::CircleDashed;
-/// Registry concept `ui-indeterminate` -> Lucide `circle-minus`.
-pub const UI_INDETERMINATE: ExpIcon = ExpIcon::CircleMinus;
+/// Registry concept `ui-indeterminate` -> Lucide `square-minus`.
+pub const UI_INDETERMINATE: ExpIcon = ExpIcon::SquareMinus;
 /// Registry concept `ui-info` -> Lucide `info`.
 pub const UI_INFO: ExpIcon = ExpIcon::Info;
 /// Registry concept `ui-invite` -> Lucide `user-plus`.
@@ -907,8 +909,8 @@ pub const UI_REMOVE_MEMBER: ExpIcon = ExpIcon::UserMinus;
 pub const UI_REPEAT: ExpIcon = ExpIcon::Repeat;
 /// Registry concept `ui-repository` -> Lucide `code`.
 pub const UI_REPOSITORY: ExpIcon = ExpIcon::Code;
-/// Registry concept `ui-selected` -> Lucide `circle-check`.
-pub const UI_SELECTED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `ui-selected` -> Lucide `square-check`.
+pub const UI_SELECTED: ExpIcon = ExpIcon::SquareCheck;
 /// Registry concept `ui-selector` -> Lucide `chevrons-up-down`.
 pub const UI_SELECTOR: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `ui-send` -> Lucide `send`.
@@ -951,8 +953,8 @@ pub const UI_UNDOCK: ExpIcon = ExpIcon::ArrowUpRight;
 pub const UI_UNLOCK: ExpIcon = ExpIcon::LockOpen;
 /// Registry concept `ui-unpin` -> Lucide `pin-off`.
 pub const UI_UNPIN: ExpIcon = ExpIcon::PinOff;
-/// Registry concept `ui-unselected` -> Lucide `circle`.
-pub const UI_UNSELECTED: ExpIcon = ExpIcon::Circle;
+/// Registry concept `ui-unselected` -> Lucide `square`.
+pub const UI_UNSELECTED: ExpIcon = ExpIcon::Square;
 /// Registry concept `ui-unsubscribe` -> Lucide `bell-off`.
 pub const UI_UNSUBSCRIBE: ExpIcon = ExpIcon::BellOff;
 /// Registry concept `ui-update` -> Lucide `circle-arrow-up`.

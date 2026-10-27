@@ -193,7 +193,6 @@ public enum AppIcons {
         "circle-check",
         "circle-dashed",
         "circle-dot",
-        "circle-minus",
         "circle-question-mark",
         "circle-slash",
         "circle-stop",
@@ -359,7 +358,10 @@ public enum AppIcons {
         "smartphone",
         "smile",
         "sparkles",
+        "square",
+        "square-check",
         "square-kanban",
+        "square-minus",
         "square-pen",
         "square-slash",
         "square-terminal",
@@ -629,7 +631,7 @@ public enum AppIcons {
         "ui-hide": "eye-off",
         "ui-history": "history",
         "ui-icon-placeholder": "circle-dashed",
-        "ui-indeterminate": "circle-minus",
+        "ui-indeterminate": "square-minus",
         "ui-info": "info",
         "ui-invite": "user-plus",
         "ui-issue": "file-text",
@@ -658,7 +660,7 @@ public enum AppIcons {
         "ui-remove-member": "user-minus",
         "ui-repeat": "repeat",
         "ui-repository": "code",
-        "ui-selected": "circle-check",
+        "ui-selected": "square-check",
         "ui-selector": "chevrons-up-down",
         "ui-send": "send",
         "ui-server": "server",
@@ -680,7 +682,7 @@ public enum AppIcons {
         "ui-undock": "arrow-up-right",
         "ui-unlock": "lock-open",
         "ui-unpin": "pin-off",
-        "ui-unselected": "circle",
+        "ui-unselected": "square",
         "ui-unsubscribe": "bell-off",
         "ui-update": "circle-arrow-up",
         "ui-usage": "chart-line",
@@ -1141,7 +1143,7 @@ public enum AppIcons {
     /// Concept `ui-icon-placeholder`.
     public static let uiIconPlaceholder: String = "circle-dashed"
     /// Concept `ui-indeterminate`.
-    public static let uiIndeterminate: String = "circle-minus"
+    public static let uiIndeterminate: String = "square-minus"
     /// Concept `ui-info`.
     public static let uiInfo: String = "info"
     /// Concept `ui-invite`.
@@ -1199,7 +1201,7 @@ public enum AppIcons {
     /// Concept `ui-repository`.
     public static let uiRepository: String = "code"
     /// Concept `ui-selected`.
-    public static let uiSelected: String = "circle-check"
+    public static let uiSelected: String = "square-check"
     /// Concept `ui-selector`.
     public static let uiSelector: String = "chevrons-up-down"
     /// Concept `ui-send`.
@@ -1243,7 +1245,7 @@ public enum AppIcons {
     /// Concept `ui-unpin`.
     public static let uiUnpin: String = "pin-off"
     /// Concept `ui-unselected`.
-    public static let uiUnselected: String = "circle"
+    public static let uiUnselected: String = "square"
     /// Concept `ui-unsubscribe`.
     public static let uiUnsubscribe: String = "bell-off"
     /// Concept `ui-update`.
