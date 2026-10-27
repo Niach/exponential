@@ -106,6 +106,9 @@ export type SteerTicketSeed =
       /** EXP-432: the account that device is registered under (the run's host
        * for a shared-device run). Omitted = the ticket's own user. */
       deviceOwnerId?: string
+      /** #EXP-1405: the row is still alive (idle): its replay is no ending
+       *  (`SteerTicketClaims.live`). Only with `deviceId`. */
+      live?: boolean
     }
   // NEW-55: a voice call. The CALLER (a phone or web client streaming its
   // audio) names the call, the agent and the member's voice device; the relay
@@ -120,6 +123,23 @@ export type SteerTicketSeed =
       deviceId: string
     }
   | { kind: `call_host`; userId: string; callId: string; deviceId: string }
+
+/** The device claims of a VIEWER ticket: which machine the relay may ask
+ *  for the stored transcript when no room is up. EXP-773: an ENDED session
+ *  names its device. #EXP-1405: so does an IDLE one (started, not busy, not
+ *  ended: its run went away between turns), marked `live` so the relay never
+ *  answers its viewers with an ending; that is how web, desktop, iOS and
+ *  Android all show the transcript of an idle session they did not run. A
+ *  queued row (no journal yet) and a busy one (its publisher is the room)
+ *  keep the plain `no_such_session` answer. */
+export function viewerHistoryClaims(
+  session: { status: string; busy: boolean; startedAt: Date | string | null; deviceId: string },
+  deviceOwnerId: string
+): { deviceId?: string; deviceOwnerId?: string; live?: boolean } {
+  if (session.status === `ended`) return { deviceId: session.deviceId, deviceOwnerId }
+  if (session.status === `queued` || session.busy || !session.startedAt) return {}
+  return { deviceId: session.deviceId, deviceOwnerId, live: true }
+}
 
 export function buildSteerTicketClaims(
   seed: SteerTicketSeed,
@@ -162,6 +182,7 @@ export function buildSteerTicketClaims(
         seed.deviceOwnerId !== seed.userId
           ? { deviceOwnerId: seed.deviceOwnerId }
           : {}),
+        ...(seed.deviceId && seed.live ? { live: true } : {}),
       }
     case `caller`:
       return {

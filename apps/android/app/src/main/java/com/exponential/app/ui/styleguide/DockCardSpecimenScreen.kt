@@ -130,7 +130,7 @@ fun DockCardSpecimenScreen() {
                 DockCard(row = question, onOpen = {})
                 Caption("A banner: never opens; its action word trails")
                 DockCard(row = banner, action = { SpecimenAction(banner) })
-                Caption("The session's own state: interrupted, background tasks")
+                Caption("The session's own state: interrupted, background tasks, queued")
                 STATE_ROWS.forEach { row -> DockCard(row = row) }
                 Caption("Five cards piled: the front one whole, the rest peeking out above it")
                 DockPile(rows = rows, expanded = false, onExpandedChange = {}, onOpen = {}, action = { SpecimenAction(it) })

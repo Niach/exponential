@@ -53,6 +53,12 @@ export interface SteerTicketClaims {
    * requester steering a run on someone else's machine would otherwise look
    * the device up under themselves and never find it. Absent = `sub`. */
   deviceOwnerId?: string
+  /** #EXP-1405: on a VIEWER ticket naming `deviceId`: the server still calls
+   * the session ALIVE (an idle row whose run went away), so its replayed
+   * transcript is no ending. The relay keeps that history room up while it
+   * is watched and answers every failure `no_such_session` (retryable)
+   * instead of `device_offline` / `history_unavailable` + `bye`. */
+  live?: boolean
   /** NEW-55: the call room this ticket opens (`caller`) or answers
    * (`call_host`). Minted by `voice.call` / `voice.callHostTicket`; on a
    * caller ticket `deviceId` + `deviceOwnerId` name the voice device to ring,

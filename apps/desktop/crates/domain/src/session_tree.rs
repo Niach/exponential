@@ -89,6 +89,8 @@ pub struct SessionCardCopy {
     /// EXP-1374: the word per INTERRUPTION kind (`device_offline`,
     /// `restarted`); its keys ARE the interruption kinds.
     pub interrupted_kinds: BTreeMap<String, String>,
+    /// #EXP-1405: a queued row's word: it waits for its device.
+    pub queued_kind: String,
 }
 
 /// EXP-1374: `session-card.json` `banner` = the Dock banner's text.
@@ -97,6 +99,8 @@ pub struct SessionBannerCopy {
     /// The text per interruption kind.
     pub interrupted: BTreeMap<String, String>,
     pub background: String,
+    /// #EXP-1405: a queued row waiting for its device.
+    pub queued: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -518,6 +522,10 @@ pub fn is_usage_wall(session: &SessionRow) -> bool {
 /// names WHY (`copy.blockedKinds[blocked.kind]`; an unknown kind or none =
 /// `states.blocked`).
 pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
+    // #EXP-1405: a queued row names what it waits for (its device).
+    if state == SessionState::Queued {
+        return SESSION_CARD.copy.queued_kind.clone();
+    }
     if state == SessionState::Interrupted {
         if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.interrupted_kinds.get(kind)) {
             return word.clone();
@@ -574,7 +582,7 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
 /// dock.json `banner` source without its `kind`; TS `SessionBanner`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionBanner {
-    /// `interrupted` | `background`.
+    /// `interrupted` | `background` | (#EXP-1405) `queued`.
     pub id: SessionState,
     /// Icon concept.
     pub icon: String,
@@ -587,7 +595,8 @@ pub struct SessionBanner {
 }
 
 /// EXP-1374 (TS `sessionBanner`): the Dock banner of an interrupted or
-/// background session, `None` for any other state. It replaces the host's
+/// background session, and (#EXP-1405) of a queued one waiting for its
+/// device, `None` for any other state. It replaces the host's
 /// own offline "paused" banner while shown.
 pub fn session_banner(session: &SessionRow) -> Option<SessionBanner> {
     let state = session_state(session);
@@ -596,6 +605,7 @@ pub fn session_banner(session: &SessionRow) -> Option<SessionBanner> {
             SESSION_CARD.banner.interrupted.get(blocked_kind(session)?)?.clone()
         }
         SessionState::Background => SESSION_CARD.banner.background.clone(),
+        SessionState::Queued => SESSION_CARD.banner.queued.clone(),
         _ => return None,
     };
     Some(SessionBanner {
