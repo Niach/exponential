@@ -541,8 +541,9 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     };
     loop {
         hearing.poll();
-        if wake.is_some() && active.is_none() && scan.is_none() && wake_retry.is_none_or(|at| Instant::now() >= at) {
-            match open_scan(hearing) {
+        let due = wake_retry.is_none_or(|at| Instant::now() >= at);
+        if let (Some(word), None, None, true) = (wake.as_ref(), active.as_ref(), scan.as_ref(), due) {
+            match open_scan(hearing, &word.phrase) {
                 Ok(opened) => {
                     scan = Some(opened);
                     wake_retry = None;
@@ -584,8 +585,12 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     report((false, None));
                 }
                 if wanted != wake {
-                    // A new phrase or language: the next segment hears it.
+                    // A new phrase or language: the next segment hears it
+                    // (through a window sized to the new phrase).
                     wake_retry = None;
+                    if let (Some(scanning), Some(word)) = (scan.as_mut(), wanted.as_ref()) {
+                        scanning.scanner = WakeScanner::new(crate::wake::window_ms(&word.phrase));
+                    }
                 }
                 wake = wanted;
                 continue;
@@ -707,11 +712,11 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
 }
 
 /// #NEW-56: the engines, then the wake word's own VAD and microphone.
-fn open_scan<H: Hearing>(hearing: &mut H) -> Result<Scan<H>, (ListenFailure, String)> {
+fn open_scan<H: Hearing>(hearing: &mut H, phrase: &str) -> Result<Scan<H>, (ListenFailure, String)> {
     hearing.prepare(true)?;
     let vad = hearing.vad()?;
     let mic = hearing.mic()?;
-    Ok(Scan { mic, vad, scanner: WakeScanner::default() })
+    Ok(Scan { mic, vad, scanner: WakeScanner::new(crate::wake::window_ms(phrase)) })
 }
 
 /// One job from the reader (or the backlog).

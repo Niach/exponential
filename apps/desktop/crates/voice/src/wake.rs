@@ -2,8 +2,8 @@
 //!
 //! While the wake word is on, the listening thread keeps the microphone
 //! open and Silero scoring it ([`crate::listen::Segmenter`]); in silence that
-//! is all it does. The first [`WINDOW_MS`] of every speech segment go ONCE
-//! through the resident Parakeet ([`WakeScanner`] says when: as soon as the
+//! is all it does. The start of every speech segment ([`window_ms`], sized
+//! to the phrase) goes ONCE through the resident Parakeet ([`WakeScanner`] says when: as soon as the
 //! open segment is that long, or when a shorter one closes), and the
 //! transcript is matched against the member's phrase ([`wake_match`]): the
 //! phrase must OPEN the segment. A match opens one turn, the same flow as a
@@ -18,8 +18,14 @@
 
 use crate::listen::{Segmenter, Transcriber, Utterance, Vad, FRAME, RATE};
 
-/// How much of a segment's start is transcribed for the match.
-pub const WINDOW_MS: usize = 2_000;
+/// How much of a segment's start is transcribed for the match
+/// ([`window_ms`]): sized to the phrase, because Parakeet's cost grows with
+/// the audio (owner decision 2026-10-27: a fixed 2 s cost 29 % of a CPU core
+/// under continuous talk).
+pub const WINDOW_BASE_MS: usize = 600;
+pub const WINDOW_PER_LETTER_MS: usize = 100;
+pub const WINDOW_MIN_MS: usize = 1_200;
+pub const WINDOW_MAX_MS: usize = 2_000;
 /// The edits a match tolerates, as a share of the phrase's letters (rounded
 /// down: `Hey Studio` = 9 letters, 2 edits).
 pub const MAX_EDIT_RATIO: f32 = 0.25;
@@ -130,6 +136,13 @@ pub fn wake_match(phrase: &str, heard: &str) -> Option<String> {
     })
 }
 
+/// The window for `phrase`: [`WINDOW_BASE_MS`] + [`WINDOW_PER_LETTER_MS`] per
+/// letter or digit, clamped to [`WINDOW_MIN_MS`] … [`WINDOW_MAX_MS`].
+pub fn window_ms(phrase: &str) -> usize {
+    let letters: usize = wake_words(phrase).iter().map(|word| word.folded.chars().count()).sum();
+    (WINDOW_BASE_MS + WINDOW_PER_LETTER_MS * letters).clamp(WINDOW_MIN_MS, WINDOW_MAX_MS)
+}
+
 /// What the scanner wants transcribed: frames `[start, end)` of the stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Check {
@@ -138,11 +151,13 @@ pub struct Check {
 }
 
 /// Speech segments into wake checks, one per segment: when the open segment
-/// reaches [`WINDOW_MS`], or when a shorter one closes. Also keeps the
+/// reaches its window, or when a shorter one closes. Also keeps the
 /// audio and scores the next check, and a match's seed, need (the open
 /// segment, else only the padding a segment could reach back into).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WakeScanner {
+    /// The window in frames.
+    window: usize,
     segmenter: Segmenter,
     /// The open segment was checked already.
     checked: bool,
@@ -153,6 +168,18 @@ pub struct WakeScanner {
 }
 
 impl WakeScanner {
+    /// A scanner checking the first `window_ms` of each segment.
+    pub fn new(window_ms: usize) -> Self {
+        WakeScanner {
+            window: frames(window_ms),
+            segmenter: Segmenter::default(),
+            checked: false,
+            base: 0,
+            audio: Vec::new(),
+            scores: Vec::new(),
+        }
+    }
+
     /// Captured samples, before their scores.
     pub fn samples(&mut self, samples: &[f32]) {
         self.audio.extend_from_slice(samples);
@@ -167,10 +194,10 @@ impl WakeScanner {
         let closed = self.segmenter.push(probability);
         let check = match closed {
             Some(segment) if !self.checked => {
-                Some(Check { start: segment.start, end: segment.end.min(segment.start + frames(WINDOW_MS)) })
+                Some(Check { start: segment.start, end: segment.end.min(segment.start + self.window) })
             }
             _ => self.segmenter.open_start().filter(|_| !self.checked).and_then(|start| {
-                (self.segmenter.frames() - start >= frames(WINDOW_MS)).then_some(Check { start, end: start + frames(WINDOW_MS) })
+                (self.segmenter.frames() - start >= self.window).then_some(Check { start, end: start + self.window })
             }),
         };
         if closed.is_some() || self.segmenter.open_start().is_none() {
@@ -286,11 +313,21 @@ mod tests {
     #[test]
     fn the_constants_are_the_fixture() {
         let c = &wake()["constants"];
-        assert_eq!(c["windowMs"], WINDOW_MS);
+        assert_eq!(c["windowBaseMs"], WINDOW_BASE_MS);
+        assert_eq!(c["windowPerLetterMs"], WINDOW_PER_LETTER_MS);
+        assert_eq!(c["windowMinMs"], WINDOW_MIN_MS);
+        assert_eq!(c["windowMaxMs"], WINDOW_MAX_MS);
         assert_eq!(c["maxEditRatio"].as_f64().unwrap() as f32, MAX_EDIT_RATIO);
         assert_eq!(c["turnEndMs"], TURN_END_MS);
         assert_eq!(c["noCommandMs"], NO_COMMAND_MS);
         assert_eq!(c["maxTurnMs"], MAX_TURN_MS);
+    }
+
+    #[test]
+    fn windows_follow_the_fixture() {
+        for case in wake()["window"].as_array().unwrap() {
+            assert_eq!(window_ms(case["phrase"].as_str().unwrap()), case["windowMs"].as_u64().unwrap() as usize, "{case}");
+        }
     }
 
     #[test]
@@ -314,7 +351,7 @@ mod tests {
     #[test]
     fn checks_follow_the_fixture() {
         for case in wake()["checks"].as_array().unwrap() {
-            let mut scanner = WakeScanner::default();
+            let mut scanner = WakeScanner::new(case["windowMs"].as_u64().unwrap() as usize);
             let mut checks = Vec::new();
             for run in case["probabilities"].as_array().unwrap() {
                 for _ in 0..run[1].as_u64().unwrap() {
@@ -382,7 +419,7 @@ mod tests {
     fn wake_on(audio: &[f32], says: &'static str) -> (Option<talk::Event>, usize) {
         let mut vad = Loud(Vec::new());
         let mut engines = Says(says, 0);
-        let mut scanner = WakeScanner::default();
+        let mut scanner = WakeScanner::new(window_ms("Hey Studio"));
         let mut turn: Option<Utterance> = None;
         let mut answer = None;
         for chunk in audio.chunks(320) {
@@ -426,14 +463,14 @@ mod tests {
 
     #[test]
     fn the_seed_starts_at_the_check_and_runs_to_now() {
-        let mut scanner = WakeScanner::default();
+        let mut scanner = WakeScanner::new(2_000);
         let mut found = None;
         for (index, probability) in [0.0f32; 20].into_iter().chain([0.9; 70]).enumerate() {
             scanner.samples(&[index as f32; FRAME]);
             found = found.or(scanner.push(probability));
         }
         let check = found.expect("a 2 s segment is checked while open");
-        assert_eq!(check, Check { start: 18, end: 18 + frames(WINDOW_MS) });
+        assert_eq!(check, Check { start: 18, end: 18 + frames(2_000) });
         let (audio, scores) = scanner.seed(check);
         assert_eq!(scores.len(), 90 - 18);
         assert_eq!(audio.len(), scores.len() * FRAME);

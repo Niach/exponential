@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 
 use voice::listen::{Transcriber, RATE};
 use voice::listener::Engines;
-use voice::wake::{scan, turn, turn_ended, WakeScanner};
+use voice::wake::{scan, turn, turn_ended, window_ms, WakeScanner};
 
 /// User + system CPU seconds of this process, every thread (Linux).
 fn cpu_seconds() -> f64 {
@@ -76,7 +76,7 @@ fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, tally
     }
     let mut vad = engines.vad().expect("vad");
     let mut counting = Counting(engines, 0);
-    let mut scanner = WakeScanner::default();
+    let mut scanner = WakeScanner::new(window_ms(phrase));
     let mut active: Option<voice::listen::Utterance> = None;
     for chunk in audio.chunks(RATE / 50) {
         if let Some(utterance) = active.as_mut() {
@@ -89,7 +89,7 @@ fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, tally
                         _ => tally.wakes.push(String::new()),
                     })
                     .expect("finish");
-                scanner = WakeScanner::default();
+                scanner = WakeScanner::new(window_ms(phrase));
             }
             continue;
         }
