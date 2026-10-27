@@ -8,9 +8,9 @@
 //! the call's microphone loop takes as many reference samples as each
 //! microphone chunk holds ([`FarEnd::take`]), so the reference runs at the
 //! microphone's clock and always LEADS its echo (by the player's and the
-//! recorder's latency, well inside the filter's [`TAIL_MS`]). speexdsp's
-//! canceller plus its residual-echo preprocessor ([`aec_rs`]) then cleans
-//! the microphone in 10 ms frames. Push to talk and remote calls never pass
+//! recorder's latency, well inside the filter's [`TAIL_MS`]). The pure-Rust
+//! canceller [`decibri_aec`] (Apache-2.0; no C build, so no cmake or
+//! libclang on any runner) then cleans the microphone. Push to talk and remote calls never pass
 //! through here (a caller's OS cancels its own echo).
 
 use std::collections::VecDeque;
@@ -21,8 +21,6 @@ use crate::capture::Resampler;
 use crate::listen::RATE;
 use crate::sink::Sink;
 
-/// speexdsp's frame: 10 ms at 16 kHz.
-pub const AEC_FRAME: usize = 160;
 /// The echo path the filter covers (player + recorder latency + the room).
 pub const TAIL_MS: usize = 300;
 /// The most reference audio held (a reply pushed far ahead of a stalled
@@ -115,12 +113,9 @@ impl Sink for TapSink {
     }
 }
 
-/// The canceller of one local call (speexdsp state; lives on the listening
-/// thread).
+/// The canceller of one local call (lives on the listening thread).
 pub struct EchoCanceller {
-    aec: aec_rs::Aec,
-    near: Vec<i16>,
-    far: Vec<i16>,
+    aec: Option<decibri_aec::Aec>,
 }
 
 impl Default for EchoCanceller {
@@ -131,29 +126,26 @@ impl Default for EchoCanceller {
 
 impl EchoCanceller {
     pub fn new() -> Self {
-        let config = aec_rs::AecConfig {
-            frame_size: AEC_FRAME,
-            filter_length: (TAIL_MS * RATE / 1000) as i32,
-            sample_rate: RATE as u32,
-            enable_preprocess: true,
-        };
-        EchoCanceller { aec: aec_rs::Aec::new(&config), near: Vec::new(), far: Vec::new() }
+        let mut config = decibri_aec::AecConfig::default();
+        config.sample_rate = RATE as u32;
+        config.tail_ms = TAIL_MS as u16;
+        let aec = decibri_aec::Aec::new(config)
+            .map_err(|err| log::warn!("[voice] echo canceller unavailable, the microphone stays raw: {err}"))
+            .ok();
+        EchoCanceller { aec }
     }
 
-    /// Cancel `far`'s echo out of `near` (equal lengths); whole frames come
-    /// back, the rest waits for the next chunk.
+    /// Cancel `far`'s echo out of `near` (`far` = what played over the same
+    /// span). The canceller re-blocks internally, so a call may return a
+    /// little more or less than it took; nothing is lost.
     pub fn process(&mut self, near: &[f32], far: &[f32]) -> Vec<f32> {
-        self.near.extend(near.iter().map(|sample| talk::to_i16(*sample)));
-        self.far.extend(far.iter().map(|sample| talk::to_i16(*sample)));
-        let whole = self.near.len().min(self.far.len()) / AEC_FRAME * AEC_FRAME;
-        let mut out = Vec::with_capacity(whole);
-        let mut frame = [0i16; AEC_FRAME];
-        for start in (0..whole).step_by(AEC_FRAME) {
-            self.aec.cancel_echo(&self.near[start..start + AEC_FRAME], &self.far[start..start + AEC_FRAME], &mut frame);
-            out.extend(frame.iter().map(|sample| f32::from(*sample) / 32768.0));
+        let Some(aec) = self.aec.as_mut() else { return near.to_vec() };
+        aec.feed_reference(far);
+        let mut out = Vec::with_capacity(near.len());
+        if let Err(err) = aec.process(near, &mut out) {
+            log::warn!("[voice] echo canceller failed, this chunk stays raw: {err}");
+            return near.to_vec();
         }
-        self.near.drain(..whole);
-        self.far.drain(..whole);
         out
     }
 }
@@ -206,10 +198,11 @@ mod tests {
         for (near, far) in near.chunks(320).zip(reply.chunks(320)) {
             out.extend(canceller.process(near, far));
         }
-        assert_eq!(out.len(), near.len() / AEC_FRAME * AEC_FRAME);
+        assert!(out.len().abs_diff(near.len()) < RATE / 10, "{} of {}", out.len(), near.len());
         // The last 4 s, after convergence.
-        let tail = out.len() - 4 * RATE;
-        let (before, after) = (rms(&near[tail..out.len()]), rms(&out[tail..]));
+        let len = out.len().min(near.len());
+        let tail = len - 4 * RATE;
+        let (before, after) = (rms(&near[tail..len]), rms(&out[tail..len]));
         assert!(after < before * 0.3, "echo {before:.4} → {after:.4}");
     }
 

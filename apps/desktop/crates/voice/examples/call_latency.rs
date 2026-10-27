@@ -355,30 +355,30 @@ fn noise(len: usize, seed: u32) -> Vec<f32> {
 }
 
 fn opus_leg(name: &str, pcm: &[f32], rate: u32, bitrate: i32, fec: bool) {
-    let mut encoder = opus::Encoder::new(rate, opus::Channels::Mono, opus::Application::Voip).expect("encoder");
-    encoder.set_bitrate(opus::Bitrate::Bits(bitrate)).expect("bitrate");
+    let mut encoder = opus_rs::OpusEncoder::new(rate as i32, 1, opus_rs::Application::Voip).expect("encoder");
+    encoder.bitrate_bps = bitrate;
     if fec {
-        encoder.set_inband_fec(true).expect("fec");
-        encoder.set_packet_loss_perc(10).expect("loss");
+        encoder.use_inband_fec = true;
+        encoder.packet_loss_perc = 10;
     }
-    let mut decoder = opus::Decoder::new(rate, opus::Channels::Mono).expect("decoder");
+    let mut decoder = opus_rs::OpusDecoder::new(rate as i32, 1).expect("decoder");
     let frame = (rate / 50) as usize;
     let pcm: Vec<i16> = pcm.iter().map(|sample| talk::to_i16(*sample)).collect();
     let mut encode = Vec::new();
     let mut decode = Vec::new();
     let mut sizes = Vec::new();
     let mut packet = [0u8; 1500];
-    let mut out = vec![0i16; frame * 6];
+    let mut out = vec![0f32; frame];
     // At least 3000 frames (60 s of audio), the clip looped.
     let frames: Vec<&[i16]> = pcm.chunks_exact(frame).collect();
     for index in 0..3000.max(frames.len()) {
         let input = frames[index % frames.len()];
         let at = Instant::now();
-        let size = encoder.encode(input, &mut packet).expect("encode");
+        let size = encoder.encode_i16(input, frame, &mut packet).expect("encode");
         encode.push(at.elapsed().as_secs_f64() * 1e6);
         sizes.push(size as f64);
         let at = Instant::now();
-        decoder.decode(&packet[..size], &mut out, false).expect("decode");
+        decoder.decode(&packet[..size], frame, &mut out).expect("decode");
         decode.push(at.elapsed().as_secs_f64() * 1e6);
     }
     println!(

@@ -109,10 +109,11 @@ fn opus_rate(rate: u32) -> Option<u32> {
     [8_000, 12_000, 16_000, 24_000, 48_000].contains(&rate).then_some(rate)
 }
 
-/// Frames reply PCM into 20 ms Opus packets, keeping the remainder.
+/// Frames reply PCM into 20 ms Opus packets, keeping the remainder
+/// (`opus_rs`: libopus 1.6 ported to Rust, so no C build on any runner).
 struct Encoder {
     rate: u32,
-    opus: opus::Encoder,
+    opus: opus_rs::OpusEncoder,
     pending: Vec<i16>,
     seq: u16,
 }
@@ -120,8 +121,8 @@ struct Encoder {
 impl Encoder {
     fn new(rate: u32) -> Result<Self, String> {
         let rate = opus_rate(rate).ok_or_else(|| format!("opus cannot code {rate} Hz"))?;
-        let mut opus = opus::Encoder::new(rate, opus::Channels::Mono, opus::Application::Voip).map_err(|err| err.to_string())?;
-        opus.set_bitrate(opus::Bitrate::Bits(DOWN_BITRATE)).map_err(|err| err.to_string())?;
+        let mut opus = opus_rs::OpusEncoder::new(rate as i32, 1, opus_rs::Application::Voip).map_err(str::to_string)?;
+        opus.bitrate_bps = DOWN_BITRATE;
         Ok(Encoder { rate, opus, pending: Vec::new(), seq: 0 })
     }
 
@@ -137,7 +138,7 @@ impl Encoder {
         let mut packet = [0u8; MAX_FRAME_BYTES - 3];
         while self.pending.len() >= len {
             let frame: Vec<i16> = self.pending.drain(..len).collect();
-            match self.opus.encode(&frame, &mut packet) {
+            match self.opus.encode_i16(&frame, len, &mut packet) {
                 Ok(size) => {
                     out.push(audio_frame(KIND_DOWN, self.seq, &packet[..size]));
                     self.seq = self.seq.wrapping_add(1);
@@ -152,13 +153,18 @@ impl Encoder {
 /// Decodes the caller's packets; a lost sequence number is concealed with
 /// FEC from the next packet.
 struct Decoder {
-    opus: opus::Decoder,
+    opus: opus_rs::OpusDecoder,
     next: Option<u16>,
+}
+
+/// f32 PCM in -1..1 as i16 samples.
+fn to_i16(samples: &[f32]) -> impl Iterator<Item = i16> + '_ {
+    samples.iter().map(|sample| (sample.clamp(-1., 1.) * 32767.) as i16)
 }
 
 impl Decoder {
     fn new() -> Result<Self, String> {
-        Ok(Decoder { opus: opus::Decoder::new(UP_RATE, opus::Channels::Mono).map_err(|err| err.to_string())?, next: None })
+        Ok(Decoder { opus: opus_rs::OpusDecoder::new(UP_RATE as i32, 1).map_err(str::to_string)?, next: None })
     }
 
     fn push(&mut self, seq: u16, packet: &[u8]) -> Vec<i16> {
@@ -166,14 +172,14 @@ impl Decoder {
         let mut out = Vec::new();
         // One lost packet: recover it from this one's in-band FEC.
         if self.next.is_some_and(|next| seq == next.wrapping_add(1)) {
-            let mut recovered = vec![0i16; frame];
-            if let Ok(size) = self.opus.decode(packet, &mut recovered, true) {
-                out.extend_from_slice(&recovered[..size]);
+            let mut recovered = vec![0f32; frame];
+            if let Ok(size) = self.opus.decode_fec(packet, frame, &mut recovered) {
+                out.extend(to_i16(&recovered[..size]));
             }
         }
-        let mut pcm = vec![0i16; frame * 6];
-        match self.opus.decode(packet, &mut pcm, false) {
-            Ok(size) => out.extend_from_slice(&pcm[..size]),
+        let mut pcm = vec![0f32; frame];
+        match self.opus.decode(packet, frame, &mut pcm) {
+            Ok(size) => out.extend(to_i16(&pcm[..size])),
             Err(err) => log::debug!("call host: opus decode failed: {err}"),
         }
         self.next = Some(seq.wrapping_add(1));
@@ -303,9 +309,10 @@ mod tests {
         assert_eq!(parse_audio_frame(&frames[1]).unwrap().1, 1);
         assert!(frames.iter().all(|frame| frame.len() <= MAX_FRAME_BYTES));
         // The caller's side, at 16 kHz: one frame = 320 samples.
-        let mut up = opus::Encoder::new(UP_RATE, opus::Channels::Mono, opus::Application::Voip).unwrap();
+        let mut up = opus_rs::OpusEncoder::new(UP_RATE as i32, 1, opus_rs::Application::Voip).unwrap();
+        up.use_inband_fec = true;
         let mut packet = [0u8; 1500];
-        let size = up.encode(&vec![0i16; 320], &mut packet).unwrap();
+        let size = up.encode_i16(&vec![0i16; 320], 320, &mut packet).unwrap();
         let mut decoder = Decoder::new().unwrap();
         assert_eq!(decoder.push(0, &packet[..size]).len(), 320);
     }
