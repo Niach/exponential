@@ -1650,7 +1650,7 @@ impl ClaudeSession {
                 // with it, and the CLI need not re-list. Nothing may hold
                 // the run busy past a Stop; a later list frame that still
                 // names one restores it.
-                self.retire_background_agents(cx, None);
+                self.retire_background_tasks(cx, None);
                 Ok(PromptResponse::new(StopReason::Cancelled))
             }
             // Not a stop reason: a logged-out CLI answers a perfectly ordinary
@@ -2197,23 +2197,25 @@ impl ClaudeSession {
         );
     }
 
-    /// FEED-44: drop a finished AGENT from the strip without waiting for the
-    /// CLI to re-list. The host reads `agent_busy` off the latest list's
-    /// agent entries, and the CLI does not always send a
-    /// `background_tasks_changed` after the agent's own completion frame
-    /// (a Stop killing background agents, a `/clear`, a lost frame): the
-    /// run then showed the working dot on an idle session until Stop.
-    /// `task_id` = `None` retires EVERY listed agent (a cancelled turn).
-    /// Only an agent-kind entry moves: a shell task's row is the CLI's to
-    /// keep, and only agents hold the run busy. Republished through the
-    /// same slot a list frame uses, so the host's flag recomputes off it.
-    fn retire_background_agents(&self, cx: &ConnectionTo<Client>, task_id: Option<&str>) {
+    /// FEED-44: drop a finished task from the strip without waiting for the
+    /// CLI to re-list. The host reads `agent_busy` off the latest list
+    /// (EXP-1374: every entry, any kind, holds the run busy), and the CLI
+    /// does not always send a `background_tasks_changed` after the task's
+    /// own completion frame (a Stop killing background agents, a `/clear`,
+    /// a lost frame): the run then showed the working dot on an idle
+    /// session until Stop. `task_id` = `Some` retires that task whatever
+    /// its kind (its terminal notification is authoritative); `None`
+    /// retires EVERY listed AGENT (a cancelled turn kills those — a
+    /// backgrounded shell survives an interrupt, so its row stays the
+    /// CLI's to keep). Republished through the same slot a list frame
+    /// uses, so the host's flag recomputes off it.
+    fn retire_background_tasks(&self, cx: &ConnectionTo<Client>, task_id: Option<&str>) {
         let changed = {
             let mut state = self.lock();
             let before = state.background_tasks.len();
-            state.background_tasks.retain(|listed| {
-                listed.kind != steer::BackgroundTaskKind::Agent
-                    || task_id.is_some_and(|task_id| listed.id != task_id)
+            state.background_tasks.retain(|listed| match task_id {
+                Some(task_id) => listed.id != task_id,
+                None => listed.kind != steer::BackgroundTaskKind::Agent,
             });
             state.background_tasks.len() != before
         };
@@ -3234,10 +3236,10 @@ impl ClaudeSession {
                     );
                 }
                 if terminal {
-                    // FEED-44: the strip drops the finished agent NOW, before
+                    // FEED-44: the strip drops the finished task NOW, before
                     // the settle ends the turn, so the idle edge already
                     // reads the run as not busy.
-                    self.retire_background_agents(cx, Some(&task_id));
+                    self.retire_background_tasks(cx, Some(&task_id));
                     let mut state = self.lock();
                     // EXP-1224: when the model is BETWEEN turns (its prompt
                     // already had its `result`), that notification is about

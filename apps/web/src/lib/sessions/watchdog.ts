@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, notInArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt, notInArray, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -19,7 +19,10 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // exactly one clearer: a claim (`unclaimed`), the next device report
 // (`stuck`), the device's next heartbeat (`device_offline`). FEED-129: the
 // device-written usage wall (`rate_limit`) is the device's to clear, or
-// this watchdog's once its `resetsAt` passed.
+// this watchdog's once its `resetsAt` passed. EXP-1374: an INTERRUPTION
+// (`device_offline`, `restarted`) is never on a person: a mid-turn run
+// (`resume`) is continued by its device when back (its report clears it);
+// only one the device left alone `resumeMinutes` after it came back is.
 
 export const WATCHDOG_INTERVAL_MS = 60 * 1000
 
@@ -31,6 +34,8 @@ export interface WatchdogRun {
   nudged: number
   stuck: number
   offline: number
+  /** EXP-1374: interruptions their device never continued (Needs you). */
+  unresumed: number
   /** FEED-129: usage walls whose reset time passed, cleared this tick. */
   expired: number
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
@@ -43,6 +48,28 @@ const LIVE = [`running`, `idle`] as const
 function flag(kind: CodingSessionBlocked[`kind`], now: Date): CodingSessionBlocked {
   return { kind, agent: null, window: null, resetsAt: null, since: now.toISOString() }
 }
+
+/** EXP-1374: the interruption kinds (session-card.json `interruptedKinds`). */
+export const INTERRUPTIONS = [`device_offline`, `restarted`] as const
+
+/** EXP-1374: an interruption flag. `resume` = the run was mid-turn, so its
+ *  device continues it by itself; `resumeSince` = since when the device
+ *  could (it is back): the `resumeMinutes` clock. */
+function interruption(
+  kind: (typeof INTERRUPTIONS)[number],
+  now: Date,
+  resume: boolean,
+  resumeSince: Date | null
+): CodingSessionBlocked {
+  return { ...flag(kind, now), resume, resumeSince: resumeSince?.toISOString() ?? null }
+}
+
+/** The SQL test for "blocked by an interruption". */
+const interrupted = () => sql`(${sessions.blocked} ->> 'kind') IN ('device_offline', 'restarted')`
+
+/** EXP-1374: the session's latest sign of life (a row write, a message, the
+ *  heartbeat's activity, an MCP call, a push). */
+const liveness = () => sql`GREATEST(${sessions.updatedAt}, COALESCE(${sessions.lastActivityAt}, ${sessions.updatedAt}))`
 
 /** `blocked` cleared and `needs_input` re-derived (an open card still waits).
  *  `kind` (FEED-146) clears only a flag of that kind: a usage wall the
@@ -135,26 +162,30 @@ async function nudgeStalled(now: Date): Promise<number> {
   return seen.size
 }
 
-/** A busy session with no device report for `stuckMinutes`: flagged once.
+/** A busy session with NO SIGN OF LIFE for `stuckMinutes`: flagged once.
  *  FEED-145: a device only reports on a state edge, so a long turn (a
  *  subagent fan-out, a build) is report-free by design. A session its
  *  ONLINE host lists in the heartbeat's `liveSessionIds` has a live process
  *  whose own stall watchdog (FEED-25) guards the turn: never flagged here
- *  (it read "needs input" while busy). An older device that never claims
- *  keeps the 30-minute rule. */
+ *  (it read "needs input" while busy). EXP-1374 (FEED-141): an older device
+ *  that never claims is measured from its LAST SIGN OF LIFE (`liveness`:
+ *  the heartbeat's tool-call activity, an MCP call, a push), never from its
+ *  last row write alone, and a session with background tasks is alive. The
+ *  line says how long and asks to check, never to stop it. */
 async function flagStuck(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.sessionWatchdog.stuckMinutes * MIN)
   const online = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: sessions.id, parentId: sessions.parentId })
+      .select({ id: sessions.id, parentId: sessions.parentId, alive: sql<number>`EXTRACT(EPOCH FROM ${liveness()}) * 1000`.mapWith(Number) })
       .from(sessions)
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
           eq(sessions.busy, true),
+          eq(sessions.background, false),
           isNull(sessions.blocked),
-          lt(sessions.updatedAt, cutoff),
+          sql`${liveness()} < ${cutoff}`,
           // FEED-148: the resolved host's row only (`hostRowCondition`): a
           // decoy row naming the machine never vouches for a session.
           sql`NOT EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${online} AND ${sessions.id}::text = ANY(h.live_session_ids))`
@@ -166,19 +197,31 @@ async function flagStuck(now: Date): Promise<number> {
         .update(sessions)
         .set({ blocked: flag(`stuck`, now), needsInput: true, updatedAt: now })
         .where(eq(sessions.id, row.id))
-      await busLine(tx, row, `session_stuck`, BUS_COPY.session_stuck, { waking: true })
+      await busLine(tx, row, `session_stuck`, BUS_COPY.session_stuck(silentMinutes(row.alive, now)), {
+        waking: true,
+      })
     }
     return rows.length
   })
 }
 
+/** Whole minutes since `alive` (epoch ms), at least the rule's own
+ *  threshold (a clock skew never reads fewer). */
+export function silentMinutes(alive: number, now: Date): number {
+  const minutes = Number.isFinite(alive) ? Math.floor((now.getTime() - alive) / MIN) : 0
+  return Math.max(contract.sessionWatchdog.stuckMinutes, minutes)
+}
+
 /** A live session whose host device missed the online window: idle, not
- *  busy, `device_offline` (its next heartbeat clears it). */
+ *  busy, `device_offline` (its next heartbeat clears it). EXP-1374: an
+ *  INTERRUPTION, not on a person (`needs_input` untouched: an open card
+ *  still waits); a busy one is mid-turn (`resume`): its device continues it
+ *  when back (`restoreDeviceSessionsInTx`). */
 async function flagOffline(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: sessions.id, parentId: sessions.parentId })
+      .select({ id: sessions.id, parentId: sessions.parentId, busy: sessions.busy })
       .from(sessions)
       .where(
         and(
@@ -196,12 +239,44 @@ async function flagOffline(now: Date): Promise<number> {
         .set({
           status: `idle`,
           busy: false,
-          blocked: flag(`device_offline`, now),
-          needsInput: true,
+          background: false,
+          blocked: interruption(`device_offline`, now, row.busy, null),
           updatedAt: now,
         })
         .where(eq(sessions.id, row.id))
       await busLine(tx, row, `device_offline`, BUS_COPY.device_offline, { waking: false })
+    }
+    return rows.length
+  })
+}
+
+/** EXP-1374: a mid-turn interruption its device has not continued
+ *  `resumeMinutes` after it came back (an older build, a resume that
+ *  failed): on a person now (Needs you), said once to its parent. The
+ *  device's report or a person's message still clears it. */
+async function flagUnresumed(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - contract.sessionWatchdog.resumeMinutes * MIN)
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: sessions.id, parentId: sessions.parentId })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.status, [...LIVE]),
+          interrupted(),
+          eq(sessions.needsInput, false),
+          sql`(${sessions.blocked} ->> 'resume')::boolean IS TRUE`,
+          sql`${sessions.blocked} ->> 'resumeSince' IS NOT NULL`,
+          sql`${sessions.blocked} ->> 'resumeSince' < ${cutoff.toISOString()}`
+        )
+      )
+      .for(`update`, { skipLocked: true })
+    for (const row of rows) {
+      await tx
+        .update(sessions)
+        .set({ needsInput: true, updatedAt: now })
+        .where(eq(sessions.id, row.id))
+      await busLine(tx, row, `session_interrupted`, BUS_COPY.session_unresumed, { waking: true })
     }
     return rows.length
   })
@@ -266,19 +341,99 @@ function beatScope(device: BeatingDevice) {
   return and(eq(sessions.deviceId, device.deviceId), hostedByCondition(device.userId))!
 }
 
-/** The device heartbeat: its `device_offline` sessions are live again. */
-export async function restoreDeviceSessionsInTx(tx: Tx, device: BeatingDevice): Promise<number> {
+/** The device heartbeat: its `device_offline` sessions are live again.
+ *  EXP-1374: with the beat's `liveSessionIds` (null = an older device
+ *  that never claims: every flag clears, as before) a listed session's
+ *  process survived: the flag clears and a mid-turn one reads busy again;
+ *  an unlisted mid-turn one keeps its flag, stamped `resumeSince`, until
+ *  its device continues it (pickup `Continue`, whose report clears it). */
+export async function restoreDeviceSessionsInTx(
+  tx: Tx,
+  device: BeatingDevice & { liveSessionIds?: readonly string[] | null },
+  now: Date = new Date()
+): Promise<number> {
   const rows = await tx
-    .select({ id: sessions.id })
+    .select({ id: sessions.id, blocked: sessions.blocked })
     .from(sessions)
     .where(and(beatScope(device), sql`${sessions.blocked} ->> 'kind' = 'device_offline'`))
     .for(`update`, { skipLocked: true })
-  await clearBlockedInTx(
-    tx,
-    rows.map((row) => row.id),
-    `device_offline`
-  )
-  return rows.length
+  const live = device.liveSessionIds ? new Set(cleanLiveSessionIds(device.liveSessionIds).ids) : null
+  const clear: string[] = []
+  const busyAgain: string[] = []
+  for (const row of rows) {
+    const resume = row.blocked?.resume === true
+    if (!live || !resume) clear.push(row.id)
+    else if (live.has(row.id)) busyAgain.push(row.id)
+    else if (!row.blocked?.resumeSince) {
+      await tx
+        .update(sessions)
+        .set({ blocked: { ...row.blocked!, resumeSince: now.toISOString() }, updatedAt: now })
+        .where(eq(sessions.id, row.id))
+    }
+  }
+  if (busyAgain.length > 0) {
+    await tx
+      .update(sessions)
+      // `background` resets with it: the device's next report says whether
+      // only background tasks hold the run (never stale from before).
+      .set({ status: `running`, busy: true, background: false, updatedAt: now })
+      .where(inArray(sessions.id, busyAgain))
+  }
+  await clearBlockedInTx(tx, [...clear, ...busyAgain], `device_offline`)
+  return clear.length + busyAgain.length
+}
+
+/** EXP-1374: the heartbeat's `sessionActivity` = each live session's
+ *  latest engine activity (a tool call, terminal output): its sign of life
+ *  for the stuck rule. Only the sender's hosted sessions, never forward of
+ *  the beat itself (a skewed device clock cannot vouch for the future). */
+export async function recordSessionActivityInTx(
+  tx: Tx,
+  device: BeatingDevice & { activity: readonly { sessionId: string; at: string }[] },
+  now: Date = new Date()
+): Promise<number> {
+  const latest = new Map<string, number>()
+  for (const entry of device.activity) {
+    const id = cleanLiveSessionIds([entry.sessionId]).ids[0]
+    const at = Date.parse(entry.at)
+    if (!id || !Number.isFinite(at)) continue
+    latest.set(id, Math.max(latest.get(id) ?? 0, Math.min(at, now.getTime())))
+  }
+  let moved = 0
+  for (const [id, at] of latest) {
+    const stamp = new Date(at)
+    const updated = await tx
+      .update(sessions)
+      .set({ lastActivityAt: stamp })
+      .where(
+        and(
+          beatScope(device),
+          eq(sessions.id, id),
+          inArray(sessions.status, [...LIVE]),
+          sql`COALESCE(${sessions.lastActivityAt}, '-infinity'::timestamptz) < ${stamp}`
+        )
+      )
+      .returning({ id: sessions.id })
+    moved += updated.length
+  }
+  return moved
+}
+
+/** EXP-1374: a sign of life the server saw itself (an MCP call by the
+ *  session, a push to its branch): `last_activity_at`, throttled to one
+ *  write a minute per session. Never `updated_at` (no sync traffic). */
+export async function touchSessionActivity(where: SQL, now: Date = new Date()): Promise<void> {
+  const step = new Date(now.getTime() - MIN)
+  await db
+    .update(sessions)
+    .set({ lastActivityAt: now })
+    .where(
+      and(
+        where,
+        inArray(sessions.status, [...LIVE]),
+        sql`COALESCE(${sessions.lastActivityAt}, '-infinity'::timestamptz) < ${step}`
+      )
+    )
 }
 
 /** FEED-145: a session the heartbeat lists in `liveSessionIds` is alive: a
@@ -312,8 +467,10 @@ export async function clearLiveStuckInTx(
 
 /** NEW-5: the heartbeat's `liveSessionIds` = the sessions the host process
  *  runs. A `running` + `busy` session on that device that is NOT listed has
- *  a dead process (the daemon lives, the run does not): idle, not busy,
- *  `stuck` (its next report or claim clears it), said once to its parent. */
+ *  a dead process (the daemon lives, the run does not): idle, not busy.
+ *  EXP-1374: an INTERRUPTION (`restarted`, mid-turn): its device continues
+ *  it (pickup `Continue`), never a person's, said once to its parent
+ *  (not waking: nothing for it to do). */
 export async function flagDeadSessionsInTx(
   tx: Tx,
   device: BeatingDevice & { liveSessionIds: readonly string[] },
@@ -338,12 +495,12 @@ export async function flagDeadSessionsInTx(
       .set({
         status: `idle`,
         busy: false,
-        blocked: flag(`stuck`, now),
-        needsInput: true,
+        background: false,
+        blocked: interruption(`restarted`, now, true, now),
         updatedAt: now,
       })
       .where(eq(sessions.id, row.id))
-    await busLine(tx, row, `session_stuck`, BUS_COPY.session_stuck, { waking: true })
+    await busLine(tx, row, `session_interrupted`, BUS_COPY.session_interrupted, { waking: false })
   }
   return rows.length
 }
@@ -354,6 +511,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     nudged: await nudgeStalled(now),
     stuck: await flagStuck(now),
     offline: await flagOffline(now),
+    unresumed: await flagUnresumed(now),
     expired: await clearExpiredWalls(now),
     // NEW-2: the same tick fires the agents' schedules (a missed tick is
     // caught up here) and sweeps the event stream.
@@ -374,7 +532,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
         })
       )
       .catch((error: unknown) => {

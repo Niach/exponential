@@ -30,7 +30,8 @@ extension TreeSession {
             updatedAt: row.updatedAt,
             deviceId: row.deviceId.isEmpty ? nil : row.deviceId,
             agentId: row.agentId,
-            appId: row.appId
+            appId: row.appId,
+            background: row.background
         )
     }
 }

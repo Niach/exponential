@@ -38,8 +38,12 @@ const session = (over: Partial<TreeSession> & { id: string }): TreeSession => ({
 const MARK: Record<SessionState, RunMarkState | undefined> = {
   queued: undefined,
   working: `working`,
+  // EXP-1374: background tasks still hold the slot (the working mark); an
+  // interruption is the bare mark.
+  background: `working`,
   waiting: undefined,
   needs_you: `needs_input`,
+  interrupted: undefined,
   blocked: undefined,
   ended: `ended`,
 }

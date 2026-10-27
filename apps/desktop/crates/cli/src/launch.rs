@@ -423,7 +423,8 @@ fn foreground_pass(
             // this process runs ONE engine.
             PickupAction::Launch { .. }
             | PickupAction::Resume { .. }
-            | PickupAction::Revive { .. } => false,
+            | PickupAction::Revive { .. }
+            | PickupAction::Continue { .. } => false,
             // EXP-849: this process runs ONE engine and exits with it, so it
             // never relaunches on another login: the person hears so ONCE
             // per pick, the pick stays UNhonored (the first wake after this

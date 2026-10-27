@@ -41,12 +41,12 @@ class Migration99To100Test {
         createVersion99()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_99_100)
+            .addMigrations(MIGRATION_99_100, MIGRATION_100_101)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(100, sql.version)
+            assertEquals(101, sql.version)
 
             val apps = db.appDao()
             val app = runBlocking { apps.observeById("a1").first() }!!
@@ -65,7 +65,8 @@ class Migration99To100Test {
             assertEquals("-1", refetched.offset)
             assertFalse(refetched.isLive)
             assertTrue(refetched.needsRefetch)
-            val kept = runBlocking { db.electricOffsetDao().get("sessions") }!!
+            // sessions refetches through [MIGRATION_100_101] (EXP-1374).
+            val kept = runBlocking { db.electricOffsetDao().get("issues") }!!
             assertEquals("h", kept.handle)
             assertTrue(kept.isLive)
         } finally {
@@ -104,7 +105,7 @@ class Migration99To100Test {
                 "INSERT INTO apps (id, team_id, slug, name, description, created_by, created_at, updated_at) " +
                     "VALUES ('a1', 't1', 'hours', 'Hours', '', 'u1', 'c', 'u')",
             )
-            for (shape in listOf("apps", "sessions")) {
+            for (shape in listOf("apps", "sessions", "issues")) {
                 db.execSQL(
                     "INSERT INTO electric_offsets (shape, handle, `offset`, is_live, needs_refetch) " +
                         "VALUES ('$shape', 'h', '0_0', 1, 0)",

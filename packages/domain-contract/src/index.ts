@@ -97,7 +97,7 @@ export interface DomainContract {
    */
   device: { onlineWindowSeconds: number }
   /** NEW-1: the server watchdog's thresholds (minutes). */
-  sessionWatchdog: { unclaimedMinutes: number; nudgeMinutes: number; stuckMinutes: number }
+  sessionWatchdog: { unclaimedMinutes: number; nudgeMinutes: number; resumeMinutes: number; stuckMinutes: number }
   /**
    * EXP-1025: the team prompt's hard byte cap (`teams.agent_prompt`, UTF-8
    * bytes): zod on `teams.update`, the editors' live counter, and the

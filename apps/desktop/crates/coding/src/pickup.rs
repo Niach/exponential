@@ -318,6 +318,8 @@ pub struct PickupInput<'a> {
     /// EXP-1341: persistent roots NOT to revive this pass
     /// ([`LiveRegistry::revive_held`]: already revived or run in this
     /// process, backing off after a failed attempt, or given up).
+    /// EXP-1374: the same set holds an interrupted run's
+    /// [`PickupAction::Continue`] (once per absence).
     pub revive_held: &'a HashSet<String>,
 }
 
@@ -344,6 +346,13 @@ pub enum PickupAction {
     /// with no record launches it from its brief. Once per absence
     /// ([`LiveRegistry::revive_held`]).
     Revive { session: SessionRow },
+    /// EXP-1374: a NON-persistent `running`/`idle` row on this device with
+    /// no engine here and nothing pending whose run was INTERRUPTED mid-turn
+    /// (`blocked.kind` `device_offline` | `restarted`, `blocked.resume`):
+    /// [`continue_interrupted`] resumes the SAME row from its run record
+    /// with [`continue_prompt`] as a device-made seed turn (nothing to
+    /// consume). Once per absence ([`LiveRegistry::revive_held`]).
+    Continue { session: SessionRow },
     /// Pending person messages of a LIVE session not yet handed to its
     /// engine, oldest first: `EngineSession::deliver(id, body)` each.
     Deliver { session_id: String, messages: Vec<MessageRow> },
@@ -394,6 +403,7 @@ impl PickupAction {
             Self::Launch { session }
             | Self::Resume { session, .. }
             | Self::Revive { session }
+            | Self::Continue { session }
             | Self::Switch { session, .. } => &session.id,
             Self::Deliver { session_id, .. }
             | Self::Revoke { session_id, .. }
@@ -417,6 +427,11 @@ impl PickupAction {
 /// - **Revive** (EXP-1341): the same without a pending message, for a
 ///   PERSISTENT root only (an agent never ends: its device revives it when
 ///   it comes back), unless [`PickupInput::revive_held`] names it.
+/// - **Continue** (EXP-1374): the same for a NON-persistent row its device
+///   left mid-turn (`blocked` = an interruption with `resume: true`,
+///   [`SessionRow::continue_interruption`]), unless
+///   [`PickupInput::revive_held`] names it. A pending input wins (Resume:
+///   its report clears the flag).
 /// - **Revoke**: a handed message whose row is gone (unqueued).
 /// - **Deliver**: a live session's pending person messages not yet handed.
 /// - **Answer**: an open card of a live session whose row is answered.
@@ -517,6 +532,11 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                 starts.push((row, PickupAction::Resume { session: row.clone(), messages: queue }));
             } else if row.is_root() && row.is_persistent() && !input.revive_held.contains(&row.id) {
                 starts.push((row, PickupAction::Revive { session: row.clone() }));
+            } else if !row.is_persistent()
+                && row.continue_interruption().is_some()
+                && !input.revive_held.contains(&row.id)
+            {
+                starts.push((row, PickupAction::Continue { session: row.clone() }));
             }
         }
     }
@@ -1530,10 +1550,13 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     };
     // From the first claim attempt on, the row may be ours on the server.
     let attempt = deps.live.note_unsettled(row);
+    // EXP-1374 (FEED-135): the last attempt's failure is said as the
+    // session's reply and the row idles — the next message re-launches it
+    // in full (no run record was written, so the wake is a launch).
     let gave_up = |reason: String| {
         if attempt >= MAX_LAUNCH_ATTEMPTS {
             deps.live.settle(&row.id);
-            refuse(row.is_persistent(), &row.id, &reason, true, deps);
+            fail_start(&row.id, &reason, &[], deps);
         }
         reason
     };
@@ -1562,7 +1585,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     let brief = match session_device::brief(&deps.coding.trpc, &row.id) {
         Ok(brief) => brief,
         Err(err) if transient(&err) => {
-            return Err(gave_up(format!("Couldn't start this session: {err}")));
+            return Err(gave_up(err.to_string()));
         }
         Err(err) => {
             deps.live.settle(&row.id);
@@ -1601,13 +1624,49 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             refuse(row.is_persistent(), &row.id, &reason, false, deps);
             Ok(LaunchQueued::Disabled { reason })
         }
-        Err(err) if prepare_transient(&err) => Err(gave_up(format!("Couldn't start this session: {err}"))),
+        Err(err) if prepare_transient(&err) => Err(gave_up(err.to_string())),
+        // EXP-1374 (FEED-135): a failed prepare (worktree, checkout, a parent
+        // branch not pushed) never ends the thread: replied, idled, and the
+        // next message re-launches it.
         Err(err) => {
             deps.live.settle(&row.id);
-            let reason = format!("Couldn't start this session: {err}");
-            refuse(row.is_persistent(), &row.id, &reason, false, deps);
-            Err(reason)
+            let reason = err.to_string();
+            fail_start(&row.id, &reason, &[], deps);
+            Err(start_failure(&reason))
         }
+    }
+}
+
+/// EXP-1374 (FEED-135): the reply a failed start posts (it reaches the
+/// parent through the bus).
+pub fn start_failure(error: &str) -> String {
+    format!("Could not start: {error}")
+}
+
+/// EXP-1374 (FEED-135): a start that failed AFTER the claim (worktree
+/// creation, checkout, a parent branch not pushed, `.git/config` lock
+/// contention) never strands the row: the error is posted as the session's
+/// reply, the pending messages the attempt carried (`tried`) are consumed
+/// (the parent hears the failure and sends again), and the row is reported
+/// idle. No run record exists, so the NEXT message re-launches in full
+/// (prepare again: worktree + brief) through [`resume_session`]'s
+/// no-record leg.
+fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps) {
+    let reason = start_failure(error);
+    log::warn!("pickup: session {session_id} failed to start: {error}");
+    if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
+        log::warn!("pickup: start failure of session {session_id} not replied: {err}");
+    }
+    let tried: Vec<String> =
+        tried.iter().filter(|id| locked(&deps.live.consuming).insert((*id).clone())).cloned().collect();
+    if !tried.is_empty() {
+        if let Err(err) = session_device::consume(&deps.coding.trpc, session_id, &tried) {
+            log::warn!("pickup: tried messages of session {session_id} not consumed yet: {err}");
+            consume_off_thread(deps, session_id, tried, || {});
+        }
+    }
+    if let Err(err) = crate::idle_session(&deps.coding.trpc, session_id) {
+        log::warn!("pickup: failed start of session {session_id} not reported: {err}");
     }
 }
 
@@ -1890,6 +1949,10 @@ fn deliver(
         options,
     };
     let persistent = row.is_persistent();
+    // EXP-1374 (FEED-135): no run record = this wake is a full (re)launch;
+    // its failure is a failed START — replied, the tried messages consumed,
+    // the row idled, and the next message tries the launch again.
+    let launching = req.resume.is_none();
     let refused = |reason: String| {
         refuse(persistent, session_id, &reason, true, deps);
         deps.live.note_refused(session_id, &pending);
@@ -1922,6 +1985,12 @@ fn deliver(
         Ok(Prepared::Disabled(reason)) => {
             refused(reason.message());
             Ok(Vec::new())
+        }
+        Err(err) if launching => {
+            let tried: Vec<String> = pending.iter().map(|m| m.id.clone()).collect();
+            fail_start(session_id, &err.to_string(), &tried, deps);
+            deps.live.note_refused(session_id, &pending);
+            Err(WakeError::Other(start_failure(&err.to_string())))
         }
         Err(err) => Err(refused(format!("Couldn't resume this session: {err}")).into()),
     }
@@ -2050,6 +2119,71 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
     };
     let brief = session_device::brief(&deps.coding.trpc, session_id)
         .map_err(|err| format!("brief of session {session_id}: {err}"))?;
+    spawn_continuation(row, record, claim, brief, RESTART_CONTINUATION.to_string(), deps).map(|()| true)
+}
+
+/// EXP-1374: the seed turn of a [`PickupAction::Continue`] — `kind` is the
+/// row's `blocked.kind` (`device_offline` | `restarted`).
+pub fn continue_prompt(kind: &str) -> String {
+    let reason = if kind == "device_offline" { "device offline" } else { "runner restarted" };
+    format!("Your run was interrupted ({reason}) and continues now. Pick up exactly where you left off.")
+}
+
+/// EXP-1374: [`PickupAction::Continue`] — resume an interrupted mid-turn
+/// run from its run record (same worktree/branch, native CLI resume) with
+/// [`continue_prompt`] as the seed turn. Once per absence: an engine that
+/// comes up settles it ([`LiveRegistry::insert_for`]); a transient failure
+/// (the brief) backs off like a revive; no run record here leaves the row
+/// alone (the server's `resumeMinutes` rule hands it to a person); a
+/// refused prepare or spawn is replied and the row idled ([`refuse`]).
+pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), String> {
+    let session_id = row.id.as_str();
+    if deps.live.contains_live(session_id) {
+        deps.live.settle_revive(session_id);
+        return Ok(());
+    }
+    let Some(kind) = row.continue_interruption() else {
+        return Ok(());
+    };
+    let Some(record) = crate::run_registry::get(&deps.coding.data_dir, session_id) else {
+        deps.live.settle_revive(session_id);
+        log::info!("pickup: interrupted session {session_id} has no run record here — not continued");
+        return Ok(());
+    };
+    let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
+        // Another process of this machine runs it.
+        deps.live.settle_revive(session_id);
+        return Ok(());
+    };
+    let attempt = deps.live.note_revive(session_id);
+    let brief = match session_device::brief(&deps.coding.trpc, session_id) {
+        Ok(brief) => brief,
+        Err(err) => {
+            if attempt >= MAX_LAUNCH_ATTEMPTS {
+                deps.live.settle_revive(session_id);
+            }
+            return Err(format!("brief of session {session_id}: {err}"));
+        }
+    };
+    // Settled before the spawn: a refusal is replied and idled, never
+    // retried; a spawned engine settles it anyway.
+    deps.live.settle_revive(session_id);
+    spawn_continuation(row, record, claim, brief, continue_prompt(kind), deps)
+        .map(|()| log::info!("pickup: continued interrupted session {session_id} ({kind})"))
+}
+
+/// NEW-5 / EXP-1374: resume `row` from `record` with `prompt` as a
+/// device-made seed turn (nothing to consume). A refused prepare or spawn
+/// is replied and the row idled ([`refuse`]).
+fn spawn_continuation(
+    row: &SessionRow,
+    record: RunRecord,
+    claim: ClaimLock,
+    brief: session_device::SessionBrief,
+    prompt: String,
+    deps: &PickupDeps,
+) -> Result<(), String> {
+    let session_id = row.id.as_str();
     let mut identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     if identifiers.is_empty() {
         identifiers = brief_issue_identifiers(&brief.brief);
@@ -2064,7 +2198,7 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
         issue_identifiers: identifiers,
         resume: Some(ResumeRun {
             record,
-            prompt: RESTART_CONTINUATION.to_string(),
+            prompt,
             message_id: None,
             reconfigure: None,
             fresh: false,
@@ -2077,7 +2211,7 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
             let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
             // A failed spawn is replied and the row idled (`refuse`).
             spawn(session_id, persistent, prepared, claim, true, honored, Some(row), deps)?;
-            Ok(true)
+            Ok(())
         }
         Ok(Prepared::Disabled(reason)) => {
             let reason = reason.message();
@@ -2102,6 +2236,7 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
             .map(|_| ())
             .map_err(|err| err.to_string()),
         PickupAction::Revive { session } => revive_session(session, deps),
+        PickupAction::Continue { session } => continue_interrupted(session, deps),
         PickupAction::Deliver { session_id, messages } => deliver_messages(session_id, messages, deps)
             .map(|_| ())
             .map_err(|err| err.to_string()),
@@ -2946,6 +3081,97 @@ mod tests {
         assert_eq!(revived, vec!["a1", "a2"]);
     }
 
+    /// EXP-1374: an interrupted row (`blocked` = `device_offline` |
+    /// `restarted` with `resume: true`).
+    fn interrupted(mut row: SessionRow, kind: &str, resume: Option<bool>) -> SessionRow {
+        row.blocked = Some(match resume {
+            Some(resume) => serde_json::json!({ "kind": kind, "resume": resume }),
+            None => serde_json::json!({ "kind": kind }),
+        });
+        row
+    }
+
+    fn continued(pass: &Pass) -> Vec<String> {
+        pass.run()
+            .into_iter()
+            .filter_map(|action| match action {
+                PickupAction::Continue { session } => Some(session.id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// EXP-1374: a non-persistent row its device left mid-turn continues
+    /// by itself; not without the resume flag, not for another kind, not
+    /// for a persistent root (it keeps Revive), not live/in flight/held.
+    #[test]
+    fn plan_continues_an_interrupted_mid_turn_run() {
+        let at = "2026-10-01T00:00:00Z";
+        let offline = interrupted(session("t1", SESSION_STATUS_IDLE, DEV, at), "device_offline", Some(true));
+        let restarted = interrupted(session("t2", SESSION_STATUS_RUNNING, DEV, at), "restarted", Some(true));
+        let no_resume = interrupted(session("t3", SESSION_STATUS_IDLE, DEV, at), "restarted", Some(false));
+        let absent_resume = interrupted(session("t4", SESSION_STATUS_IDLE, DEV, at), "device_offline", None);
+        let stuck = interrupted(session("t5", SESSION_STATUS_IDLE, DEV, at), "stuck", Some(true));
+        let elsewhere = interrupted(session("t6", SESSION_STATUS_IDLE, "dev-2", at), "restarted", Some(true));
+        let ended = interrupted(session("t7", SESSION_STATUS_ENDED, DEV, at), "restarted", Some(true));
+        let held = interrupted(session("t8", SESSION_STATUS_IDLE, DEV, at), "restarted", Some(true));
+        let live = interrupted(session("t9", SESSION_STATUS_RUNNING, DEV, at), "restarted", Some(true));
+        let persistent = interrupted(agent("a1", SESSION_STATUS_IDLE), "restarted", Some(true));
+        let mut pass = Pass::new(
+            vec![offline, restarted, no_resume, absent_resume, stuck, elsewhere, ended, held, live, persistent],
+            Vec::new(),
+        )
+        .live("t9", LiveView::default());
+        pass.revive_held.insert("t8".to_string());
+        assert_eq!(continued(&pass), vec!["t1", "t2"]);
+        // The persistent root keeps its Revive.
+        assert!(pass
+            .run()
+            .iter()
+            .any(|action| matches!(action, PickupAction::Revive { session } if session.id == "a1")));
+    }
+
+    /// EXP-1374: once per absence — the registry's hold (an engine that ran
+    /// here, or a settled attempt) keeps the next pass from continuing it
+    /// again.
+    #[test]
+    fn plan_continues_once_per_absence() {
+        let row = interrupted(
+            session("t1", SESSION_STATUS_IDLE, DEV, "2026-10-01T00:00:00Z"),
+            "restarted",
+            Some(true),
+        );
+        let mut pass = Pass::new(vec![row], Vec::new());
+        assert_eq!(continued(&pass), vec!["t1"]);
+        let live = LiveRegistry::default();
+        live.settle_revive("t1");
+        pass.revive_held = live.revive_held();
+        assert!(continued(&pass).is_empty());
+    }
+
+    /// EXP-1374: a pending input wins — the row Resumes on it (its report
+    /// clears the flag), never a Continue as well.
+    #[test]
+    fn plan_resumes_an_interrupted_run_with_pending_input() {
+        let row = interrupted(
+            session("t1", SESSION_STATUS_IDLE, DEV, "2026-10-01T00:00:00Z"),
+            "device_offline",
+            Some(true),
+        );
+        let actions = Pass::new(vec![row], vec![message("m1", "t1", "2026-10-02T00:00:00Z")]).run();
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(&actions[0], PickupAction::Resume { session, .. } if session.id == "t1"));
+    }
+
+    #[test]
+    fn continue_prompt_names_the_reason() {
+        assert_eq!(
+            continue_prompt("device_offline"),
+            "Your run was interrupted (device offline) and continues now. Pick up exactly where you left off."
+        );
+        assert!(continue_prompt("restarted").contains("(runner restarted)"));
+    }
+
     /// NEW-5: the startup re-claim never leaves a dead turn silent — a
     /// mid-turn row continues, a pending input replays, a `running` row
     /// between turns goes idle.
@@ -3646,6 +3872,45 @@ mod tests {
         assert_eq!(procedures(&requests), vec!["sessions.claim"]);
         assert!(host.spawned.lock().unwrap().is_empty());
         assert!(ClaimLock::try_acquire(&dir.0, "sess-1").unwrap().is_some());
+    }
+
+    /// EXP-1374 (FEED-135): a failed start posts "Could not start: …" as
+    /// the session's reply, consumes the messages it tried and idles the
+    /// row (never ends it), so the next message launches it again.
+    #[test]
+    fn a_failed_start_replies_consumes_the_tried_messages_and_idles() {
+        let dir = temp_dir("pickup-failed-start");
+        let (base, requests) = canned_server_recording(vec![
+            (200, REPLY_OK.to_string()),
+            (200, CONSUME_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        fail_start(
+            "sess-1",
+            "git worktree add: fatal: invalid reference: origin/exp/session-c0",
+            &["m1".to_string(), "m2".to_string()],
+            &host.deps,
+        );
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.reply", "sessions.consume", "sessions.report"]
+        );
+        let requests = requests.lock().unwrap();
+        assert!(
+            requests[0].contains("Could not start: git worktree add: fatal: invalid reference"),
+            "{}",
+            requests[0]
+        );
+        assert!(requests[1].contains(r#""messageIds":["m1","m2"]"#), "{}", requests[1]);
+        assert!(requests[2].contains(r#""status":"idle""#), "{}", requests[2]);
+        assert!(!requests[2].contains("ended"), "{}", requests[2]);
+        drop(requests);
+        // The consumed ids are the pickup's own now: never handed again.
+        let pending = vec![message("m1", "sess-1", "t"), message("m3", "sess-1", "t")];
+        let mut refs: Vec<&MessageRow> = pending.iter().collect();
+        host.deps.live.take_owed(&mut refs, &[]);
+        assert_eq!(refs.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["m3"]);
     }
 
     #[test]

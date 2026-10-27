@@ -194,7 +194,7 @@ private fun specimenCard(id: String, name: String, state: SessionTree.SessionSta
         state = state,
         tone = SessionTree.CardCopy.TONES.getValue(state),
         elapsed = elapsed,
-        running = state == SessionTree.SessionState.Working,
+        running = state == SessionTree.SessionState.Working || state == SessionTree.SessionState.Background,
         testId = SessionTree.CardCopy.TEST_ID_CARD,
     )
 

@@ -53,7 +53,7 @@ import {
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { answeredOwnCard, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
-import { clearBlockedInTx } from "@/lib/sessions/watchdog"
+import { clearBlockedInTx, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
   dismissSuggestion,
@@ -524,7 +524,10 @@ export const sessionsRouter = router({
    *  branch, the CLI's auto-title; `ended` when the agent process is gone.
    *  NEW-1: a wall is said ONCE in the parent (the bus); a blocked row
    *  stays under Needs you until the device clears it; any report clears a
-   *  watchdog `stuck` flag; an ending reports through the bus. */
+   *  watchdog `stuck` flag (EXP-1374: and an interruption, `device_offline`
+   *  or `restarted`: the device is back on it); an ending reports through
+   *  the bus. EXP-1374: `background` = busy only because background tasks
+   *  still run after the turn (a not-busy report clears it). */
   report: authedProcedure
     .input(
       z.object({
@@ -534,6 +537,7 @@ export const sessionsRouter = router({
         deviceId: z.string().min(1).max(128).optional(),
         status: sessionStatusSchema.exclude([`queued`]).optional(),
         busy: z.boolean().optional(),
+        background: z.boolean().optional(),
         needsInput: z.boolean().optional(),
         // `handled` = the device rotates past the wall itself (EXP-1005): no
         // push. Never stored.
@@ -591,11 +595,13 @@ export const sessionsRouter = router({
       const blocked = (input.blocked ? wall : input.blocked) as CodingSessionBlocked | null | undefined
       const newlyBlocked = !!blocked && !session.blocked && !handled
       // The device's wall replaces a watchdog flag; its next report with
-      // no `blocked` clears a `stuck` flag (activity = not stuck).
+      // no `blocked` clears a `stuck` flag (activity = not stuck) and an
+      // interruption (EXP-1374: the device continued the run).
       const nextBlocked =
         input.blocked !== undefined
           ? (blocked ?? null)
-          : session.blocked?.kind === `stuck`
+          : session.blocked?.kind === `stuck` ||
+              (INTERRUPTIONS as readonly string[]).includes(session.blocked?.kind ?? ``)
             ? null
             : session.blocked
       const model =
@@ -632,6 +638,12 @@ export const sessionsRouter = router({
               : status === `idle`
                 ? { busy: false }
                 : {}),
+            // EXP-1374: never background without busy.
+            ...(input.busy === false || (input.busy === undefined && status === `idle`)
+              ? { background: false }
+              : input.background !== undefined
+                ? { background: input.background }
+                : {}),
             ...(needsInput !== undefined ? { needsInput } : {}),
             ...(nextBlocked !== session.blocked ? { blocked: nextBlocked } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
@@ -642,6 +654,7 @@ export const sessionsRouter = router({
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
+            lastActivityAt: now,
             updatedAt: now,
           })
           .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
@@ -703,6 +716,8 @@ export const sessionsRouter = router({
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const messageId = await postAgentMessage(tx, session, input.body, card)
+        // EXP-1374: a message is a sign of life (the stuck rule).
+        await tx.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, session.id))
         if (asks) {
           await tx
             .update(sessions)

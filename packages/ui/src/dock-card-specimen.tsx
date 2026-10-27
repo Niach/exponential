@@ -1,4 +1,6 @@
 import { dockRows, type DockSource } from "@exp/domain-contract/dock"
+import { sessionBanner } from "@exp/domain-contract/session-tree"
+import cardFixture from "@exp/domain-contract/fixtures/session-card.json"
 import { Button } from "./button"
 import { DockCard, DockPile, DockSheetBody, DockSheetFooter, DockSheetSpecimenFrame } from "./dock"
 
@@ -41,6 +43,15 @@ const SOURCES: DockSource[] = [
 ]
 
 const ROWS = dockRows(SOURCES)
+// EXP-1374: the session's own state cards (session-card.json `bannerCases`):
+// interrupted (its device went offline) and background tasks.
+const STATE_ROWS = dockRows(
+  cardFixture.bannerCases
+    .map((entry) => sessionBanner(entry.session as never))
+    .filter((banner) => banner !== null)
+    .filter((banner, index, all) => all.findIndex((other) => other.id === banner.id) === index)
+    .map((banner): DockSource => ({ kind: `banner`, ...banner }))
+)
 const QUESTION = ROWS.find((row) => row.kind === `question`)!
 const BANNER = ROWS.find((row) => row.kind === `banner`)!
 const action = (row: { id: string }) =>
@@ -58,11 +69,15 @@ export function DockCardSpecimen() {
   return (
     <div data-testid="dock-card-specimen">
 
-      <div className="grid max-w-2xl gap-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <Caption>One card: the label, the caption, the meta, the title, the chevron</Caption>
         <DockCard row={QUESTION} onOpen={noop} />
         <Caption>A banner: never opens; its action word trails</Caption>
         <DockCard row={BANNER} action={action(BANNER)} />
+        <Caption>The session's own state: interrupted, background tasks</Caption>
+        {STATE_ROWS.map((row) => (
+          <DockCard key={row.id} row={row} />
+        ))}
         <Caption>Five cards piled: the front one whole, the rest peeking out above it</Caption>
         <DockPile rows={ROWS} expanded={false} onExpandedChange={noop} onOpen={noop} renderAction={action} />
         <Caption>The pile fanned (hover or a tap): every card, 6px apart</Caption>

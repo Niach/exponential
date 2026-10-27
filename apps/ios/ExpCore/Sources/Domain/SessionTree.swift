@@ -16,17 +16,21 @@ import Foundation
 
 /// A usage wall (`sessions.blocked` jsonb): set = the session is walled.
 /// NEW-1: `kind` = why (contract codingSessionBlocked.kinds: `rate_limit`,
-/// or a watchdog flag `device_offline` / `unclaimed` / `stuck`); nil = a
-/// usage wall written before the column carried it.
+/// or a watchdog flag `device_offline` / `unclaimed` / `stuck` /
+/// `restarted`); nil = a usage wall written before the column carried it.
 public struct TreeSessionBlocked: Equatable, Sendable {
     public let kind: String?
     public let window: String?
     public let resetsAt: String?
+    /// EXP-1374: an interruption (`device_offline`, `restarted`) of a run
+    /// that was mid-turn: its device continues it by itself when back.
+    public let resume: Bool?
 
-    public init(kind: String? = nil, window: String? = nil, resetsAt: String? = nil) {
+    public init(kind: String? = nil, window: String? = nil, resetsAt: String? = nil, resume: Bool? = nil) {
         self.kind = kind
         self.window = window
         self.resetsAt = resetsAt
+        self.resume = resume
     }
 
     /// The synced jsonb TEXT; nil, `null` or a non-object = not walled.
@@ -35,7 +39,8 @@ public struct TreeSessionBlocked: Equatable, Sendable {
         return TreeSessionBlocked(
             kind: object["kind"] as? String,
             window: object["window"] as? String,
-            resetsAt: object["resetsAt"] as? String
+            resetsAt: object["resetsAt"] as? String,
+            resume: object["resume"] as? Bool
         )
     }
 }
@@ -78,6 +83,9 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     /// Contract `sessionStatusValues`: queued | running | idle | ended.
     public let status: String
     public let busy: Bool
+    /// EXP-1374: busy only because background tasks still run after the
+    /// turn (absent = false).
+    public let background: Bool
     public let needsInput: Bool
     public let blocked: TreeSessionBlocked?
     public let shared: Bool
@@ -115,10 +123,12 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         updatedAt: String,
         deviceId: String? = nil,
         agentId: String? = nil,
-        appId: String? = nil
+        appId: String? = nil,
+        background: Bool = false
     ) {
         self.agentId = agentId
         self.appId = appId
+        self.background = background
         self.deviceId = deviceId
         self.id = id
         self.teamId = teamId
@@ -547,8 +557,13 @@ public struct TreePullRequest: Equatable, Sendable, Identifiable {
 public enum SessionState: String, Equatable, Sendable, CaseIterable {
     case queued
     case working
+    /// EXP-1374: the turn is over, background tasks still run on its device.
+    case background
     case waiting
     case needsYou = "needs_you"
+    /// EXP-1374: its run was interrupted (device offline, runner restarted);
+    /// never on a person, its device continues it by itself.
+    case interrupted
     case blocked
     case ended
 
@@ -557,8 +572,10 @@ public enum SessionState: String, Equatable, Sendable, CaseIterable {
         switch self {
         case .queued: "Queued"
         case .working: "Working"
+        case .background: "Background task"
         case .waiting: "Waiting"
         case .needsYou: "Needs you"
+        case .interrupted: "Interrupted"
         case .blocked: "Usage limit"
         case .ended: "Ended"
         }
@@ -569,8 +586,10 @@ public enum SessionState: String, Equatable, Sendable, CaseIterable {
         switch self {
         case .queued: "ui-clock"
         case .working: "coding-running"
+        case .background: "trace-background"
         case .waiting: "coding-assistant"
         case .needsYou: "coding-needs-input"
+        case .interrupted: "run-pause"
         case .blocked: "notification-session-blocked"
         case .ended: "coding-ended"
         }
@@ -579,10 +598,10 @@ public enum SessionState: String, Equatable, Sendable, CaseIterable {
     /// Fixture `tones`: muted | foreground | amber | rose.
     public var tone: String {
         switch self {
-        case .working: "foreground"
+        case .working, .background: "foreground"
         case .needsYou: "amber"
         case .blocked: "rose"
-        case .queued, .waiting, .ended: "muted"
+        case .queued, .waiting, .interrupted, .ended: "muted"
         }
     }
 }
@@ -622,6 +641,30 @@ public struct SessionCard: Equatable, Sendable {
         self.elapsed = elapsed
         self.running = running
         self.testId = testId
+    }
+}
+
+/// EXP-1374: the Dock card of an interrupted or background session (a
+/// dock.json `banner` source without its `kind`; `SessionTree.sessionBanner`).
+public struct SessionBanner: Equatable, Sendable {
+    /// `interrupted` | `background`.
+    public let id: String
+    /// Concept name.
+    public let icon: String
+    public let label: String
+    public let text: String
+    /// Always `muted`.
+    public let tone: String
+    /// Always nil (no button).
+    public let action: String?
+
+    public init(id: String, icon: String, label: String, text: String, tone: String, action: String?) {
+        self.id = id
+        self.icon = icon
+        self.label = label
+        self.text = text
+        self.tone = tone
+        self.action = action
     }
 }
 
@@ -1175,7 +1218,21 @@ public enum SessionTree {
             "device_offline": "Device offline",
             "unclaimed": "Not picked up",
             "stuck": "Stuck",
+            "restarted": "Interrupted",
         ]
+        /// EXP-1374: `copy.interruptedKinds` — the blocked kinds that
+        /// INTERRUPT a run (never on a person) and their state word.
+        public static let interruptedKinds: [String: String] = [
+            "device_offline": "Interrupted · device offline",
+            "restarted": "Interrupted · runner restarted",
+        ]
+        /// EXP-1374: `banner.interrupted` — the Dock card's text per kind.
+        public static let bannerInterrupted: [String: String] = [
+            "device_offline": "Its device went offline. It continues by itself when the device is back.",
+            "restarted": "Its runner restarted mid-turn. It continues by itself.",
+        ]
+        /// EXP-1374: `banner.background`.
+        public static let bannerBackground = "The turn is over; background tasks still run on its device."
     }
 
     /// fixtures/session-thread.json `copy` + `testIds` (titles: `SessionTitle`).
@@ -1197,11 +1254,13 @@ public enum SessionTree {
             "session_claimed": "{session} started",
             "session_blocked": "{session} hit a usage limit",
             "session_unclaimed": "{session} was not picked up",
-            "session_stuck": "{session} looks stuck",
-            "device_offline": "{session} paused: device offline",
+            "session_stuck": "{session} shows no sign of life",
+            "device_offline": "{session} interrupted: device offline",
             // NEW-2: an agent's trigger fired ({name} = the event name, else
             // the schedule's cron).
             "trigger_fired": "Trigger fired: {name}",
+            // EXP-1374: a child's run stopped mid-turn (runner restart).
+            "session_interrupted": "{session} interrupted: runner restarted",
         ]
         public static let tabsTestId = "thread-tabs"
         /// EXP-1334: a zone's "+N" chip reads out as web's
@@ -1276,11 +1335,20 @@ public enum SessionTree {
         return "\(seconds)s"
     }
 
+    /// EXP-1374: the blocked kinds that INTERRUPT a run (never on a person;
+    /// its device continues it by itself), `CardCopy.interruptedKinds`' keys.
+    public static func isInterruption(_ blocked: TreeSessionBlocked?) -> Bool {
+        guard let kind = blocked?.kind else { return false }
+        return CardCopy.interruptedKinds[kind] != nil
+    }
+
     public static func sessionState(_ session: TreeSession) -> SessionState {
         if session.status == "ended" { return .ended }
         if session.needsInput { return .needsYou }
+        if isInterruption(session.blocked) { return .interrupted }
         if session.blocked != nil { return .blocked }
         if session.status == "queued" { return .queued }
+        if session.busy && session.background { return .background }
         if session.busy { return .working }
         return .waiting
     }
@@ -1339,7 +1407,7 @@ public enum SessionTree {
             state: state,
             tone: state.tone,
             elapsed: elapsed,
-            running: state == .working,
+            running: state == .working || state == .background,
             testId: CardCopy.testId
         )
     }
@@ -1348,10 +1416,36 @@ public enum SessionTree {
     /// (`CardCopy.blockedKinds[blocked.kind]`; an unknown or absent kind =
     /// `SessionState.blocked.word`). Web `sessionKindWord`.
     public static func sessionKindWord(_ session: TreeSession, state: SessionState) -> String {
+        // EXP-1374: an interruption names its kind (`CardCopy.interruptedKinds`).
+        if state == .interrupted, let kind = session.blocked?.kind, let word = CardCopy.interruptedKinds[kind] {
+            return word
+        }
         if state == .blocked, let kind = session.blocked?.kind, let word = CardCopy.blockedKinds[kind] {
             return word
         }
         return state.word
+    }
+
+    /// EXP-1374: the Dock card of an interrupted or background session (a
+    /// dock.json `banner` source; session-card.json `bannerCases`), nil for
+    /// any other state. It replaces the host's offline "paused" banner while
+    /// shown. Web `sessionBanner`.
+    public static func sessionBanner(_ session: TreeSession) -> SessionBanner? {
+        let state = sessionState(session)
+        switch state {
+        case .interrupted:
+            guard let kind = session.blocked?.kind, let text = CardCopy.bannerInterrupted[kind] else { return nil }
+            return SessionBanner(
+                id: state.rawValue, icon: state.icon, label: state.word, text: text, tone: "muted", action: nil
+            )
+        case .background:
+            return SessionBanner(
+                id: state.rawValue, icon: state.icon, label: state.word,
+                text: CardCopy.bannerBackground, tone: "muted", action: nil
+            )
+        default:
+            return nil
+        }
     }
 
     /// THE display title of one tree session off the tree rows

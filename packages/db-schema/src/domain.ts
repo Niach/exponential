@@ -387,6 +387,8 @@ export const codingSessionBlockedKindValues = [
   `device_offline`,
   `unclaimed`,
   `stuck`,
+  // EXP-1374: the busy run vanished from its live device's heartbeat.
+  `restarted`,
 ] as const
 export const codingSessionBlockedWindowValues = [
   `session`,
@@ -401,6 +403,12 @@ export interface CodingSessionBlocked {
   window: string | null
   resetsAt: string | null
   since: string
+  /** EXP-1374: an interruption (`device_offline`, `restarted`) of a run
+   *  that was mid-turn: its device continues it by itself when back. */
+  resume?: boolean | null
+  /** EXP-1374: since when its device could continue it (back online, or
+   *  the restart itself): the watchdog's `resumeMinutes` clock. */
+  resumeSince?: string | null
 }
 
 // Every field is `.nullish()` for the same reason deviceAgentUsageSchema's
@@ -1075,6 +1083,8 @@ export const messageEventKindValues = [
   // NEW-2: a trigger of the agent fired into its conversation (a schedule's
   // tick or an `events` row); the body is the firing text the agent reads.
   `trigger_fired`,
+  // EXP-1374: a child's run stopped mid-turn (runner restart); it resumes.
+  `session_interrupted`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 

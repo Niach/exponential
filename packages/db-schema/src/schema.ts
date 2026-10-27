@@ -1847,6 +1847,10 @@ export const sessions = pgTable(
     status: sessionStatusEnum().notNull().default(`queued`),
     // Device-written turn state (EXP-848): the ONLY list-spinner input ×4.
     busy: boolean().notNull().default(false),
+    // EXP-1374: busy ONLY because background tasks (shells, subagents,
+    // workflows) still run after the turn ended (device-written); the slot
+    // stays occupied, the card reads "Background task".
+    background: boolean().notNull().default(false),
     // A question/plan card waits for a person (the "Needs you" group); the
     // server also holds it true while `blocked` is set.
     needsInput: boolean(`needs_input`).notNull().default(false),
@@ -1856,6 +1860,11 @@ export const sessions = pgTable(
     blocked: jsonb().$type<CodingSessionBlocked>(),
     startedAt: timestamp(`started_at`, { withTimezone: true }),
     lastTurnAt: timestamp(`last_turn_at`, { withTimezone: true }),
+    // EXP-1374: the latest sign of life beyond a row write (SERVER-ONLY):
+    // the heartbeat's per-session activity (a tool call, terminal output),
+    // an MCP call by the session, a push to its branch. The stuck watchdog
+    // measures from greatest(updated_at, last_activity_at).
+    lastActivityAt: timestamp(`last_activity_at`, { withTimezone: true }),
     endedAt: timestamp(`ended_at`, { withTimezone: true }),
     // ── visibility ── (stamped at creation, never changes)
     shared: boolean().notNull().default(false),
@@ -3360,6 +3369,8 @@ export const selectSessionSchema = createSelectSchema(sessions, {
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
   mcpServerIds: true,
   wakeOn: true,
+  // EXP-1374: the stuck rule's clock, server-only.
+  lastActivityAt: true,
 })
 
 // NEW-2: agents, events, prompts.

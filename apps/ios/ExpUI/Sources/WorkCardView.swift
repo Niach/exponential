@@ -447,8 +447,10 @@ public struct SessionCardView: View {
         switch state {
         case .queued: AppIcons.uiClock
         case .working: AppIcons.codingRunning
+        case .background: AppIcons.traceBackground
         case .waiting: AppIcons.codingAssistant
         case .needsYou: AppIcons.codingNeedsInput
+        case .interrupted: AppIcons.runPause
         case .blocked: AppIcons.notificationSessionBlocked
         case .ended: AppIcons.codingEnded
         }

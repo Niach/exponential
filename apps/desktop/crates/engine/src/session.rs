@@ -416,12 +416,29 @@ impl EngineSession {
     }
 
     /// EXP-848 / FEED-44: the value the synced `agent_busy` column mirrors —
-    /// a prompt in flight, or backgrounded subagents still running after
+    /// a prompt in flight, or background tasks still running after
     /// the turn that launched them ended. NOT the turn signal: that one
     /// stays "between turns" while they run, so the queue drains and an
     /// account switch may proceed.
     pub fn agent_busy(&self) -> bool {
         self.0.ctx.agent_busy()
+    }
+
+    /// EXP-1374: the wall-clock time of the run's last activity (FEED-25's
+    /// clock: any mapper output, tool call, terminal output) — the
+    /// heartbeat's `sessionActivity` entry.
+    pub fn last_activity_at(&self) -> std::time::SystemTime {
+        let ago = std::time::Instant::now().saturating_duration_since(self.0.ctx.last_activity());
+        std::time::SystemTime::now()
+            .checked_sub(ago)
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    }
+
+    /// EXP-1374: the value the synced `background` column mirrors — the
+    /// turn is over but background tasks (shell, workflow, subagent) still
+    /// run, so the run is busy for that reason only.
+    pub fn background(&self) -> bool {
+        self.0.ctx.background()
     }
 
     /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
@@ -711,7 +728,7 @@ impl coding::pickup::LiveEngine for EngineSession {
         self.turn_signal().is_idle()
     }
 
-    /// EXP-1252: a move waits for no turn, no backgrounded subagent (the
+    /// EXP-1252: a move waits for no turn, no background task (the
     /// synced `busy` input) and no open card.
     fn quiescent(&self) -> bool {
         !self.agent_busy() && self.turn_signal().is_idle() && EngineSession::open_cards(self).is_empty()
@@ -860,7 +877,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
-        background_agents: AtomicBool::new(false),
+        background_tasks_live: AtomicBool::new(false),
         blocked: Mutex::new(None),
         prompt_queue: Mutex::new(std::collections::VecDeque::new()),
         queue_commands: OnceLock::new(),

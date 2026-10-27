@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
@@ -53,7 +54,7 @@ class SessionTreeTest {
         status = json.str("status")!!,
         busy = json.bool("busy"),
         needsInput = json.bool("needsInput"),
-        blocked = (json["blocked"] as? JsonObject)?.let { SessionTree.Blocked(it.str("window"), it.str("resetsAt"), it.str("kind")) },
+        blocked = blocked(json),
         shared = json.bool("shared"),
         title = json.str("title"),
         guide = (json["guide"] as? JsonArray)?.map { entry ->
@@ -66,7 +67,35 @@ class SessionTreeTest {
         updatedAt = json.str("updatedAt")!!,
         deviceId = json.str("deviceId"),
         agentId = json.str("agentId"),
+        background = (json["background"] as? JsonPrimitive)?.booleanOrNull ?: false,
     )
+
+    private fun blocked(json: JsonObject) = (json["blocked"] as? JsonObject)?.let {
+        SessionTree.Blocked(it.str("window"), it.str("resetsAt"), it.str("kind"), (it["resume"] as? JsonPrimitive)?.booleanOrNull)
+    }
+
+    /** EXP-1374: a `bannerCases` session carries only the state's fields. */
+    private fun bannerSession(json: JsonObject) = SessionTree.Session(
+        id = "s1", teamId = "t1", parentId = null, rootId = "s1", userId = "u1",
+        status = json.str("status")!!,
+        busy = json.bool("busy"),
+        needsInput = json.bool("needsInput"),
+        blocked = blocked(json),
+        shared = true, title = null, guide = null, startedAt = null, endedAt = null,
+        createdAt = "2026-10-13T10:00:00.000Z", updatedAt = "2026-10-13T10:00:00.000Z",
+        background = (json["background"] as? JsonPrimitive)?.booleanOrNull ?: false,
+    )
+
+    private fun encode(banner: SessionTree.SessionBanner?): JsonElement = banner?.let {
+        buildJsonObject {
+            put("id", it.id)
+            put("icon", it.icon)
+            put("label", it.label)
+            put("text", it.text)
+            put("tone", it.tone)
+            put("action", nullable(it.action))
+        }
+    } ?: JsonNull
 
     private fun read(json: JsonObject) = SessionTree.SessionRead(
         sessionId = json.str("sessionId")!!,
@@ -389,6 +418,18 @@ class SessionTreeTest {
         }
     }
 
+    // EXP-1374 (TS `sessionBanner`): the Dock banner of an interrupted or
+    // background session, whole-object compare.
+    @Test
+    fun `every session-card banner case matches the fixture`() {
+        val cases = cardFixture.list("bannerCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val actual = SessionTree.sessionBanner(bannerSession(case.getValue("session").jsonObject))
+            assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
+        }
+    }
+
     @Test
     fun `every session-thread case matches the fixture`() {
         val cases = threadFixture.list("cases")
@@ -643,6 +684,19 @@ class SessionTreeTest {
         for ((key, value) in blockedKinds) {
             assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BLOCKED_KINDS[key])
         }
+        // EXP-1374: the interruptions' words + the Dock banner's text.
+        val interrupted = cardFixture.getValue("copy").jsonObject.getValue("interruptedKinds").jsonObject
+        assertEquals(interrupted.keys, SessionTree.CardCopy.INTERRUPTED_KINDS.keys)
+        for ((key, value) in interrupted) {
+            assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.INTERRUPTED_KINDS[key])
+        }
+        val banner = cardFixture.getValue("banner").jsonObject
+        val bannerInterrupted = banner.getValue("interrupted").jsonObject
+        assertEquals(bannerInterrupted.keys, SessionTree.CardCopy.BANNER_INTERRUPTED.keys)
+        for ((key, value) in bannerInterrupted) {
+            assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BANNER_INTERRUPTED[key])
+        }
+        assertEquals(banner.str("background"), SessionTree.CardCopy.BANNER_BACKGROUND)
     }
 
     @Test
@@ -748,7 +802,11 @@ class SessionTreeTest {
     fun blockedKindMissingReadsUsageLimit() = assertEquals("Usage limit", blockedWord(null))
 
     @Test
-    fun blockedKindDeviceOfflineReadsItsWord() = assertEquals("Device offline", blockedWord("device_offline"))
+    // EXP-1374: an offline device INTERRUPTS (its own word, not the blocked one).
+    fun blockedKindDeviceOfflineReadsItsWord() = assertEquals("Interrupted · device offline", blockedWord("device_offline"))
+
+    @Test
+    fun blockedKindRestartedReadsItsWord() = assertEquals("Interrupted · runner restarted", blockedWord("restarted"))
 
     @Test
     fun blockedKindUnclaimedReadsItsWord() = assertEquals("Not picked up", blockedWord("unclaimed"))

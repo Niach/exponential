@@ -144,7 +144,8 @@ fun AgentRunMark(
         return
     }
     Box(modifier = modifier.size(size).testTag("run-mark")) {
-        if (state == SessionTree.SessionState.Working) {
+        // EXP-1374: background tasks still run = running too.
+        if (state == SessionTree.SessionState.Working || state == SessionTree.SessionState.Background) {
             AgentWorkingMark(id, size)
         } else {
             Icon(

@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.Dock
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.TaskQueue
 import com.exponential.app.domain.TaskQueueItem
 import com.exponential.app.domain.TaskQueueItemKind
@@ -73,6 +74,26 @@ private val SOURCES: List<Dock.Source> = listOf(
     Dock.Source.Ask("q1", AskDock.Kind.Question, "Ship both fixes in one PR, or split them?", "Dock polish", 0, 30),
 )
 
+/** EXP-1374: the session's own state cards (session-card.json `banner`, the
+ *  web entry's `STATE_ROWS`): interrupted (its device went offline) and
+ *  background tasks. */
+private val STATE_ROWS: List<Dock.Row> = Dock.dockRows(
+    listOf(SessionTree.SessionState.Interrupted, SessionTree.SessionState.Background).map { state ->
+        Dock.Source.Banner(
+            id = state.wire,
+            icon = SessionTree.CardCopy.ICONS.getValue(state),
+            label = SessionTree.CardCopy.STATES.getValue(state),
+            text = if (state == SessionTree.SessionState.Interrupted) {
+                SessionTree.CardCopy.BANNER_INTERRUPTED.getValue("device_offline")
+            } else {
+                SessionTree.CardCopy.BANNER_BACKGROUND
+            },
+            tone = Dock.Tint.Muted,
+            action = null,
+        )
+    },
+)
+
 /** The banner's action word (the session host's blocked banner idiom). */
 @Composable
 private fun SpecimenAction(row: Dock.Row) {
@@ -109,6 +130,8 @@ fun DockCardSpecimenScreen() {
                 DockCard(row = question, onOpen = {})
                 Caption("A banner: never opens; its action word trails")
                 DockCard(row = banner, action = { SpecimenAction(banner) })
+                Caption("The session's own state: interrupted, background tasks")
+                STATE_ROWS.forEach { row -> DockCard(row = row) }
                 Caption("Five cards piled: the front one whole, the rest peeking out above it")
                 DockPile(rows = rows, expanded = false, onExpandedChange = {}, onOpen = {}, action = { SpecimenAction(it) })
                 Caption("The pile fanned (hover or a tap): every card, 6px apart")

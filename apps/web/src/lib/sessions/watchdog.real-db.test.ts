@@ -55,7 +55,8 @@ if (!ready.ok) console.info(`[watchdog.real-db] skipped: ${ready.reason}`)
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { BUS_COPY } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
-const { runWatchdog, restoreDeviceSessionsInTx, clearLiveStuckInTx } = await import(`@/lib/sessions/watchdog`)
+const { runWatchdog, restoreDeviceSessionsInTx, clearLiveStuckInTx, recordSessionActivityInTx, touchSessionActivity } =
+  await import(`@/lib/sessions/watchdog`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { devicesRouter } = await import(`@/lib/trpc/devices`)
 
@@ -139,8 +140,14 @@ async function backdate(write: () => ReturnType<typeof sql>) {
     await tx.execute(write())
   })
 }
+/** EXP-1374: `updated_at` backdates the session's sign of life with it
+ *  (`last_activity_at`, which every report stamps at the real now). */
 const backdateSession = (id: string, column: `created_at` | `updated_at`, at: Date) =>
-  backdate(() => sql`UPDATE sessions SET ${sql.raw(column)} = ${at.toISOString()} WHERE id = ${id}`)
+  backdate(() =>
+    column === `updated_at`
+      ? sql`UPDATE sessions SET updated_at = ${at.toISOString()}, last_activity_at = ${at.toISOString()} WHERE id = ${id}`
+      : sql`UPDATE sessions SET ${sql.raw(column)} = ${at.toISOString()} WHERE id = ${id}`
+  )
 const backdateDevice = (deviceId: string, at: Date) =>
   backdate(() => sql`UPDATE devices SET last_seen_at = ${at.toISOString()} WHERE device_id = ${deviceId}`)
 
@@ -246,9 +253,16 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
       blocked: { kind: `stuck`, since: NOW.toISOString() },
     })
     expect(await row(working)).toMatchObject({ blocked: null, needsInput: false })
+    // EXP-1374: how long, and a check, never "stop it".
     expect(await lines(rootId, `session_stuck`, stuck)).toMatchObject([
-      { authorKind: `system`, authorSessionId: stuck, consumedAt: null, body: BUS_COPY.session_stuck },
+      {
+        authorKind: `system`,
+        authorSessionId: stuck,
+        consumedAt: null,
+        body: BUS_COPY.session_stuck(watchdog.stuckMinutes + 1),
+      },
     ])
+    expect(BUS_COPY.session_stuck(31)).not.toMatch(/stop|end it/i)
     await runWatchdog(NOW)
     expect(await lines(rootId, `session_stuck`, stuck)).toHaveLength(1)
 
@@ -277,14 +291,20 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
 
     const run = await runWatchdog(NOW)
     expect(run.offline).toBeGreaterThanOrEqual(2)
-    for (const id of [childId, hosted]) {
-      expect(await row(id)).toMatchObject({
-        status: `idle`,
-        busy: false,
-        needsInput: true,
-        blocked: { kind: `device_offline`, since: NOW.toISOString() },
-      })
-    }
+    // EXP-1374: an interruption, never on a person (an open card still
+    // waits); the busy one was mid-turn (`resume`).
+    expect(await row(childId)).toMatchObject({
+      status: `idle`,
+      busy: false,
+      needsInput: false,
+      blocked: { kind: `device_offline`, since: NOW.toISOString(), resume: true, resumeSince: null },
+    })
+    expect(await row(hosted)).toMatchObject({
+      status: `idle`,
+      busy: false,
+      needsInput: true,
+      blocked: { kind: `device_offline`, since: NOW.toISOString(), resume: false },
+    })
     expect(await row(queued)).toMatchObject({ status: `queued`, blocked: null })
     // Informational: pre-consumed in the parent.
     const [line] = await lines(rootId, `device_offline`, childId)
@@ -343,24 +363,26 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(dead)).toMatchObject({ busy: true, blocked: null })
 
     await beat([alive])
+    // EXP-1374: an interruption (the runner restarted mid-turn): its device
+    // continues it, never a person's.
     for (const id of [dead, mates]) {
       expect(await row(id)).toMatchObject({
         status: `idle`,
         busy: false,
-        needsInput: true,
-        blocked: { kind: `stuck` },
+        needsInput: false,
+        blocked: { kind: `restarted`, resume: true },
       })
     }
     expect(await row(alive)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
     expect(await row(between)).toMatchObject({ status: `running`, busy: false, blocked: null })
-    // The parent is woken once.
-    expect(await lines(rootId, `session_stuck`, dead)).toMatchObject([
-      { authorKind: `system`, authorSessionId: dead, consumedAt: null, body: BUS_COPY.session_stuck },
-    ])
+    // The parent is told once, not woken (nothing for it to do).
+    const said = await lines(rootId, `session_interrupted`, dead)
+    expect(said).toMatchObject([{ authorKind: `system`, authorSessionId: dead, body: BUS_COPY.session_interrupted }])
+    expect(said[0]!.consumedAt).not.toBeNull()
     await beat([alive])
-    expect(await lines(rootId, `session_stuck`, dead)).toHaveLength(1)
+    expect(await lines(rootId, `session_interrupted`, dead)).toHaveLength(1)
 
-    // The next report clears it, as for the watchdog's own `stuck`.
+    // The device continuing it reports: the flag clears.
     await w.host.report({ sessionId: dead, status: `running`, busy: true })
     expect(await row(dead)).toMatchObject({ blocked: null, needsInput: false, busy: true })
   })
@@ -489,7 +511,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     await devicesRouter
       .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
       .heartbeat({ deviceId: w.deviceId, activeSessions: 1, defaultsSyncedAt: null, liveSessionIds: [stuck] })
-    expect(await row(busy)).toMatchObject({ busy: false, blocked: { kind: `stuck` } })
+    expect(await row(busy)).toMatchObject({ busy: false, blocked: { kind: `restarted` } })
     expect(await row(stuck)).toMatchObject({ blocked: null })
     expect(await row(offline)).toMatchObject({ blocked: null })
   })
@@ -566,7 +588,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const [device] = await db.select().from(devices).where(eq(devices.deviceId, w.deviceId))
     expect(device!.liveSessionIds).toEqual([listed])
     expect(await row(listed)).toMatchObject({ busy: true, blocked: null })
-    expect(await row(unlisted)).toMatchObject({ busy: false, blocked: { kind: `stuck` } })
+    expect(await row(unlisted)).toMatchObject({ busy: false, blocked: { kind: `restarted` } })
 
     // Past the count cap: a 400, not a 500, and nothing written.
     await expect(
@@ -683,5 +705,108 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect((await row(unset)).blocked).toMatchObject({ kind: `rate_limit` })
     // Silent: its passing is no line.
     expect(await lines(past, `session_blocked`, past)).toHaveLength(said)
+  })
+
+  // EXP-1374 (FEED-141): only a message counted as a sign of life; a gate
+  // run that pushed and ran tools for 13 silent minutes read "stuck, stop it".
+  it(`EXP-1374: the stuck rule measures the last sign of life (heartbeat activity, an MCP call), never a background run`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const [active, mcp, background, silent] = await Promise.all(
+      [`tool calls`, `mcp calls`, `background shell`, `silent`].map((text) => w.child(rootId, text))
+    )
+    for (const id of [active, mcp, background, silent]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+      await backdateSession(id, `updated_at`, ago((watchdog.stuckMinutes + 5) * MIN))
+    }
+    await w.host.report({ sessionId: background, busy: true, background: true })
+    await backdateSession(background, `updated_at`, ago((watchdog.stuckMinutes + 5) * MIN))
+    expect(await row(background)).toMatchObject({ busy: true, background: true })
+    // An older device: no liveSessionIds claim, but its engine's activity.
+    await db.transaction((tx) =>
+      recordSessionActivityInTx(
+        tx,
+        { deviceId: w.deviceId, userId: w.owner, activity: [{ sessionId: active, at: ago(2 * MIN).toISOString() }] },
+        NOW
+      )
+    )
+    await touchSessionActivity(eq(sessions.id, mcp), ago(MIN))
+
+    await runWatchdog(NOW)
+    for (const id of [active, mcp, background]) {
+      expect(await row(id)).toMatchObject({ busy: true, blocked: null, needsInput: false })
+    }
+    expect(await row(silent)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+    const [line] = await lines(rootId, `session_stuck`, silent)
+    expect(line!.body).toBe(BUS_COPY.session_stuck(watchdog.stuckMinutes + 5))
+    expect(line!.body).toMatch(/^No sign of life for 35 minutes/)
+
+    // Activity never runs ahead of the beat, nor backwards.
+    await db.transaction((tx) =>
+      recordSessionActivityInTx(
+        tx,
+        {
+          deviceId: w.deviceId,
+          userId: w.owner,
+          activity: [
+            { sessionId: active, at: new Date(NOW.getTime() + 60 * MIN).toISOString() },
+            { sessionId: mcp, at: ago(50 * MIN).toISOString() },
+            { sessionId: `not-a-uuid`, at: `garbage` },
+          ],
+        },
+        NOW
+      )
+    )
+    expect((await row(active)).lastActivityAt).toEqual(NOW)
+    expect((await row(mcp)).lastActivityAt).toEqual(ago(MIN))
+    // A not-busy report drops `background` with it.
+    await w.host.report({ sessionId: background, busy: false })
+    expect(await row(background)).toMatchObject({ busy: false, background: false })
+  })
+
+  it(`EXP-1374: the device back continues an interrupted run; a listed one is busy again; one left alone is on a person after resumeMinutes`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const [survived, interrupted, idle] = await Promise.all(
+      [`process survived`, `process died`, `between turns`].map((text) => w.child(rootId, text))
+    )
+    for (const id of [survived, interrupted, idle]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+    for (const id of [survived, interrupted]) await w.host.report({ sessionId: id, busy: true })
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(NOW)
+    expect(await row(interrupted)).toMatchObject({ blocked: { kind: `device_offline`, resume: true }, needsInput: false })
+    expect(await row(idle)).toMatchObject({ blocked: { kind: `device_offline`, resume: false } })
+
+    const back = ago(10 * MIN)
+    await db.transaction((tx) =>
+      restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [survived] }, back)
+    )
+    expect(await row(survived)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
+    expect(await row(idle)).toMatchObject({ status: `idle`, blocked: null })
+    // Still interrupted, waiting for its device since it came back.
+    expect(await row(interrupted)).toMatchObject({
+      status: `idle`,
+      needsInput: false,
+      blocked: { kind: `device_offline`, resume: true, resumeSince: back.toISOString() },
+    })
+    // The next beat keeps the first stamp.
+    await db.transaction((tx) =>
+      restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [survived] }, NOW)
+    )
+    expect((await row(interrupted)).blocked).toMatchObject({ resumeSince: back.toISOString() })
+
+    // Nobody continued it within resumeMinutes: Needs you, said once (waking).
+    const run = await runWatchdog(NOW)
+    expect(run.unresumed).toBeGreaterThanOrEqual(1)
+    expect(await row(interrupted)).toMatchObject({ needsInput: true, blocked: { kind: `device_offline` } })
+    const said = await lines(rootId, `session_interrupted`, interrupted)
+    expect(said).toMatchObject([{ body: BUS_COPY.session_unresumed, consumedAt: null }])
+    await runWatchdog(NOW)
+    expect(await lines(rootId, `session_interrupted`, interrupted)).toHaveLength(1)
+
+    // Its device continuing it reports: the flag and Needs you clear.
+    await w.host.report({ sessionId: interrupted, status: `running`, busy: true })
+    expect(await row(interrupted)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
   })
 })

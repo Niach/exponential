@@ -658,6 +658,9 @@ data class SessionEntity(
     val status: String = com.exponential.app.domain.DomainContract.sessionStatusQueued,
     // Device-written turn state: the ONLY list-spinner input ×4.
     val busy: PgBool = false,
+    // EXP-1374: busy ONLY because background tasks (shell, workflow,
+    // subagent) still run after the turn (device-written).
+    @ColumnInfo(name = "background", defaultValue = "0") val background: PgBool = false,
     // A question/plan card waits for a person (the "Needs you" group).
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
     // EXP-804: the usage wall (`{kind, agent, window, resetsAt, since}`), raw

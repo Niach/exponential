@@ -167,6 +167,10 @@ pub struct SessionReport {
     pub busy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs_input: Option<bool>,
+    /// EXP-1374: busy ONLY because background tasks (shell, workflow,
+    /// subagent) still run after the turn ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked: Option<Option<BlockedInput>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -551,6 +555,7 @@ mod tests {
             status: Some(ReportStatus::Running),
             busy: None,
             needs_input: Some(true),
+            background: Some(true),
             blocked: Some(Some(BlockedInput {
                 kind: "rate_limit".to_string(),
                 agent: "claude".to_string(),
@@ -572,7 +577,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","planMode":false,"model":"opus","deviceId":"dev-1"}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","planMode":false,"model":"opus","deviceId":"dev-1"}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall

@@ -489,6 +489,28 @@ val MIGRATION_99_100: Migration = object : Migration(99, 100) {
     }
 }
 
+/**
+ * v101 (EXP-1374): `sessions.background` (busy only because background tasks
+ * still run after the turn), added as 0. Only the sessions shape refetches
+ * so already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_100_101: Migration = object : Migration(100, 101) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Idempotent: a file that already carries the column keeps it.
+        val present = db.query("PRAGMA table_info(`sessions`)").use { cursor ->
+            val name = cursor.getColumnIndex("name")
+            var found = false
+            while (cursor.moveToNext()) if (cursor.getString(name) == "background") found = true
+            found
+        }
+        if (!present) db.execSQL("ALTER TABLE `sessions` ADD COLUMN `background` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

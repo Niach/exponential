@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 
 /**
@@ -33,8 +34,15 @@ object SessionTree {
     // ── inputs (the synced rows, projected) ─────────────────────────────────
 
     /** [kind] = contract `blockedKind`-ish: `rate_limit` (a usage wall) or a
-     *  watchdog flag (`device_offline` / `unclaimed` / `stuck`); null = a wall. */
-    data class Blocked(val window: String? = null, val resetsAt: String? = null, val kind: String? = null)
+     *  watchdog flag (`device_offline` / `unclaimed` / `stuck` / `restarted`);
+     *  null = a wall. EXP-1374: [resume] = an interruption of a run that was
+     *  mid-turn (its device continues it by itself when back). */
+    data class Blocked(
+        val window: String? = null,
+        val resetsAt: String? = null,
+        val kind: String? = null,
+        val resume: Boolean? = null,
+    )
 
     data class GuideEntry(val text: String? = null, val label: String? = null)
 
@@ -62,6 +70,9 @@ object SessionTree {
         val agentId: String? = null,
         /** VAPP-110: the app this root is a member's editor session of (null = none). */
         val appId: String? = null,
+        /** EXP-1374: busy only because background tasks still run after the
+         *  turn (absent = false). */
+        val background: Boolean = false,
     )
 
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
@@ -102,8 +113,10 @@ object SessionTree {
         val STATES: Map<SessionState, String> = mapOf(
             SessionState.Queued to "Queued",
             SessionState.Working to "Working",
+            SessionState.Background to "Background task",
             SessionState.Waiting to "Waiting",
             SessionState.NeedsYou to "Needs you",
+            SessionState.Interrupted to "Interrupted",
             SessionState.Blocked to "Usage limit",
             SessionState.Ended to "Ended",
         )
@@ -111,8 +124,10 @@ object SessionTree {
         val ICONS: Map<SessionState, String> = mapOf(
             SessionState.Queued to "ui-clock",
             SessionState.Working to "coding-running",
+            SessionState.Background to "trace-background",
             SessionState.Waiting to "coding-assistant",
             SessionState.NeedsYou to "coding-needs-input",
+            SessionState.Interrupted to "run-pause",
             SessionState.Blocked to "notification-session-blocked",
             SessionState.Ended to "coding-ended",
         )
@@ -120,8 +135,10 @@ object SessionTree {
         val TONES: Map<SessionState, String> = mapOf(
             SessionState.Queued to "muted",
             SessionState.Working to "foreground",
+            SessionState.Background to "foreground",
             SessionState.Waiting to "muted",
             SessionState.NeedsYou to "amber",
+            SessionState.Interrupted to "muted",
             SessionState.Blocked to "rose",
             SessionState.Ended to "muted",
         )
@@ -132,7 +149,20 @@ object SessionTree {
             "device_offline" to "Device offline",
             "unclaimed" to "Not picked up",
             "stuck" to "Stuck",
+            "restarted" to "Interrupted",
         )
+        /** EXP-1374 `copy.interruptedKinds`: the blocked kinds that INTERRUPT
+         *  a run → the card's word. */
+        val INTERRUPTED_KINDS: Map<String, String> = mapOf(
+            "device_offline" to "Interrupted · device offline",
+            "restarted" to "Interrupted · runner restarted",
+        )
+        /** EXP-1374 `banner`: the Dock banner's text, an interruption by kind. */
+        val BANNER_INTERRUPTED: Map<String, String> = mapOf(
+            "device_offline" to "Its device went offline. It continues by itself when the device is back.",
+            "restarted" to "Its runner restarted mid-turn. It continues by itself.",
+        )
+        const val BANNER_BACKGROUND = "The turn is over; background tasks still run on its device."
     }
 
     object ThreadCopy {
@@ -152,10 +182,12 @@ object SessionTree {
             "session_claimed" to "{session} started",
             "session_blocked" to "{session} hit a usage limit",
             "session_unclaimed" to "{session} was not picked up",
-            "session_stuck" to "{session} looks stuck",
-            "device_offline" to "{session} paused: device offline",
+            "session_stuck" to "{session} shows no sign of life",
+            "device_offline" to "{session} interrupted: device offline",
             // NEW-2: a trigger firing in an agent's conversation.
             "trigger_fired" to "Trigger fired: {name}",
+            // EXP-1374: a child's run stopped mid-turn (runner restart).
+            "session_interrupted" to "{session} interrupted: runner restarted",
         )
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"
@@ -221,8 +253,10 @@ object SessionTree {
     enum class SessionState(val wire: String) {
         Queued("queued"),
         Working("working"),
+        Background("background"),
         Waiting("waiting"),
         NeedsYou("needs_you"),
+        Interrupted("interrupted"),
         Blocked("blocked"),
         Ended("ended"),
     }
@@ -244,12 +278,19 @@ object SessionTree {
         }
     }
 
+    /** EXP-1374: the blocked kinds that INTERRUPT a run (never on a person;
+     *  its device continues it by itself), `copy.interruptedKinds`' keys. */
+    fun isInterruption(blocked: Blocked?): Boolean =
+        blocked?.kind?.let { it in CardCopy.INTERRUPTED_KINDS } == true
+
     /** One state word per session, the card's kind word and tone. */
     fun sessionState(session: Session): SessionState = when {
         session.status == DomainContract.sessionStatusEnded -> SessionState.Ended
         session.needsInput -> SessionState.NeedsYou
+        isInterruption(session.blocked) -> SessionState.Interrupted
         session.blocked != null -> SessionState.Blocked
         session.status == DomainContract.sessionStatusQueued -> SessionState.Queued
+        session.busy && session.background -> SessionState.Background
         session.busy -> SessionState.Working
         else -> SessionState.Waiting
     }
@@ -293,6 +334,10 @@ object SessionTree {
      * `states.blocked` ("Usage limit").
      */
     fun sessionKindWord(session: Session, state: SessionState): String {
+        // EXP-1374: an interruption reads its own word, not the blocked one.
+        if (state == SessionState.Interrupted) {
+            session.blocked?.kind?.let { kind -> CardCopy.INTERRUPTED_KINDS[kind] }?.let { return it }
+        }
         if (state == SessionState.Blocked) {
             session.blocked?.kind?.let { kind -> CardCopy.BLOCKED_KINDS[kind] }?.let { return it }
         }
@@ -320,8 +365,44 @@ object SessionTree {
             state = state,
             tone = CardCopy.TONES.getValue(state),
             elapsed = elapsed,
-            running = state == SessionState.Working,
+            running = state == SessionState.Working || state == SessionState.Background,
             testId = CardCopy.TEST_ID_CARD,
+        )
+    }
+
+    /** EXP-1374: the Dock card of an interrupted or background session (a
+     *  dock.json `banner` source without its `kind`); [tone] is always `muted`,
+     *  [action] always null. */
+    data class SessionBanner(
+        /** `interrupted` | `background`. */
+        val id: String,
+        /** Concept icon. */
+        val icon: String,
+        val label: String,
+        val text: String,
+        val tone: String,
+        val action: String?,
+    ) {
+        /** The Dock source it draws as. */
+        val source: Dock.Source.Banner
+            get() = Dock.Source.Banner(id, icon, label, text, Dock.Tint.Muted, action)
+    }
+
+    /** EXP-1374 (TS `sessionBanner`): null unless interrupted or background. */
+    fun sessionBanner(session: Session): SessionBanner? {
+        val state = sessionState(session)
+        val text = when (state) {
+            SessionState.Interrupted -> session.blocked?.kind?.let { CardCopy.BANNER_INTERRUPTED[it] } ?: return null
+            SessionState.Background -> CardCopy.BANNER_BACKGROUND
+            else -> return null
+        }
+        return SessionBanner(
+            id = state.wire,
+            icon = CardCopy.ICONS.getValue(state),
+            label = CardCopy.STATES.getValue(state),
+            text = text,
+            tone = "muted",
+            action = null,
         )
     }
 
@@ -1554,7 +1635,9 @@ object SessionTree {
         status = row.status,
         busy = row.busy,
         needsInput = row.needsInput,
-        blocked = parseObject(row.blocked)?.let { Blocked(it.str("window"), it.str("resetsAt"), it.str("kind")) },
+        blocked = parseObject(row.blocked)?.let {
+            Blocked(it.str("window"), it.str("resetsAt"), it.str("kind"), (it["resume"] as? JsonPrimitive)?.booleanOrNull)
+        },
         shared = row.shared,
         title = row.title,
         guide = parseArray(row.guide)?.map { element ->
@@ -1568,6 +1651,7 @@ object SessionTree {
         deviceId = row.deviceId.ifBlank { null },
         agentId = row.agentId,
         appId = row.appId,
+        background = row.background,
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =

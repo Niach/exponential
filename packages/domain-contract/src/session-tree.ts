@@ -24,8 +24,16 @@ export interface TreeSession {
   deviceId?: string | null
   status: string
   busy: boolean
+  /** EXP-1374: busy only because background tasks still run after the
+   *  turn (absent = false). */
+  background?: boolean | null
   needsInput: boolean
-  blocked: { kind?: string | null; window?: string | null; resetsAt?: string | null } | null
+  blocked: {
+    kind?: string | null
+    window?: string | null
+    resetsAt?: string | null
+    resume?: boolean | null
+  } | null
   shared: boolean
   title: string | null
   guide: { text?: string | null; label?: string | null }[] | null
@@ -112,17 +120,30 @@ export function formatElapsed(durationMs: number): string {
 export type SessionState =
   | `queued`
   | `working`
+  | `background`
   | `waiting`
   | `needs_you`
+  | `interrupted`
   | `blocked`
   | `ended`
 
+/** EXP-1374: the blocked kinds that INTERRUPT a run (never on a person;
+ *  its device continues it by itself), `copy.interruptedKinds`' keys. */
+export function isInterruption(blocked: TreeSession[`blocked`]): boolean {
+  const kind = blocked?.kind
+  return !!kind && Object.hasOwn(SESSION_CARD_COPY.interruptedKinds, kind)
+}
+
 /** One state word per session, the card's kind word and tone. */
-export function sessionState(session: TreeSession): SessionState {
+export function sessionState(
+  session: Pick<TreeSession, `status` | `needsInput` | `blocked` | `busy` | `background`>
+): SessionState {
   if (session.status === `ended`) return `ended`
   if (session.needsInput) return `needs_you`
+  if (isInterruption(session.blocked)) return `interrupted`
   if (session.blocked) return `blocked`
   if (session.status === `queued`) return `queued`
+  if (session.busy && session.background) return `background`
   if (session.busy) return `working`
   return `waiting`
 }
@@ -151,6 +172,10 @@ export interface SessionCard {
 /** NEW-1: the card's state word; a blocked session names WHY
  *  (`copy.blockedKinds[blocked.kind]`, an unknown kind = `states.blocked`). */
 export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: SessionState): string {
+  if (state === `interrupted`) {
+    const word = (SESSION_CARD_COPY.interruptedKinds as Record<string, string>)[session.blocked?.kind ?? ``]
+    if (word) return word
+  }
   if (state === `blocked`) {
     const kind = session.blocked?.kind
     const word = kind ? (SESSION_CARD_COPY.blockedKinds as Record<string, string>)[kind] : undefined
@@ -183,9 +208,49 @@ export function sessionCard(
     state,
     tone: cardFixture.tones[state],
     elapsed,
-    running: state === `working`,
+    running: state === `working` || state === `background`,
     testId: cardFixture.testIds.card,
   }
+}
+
+/** EXP-1374: the Dock card of an interrupted or background session (a
+ *  dock.json `banner` source without its `kind`), null otherwise. */
+export interface SessionBanner {
+  id: `interrupted` | `background`
+  icon: string
+  label: string
+  text: string
+  tone: `muted`
+  action: null
+}
+
+export function sessionBanner(
+  session: Pick<TreeSession, `status` | `needsInput` | `blocked` | `busy` | `background`>
+): SessionBanner | null {
+  const state = sessionState(session)
+  if (state === `interrupted`) {
+    const text = (cardFixture.banner.interrupted as Record<string, string>)[session.blocked?.kind ?? ``]
+    if (!text) return null
+    return {
+      id: state,
+      icon: SESSION_CARD_ICONS.interrupted,
+      label: SESSION_CARD_COPY.states.interrupted,
+      text,
+      tone: `muted`,
+      action: null,
+    }
+  }
+  if (state === `background`) {
+    return {
+      id: state,
+      icon: SESSION_CARD_ICONS.background,
+      label: SESSION_CARD_COPY.states.background,
+      text: cardFixture.banner.background,
+      tone: `muted`,
+      action: null,
+    }
+  }
+  return null
 }
 
 /** NEW-1: a thread's issues = the UNION over its tree's rows: the sessions

@@ -213,9 +213,11 @@ fn run_pass(cx: &mut App) {
     let blocking = |action: &PickupAction| match action {
         // EXP-849: a switch suspends + relaunches (network + git).
         // EXP-1341: a revive resumes/launches (network + git).
+        // EXP-1374: so does an interrupted run's continuation.
         PickupAction::Launch { .. }
         | PickupAction::Resume { .. }
         | PickupAction::Revive { .. }
+        | PickupAction::Continue { .. }
         | PickupAction::Switch { .. } => true,
         // A delivery to an engine that just finished wakes it.
         PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
@@ -276,6 +278,15 @@ fn run_pass(cx: &mut App) {
                 Ok(()) => StepOutcome::Progressed,
                 Err(err) => {
                     log::warn!("[pickup] reviving {session_id}: {err}");
+                    StepOutcome::Progressed
+                }
+            },
+            // EXP-1374: the registry backs a failed continuation off on its
+            // own (`revive_held`), like a revive.
+            PickupAction::Continue { session } => match pickup::continue_interrupted(session, &deps) {
+                Ok(()) => StepOutcome::Progressed,
+                Err(err) => {
+                    log::warn!("[pickup] continuing {session_id}: {err}");
                     StepOutcome::Progressed
                 }
             },

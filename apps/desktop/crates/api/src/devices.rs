@@ -136,6 +136,25 @@ pub struct HeartbeatInput<'a> {
     /// (idle + `blocked: stuck`); absent = no claim either way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_session_ids: Option<&'a [String]>,
+    /// EXP-1374: for each live session whose engine this host runs, the
+    /// wall-clock time of its last activity (FEED-25: any agent output,
+    /// tool call, terminal output) — the server's stuck clock reads it.
+    /// Skipped when `None` or empty.
+    #[serde(skip_serializing_if = "skip_activity")]
+    pub session_activity: Option<&'a [SessionActivity]>,
+}
+
+/// EXP-1374: one `sessionActivity` entry of the heartbeat.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionActivity {
+    pub session_id: String,
+    /// ISO-8601 UTC (`2026-10-26T12:00:00.000Z`).
+    pub at: String,
+}
+
+fn skip_activity(activity: &Option<&[SessionActivity]>) -> bool {
+    activity.is_none_or(|activity| activity.is_empty())
 }
 
 /// NEW-5: the server's cap on [`HeartbeatInput::live_session_ids`] — a
@@ -946,6 +965,7 @@ mod tests {
                 agent_usage: Some(&usage),
                 doctor: None,
                 live_session_ids: None,
+                session_activity: None,
             },
         )
         .unwrap();
@@ -1012,6 +1032,48 @@ mod tests {
             .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(!request.contains("liveSessionIds"), "{request}");
+    }
+
+    /// EXP-1374: `sessionActivity` rides only when non-empty, last in the
+    /// body.
+    #[test]
+    fn heartbeat_posts_session_activity_only_when_non_empty() {
+        let activity = vec![SessionActivity {
+            session_id: "s-1".to_string(),
+            at: "2026-10-26T12:00:00.000Z".to_string(),
+        }];
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 1,
+                session_activity: Some(&activity),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#""sessionActivity":[{"sessionId":"s-1","at":"2026-10-26T12:00:00.000Z"}]}"#
+            ),
+            "{request}"
+        );
+
+        let empty: Vec<SessionActivity> = Vec::new();
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                session_activity: Some(&empty),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!request.contains("sessionActivity"), "{request}");
     }
 
     /// EXP-484: registration carries the accounts (never the usage — the

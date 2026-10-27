@@ -429,8 +429,62 @@ pub enum Parked {
     Keep,
 }
 
-/// [`create_worktree`] with an explicit [`Parked`] policy.
+/// EXP-1374 (FEED-135): the waits between attempts when another git
+/// process holds the clone's `.git/config` lock — several children of one
+/// parent create their worktrees in the same second, and every
+/// `worktree add -b` (tracking) or checkout that writes the config races
+/// for the one lock file.
+const CONFIG_LOCK_RETRY: [std::time::Duration; 4] = [
+    std::time::Duration::from_millis(250),
+    std::time::Duration::from_millis(750),
+    std::time::Duration::from_millis(1500),
+    std::time::Duration::from_secs(3),
+];
+
+/// EXP-1374: git failed because another process holds a lock on the clone's
+/// config (`could not lock config file .git/config: File exists`) — a
+/// contention that clears on its own, never a verdict.
+pub fn config_lock_contention(err: &GitError) -> bool {
+    let detail = err.detail.to_ascii_lowercase();
+    detail.contains("could not lock config file") || detail.contains("config.lock")
+}
+
+/// Run `op` again after each of `waits` while it fails on
+/// [`config_lock_contention`]; any other outcome returns at once.
+fn retry_config_lock<T>(
+    waits: &[std::time::Duration],
+    mut op: impl FnMut() -> Result<T, GitError>,
+) -> Result<T, GitError> {
+    let mut waits = waits.iter();
+    loop {
+        match op() {
+            Err(err) if config_lock_contention(&err) => match waits.next() {
+                Some(wait) => {
+                    log::info!("{}: the clone's config is locked by another git, retrying", err.op);
+                    std::thread::sleep(*wait);
+                }
+                None => return Err(err),
+            },
+            outcome => return outcome,
+        }
+    }
+}
+
+/// [`create_worktree`] with an explicit [`Parked`] policy. EXP-1374: a
+/// `.git/config` lock held by a sibling launch is retried with backoff
+/// ([`CONFIG_LOCK_RETRY`]); the whole step re-runs, so a branch the failed
+/// attempt already created is simply reused.
 pub fn create_worktree_with(
+    clone: &Path,
+    branch: &str,
+    base_ref: &str,
+    url: &TokenUrl,
+    parked: Parked,
+) -> Result<PathBuf, GitError> {
+    retry_config_lock(&CONFIG_LOCK_RETRY, || create_worktree_once(clone, branch, base_ref, url, parked))
+}
+
+fn create_worktree_once(
     clone: &Path,
     branch: &str,
     base_ref: &str,
@@ -1389,6 +1443,47 @@ fn failure_detail(output: &std::process::Output) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// EXP-1374 (FEED-135): `.git/config` lock contention is retried, any
+    /// other failure (or a success) returns at once, and the last
+    /// contention is the error once the waits run out.
+    #[test]
+    fn config_lock_contention_is_retried_then_surfaced() {
+        let locked = || GitError {
+            op: "git worktree add -b exp/x from origin/main".to_string(),
+            detail: "error: could not lock config file .git/config: File exists".to_string(),
+        };
+        assert!(config_lock_contention(&locked()));
+        let other = GitError {
+            op: "git worktree add".to_string(),
+            detail: "fatal: invalid reference: origin/exp/session-1".to_string(),
+        };
+        assert!(!config_lock_contention(&other));
+
+        let waits = [std::time::Duration::ZERO; 3];
+        let mut calls = 0;
+        let out = retry_config_lock(&waits, || {
+            calls += 1;
+            if calls < 3 { Err(locked()) } else { Ok(calls) }
+        });
+        assert_eq!(out.unwrap(), 3);
+
+        let mut calls = 0;
+        let out: Result<(), GitError> = retry_config_lock(&waits, || {
+            calls += 1;
+            Err(locked())
+        });
+        assert!(config_lock_contention(&out.unwrap_err()));
+        assert_eq!(calls, 4, "one attempt plus one per wait");
+
+        let mut calls = 0;
+        let out: Result<(), GitError> = retry_config_lock(&waits, || {
+            calls += 1;
+            Err(other.clone())
+        });
+        assert_eq!(out.unwrap_err().detail, other.detail);
+        assert_eq!(calls, 1);
+    }
     use super::*;
     use std::process::Command;
     use std::fs;

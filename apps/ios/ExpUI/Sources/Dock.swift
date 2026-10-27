@@ -49,6 +49,9 @@ public enum DockMetrics {
         case "ui-device-offline": AppIcons.uiDeviceOffline
         case "ui-refresh": AppIcons.uiRefresh
         case "ui-loading": AppIcons.uiLoading
+        // EXP-1374: the session banner (session-card.json `icons`).
+        case "run-pause": AppIcons.runPause
+        case "trace-background": AppIcons.traceBackground
         default: concept
         }
     }

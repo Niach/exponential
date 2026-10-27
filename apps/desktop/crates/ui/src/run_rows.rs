@@ -52,7 +52,8 @@ pub(crate) fn run_mark(
     state: SessionState,
     cx: &App,
 ) -> gpui::Div {
-    if state == SessionState::Working {
+    // EXP-1374: background tasks still spin (`running`).
+    if state.running() {
         return div()
             .relative()
             .flex_shrink_0()

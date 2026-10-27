@@ -346,6 +346,72 @@ fn a_completion_notification_alone_lets_the_run_go_idle() {
     );
 }
 
+fn has_any_task(list: &serde_json::Value) -> bool {
+    list["tasks"].as_array().is_some_and(|tasks| !tasks.is_empty())
+}
+
+/// EXP-1374 (FEED-139): a `run_in_background` SHELL keeps the run busy past
+/// its turn end exactly like a subagent does, and the run reads
+/// `background` (busy only because of it) until the list empties. Same
+/// shape as `background-agent`, the list entry a `local_bash` task.
+#[test]
+fn a_background_shell_keeps_the_run_busy_and_reads_background() {
+    let _session = one_session_at_a_time();
+    let harness = start("background-shell", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+    assert!(!harness.session.agent_busy(), "a fresh session is idle");
+    assert!(!harness.session.background(), "a fresh session runs nothing in the background");
+
+    harness
+        .session
+        .send_prompt("Launch the dev server shell in the background and wait for it.".to_string());
+    until("the first turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the shell background list", || {
+        events_of(&harness.sink, "background_tasks").iter().any(has_any_task)
+    });
+    assert!(harness.session.turn_signal().is_idle(), "the turn itself ended");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        harness.session.agent_busy(),
+        "a live background shell keeps the run busy after its turn ended"
+    );
+    assert!(harness.session.background(), "busy only because of the shell");
+
+    harness.session.send_prompt("Is the dev server shell done?".to_string());
+    until("the second turn to end", || ended_turns(&harness.sink) >= 2);
+    until("the run to read idle", || !harness.session.agent_busy());
+    assert!(!harness.session.background(), "the empty list clears background");
+}
+
+/// EXP-1374: a shell's terminal `task_notification` alone retires it from
+/// the strip (no re-list), so it cannot hold the run busy forever.
+#[test]
+fn a_shell_completion_notification_alone_lets_the_run_go_idle() {
+    let _session = one_session_at_a_time();
+    let harness = start("background-shell-notification", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+
+    harness
+        .session
+        .send_prompt("Launch the dev server shell in the background and wait for it.".to_string());
+    until("the first turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the shell background list", || {
+        events_of(&harness.sink, "background_tasks").iter().any(has_any_task)
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(harness.session.background(), "the listed shell holds the run in background");
+
+    harness.session.send_prompt("Is the dev server shell done?".to_string());
+    until("the second turn to end", || ended_turns(&harness.sink) >= 2);
+    until("the run to read idle", || !harness.session.agent_busy());
+    assert!(!harness.session.background());
+    let lists = events_of(&harness.sink, "background_tasks");
+    assert!(
+        lists.last().is_some_and(|list| !has_any_task(list)),
+        "the finished shell left the strip: {lists:?}"
+    );
+}
+
 /// EXP-1098: a seed prompt with an image — the host announces the person's
 /// text (`![image](/api/attachments/…)`, the issue ref, the mention) and the
 /// agent receives the LOCALIZED text (`Image #1: …` manifest). Claude's
