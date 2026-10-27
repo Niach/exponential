@@ -156,8 +156,8 @@ fun SelectionBarIconButton(
     }
 }
 
-/** THE selection cell a row leads with while selecting (the issue list's and
- *  the Chats rows'): the square [ExpCheckbox] (16dp) centred in the 20dp
+/** THE selection cell an issue row leads with while selecting (touch
+ *  bulk edit): the square [ExpCheckbox] (16dp) centred in the 20dp
  *  cell, 10dp before the row's own lead. */
 @Composable
 fun SelectionGlyph(selected: Boolean, modifier: Modifier = Modifier) {

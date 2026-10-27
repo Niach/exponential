@@ -211,21 +211,24 @@ private val ChatRowEdge: Dp = 20.dp
 private val SelectedRowGround: Color = GlassTokens.RowFillActive.compositeOver(DesignTokens.Palette.Background)
 
 /**
- * #EXP-1388 THE SELECT BADGE (styleguide `chat-selection`): a
- * `shell.selectBadge` filled primary circle holding ui-check
- * (`shell.selectBadgeGlyph`, primary-foreground) inside a
- * `shell.selectBadgeRing` ring in the selected row's ground, so it reads cut
- * out of the disc. Its outer box sits flush with the disc's bottom-right.
+ * #EXP-1388 THE SELECT BADGE (styleguide `chat-selection`): THE checkbox
+ * square (owner 2026-10-27: every check is the square Checkbox) =
+ * `shell.selectBadge` primary fill at `shell.selectBadgeRadius` holding
+ * ui-check (`shell.selectBadgeGlyph`, primary-foreground, its normal stroke)
+ * inside a `shell.selectBadgeRing` ring in the selected row's ground (outer
+ * corner = radius + ring), so it reads cut out of the disc. Its outer box
+ * sits flush with the disc's bottom-right.
  */
 @Composable
 fun ChatSelectBadge(modifier: Modifier = Modifier) {
     val ring = Chats.Shell.SELECT_BADGE_RING.dp
+    val radius = Chats.Shell.SELECT_BADGE_RADIUS.dp
     Box(
         modifier = modifier
             .size(Chats.Shell.SELECT_BADGE.dp + ring * 2)
-            .background(SelectedRowGround, CircleShape)
+            .background(SelectedRowGround, RoundedCornerShape(radius + ring))
             .padding(ring)
-            .background(MaterialTheme.colorScheme.primary, CircleShape),
+            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(radius)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
