@@ -249,6 +249,51 @@ describe(`the web caller's wire`, () => {
     expect(socket.sent.filter((frame) => typeof frame !== `string`)).toHaveLength(1)
   })
 
+  it(`a call muted for 40 s outlives the relay's idle check: the frames keep flowing`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { idleTimeoutMs, frameMs } = fixture.constants
+      for (const microphone of [`silence`, `nothing`] as const) {
+        const { call, socket, audio, toasts } = await dialed()
+        socket.text({ t: `call_ready` })
+        // The relay's idle check (steer-relay hub.ts): every
+        // min(idleTimeoutMs, 5 s), a pair without a frame for idleTimeoutMs
+        // ends with `call_end` idle.
+        let lastFrameAt = Date.now()
+        const send = socket.send.bind(socket)
+        socket.send = (data) => {
+          if (typeof data !== `string`) lastFrameAt = Date.now()
+          send(data)
+        }
+        const relay = setInterval(() => {
+          if (call.active && Date.now() - lastFrameAt >= idleTimeoutMs) socket.text({ t: `call_end`, reason: `idle` })
+        }, Math.min(idleTimeoutMs, 5_000))
+        // The muted microphone: a disabled track still encodes one frame
+        // per frameMs (audio.test: "muted, the track is disabled and the
+        // frames keep flowing"); `nothing` = a client that stops sending.
+        const capture = setInterval(() => {
+          if (microphone === `silence`) audio.onPacket?.(new Uint8Array([0]))
+        }, frameMs)
+        call.toggleMute()
+        vi.advanceTimersByTime(40_000)
+        clearInterval(relay)
+        clearInterval(capture)
+        if (microphone === `silence`) {
+          expect(call.active).toBe(true)
+          expect(call.getSnapshot().state.muted).toBe(true)
+          expect(socket.sent.filter((frame) => typeof frame !== `string`).length).toBeGreaterThanOrEqual(40_000 / frameMs - 1)
+          expect(toasts).toEqual([])
+          call.end()
+        } else {
+          expect(call.active).toBe(false)
+          expect(toasts).toEqual([fixture.copy.failed.dropped])
+        }
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it(`a socket that simply goes away closes the audio and toasts dropped`, async () => {
     const { call, socket, audio, toasts } = await dialed()
     socket.text({ t: `call_ready` })

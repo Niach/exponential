@@ -60,6 +60,8 @@ import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenTestId
 import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
 import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
+import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
+import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
@@ -117,7 +119,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import
+ *   sg_app-export · sg_app-import · sg_voice-call
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -197,6 +199,8 @@ class StyleguideScreenshotsTest {
             "sg_mention-pill",
             // VAPP-120: the consent card with a typed action's words.
             "sg_app-consent",
+            // NEW-69: the in-call card's four states.
+            "sg_voice-call",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -1218,6 +1222,10 @@ class StyleguideScreenshotsTest {
         // unknown address as plain text (styleguide entry mention-pill).
         show(MentionPillSpecimenTestId) { MentionPillSpecimenScreen() }
         flow.screenshot("sg_mention-pill")
+        // --- sg_voice-call (NEW-69, voice-call.json): THE in-call card the
+        // live call screen draws, once per `surfaceSpecimens` row.
+        show(VoiceCallSpecimenTestId) { VoiceCallSpecimenScreen() }
+        flow.screenshot("sg_voice-call")
 
         finished = true
     }

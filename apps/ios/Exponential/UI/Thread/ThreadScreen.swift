@@ -264,6 +264,13 @@ struct ThreadScreen: View {
             // trailing slot while that session is live (always mounted,
             // EXP-942; draws nothing otherwise).
             ToolbarItem(placement: .topBarTrailing) { sessionStopButton }
+            // NEW-69 (voice-call.json): an agent chat's telephone, left of `…`.
+            ToolbarItem(placement: .topBarTrailing) {
+                if editor == nil, let rows, rows.root.isAgent, rows.root.appId == nil,
+                   let agentId = rows.root.agentId {
+                    AgentCallButton(agentId: agentId, agentName: rows.agentName)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if editor == nil, !chatMenuEntries.isEmpty {
                     Button { openChatMenu() } label: {

@@ -56,6 +56,8 @@ let sharedDependencies: [TargetDependency] = [
     .external(name: "FirebaseMessaging"),
     .external(name: "cmark-gfm"),
     .external(name: "cmark-gfm-extensions"),
+    // NEW-69: the call screen draws THE VoiceWave (`VoiceWaveView`).
+    .external(name: "ExponentialUIPrimitives"),
 ] + surfaceDependencies
 
 // ExpCore: iOS(+iPad) data/sync/domain layer. Foundation/GRDB/Security/
@@ -164,8 +166,13 @@ let sharedInfoPlist: [String: Plist.Value] = [
             "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),
-    "UIBackgroundModes": .array([.string("remote-notification")]),
+    // NEW-69: `audio` keeps a call with an agent running with the screen
+    // locked or another app in front (voice-call.json BACKGROUND).
+    "UIBackgroundModes": .array([.string("remote-notification"), .string("audio")]),
     "ITSAppUsesNonExemptEncryption": .boolean(false),
+    // NEW-69: a call with an agent streams the microphone to the member's
+    // voice device.
+    "NSMicrophoneUsageDescription": .string("Exponential uses the microphone for calls with your agents."),
     // Self-hosted instances are a product feature and commonly live on plain
     // HTTP inside a LAN (and http://localhost:5173 in dev/screenshot runs) —
     // allow local networking only; everything else stays ATS-default (HTTPS).

@@ -3,7 +3,7 @@ import { VoiceCallCard, type VoiceWaveActivity } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// NEW-55 — the call surface on phones (full screen, V5) and web (a centred
+// NEW-55 — the call surface on phones (full screen, V5 #NEW-69) and web (a centred
 // card, V6): the #1022 draft promoted. A glass card holding `VoiceWave` (xl,
 // the brand mark as its child), the state, the line (what was heard, the
 // queue, or what is said), then End call as the ONE primary pill and Mute
@@ -32,8 +32,18 @@ export const entry: StyleguideEntry = {
   status: {
     web: { state: `ok`, symbol: `VoiceCallCard`, file: `packages/ui/src/voice-call-card.tsx` },
     desktop: { state: `n/a`, note: `The voice device draws a call in the capsule (voice-call-overlay); the twin paints this card statically.` },
-    ios: { state: `n/a`, note: `Coming with V5 (#NEW-69): full screen.` },
-    android: { state: `n/a`, note: `Coming with V5 (#NEW-69): full screen.` },
+    ios: {
+      state: `ok`,
+      symbol: `VoiceCallCard`,
+      file: `apps/ios/Exponential/UI/Voice/VoiceCallScreen.swift`,
+      note: `Full screen over the app background (#NEW-69).`,
+    },
+    android: {
+      state: `ok`,
+      symbol: `VoiceCallCard`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/call/VoiceCallSurface.kt`,
+      note: `Full screen over the app background (#NEW-69).`,
+    },
   },
   island: () => (
     <div className="flex flex-wrap items-start gap-4">

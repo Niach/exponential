@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-voice-calls-phones`,
+    date: `2026-10-27`,
+    title: `Call your agent from your phone (beta)`,
+    summary: `The telephone in an agent's chat now calls from the iPhone and Android apps too: the call streams to your voice device, which listens, sends what you say and speaks every reply.`,
+    body: `- **Calls from your phone**: tap the telephone in an agent chat's header. The call fills the screen with Mute and End call, and runs on your voice device, so it needs that device online.
+- **Talk over it**: speaking while a reply plays stops the voice and listens again; your phone's echo cancelling keeps the reply out of the microphone.
+- **When it can't call**: the telephone stays visible but dimmed; long-press it to see why (no voice device, Speak replies off, the device offline, its voice still getting ready, or no usable GPU).
+- **Lock the screen**: a call keeps running with the screen locked or another app in front; only End call ends it. A phone call coming in drops it.
+- **Microphone**: the apps ask for the microphone on your first call. On Android a notification shows while a call runs.`,
+  },
+  {
     id: `2026-10-27-voice-calls-web`,
     date: `2026-10-27`,
     title: `Call your agent from the browser (beta)`,

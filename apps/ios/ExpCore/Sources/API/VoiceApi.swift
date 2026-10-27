@@ -19,4 +19,20 @@ public final class VoiceApi: Sendable {
     public func update(accountId: String, change: Voice.Change) async throws -> Voice.Settings {
         try await trpc.mutation(accountId: accountId, path: "voice.update", input: change)
     }
+
+    /// NEW-69: a phone's call with an agent (`platform: phone`); the server
+    /// refuses with the availability reason, else answers the caller's relay
+    /// ticket and the URL to dial as-is.
+    public func startCall(accountId: String, agentId: String) async throws -> VoiceCall.Ticket {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "voice.startCall",
+            input: StartCallInput(agentId: agentId, platform: VoiceCall.Platform.phone.rawValue)
+        )
+    }
+}
+
+private struct StartCallInput: Encodable {
+    let agentId: String
+    let platform: String
 }

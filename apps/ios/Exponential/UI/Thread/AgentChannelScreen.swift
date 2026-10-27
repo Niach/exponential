@@ -131,6 +131,11 @@ private struct AgentChannelEmpty: View {
                     agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor
                 )
             }
+            // NEW-69 (voice-call.json): the telephone (no `…` before the
+            // first message).
+            ToolbarItem(placement: .topBarTrailing) {
+                AgentCallButton(agentId: agent.id, agentName: agent.name)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-channel-page")

@@ -5903,6 +5903,35 @@
         "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the New app dialog on its import step with the capture text, over Settings → Apps (the IDE has no Apps page; VAPP-155).",
         "web-mobile": "Inherits web at the phone's width."
       }
+    },
+    {
+      "id": "voice-call",
+      "group": "coding",
+      "title": "Voice call",
+      "blurb": "THE in-call view (NEW-69, voice-call.json): full screen on the phones, a glass card holding VoiceWave (xl) with the brand mark, the state, the line, End call primary + Mute. Opens from the telephone in the agent chat's header; the call streams to the member's voice device.",
+      "order": 43,
+      "ios": {
+        "shot": "sg_voice-call",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_voice-call",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:voice-call"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "A styleguide specimen (apps/styleguide entry `voice-call`); the web call lands with V6 (#NEW-70).",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_voice-call: the four `surfaceSpecimens` on the live in-call card.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call`: the IDE styleguide twin drawn full-window (a call itself rides the voice capsule).",
+        "web-mobile": "See web."
+      }
     }
   ]
 }
