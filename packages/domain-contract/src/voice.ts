@@ -503,6 +503,44 @@ export function utteranceInput(
   return { teamId: target.teamId, agentId: target.agentId, text }
 }
 
+/** #NEW-91: the sentences of a spoken text (split after `.` `!` `?` + a space). */
+function spokenSentences(spoken: string): string[] {
+  const out: string[] = []
+  let start = 0
+  for (let index = 0; index < spoken.length; index++) {
+    if (`.!?`.includes(spoken[index]) && spoken[index + 1] === ` `) {
+      out.push(spoken.slice(start, index + 1).trim())
+      start = index + 1
+    }
+  }
+  out.push(spoken.slice(start).trim())
+  return out.filter((sentence) => sentence !== ``)
+}
+
+/** #NEW-91: a sentence's first clause and the rest, or null (see `speechChunks`). */
+function firstClause(sentence: string): [string, string] | null {
+  for (let index = 0; index < sentence.length; index++) {
+    const ch = sentence[index]
+    let cut: [number, number] | null = null
+    if (`,;:`.includes(ch) && /^\s/.test(sentence.slice(index + 1))) cut = [index + 1, index + 1]
+    else if (ch === `-` && index > 0 && sentence[index - 1] === ` ` && sentence[index + 1] === ` `) cut = [index - 1, index + 1]
+    if (cut === null) continue
+    const front = sentence.slice(0, cut[0]).trim()
+    const rest = sentence.slice(cut[1]).trim()
+    const words = front.split(/\s+/).filter((word) => word !== ``).length
+    return words >= 2 && words <= 8 && rest !== `` ? [front, rest] : null
+  }
+  return null
+}
+
+/** #NEW-91: the synthesis chunks of a spoken reply on the voice device (`speechChunkCases`). */
+export function speechChunks(spoken: string, streaming: boolean): string[] {
+  const parts = spokenSentences(spoken)
+  const clause = !streaming && parts.length > 0 ? firstClause(parts[0]) : null
+  if (clause !== null) parts.splice(0, 1, ...clause)
+  return parts
+}
+
 /** The first sentence of a spoken text (the Dock banner's title). */
 export function firstSentence(spoken: string): string {
   const match = /[.!?](?= )/.exec(spoken)

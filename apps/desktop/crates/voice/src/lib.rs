@@ -31,8 +31,11 @@
 //! here but streamed as `SpeechAudio` ([`StreamSink`]). When the call hears
 //! [`talk::BARGE_IN_MS`] of speech, [`barge`] stops the reply (its
 //! `Finished { stopped: true }` goes out first) and only then is
-//! `SpeechStarted` emitted. The first clause of a reply is synthesized on
-//! its own ([`first_clause`]) for a faster first audio (target < 400 ms).
+//! `SpeechStarted` emitted. #NEW-91: the first audio comes under 400 ms
+//! (p95 on the 4090: 84 ms German, 165 ms English) from Qwen3-TTS's own
+//! streaming entry point ([`Speaker::Stream`]); where the runtime lacks it
+//! (Windows) the first clause of a reply is synthesized on its own
+//! ([`speech_chunks`]).
 //!
 //! #NEW-56: `Wake` keeps the microphone open for the wake word between
 //! Listens ([`wake`], no model of its own); a heard phrase silences the voice
@@ -54,7 +57,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crispasr::{artifact, models, Build, Device, TtsSession};
+use crispasr::{artifact, models, Build, Device, StreamingTts, TtsSession};
 use talk::{Event, Request, VoiceChoice};
 
 /// The CrispASR backend of the model.
@@ -299,9 +302,43 @@ pub(crate) fn retry_after(failures: u32) -> Duration {
     Duration::from_secs(60u64.saturating_mul(1u64 << failures.saturating_sub(1).min(6))).min(Duration::from_secs(3600))
 }
 
+/// NEW-91: the first audio of a sentence after this many codec frames
+/// (12.5 per second) on [`Speaker::Stream`].
+const FIRST_AUDIO_FRAMES: u32 = 8;
+
+/// NEW-91: the speaker. `Stream` = Qwen3-TTS's own streaming entry point
+/// (Linux, macOS: audio every [`FIRST_AUDIO_FRAMES`] frames while the talker
+/// still generates, the same voice and watermark); `Session` = the session
+/// ABI, a whole utterance per call (the Windows build exports nothing else).
+enum Speaker {
+    Stream(StreamingTts<'static>),
+    Session(TtsSession<'static>),
+}
+
+impl Speaker {
+    fn set_voice(&mut self, wav: &Path, ref_text: &str, language: &str) -> Result<(), String> {
+        match self {
+            Speaker::Stream(tts) => tts.set_voice(wav, ref_text, language),
+            Speaker::Session(tts) => tts.set_voice(wav, ref_text, language),
+        }
+    }
+
+    /// Synthesize `text`, handing its audio to `on_audio` as it comes.
+    fn synthesize(&mut self, text: &str, on_audio: &mut dyn FnMut(&[f32])) -> Result<(), String> {
+        match self {
+            Speaker::Stream(tts) => tts.synthesize(text, FIRST_AUDIO_FRAMES, on_audio),
+            Speaker::Session(tts) => tts.synthesize(text).map(|pcm| on_audio(&pcm)),
+        }
+    }
+
+    fn streams(&self) -> bool {
+        matches!(self, Speaker::Stream(_))
+    }
+}
+
 /// The engine once it is up: the runtime lives for the process.
 struct Loaded {
-    session: TtsSession<'static>,
+    session: Speaker,
     sample_rate: u32,
     /// The voice installed in the session.
     voice: Option<VoiceChoice>,
@@ -450,13 +487,15 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
     }
     eprintln!("voice models verified in {} ms", hashing.elapsed().as_millis());
     let started = Instant::now();
-    let session = runtime.open_tts(
-        BACKEND,
-        &models_dir.join(models::QWEN3_TTS_0_6B_BASE.keep[0].1),
-        &models_dir.join(models::QWEN3_TTS_CODEC.keep[0].1),
-        Device::Gpu,
-    )?;
-    let sample_rate = session.sample_rate();
+    let model = models_dir.join(models::QWEN3_TTS_0_6B_BASE.keep[0].1);
+    let codec = models_dir.join(models::QWEN3_TTS_CODEC.keep[0].1);
+    let (session, sample_rate) = if runtime.streams_tts() {
+        (Speaker::Stream(runtime.open_streaming_tts(&model, &codec, Device::Gpu)?), crispasr::QWEN3_TTS_RATE)
+    } else {
+        let session = runtime.open_tts(BACKEND, &model, &codec, Device::Gpu)?;
+        let rate = session.sample_rate();
+        (Speaker::Session(session), rate)
+    };
     let mut loaded = Loaded { session, sample_rate, voice: None };
     let english = VoiceChoice { language: "en".into(), ..Default::default() };
     install_voice(data_dir, &mut loaded, &english)?;
@@ -465,8 +504,9 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
     let mut best = f64::MAX;
     for _ in 0..2 {
         let started = Instant::now();
-        let pcm = loaded.session.synthesize("Hello, this is a quick voice check.")?;
-        let audio = pcm.len() as f64 / f64::from(sample_rate);
+        let mut samples = 0;
+        loaded.session.synthesize("Hello, this is a quick voice check.", &mut |pcm| samples += pcm.len())?;
+        let audio = samples as f64 / f64::from(sample_rate);
         let rtf = if audio > 0.0 { started.elapsed().as_secs_f64() / audio } else { f64::MAX };
         best = best.min(rtf);
         if best <= MAX_WARMUP_RTF {
@@ -594,12 +634,15 @@ pub fn first_clause(sentence: &str) -> Option<(&str, &str)> {
     ((2..=8).contains(&words) && !rest.is_empty()).then_some((front, rest))
 }
 
-/// The synthesis calls of a reply: its sentences, the first one split at
-/// its [`first_clause`].
-fn utterances(text: &str) -> Vec<&str> {
+/// The synthesis calls of a reply (voice.json `speechChunkCases`): its
+/// sentences; #NEW-91: on a speaker that does not stream (`streaming`
+/// false), the first one split at its [`first_clause`].
+pub fn speech_chunks(text: &str, streaming: bool) -> Vec<&str> {
     let mut parts = sentences(text);
-    if let Some((front, rest)) = parts.first().and_then(|first| first_clause(first)) {
-        parts.splice(0..1, [front, rest]);
+    if !streaming {
+        if let Some((front, rest)) = parts.first().and_then(|first| first_clause(first)) {
+            parts.splice(0..1, [front, rest]);
+        }
     }
     parts
 }
@@ -682,43 +725,47 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
     }
     let mut started = false;
     let mut failed = None;
-    for part in utterances(text) {
+    for part in speech_chunks(text, loaded.session.streams()) {
         if !current(shared) {
             break;
         }
-        match loaded.session.synthesize(part) {
-            Ok(pcm) => {
-                if !current(shared) {
-                    break;
-                }
-                if remote && !started && !pcm.is_empty() {
-                    // The stream sits between Started and Finished.
-                    started = true;
-                    emit(Event::Started { id: id.into() });
-                }
-                // #1231 review: a player that takes no audio (pw-play
-                // without a PipeWire session) fails the reply, never
-                // reports it played.
-                if let Err(err) = sink.push(&pcm) {
-                    eprintln!("audio output failed: {err}");
-                    if !started {
-                        failed = Some(err);
-                    }
-                    break;
-                }
-                if !started && !pcm.is_empty() {
-                    started = true;
-                    emit(Event::Started { id: id.into() });
-                }
+        // NEW-91: on a streaming speaker the audio arrives in chunks while
+        // the sentence is still being synthesized.
+        let mut broken = false;
+        let result = loaded.session.synthesize(part, &mut |pcm| {
+            if broken || pcm.is_empty() || !current(shared) {
+                return;
             }
-            Err(err) => {
-                let err = scrub(&err, text);
-                eprintln!("synthesis failed: {err}");
+            if remote && !started {
+                // The stream sits between Started and Finished.
+                started = true;
+                emit(Event::Started { id: id.into() });
+            }
+            // #1231 review: a player that takes no audio (pw-play without a
+            // PipeWire session) fails the reply, never reports it played.
+            if let Err(err) = sink.push(pcm) {
+                eprintln!("audio output failed: {err}");
                 if !started {
                     failed = Some(err);
                 }
-                break;
+                broken = true;
+                return;
             }
+            if !started {
+                started = true;
+                emit(Event::Started { id: id.into() });
+            }
+        });
+        if broken {
+            break;
+        }
+        if let Err(err) = result {
+            let err = scrub(&err, text);
+            eprintln!("synthesis failed: {err}");
+            if !started {
+                failed = Some(err);
+            }
+            break;
         }
     }
     if let Some(error) = failed {
@@ -893,8 +940,23 @@ mod tests {
         assert_eq!(first_clause("It is 12:30 now, so lunch."), Some(("It is 12:30 now,", "so lunch.")));
         assert_eq!(first_clause("NEW-55 and NEW-56 are open."), None, "a hyphen is no dash");
         assert_eq!(first_clause("Two words,"), None, "nothing behind it");
-        assert_eq!(utterances("Sure thing, I moved it. The PR is open, too."), ["Sure thing,", "I moved it.", "The PR is open, too."]);
-        assert_eq!(utterances("Done."), ["Done."]);
+    }
+
+    #[test]
+    fn speech_chunks_replay_voice_json() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/voice.json")).unwrap();
+        let cases = fixture["speechChunkCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let chunks: Vec<&str> = case["chunks"].as_array().unwrap().iter().map(|chunk| chunk.as_str().unwrap()).collect();
+            assert_eq!(
+                speech_chunks(case["text"].as_str().unwrap(), case["streaming"].as_bool().unwrap()),
+                chunks,
+                "{}",
+                case["name"]
+            );
+        }
     }
 
     #[test]
