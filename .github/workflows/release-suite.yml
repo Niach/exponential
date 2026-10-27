@@ -10,7 +10,8 @@ name: release-suite
 # Contents: the web gate again (typecheck + unit) plus the small bun suites
 # and package tests (`extras`), the real-DB suites (`real-db`), the push-relay
 # image smoke build, marketing + styleguide builds + shots:check, the full
-# desktop cargo test + Rust licence inventory, Android unit tests + lint +
+# desktop cargo test + Rust licence inventory, the desktop fuzz targets (short
+# runs, NEW-88), Android unit tests + lint +
 # licence inventory, the iOS compile + suites (test-ios.yml), and every
 # Exponential UI renderer + conformance + bench (exponential-ui.yml).
 
@@ -261,6 +262,41 @@ jobs:
         run: bun run --filter @exp/licenses collect:rust
       - name: Fail if the committed inventory drifted
         run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json
+
+
+  desktop-fuzz:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true'
+    # NEW-88: the call's untrusted audio (a caller's Opus packets off the
+    # relay) and the local call's echo canceller, fuzzed briefly per release
+    # (apps/desktop/fuzz; the long runs go through the heavy lane on mint).
+    # Its own cargo workspace, so no zed/gpui fetch. Plus the libopus
+    # fallback's tests, so the feature keeps building.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: libopus (the fallback's system library)
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev pkg-config
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/fuzz
+      - name: cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz each target for 3 minutes (opus-rs)
+        run: apps/desktop/fuzz/run.sh 180
+      - name: The libopus fallback's tests
+        working-directory: apps/desktop/fuzz
+        # Through the fuzz workspace (call-codec's own would load the desktop one).
+        run: cargo test -p desktop-fuzz -p call-codec --features desktop-fuzz/libopus
+      - name: Keep the crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: apps/desktop/fuzz/artifacts
+          if-no-files-found: ignore
 
 
   android:

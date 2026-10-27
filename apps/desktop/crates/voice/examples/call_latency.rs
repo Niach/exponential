@@ -566,13 +566,8 @@ fn noise(len: usize, seed: u32) -> Vec<f32> {
 }
 
 fn opus_leg(name: &str, pcm: &[f32], rate: u32, bitrate: i32, fec: bool) {
-    let mut encoder = opus_rs::OpusEncoder::new(rate as i32, 1, opus_rs::Application::Voip).expect("encoder");
-    encoder.bitrate_bps = bitrate;
-    if fec {
-        encoder.use_inband_fec = true;
-        encoder.packet_loss_perc = 10;
-    }
-    let mut decoder = opus_rs::OpusDecoder::new(rate as i32, 1).expect("decoder");
+    let mut encoder = call_codec::Encoder::new(rate, bitrate, fec.then_some(10)).expect("encoder");
+    let mut decoder = call_codec::Decoder::new(rate, 1).expect("decoder");
     let frame = (rate / 50) as usize;
     let pcm: Vec<i16> = pcm.iter().map(|sample| talk::to_i16(*sample)).collect();
     let mut encode = Vec::new();
@@ -585,15 +580,16 @@ fn opus_leg(name: &str, pcm: &[f32], rate: u32, bitrate: i32, fec: bool) {
     for index in 0..3000.max(frames.len()) {
         let input = frames[index % frames.len()];
         let at = Instant::now();
-        let size = encoder.encode_i16(input, frame, &mut packet).expect("encode");
+        let size = encoder.encode(input, &mut packet).expect("encode");
         encode.push(at.elapsed().as_secs_f64() * 1e6);
         sizes.push(size as f64);
         let at = Instant::now();
-        decoder.decode(&packet[..size], frame, &mut out).expect("decode");
+        decoder.decode(&packet[..size], &mut out).expect("decode");
         decode.push(at.elapsed().as_secs_f64() * 1e6);
     }
     println!(
-        "| {name} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} |",
+        "| {name} ({}) | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} |",
+        call_codec::BACKEND,
         percentile(&encode, 50.0),
         percentile(&encode, 95.0),
         percentile(&decode, 50.0),
