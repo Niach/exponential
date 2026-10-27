@@ -1265,7 +1265,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. Unlinked unless sessionId (that session holds it) or link: true (your own session); filing never moves its status, a later link or start does. The result's sessionId = the session it linked to, null = none.`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. Unlinked unless sessionId (that session holds it) or link: true (your own session; link: false with sessionId is refused); filing never moves its status, a later link or start does. The result's sessionId = the session it linked to, null = none.`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
@@ -1306,6 +1306,9 @@ export function registerExponentialTools(
         // never rides the filer's PR into done.
         const own = await loadCallerSession()
         let rootId: string | null = null
+        if (sessionIdArg && link === false) {
+          throw new Error(`link: false contradicts sessionId; omit sessionId for an unlinked issue`)
+        }
         if (sessionIdArg) {
           const target = await loadSessionForUser(user.id, sessionIdArg)
           if (!access.full) assertTeamFullyGranted(access, target.teamId)
@@ -2792,7 +2795,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_unlink`,
     {
-      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its thread holds it). Errors when none held it.`,
+      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its thread holds it). Errors when none held it. An already-open PR keeps it: exponential_pr {op: "unlink"}.`,
       inputSchema: strictInput({
         id: z.string().min(1),
         sessionId: uuidString.optional(),

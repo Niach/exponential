@@ -2436,6 +2436,30 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(none.content[0].text).toContain(`not linked`)
   })
 
+  it(`issues unlink refuses another team's thread or another user's private thread`, async () => {
+    // Not a member of its team, or private and not the starter: not found.
+    sessionsCore.loadSessionForUser.mockRejectedValueOnce(
+      new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    )
+    const hidden = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(hidden.isError).toBe(true)
+    // A private session the caller did not start: the steer check refuses.
+    sessionsCore.loadSessionForUser.mockResolvedValue(
+      sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
+    )
+    sessionsCore.assertCanSteer.mockRejectedValueOnce(forbidden())
+    const privateThread = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(privateThread.isError).toBe(true)
+    // A thread of another team than the issue's.
+    sessionsCore.loadSessionForUser.mockResolvedValue(
+      sessionRow({ id: CHILD, rootId: ROOT, teamId: WS })
+    )
+    const otherTeam = await tool(`exponential_issues_unlink`)({ id: UUID, sessionId: CHILD })
+    expect(otherTeam.isError).toBe(true)
+    expect(otherTeam.content[0].text).toContain(`not in this session's team`)
+    expect(sessionsCore.unlinkIssue).not.toHaveBeenCalled()
+  })
+
   it(`needs a sessionId without a session header`, async () => {
     const result = await tool(`exponential_sessions_link`)({ issueIds: [UUID] })
     expect(result.isError).toBe(true)
@@ -2503,6 +2527,18 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
       sessionId: CHILD,
     })
     expect(result.isError).toBe(true)
+    expect(caller.issues.create).not.toHaveBeenCalled()
+  })
+
+  it(`refuses link: false with a sessionId, before filing`, async () => {
+    const result = await tool(`exponential_issues_create`)({
+      boardId: PROJ,
+      title: `Follow-up`,
+      sessionId: CHILD,
+      link: false,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`link: false`)
     expect(caller.issues.create).not.toHaveBeenCalled()
   })
 
