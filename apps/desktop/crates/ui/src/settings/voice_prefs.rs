@@ -266,6 +266,14 @@ pub(crate) fn voice_rows(
         let status = if here && settings.push_to_talk { crate::push_to_talk::status(cx) } else { Default::default() };
         let shortcut_label = status.trigger().map(str::to_string).unwrap_or_else(|| shortcut_label(&settings.ptt_shortcut));
         let reason = status.reason().map(|reason| SharedString::from(shortcut_reason(reason, &settings.ptt_shortcut)));
+        // #NEW-86: the Wake word row says whether its microphone is open
+        // here (no tray host may be there to show the dot).
+        let wake_detail = domain::voice::wake_detail(
+            here,
+            settings.wake_word,
+            crate::push_to_talk::wake_listening(cx),
+            crate::voice_tray::muted(cx),
+        );
         let shortcuts = if here {
             let (os, session) = crate::push_to_talk::platform();
             shortcut_options(os, session).into_iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect()
@@ -297,7 +305,7 @@ pub(crate) fn voice_rows(
                 switch_row(
                     "settings-voice-wake-word",
                     &copy.wake_word,
-                    None,
+                    wake_detail.map(SharedString::from),
                     settings.wake_word,
                     ready,
                     toggle(Rc::new(|on| VoiceUpdate { wake_word: Some(on), ..Default::default() })),
@@ -354,6 +362,9 @@ pub struct VoicePrefsPane {
     /// #NEW-56: a too-short wake phrase, never sent: its line shows under
     /// the field until the next edit (`wakePhraseError`).
     wake_phrase_invalid: Option<SharedString>,
+    /// #NEW-86: the wake word's microphone and Mute as last drawn (the Wake
+    /// word row's detail); push to talk notifies far more often than that.
+    wake_drawn: (bool, bool),
 }
 
 /// Which one-line input (`VoicePrefsPane::inputs` index).
@@ -404,6 +415,13 @@ impl VoicePrefsPane {
         if let Some(speaker) = crate::speak_replies::entity(cx) {
             cx.observe(&speaker, |this: &mut Self, _, cx| this.on_speaker(cx)).detach();
         }
+        // #NEW-86: the Wake word row's detail follows the microphone and Mute.
+        if let Some(push_to_talk) = crate::push_to_talk::entity(cx) {
+            cx.observe(&push_to_talk, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
+        }
+        if let Some(tray) = crate::voice_tray::entity(cx) {
+            cx.observe(&tray, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
+        }
         Self {
             load: Load::Idle,
             generation: 0,
@@ -414,6 +432,15 @@ impl VoicePrefsPane {
             in_flight: 0,
             seen: crate::speak_replies::settings(cx),
             wake_phrase_invalid: None,
+            wake_drawn: (crate::push_to_talk::wake_listening(cx), crate::voice_tray::muted(cx)),
+        }
+    }
+
+    fn on_wake(&mut self, cx: &mut gpui::Context<Self>) {
+        let now = (crate::push_to_talk::wake_listening(cx), crate::voice_tray::muted(cx));
+        if now != self.wake_drawn {
+            self.wake_drawn = now;
+            cx.notify();
         }
     }
 

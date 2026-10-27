@@ -302,6 +302,19 @@ pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, muted: bool
     Some(if wake_listening && !muted { TrayIcon::Listening } else { TrayIcon::App })
 }
 
+/// #NEW-86: the IDE's Wake word row detail on the voice device itself
+/// (`wakeDetail`): Microphone muted, Listening while the wake word holds the
+/// microphone, else None. A tray host is not always there to show it.
+pub fn wake_detail(here: bool, wake_word: bool, wake_listening: bool, muted: bool) -> Option<String> {
+    if !here || !wake_word {
+        return None;
+    }
+    if muted {
+        return Some(VOICE.ptt_copy.overlay_muted.clone());
+    }
+    wake_listening.then(|| VOICE.ptt_copy.overlay_listening.clone())
+}
+
 /// #NEW-68: one tray menu entry's identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1358,6 +1371,20 @@ mod tests {
             );
             let expected: Option<TrayIcon> = serde_json::from_value(case["icon"].clone()).unwrap();
             assert_eq!(icon, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn wake_detail_matches_the_fixture() {
+        for case in fixture()["wakeDetailCases"].as_array().unwrap() {
+            let context = &case["context"];
+            let detail = wake_detail(
+                context["here"].as_bool().unwrap(),
+                context["wakeWord"].as_bool().unwrap(),
+                context["wakeListening"].as_bool().unwrap(),
+                context["muted"].as_bool().unwrap(),
+            );
+            assert_eq!(detail.as_deref(), case["detail"].as_str(), "{}", case["name"]);
         }
     }
 

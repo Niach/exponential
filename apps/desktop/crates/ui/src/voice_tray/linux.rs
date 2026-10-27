@@ -8,7 +8,7 @@
 //! `com.canonical.dbusmenu` at `/MenuBar` (the fixture's rows: GetLayout,
 //! Event, AboutToShow; LayoutUpdated on every new menu). The item registers
 //! with `org.kde.StatusNotifierWatcher` and registers again whenever a
-//! watcher appears or its host changes (a panel restart); while no host
+//! watcher appears or a host registers or unregisters (a panel restart); while no host
 //! shows it (GNOME without the AppIndicator extension) the last window quits
 //! as before, and losing the host with no window open brings one back.
 //!
@@ -132,9 +132,11 @@ fn watch(tx: flume::Sender<Command>) -> Option<Watch> {
     }
 }
 
-/// The watcher's owner changing, and its host registering (#NEW-76: never
-/// every signal of the watcher, or another app's item would re-register ours).
-fn watch_rules() -> [zbus::Result<zbus::MatchRule<'static>>; 2] {
+/// The watcher's owner changing, and its host registering or (#NEW-86) going
+/// away, so a lost host is noticed without waiting for the watcher to leave
+/// (#NEW-76: never every signal of the watcher, or another app's item would
+/// re-register ours).
+fn watch_rules() -> [zbus::Result<zbus::MatchRule<'static>>; 3] {
     [
         zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
@@ -147,6 +149,11 @@ fn watch_rules() -> [zbus::Result<zbus::MatchRule<'static>>; 2] {
             .msg_type(zbus::message::Type::Signal)
             .interface(WATCHER)
             .and_then(|rule| rule.member("StatusNotifierHostRegistered"))
+            .map(|rule| rule.build()),
+        zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(WATCHER)
+            .and_then(|rule| rule.member("StatusNotifierHostUnregistered"))
             .map(|rule| rule.build()),
     ]
 }
@@ -564,6 +571,17 @@ mod tests {
         let (tx, rx) = flume::unbounded();
         let state = Arc::new(Mutex::new(MenuState { items, revision: 7 }));
         (DbusMenu { state, clicks: tx }, rx)
+    }
+
+    /// #NEW-76/#NEW-86: the watcher's owner and its host coming and going,
+    /// nothing else of the watcher's.
+    #[test]
+    fn the_watch_hears_the_host_come_and_go() {
+        let members: Vec<String> = watch_rules()
+            .into_iter()
+            .map(|rule| rule.unwrap().member().map(|member| member.to_string()).unwrap_or_default())
+            .collect();
+        assert_eq!(members, ["NameOwnerChanged", "StatusNotifierHostRegistered", "StatusNotifierHostUnregistered"]);
     }
 
     #[test]

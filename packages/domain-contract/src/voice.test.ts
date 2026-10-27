@@ -19,6 +19,7 @@ import {
   speechChunks,
   spokenText,
   trayHeader,
+  wakeDetail,
   trayIcon,
   trayMenu,
   utteranceInput,
@@ -89,6 +90,9 @@ describe(`voice.json`, () => {
   }
   for (const c of fixture.trayIconCases) {
     it(`trayIcon: ${c.name}`, () => expect(trayIcon(c.context)).toBe(c.icon as `app` | `listening` | null))
+  }
+  for (const c of fixture.wakeDetailCases) {
+    it(`wakeDetail: ${c.name}`, () => expect(wakeDetail(c.context)).toBe(c.detail))
   }
   for (const c of fixture.shortcutSupportCases) {
     it(`shortcutSupport ${c.os} ${c.session} ${c.shortcut} portal=${c.portal}`, () =>

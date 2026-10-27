@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-wake-word-follow-ups`,
+    date: `2026-10-27`,
+    title: `Wake word: a pause after each turn, Listening in Settings, Mute remembered`,
+    summary: `After a wake turn the wake word waits a moment before it listens again, so the end of your sentence can't start a second turn. Settings → Voice shows Listening next to Wake word on your voice device, and Mute microphone stays on after a restart.`,
+    body: `- **A short pause**: for a second and a half after a wake turn ends, the wake word ignores what it hears, so a trailing phrase or an echo doesn't open another turn.
+- **Listening in Settings**: on your voice device, the Wake word row in Settings → Voice reads Listening while the microphone listens for your phrase, or Microphone muted. This helps where no tray icon shows, such as GNOME without AppIndicator.
+- **Mute remembered**: Mute microphone in the tray stays on after you restart the app on that computer.
+- **Tray**: on Linux the app notices right away when the panel showing its tray icon goes away.`,
+  },
+  {
     id: `2026-10-27-merge-refusals-in-the-thread`,
     date: `2026-10-27`,
     title: `A refused merge goes to the thread`,

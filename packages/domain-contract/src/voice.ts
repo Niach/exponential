@@ -426,6 +426,15 @@ export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
   return context.wakeListening && !context.muted ? `listening` : `app`
 }
 
+/** #NEW-86: the IDE's Wake word row detail on the voice device itself
+ *  (desktop only): Microphone muted, Listening while the wake word holds the
+ *  microphone, else null. */
+export function wakeDetail(context: { here: boolean; wakeWord: boolean; wakeListening: boolean; muted: boolean }): string | null {
+  if (!context.here || !context.wakeWord) return null
+  if (context.muted) return fixture.pttCopy.overlayMuted
+  return context.wakeListening ? fixture.pttCopy.overlayListening : null
+}
+
 const GB = 1_000_000_000
 const MB = 1_000_000
 
