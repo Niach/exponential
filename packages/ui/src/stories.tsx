@@ -26,6 +26,8 @@ import {
   type StoryRing as StoryRingModel,
 } from "@exp/domain-contract/stories"
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
+import { AgentBrandMark } from "./agent-brand-mark"
+import { BoardGlyph } from "./board-glyph"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { Composer } from "./composer"
@@ -59,6 +61,32 @@ import { Textarea } from "./textarea"
 const CloseIcon = conceptIcon(`ui-close`)
 const PrevIcon = conceptIcon(`ui-chevron-left`)
 const NextIcon = conceptIcon(`ui-chevron-right`)
+
+/** A ring's avatar: an agent ring = the agent's mark (its icon + colour,
+ *  the chats bubble's), a root ring = the session's brand mark (its CLI, the
+ *  chat row's), both on the muted disc. */
+export function StoryAvatar({
+  agent,
+  cli = null,
+  className,
+}: {
+  agent?: { icon?: string | null; color?: string | null } | null
+  cli?: string | null
+  className?: string
+}) {
+  return (
+    <span
+      data-slot="story-avatar"
+      className={cn(`flex size-full items-center justify-center rounded-full bg-muted`, className)}
+    >
+      {agent ? (
+        <BoardGlyph board={agent} className="size-[45%]" />
+      ) : (
+        <AgentBrandMark agent={cli} className="size-[45%]" />
+      )}
+    </span>
+  )
+}
 
 /** The stroke class of one arc (the ask-dock tints: plan primary, question
  *  yellow). */
