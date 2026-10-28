@@ -13,6 +13,9 @@ export const WORK_SCREEN_INPUT_TOOLS: readonly string[] = fixture.inputTools
 
 /** One display as the device reports it in `doctor.displays`. */
 export interface WorkScreenDisplay {
+  /** #FEED-161: stable across reconnects and reorders (the stored value). */
+  id: string
+  /** 1-based position, for the label only. */
   number: number
   width: number
   height: number
@@ -20,8 +23,8 @@ export interface WorkScreenDisplay {
 }
 
 export interface WorkScreenOption {
-  /** The stored `launch_defaults.computerUseDisplay`; null = Auto. */
-  value: number | null
+  /** The stored `launch_defaults.computerUseDisplayId`; null = Auto. */
+  value: string | null
   label: string
 }
 
@@ -35,26 +38,24 @@ function displayLabel(number: number): string {
  * stored display the device no longer reports. */
 export function workScreenOptions(
   displays: readonly WorkScreenDisplay[] | null | undefined,
-  stored: number | null | undefined
+  stored: string | null | undefined
 ): WorkScreenOption[] {
   const out: WorkScreenOption[] = [{ value: null, label: WORK_SCREEN_COPY.auto }]
   for (const display of displays ?? []) {
     let label = `${displayLabel(display.number)}${SEP}${display.width} × ${display.height}`
     if (display.primary) label += `${SEP}${WORK_SCREEN_COPY.primary}`
-    out.push({ value: display.number, label })
+    out.push({ value: display.id, label })
   }
   if (stored != null && !out.some((option) => option.value === stored)) {
-    out.push({
-      value: stored,
-      label: `${displayLabel(stored)}${SEP}${WORK_SCREEN_COPY.notConnected}`,
-    })
+    out.push({ value: stored, label: WORK_SCREEN_COPY.notConnected })
   }
   return out
 }
 
 export interface WorkScreenState {
   count: number
-  /** 1-based; null = Auto. */
+  /** 1-based number of the display whose id is stored; 0 = that id is not
+   * connected; null = Auto. */
   picked: number | null
   /** 0-based displays holding a fullscreen window. */
   fullscreen: readonly number[]
@@ -118,10 +119,12 @@ export function workScreenGate(state: WorkScreenState, call: WorkScreenCall): Wo
   const work = workDisplays(state)
   if (call.tool === `wait`) return `allow`
   if (state.picked != null && work.length === 0) {
-    return refuse(`pickedGone`, { picked: state.picked }, work)
+    return refuse(`pickedGone`, {}, work)
   }
   if (work.length === 0) return refuse(`noWorkScreen`, {}, work)
   const input = WORK_SCREEN_INPUT_TOOLS.includes(call.tool)
+  // #FEED-161: Auto without a window list knows no display to be free.
+  if (state.windowsRead === false && state.picked == null) return refuse(`noWindowList`, {}, work)
   if (state.windowsRead === false && (input || call.tool === `list_windows`)) {
     return refuse(`noWindowList`, {}, work)
   }
