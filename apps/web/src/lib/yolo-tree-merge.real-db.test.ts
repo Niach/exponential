@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db, pool } from "@/db/connection"
 import { boards, devices, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
@@ -81,6 +81,9 @@ const readAll = (rootId: string) =>
 
 /** Fire-and-forget edges: give a skipped one the time a fired one takes. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 300))
+// A case that ends on its first merge may still have a trigger in flight; it
+// must land before the next case's mockReset, never as that case's call.
+afterEach(settle)
 
 /** A thread (running, busy) with a child (running, busy) that opened PR #7. */
 async function thread(yoloMode = true) {
