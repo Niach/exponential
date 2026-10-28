@@ -22,7 +22,9 @@ struct StoryViewer: View {
     let rings: [Stories.StoryRing]
     let startKey: String
     var card: (String) -> TreeMessageCard? = { _ in nil }
-    var avatar: (Stories.StoryRing) -> StoryAvatarMark
+    var avatar: (Stories.StoryRing) -> StoryRingAvatar
+    /// A specimen's frozen progress fill (stories.json `specimen.viewer`).
+    var fraction: Double?
     /// A story was SHOWN (once per story while the viewer is up).
     var onSeen: (Stories.Story) -> Void = { _ in }
     /// The card answer (`sessions.answer`); true = sent.
@@ -83,7 +85,7 @@ struct StoryViewer: View {
                     StoryProgress(
                         count: segments.count,
                         index: segments.firstIndex(of: position) ?? 0,
-                        fraction: current.story.autoAdvanceMs.map { elapsed / $0 } ?? 1
+                        fraction: fraction ?? current.story.autoAdvanceMs.map { elapsed / $0 } ?? 1
                     )
                     header(current.ring, current.story)
                     navigable(current.story)
@@ -110,7 +112,7 @@ struct StoryViewer: View {
         HStack(spacing: 10) {
             Button { onOpenSession(story) } label: {
                 HStack(spacing: 10) {
-                    StoryRing(stories: ring.stories, size: Self.avatarSize) { avatar(ring) }
+                    StoryRing(stories: ring.stories, size: Self.avatarSize) { StoryRingAvatarView(avatar: avatar(ring)) }
                     VStack(alignment: .leading, spacing: 1) {
                         Text(story.sessionName)
                             .font(.subheadline.weight(.semibold))

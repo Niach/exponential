@@ -26,7 +26,7 @@ struct StoryRingRow: View {
         // A VStack, not a Group: its tasks must run while the row is empty.
         VStack(spacing: 0) {
             if !rings.isEmpty {
-                StoryRingStrip(rings: rings, avatar: { model.avatar($0).mark }) { key in
+                StoryRingStrip(rings: rings, avatar: model.avatar) { key in
                     opened = StoryViewerTarget(key: key)
                 }
                 .padding(.top, 4)
@@ -46,7 +46,7 @@ struct StoryRingRow: View {
                 rings: rings,
                 startKey: target.key,
                 card: { model.card($0) },
-                avatar: { model.avatar($0).mark },
+                avatar: model.avatar,
                 onSeen: markSeen,
                 onAnswer: answer,
                 onOpenSession: { story in
@@ -102,7 +102,7 @@ private struct StoryViewerTarget: Identifiable {
 /// avatar, the title under it, waiting / unseen titles in full white.
 struct StoryRingStrip: View {
     let rings: [Stories.StoryRing]
-    let avatar: (Stories.StoryRing) -> StoryAvatarMark
+    let avatar: (Stories.StoryRing) -> StoryRingAvatar
     let onOpen: (String) -> Void
 
     var body: some View {
@@ -112,7 +112,7 @@ struct StoryRingStrip: View {
                 ForEach(rings) { ring in
                     Button { onOpen(ring.key) } label: {
                         VStack(spacing: 6) {
-                            StoryRing(stories: ring.stories, size: size) { avatar(ring) }
+                            StoryRing(stories: ring.stories, size: size) { StoryRingAvatarView(avatar: avatar(ring)) }
                             Text(ring.title)
                                 .font(.subheadline.weight(ring.unseen ? .medium : .regular))
                                 .foregroundStyle(.white.opacity(ring.unseen ? 1 : TextOpacity.secondary))
@@ -128,6 +128,38 @@ struct StoryRingStrip: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 2)
+        }
+    }
+}
+
+/// A ring's avatar (stories.json AVATARS): an agent ring = the agent's icon
+/// in its colour on the muted disc (the bubble's look); a chat ring = the
+/// chat row's BARE brand mark on the muted disc (chats.json LIST lead: no
+/// badge, no PR glyph).
+enum StoryRingAvatar: Equatable, Sendable {
+    /// The agent's icon name and colour (hex).
+    case agent(icon: String, color: String?)
+    /// The root's CLI (nil = claude, the chat row's rule).
+    case chat(cli: String?)
+}
+
+/// THE ring avatar view.
+struct StoryRingAvatarView: View {
+    let avatar: StoryRingAvatar
+
+    var body: some View {
+        switch avatar {
+        case let .agent(icon, color):
+            StoryAvatarMark(icon: icon, color: color.flatMap { Color(hex: $0) })
+        case let .chat(cli):
+            GeometryReader { proxy in
+                ZStack {
+                    Circle().fill(DesignTokens.Palette.muted)
+                    BeatingAgentMark(agent: cli, beating: false)
+                        .frame(width: proxy.size.width * 0.45, height: proxy.size.width * 0.45)
+                }
+            }
+            .accessibilityHidden(true)
         }
     }
 }

@@ -15,18 +15,14 @@ import SwiftUI
 /// stay keyed by message id for the viewer's body and footer.
 @MainActor @Observable
 final class StoriesModel {
-    struct Avatar: Equatable, Sendable {
-        let icon: String
-        /// The agent's colour (hex); nil = the session glyph, muted.
-        let color: String?
-    }
-
     struct Input: Equatable, Sendable {
         var sessions: [Stories.SessionInput] = []
         /// Session id → team id (the active team narrows the fold).
         var teams: [String: String] = [:]
         var agents: [Stories.AgentInput] = []
-        var agentAvatars: [String: Avatar] = [:]
+        var agentAvatars: [String: StoryRingAvatar] = [:]
+        /// Session id → its CLI (a chat ring's brand mark).
+        var clis: [String: String] = [:]
         var messages: [Stories.MessageInput] = []
         var reads: [Stories.ReadInput] = []
         var cards: [String: TreeMessageCard] = [:]
@@ -56,17 +52,18 @@ final class StoriesModel {
         input.cards[storyId]
     }
 
-    /// A ring's avatar: its agent's mark, else the chat's session glyph.
-    func avatar(_ ring: Stories.StoryRing) -> Avatar {
+    /// A ring's avatar: its agent's mark, else the chat row's bare brand
+    /// mark of the root's CLI.
+    func avatar(_ ring: Stories.StoryRing) -> StoryRingAvatar {
         if let agentId = ring.agentId, let avatar = input.agentAvatars[agentId] { return avatar }
         if ring.agentId != nil {
-            return Avatar(
+            return .agent(
                 icon: BoardTypeDisplay.iconName(for: SessionTree.ListCopy.agentDefaultIcon)
                     ?? SessionTree.ListCopy.agentDefaultIcon,
                 color: SessionTree.ListCopy.agentDefaultColor
             )
         }
-        return Avatar(icon: AppIcons.codingAssistant, color: nil)
+        return .chat(cli: ring.rootId.flatMap { input.clis[$0] })
     }
 
     /// (Re)binds to an account's pool; a no-op while already bound to it.
@@ -153,12 +150,16 @@ final class StoriesModel {
             agents: agents.map { Stories.AgentInput(id: $0.id, name: $0.name, assistant: false) },
             agentAvatars: Dictionary(
                 agents.map { agent in
-                    (agent.id, Avatar(
+                    (agent.id, StoryRingAvatar.agent(
                         icon: BoardTypeDisplay.iconName(for: agent.icon ?? SessionTree.ListCopy.agentDefaultIcon)
                             ?? SessionTree.ListCopy.agentDefaultIcon,
                         color: agent.color ?? SessionTree.ListCopy.agentDefaultColor
                     ))
                 },
+                uniquingKeysWith: { a, _ in a }
+            ),
+            clis: Dictionary(
+                sessions.compactMap { session in session.cli.map { (session.id, $0) } },
                 uniquingKeysWith: { a, _ in a }
             ),
             messages: messages,
@@ -171,12 +172,5 @@ final class StoriesModel {
             },
             cards: cards
         )
-    }
-}
-
-extension StoriesModel.Avatar {
-    /// THE ring avatar view.
-    @MainActor var mark: StoryAvatarMark {
-        StoryAvatarMark(icon: icon, color: color.flatMap { Color(hex: $0) })
     }
 }
