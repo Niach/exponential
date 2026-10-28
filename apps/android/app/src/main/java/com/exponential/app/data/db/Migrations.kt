@@ -526,6 +526,21 @@ val MIGRATION_101_102: Migration = object : Migration(101, 102) {
     }
 }
 
+/**
+ * v103 (S-3 stories): `session_reads.story_seen_at`, the greatest story
+ * createdAt the viewer was shown in the root's tree (stories.json SEEN).
+ * Only the session_reads shape refetches so synced rows re-arrive with it.
+ */
+val MIGRATION_102_103: Migration = object : Migration(102, 103) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `session_reads` ADD COLUMN `story_seen_at` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'session_reads'",
+        )
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

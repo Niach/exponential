@@ -195,10 +195,6 @@ class SessionTreeTest {
                 ),
             )
         }
-        is SessionTree.ThreadTab.Guide -> buildJsonObject {
-            put("kind", "guide")
-            put("dot", tab.dot)
-        }
     }
 
     private fun encode(row: SessionTree.ThreadRow): JsonObject = when (row) {

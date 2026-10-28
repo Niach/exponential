@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -47,18 +48,14 @@ import com.exponential.app.ui.session.SessionUsageSheet
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
-import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.GuideSectionKey
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WireTimestamps
-import com.exponential.app.domain.guideSectionPage
-import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
@@ -75,7 +72,6 @@ import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.IssueScreen
-import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.IssueSearchSheet
 import com.exponential.app.ui.markdown.LocalIssueRefs
@@ -84,14 +80,10 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.work.ChangesLoadState
 import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.ChangesViewModel
-import com.exponential.app.ui.work.GuideFace
-import com.exponential.app.ui.work.GuideStack
+import com.exponential.app.ui.work.MergePill
 import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
-import com.exponential.app.ui.work.StackMergeDialog
-import com.exponential.app.ui.work.GuideSectionDiff
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.PullRequestStack
 import com.exponential.app.ui.work.TitleCollapseState
@@ -141,7 +133,6 @@ fun ThreadScreen(
     val linkCandidates by viewModel.linkCandidates.collectAsStateWithLifecycle()
     val newIssueBoardId by viewModel.newIssueBoardId.collectAsStateWithLifecycle()
     val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
-    val guide by viewModel.guide.collectAsStateWithLifecycle()
     val teamPullRequests by viewModel.teamPullRequests.collectAsStateWithLifecycle()
     val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
     val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
@@ -299,13 +290,9 @@ fun ThreadScreen(
         IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target -> openIssueHere(target.issueId) }
     }
 
-    // N-12: THE Dock (dock.json): every card waiting in the tree (any
-    // session's plan with no decision, unanswered question) leaves the
-    // Conversation and floats as a DockCard over the composer; the asking
-    // session's name is the caption (the dispatcher's own = none).
-    val sessionName: (String) -> String? = remember(view) { AskDock.threadSessionNames(view?.tabs.orEmpty()) }
-    // The suggested-tasks rows with an open item ride the Dock too.
-    val dockedIds = remember(view, sessionName) { threadDockedIds(view?.rows.orEmpty(), sessionName) }
+    // N-12: THE Dock (dock.json): the suggested-tasks rows with an open item
+    // ride the Dock. S-3: a waiting plan or question stays inline (a story).
+    val dockedIds = remember(view) { threadDockedIds(view?.rows.orEmpty()) }
     val openThreadSession: (String) -> Unit = { id -> if (viewModel.isOtherRoot(id)) onOpenThread(id) else onOpenSession(id) }
     val suggestionActions = ThreadSuggestionActions(
         onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
@@ -381,10 +368,6 @@ fun ThreadScreen(
                         dock = { sessionDock ->
                             ThreadDock(
                                 rows = view?.rows.orEmpty(),
-                                autoOpenReady = !view?.rows.isNullOrEmpty(),
-                                sessionName = sessionName,
-                                onAnswer = onAnswer,
-                                onDecidePlan = onDecidePlan,
                                 sources = sessionDock.sources,
                                 sessionSheet = sessionDock.sheet,
                                 action = sessionDock.action,
@@ -428,16 +411,11 @@ fun ThreadScreen(
                 // NEW-69: an agent's conversation carries the telephone.
                 headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name) } },
                 onSurfaceReply = { text -> viewModel.send(text) },
-                guidePage = { padding ->
-                    ThreadGuidePage(
-                        guideRaw = guide,
-                        pullRequests = pullRequests,
-                        teamPullRequests = teamPullRequests,
-                        pullRequestIssues = pullRequestIssues,
-                        issues = syncedIssues,
-                        padding = padding,
-                        onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
-                    )
+                // S-3: the Merge rides the header, left of `…` (phones too).
+                headerAction = if (agent == null) {
+                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests) }
+                } else {
+                    null
                 },
                 onOpenSession = openThreadSession,
                 // S-3: an inter-session link PUSHES that session (another
@@ -604,7 +582,6 @@ fun ThreadContent(
     /** THE floating reply box, folded or expanded. */
     composer: @Composable (expanded: Boolean, onExpandedChange: (Boolean) -> Unit) -> Unit,
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
-    guidePage: @Composable (padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
     /** EXP-1343: a session chip's page = that session's raw work + its
      *  composer (the session view's body, no own header). */
@@ -633,6 +610,8 @@ fun ThreadContent(
     dockedIds: Set<String> = emptySet(),
     /** NEW-69: the agent chat's telephone in the header (null = none). */
     headerCall: (@Composable () -> Unit)? = null,
+    /** S-3: the header's action slot left of `…` (the thread's Merge). */
+    headerAction: (@Composable () -> Unit)? = null,
     /** S-3: an inter-session link pushes that session (null = inert). */
     onOpenXref: ((sessionId: String) -> Unit)? = null,
 ) {
@@ -683,6 +662,7 @@ fun ThreadContent(
                 menu = menu,
                 menuGroups = menuGroups,
                 call = headerCall,
+                action = headerAction,
                 // An agent's chat is the conversation only: no strip.
                 tabs = if (agent == null && view != null) {
                     {
@@ -796,7 +776,6 @@ fun ThreadContent(
                     }
                 }
                 is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
-                is SessionTree.ThreadTab.Guide -> guidePage(padding)
                 is SessionTree.ThreadTab.SessionTab -> sessionPage(tab.sessionId, padding)
                 SessionTree.ThreadTab.Add -> Unit
             }
@@ -844,16 +823,6 @@ internal fun threadMainPages(
     if (mainSessionId == null) return pages
     val main = SessionTree.ThreadTab.SessionTab(mainSessionId, name = "", markState = SessionTree.SessionState.Waiting)
     return pages.map { if (it == SessionTree.ThreadTab.Conversation) main else it }.distinctBy(::threadTabKey)
-}
-
-/** EXP-1307: the Guide `…` for [pr] — [SessionTree.guideMenuEntries] over
- *  its state and the viewer's membership. */
-@Composable
-private fun GuideMenu(pr: PullRequestEntity, member: Boolean, onClosePr: () -> Unit) {
-    ThreadGuideMenuButton(
-        entries = SessionTree.guideMenuEntries(state = pr.state, member = member),
-        onClosePr = onClosePr,
-    )
 }
 
 /** What THE menu acts on: the "+" (null) or an issue tab. */
@@ -922,84 +891,41 @@ private fun ThreadIssuePage(
     )
 }
 
-// ── Guide page ──────────────────────────────────────────────────────────────
+// ── the header Merge ────────────────────────────────────────────────────────
 
 /**
- * The root's Guide (`sessions.guide`) with the Merge capsule of its PR —
- * [SessionTree.guidePullRequest]: the newest OPEN one, else the newest merged
- * one (no capsule then). EXP-1306: when that PR sits in an open stack the
- * Guide leads with the `Stack` band over THE [StackRail] (top first, the PR
- * washed, a tap opens that PR's thread, a long-press merges through it) and
- * the capsule is THE `Merge stack` control (the issue screen's
+ * S-3 (session-thread.json): the thread's Merge in the header's action slot,
+ * left of `…` (the phones' bottom Merge capsule went with the Guide tab).
+ * It merges [SessionTree.guidePullRequest] while that PR is open; inside an
+ * open stack it is THE `Merge stack` control (the issue screen's
  * [PullRequestStack] rule): it targets the stack's top and lands the whole
- * chain with `stack = true`, since the server refuses a plain merge of any
- * open-stack member.
- * A section's Changes row opens its diff page. A refused merge toasts (the
- * server posts it into the root, whose agent takes it over, EXP-1391) and
- * offers Retry.
+ * chain with `stack = true`. A refused merge toasts (the server posts it into
+ * the root, EXP-1391) and offers Retry. Nothing while no PR is open.
  */
 @Composable
-private fun ThreadGuidePage(
-    guideRaw: String?,
+private fun ThreadHeaderMerge(
     pullRequests: List<PullRequestEntity>,
     teamPullRequests: List<PullRequestEntity>,
-    pullRequestIssues: List<PullRequestIssueEntity>,
-    issues: List<IssueEntity>,
-    padding: PaddingValues,
-    onOpenThread: (rootSessionId: String) -> Unit,
 ) {
-    val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
-    val newest = SessionTree.guidePullRequest(pullRequests)
+    val newest = SessionTree.guidePullRequest(pullRequests) ?: return
+    if (newest.state != DomainContract.prStateOpen) return
     val stackPool = remember(pullRequests, teamPullRequests) {
         (teamPullRequests + pullRequests).distinctBy { it.id }
     }
-    val stack = remember(newest, stackPool) { newest?.let { PullRequestStack.stackConfirm(it, stackPool) } }
-    val stackView = remember(newest, stackPool, pullRequestIssues, issues) {
-        newest?.let { PullRequestStack.stackView(it, stackPool, pullRequestIssues, issues) }
-    }
-    // The rail's long-press: Merge through that member, its ONE confirm first.
-    // The member stays picked after the confirm so its merge VM (and refusal
-    // toast) outlives the dialog.
-    var throughId by remember { mutableStateOf<String?>(null) }
-    var throughConfirmOpen by remember { mutableStateOf(false) }
-    val throughPr = throughId?.let { id -> stackPool.firstOrNull { it.id == id } }
-    val throughVm: ChangesViewModel? = throughPr?.let { row ->
-        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
-    }
-    val throughError by (throughVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
-        .collectAsStateWithLifecycle()
-    val guideStack = stackView?.let { view ->
-        GuideStack(
-            view = view,
-            onOpen = { row -> row.rootSessionId?.let(onOpenThread) },
-            onMergeThrough = { row ->
-                throughId = row.pullRequestId
-                throughConfirmOpen = true
-            },
-        )
-    }
+    val stack = remember(newest, stackPool) { PullRequestStack.stackConfirm(newest, stackPool) }
     val pr = stack?.throughId?.let { id -> stackPool.firstOrNull { it.id == id } } ?: newest
-    val changesVm: ChangesViewModel? = pr?.let { row ->
-        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
+    val changesVm = hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${pr.id}") { it.create(pr.id) }
+    val merging by changesVm.merging.collectAsStateWithLifecycle()
+    val actionError by changesVm.actionError.collectAsStateWithLifecycle()
+    val linkedCount by changesVm.linkedIssueCount.collectAsStateWithLifecycle()
+    val toaster = LocalToaster.current
+    LaunchedEffect(actionError) {
+        val message = actionError ?: return@LaunchedEffect
+        toaster.failedAction("merge", "the PR", message, retry = changesVm::retryMerge)
     }
-    // EXP-1303: the Guide counts the THREAD's PR files (web/iOS parity); only
-    // the merge goes through the stack's top.
-    val filesVm: ChangesViewModel? = if (newest != null && newest.id != pr?.id) {
-        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${newest.id}") { it.create(newest.id) }
-    } else {
-        changesVm
-    }
-    val load by (filesVm?.load ?: remember { kotlinx.coroutines.flow.MutableStateFlow<ChangesLoadState?>(null) })
-        .collectAsStateWithLifecycle()
-    val merging by (changesVm?.merging ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
-        .collectAsStateWithLifecycle()
-    val actionError by (changesVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
-        .collectAsStateWithLifecycle()
-    val linkedCount by (changesVm?.linkedIssueCount ?: remember { kotlinx.coroutines.flow.MutableStateFlow(0) })
-        .collectAsStateWithLifecycle()
-    val files = remember(load) { (load as? ChangesLoadState.Loaded)?.files?.map { it.toDiffFile() } }
-    val merge = if (changesVm != null && pr.state == DomainContract.prStateOpen) {
-        ChangesMergeControl(
+    Spacer(Modifier.width(8.dp))
+    MergePill(
+        merge = ChangesMergeControl(
             label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
             loading = merging,
             error = actionError,
@@ -1011,69 +937,7 @@ private fun ThreadGuidePage(
             onConfirm = { changesVm.mergePr() },
             stackConfirm = stack,
             onMergeStack = { changesVm.mergePr(stack = true) },
-        )
-    } else {
-        null
-    }
-    val toaster = LocalToaster.current
-    LaunchedEffect(throughError) {
-        val message = throughError ?: return@LaunchedEffect
-        // The top member's VM IS the capsule's: its refusal toasts below.
-        val vm = throughVm ?: return@LaunchedEffect
-        if (vm !== changesVm) toaster.failedAction("merge", "the stack", message, retry = vm::retryMerge)
-    }
-    if (throughConfirmOpen && newest != null && throughPr != null && throughVm != null) {
-        PullRequestStack.stackConfirm(newest, stackPool, through = throughPr)?.let { confirm ->
-            StackMergeDialog(
-                confirm = confirm,
-                onConfirm = { throughVm.mergePr(stack = true) },
-                onDismiss = { throughConfirmOpen = false },
-            )
-        }
-    }
-    LaunchedEffect(actionError) {
-        val message = actionError ?: return@LaunchedEffect
-        val vm = changesVm ?: return@LaunchedEffect
-        toaster.failedAction("merge", "the PR", message, retry = vm::retryMerge)
-    }
-    var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
-    val section = sectionName?.let(::parseSectionKey)
-    if (section != null) {
-        GuideSectionDiff(
-            padding = padding,
-            page = remember(groups, files, section) { guideSectionPage(groups, files, section, numbered = true) },
-            load = load,
-            merge = merge,
-            onBack = { sectionName = null },
-            onRetry = filesVm?.let { vm -> vm::refresh },
-        )
-    } else {
-        GuideFace(
-            padding = padding,
-            groups = groups,
-            files = files,
-            numbered = true,
-            stack = guideStack,
-            merge = merge,
-            onOpenSection = if (filesVm != null) {
-                { key: GuideSectionKey -> sectionName = sectionKeyName(key) }
-            } else {
-                null
-            },
-        )
-    }
-}
-
-private fun sectionKeyName(key: GuideSectionKey): String = when (key) {
-    is GuideSectionKey.Numbered -> key.index.toString()
-    GuideSectionKey.Lead -> "lead"
-    GuideSectionKey.Other -> "other"
-    GuideSectionKey.All -> "all"
-}
-
-private fun parseSectionKey(name: String): GuideSectionKey? = when (name) {
-    "lead" -> GuideSectionKey.Lead
-    "other" -> GuideSectionKey.Other
-    "all" -> GuideSectionKey.All
-    else -> name.toIntOrNull()?.let { GuideSectionKey.Numbered(it) }
+        ),
+        modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE),
+    )
 }

@@ -42,12 +42,12 @@ class Migration101To102Test {
         createVersion101()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_101_102)
+            .addMigrations(MIGRATION_101_102, MIGRATION_102_103)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(102, sql.version)
+            assertEquals(103, sql.version)
 
             val reads = db.sessionReadDao()
             val read = runBlocking { reads.observeAll().first() }.single()
@@ -94,7 +94,7 @@ class Migration101To102Test {
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             for (statement in schema) {
                 val reads = statement.startsWith("CREATE TABLE `session_reads`")
-                val v100 = if (reads) statement.replace(Regex(""",\s*`archived_at` TEXT"""), "") else statement
+                val v100 = if (reads) statement.replace(Regex(""",\s*`(archived_at|story_seen_at)` TEXT"""), "") else statement
                 if (reads) assertTrue(!v100.contains("archived_at"))
                 db.execSQL(v100)
             }
