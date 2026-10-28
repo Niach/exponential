@@ -4,6 +4,7 @@
 
 import fixture from "../fixtures/voice.json" with { type: "json" }
 import screenMemoryFixture from "../fixtures/screen-memory.json" with { type: "json" }
+import meetingFixture from "../fixtures/meeting.json" with { type: "json" }
 
 export const VOICE_COPY = fixture.copy
 export const VOICE_TEST_IDS = fixture.testIds
@@ -50,11 +51,14 @@ export interface VoiceContext {
   voices: string[]
   /** When the watcher armed; older rows are a backfill. */
   armedAt: string
+  /** #NEW-57: a meeting runs on the voice device (nothing is spoken). */
+  meeting?: boolean
 }
 
 /** Whether a synced message row is read aloud. */
 export function shouldSpeak(message: VoiceMessageLike, context: VoiceContext): boolean {
   if (!context.speakReplies || !context.agentSessionId || !context.isVoiceDevice) return false
+  if (context.meeting) return false
   if (!context.voices.includes(context.language)) return false
   if (message.authorKind !== `agent`) return false
   if (message.card) return false
@@ -298,16 +302,20 @@ export interface VoiceSwitches {
   speakReplies: boolean
   pushToTalk: boolean
   wakeWord: boolean
+  /** #NEW-57 (meeting.json): the running meeting, null = none. */
+  meetingStartedAt?: string | null
 }
 
 /** Apply a change; choosing None for the device or the agent clears every
- *  switch, so picking again never turns listening or speaking on. */
+ *  switch, so picking again never turns listening or speaking on; #NEW-57:
+ *  and stops a running meeting. */
 export function clearOnNone<T extends VoiceSwitches>(before: T, change: Partial<T>): T {
   const after = { ...before, ...change }
   if (after.voiceDeviceId === null || after.agentId === null) {
     after.speakReplies = false
     after.pushToTalk = false
     after.wakeWord = false
+    if (`meetingStartedAt` in after) after.meetingStartedAt = null
   }
   return after
 }
@@ -377,6 +385,10 @@ export interface TrayContext {
   shortcutLabel?: string | null
   /** #NEW-58: the Screen memory switch (absent or not available = no row). */
   screenMemory?: ScreenMemoryContext
+  /** #NEW-57: the Meeting mode switch (absent or not available = no row). */
+  meeting?: { available: boolean; on: boolean; who: string }
+  /** #NEW-57: Pause listening (shown while a meeting runs or screen memory is on). */
+  pause?: { available: boolean; paused: boolean }
 }
 
 /** #NEW-58: the tray's Screen memory switch (device-local, kept). */
@@ -389,7 +401,7 @@ export interface ScreenMemoryContext {
   paused: boolean
 }
 
-export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `screenMemory` | `mute` | `settings` | `quit`
+export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `meeting` | `screenMemory` | `pause` | `mute` | `settings` | `quit`
 
 export type TrayItem =
   | { kind: `separator` }
@@ -418,7 +430,7 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     enabled: ready,
   })
   const menu: TrayItem[] = [{ kind: `action`, id: `open`, label: copy.trayOpen, enabled: true }]
-  if (context.callAvailable) {
+  if (context.callAvailable && !context.meeting?.on) {
     menu.push({ kind: `action`, id: `call`, label: copy.trayCall.replace(`{agent}`, agent), enabled: ready })
   }
   menu.push(
@@ -427,11 +439,20 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     check(`pushToTalk`, `${copy.pushToTalk} · ${shortcut}`, settings.pushToTalk),
     check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord)
   )
+  const meeting = context.meeting
+  if (meeting?.available) {
+    const words = meetingFixture.copy.meeting
+    menu.push(check(`meeting`, meeting.on ? `${words} · ${meeting.who}` : words, meeting.on))
+  }
   const screen = context.screenMemory
   if (screen?.available) {
     const words = screenMemoryFixture.copy
     const label = screen.on && screen.paused ? `${words.tray} · ${words.paused}` : words.tray
     menu.push({ kind: `check`, id: `screenMemory`, label, checked: screen.on, enabled: true })
+  }
+  if (context.pause?.available) {
+    const label = `${meetingFixture.copy.pause} · ${meetingFixture.pause.label}`
+    menu.push({ kind: `check`, id: `pause`, label, checked: context.pause.paused, enabled: true })
   }
   if (context.micAvailable) {
     menu.push({ kind: `check`, id: `mute`, label: copy.trayMute, checked: context.muted, enabled: true })
@@ -449,6 +470,8 @@ export interface TrayIconContext {
   deviceIsVoiceDevice: boolean
   /** The speech worker reported the wake word's microphone open. */
   wakeListening: boolean
+  /** #NEW-57: a meeting runs here, its channels listen, not paused. */
+  meetingListening?: boolean
   muted: boolean
 }
 
@@ -456,7 +479,7 @@ export interface TrayIconContext {
  *  null = no tray on this device. */
 export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
   if (!context.deviceIsVoiceDevice) return null
-  return context.wakeListening && !context.muted ? `listening` : `app`
+  return (context.wakeListening && !context.muted) || context.meetingListening === true ? `listening` : `app`
 }
 
 /** #NEW-86: the IDE's Wake word row detail on the voice device itself
@@ -472,6 +495,8 @@ export function wakeDetail(context: { here: boolean; wakeWord: boolean; wakeList
 export interface RailVoiceContext extends TrayContext {
   /** The speech worker reported the wake word's microphone open. */
   wakeListening: boolean
+  /** #NEW-57: trayIcon's `meetingListening`. */
+  meetingListening?: boolean
   /** A tray host shows the tray (Linux: the StatusNotifierItem registered). */
   trayHosted: boolean
 }
@@ -487,13 +512,18 @@ export interface RailVoice {
 /** #NEW-97: the IDE rail's voice button while no tray host shows the tray;
  *  null = no button. */
 export function railVoice(settings: TraySettings, context: RailVoiceContext): RailVoice | null {
-  if (context.trayHosted || !clearOnNone(settings, {}).wakeWord) return null
+  const meeting = context.meeting?.available && context.meeting.on ? context.meeting : null
+  if (context.trayHosted || !(clearOnNone(settings, {}).wakeWord || meeting)) return null
   const tray = trayMenu(settings, context)
   if (tray === null) return null
   const phrase = settings.wakePhrase.trim() || wakePhrasePlaceholder(context.agent ?? `…`)
   return {
     badge: trayIcon(context) === `listening`,
-    tooltip: context.muted ? fixture.pttCopy.overlayMuted : fixture.pttCopy.railListening.replace(`{phrase}`, phrase),
+    tooltip: meeting
+      ? `${meetingFixture.copy.meeting} · ${meeting.who}`
+      : context.muted
+        ? fixture.pttCopy.overlayMuted
+        : fixture.pttCopy.railListening.replace(`{phrase}`, phrase),
     menu: tray.filter((item) => item.kind !== `separator` && item.id !== `open` && item.id !== `quit`),
   }
 }

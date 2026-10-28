@@ -275,6 +275,8 @@ export interface DomainContract {
     payloadMaxBytes: number
     retentionDays: number
   }
+  /** NEW-57: meeting transcript retention, server (`messages.expires_at`) and the voice device's SQLite. */
+  meeting: { retentionDays: number; localRetentionDays: number }
   /** EXP-1291: `sessions.send`'s caps — parity-locked with @exp/db-schema/domain. */
   sessionsSend: {
     textMax: number

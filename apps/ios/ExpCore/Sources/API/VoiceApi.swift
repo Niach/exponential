@@ -30,7 +30,26 @@ public final class VoiceApi: Sendable {
             input: StartCallInput(agentId: agentId, platform: VoiceCall.Platform.phone.rawValue)
         )
     }
+
+    /// #NEW-57: starts meeting mode after THE consent dialog's Start (the
+    /// server refuses without a voice device and an agent). The caller sets
+    /// `meetingStartedAt` optimistically; the next `voice.get` carries the
+    /// server's time.
+    public func startMeeting(accountId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "voice.startMeeting", input: StartMeetingInput(consent: true))
+    }
+
+    /// #NEW-57: stops meeting mode at once.
+    public func stopMeeting(accountId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "voice.stopMeeting", input: EmptyInput())
+    }
 }
+
+private struct StartMeetingInput: Encodable {
+    let consent: Bool
+}
+
+private struct EmptyInput: Encodable {}
 
 private struct StartCallInput: Encodable {
     let agentId: String

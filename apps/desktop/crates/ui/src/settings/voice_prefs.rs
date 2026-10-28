@@ -29,7 +29,10 @@ use domain::voice::{
     VoiceOption, VoiceSettings, VOICE,
 };
 
+use domain::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudioCapability, MEETING};
+
 use crate::controls::glass_input;
+use crate::picker::{Picker, PickerItem};
 use crate::queries;
 use crate::surface::{glass_group_rows, glass_input_row, glass_picker_row, glass_toggle_row, picker_value_label};
 
@@ -163,6 +166,59 @@ pub(crate) struct VoiceInputs {
     pub voice_transcript: AnyElement,
 }
 
+/// #NEW-57: the meeting rows' inputs (`meeting.json` UI).
+pub(crate) struct MeetingRows {
+    /// The voice device's capability (`doctor.desktopAudio`).
+    pub capability: DesktopAudioCapability,
+    /// The Apps row's control ([`apps_control`]).
+    pub apps: AnyElement,
+    /// The Meeting mode toggle: on = THE consent dialog, off = stop at once.
+    /// None = inert (the styleguide twin).
+    pub on_meeting: Option<Rc<dyn Fn(bool, &mut App)>>,
+}
+
+/// #NEW-57: the Apps row's multi picker over `appOptions(live, stored)`;
+/// `on_change` None = the trigger alone (the styleguide twin).
+pub(crate) fn apps_control(
+    settings: &VoiceSettings,
+    live: &[AudioApp],
+    on_change: Option<OnVoiceChange>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let stored = settings.desktop_audio_apps.clone();
+    let empty = stored.is_empty();
+    let trigger = Button::new("settings-voice-apps")
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_color(if empty { cx.theme().muted_foreground } else { cx.theme().foreground.opacity(0.7) })
+        .child(picker_value_label(apps_value(&stored)))
+        .child(crate::surface::picker_row_chevron(cx));
+    let Some(on_change) = on_change else { return trigger.into_any_element() };
+    let options = app_options(live, &stored);
+    let items: Vec<PickerItem<String>> = options.iter().map(|option| PickerItem::new(option.value.clone(), option.label.clone())).collect();
+    let value: Vec<String> = stored.iter().map(|app| app.id.clone()).collect();
+    Picker::multi(
+        items,
+        value,
+        trigger.into_any_element(),
+        Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+            let apps: Vec<AudioApp> = next
+                .iter()
+                .filter_map(|id| options.iter().find(|option| &option.value == id))
+                .map(|option| AudioApp { id: option.value.clone(), name: option.label.chars().take(MEETING.limits.app_name).collect() })
+                .take(MEETING.limits.apps)
+                .collect();
+            on_change(VoiceUpdate { desktop_audio_apps: Some(apps), ..Default::default() }, cx);
+        }),
+    )
+    .id("settings-voice-apps-picker")
+    .render(window, cx)
+}
+
 /// THE Voice rows (`voice.json`): group 1, then the tray group while a voice
 /// device is picked. `wake_input` = the wake phrase's input element (the
 /// pane's live field, or the twin's static one); `on_change` = None draws
@@ -172,9 +228,11 @@ pub(crate) fn voice_rows(
     devices: &[VoiceOption],
     agents: &[VoiceOption],
     inputs: VoiceInputs,
+    meeting: MeetingRows,
     on_change: Option<OnVoiceChange>,
     cx: &App,
 ) -> Vec<AnyElement> {
+    let MeetingRows { capability, apps: apps_control, on_meeting } = meeting;
     let VoiceInputs { wake_phrase: wake_input, voice_file, voice_transcript } = inputs;
     let copy = &VOICE.copy;
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
@@ -281,8 +339,8 @@ pub(crate) fn voice_rows(
             VOICE.shortcuts.iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect()
         };
         out.push(crate::surface::glass_section_header(tray_header(&device_name), None, cx).into_any_element());
-        out.push(
-            glass_group_rows(vec![
+        let tray_rows = {
+            let tray = vec![
                 switch_row(
                     "settings-voice-push-to-talk",
                     &copy.push_to_talk,
@@ -312,9 +370,46 @@ pub(crate) fn voice_rows(
                     cx,
                 ),
                 glass_input_row(copy.wake_phrase.clone(), wake_input, cx),
-            ])
-            .into_any_element(),
-        );
+            ];
+            tray
+        };
+        out.push(glass_group_rows(tray_rows).into_any_element());
+        // #NEW-57 (`meeting.json` UI): its OWN group under the tray group, no
+        // header: Meeting mode (its who on the second line while on),
+        // Desktop audio, and Apps while it picks apps the device can pick.
+        let meeting_rows = {
+            let mut tray: Vec<gpui::Div> = Vec::new();
+            let words = &MEETING.copy;
+            let meeting_on = settings.meeting();
+            let who = meeting_on.then(|| domain::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability));
+            tray.push(switch_row(
+                "settings-voice-meeting",
+                &words.meeting,
+                who.map(SharedString::from),
+                meeting_on,
+                ready,
+                on_meeting,
+                cx,
+            ));
+            tray.push(picker_row(
+                "settings-voice-desktop-audio",
+                &words.desktop_audio,
+                None,
+                SharedString::from(settings.desktop_audio.label()),
+                desktop_audio_options(capability).into_iter().map(|value| (Some(value.key().to_string()), value.label().to_string())).collect(),
+                Some(settings.desktop_audio.key().to_string()),
+                send(Rc::new(|value| VoiceUpdate {
+                    desktop_audio: value.as_deref().map(domain::meeting::DesktopAudio::from_key),
+                    ..Default::default()
+                })),
+                cx,
+            ));
+            if settings.desktop_audio.picks_apps() && desktop_audio_options(capability).contains(&settings.desktop_audio) {
+                tray.push(glass_picker_row(words.apps.clone(), None, apps_control, cx));
+            }
+            tray
+        };
+        out.push(glass_group_rows(meeting_rows).into_any_element());
     }
     out
 }
@@ -556,6 +651,12 @@ impl VoicePrefsPane {
         if let Some(value) = update.voice_transcript.clone() {
             next.voice_transcript = value.trim().to_string();
         }
+        if let Some(value) = update.desktop_audio {
+            next.desktop_audio = value;
+        }
+        if let Some(value) = update.desktop_audio_apps.clone() {
+            next.desktop_audio_apps = value;
+        }
         let next = next.clear_on_none();
         if next == previous {
             return;
@@ -675,12 +776,36 @@ impl Render for VoicePrefsPane {
                 let on_change: OnVoiceChange = Rc::new(move |update, cx: &mut App| {
                     entity.update(cx, |this, cx| this.apply(update, cx));
                 });
-                for row in voice_rows(&settings, &devices, &agents, inputs, Some(on_change), cx) {
+                let (capability, live) = crate::meeting_mode::desktop_audio_of(&settings, cx);
+                let apps = apps_control(&settings, &live, Some(on_change.clone()), window, cx);
+                let entity = cx.entity();
+                let on_meeting: Rc<dyn Fn(bool, &mut App)> = Rc::new(move |on, cx: &mut App| {
+                    if on {
+                        // Never writes by itself: THE consent dialog's Start does.
+                        entity.update(cx, |_, cx| cx.notify());
+                        crate::meeting_mode::prompt_consent(cx);
+                    } else {
+                        entity.update(cx, |this, cx| {
+                            if let Load::Ready(settings) = &mut this.load {
+                                settings.meeting_started_at = None;
+                            }
+                            cx.notify();
+                        });
+                        crate::meeting_mode::stop(cx);
+                    }
+                });
+                let meeting = MeetingRows { capability, apps, on_meeting: Some(on_meeting) };
+                let rows = voice_rows(&settings, &devices, &agents, inputs, meeting, Some(on_change), cx);
+                let count = rows.len();
+                for (index, row) in rows.into_iter().enumerate() {
+                    // The wake phrase closes the tray group (the meeting
+                    // group, #NEW-57, is last): its line goes under it.
+                    if index + 1 == count {
+                        if let Some(message) = self.wake_phrase_invalid.clone().filter(|_| settings.voice_device_id.is_some()) {
+                            body = body.child(crate::action_error::field_error(message, cx).px_1());
+                        }
+                    }
                     body = body.child(row);
-                }
-                // The wake phrase closes the last group: its line goes under it.
-                if let Some(message) = self.wake_phrase_invalid.clone().filter(|_| settings.voice_device_id.is_some()) {
-                    body = body.child(crate::action_error::field_error(message, cx).px_1());
                 }
             }
         }

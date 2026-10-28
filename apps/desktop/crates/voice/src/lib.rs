@@ -42,12 +42,18 @@
 //! #NEW-56: `Wake` keeps the microphone open for the wake word between
 //! Listens ([`wake`], no model of its own); a heard phrase silences the voice
 //! like a Listen and starts a turn the listener ends itself.
+//!
+//! NEW-57: `Meeting` hands the listener a meeting ([`meeting`]): the
+//! microphone and the desktop audio, segmented per channel. While one is
+//! asked for, a `Listen` is its flush trigger (`MeetingFlushNow`, then
+//! `Empty`) and a `Call` is refused (`ListenFailed { reason: meeting }`).
 
 pub mod builtin;
 pub mod capture;
 pub mod echo;
 pub mod listen;
 pub mod listener;
+pub mod meeting;
 pub mod runtime;
 pub mod sink;
 pub mod wake;
@@ -317,6 +323,23 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 shared.generation.fetch_add(1, Ordering::SeqCst);
                 silence(&shared);
             }
+            Request::Listen { id, .. } if listening.meeting().is_some() => {
+                // NEW-57: push to talk during a meeting is its flush
+                // trigger; the meeting keeps the microphone.
+                if let Some(meeting) = listening.meeting() {
+                    (shared.emit)(&Event::MeetingFlushNow { id: meeting });
+                }
+                (shared.emit)(&Event::Empty { id });
+            }
+            Request::Call { id, .. } if listening.meeting().is_some() => {
+                // NEW-57: a meeting owns the microphone (voice-call.json
+                // `failed.meeting`).
+                (shared.emit)(&Event::ListenFailed {
+                    id,
+                    reason: talk::ListenFailure::Meeting,
+                    detail: "a meeting holds the microphone".into(),
+                });
+            }
             Request::Listen { id, language } => {
                 // A call owns the microphone until Hangup: refused, nothing
                 // heard, its reply keeps playing.
@@ -360,6 +383,18 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             }
             Request::Wake { phrase, language } => {
                 let _ = listen.send(listener::Job::Wake { phrase, language });
+            }
+            Request::Meeting { id, language, phrase, you_label, selection, capability } => {
+                listening.begin_meeting(&id);
+                let selection = selection.selection(capability);
+                let _ = listen.send(listener::Job::Meeting { id, language, phrase, you_label, selection });
+            }
+            Request::MeetingStop { id, drain } => {
+                listening.end_meeting(&id);
+                let _ = listen.send(listener::Job::MeetingStop { id, drain });
+            }
+            Request::MeetingPause { id, paused } => {
+                let _ = listen.send(listener::Job::MeetingPause { id, paused });
             }
         }
     }

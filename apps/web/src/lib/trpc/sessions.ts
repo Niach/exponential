@@ -139,6 +139,13 @@ async function loadDeviceSession(
   return session
 }
 
+// NEW-57: `meeting: true` rides the tRPC send alone (meeting.json
+// RESIDENCY); the shared schema (and with it the MCP tool) never has it.
+const sessionsSendTrpcInputSchema = z.intersection(
+  sessionsSendInputSchema,
+  z.object({ meeting: z.literal(true).optional() })
+)
+
 const noOpTx = (database: typeof db) => database.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
 
 export const sessionsRouter = router({
@@ -146,11 +153,14 @@ export const sessionsRouter = router({
 
   /** THE entrypoint. → { sessionId, messageId, txid }. */
   send: authedProcedure
-    .input(sessionsSendInputSchema)
-    .mutation(({ ctx, input }): Promise<SessionsSendResult & { txid: number }> =>
+    .input(sessionsSendTrpcInputSchema)
+    .mutation(({ ctx, input: { meeting, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
       sendSession({
         userId: ctx.session.user.id,
         input,
+        // NEW-57: a meeting transcript batch (tRPC only: the MCP tool never
+        // carries it; `sendSession` refuses it over MCP anyway).
+        meeting: meeting === true,
         // EXP-1323: a session's own key stamps its messages (validated in
         // `sendSession`: only the session's starter or host counts). Over
         // tRPC the header only STAMPS `author_session_id` on a person's row;

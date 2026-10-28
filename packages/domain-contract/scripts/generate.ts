@@ -141,6 +141,11 @@ interface Contract {
     payloadMaxBytes: number
     retentionDays: number
   }
+  // NEW-57: meeting transcript retention (server, then the voice device).
+  meeting: {
+    retentionDays: number
+    localRetentionDays: number
+  }
   // EXP-1291: sessions.send's caps (one entrypoint ×4).
   sessionsSend: {
     textMax: number
@@ -925,6 +930,8 @@ pub const AGENT_TRIGGER_CATCH_UP_HOURS: i64 = ${contract.agentTrigger.catchUpHou
 pub const EVENT_NAME_MAX: usize = ${contract.events.nameMax};
 pub const EVENT_PAYLOAD_MAX_BYTES: usize = ${contract.events.payloadMaxBytes};
 pub const EVENT_RETENTION_DAYS: i64 = ${contract.events.retentionDays};
+pub const MEETING_RETENTION_DAYS: i64 = ${contract.meeting.retentionDays};
+pub const MEETING_LOCAL_RETENTION_DAYS: i64 = ${contract.meeting.localRetentionDays};
 pub const STEER_FEED_BYTE_CAP: usize = ${steerFeed.byteCap};
 pub const STEER_FEED_ITEM_CAP: usize = ${steerFeed.itemCap};
 pub const STEER_FEED_TRIM_TARGET_PERCENT: usize = ${steerFeed.trimTargetPercent};

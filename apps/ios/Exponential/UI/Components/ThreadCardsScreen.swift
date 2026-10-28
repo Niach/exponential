@@ -12,10 +12,17 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness", "work-screen"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent"]
 
     var body: some View {
-        if kind == "settings-voice" {
+        if kind == "voice-meeting" || kind == "voice-meeting-consent" {
+            // NEW-57: Settings → Voice with Meeting mode on (and THE consent
+            // prompt open).
+            VoiceMeetingSpecimens(consentOpen: kind == "voice-meeting-consent")
+                .preferredColorScheme(.dark)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
+        } else if kind == "settings-voice" {
             // NEW-71: THE Voice settings page over the seed's rows.
             VoiceSettingsSpecimen()
                 .preferredColorScheme(.dark)
@@ -875,5 +882,40 @@ private struct WorkScreenSpecimens: View {
             workScreenOptions: WorkScreen.options(displays: Self.doctor.displays, stored: display),
             onAction: { _ in }
         )
+    }
+}
+
+/// NEW-57: Settings → Voice, the tray group with Meeting mode on (Zoom and
+/// Slack picked on a per-app voice device), optionally with THE consent
+/// prompt open. THE real page over fixed inputs.
+private struct VoiceMeetingSpecimens: View {
+    let consentOpen: Bool
+
+    private static let stamp = "2026-10-28T10:00:00.000Z"
+    private static let apps = [Meeting.AudioApp(id: "us.zoom.xos", name: "Zoom"), Meeting.AudioApp(id: "com.tinyspeck.slackmacgap", name: "Slack")]
+    private static let doctor = #"{"items":[],"desktopAudio":{"capability":"per_app","apps":[{"id":"us.zoom.xos","name":"Zoom"},{"id":"com.tinyspeck.slackmacgap","name":"Slack"},{"id":"com.spotify.client","name":"Spotify"}]}}"#
+
+    var body: some View {
+        NavigationStack {
+            VoiceSettingsPage(accountId: "specimen", specimen: VoiceSettingsPage.Specimen(
+                settings: Voice.Settings(
+                    voiceDeviceId: "d-mint",
+                    agentId: "a-ops",
+                    speakReplies: true,
+                    pushToTalk: true,
+                    wakeWord: true,
+                    desktopAudio: .include,
+                    desktopAudioApps: Self.apps,
+                    meetingStartedAt: consentOpen ? nil : Self.stamp
+                ),
+                devices: [DeviceEntity(
+                    id: "d-mint", userId: "u", deviceId: "d-mint", label: "mint", kind: "desktop",
+                    doctor: Self.doctor, lastSeenAt: Self.stamp
+                )],
+                agents: [AgentDefinitionEntity(id: "a-ops", teamId: "t", name: "Ops", createdAt: Self.stamp, updatedAt: Self.stamp)],
+                teams: [TeamEntity(id: "t", name: "Acme", slug: "acme", iconUrl: nil, createdAt: Self.stamp, updatedAt: Self.stamp)],
+                consentOpen: consentOpen
+            ))
+        }
     }
 }

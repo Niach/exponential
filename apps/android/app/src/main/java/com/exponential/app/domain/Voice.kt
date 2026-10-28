@@ -4,6 +4,7 @@ import java.text.Collator
 import java.util.Locale
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -115,6 +116,12 @@ object Voice {
         @SerialName("language") val language: String = "en",
         @SerialName("voiceFile") val voiceFile: String = "",
         @SerialName("voiceTranscript") val voiceTranscript: String = "",
+        /** NEW-57 (`meeting.json`): `off` | `all` | `include` | `exclude`. */
+        @SerialName("desktopAudio") val desktopAudio: String = "off",
+        /** NEW-57: the apps `include` picks or `exclude` leaves out. */
+        @SerialName("desktopAudioApps") val desktopAudioApps: List<AudioApp> = emptyList(),
+        /** NEW-57: ISO; null = no meeting (written only by `voice.startMeeting` / `voice.stopMeeting`). */
+        @SerialName("meetingStartedAt") val meetingStartedAt: String? = null,
     )
 
     /** The row a member without one reads (`defaults`). */
@@ -138,6 +145,9 @@ object Voice {
         val language: String? = null,
         val voiceFile: String? = null,
         val voiceTranscript: String? = null,
+        /** NEW-57: the Desktop audio row's value (`Meeting.DesktopAudio.wire`). */
+        val desktopAudio: String? = null,
+        val desktopAudioApps: List<AudioApp>? = null,
     ) {
         /** The wire input: None travels as an explicit `null`; an untouched
          *  field writes no key. */
@@ -152,6 +162,13 @@ object Voice {
             language?.let { put("language", JsonPrimitive(it)) }
             voiceFile?.let { put("voiceFile", JsonPrimitive(it)) }
             voiceTranscript?.let { put("voiceTranscript", JsonPrimitive(it)) }
+            desktopAudio?.let { put("desktopAudio", JsonPrimitive(it)) }
+            desktopAudioApps?.let { apps ->
+                put(
+                    "desktopAudioApps",
+                    JsonArray(apps.map { buildJsonObject { put("id", JsonPrimitive(it.id)); put("name", JsonPrimitive(it.name)) } }),
+                )
+            }
         }
     }
 
@@ -171,9 +188,12 @@ object Voice {
             language = change.language ?: before.language,
             voiceFile = change.voiceFile ?: before.voiceFile,
             voiceTranscript = change.voiceTranscript ?: before.voiceTranscript,
+            desktopAudio = change.desktopAudio ?: before.desktopAudio,
+            desktopAudioApps = change.desktopAudioApps ?: before.desktopAudioApps,
         )
+        // NEW-57: None for the device or the agent also stops a meeting.
         if (after.voiceDeviceId == null || after.agentId == null) {
-            after = after.copy(speakReplies = false, pushToTalk = false, wakeWord = false)
+            after = after.copy(speakReplies = false, pushToTalk = false, wakeWord = false, meetingStartedAt = null)
         }
         return after
     }

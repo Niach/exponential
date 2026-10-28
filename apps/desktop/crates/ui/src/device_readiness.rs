@@ -32,7 +32,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, S
 
 use coding::device_doctor::{
     self, DeviceDoctor, DoctorAction, DoctorGroup, DoctorItem, DoctorState, KEY_COMPUTER_USE,
-    KEY_GIT, KEY_MICROPHONE,
+    KEY_DESKTOP_AUDIO, KEY_GIT, KEY_MICROPHONE,
 };
 use coding::CodingAgent;
 
@@ -166,6 +166,8 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
                     .collect()
             })
             .unwrap_or_default(),
+        // NEW-57: lenient too: an unreadable object reads as absent.
+        desktop_audio: value.get("desktopAudio").and_then(|audio| serde_json::from_value(audio.clone()).ok()),
     })
 }
 
@@ -176,18 +178,92 @@ pub(crate) struct VoiceRows {
     pub listening: bool,
     /// Speak replies runs here and the worker answered: the `speech` row.
     pub speech: Option<device_doctor::SpeechState>,
+    /// NEW-57: THIS device is the voice device: `doctor.desktopAudio`.
+    pub voice_device: bool,
+    /// NEW-57: ... with Desktop audio not off: the `desktop_audio` row.
+    pub desktop_audio: bool,
+    /// NEW-57: `doctor.desktopAudio.apps` names what plays right now
+    /// ([`reports_apps`]); else `[]`.
+    pub apps: bool,
+}
+
+/// meeting.json: the live app names ride the heartbeat only on the voice
+/// device, while Desktop audio picks apps (`include`/`exclude`) AND the box
+/// is shared with no team (teammates read a shared box's doctor).
+pub(crate) fn reports_apps(voice_device: bool, desktop_audio: domain::meeting::DesktopAudio, shared: bool) -> bool {
+    voice_device && desktop_audio.picks_apps() && !shared
+}
+
+/// THIS device's own row is shared with a team; unknown (not synced yet,
+/// no row) reads as shared, so nothing leaks before the row is known.
+fn own_device_shared(device_id: &str, cx: &gpui::App) -> bool {
+    let Some(store) = sync::Store::try_global(cx) else { return true };
+    let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return true };
+    let devices = store.collections().devices.read(cx);
+    devices
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id) && row.user_id.as_deref() == Some(me.as_str()))
+        .is_none_or(|row| !row.shared_team_ids.is_empty())
 }
 
 pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
-    VoiceRows { listening: crate::speak_replies::push_to_talk_here(cx), speech: crate::speak_replies::speech_state(cx) }
+    let settings = crate::speak_replies::settings(cx);
+    let device_id = cx
+        .try_global::<crate::session::AuthContext>()
+        .map(|auth| steer::persistent_device_id(&auth.data_dir));
+    let voice_device = device_id.as_deref().is_some_and(|id| settings.voice_device_id.as_deref() == Some(id));
+    let shared = device_id.as_deref().is_none_or(|id| own_device_shared(id, cx));
+    VoiceRows {
+        listening: crate::speak_replies::push_to_talk_here(cx),
+        speech: crate::speak_replies::speech_state(cx),
+        voice_device,
+        desktop_audio: voice_device && settings.desktop_audio != domain::meeting::DesktopAudio::Off,
+        apps: reports_apps(voice_device, settings.desktop_audio, shared),
+    }
 }
 
-/// Both voice rows; background executor only (the microphone probe).
+/// Every voice row; background executor only (the microphone probe, the
+/// desktop audio listing).
 pub(crate) fn add_voice_rows(doctor: &mut DeviceDoctor, rows: VoiceRows) {
     add_microphone_row(doctor, rows.listening);
     if let Some(speech) = rows.speech {
         device_doctor::add_speech(doctor, speech);
     }
+    add_desktop_audio(doctor, rows);
+}
+
+/// NEW-57 (`meeting.json` DOCTOR): on the voice device the doctor carries
+/// `desktopAudio {capability, apps}` (the apps playing now, every beat), and
+/// with Desktop audio not off the voice group's `desktop_audio` row. The
+/// mapping lives here because coding never depends on talk.
+pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
+    if !rows.voice_device {
+        return;
+    }
+    let capability = match talk::apps::capability() {
+        talk::apps::Capability::PerApp => domain::meeting::DesktopAudioCapability::PerApp,
+        talk::apps::Capability::System => domain::meeting::DesktopAudioCapability::System,
+        talk::apps::Capability::None => domain::meeting::DesktopAudioCapability::None,
+    };
+    let apps = if rows.apps {
+        talk::apps::live()
+            .into_iter()
+            .map(|app| domain::meeting::AudioApp { id: app.id, name: app.name })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    doctor.desktop_audio = Some(device_doctor::DoctorDesktopAudio { capability, apps });
+    if !rows.desktop_audio {
+        return;
+    }
+    let state = match capability {
+        _ if talk::apps::permission() == Some(false) => device_doctor::DesktopAudioState::NotGranted,
+        domain::meeting::DesktopAudioCapability::PerApp => device_doctor::DesktopAudioState::PerApp,
+        domain::meeting::DesktopAudioCapability::System => device_doctor::DesktopAudioState::System,
+        domain::meeting::DesktopAudioCapability::None => device_doctor::DesktopAudioState::None,
+    };
+    device_doctor::add_desktop_audio(doctor, state);
 }
 
 /// NEW-78: the IDE's `microphone` row, appended only while THIS device
@@ -679,6 +755,10 @@ pub(crate) fn privacy_pane_url(key: &str) -> Option<&'static str> {
         KEY_MICROPHONE => {
             Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
         }
+        // NEW-57: process taps' Audio Recording permission.
+        KEY_DESKTOP_AUDIO => {
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")
+        }
         _ => None,
     }
 }
@@ -729,6 +809,7 @@ pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Wi
         // first); it is never a row's action.
         DoctorAction::Import => {}
         DoctorAction::Grant if key == KEY_MICROPHONE => grant_microphone(cx),
+        DoctorAction::Grant if key == KEY_DESKTOP_AUDIO => grant_desktop_audio(cx),
         DoctorAction::Grant => {
             if let Some(url) = privacy_pane_url(key) {
                 open_external(url, cx);
@@ -761,6 +842,26 @@ fn grant_microphone(cx: &mut App) {
                 }
             });
         }
+    })
+    .detach();
+}
+
+/// NEW-57: the desktop audio row's Grant (macOS): ask for the Audio
+/// Recording permission process taps need, then a fresh doctor run;
+/// still not granted = System Settings → Privacy → Audio Recording.
+fn grant_desktop_audio(cx: &mut App) {
+    cx.spawn(async move |cx| {
+        let granted = cx.background_executor().spawn(async move { talk::apps::request_permission() }).await;
+        let _ = cx.update(|cx| {
+            if granted == Some(false) {
+                if let Some(url) = privacy_pane_url(KEY_DESKTOP_AUDIO) {
+                    open_external(url, cx);
+                }
+            }
+            if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
+                crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
+            }
+        });
     })
     .detach();
 }
@@ -1139,6 +1240,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// meeting.json: live app names reach the server only from the voice
+    /// device, while Desktop audio picks apps, on a box shared with no team.
+    #[test]
+    fn app_names_ride_the_heartbeat_only_unshared_and_picking() {
+        use domain::meeting::DesktopAudio;
+        assert!(reports_apps(true, DesktopAudio::Include, false));
+        assert!(reports_apps(true, DesktopAudio::Exclude, false));
+        assert!(!reports_apps(true, DesktopAudio::Include, true), "a shared box never names its apps");
+        assert!(!reports_apps(true, DesktopAudio::All, false), "Everything needs no names");
+        assert!(!reports_apps(true, DesktopAudio::Off, false));
+        assert!(!reports_apps(false, DesktopAudio::Include, false), "not the voice device");
     }
 
     #[test]

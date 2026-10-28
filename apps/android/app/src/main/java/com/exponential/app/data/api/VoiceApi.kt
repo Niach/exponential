@@ -15,6 +15,10 @@ private object VoiceEmptyInput
 @Serializable
 private data class StartCallInput(val agentId: String, val platform: String)
 
+/** NEW-57: `voice.startMeeting`'s input: the consent dialog's Start, always `true`. */
+@Serializable
+private data class StartMeetingInput(val consent: Boolean)
+
 /** NEW-69: the caller's relay ticket; [url] is dialled as-is. */
 @Serializable
 data class StartCallResult(
@@ -59,5 +63,28 @@ class VoiceApi @Inject constructor(private val trpc: TrpcClient) {
             input = StartCallInput(agentId = agentId, platform = platform),
             inputSerializer = StartCallInput.serializer(),
             outputSerializer = StartCallResult.serializer(),
+        )
+
+    /**
+     * NEW-57: THE consent dialog's Start (`meeting.json`); the server refuses
+     * without a voice device and an agent. Answers the row.
+     */
+    suspend fun startMeeting(accountId: String): Voice.Settings =
+        trpc.mutation(
+            accountId,
+            path = "voice.startMeeting",
+            input = StartMeetingInput(consent = true),
+            inputSerializer = StartMeetingInput.serializer(),
+            outputSerializer = Voice.Settings.serializer(),
+        )
+
+    /** NEW-57: Meeting mode off, at once (no dialog). Answers the row. */
+    suspend fun stopMeeting(accountId: String): Voice.Settings =
+        trpc.mutation(
+            accountId,
+            path = "voice.stopMeeting",
+            input = VoiceEmptyInput,
+            inputSerializer = VoiceEmptyInput.serializer(),
+            outputSerializer = Voice.Settings.serializer(),
         )
 }

@@ -136,6 +136,8 @@ pub(crate) fn unavailable(cx: &App) -> Option<String> {
         here,
         speech,
         busy: active(cx),
+        // #NEW-57: a meeting runs on the voice device.
+        meeting: crate::speak_replies::settings(cx).meeting(),
     })
 }
 
@@ -171,6 +173,12 @@ pub(crate) fn end(cx: &mut App) {
 /// no answer (the relay tells the caller).
 pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     let (_, _, here) = voice_device(cx);
+    // #NEW-57: a call reaching the device mid-meeting fails with
+    // `failed.meeting` (the caller's telephone should have been off).
+    if here && !active(cx) && crate::speak_replies::settings(cx).meeting() {
+        refuse_for_meeting(call_id, cx);
+        return;
+    }
     if !here || active(cx) || crate::speak_replies::speech_state(cx) != Some(coding::device_doctor::SpeechState::Ready) {
         log::info!("[voice] call {call_id}: not answered here");
         return;
@@ -208,6 +216,38 @@ pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
                 break;
             }
         }
+    })
+    .detach();
+}
+
+/// #NEW-57: join the call only to fail it as `meeting` (a `failed` flow
+/// event the caller steps), then hang up.
+fn refuse_for_meeting(call_id: String, cx: &mut App) {
+    log::info!("[voice] call {call_id}: refused, a meeting runs");
+    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+    let Some(runtime) = crate::steer_wiring::runtime(cx) else { return };
+    cx.spawn(async move |cx| {
+        let ticket = cx.background_executor().spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id) }).await;
+        let Ok(ticket) = ticket else { return };
+        let (tx, rx) = flume::unbounded::<steer::call_host::CallHostEvent>();
+        let host = steer::call_host::connect(&runtime, ticket.url, move |event| {
+            let _ = tx.send(event);
+        });
+        let started = std::time::Instant::now();
+        while started.elapsed() < ring_timeout() {
+            match rx.try_recv() {
+                Ok(steer::call_host::CallHostEvent::Ready) => {
+                    host.send_event(serde_json::json!({ "t": "failed", "code": "meeting" }));
+                    break;
+                }
+                Ok(steer::call_host::CallHostEvent::Ended { .. } | steer::call_host::CallHostEvent::Dropped(_))
+                | Err(flume::TryRecvError::Disconnected) => break,
+                Ok(_) | Err(flume::TryRecvError::Empty) => {
+                    cx.background_executor().timer(Duration::from_millis(50)).await;
+                }
+            }
+        }
+        host.end();
     })
     .detach();
 }
@@ -250,6 +290,7 @@ fn unavailable_ignoring_busy(cx: &App) -> Option<String> {
         here,
         speech: Some(CallSpeech::Ok),
         busy: false,
+        meeting: crate::speak_replies::settings(cx).meeting(),
     })
 }
 
@@ -407,6 +448,8 @@ impl VoiceCall {
                 let code = match reason {
                     talk::ListenFailure::NoMicrophone => "no_microphone",
                     talk::ListenFailure::NotGranted => "not_granted",
+                    // NEW-57: voice-call.json `failed.meeting`.
+                    talk::ListenFailure::Meeting => "meeting",
                     _ => "dropped",
                 };
                 self.fail(code, cx);

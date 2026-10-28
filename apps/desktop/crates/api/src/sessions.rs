@@ -87,6 +87,10 @@ pub struct SendInput {
     /// continues).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_id: Option<String>,
+    /// NEW-57: a meeting turn (`meeting.json` RESIDENCY): the server stamps
+    /// the message's `expires_at` (`contract.meeting.retentionDays`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meeting: Option<bool>,
 }
 
 impl SendInput {
@@ -100,6 +104,15 @@ impl SendInput {
             attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
             ..Self::default()
         }
+    }
+
+    /// NEW-57: a meeting turn: `meeting: true` marks it for the server's
+    /// retention (`meeting.json` RESIDENCY). `session_id` = the member's
+    /// conversation with the voice agent, or `team_id` + `agent_id` while
+    /// there is none yet (set by the caller on the returned input).
+    pub fn meeting(mut self) -> Self {
+        self.meeting = Some(true);
+        self
     }
 
     /// A child session under `parent_id` on `device_id`.
@@ -487,6 +500,18 @@ mod tests {
         let request = request(&captured);
         assert!(request.starts_with("POST /api/trpc/sessions.send HTTP/1.1"), "{request}");
         assert!(request.ends_with(r#"{"sessionId":"s-1","text":"Ship it"}"#), "{request}");
+    }
+
+    /// NEW-57: a meeting turn carries `meeting: true`; nothing else does.
+    #[test]
+    fn a_meeting_turn_says_so() {
+        let input = SendInput::message("s-1", "Meeting transcript", Vec::new()).meeting();
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"sessionId":"s-1","text":"Meeting transcript","meeting":true}"#
+        );
+        let plain = SendInput::message("s-1", "Hi", Vec::new());
+        assert!(!serde_json::to_string(&plain).unwrap().contains("meeting"));
     }
 
     /// EXP-1341: a named child carrying its assigned issues goes out as is.

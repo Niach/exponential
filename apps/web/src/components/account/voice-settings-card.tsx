@@ -8,6 +8,11 @@
 // and is disabled while the device or the agent is None, and choosing None
 // clears them (`clearOnNone`). Each change is an optimistic `voice.update`
 // that reverts with the failed-action toast (feedback-states.json).
+// #NEW-57 (meeting.json): after Wake phrase the tray group gains Meeting mode
+// (ON opens THE consent `Prompt`, Start = `voice.startMeeting`; OFF =
+// `voice.stopMeeting` at once; its detail = `who`), Desktop audio over the
+// voice device's `doctor.desktopAudio` capability and, while it picks or
+// leaves out apps, the Apps multi-picker over `appOptions(live, stored)`.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
@@ -26,6 +31,20 @@ import {
   wakePhrasePlaceholder,
   type VoiceAgentLike,
 } from "@exp/domain-contract/voice"
+import { contract } from "@exp/domain-contract"
+import {
+  appOptions,
+  consentBody,
+  DESKTOP_AUDIO_VALUES,
+  desktopAudioOptions,
+  MEETING_COPY,
+  MEETING_LIMITS,
+  MEETING_TEST_IDS,
+  who,
+  type AudioApp,
+  type DesktopAudio,
+  type DesktopAudioCapability,
+} from "@exp/domain-contract/meeting"
 import {
   devicePickerItems,
   FieldError,
@@ -34,6 +53,8 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   Picker,
+  PickerTrigger,
+  Prompt,
   type DevicePickerDevice,
 } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
@@ -50,7 +71,17 @@ export interface VoiceDeviceRow {
   name: string
   kind: string
   icon?: string | null
+  /** #NEW-57: the device doctor's `desktopAudio` (absent = `none`, `[]`). */
+  desktopAudio?: { capability: string; apps: readonly AudioApp[] } | null
 }
+
+/** #NEW-57: an unknown or absent capability reads as `none`. */
+function capabilityOf(device: VoiceDeviceRow | undefined): DesktopAudioCapability {
+  const capability = device?.desktopAudio?.capability
+  return capability === `per_app` || capability === `system` ? capability : `none`
+}
+
+const DESKTOP_AUDIO_LABELS = new Map(DESKTOP_AUDIO_VALUES.map((option) => [option.value, option.label] as const))
 
 /** The agent picker's row: `VoiceAgentLike` (the option builder's input). */
 export type VoiceAgentRow = VoiceAgentLike
@@ -80,12 +111,17 @@ export function VoiceSettingsCard({
   settings: initial,
   devices,
   agents,
+  consentOpen: initialConsentOpen = false,
 }: {
   settings: VoiceSettings
   devices: readonly VoiceDeviceRow[]
   agents: readonly VoiceAgentRow[]
+  /** The styleguide's open-dialog state (meeting-consent). */
+  consentOpen?: boolean
 }) {
   const [settings, setSettings] = useState<VoiceSettings>(initial)
+  // #NEW-57: THE consent dialog; turning Meeting mode on only opens it.
+  const [consentOpen, setConsentOpen] = useState(initialConsentOpen)
   const [text, setText] = useState<Record<TextField, string>>(() => textOf(initial))
   // #NEW-56: a too-short wake phrase is invalid input: never sent, its line
   // shows under the field once it is left, until the next edit.
@@ -119,6 +155,23 @@ export function VoiceSettingsCard({
   const deviceName = devices.find((device) => device.deviceId === settings.voiceDeviceId)?.name ?? VOICE_COPY.ellipsis
   const agentName = agents.find((agent) => agent.id === settings.agentId)?.name ?? VOICE_COPY.agent
   const switchesLive = settings.voiceDeviceId !== null && settings.agentId !== null
+  // #NEW-57: the voice device's capture capability and its playing apps.
+  const voiceDevice = devices.find((device) => device.deviceId === settings.voiceDeviceId)
+  const capability = capabilityOf(voiceDevice)
+  const liveApps = voiceDevice?.desktopAudio?.apps ?? []
+  const meetingOn = switchesLive && settings.meetingStartedAt !== null
+  const whoText = who(settings.desktopAudio, settings.desktopAudioApps, capability)
+  const desktopAudioItems = desktopAudioOptions(capability).map((value) => ({
+    value,
+    label: DESKTOP_AUDIO_LABELS.get(value) ?? value,
+  }))
+  // The Apps row: only while the stored value picks or leaves out apps AND
+  // the device can honour it (per_app offers include/exclude).
+  const showApps =
+    (settings.desktopAudio === `include` || settings.desktopAudio === `exclude`) &&
+    desktopAudioOptions(capability).includes(settings.desktopAudio)
+  const appItems = appOptions(liveApps, settings.desktopAudioApps)
+  const pickedApps = settings.desktopAudioApps.map((app) => app.name).join(`, `)
   // #NEW-73: every language carries its GPU note (#NEW-74), in the row and in the menu.
   const languageItems = VOICE_LANGUAGES.map((language) => ({
     value: language.value,
@@ -145,6 +198,32 @@ export function VoiceSettingsCard({
         if (seq === seqRef.current) setSettings((current) => keepText(before, current))
         failedAction(`save`, `the voice settings`, error)
       })
+  }
+
+  // #NEW-57: Start / Stop go through their own procedures (never `update`).
+  const meeting = (start: boolean) => {
+    const before = settings
+    setSettings((current) => ({
+      ...current,
+      meetingStartedAt: start ? (current.meetingStartedAt ?? new Date().toISOString()) : null,
+    }))
+    const seq = ++seqRef.current
+    const call = start
+      ? trpc.voice.startMeeting.mutate({ consent: true }, SKIP_ERROR_TOAST)
+      : trpc.voice.stopMeeting.mutate(undefined, SKIP_ERROR_TOAST)
+    return call
+      .then((stored) => {
+        if (seq === seqRef.current) setSettings((current) => keepText(stored, current))
+      })
+      .catch((error: unknown) => {
+        if (seq === seqRef.current) setSettings((current) => keepText(before, current))
+        failedAction(start ? `start` : `stop`, `meeting mode`, error)
+      })
+  }
+
+  const pickApps = (ids: string[]) => {
+    const byId = new Map(appItems.map((option) => [option.value, option.label] as const))
+    apply({ desktopAudioApps: ids.flatMap((id) => (byId.has(id) ? [{ id, name: byId.get(id)! }] : [])) })
   }
 
   const saveText = (field: TextField, value: string, left = false) => {
@@ -300,6 +379,68 @@ export function VoiceSettingsCard({
           <FieldError id={`${VOICE_TEST_IDS.wakePhrase}-error`} className="px-1">
             {wakePhraseInvalid}
           </FieldError>
+          {/* #NEW-57: the meeting rows, their own group under the tray group. */}
+          <GlassGroup>
+            <GlassToggleRow
+              id={MEETING_TEST_IDS.meeting}
+              label={MEETING_COPY.meeting}
+              description={meetingOn ? whoText : undefined}
+              checked={meetingOn}
+              onCheckedChange={(on) => {
+                if (on) setConsentOpen(true)
+                else void meeting(false)
+              }}
+              disabled={!switchesLive}
+            />
+            <Picker
+              mode="single"
+              triggerVariant="row"
+              width="md"
+              mobileTitle={MEETING_COPY.desktopAudio}
+              triggerLabel={DESKTOP_AUDIO_LABELS.get(settings.desktopAudio)}
+              data-testid={MEETING_TEST_IDS.desktopAudio}
+              value={settings.desktopAudio}
+              items={desktopAudioItems}
+              onChange={(desktopAudio) => apply({ desktopAudio: desktopAudio as DesktopAudio })}
+            />
+            {showApps && (
+              <Picker
+                mode="multi"
+                width="md"
+                mobileTitle={MEETING_COPY.apps}
+                data-testid={MEETING_TEST_IDS.apps}
+                value={settings.desktopAudioApps.map((app) => app.id)}
+                items={appItems}
+                max={MEETING_LIMITS.apps}
+                onChange={pickApps}
+                trigger={
+                  <PickerTrigger
+                    variant="row"
+                    label={MEETING_COPY.apps}
+                    value={pickedApps || MEETING_COPY.appsNone}
+                  />
+                }
+              />
+            )}
+          </GlassGroup>
+          <Prompt
+            open={consentOpen}
+            onOpenChange={setConsentOpen}
+            title={MEETING_COPY.consentTitle}
+            body={consentBody(whoText, agentName, contract.meeting.retentionDays)}
+            actions={[
+              { label: MEETING_COPY.cancel, role: `cancel` },
+              {
+                label: MEETING_COPY.start,
+                role: `primary`,
+                testId: MEETING_TEST_IDS.consentStart,
+                onSelect: async () => {
+                  await meeting(true)
+                  setConsentOpen(false)
+                },
+              },
+            ]}
+          />
         </>
       )}
     </div>
@@ -324,6 +465,7 @@ export function VoiceSettingsSection({ settings }: { settings: VoiceSettings }) 
           name: device.label,
           kind: device.kind,
           icon: device.icon,
+          desktopAudio: device.doctor?.desktopAudio ?? null,
         })),
     [deviceRows, userId]
   )

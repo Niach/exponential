@@ -1246,7 +1246,11 @@ impl RailView {
         let menu = |mut menu: gpui_component::menu::PopupMenu,
                     _window: &mut Window,
                     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
-            // Built on open from the tray's current rows.
+            // Built on open from the tray's current rows; the pointer menu
+            // widths of tokens.json `menu.pointer` (a long row truncates).
+            menu = menu
+                .min_w(px(theme::tokens::menu::pointer::MIN_WIDTH))
+                .max_w(px(theme::tokens::menu::pointer::MAX_WIDTH));
             let Some(rail) = crate::voice_tray::rail(cx) else { return menu };
             for item in rail.menu {
                 let row = match item {

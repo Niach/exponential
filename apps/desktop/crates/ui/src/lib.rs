@@ -135,6 +135,9 @@ mod oauth;
 mod onboarding;
 pub mod os_notifications;
 /// NEW-53: exponentialTalk, Speak replies (the assistant's replies read aloud).
+pub mod meeting;
+/// NEW-57: the consent dialog, start/stop and the pause hotkey.
+mod meeting_mode;
 pub mod speak_replies;
 pub mod voice_call;
 pub mod push_to_talk;

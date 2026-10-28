@@ -32,6 +32,8 @@ public enum VoiceCall {
             public static let preparing = "{device} is getting its voice ready"
             public static let noGpu = "{device} can't speak: no usable GPU"
             public static let busy = "{device} is in another call"
+            /// #NEW-57: a meeting runs on the voice device.
+            public static let meeting = "{device} is transcribing a meeting"
         }
 
         /// The toast a failed call ends with, by error code; an unknown code
@@ -44,6 +46,7 @@ public enum VoiceCall {
             "dropped": "The call dropped",
             "busy": "{device} is in another call",
             "unsupported": "This browser can't make calls",
+            "meeting": "{device} is transcribing a meeting",
         ]
 
         /// `call` for one agent (the telephone's label).
@@ -243,10 +246,12 @@ public enum VoiceCall {
         public var speech: Speech?
         /// A call already runs on the voice device.
         public var busy: Bool
+        /// #NEW-57: a meeting runs on the voice device (`meetingStartedAt` set).
+        public var meeting: Bool
 
         public init(
             platform: Platform, device: String?, speakReplies: Bool, online: Bool,
-            here: Bool, speech: Speech?, busy: Bool
+            here: Bool, speech: Speech?, busy: Bool, meeting: Bool = false
         ) {
             self.platform = platform
             self.device = device
@@ -255,6 +260,7 @@ public enum VoiceCall {
             self.here = here
             self.speech = speech
             self.busy = busy
+            self.meeting = meeting
         }
     }
 
@@ -277,6 +283,7 @@ public enum VoiceCall {
         guard input.device != nil else { return off(Copy.Reasons.noVoiceDevice) }
         if !input.speakReplies { return off(Copy.Reasons.speakOff) }
         if !input.online { return off(Copy.Reasons.offline) }
+        if input.meeting { return off(Copy.Reasons.meeting) }
         if input.platform == .desktop && !input.here { return off(Copy.Reasons.notHere) }
         if input.speech == nil || input.speech == .preparing { return off(Copy.Reasons.preparing) }
         if input.speech == .noGpu { return off(Copy.Reasons.noGpu) }

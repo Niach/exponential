@@ -137,6 +137,8 @@ pub mod issue_search;
 pub mod list_item;
 // NEW-8: messages are keyed through their conversation, fixture-locked ×4.
 pub mod message_conversation;
+/// NEW-57: meeting mode (`meeting.json`): settings rows, channels, flush, message.
+pub mod meeting;
 /// NEW-53: exponentialTalk voice settings + spoken-reply rules (`voice.json`).
 pub mod voice;
 pub mod voice_call;

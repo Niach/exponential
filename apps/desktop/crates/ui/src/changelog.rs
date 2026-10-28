@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-28-meeting-mode",
+    date: "2026-10-28",
+    title: "Meeting mode",
+    summary: "Your voice agent follows a meeting you start, with everyone's consent.",
+    body: r#"- **Meeting mode**: start it in Settings → Voice or the tray; after you confirm that everyone agrees, your voice device transcribes you and the apps you pick (Zoom, Slack…) on separate channels and hands the transcript to your voice agent in short batches.
+- **Nothing kept longer than needed**: audio is never stored, the transcript is deleted from the server after 7 days and from your device after 30.
+- **Pause listening**: Ctrl + Alt + P pauses the meeting and screen memory at once.
+- **Never forgotten on**: a meeting stops by itself after 4 hours and tells you so, and while it listens the tray icon carries the microphone dot."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_108: ChangelogEntry = ChangelogEntry {
     id: "2026-10-28-screen-memory",
     date: "2026-10-28",
     title: "Screen memory",

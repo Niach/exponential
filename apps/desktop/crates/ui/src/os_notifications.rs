@@ -692,6 +692,26 @@ pub(crate) fn raise_duplicate_agent(session_id: &str, detail: &str, cx: &mut App
     });
 }
 
+/// #NEW-57: a device-local alert that opens a Settings section (the meeting
+/// auto-stop): no inbox row behind it, so like the duplicate-agent toast it
+/// bypasses the gate and the per-type prefs but honours the per-machine
+/// switch.
+pub(crate) fn raise_settings(section: crate::settings::SettingsSection, title: &str, body: &str, cx: &mut App) {
+    if !CodingHub::global(cx).read(cx).settings.os_notifications {
+        return;
+    }
+    let Some(notifier) = cx.try_global::<OsNotifierGlobal>().map(|global| global.0.clone()) else {
+        return;
+    };
+    let tag = notifier.update(cx, |this, _| this.register_route(Route::Settings { section }));
+    cx.show_system_notification(SystemNotification {
+        tag,
+        title: title.to_string().into(),
+        body: body.to_string().into(),
+        actions: Vec::new(),
+    });
+}
+
 /// The duplicate toast's title (the body is the wire's own sentence).
 pub(crate) const DUPLICATE_AGENT_TITLE: &str = "Duplicate agent";
 

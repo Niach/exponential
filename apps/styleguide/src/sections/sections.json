@@ -17,7 +17,7 @@
       "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "device-attention", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options",
       "work-card", "thread-parts", "ask-dock", "dock-card", "plan-card", "script-card", "comment-call-card",
-      "team-agents-settings", "voice-call-overlay", "voice-call", "computer-use-banner", "voice-settings",
+      "team-agents-settings", "voice-call-overlay", "voice-call", "computer-use-banner", "voice-settings", "meeting-consent",
       "agent-home", "work-tabs-strip",
       "getting-started",
       "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "chat-selection"
@@ -73,6 +73,7 @@
     "voice-call": "NEW-55",
     "computer-use-banner": "EXP-1273",
     "voice-settings": "NEW-67",
+    "meeting-consent": "NEW-57",
     "feedback-states": "EXP-1275",
     "agent-home": "EXP-1293",
     "work-tabs-strip": "EXP-1255",

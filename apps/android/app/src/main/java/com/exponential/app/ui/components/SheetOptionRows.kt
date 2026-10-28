@@ -342,6 +342,8 @@ internal fun SwitchRow(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    /** NEW-57: the caption under the title (Meeting mode's who): smaller, muted, second line. */
+    description: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -361,14 +363,24 @@ internal fun SwitchRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
-            ),
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f).padding(end = if (description != null) 12.dp else 0.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
+                ),
+            )
+            if (description != null) {
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                    ),
+                )
+            }
+        }
         GlassSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }

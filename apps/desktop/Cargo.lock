@@ -8457,9 +8457,15 @@ dependencies = [
  "cpal",
  "log",
  "objc2 0.6.4",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
  "objc2-foundation 0.3.2",
+ "pipewire",
  "serde",
  "serde_json",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -9490,6 +9496,7 @@ dependencies = [
  "reqwest",
  "resvg 0.45.1",
  "ropey",
+ "rusqlite",
  "screen",
  "serde",
  "serde_json",

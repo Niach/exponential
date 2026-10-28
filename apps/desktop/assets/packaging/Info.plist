@@ -26,6 +26,8 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Exponential listens while you hold the push-to-talk key.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Exponential transcribes the apps you pick while a meeting runs.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

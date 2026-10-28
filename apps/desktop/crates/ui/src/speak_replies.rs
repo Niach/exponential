@@ -62,7 +62,8 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     let settings = settings.clone().clear_on_none();
     // NEW-74: the worker is prepared for every language; whether it speaks
     // is what it reports back (`voices`, empty without a usable GPU).
-    let listen = settings.push_to_talk || settings.wake_word;
+    // NEW-57: a meeting keeps the worker resident too.
+    let listen = settings.push_to_talk || settings.wake_word || settings.meeting();
     DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, listen, voice }
 }
 
@@ -299,6 +300,11 @@ pub fn install(cx: &mut App) {
                 if crate::voice_call::owns(&event, cx) {
                     crate::voice_call::on_worker_event(event, cx);
                     cx.refresh_windows();
+                    return;
+                }
+                // NEW-57: what a meeting heard goes to the meeting host.
+                if crate::meeting::is_meeting_event(&event) {
+                    crate::meeting::on_worker_event(event, cx);
                     return;
                 }
                 // #NEW-54: what the microphone heard goes to push to talk.
@@ -605,6 +611,8 @@ impl SpeakReplies {
             language: self.settings.language(),
             voices: &voices,
             armed_at: self.gate.armed_at(),
+            // #NEW-57: nothing is read aloud mid-meeting.
+            meeting: self.settings.meeting(),
         };
         // #NEW-79: a waiting proposal card is read as its question (the
         // confirm-strong read-back).
@@ -699,6 +707,9 @@ impl SpeakReplies {
             talk::Event::Ready { .. } => {
                 self.worker_ready = true;
                 crate::push_to_talk::worker_changed(true, cx);
+                // NEW-57: a new worker is handed the running meeting (it
+                // reads these settings: after this update).
+                cx.defer(crate::meeting::worker_ready);
             }
             talk::Event::Started { .. } => {}
             // #NEW-54: routed to push to talk before they get here.

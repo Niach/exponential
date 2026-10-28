@@ -21,6 +21,8 @@ pub struct CallReasons {
     pub preparing: String,
     pub no_gpu: String,
     pub busy: String,
+    /// #NEW-57: a meeting runs on the voice device.
+    pub meeting: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -144,6 +146,8 @@ pub struct CallAvailabilityInput<'a> {
     pub speech: Option<CallSpeech>,
     /// A call already runs on the voice device.
     pub busy: bool,
+    /// #NEW-57: a meeting runs on the voice device.
+    pub meeting: bool,
 }
 
 /// None = the telephone is enabled; Some = disabled, with the reason.
@@ -158,6 +162,9 @@ pub fn call_unavailable(input: &CallAvailabilityInput<'_>) -> Option<String> {
     }
     if !input.online {
         return off(&reasons.offline);
+    }
+    if input.meeting {
+        return off(&reasons.meeting);
     }
     if input.platform == CallPlatform::Desktop && !input.here {
         return off(&reasons.not_here);
@@ -345,6 +352,7 @@ mod tests {
                 here: input["here"].as_bool().unwrap(),
                 speech,
                 busy: input["busy"].as_bool().unwrap(),
+                meeting: input["meeting"].as_bool().unwrap_or(false),
             });
             let expected = &case["expected"];
             assert_eq!(reason.is_none(), expected["enabled"].as_bool().unwrap(), "{}", case["name"]);

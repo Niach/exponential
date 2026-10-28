@@ -32,6 +32,13 @@
 //! the microphone through the echo canceller ([`crate::echo`]) or, for a
 //! remote call, from [`Job::Audio`] only. Mute drops the audio; Hangup ends
 //! it without an answer.
+//!
+//! NEW-57: the same thread runs a MEETING ([`crate::meeting`]): it owns the
+//! microphone (channel `you`) and the desktop audio [`Hearing::apps`] opens,
+//! once no Listen or Call runs, until MeetingStop; the wake word's scan
+//! pauses for it (the `you` channel carries the phrase) and comes back
+//! after. The reader answers a Listen during it with MeetingFlushNow and
+//! Empty, and refuses a Call ([`Listening::meeting`]).
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -45,6 +52,7 @@ use talk::{Event, ListenFailure};
 use crate::capture::{self, Capture};
 use crate::echo::{Echo, FarEnd};
 use crate::listen::{Call, Transcriber, Utterance, Vad, RATE};
+use crate::meeting::Meeting;
 use crate::wake::{turn_ended, WakeScanner};
 use crate::{emit, retry_after, runtime};
 
@@ -169,6 +177,12 @@ pub enum Job {
     Hangup { id: String },
     /// #NEW-56: listen for `phrase` between Listens (empty = off).
     Wake { phrase: String, language: String },
+    /// NEW-57: hold meeting `id` (replaces a running one); `selection` =
+    /// the desktop audio (None = the microphone only).
+    Meeting { id: String, language: String, phrase: String, you_label: String, selection: Option<talk::apps::Selection> },
+    /// `drain`: the open segments are emitted first, then MeetingStopped.
+    MeetingStop { id: String, drain: bool },
+    MeetingPause { id: String, paused: bool },
 }
 
 impl Job {
@@ -192,7 +206,7 @@ pub enum Mode {
 /// would sound into the open microphone and be transcribed (NEW-55: a call
 /// plays it, its echo cancelled or, remote, streamed to the caller).
 #[derive(Default)]
-pub struct Listening(Mutex<Option<(String, Mode)>>);
+pub struct Listening(Mutex<Option<(String, Mode)>>, Mutex<Option<String>>);
 
 impl Listening {
     /// The reader sent `Listen { id }` (or #NEW-56 the wake word woke):
@@ -200,6 +214,10 @@ impl Listening {
     /// (talk-listen.json `micOwnerCases`).
     #[must_use]
     pub fn begin(&self, id: &str) -> bool {
+        // NEW-57: nor while a meeting holds the microphone.
+        if self.meeting().is_some() {
+            return false;
+        }
         let mut current = self.lock();
         if matches!(*current, Some((_, Mode::Call { .. }))) {
             return false;
@@ -252,6 +270,29 @@ impl Listening {
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<(String, Mode)>> {
         self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    /// NEW-57: the reader sent `Meeting { id }` (it replaces any other).
+    pub fn begin_meeting(&self, id: &str) {
+        *self.meeting_lock() = Some(id.to_string());
+    }
+
+    /// NEW-57: meeting `id` stopped (a newer one stays).
+    pub fn end_meeting(&self, id: &str) {
+        let mut meeting = self.meeting_lock();
+        if meeting.as_deref() == Some(id) {
+            *meeting = None;
+        }
+    }
+
+    /// NEW-57: the meeting asked for (it owns the microphone): push to
+    /// talk becomes its flush trigger, a call is refused.
+    pub fn meeting(&self) -> Option<String> {
+        self.meeting_lock().clone()
+    }
+
+    fn meeting_lock(&self) -> std::sync::MutexGuard<'_, Option<String>> {
+        self.1.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// The microphone as the listening loop reads it.
@@ -263,6 +304,18 @@ pub trait Mic {
 impl Mic for Capture {
     fn recv_timeout(&self, timeout: Duration) -> Result<Vec<f32>, RecvTimeoutError> {
         Capture::recv_timeout(self, timeout)
+    }
+}
+
+/// NEW-57: the desktop audio as the meeting reads it.
+pub trait AppAudio {
+    /// The next chunk of any listened app; `Disconnected` = the capture ended.
+    fn recv_timeout(&self, timeout: Duration) -> Result<talk::apps::Chunk, RecvTimeoutError>;
+}
+
+impl AppAudio for talk::apps::AppCapture {
+    fn recv_timeout(&self, timeout: Duration) -> Result<talk::apps::Chunk, RecvTimeoutError> {
+        talk::apps::AppCapture::recv_timeout(self, timeout)
     }
 }
 
@@ -286,6 +339,133 @@ pub trait Hearing {
     fn mic(&mut self) -> Result<Self::Mic, (ListenFailure, String)>;
     /// The engines (after `prepare` succeeded).
     fn engines(&mut self) -> &mut Self::Engines;
+    /// NEW-57: start capturing `selection`'s desktop audio.
+    fn apps(&mut self, selection: talk::apps::Selection) -> Result<Box<dyn AppAudio>, String> {
+        talk::apps::open(selection).map(|capture| Box::new(capture) as Box<dyn AppAudio>)
+    }
+    /// NEW-57: where the debug ring is written (None = nowhere).
+    fn debug_dir(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
+/// NEW-57: a meeting as the host asked for it.
+#[derive(Clone, PartialEq, Eq)]
+struct MeetingWanted {
+    id: String,
+    language: &'static str,
+    phrase: String,
+    you_label: String,
+    selection: Option<talk::apps::Selection>,
+    paused: bool,
+}
+
+/// NEW-57: a meeting that holds the microphone (and the desktop audio).
+struct MeetingRun<H: Hearing> {
+    meeting: Meeting<H::Vad>,
+    you_label: String,
+    mic: H::Mic,
+    apps: Option<Box<dyn AppAudio>>,
+}
+
+/// NEW-57: what the host was last told about the meeting's microphone.
+type MeetingReport = Option<(String, bool, Option<ListenFailure>)>;
+
+fn epoch_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as i64)
+}
+
+/// NEW-57: the engines, then the microphone and the desktop audio (a
+/// capture that fails to open leaves the microphone alone, logged).
+fn open_meeting<H: Hearing>(hearing: &mut H, wanted: &MeetingWanted) -> Result<MeetingRun<H>, (ListenFailure, String)> {
+    hearing.prepare(true)?;
+    let mic = hearing.mic()?;
+    let apps = wanted.selection.clone().and_then(|selection| match hearing.apps(selection) {
+        Ok(apps) => Some(apps),
+        Err(err) => {
+            eprintln!("meeting: no desktop audio ({err}); the microphone only");
+            None
+        }
+    });
+    let mut meeting = Meeting::new(wanted.id.clone(), wanted.language, wanted.phrase.clone(), crate::meeting::ring_enabled());
+    meeting.set_paused(wanted.paused);
+    Ok(MeetingRun { meeting, you_label: wanted.you_label.clone(), mic, apps })
+}
+
+/// NEW-57: the meeting let the microphone go (stopped, replaced, failed):
+/// the debug ring, when on, is written now.
+fn close_meeting<H: Hearing>(run: MeetingRun<H>, hearing: &H) {
+    let MeetingRun { meeting, mic, apps, .. } = run;
+    drop(apps);
+    drop(mic);
+    let segments = meeting.segments();
+    let written = meeting.stop(hearing.debug_dir().as_deref());
+    eprintln!("meeting: stopped after {segments} segment(s){}", if written.is_empty() { String::new() } else { format!("; debug ring: {} file(s)", written.len()) });
+}
+
+/// NEW-57: a draining stop: what the microphone and the desktop audio
+/// already hold, then every open segment, transcribed and emitted.
+fn drain_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &Links) -> Result<(), (ListenFailure, String)> {
+    let mut emit = |event: Event| (links.emit)(&event);
+    let mut pending: Vec<(String, String, Vec<f32>, i64)> = Vec::new();
+    while let Ok(samples) = run.mic.recv_timeout(Duration::ZERO) {
+        pending.push((talk::YOU_CHANNEL.to_string(), run.you_label.clone(), samples, epoch_ms()));
+    }
+    if let Some(apps) = run.apps.as_ref() {
+        while let Ok(chunk) = apps.recv_timeout(Duration::ZERO) {
+            let channel = if chunk.channel == talk::YOU_CHANNEL { "app-you".to_string() } else { chunk.channel };
+            pending.push((channel, chunk.label, chunk.samples, chunk.captured_ms as i64));
+        }
+    }
+    for (channel, label, samples, captured_ms) in pending {
+        if run.meeting.needs(&channel) {
+            let vad = hearing.vad()?;
+            run.meeting.add(&channel, &label, vad);
+        }
+        run.meeting.feed(&channel, &label, &samples, captured_ms, hearing.engines(), &mut emit)?;
+    }
+    run.meeting.finish(hearing.engines(), &mut emit)
+}
+
+/// NEW-57: one pass of a running meeting: the microphone (waiting up to
+/// 20 ms), then every app chunk already there, then the idle channels.
+fn hear_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &Links) -> Result<(), (ListenFailure, String)> {
+    let mut emit = |event: Event| (links.emit)(&event);
+    // `captured_ms`: when the samples' last one was captured. The
+    // microphone (a bounded queue read every 20 ms) is dated as it is
+    // read; app chunks carry their capture time (meeting.json CHANNELS).
+    let mut feed = |run: &mut MeetingRun<H>, hearing: &mut H, channel: &str, label: &str, samples: &[f32], captured_ms: i64| {
+        if run.meeting.needs(channel) {
+            let vad = hearing.vad()?;
+            run.meeting.add(channel, label, vad);
+        }
+        run.meeting.feed(channel, label, samples, captured_ms, hearing.engines(), &mut emit)
+    };
+    match run.mic.recv_timeout(Duration::from_millis(20)) {
+        Ok(samples) => {
+            let label = run.you_label.clone();
+            feed(run, hearing, talk::YOU_CHANNEL, &label, &samples, epoch_ms())?;
+        }
+        Err(RecvTimeoutError::Timeout) => {}
+        Err(RecvTimeoutError::Disconnected) => return Err((ListenFailure::NoMicrophone, "the microphone closed".into())),
+    }
+    loop {
+        let Some(apps) = run.apps.as_ref() else { break };
+        match apps.recv_timeout(Duration::ZERO) {
+            Ok(chunk) => {
+                // Never the microphone's channel, whatever an app calls itself.
+                let channel = if chunk.channel == talk::YOU_CHANNEL { "app-you".to_string() } else { chunk.channel };
+                feed(run, hearing, &channel, &chunk.label, &chunk.samples, chunk.captured_ms as i64)?;
+            }
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => {
+                eprintln!("meeting: the desktop audio ended; the microphone goes on");
+                run.apps = None;
+            }
+        }
+    }
+    let mut emit = |event: Event| (links.emit)(&event);
+    run.meeting.idle(epoch_ms(), hearing.engines(), &mut emit)
 }
 
 /// The Listen or Call running now.
@@ -547,6 +727,10 @@ impl Hearing for Ears {
     fn engines(&mut self) -> &mut Engines {
         self.engines.as_mut().expect("prepared")
     }
+
+    fn debug_dir(&self) -> Option<PathBuf> {
+        Some(self.data_dir.join(crate::meeting::DEBUG_DIR))
+    }
 }
 
 /// Start the listening thread on the [`Hearing`] `make` builds there; it
@@ -589,15 +773,50 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
             emit(Event::WakeListening { listening: now.0, reason: now.1 });
         }
     };
+    // NEW-57: the meeting asked for, the one holding the microphone, when
+    // it may try to open again, and what the host was told.
+    let mut meeting_wanted: Option<MeetingWanted> = None;
+    let mut meeting: Option<MeetingRun<H>> = None;
+    let mut meeting_retry: Option<Instant> = None;
+    let mut meeting_reported: MeetingReport = None;
+    let mut report_meeting = |now: MeetingReport| {
+        if now != meeting_reported {
+            if let Some((id, listening, reason)) = now.clone().or_else(|| meeting_reported.clone().map(|(id, ..)| (id, false, None))) {
+                emit(Event::MeetingListening { id, listening, reason });
+            }
+            meeting_reported = now;
+        }
+    };
     loop {
         hearing.poll();
+        // NEW-57: a wanted meeting takes the microphone once no Listen or
+        // Call runs (the wake scan lets it go).
+        let meeting_due = meeting_retry.is_none_or(|at| Instant::now() >= at);
+        if let (Some(wanted), None, None, true) = (meeting_wanted.as_ref(), meeting.as_ref(), active.as_ref(), meeting_due) {
+            if scan.take().is_some() {
+                report((false, None));
+            }
+            match open_meeting(hearing, wanted) {
+                Ok(run) => {
+                    eprintln!("meeting: listening ({})", if run.apps.is_some() { "microphone and desktop audio" } else { "microphone" });
+                    meeting = Some(run);
+                    meeting_retry = None;
+                    report_meeting(Some((wanted.id.clone(), true, None)));
+                }
+                Err((reason, detail)) => {
+                    eprintln!("meeting: the microphone did not open ({reason:?}): {detail}");
+                    meeting_retry = Some(Instant::now() + WAKE_RETRY);
+                    report_meeting(Some((wanted.id.clone(), false, Some(reason))));
+                }
+            }
+        }
         let woken_now = matches!(&active, Some(Active::Listen(held)) if held.woken);
         if woken && !woken_now {
             last_turn = Some(Instant::now());
         }
         woken = woken_now;
         let due = wake_retry.is_none_or(|at| Instant::now() >= at);
-        if let (Some(word), None, None, true) = (wake.as_ref(), active.as_ref(), scan.as_ref(), due) {
+        if let (Some(word), None, None, true, None) = (wake.as_ref(), active.as_ref(), scan.as_ref(), due, meeting_wanted.as_ref()) {
             match open_scan(hearing, &word.phrase) {
                 Ok(opened) => {
                     scan = Some(opened);
@@ -613,13 +832,13 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
         }
         let job = if let Some(job) = backlog.pop_front() {
             Some(job)
-        } else if active.as_ref().is_some_and(Active::hears_a_mic) || scan.is_some() {
+        } else if active.as_ref().is_some_and(Active::hears_a_mic) || scan.is_some() || meeting.is_some() {
             match rx.try_recv() {
                 Ok(job) => Some(job),
                 Err(TryRecvError::Empty) => None,
                 Err(TryRecvError::Disconnected) => break,
             }
-        } else if hearing.downloading() || active.is_some() || wake.is_some() {
+        } else if hearing.downloading() || active.is_some() || wake.is_some() || meeting_wanted.is_some() {
             // A remote call hears its audio as jobs.
             match rx.recv_timeout(Duration::from_millis(250)) {
                 Ok(job) => Some(job),
@@ -655,6 +874,69 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     }
                 }
                 wake = wanted;
+                continue;
+            }
+            Some(Job::Meeting { id, language, phrase, you_label, selection }) => {
+                let paused = meeting_wanted.as_ref().is_some_and(|wanted| wanted.id == id && wanted.paused);
+                let wanted = MeetingWanted { id, language: language_of(&language), phrase, you_label, selection, paused };
+                if meeting_wanted.as_ref() != Some(&wanted) {
+                    // A new meeting, or new apps: it opens again.
+                    if let Some(run) = meeting.take() {
+                        close_meeting(run, hearing);
+                    }
+                    if meeting_wanted.as_ref().is_some_and(|old| old.id != wanted.id) {
+                        report_meeting(None);
+                    }
+                    meeting_retry = None;
+                    meeting_wanted = Some(wanted);
+                }
+                continue;
+            }
+            Some(Job::MeetingStop { id, drain }) => {
+                if meeting_wanted.as_ref().is_some_and(|wanted| wanted.id == id) {
+                    meeting_wanted = None;
+                    meeting_retry = None;
+                    if let Some(mut run) = meeting.take() {
+                        if drain {
+                            if let Err((reason, detail)) = drain_meeting(&mut run, hearing, links) {
+                                eprintln!("meeting: the last segments failed ({reason:?}): {detail}");
+                            }
+                        }
+                        close_meeting(run, hearing);
+                    }
+                    report_meeting(None);
+                    // The wake word takes the microphone back on the next pass.
+                    wake_retry = None;
+                }
+                if drain {
+                    // Everything this meeting had is out: the host's final batch.
+                    emit(Event::MeetingStopped { id });
+                }
+                continue;
+            }
+            // NEW-57: a meeting owns the microphone (talk-listen.json
+            // `micOwnerCases`): a Listen is its flush trigger (answered
+            // Empty), a Call is refused (voice-call.json `failed.meeting`).
+            Some(Job::Start { id, .. }) if meeting_wanted.is_some() => {
+                if let Some(wanted) = meeting_wanted.as_ref() {
+                    emit(Event::MeetingFlushNow { id: wanted.id.clone() });
+                }
+                links.listening.end(&id);
+                emit(Event::Empty { id });
+                continue;
+            }
+            Some(Job::Call { id, .. }) if meeting_wanted.is_some() => {
+                links.listening.end(&id);
+                emit(Event::ListenFailed { id, reason: ListenFailure::Meeting, detail: "a meeting holds the microphone".into() });
+                continue;
+            }
+            Some(Job::MeetingPause { id, paused }) => {
+                if let Some(wanted) = meeting_wanted.as_mut().filter(|wanted| wanted.id == id) {
+                    wanted.paused = paused;
+                    if let Some(run) = meeting.as_mut() {
+                        run.meeting.set_paused(paused);
+                    }
+                }
                 continue;
             }
             Some(job) => {
@@ -731,6 +1013,19 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
             }
             continue;
         }
+        if let Some(run) = meeting.as_mut() {
+            if let Err((reason, detail)) = hear_meeting(run, hearing, links) {
+                eprintln!("meeting: listening failed ({reason:?}): {detail}");
+                if let Some(run) = meeting.take() {
+                    close_meeting(run, hearing);
+                }
+                meeting_retry = Some(Instant::now() + WAKE_RETRY);
+                if let Some(wanted) = meeting_wanted.as_ref() {
+                    report_meeting(Some((wanted.id.clone(), false, Some(reason))));
+                }
+            }
+            continue;
+        }
         let (Some(scanning), Some(word)) = (scan.as_mut(), wake.as_ref()) else { continue };
         match scanning.mic.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => match crate::wake::scan(
@@ -788,6 +1083,9 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
         }
     }
     // EOF: `active` and `scan` drop here, closing the microphone.
+    if let Some(run) = meeting.take() {
+        close_meeting(run, hearing);
+    }
 }
 
 /// #NEW-56: the engines, then the wake word's own VAD and microphone.
@@ -894,8 +1192,8 @@ fn handle<H: Hearing>(
             }
             links.listening.end(&id);
         }
-        // The loop keeps the wake word.
-        Job::Wake { .. } => {}
+        // The loop keeps the wake word and the meeting.
+        Job::Wake { .. } | Job::Meeting { .. } | Job::MeetingStop { .. } | Job::MeetingPause { .. } => {}
     }
 }
 
@@ -1026,7 +1324,7 @@ pub(crate) mod fake {
 
     use talk::ListenFailure;
 
-    use super::{Hearing, Mic};
+    use super::{AppAudio, Hearing, Mic};
     use crate::listen::{measure, Transcriber, Vad, FRAME};
 
     /// A VAD on loudness alone (speech = a frame above -40 dBFS); silence
@@ -1087,6 +1385,18 @@ pub(crate) mod fake {
         pub mics: Arc<Mutex<Vec<Sender<Vec<f32>>>>>,
         pub opened_tx: Sender<()>,
         pub loads: Arc<Mutex<Option<Receiver<()>>>>,
+        /// NEW-57: each desktop capture opened (its sender) and the
+        /// selection it was opened for.
+        pub apps: Arc<Mutex<Vec<(talk::apps::Selection, Sender<talk::apps::Chunk>)>>>,
+    }
+
+    /// NEW-57: desktop audio the test plays.
+    pub struct FakeApps(Receiver<talk::apps::Chunk>);
+
+    impl AppAudio for FakeApps {
+        fn recv_timeout(&self, timeout: Duration) -> Result<talk::apps::Chunk, RecvTimeoutError> {
+            self.0.recv_timeout(timeout)
+        }
     }
 
     impl Probe {
@@ -1099,12 +1409,27 @@ pub(crate) mod fake {
                 mics: Arc::default(),
                 opened_tx,
                 loads: Arc::new(Mutex::new(slow.then_some(loads))),
+                apps: Arc::default(),
             };
             (probe, opened, slow.then_some(release))
         }
 
         pub fn hearing(&self) -> FakeHearing {
             FakeHearing { probe: self.clone(), engines: Counter::default() }
+        }
+
+        /// NEW-57: play `samples` as app `channel` into the newest capture.
+        pub fn play(&self, channel: &str, label: &str, samples: Vec<f32>) {
+            let apps = self.apps.lock().unwrap();
+            let chunk = talk::apps::Chunk { channel: channel.into(), label: label.into(), samples, captured_ms: talk::apps::now_ms() };
+            apps.last().expect("a capture is open").1.send(chunk).unwrap();
+        }
+
+        /// NEW-57: [`Probe::play`] with an explicit capture time.
+        pub fn play_at(&self, channel: &str, label: &str, samples: Vec<f32>, captured_ms: u64) {
+            let apps = self.apps.lock().unwrap();
+            let chunk = talk::apps::Chunk { channel: channel.into(), label: label.into(), samples, captured_ms };
+            apps.last().expect("a capture is open").1.send(chunk).unwrap();
         }
 
         /// Speak into the newest microphone.
@@ -1152,6 +1477,12 @@ pub(crate) mod fake {
 
         fn engines(&mut self) -> &mut Counter {
             &mut self.engines
+        }
+
+        fn apps(&mut self, selection: talk::apps::Selection) -> Result<Box<dyn AppAudio>, String> {
+            let (tx, rx) = mpsc::channel();
+            self.probe.apps.lock().unwrap().push((selection, tx));
+            Ok(Box::new(FakeApps(rx)))
         }
     }
 }
@@ -1321,7 +1652,10 @@ mod tests {
         }
 
         fn call(&self, id: &str, remote: bool) {
-            self.listening.begin_call(id, remote);
+            // The reader refuses a call during a meeting before it marks one.
+            if self.listening.meeting().is_none() {
+                self.listening.begin_call(id, remote);
+            }
             self.send(Job::Call { id: id.into(), language: "en".into(), remote });
         }
 
@@ -1598,20 +1932,36 @@ mod tests {
                         listens += 1;
                         let id = format!("u{listens}");
                         // The reader's gate refuses it; the loop does too.
-                        assert!(!harness.listening.begin(&id), "{at}: the gate refuses a Listen during a call");
+                        assert!(!harness.listening.begin(&id), "{at}: the gate refuses a Listen during a call or a meeting");
                         harness.send(Job::Start { id, language: "en".into() });
                     }
                     "phrase" => say_the_phrase(&harness),
+                    // NEW-57.
+                    "meeting" => meeting(&harness, "m1", None),
+                    "meetingStop" => {
+                        harness.listening.end_meeting("m1");
+                        harness.send(Job::MeetingStop { id: "m1".into(), drain: true });
+                    }
                     other => panic!("{at}: unknown step {other}"),
                 }
-                let produced = |events: &[Event]| -> Option<&'static str> {
-                    events[before..].iter().find_map(|event| match event {
-                        Event::Woke { .. } => Some("woke"),
-                        Event::Said { .. } => Some("said"),
-                        Event::Empty { .. } | Event::Heard { .. } => Some("empty"),
-                        _ => None,
-                    })
+                // NEW-57: a meeting's flush trigger (the phrase opening a
+                // `you` segment, a Listen during it).
+                let flushed = |events: &[Event]| {
+                    events[before..].iter().any(|event| matches!(event, Event::MeetingWake { .. } | Event::MeetingFlushNow { .. }))
                 };
+                let produced = |events: &[Event]| -> Option<&'static str> {
+                    events[before..]
+                        .iter()
+                        .find_map(|event| match event {
+                            Event::Woke { .. } => Some("woke"),
+                            Event::Said { .. } => Some("said"),
+                            Event::Empty { .. } | Event::Heard { .. } => Some("empty"),
+                            Event::ListenFailed { reason: ListenFailure::Meeting, .. } => Some("refused"),
+                            _ => None,
+                        })
+                        .or_else(|| flushed(events).then_some("flush"))
+                };
+                let flush = answer == Some("flush") || step["flush"].as_bool() == Some(true);
                 // The tray's dot: lit while the wake word holds the microphone.
                 let dot = |events: &[Event]| {
                     let last = events.iter().rev().find_map(|event| match event {
@@ -1622,12 +1972,16 @@ mod tests {
                 };
                 let scanning = matches!(step["mic"].as_str(), Some("wake" | "listen"));
                 let events = harness.until(|events| {
-                    produced(events) == answer && dot(events) == scanning && mic_owner(&harness) == step["mic"].as_str()
+                    produced(events) == answer
+                        && flushed(events) == flush
+                        && dot(events) == scanning
+                        && mic_owner(&harness) == step["mic"].as_str()
                 });
+                assert_eq!(flushed(&events), flush, "{at}: a flush trigger: {:?}", without_levels(&events[before..]));
                 assert_eq!(produced(&events), answer, "{at}: {:?}", without_levels(&events[before..]));
                 assert_eq!(mic_owner(&harness), step["mic"].as_str(), "{at}: the microphone's owner");
-                if answer == Some("said") {
-                    assert!(woke(&events[before..]).is_empty(), "{at}: no wake match during a call");
+                if matches!(answer, Some("said" | "flush")) {
+                    assert!(woke(&events[before..]).is_empty(), "{at}: no wake match during a call or a meeting");
                 }
                 assert_eq!(dot(&events), scanning, "{at}: the tray's dot");
             }
@@ -1637,6 +1991,181 @@ mod tests {
         }
     }
 
+    fn meeting_segments(events: &[Event]) -> Vec<(String, String, String)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::MeetingSegment { channel, label, text, .. } => Some((channel.clone(), label.clone(), text.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn open_mics(harness: &Harness) -> usize {
+        harness.probe.opened.lock().unwrap().iter().filter(|closed| !closed.load(Ordering::SeqCst)).count()
+    }
+
+    fn wait(what: &str, done: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(Instant::now() < deadline, "{what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn meeting(harness: &Harness, id: &str, selection: Option<talk::apps::Selection>) {
+        harness.listening.begin_meeting(id);
+        harness.send(Job::Meeting { id: id.into(), language: "en".into(), phrase: "Clip1".into(), you_label: "You".into(), selection });
+    }
+
+    /// NEW-57 (meeting.json MICROPHONE, CHANNELS): the meeting takes the
+    /// wake word's microphone (ONE open), hears `you` and every app on its
+    /// own, carries the wake phrase itself, and hands the microphone back
+    /// to the wake word when it stops.
+    #[test]
+    fn a_meeting_owns_the_microphone_and_hears_each_channel_apart() {
+        let harness = Harness::new();
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the wake word opens the microphone");
+        meeting(&harness, "m1", Some(talk::apps::Selection::All));
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the meeting opens the microphone");
+        wait("the meeting's desktop audio opens", || !harness.probe.apps.lock().unwrap().is_empty());
+        assert_eq!(open_mics(&harness), 1, "the wake word let it go");
+        assert!(!harness.listening.begin("u1"), "push to talk never takes it");
+        // The phrase into the microphone: a segment and the flush trigger,
+        // never a wake turn.
+        say_the_phrase(&harness);
+        harness.until(|events| !meeting_segments(events).is_empty());
+        // The app plays (its own VAD stream, interleaved with silence on
+        // the microphone).
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.play("us.zoom.xos", "Zoom", chunk.to_vec());
+            harness.probe.say(vec![0.0; 320]);
+        }
+        let events = harness.until(|events| meeting_segments(events).len() >= 2);
+        assert_eq!(
+            meeting_segments(&events),
+            [("you".into(), "You".into(), "clip1".into()), ("us.zoom.xos".into(), "Zoom".into(), "clip2".into())]
+        );
+        let you_at = events.iter().position(|event| matches!(event, Event::MeetingSegment { channel, .. } if channel == "you")).unwrap();
+        assert!(matches!(events.get(you_at + 1), Some(Event::MeetingWake { id }) if id == "m1"), "{:?}", without_levels(&events));
+        assert!(woke(&events).is_empty(), "the wake scan is paused");
+        assert!(events.iter().any(|event| matches!(event, Event::MeetingListening { listening: true, .. })));
+        assert!(!events.iter().any(|event| matches!(event, Event::Level { .. })), "nothing draws a wave");
+
+        // Paused: nothing is heard.
+        harness.send(Job::MeetingPause { id: "m1".into(), paused: true });
+        std::thread::sleep(Duration::from_millis(100));
+        say_the_phrase(&harness);
+        std::thread::sleep(Duration::from_millis(200));
+        harness.send(Job::MeetingPause { id: "m1".into(), paused: false });
+        std::thread::sleep(Duration::from_millis(100));
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+        let events = harness.until(|events| meeting_segments(events).len() >= 3);
+        assert_eq!(meeting_segments(&events)[2], ("you".into(), "You".into(), "clip3".into()), "the paused phrase was dropped");
+
+        harness.listening.end_meeting("m1");
+        harness.send(Job::MeetingStop { id: "m1".into(), drain: true });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the wake word takes the microphone back");
+        wait("one microphone open", || open_mics(&harness) == 1);
+        let events = harness.close();
+        assert!(events.iter().any(|event| matches!(event, Event::MeetingListening { listening: false, reason: None, .. })));
+    }
+
+    /// NEW-57 (meeting.json CHANNELS): an app segment is dated by its
+    /// chunks' CAPTURE time, never by when the worker read them (the feed
+    /// site in `hear_meeting`; `epoch_ms()` there fails this).
+    #[test]
+    fn an_app_segment_is_dated_by_its_capture_time() {
+        let harness = Harness::new();
+        meeting(&harness, "m1", Some(talk::apps::Selection::All));
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the meeting opens the microphone");
+        wait("the meeting's desktop audio opens", || !harness.probe.apps.lock().unwrap().is_empty());
+        // Captured an hour ago (a stalled queue), 20 ms per chunk.
+        let base = talk::apps::now_ms() - 3_600_000;
+        for (n, chunk) in phrase(0.8).chunks(320).enumerate() {
+            harness.probe.play_at("us.zoom.xos", "Zoom", chunk.to_vec(), base + 20 * n as u64);
+            harness.probe.say(vec![0.0; 320]);
+        }
+        let events = harness.until(|events| meeting_segments(events).iter().any(|(channel, ..)| channel == "us.zoom.xos"));
+        let start = events
+            .iter()
+            .find_map(|event| match event {
+                Event::MeetingSegment { channel, start_ms, .. } if channel == "us.zoom.xos" => Some(*start_ms),
+                _ => None,
+            })
+            .unwrap();
+        assert!(start >= base as i64 && start < base as i64 + 60_000, "dated {start}, captured from {base}");
+        harness.listening.end_meeting("m1");
+        harness.send(Job::MeetingStop { id: "m1".into(), drain: false });
+        harness.close();
+    }
+
+    /// NEW-57: a meeting asked for during a call waits for its Hangup (one
+    /// owner at a time); a meeting without desktop audio opens none.
+    #[test]
+    fn a_meeting_waits_for_a_running_call() {
+        let harness = Harness::new();
+        harness.call("c1", false);
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the call opens the microphone");
+        meeting(&harness, "m1", None);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(harness.probe.opened.lock().unwrap().len(), 1, "the call keeps it");
+        harness.listening.end("c1");
+        harness.send(Job::Hangup { id: "c1".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the meeting opens it after Hangup");
+        wait("one microphone open", || open_mics(&harness) == 1);
+        assert!(harness.probe.apps.lock().unwrap().is_empty(), "no desktop audio asked for");
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+        let events = harness.until(|events| !meeting_segments(events).is_empty());
+        assert_eq!(meeting_segments(&events), [("you".into(), "You".into(), "clip1".into())]);
+        harness.close();
+    }
+
+    /// NEW-57 (meeting.json FLUSH): a draining stop closes the open
+    /// segment mid-phrase, emits it, then MeetingStopped; a plain stop
+    /// drops it.
+    #[test]
+    fn a_draining_stop_emits_the_open_segment_then_stopped() {
+        for drain in [true, false] {
+            let harness = Harness::new();
+            meeting(&harness, "m1", None);
+            harness.opened.recv_timeout(Duration::from_secs(10)).expect("the meeting opens the microphone");
+            // Mid-phrase: no silence closed it yet.
+            harness.probe.say([tone(0.2, 0.0), tone(0.8, 0.3)].concat());
+            std::thread::sleep(Duration::from_millis(300));
+            harness.listening.end_meeting("m1");
+            harness.send(Job::MeetingStop { id: "m1".into(), drain });
+            let events = harness.close();
+            let tail: Vec<&str> = events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::MeetingSegment { .. } => Some("segment"),
+                    Event::MeetingStopped { .. } => Some("stopped"),
+                    _ => None,
+                })
+                .collect();
+            let expected: &[&str] = if drain { &["segment", "stopped"] } else { &[] };
+            assert_eq!(tail, expected, "drain {drain}");
+        }
+    }
+
+    #[test]
+    fn the_gate_refuses_push_to_talk_during_a_meeting() {
+        let listening = Listening::default();
+        listening.begin_meeting("m1");
+        assert_eq!(listening.meeting().as_deref(), Some("m1"));
+        assert!(!listening.begin("u1"));
+        listening.end_meeting("m0");
+        assert!(listening.meeting().is_some(), "only its own stop ends it");
+        listening.end_meeting("m1");
+        assert!(listening.begin("u1"));
+    }
+
     /// Who holds the device's microphone: `wake`, `listen`, `call` or none
     /// (never two at once).
     fn mic_owner(harness: &Harness) -> Option<&'static str> {
@@ -1644,6 +2173,8 @@ mod tests {
         assert!(open <= 1, "{open} microphones open");
         if open == 0 {
             None
+        } else if harness.listening.meeting().is_some() && !harness.listening.active() {
+            Some("meeting")
         } else if harness.listening.in_call() {
             Some("call")
         } else if harness.listening.refuses_speech() {

@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { devices, messages, sessions } from "@/db/schema"
+import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
@@ -11,6 +11,7 @@ import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
+import { MEETING_AUTO_STOP } from "@exp/domain-contract/meeting"
 
 // NEW-1: the server watchdog (every minute; contract `sessionWatchdog`).
 // Nothing waits on a device's good behaviour: what stalls is flagged on
@@ -41,6 +42,10 @@ export interface WatchdogRun {
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
   fired: number
   pruned: number
+  /** NEW-57: expired meeting transcript batches deleted this tick. */
+  meetingPruned: number
+  /** NEW-57: meetings stopped by `autoStop` this tick. */
+  meetingsStopped: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -527,7 +532,53 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // caught up here) and sweeps the event stream.
     fired: await fireScheduledTriggers(now),
     pruned: await pruneEvents(now),
+    meetingPruned: await pruneExpiredMessages(now),
+    meetingsStopped: await stopExpiredMeetings(now),
   }
+}
+
+/** NEW-57: one tick deletes at most this many expired messages (the rest
+ *  go on the next ticks). */
+export const EXPIRED_MESSAGES_BATCH = 500
+
+/** NEW-57 (meeting.json RESIDENCY): delete the messages whose `expires_at`
+ *  passed (meeting transcript batches, `contract.meeting.retentionDays`),
+ *  oldest first, one bounded batch per tick over `idx_messages_expires`.
+ *  The statement-level `refresh_conversation_digests_delete` trigger
+ *  recomputes each touched conversation's digest; attachments cascade. */
+export async function pruneExpiredMessages(now: Date = new Date()): Promise<number> {
+  const expired = db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(isNotNull(messages.expiresAt), lt(messages.expiresAt, now)))
+    .orderBy(asc(messages.expiresAt))
+    .limit(EXPIRED_MESSAGES_BATCH)
+  const gone = await db
+    .delete(messages)
+    .where(inArray(messages.id, expired))
+    .returning({ id: messages.id })
+  return gone.length
+}
+
+/** NEW-57 AUTO-STOP (watchdog): clear every meeting started at least
+ *  `autoStop.afterMs` ago and nudge its voice device (which stops on its own
+ *  clock too). Returns how many stopped. */
+export async function stopExpiredMeetings(now: Date = new Date()): Promise<number> {
+  const stopped = await db
+    .update(userVoiceSettings)
+    .set({ meetingStartedAt: null, updatedAt: now })
+    .where(
+      and(
+        isNotNull(userVoiceSettings.meetingStartedAt),
+        lte(userVoiceSettings.meetingStartedAt, new Date(now.getTime() - MEETING_AUTO_STOP.afterMs))
+      )
+    )
+    .returning({ userId: userVoiceSettings.userId, voiceDeviceId: userVoiceSettings.voiceDeviceId })
+  const config = getSteerRelayConfig()
+  for (const row of stopped) {
+    if (config && row.voiceDeviceId) void relayPostNudge(config, row.userId, row.voiceDeviceId).catch(() => {})
+  }
+  return stopped.length
 }
 
 let started = false
@@ -542,7 +593,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped`,
         })
       )
       .catch((error: unknown) => {

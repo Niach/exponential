@@ -172,9 +172,22 @@ pub struct VoiceSettings {
     /// A reference WAV's path on the voice device; empty = the built-in voice.
     pub voice_file: String,
     pub voice_transcript: String,
+    /// #NEW-57: which desktop audio a meeting transcribes beside the
+    /// microphone (`meeting.json` `desktopAudioValues`).
+    pub desktop_audio: crate::meeting::DesktopAudio,
+    /// #NEW-57: the apps `include` picks / `exclude` leaves out.
+    pub desktop_audio_apps: Vec<crate::meeting::AudioApp>,
+    /// #NEW-57: the running meeting (None = none; written only by
+    /// `voice.startMeeting` / `voice.stopMeeting`).
+    pub meeting_started_at: Option<String>,
 }
 
 impl VoiceSettings {
+    /// #NEW-57: a meeting runs (`meetingStartedAt` set).
+    pub fn meeting(&self) -> bool {
+        self.meeting_started_at.as_deref().is_some_and(|at| !at.is_empty())
+    }
+
     /// The spoken-reply language (`en` while unset).
     pub fn language(&self) -> &str {
         if self.language.is_empty() { "en" } else { &self.language }
@@ -187,6 +200,8 @@ impl VoiceSettings {
             self.speak_replies = false;
             self.push_to_talk = false;
             self.wake_word = false;
+            // #NEW-57: `clearOnNone` grows `meeting`.
+            self.meeting_started_at = None;
         }
         self
     }
@@ -351,12 +366,14 @@ pub enum TrayIcon {
     Listening,
 }
 
-/// #NEW-56: the tray icon; None = no tray on this device.
-pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, muted: bool) -> Option<TrayIcon> {
+/// #NEW-56: the tray icon; None = no tray on this device. #NEW-57:
+/// `meeting_listening` (a meeting's channels listen, not paused) shows the
+/// dot too, muted or not (Mute never pauses a meeting).
+pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, meeting_listening: bool, muted: bool) -> Option<TrayIcon> {
     if !device_is_voice_device {
         return None;
     }
-    Some(if wake_listening && !muted { TrayIcon::Listening } else { TrayIcon::App })
+    Some(if (wake_listening && !muted) || meeting_listening { TrayIcon::Listening } else { TrayIcon::App })
 }
 
 /// #NEW-86: the IDE's Wake word row detail on the voice device itself
@@ -381,8 +398,12 @@ pub enum TrayItemId {
     SpeakReplies,
     PushToTalk,
     WakeWord,
+    /// #NEW-57: Meeting mode (checked = a meeting runs).
+    Meeting,
     /// #NEW-58: the screen memory switch (device-local, kept).
     ScreenMemory,
+    /// #NEW-57: Pause listening (a meeting runs or screen memory is on).
+    Pause,
     Mute,
     Settings,
     Quit,
@@ -416,6 +437,19 @@ pub struct TrayContext<'a> {
     pub shortcut_label: Option<&'a str>,
     /// #NEW-58: the Screen memory switch (None = no row).
     pub screen_memory: Option<ScreenMemoryState>,
+    /// #NEW-57: the Meeting mode switch (None = no row).
+    pub meeting: Option<MeetingTrayState<'a>>,
+    /// #NEW-57: Pause listening, Some(paused) while it shows.
+    pub pause: Option<bool>,
+}
+
+/// #NEW-57: the tray's Meeting mode switch (`meeting` while `available`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MeetingTrayState<'a> {
+    /// A meeting runs.
+    pub on: bool,
+    /// `meeting::who` of the settings.
+    pub who: &'a str,
 }
 
 /// #NEW-58: the tray's Screen memory switch (`screenMemory` while
@@ -442,7 +476,7 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
     let phrase = wake_phrase(settings, Some(agent)).unwrap_or_default();
     let check = |id, label: String, on: bool| TrayItem::Check { id, label, checked: on && ready, enabled: ready };
     let mut menu = vec![TrayItem::Action { id: TrayItemId::Open, label: copy.tray_open.clone(), enabled: true }];
-    if context.call_available {
+    if context.call_available && !context.meeting.is_some_and(|meeting| meeting.on) {
         menu.push(TrayItem::Action { id: TrayItemId::Call, label: copy.tray_call.replace("{agent}", agent), enabled: ready });
     }
     menu.extend([
@@ -451,10 +485,20 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
         check(TrayItemId::PushToTalk, format!("{} · {shortcut}", copy.push_to_talk), settings.push_to_talk),
         check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word),
     ]);
+    if let Some(meeting) = context.meeting {
+        let words = &crate::meeting::MEETING.copy.meeting;
+        let label = if meeting.on { format!("{words} · {}", meeting.who) } else { words.clone() };
+        menu.push(check(TrayItemId::Meeting, label, meeting.on));
+    }
     if let Some(screen) = context.screen_memory {
         let words = &*SCREEN_MEMORY_COPY;
         let label = if screen.on && screen.paused { format!("{} · {}", words.tray, words.paused) } else { words.tray.clone() };
         menu.push(TrayItem::Check { id: TrayItemId::ScreenMemory, label, checked: screen.on, enabled: true });
+    }
+    if let Some(paused) = context.pause {
+        let meeting = &*crate::meeting::MEETING;
+        let label = format!("{} · {}", meeting.copy.pause, meeting.pause.label);
+        menu.push(TrayItem::Check { id: TrayItemId::Pause, label, checked: paused, enabled: true });
     }
     if context.mic_available {
         menu.push(TrayItem::Check { id: TrayItemId::Mute, label: copy.tray_mute.clone(), checked: context.muted, enabled: true });
@@ -483,9 +527,12 @@ pub fn rail_voice(
     settings: &VoiceSettings,
     context: &TrayContext<'_>,
     wake_listening: bool,
+    meeting_listening: bool,
     tray_hosted: bool,
 ) -> Option<RailVoice> {
-    if tray_hosted || !settings.clone().clear_on_none().wake_word {
+    // #NEW-57: a running meeting shows the button too (wake word or not).
+    let meeting = context.meeting.filter(|meeting| meeting.on);
+    if tray_hosted || !(settings.clone().clear_on_none().wake_word || meeting.is_some()) {
         return None;
     }
     let menu = tray_menu(settings, context)?;
@@ -494,8 +541,11 @@ pub fn rail_voice(
         phrase => phrase.to_string(),
     };
     Some(RailVoice {
-        badge: tray_icon(context.device_is_voice_device, wake_listening, context.muted) == Some(TrayIcon::Listening),
-        tooltip: if context.muted {
+        badge: tray_icon(context.device_is_voice_device, wake_listening, meeting_listening, context.muted)
+            == Some(TrayIcon::Listening),
+        tooltip: if let Some(meeting) = meeting {
+            format!("{} · {}", crate::meeting::MEETING.copy.meeting, meeting.who)
+        } else if context.muted {
             VOICE.ptt_copy.overlay_muted.clone()
         } else {
             VOICE.ptt_copy.rail_listening.replace("{phrase}", &phrase)
@@ -841,6 +891,8 @@ pub struct VoiceContext<'a> {
     pub voices: &'a [&'a str],
     /// When the watcher armed; older rows are a backfill.
     pub armed_at: &'a str,
+    /// #NEW-57: a meeting runs on the voice device (nothing is spoken).
+    pub meeting: bool,
 }
 
 /// Whether a synced message row is read aloud.
@@ -848,6 +900,9 @@ pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> b
     let Some(agent_session) = context.agent_session_id.filter(|_| context.speak_replies && context.is_voice_device) else {
         return false;
     };
+    if context.meeting {
+        return false;
+    }
     if !context.voices.contains(&context.language) {
         return false;
     }
@@ -1285,6 +1340,7 @@ mod tests {
                 language: c["language"].as_str().unwrap(),
                 voices: &voices,
                 armed_at: c["armedAt"].as_str().unwrap(),
+                meeting: c["meeting"].as_bool().unwrap_or(false),
             };
             assert_eq!(should_speak(&message, &context), case["speak"].as_bool().unwrap(), "{}", case["name"]);
         }
@@ -1474,6 +1530,17 @@ mod tests {
         })
     }
 
+    fn meeting_of(value: &Value) -> Option<MeetingTrayState<'_>> {
+        value["available"].as_bool().unwrap_or(false).then(|| MeetingTrayState {
+            on: value["on"].as_bool().unwrap(),
+            who: value["who"].as_str().unwrap(),
+        })
+    }
+
+    fn pause_of(value: &Value) -> Option<bool> {
+        value["available"].as_bool().unwrap_or(false).then(|| value["paused"].as_bool().unwrap())
+    }
+
     #[test]
     fn tray_menu_matches_the_fixture() {
         let fixture: serde_json::Value = serde_json::from_str(VOICE_JSON).unwrap();
@@ -1491,6 +1558,8 @@ mod tests {
                     shortcut_unavailable: context["shortcutUnavailable"].as_bool().unwrap_or(false),
                     shortcut_label: context["shortcutLabel"].as_str(),
                     screen_memory: screen_memory_of(&context["screenMemory"]),
+                    meeting: meeting_of(&context["meeting"]),
+                    pause: pause_of(&context["pause"]),
                 },
             );
             let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
@@ -1505,6 +1574,7 @@ mod tests {
             let icon = tray_icon(
                 context["deviceIsVoiceDevice"].as_bool().unwrap(),
                 context["wakeListening"].as_bool().unwrap(),
+                context["meetingListening"].as_bool().unwrap_or(false),
                 context["muted"].as_bool().unwrap(),
             );
             let expected: Option<TrayIcon> = serde_json::from_value(case["icon"].clone()).unwrap();
@@ -1542,8 +1612,11 @@ mod tests {
                     shortcut_unavailable: false,
                     shortcut_label: None,
                     screen_memory: screen_memory_of(&context["screenMemory"]),
+                    meeting: meeting_of(&context["meeting"]),
+                    pause: pause_of(&context["pause"]),
                 },
                 context["wakeListening"].as_bool().unwrap(),
+                context["meetingListening"].as_bool().unwrap_or(false),
                 context["trayHosted"].as_bool().unwrap(),
             );
             let expected: Option<RailVoice> = serde_json::from_value(case["rail"].clone()).unwrap();
