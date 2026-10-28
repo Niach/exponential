@@ -538,6 +538,10 @@ impl Render for ThreadsView {
         use gpui::StatefulInteractiveElement as _;
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
+        // S-3: the viewer's Assistant is created on first use.
+        if let Some(team_id) = active_team_id(&self.nav, cx) {
+            session_data::ensure_assistant(&team_id, cx);
+        }
         let model = self.model(cx);
         let filter = self.filter;
         let view_kind = self.view;
@@ -607,8 +611,53 @@ impl Render for ThreadsView {
                     })
                     .into_any_element()
                 });
+            // S-3: the AGENT rows pinned on top (the chip filters them like
+            // a chat; none on the Archived page), under section headers
+            // only while one exists.
+            let agent_rows: Vec<&domain::chats::AgentChatRow> = match view_kind {
+                ChatListView::Archived => Vec::new(),
+                ChatListView::List => model
+                    .agent_rows
+                    .iter()
+                    .filter(|row| match filter {
+                        ChatFilter::All => true,
+                        ChatFilter::NeedsYou => row.needs_you,
+                        ChatFilter::Running => row.busy,
+                        ChatFilter::Unread => row.unread_count > 0,
+                    })
+                    .collect(),
+            };
+            let agents_section = (!agent_rows.is_empty()).then(|| {
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .child(crate::chat_list::chat_section_header(&CHATS.copy.sections.agents, cx))
+                    .children(agent_rows.iter().map(|row| {
+                        let open_id = row.agent_id.clone();
+                        let menu_id = row.agent_id.clone();
+                        use crate::controls::PointerContextMenuExt as _;
+                        use gpui::StatefulInteractiveElement as _;
+                        crate::chat_list::chat_selectable(
+                            SharedString::from(format!("{}-agent-{}", CHATS.test_ids.chat_row, row.agent_id)),
+                            &row.agent_id,
+                            None,
+                            |_, _, _| {},
+                            crate::chat_list::agent_chat_row(row, cx),
+                            cx,
+                        )
+                        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                            crate::navigation::navigate(window, cx, Screen::Agent { agent_id: open_id.clone() });
+                        })
+                        .pointer_context_menu(move |menu, _, cx| {
+                            crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
+                        })
+                        .into_any_element()
+                    }))
+                    .child(crate::chat_list::chat_section_header(&CHATS.copy.sections.chats, cx))
+                    .into_any_element()
+            });
             // The empty state for an empty filter too (web `ChatList`).
-            let list = if rows.is_empty() && archived_entry.is_none() {
+            let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() {
                 let (icon, copy): (Icon, SharedString) = match view_kind {
                     ChatListView::Archived => (Icon::new(registry::UI_ARCHIVE), CHATS.copy.archived.empty.clone().into()),
                     ChatListView::List => (Icon::new(registry::NAV_THREADS), crate::empty_state_copy::THREADS.into()),
@@ -618,6 +667,7 @@ impl Render for ThreadsView {
                 v_flex()
                     .w_full()
                     .min_w_0()
+                    .children(agents_section)
                     .children(archived_entry)
                     .children(rows.iter().map(|row| {
                         let selected = self.selected.contains(&row.session_id);

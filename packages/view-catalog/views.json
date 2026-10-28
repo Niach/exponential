@@ -165,6 +165,10 @@
     {
       "route": "/t/$teamSlug/settings/apps/new",
       "reason": "VAPP-110: the app settings page in create mode, the same layout settings-app photographs with an empty form."
+    },
+    {
+      "route": "/t/$teamSlug/settings/voice",
+      "reason": "S-3: Personal → Voice is gone; the route redirects to the Assistant page, whose Voice section settings-assistant photographs."
     }
   ],
   "views": [
@@ -1570,33 +1574,36 @@
       }
     },
     {
-      "id": "settings-voice",
+      "id": "settings-assistant",
       "group": "settings",
-      "title": "Settings · Voice",
-      "blurb": "The member's voice device, agent and Speak replies, then the tray group (push to talk, shortcut, wake word and phrase) while a voice device is picked (NEW-67, voice.json). Never gated.",
+      "title": "Settings · Assistant",
+      "blurb": "S-3: the member's own Assistant (agent-settings.json `assistant`), first in the settings nav's Agents group with the Exponential brand mark: its name beside the mark, Runs on (device, account, model), Check in (one schedule preset), the Voice block moved here from Personal (minus Voice device and Agent) and the instructions. No Delete. Replaces Settings · Voice.",
       "order": 28,
       "web": {
-        "route": "/t/$teamSlug/settings/voice",
+        "route": "/t/$teamSlug/settings/assistant",
         "anchor": {
-          "text": "Voice device",
+          "testId": "assistant-check-in",
           "timeoutMs": 20000
         },
-        "settleMs": 600
+        "settleMs": 800
       },
       "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
-          "value": "voice"
+          "value": "assistant"
         }
       },
       "ios": {
-        "shot": "sg_settings-voice",
+        "shot": "sg_settings-assistant",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_settings-voice",
+        "shot": "sg_settings-assistant",
         "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The demo user's Assistant is seeded (screenshot-demo.ts) on the build server, so the page renders without `agents.ensureAssistant` creating one; the Voice section fills after `voice.get`."
       }
     },
     {

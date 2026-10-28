@@ -3,15 +3,15 @@
 //! a thread and a session view: one card everywhere, case for case with the
 //! web entry. Drawn from the REAL parts the app composes
 //! ([`crate::composer::session_composer_box`]: the card with the "+" and
-//! the inline tools, Send ⇄ Stop; [`crate::composer::SessionComposerControls`]:
-//! the options line UNDER it) and the "+" menu drawn OPEN beside it (a real
-//! `PopupMenu` built row by row off `chat_screen::composer_menu_rows`, the
-//! rows of `composer-menu.json` with every condition met; in a session the
-//! subject rows go). The specimen ([`ComposerSpecimen`], [`options_line`],
-//! [`plus_menu_open`]) is shared with the `composer-options` and
-//! `session-thread` entries, like the web `composer-specimen.tsx`. NEW-3:
-//! a start's "+" carries Message an agent ›, and the agent case shows its
-//! ONE chip (`chat_screen::agent_chip`) with the options line hidden.
+//! its "+", Send ⇄ Stop; a session keeps only its context ring: S-3 removed
+//! the options line under every composer) and the "+" menu drawn OPEN beside
+//! it (a real `PopupMenu` built row by row off
+//! `chat_screen::composer_menu_rows`: a start = the launch surface on
+//! Temporary session, a session = its surface, the model only). The
+//! specimen ([`ComposerSpecimen`], [`plus_menu_open`]) is shared with the
+//! `session-thread` entry, like the web `composer-specimen.tsx`. The agent
+//! case keeps the home placeholder (the agent row above the card picks the
+//! recipient, styleguide `composer-agent-row`).
 
 use gpui::{
     div, px, AnyElement, App, Context, Div, Entity, IntoElement, ParentElement as _, Render,
@@ -25,11 +25,10 @@ use crate::chat_screen::{
     MENU_COMPUTER_USE, MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_ULTRACODE, PLUS_TOOLTIP,
 };
 use crate::composer::{
-    composer_tool, session_composer_card, session_composer_field, session_context_ring, session_model_pin,
+    composer_tool, session_composer_card, session_composer_field, session_context_ring,
     ContextRingProps, SessionComposerBox, SessionComposerControls, SessionComposerSubmit, SubmitKind,
 };
 use crate::icons::registry;
-use crate::launch_options::{inline_pin_trigger, inline_pin_trigger_with};
 use crate::mention_input::MentionInput;
 use crate::surface::{glass_pill, PillMode, PillSize};
 
@@ -73,60 +72,6 @@ fn sample_usage(phase: Phase) -> steer::SessionUsage {
     }
 }
 
-/// The start line's pins before the model: the device (its glyph), the
-/// account.
-fn start_pins(prefix: &str, cx: &App) -> Vec<AnyElement> {
-    vec![
-        inline_pin_trigger_with(
-            SharedString::from(format!("{prefix}-device")),
-            Some(registry::NAV_COMPUTER),
-            SAMPLE_DEVICE.to_string(),
-            cx,
-        )
-        .into_any_element(),
-        inline_pin_trigger(SharedString::from(format!("{prefix}-account")), SAMPLE_ACCOUNT.to_string(), cx)
-            .into_any_element(),
-    ]
-}
-
-/// EXP-1252 — a session's Device pin (before the model): the launch line's
-/// pin trigger with the session's device. N-12: its glyph alone; the name is
-/// the tooltip.
-pub(super) fn session_device_pin(prefix: &str, cx: &App) -> AnyElement {
-    crate::launch_options::inline_pin_glyph_trigger(SharedString::from(format!("{prefix}-device")), registry::NAV_COMPUTER, cx)
-        .tooltip(SAMPLE_DEVICE)
-        .into_any_element()
-}
-
-/// N-12 (web `ComposerSessionRowSpecimen`): a session composer's in-card
-/// row: the Device glyph · the model pin.
-pub(super) fn session_row(prefix: &str, phase: Phase, cx: &App) -> Div {
-    h_flex()
-        .min_w_0()
-        .pl_1()
-        .gap(px(10.))
-        .items_center()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(session_device_pin(prefix, cx))
-        .child(inline_pin_trigger(
-            SharedString::from(format!("{prefix}-model")),
-            crate::steer_viewer::model_label(sample_model(phase)),
-            cx,
-        ))
-}
-
-/// The repository pin, the start line's last word.
-fn repository_pin(prefix: &str, cx: &App) -> AnyElement {
-    inline_pin_trigger_with(
-        SharedString::from(format!("{prefix}-repo")),
-        Some(registry::UI_REPOSITORY),
-        SAMPLE_REPOSITORY.to_string(),
-        cx,
-    )
-    .into_any_element()
-}
-
 /// The context ring at the line's end (its usage sheet on a click).
 pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyElement> {
     session_context_ring(
@@ -146,30 +91,6 @@ pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyEl
     )
 }
 
-/// The options line UNDER the start composer (web
-/// `ComposerOptionsSpecimen`): device · account · model ·
-/// repository (N-12: a session's pins sit in the card, [`session_row`]). The model pin here is the static word (the live
-/// menu is the whole composer's, [`ComposerSpecimen`]).
-pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
-    let model = inline_pin_trigger(
-        SharedString::from(format!("{prefix}-model")),
-        crate::steer_viewer::model_label(sample_model(phase)),
-        cx,
-    );
-    let mut line = h_flex()
-        .w_full()
-        .min_w_0()
-        .flex_wrap()
-        .gap_1()
-        .items_center()
-        .px_1()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground);
-    line = line.children(start_pins(prefix, cx));
-    line = line.child(model);
-    line.child(repository_pin(prefix, cx))
-}
-
 /// THE whole composer (web `ComposerSpecimen`): the card (the field, the
 /// "+" + the inline tools, Send ⇄ Stop), the options line under it. A view:
 /// the field and the model pin's pick live across frames.
@@ -177,10 +98,9 @@ pub(super) struct ComposerSpecimen {
     prefix: &'static str,
     phase: Phase,
     mention: Entity<MentionInput>,
-    model: String,
     /// EXP-1211: the quick replies above the card (none = the plain box).
     replies: Option<domain::session_tree::ComposerReplies>,
-    /// NEW-3: a message to an agent — the options line hides.
+    /// The agent case (no context ring before a conversation exists).
     to_agent: bool,
 }
 
@@ -197,7 +117,6 @@ impl ComposerSpecimen {
             prefix,
             phase,
             mention,
-            model: sample_model(phase).to_string(),
             replies: None,
             to_agent: false,
         }
@@ -214,43 +133,12 @@ impl Render for ComposerSpecimen {
         } else {
             SubmitKind::Send
         });
-        let model = session_model_pin(
-            id("model"),
-            &self.model,
-            true,
-            true,
-            |this: &mut Self, alias: &str, _, cx| {
-                this.model = alias.to_string();
-                cx.notify();
-            },
-            cx,
-        );
-        let device_pin = (phase != Phase::Start).then(|| session_device_pin(prefix, cx));
-        let (model_pin, repository, context_ring) = match phase {
-            // Before a start: device · account · model · repository (S-3: no
-            // Plan switch).
-            Phase::Start => (
-                Some(
-                    h_flex()
-                        .gap_1()
-                        .items_center()
-                        .children(start_pins(prefix, cx))
-                        .children(model)
-                        .into_any_element(),
-                ),
-                Some(repository_pin(prefix, cx)),
-                None,
-            ),
-            // In a session: model … the context ring.
-            _ => (model, None, context_ring(prefix, phase, cx)),
-        };
         // S-3: NO options line under any composer (Device, Account, Model
         // and Repository are "+" rows); a session keeps its context ring.
-        let _ = (device_pin, model_pin, repository);
-        let (controls, under): (SessionComposerControls, Option<Div>) = if self.to_agent || phase == Phase::Start {
-            (SessionComposerControls::default(), None)
+        let controls = if self.to_agent || phase == Phase::Start {
+            SessionComposerControls::default()
         } else {
-            (SessionComposerControls { device_pin: None, model_pin: None, context_ring }, None)
+            SessionComposerControls { device_pin: None, model_pin: None, context_ring: context_ring(prefix, phase, cx) }
         };
         let replies = self
             .replies
@@ -264,7 +152,7 @@ impl Render for ComposerSpecimen {
                 .controls(controls),
             cx,
         );
-        v_flex().w_full().min_w_0().py_2().child(card).children(under)
+        v_flex().w_full().min_w_0().py_2().child(card)
     }
 }
 

@@ -1,5 +1,8 @@
-import { BoardGlyph, conceptIcon, ExponentialLogo } from "@exp/ui"
-import { cn } from "@/lib/utils"
+import type { ReactNode } from "react"
+import { BoardGlyph } from "./board-glyph"
+import { cn } from "./cn"
+import { ExponentialLogo } from "./exponential-logo"
+import { conceptIcon } from "./icons.generated"
 import {
   COMPOSER_AGENT_ROW,
   TEMPORARY_PICK,
@@ -15,7 +18,8 @@ import { isAssistant } from "@exp/domain-contract/agent-settings"
 // viewer's Assistant first (THE brand mark in the foreground colour), the
 // team agents (icon in its colour), then ONE dotted circle = Temporary
 // session. The selected circle wears the foreground ring, the others the
-// glass hairline. Exponential-specific: not an Exponential UI primitive.
+// glass hairline. Exponential-specific (@exp/ui, styleguide
+// `composer-agent-row`): not an Exponential UI primitive.
 
 const TemporaryIcon = conceptIcon(COMPOSER_AGENT_ROW.temporaryIcon as `ui-icon-placeholder`)
 
@@ -105,7 +109,7 @@ export function AgentCircle({
   selected: boolean
   disabled?: boolean
   onPick: (id: string) => void
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <button

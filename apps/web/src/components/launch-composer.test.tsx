@@ -31,6 +31,7 @@ vi.mock(`@/hooks/use-issue-search-results`, () => ({
 }))
 
 import { LaunchComposer } from "@/components/launch-composer"
+import { HOME_PLACEHOLDER } from "@exp/domain-contract/home-greeting"
 
 // Radix positions the popovers with ResizeObserver and cmdk scrolls the
 // active row into view; jsdom has neither.
@@ -130,10 +131,9 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     eligibleIssues: [],
     checkedIssues: [],
     toggleIssue: vi.fn(),
-    agents: [],
-    selectedAgent: null,
-    pickAgent: vi.fn(),
-    clearAgent: vi.fn(),
+    agentRow: null,
+    recipient: null,
+    pickRecipient: vi.fn(),
     pickPrompt: vi.fn(),
     clearPrompt: vi.fn(),
     text: ``,
@@ -320,27 +320,16 @@ describe(`LaunchComposer`, () => {
     expect(model.setText).toHaveBeenCalledWith(`Fix #`)
   })
 
-  // EXP-872: the options line — ONE account picker over the machine's
-  // flattened logins (brand mark + email, never a profile name), the agent
-  // implied by the pick; one login collapses to plain text.
-  it(`says the one login as plain text`, () => {
-    const model = fakeModel({
-      launch: {
-        ...fakeLaunch(),
-        accountKey: `claude:home`,
-        accountOptions: [
-          { id: `home`, agent: `claude`, email: `me@example.com`, isLastUsed: true, health: `ok` },
-        ],
-      },
-    })
-    render(<LaunchComposer model={model} users={[]} />)
-    const word = screen.getByTestId(`agent-composer-account`)
-    expect(word.getAttribute(`data-slot`)).toBe(`combobox-inline-word`)
-    expect(word.textContent).toContain(`me@example.com`)
+  // S-3 (composer-menu.json): NO options line; the runner picks are "+"
+  // submenus over THE pickers' rows.
+  it(`draws no options line under the card`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    expect(screen.queryByTestId(`agent-options-row`)).toBeNull()
+    expect(screen.queryByLabelText(`Device`)).toBeNull()
     expect(screen.queryByLabelText(`Account`)).toBeNull()
   })
 
-  it(`offers every login by email and reports the pick`, () => {
+  it(`picks the login in the Account submenu`, () => {
     const setAccountKey = vi.fn()
     const model = fakeModel({
       launch: {
@@ -354,21 +343,16 @@ describe(`LaunchComposer`, () => {
       },
     })
     render(<LaunchComposer model={model} users={[]} />)
-    const account = screen.getByLabelText(`Account`)
-    expect(account.textContent).toContain(`work@example.com`)
-    expect(account.textContent?.toLowerCase()).not.toContain(`default`)
-    fireEvent.click(account)
-    expect(screen.getByText(`codex@example.com`)).toBeTruthy()
+    openPlus()
+    const row = screen.getByTestId(`agent-composer-menu-account`)
+    expect(row.textContent).toContain(`work@example.com`)
+    fireEvent.click(row)
     expect(screen.getByText(`Needs re-login`)).toBeTruthy()
     fireEvent.click(screen.getByText(`codex@example.com`))
     expect(setAccountKey).toHaveBeenCalledWith(`codex:only`)
-    // The row is where it lives — never the overflow sheet.
-    expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
   })
 
-  // EXP-1030: the machine is picked through THE device picker (@exp/ui
-  // `DevicePicker` on the shared primitive), as an inline word of the line.
-  it(`picks the machine through the shared device picker`, () => {
+  it(`picks the machine in the Device submenu`, () => {
     const second: SteerDevice = {
       deviceId: `dev-2`,
       deviceLabel: `the mini`,
@@ -386,36 +370,24 @@ describe(`LaunchComposer`, () => {
         users={[]}
       />
     )
-    const trigger = screen.getByLabelText(`Device`)
-    expect(trigger.getAttribute(`data-slot`)).toBe(`combobox-inline-trigger`)
-    expect(trigger.textContent).toContain(`buildbox`)
-    // The trigger hangs under the primitive's marker — a single pick.
-    expect(
-      trigger.closest(`[data-slot="picker"]`)?.getAttribute(`data-picker-mode`)
-    ).toBe(`single`)
-    fireEvent.click(trigger)
+    openPlus()
+    const row = screen.getByTestId(`agent-composer-menu-device`)
+    expect(row.textContent).toContain(`buildbox`)
+    fireEvent.click(row)
     fireEvent.click(screen.getByText(`the mini`))
     expect(setDeviceId).toHaveBeenCalledWith(`dev-2`)
   })
 
-  // One machine is not a choice: the sentence says it, with no chevron.
-  it(`says the one machine as plain text`, () => {
-    render(<LaunchComposer model={fakeModel()} users={[]} />)
-    expect(screen.queryByLabelText(`Device`)).toBeNull()
-    const word = document.querySelector(`[title="Device"]`)
-    expect(word?.getAttribute(`data-slot`)).toBe(`combobox-inline-word`)
-    expect(word?.textContent).toContain(`buildbox`)
-  })
-
-  // EXP-993: the repository is a choice only with several repos, and there
-  // is no repo-less row.
-  it(`shows the repository picker only with two or more repos`, () => {
+  // EXP-993: the repository is a choice only with several repos.
+  it(`offers Repository only with two or more repos`, () => {
     const one = fakeModel({
       repoId: `r1`,
       repoOptions: [{ value: `r1`, label: `niach/exponential` }],
     })
-    render(<LaunchComposer model={one} users={[]} />)
-    expect(screen.queryByLabelText(`Repository`)).toBeNull()
+    const { unmount } = render(<LaunchComposer model={one} users={[]} />)
+    openPlus()
+    expect(screen.queryByTestId(`agent-composer-menu-repository`)).toBeNull()
+    unmount()
 
     const two = fakeModel({
       repoId: `r1`,
@@ -425,24 +397,30 @@ describe(`LaunchComposer`, () => {
       ],
     })
     render(<LaunchComposer model={two} users={[]} />)
-    const repo = screen.getByLabelText(`Repository`)
-    expect(repo.textContent).toContain(`niach/exponential`)
-    fireEvent.click(repo)
-    expect(screen.queryByText(`No repository`)).toBeNull()
+    openPlus()
+    expect(screen.getByTestId(`agent-composer-menu-repository`).textContent).toContain(
+      `niach/exponential`
+    )
   })
 
-  // EXP-1249: the `⋯` overflow is gone — its rows moved into the "+".
-  it(`draws no overflow on the options line`, () => {
-    render(<LaunchComposer model={fakeModel()} users={[]} />)
-    expect(screen.queryByLabelText(`More options`)).toBeNull()
-    expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
+  it(`hides the runner and work rows while an agent is picked`, () => {
+    const model = fakeModel({
+      recipient: { id: `ag-1`, name: `Triage`, icon: null, color: null, sortOrder: 0, role: `agent`, ownerId: `u` },
+    })
+    render(<LaunchComposer model={model} users={[]} variant="home" />)
+    openPlus()
+    expect(menuRowIds()).toEqual([`add-file`, `implement-issue`])
+    // The home's question stays (never the instructions placeholder).
+    expect(screen.getByTestId(`agent-composer-field`).getAttribute(`placeholder`)).toBe(
+      HOME_PLACEHOLDER
+    )
   })
 
   it(`says so when no desktop is online`, () => {
     render(
       <LaunchComposer model={fakeModel({ candidateDevices: [] })} users={[]} />
     )
-    expect(screen.getByTestId(`agent-options-row`).textContent).toContain(
+    expect(screen.getByTestId(`agent-launch-notes`).textContent).toContain(
       `No desktop online`
     )
   })
@@ -463,8 +441,12 @@ describe(`LaunchComposer + menu`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
     openPlus()
     expect(menuRowIds()).toEqual([
-      `implement-issue`,
       `add-file`,
+      `implement-issue`,
+      `-`,
+      `device`,
+      `account`,
+      `model`,
       `-`,
       `effort`,
       `ultracode`,
@@ -517,7 +499,16 @@ describe(`LaunchComposer + menu`, () => {
     const model = fakeModel({ launch: { ...fakeLaunch(), agent: `codex` } })
     render(<LaunchComposer model={model} users={[]} />)
     openPlus()
-    expect(menuRowIds()).toEqual([`implement-issue`, `add-file`, `-`, `effort`])
+    expect(menuRowIds()).toEqual([
+      `add-file`,
+      `implement-issue`,
+      `-`,
+      `device`,
+      `account`,
+      `model`,
+      `-`,
+      `effort`,
+    ])
     expect(screen.getByTestId(`agent-composer-menu-effort`).textContent).toContain(
       `Reasoning`
     )
@@ -576,7 +567,7 @@ describe(`LaunchComposer + menu`, () => {
       fireEvent.click(within(sheet).getByTestId(`agent-composer-menu-implement-issue`))
       // The submenu is a pushed page: back row + the issue picker.
       expect(within(sheet).getByTestId(`menu-sheet-back`).textContent).toContain(
-        `Implement issue`
+        `Issue`
       )
       expect(within(sheet).getByTestId(`agent-composer-issues-picker`)).toBeTruthy()
     } finally {
@@ -599,11 +590,9 @@ describe(`LaunchComposer + menu`, () => {
         users={[]}
       />
     )
-    // The "+" row and the paperclip share the any-file chooser; the image
-    // button's chooser filters to images.
+    // The "+" row's chooser takes any file.
     const input = screen.getByTestId(`composer-file-input`)
     expect(input.hasAttribute(`accept`)).toBe(false)
-    expect(screen.getByTestId(`composer-image-input`).getAttribute(`accept`)).toContain(`image/`)
     expect(screen.getByRole(`button`, { name: `Remove notes.pdf` })).toBeTruthy()
     expect(
       container.querySelector(`[data-slot="attachment-file-tile"]`)!.textContent
@@ -620,13 +609,10 @@ describe(`LaunchComposer + menu`, () => {
     click.mockRestore()
   })
 
-  it(`carries the inline edit tools after the "+" (EXP-1334: the one composer)`, () => {
+  it(`carries no inline tools: the "+" is the only one (S-3)`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
     for (const name of [`Add image`, `Attach files`, `Insert issue reference`, `Insert emoji`]) {
-      expect(screen.getByRole(`button`, { name })).toBeTruthy()
+      expect(screen.queryByRole(`button`, { name })).toBeNull()
     }
-    // The options line sits UNDER the card, inside the one frame.
-    const frame = screen.getByTestId(`agent-composer`).closest(`[data-slot="composer-frame"]`)!
-    expect(frame.contains(screen.getByTestId(`agent-options-row`))).toBe(true)
   })
 })

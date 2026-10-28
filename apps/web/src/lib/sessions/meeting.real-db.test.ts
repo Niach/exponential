@@ -73,14 +73,15 @@ async function world(shared = false) {
   ])
   const deviceId = `dev-${id8()}`
   await db.insert(devices).values({ userId: owner, deviceId, label: `box`, kind: `desktop`, sharedTeamIds: shared ? [teamId] : [] })
-  const agent = async (name: string) =>
+  const agent = async (name: string, role: `assistant` | `agent` = `agent`) =>
     (
       await db
         .insert(agents)
-        .values({ teamId, name, icon: `rocket`, color: `#ff0000`, instructions: ``, deviceId, ownerId: owner })
+        .values({ teamId, name, icon: `rocket`, color: `#ff0000`, instructions: ``, deviceId, ownerId: owner, role })
         .returning({ id: agents.id })
     )[0]!.id
-  const ops = await agent(`Ops`)
+  // S-3: the voice agent is the owner's Assistant (voice.get derives it).
+  const ops = await agent(`Ops`, `assistant`)
   const other = await agent(`Other`)
   return { owner, mate, teamId, deviceId, ops, other }
 }
@@ -186,10 +187,11 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     await db.update(devices).set({ sharedTeamIds: [] }).where(eq(devices.deviceId, w.deviceId))
     await expect(voice(w.owner).startMeeting({ consent: true })).rejects.toMatchObject(sharedRefused)
 
-    // A teammate whose voice agent sits on the owner's (shared) box: refused.
+    // A teammate whose (old) voice agent sits on the owner's (shared) box:
+    // refused (S-3: it is not their Assistant, so they have no voice at all).
     const fresh = await world(true)
     await db.insert(userVoiceSettings).values({ userId: fresh.mate, agentId: fresh.ops, voiceDeviceId: fresh.deviceId })
-    await expect(voice(fresh.mate).startMeeting({ consent: true })).rejects.toMatchObject(sharedRefused)
+    await expect(voice(fresh.mate).startMeeting({ consent: true })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     await expect(
       sendSession({ userId: fresh.mate, input: { agentId: fresh.ops, text: `batch` }, meeting: true })
     ).rejects.toMatchObject(sharedRefused)

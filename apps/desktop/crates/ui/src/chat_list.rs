@@ -454,6 +454,75 @@ pub(crate) fn agent_bubble(bubble: &AgentBubble, cx: &App) -> Div {
         )
 }
 
+/// S-3 — one AGENT row pinned on top of the Chats list (chats.json
+/// `agentChatRows`): THE chat row with the agent's avatar in the lead disc
+/// (the brand mark for the viewer's Assistant), its name, the
+/// conversation's preview, time and unread badge.
+pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div {
+    let lead_glyph = agent_avatar_glyph(&row.icon, &row.color, row.assistant, row.busy, GLYPH_PX, cx);
+    let lead = div()
+        .relative()
+        .size(px(CHATS.shell.lead_disc))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(cx.theme().muted)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(lead_glyph)
+        .when(row.needs_you, |disc| {
+            disc.child(
+                div()
+                    .absolute()
+                    .top(px(8.))
+                    .right(px(8.))
+                    .size(px(14.))
+                    .rounded_full()
+                    .border_2()
+                    .border_color(cx.theme().muted)
+                    .bg(theme::tokens::YELLOW.to_hsla()),
+            )
+        })
+        .into_any_element();
+    let as_chat = ChatRow {
+        session_id: row.session_id.clone().unwrap_or_else(|| row.agent_id.clone()),
+        team_id: String::new(),
+        title: row.name.clone(),
+        device_id: None,
+        group: if row.needs_you {
+            domain::session_tree::ThreadsListKey::NeedsYou
+        } else if row.busy {
+            domain::session_tree::ThreadsListKey::Running
+        } else {
+            domain::session_tree::ThreadsListKey::Recent
+        },
+        lead: ChatLead::Waiting,
+        preview: row.preview.clone(),
+        activity_at: row.activity_at.clone().unwrap_or_default(),
+        time: row.time.clone(),
+        unread_count: row.unread_count,
+        needs_you: row.needs_you,
+        busy: row.busy,
+        word: None,
+        dim: false,
+    };
+    chat_row(&as_chat, lead, cx)
+}
+
+/// S-3: a Chats list section header (`copy.sections`), shown only while an
+/// agent row exists.
+pub(crate) fn chat_section_header(label: &str, cx: &App) -> AnyElement {
+    div()
+        .px(px(ROW_PAD))
+        .pt_2()
+        .pb_1()
+        .text_xs()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(cx.theme().muted_foreground)
+        .child(SharedString::from(label.to_string()))
+        .into_any_element()
+}
+
 /// A composer agent row tap (the option id; the temporary id = Temporary
 /// session).
 pub(crate) type OnAgentPick = Rc<dyn Fn(String, &mut Window, &mut App)>;

@@ -474,6 +474,9 @@ export function useLaunchComposer({
   // (issues included: picking the other kind swaps).
   const pickPrompt = useCallback((promptId: string) => {
     setSubject({ kind: `prompt`, id: promptId })
+    // S-3: a prompt starts a new root: the agent row moves to Temporary
+    // session (a message to an agent takes no prompt).
+    setPicked(TEMPORARY_PICK)
   }, [])
 
   const clearPrompt = useCallback(() => {

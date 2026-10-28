@@ -816,6 +816,16 @@ export interface ThreadConversationProps {
   className?: string
 }
 
+/** S-3: the card rows a `bubbles` conversation keeps in the agent column. */
+const AGENT_COLUMN_ROWS = new Set<ThreadRow[`type`]>([
+  `session`,
+  `question`,
+  `plan`,
+  `picture`,
+  `report`,
+  `suggestions`,
+])
+
 /** EXP-1317: the queued row's X (tooltip + accessible name). */
 export const THREAD_UNQUEUE_LABEL = `Remove from queue`
 
@@ -998,6 +1008,17 @@ export function ThreadConversation(props: ThreadConversationProps) {
         return null
     }
   }
+  // S-3 (chats.json CHAT MODE): in `bubbles` the agent's cards sit in the
+  // agent column (left, max 94%), beside the person's right-hand bubbles.
+  const renderInColumn = (row: ThreadRow): ReactNode => {
+    const node = renderRow(row)
+    if (!bubbles || node === null || !AGENT_COLUMN_ROWS.has(row.type)) return node
+    return (
+      <div data-slot="thread-agent-column" className="w-full max-w-[94%] self-start">
+        {node}
+      </div>
+    )
+  }
   return (
     <div
       data-testid="thread-conversation"
@@ -1008,7 +1029,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
         <StableRow
           key={row.id}
           row={row}
-          render={renderRow}
+          render={renderInColumn}
           deps={[
             bubbles,
             isLive(row.id),

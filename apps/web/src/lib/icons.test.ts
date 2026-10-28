@@ -495,8 +495,9 @@ describe(`icon call sites`, () => {
     // the parent entry Labels and Statuses now nest under on both clients.
     // SLOP-4: − Helpdesk (the widget is the one Features entry).
     // NEW-2: + Prompts (Agents), web-only for now.
-    // NEW-67: + Voice (Personal).
-    expect(webNav.size).toBe(17)
+    // NEW-67: + Voice (Personal). S-3: − Voice (the Assistant page's
+    // section now).
+    expect(webNav.size).toBe(16)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).
@@ -531,7 +532,6 @@ describe(`icon call sites`, () => {
       [`MCP servers`, `McpServers`],
       [`Account`, `Account`],
       [`Notifications`, `Notifications`],
-      [`Voice`, `Voice`],
       // EXP-862: the Personal entry is labelled Security on both clients.
       [`Security`, `ApiKeys`],
     ]

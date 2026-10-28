@@ -12,7 +12,7 @@ import {
 import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchNotes } from "@/components/launch-dialog/launch-notes"
-import { ComposerAgentRow } from "@/components/composer-agent-row"
+import { ComposerAgentRow } from "@exp/ui"
 import {
   ComposerInlineTools,
   type ComposerInlineToolsHandle,
@@ -150,8 +150,8 @@ export function LaunchComposer({
   const menu = useSlashCommandMenu({
     text,
     commands: NO_COMMANDS,
-    // S-3: a prompt starts a new root: never a message to an agent.
-    prompts: model.recipient ? NO_PROMPTS : model.prompts,
+    // S-3: a prompt pick moves the agent row to Temporary session.
+    prompts: model.prompts,
     onAccept: model.setText,
     onPickPrompt: (prompt) => {
       model.pickPrompt(prompt.id)
@@ -332,7 +332,6 @@ export function LaunchComposer({
 
 /** The launch composer's `/` menu offers no builtins (no session yet). */
 const NO_COMMANDS: readonly SteerCommand[] = []
-const NO_PROMPTS: LaunchComposerModel[`prompts`] = []
 
 /** The pending submit's spinner: the round 24px glyph's slot, so a bit
  *  larger than a text button's `pending.spinner`. */

@@ -29,7 +29,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, AnyElement, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
+    div, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -341,36 +341,6 @@ pub(crate) fn inline_pin_glyph_trigger(id: SharedString, icon: ExpIcon, cx: &App
         .child(Icon::new(icon).size(gpui::px(12.)))
 }
 
-/// EXP-1030 — the candidate machines as THE device picker
-/// ([`crate::picker::device_picker`]) reads them: one row per machine, its
-/// [`crate::icons::device_icon_name`] glyph (its owner's pick, else its kind
-/// — resolved HERE, because the typed constructor takes no `&App` and the
-/// kind lives on the synced row), and its picker line as the label. Every
-/// launch surface that offers a machine — the composer's Device pin, an
-/// action trigger's runner — builds its rows through this ONE function, so
-/// they can never list the same fleet differently.
-pub(crate) fn launch_device_rows(
-    devices: &[crate::queries::LaunchDevice],
-    cx: &App,
-) -> Vec<crate::picker::device_picker::DevicePickerDevice> {
-    devices
-        .iter()
-        .map(|device| crate::picker::device_picker::DevicePickerDevice {
-            id: device.device_id.clone(),
-            name: device.label.clone(),
-            icon: Some(device_glyph_name(&device.device_id, cx).to_string()),
-            // The glyph above is already resolved (EXP-924), so the kind
-            // default the picker would derive from this is never consulted.
-            server: false,
-            description: None,
-            // EXP-615: an offline-but-capable machine is not a lesser choice
-            // (the run fires when it comes back), so no candidate is ever
-            // greyed out here.
-            disabled: false,
-        })
-        .collect()
-}
-
 /// The stored glyph NAME for one machine (EXP-924: its own `icon` when it
 /// names a device icon, else its kind's default) — resolved off the synced
 /// `devices` row, so a picker row and the Devices list wear the same mark.
@@ -437,44 +407,6 @@ pub(crate) fn choice_pin_for<V: Render>(
         }
         menu
     })
-}
-
-/// Hangs a model/effort choice menu off `trigger`, writing the pick into the
-/// section's `ChoiceSelect` (the same entity the grouped cluster's select row
-/// edits, so the two never disagree) — [`choice_pin`] with that write.
-fn choice_menu<V: Render>(
-    trigger: Button,
-    choices: &'static [(&'static str, &'static str)],
-    picked: String,
-    select: fn(&LaunchOptionsSection) -> &ChoiceSelect,
-    access: fn(&mut V) -> &mut LaunchOptionsSection,
-    cx: &mut Context<V>,
-) -> impl IntoElement {
-    choice_menu_for(trigger, choices, picked, select, access, cx.entity().downgrade())
-}
-
-/// [`choice_menu`] against a captured weak handle.
-fn choice_menu_for<V: Render>(
-    trigger: Button,
-    choices: &'static [(&'static str, &'static str)],
-    picked: String,
-    select: fn(&LaunchOptionsSection) -> &ChoiceSelect,
-    access: fn(&mut V) -> &mut LaunchOptionsSection,
-    view: gpui::WeakEntity<V>,
-) -> impl IntoElement {
-    choice_pin_for(
-        trigger,
-        choices,
-        picked,
-        view,
-        move |view: &mut V, value: &str, window, cx| {
-            let state = select(access(view)).clone();
-            state.update(cx, |state, cx| {
-                state.set_selected_value(&SharedString::from(value.to_string()), window, cx)
-            });
-            cx.notify();
-        },
-    )
 }
 
 /// One switch row of an [`AgentDefaultsGroup`]: the label, its state, and
@@ -1085,29 +1017,6 @@ impl LaunchOptionsSection {
         (self.mcp_servers.clone(), self.mcp_selected.clone())
     }
 
-    // ── EXP-825: the Agent page composer's inline options row ──────────────
-    //
-    // Variant B of the composer mockups: under the card ONE muted line —
-    // Device (the composer's own), Agent, Model — and a `⋯` popover
-    // holding Effort, Ultracode, MCP servers and Account. These are thin
-    // views over the same state `render` shows as a grouped cluster, so the
-    // two surfaces cannot disagree about what a run launches with.
-
-    /// The Model pin over the picked agent's own model list.
-    pub(crate) fn model_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> AnyElement {
-        let choices = model_choices_for(self.agent);
-        let picked = selected(&self.model, cx);
-        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
-        let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-model")), label, cx);
-        choice_menu(trigger, choices, picked, |section| &section.model, access, cx)
-            .into_any_element()
-    }
-
     /// EXP-1249: everything the composer's "+" menu draws, read off the
     /// section in ONE pass — the menu builder runs in the MENU's context, so
     /// it cannot reach back into the host view for a second look.
@@ -1130,40 +1039,6 @@ impl LaunchOptionsSection {
         }
     }
 
-    /// EXP-872 — THE account pin: ONE picker over every signed-in login the
-    /// TARGET machine reports, across agents. It replaced the agent pin and
-    /// the old account pin both — picking a login picks its agent — so it
-    /// renders WHENEVER the machine offers anything, and collapses to plain
-    /// text (no chevron) when there is a single login to spend.
-    pub(crate) fn account_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        let options = self.account_options(cx);
-        if options.is_empty() {
-            return None;
-        }
-        let current = self.account_key();
-        let view = cx.entity().downgrade();
-        Some(crate::coding_selects::account_picker(
-            SharedString::from(format!("{prefix}-account")),
-            &options,
-            Some(current.as_str()),
-            crate::coding_selects::AccountTrigger::Inline,
-            move |option, window, cx| {
-                if let Some(view) = view.upgrade() {
-                    let option = option.clone();
-                    view.update(cx, |view, cx| {
-                        access(view).set_account(&option, window, cx);
-                        cx.notify();
-                    });
-                }
-            },
-            cx,
-        ))
-    }
 }
 
 /// EXP-1249 — the composer "+" menu's run options, snapshotted off a

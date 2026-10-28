@@ -315,6 +315,10 @@ pub struct AgentDetailPane {
     trigger_writing: bool,
     /// Monotonic guard: a stale instructions read must not clobber a newer one.
     generation: u64,
+    /// S-3: the Assistant page's Voice section = THE Voice settings block
+    /// (`voice_prefs`), minus its Voice device and Agent pickers; built on
+    /// the first Assistant shown.
+    voice: Option<Entity<super::voice_prefs::VoicePrefsPane>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -358,6 +362,7 @@ impl AgentDetailPane {
             error: None,
             trigger_writing: false,
             generation: 0,
+            voice: None,
             _subscriptions: subscriptions,
         }
     }
@@ -775,6 +780,164 @@ impl AgentDetailPane {
     }
 }
 
+/// S-3: one single-select Picker row over `(value, label)` options (THE
+/// Picker behind a picker-row trigger, the device row's recipe).
+fn choice_row(
+    id: &'static str,
+    label: impl Into<SharedString>,
+    options: Vec<(String, String)>,
+    picked: Option<String>,
+    on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
+    cx: &App,
+) -> gpui::Div {
+    let value = picked
+        .as_deref()
+        .and_then(|picked| options.iter().find(|(value, _)| value == picked))
+        .map(|(_, label)| label.clone())
+        .unwrap_or_default();
+    let trigger = trigger_editor::picker_trigger(SharedString::from(id), value, cx).into_any_element();
+    let items: Vec<crate::picker::PickerItem<String>> = options
+        .into_iter()
+        .map(|(value, label)| crate::picker::PickerItem::new(value, label))
+        .collect();
+    let control = crate::picker::deferred(move |window, cx| {
+        let on_pick = on_pick.clone();
+        crate::picker::Picker::single(
+            items.clone(),
+            picked.clone(),
+            trigger,
+            Rc::new(move |next: Vec<String>, window: &mut Window, cx: &mut App| {
+                if let Some(value) = next.into_iter().next() {
+                    on_pick(value, window, cx);
+                }
+            }),
+        )
+        .id(SharedString::from(format!("{id}-picker")))
+        .render(window, cx)
+    })
+    .into_any_element();
+    crate::surface::glass_picker_row(label.into(), None, control, cx)
+}
+
+impl AgentDetailPane {
+    /// S-3 — THE ASSISTANT page (agent-settings.json `assistant.sections`):
+    /// identity (the name, the brand mark instead of the icon picker), Runs
+    /// on (THE device / account / model rows), Check in (THE Picker over
+    /// `schedules`), Voice (the Voice settings block moved as one, minus
+    /// its Voice device and Agent pickers), Instructions. No Delete.
+    fn render_assistant(&mut self, agent: &AgentDefRow, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        use domain::agent_settings::{assistant_schedule_of, assistant_schedule_triggers, ASSISTANT};
+        let team_id = agent
+            .team_id
+            .clone()
+            .or_else(|| active_team_id(&self.nav, cx))
+            .unwrap_or_default();
+        let devices = agent_devices(&team_id, cx);
+        let copy = &ASSISTANT.copy;
+        let caption = |text: &str, cx: &App| {
+            div()
+                .px_1()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(text.to_string()))
+        };
+        // Identity: the brand mark (never a stored icon) + the name.
+        let mark = div()
+            .size(gpui::px(28.))
+            .flex_shrink_0()
+            .rounded_full()
+            .bg(cx.theme().muted)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                gpui_component::Icon::from(crate::icons::ExpIcon::Logo)
+                    .size(gpui::px(16.))
+                    .text_color(cx.theme().foreground),
+            );
+        let identity_row = crate::surface::glass_row_shell().gap_2().child(mark).child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(crate::surface::glass_row_input(glass_input(&self.name_input, window, cx)).text_left()),
+        );
+        // Runs on: THE device / account rows, then the model.
+        let cli = agent.cli.clone().unwrap_or_else(|| "claude".to_string());
+        let models: &[(&str, &str)] = if cli == "codex" {
+            &crate::coding_selects::CODEX_MODEL_CHOICES
+        } else {
+            &crate::coding_selects::MODEL_CHOICES
+        };
+        let model_picked = agent.model.clone().filter(|model| !model.is_empty()).or_else(|| {
+            Some(
+                if cli == "codex" {
+                    domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL
+                } else {
+                    domain::contract::DEVICE_AGENT_DEFAULTS_MODEL
+                }
+                .to_string(),
+            )
+        });
+        let model_agent = agent.id.clone();
+        let model_row = choice_row(
+            "assistant-model",
+            crate::chat_screen::MENU_MODEL,
+            models.iter().map(|(label, value)| ((*value).to_string(), (*label).to_string())).collect(),
+            model_picked,
+            Rc::new(move |model: String, _: &mut Window, cx: &mut App| {
+                update_agent(
+                    cx,
+                    "change",
+                    "the Assistant's model",
+                    api::agents::UpdateInput { model: Some(Some(model)), ..api::agents::UpdateInput::new(model_agent.clone()) },
+                );
+            }),
+            cx,
+        );
+        let runs_on = crate::surface::glass_group_rows(vec![
+            self.device_row(agent, &devices, cx),
+            self.account_row(agent, &devices, cx),
+            model_row,
+        ]);
+        // Check in: THE Picker over the presets.
+        let triggers = agent.trigger_list();
+        let schedule = assistant_schedule_of(&triggers).unwrap_or_else(|| ASSISTANT.default_schedule.clone());
+        let tz = triggers.first().and_then(|trigger| trigger["tz"].as_str()).map(str::to_string);
+        let schedule_agent = agent.id.clone();
+        let check_in = crate::surface::glass_group_rows(vec![choice_row(
+            "assistant-check-in",
+            copy.check_in.clone(),
+            ASSISTANT.schedules.iter().map(|preset| (preset.id.clone(), preset.label.clone())).collect(),
+            Some(schedule),
+            Rc::new(move |id: String, _: &mut Window, cx: &mut App| {
+                let triggers = assistant_schedule_triggers(&id, tz.as_deref());
+                update_agent(
+                    cx,
+                    "change",
+                    "the check-in",
+                    api::agents::UpdateInput { triggers: Some(triggers), ..api::agents::UpdateInput::new(schedule_agent.clone()) },
+                );
+            }),
+            cx,
+        )]);
+        let voice = self
+            .voice
+            .get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::new(cx).assistant_block()))
+            .clone();
+        let mut body = section(cx)
+            .gap_4()
+            .child(crate::surface::glass_group_rows(vec![identity_row]))
+            .child(v_flex().w_full().gap_1().child(caption(&copy.runs_on, cx)).child(runs_on))
+            .child(v_flex().w_full().gap_1().child(caption(&copy.check_in, cx)).child(check_in))
+            .child(v_flex().w_full().gap_1().child(caption(&copy.voice, cx)).child(voice))
+            .child(self.instructions_card(cx));
+        if let Some(message) = self.error.clone() {
+            body = body.child(crate::action_error::field_error(message, cx).px_1());
+        }
+        v_flex().child(body).into_any_element()
+    }
+}
+
 impl Render for AgentDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let agent = self
@@ -786,6 +949,9 @@ impl Render for AgentDetailPane {
             return v_flex().into_any_element();
         };
         self.sync_selected_agent(&agent, window, cx);
+        if agent.is_assistant() {
+            return self.render_assistant(&agent, window, cx);
+        }
         let team_id = agent
             .team_id
             .clone()

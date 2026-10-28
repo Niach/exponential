@@ -45,7 +45,6 @@
 //! becomes the STARTING row (the mark, "Starting on <device>", elapsed)
 //! until the send answers, or the 30 s timeout toast offers Retry.
 
-use crate::controls::PointerMenuButtonExt as _;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -75,7 +74,7 @@ use crate::composer_images::{self, PendingImages};
 use crate::device_readiness;
 use crate::icons::registry;
 use crate::picker::issue_picker::{self, IssueRow};
-use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
+use crate::launch_options::{self, LaunchOptionsSection};
 use crate::mention_input::MentionInput;
 use crate::navigation::{self, ChatSeed, Navigation, Screen};
 use crate::queries;
@@ -167,20 +166,6 @@ fn device_agent_status(
         crate::device_settings::parse_agent_map::<coding::agent_usage::AgentUsage>(
             row.agent_usage.as_ref(),
         ),
-    )
-}
-
-/// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
-/// owner's PICK when the row carries one, and otherwise the kind default the
-/// Devices list and Getting started wear (the headless CLI daemon is a SERVER,
-/// everything else a desktop). An unsynced row reads as a plain desktop, which
-/// is what this IDE is.
-fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
-    // EXP-1030: through the ONE resolver the device picker's rows go through,
-    // so the pin's glyph and its menu's glyphs cannot come apart.
-    crate::icons::device_icon(
-        Some(crate::launch_options::device_glyph_name(device_id, cx)),
-        false,
     )
 }
 
@@ -2809,7 +2794,7 @@ impl RunnerMenu {
 
 /// A runner submenu's title: the row's word, then ` · value` when one is
 /// picked (the fixture: value = the picked label).
-fn titled(row: ComposerMenuRow, value: Option<String>) -> String {
+pub(crate) fn titled_row(row: ComposerMenuRow, value: Option<String>) -> String {
     match value {
         Some(value) if !value.is_empty() => format!("{} · {value}", row.label()),
         _ => row.label().to_string(),
@@ -2899,7 +2884,7 @@ pub(crate) fn plus_menu(
                 let view = view.clone();
                 menu.submenu_with_icon(
                     Some(row.menu_icon()),
-                    titled(row, runner.device_value()),
+                    titled_row(row, runner.device_value()),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -2931,7 +2916,7 @@ pub(crate) fn plus_menu(
                 let view = view.clone();
                 menu.submenu_with_icon(
                     Some(row.menu_icon()),
-                    titled(row, runner.account_value()),
+                    titled_row(row, runner.account_value()),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -2967,7 +2952,7 @@ pub(crate) fn plus_menu(
                 let view = view.clone();
                 menu.submenu_with_icon(
                     Some(row.menu_icon()),
-                    titled(row, runner.model_value()),
+                    titled_row(row, runner.model_value()),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -2994,7 +2979,7 @@ pub(crate) fn plus_menu(
                 let view = view.clone();
                 menu.submenu_with_icon(
                     Some(row.menu_icon()),
-                    titled(row, runner.repo_value()),
+                    titled_row(row, runner.repo_value()),
                     window,
                     cx,
                     move |mut sub, _, _| {

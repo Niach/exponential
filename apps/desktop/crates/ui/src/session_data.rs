@@ -929,6 +929,9 @@ pub(crate) struct ChatsModel {
     /// #EXP-1388: the Archived page's list (view `archived`, filter All).
     pub(crate) archived: domain::chats::ChatList,
     pub(crate) bubbles: Vec<domain::chats::AgentBubble>,
+    /// S-3: the AGENT rows pinned on top (filter All; the chips filter them
+    /// in the view like the chats).
+    pub(crate) agent_rows: Vec<domain::chats::AgentChatRow>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1048,7 +1051,18 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
     let list = list_of(domain::chats::ChatListView::List);
     let archived = list_of(domain::chats::ChatListView::Archived);
     let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
-    ChatsModel { list, archived, bubbles }
+    let agent_rows = domain::chats::agent_chat_rows(domain::chats::AgentChatRowsInput {
+        agents: &agents,
+        sessions: &team_sessions,
+        messages: &messages,
+        reads: &reads,
+        me: me.as_deref(),
+        filter: domain::chats::ChatFilter::All,
+        view: domain::chats::ChatListView::List,
+        now: &now,
+        utc_offset_minutes: offset,
+    });
+    ChatsModel { list, archived, bubbles, agent_rows }
 }
 
 /// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has
