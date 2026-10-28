@@ -155,6 +155,17 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
             .unwrap_or_default()
             .to_string(),
         items,
+        // NEW-59: lenient like the items: an unreadable entry is dropped.
+        displays: value
+            .get("displays")
+            .and_then(|displays| displays.as_array())
+            .map(|displays| {
+                displays
+                    .iter()
+                    .filter_map(|display| serde_json::from_value(display.clone()).ok())
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -424,11 +435,12 @@ pub(crate) struct BlockProps {
     /// Row keys whose action is running (the pill shows its spinner).
     pub busy: HashSet<String>,
     pub extras: HashMap<String, RowExtras>,
-    /// EXP-1236: a host row appended to the Computer use band, under the
-    /// switch and its permission rows (the Computer use model picker). The
-    /// host hands it over only while the switch is on; with no Computer use
-    /// band to hang it on (an older device's doctor) it is dropped.
-    pub computer_use_tail: Option<AnyElement>,
+    /// EXP-1236: host rows appended to the Computer use band, under the
+    /// switch and its permission rows (the Computer use model picker, NEW-59
+    /// the Work screen picker under it). The host hands them over only while
+    /// the switch is on; with no Computer use band to hang them on (an older
+    /// device's doctor) they are dropped.
+    pub computer_use_tail: Vec<AnyElement>,
 }
 
 fn tone_color(tone: Tone, cx: &App) -> gpui::Hsla {
@@ -587,7 +599,7 @@ pub(crate) fn render_sections(
             .map(|row| render_row(row, &mut props, cx))
             .collect();
         if section.group == DoctorGroup::ComputerUse {
-            rows.extend(props.computer_use_tail.take());
+            rows.extend(std::mem::take(&mut props.computer_use_tail));
         }
         block = block.child(
             v_flex()
@@ -619,18 +631,19 @@ pub(crate) fn render_loading(cx: &App) -> Div {
 /// its action, no band.
 pub(crate) fn render_single(row: &ReadinessRow, props: BlockProps, cx: &App) -> Div {
     let mut props = props;
-    let tail = props.computer_use_tail.take();
+    let tail = std::mem::take(&mut props.computer_use_tail);
     let line = render_row(row, &mut props, cx);
-    match tail {
-        // EXP-1236: the bare switch row (no doctor) still carries the model
-        // picker under it while it is on — the same ladder the band draws.
-        Some(tail) => v_flex()
-            .w_full()
-            .min_w_0()
-            .child(surface::list_row(line))
-            .child(surface::list_row(tail)),
-        None => h_flex().w_full().min_w_0().child(line),
+    if tail.is_empty() {
+        return h_flex().w_full().min_w_0().child(line);
     }
+    // EXP-1236: the bare switch row (no doctor) still carries the model
+    // picker (and the Work screen row) under it while it is on — the same
+    // ladder the band draws.
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .child(surface::list_row(line))
+        .children(tail.into_iter().map(surface::list_row))
 }
 
 // ---------------------------------------------------------------------------
@@ -965,7 +978,7 @@ pub(crate) fn local_props(id: impl Into<SharedString>, cx: &App) -> BlockProps {
         on_toggle: Some(Rc::new(|on, _window, cx| set_local_computer_use(on, cx))),
         busy: local_busy(cx),
         extras: HashMap::new(),
-        computer_use_tail: None,
+        computer_use_tail: Vec::new(),
     }
 }
 

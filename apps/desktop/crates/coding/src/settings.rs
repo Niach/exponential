@@ -199,6 +199,11 @@ pub struct Settings {
     /// [`DEFAULT_COMPUTER_USE_MODEL`]. Device-level like `computer_use`
     /// (`launch_defaults.computerUseModel`); claude-only in effect.
     pub computer_use_model: String,
+    /// NEW-59: the Work screen, the 1-based number of the display agents
+    /// drive (`launch_defaults.computerUseDisplay`, `fixtures/work-screen.json`);
+    /// `None` = Auto. Device-level like `computer_use`; the computer hub
+    /// reads it through [`crate::computer::set_work_display`].
+    pub computer_use_display: Option<u32>,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -304,6 +309,7 @@ impl Default for Settings {
             auto_rotate_accounts: true,
             computer_use: false,
             computer_use_model: DEFAULT_COMPUTER_USE_MODEL.to_string(),
+            computer_use_display: None,
             terminal_shell: None,
             changelog_seen_id: None,
             app_editor_layout: None,
@@ -375,6 +381,8 @@ impl Settings {
             MODEL_ALIASES,
             DEFAULT_COMPUTER_USE_MODEL,
         );
+        // Display numbers are 1-based: a hand-edited 0 reads as Auto.
+        settings.computer_use_display = settings.computer_use_display.filter(|number| *number >= 1);
         // Blank/whitespace shell degrades to None (= auto-detect).
         settings.terminal_shell = settings
             .terminal_shell
@@ -986,6 +994,7 @@ mod tests {
             auto_rotate_accounts: false,
             computer_use: true,
             computer_use_model: "sonnet".to_string(),
+            computer_use_display: Some(2),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             app_editor_layout: Some("docked".to_string()),

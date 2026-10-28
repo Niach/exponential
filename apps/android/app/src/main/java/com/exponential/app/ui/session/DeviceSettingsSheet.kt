@@ -58,6 +58,7 @@ import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.defaultThreadModelFor
 import com.exponential.app.ui.components.ModelPickerRow
+import com.exponential.app.ui.components.WorkScreenPickerRow
 import com.exponential.app.ui.components.seedModel
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
@@ -157,6 +158,11 @@ fun DeviceSettingsSheet(
     var computerUseModel by remember {
         mutableStateOf(seedComputerUseModel(device.launchDefaults?.computerUseModel))
     }
+    // NEW-59: the Work screen (1-based display number, null = Auto), the row
+    // under the model row. Picking Auto sends the explicit null that clears
+    // the stored one; otherwise null stays absent (carried forward).
+    var computerUseDisplay by remember { mutableStateOf(device.launchDefaults?.computerUseDisplay) }
+    var clearComputerUseDisplay by remember { mutableStateOf(false) }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
     // its own afterwards: the caller re-resolves the live row, which is gone.
     var confirmRemove by remember { mutableStateOf(false) }
@@ -183,6 +189,8 @@ fun DeviceSettingsSheet(
             drafts = editableAgents.associateWith { agentDraft(device, it) }
             computerUse = device.launchDefaults?.computerUse
             computerUseModel = seedComputerUseModel(device.launchDefaults?.computerUseModel)
+            computerUseDisplay = device.launchDefaults?.computerUseDisplay
+            clearComputerUseDisplay = false
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -198,6 +206,8 @@ fun DeviceSettingsSheet(
         next: Map<String, AgentDraft> = drafts,
         nextComputerUse: Boolean? = computerUse,
         nextComputerUseModel: String = computerUseModel,
+        nextComputerUseDisplay: Int? = computerUseDisplay,
+        nextClearComputerUseDisplay: Boolean = clearComputerUseDisplay,
     ) {
         viewModel.queueDefaults(
             device.deviceId,
@@ -206,8 +216,16 @@ fun DeviceSettingsSheet(
                 next,
                 computerUse = nextComputerUse,
                 computerUseModel = nextComputerUseModel,
+                computerUseDisplay = nextComputerUseDisplay,
+                clearComputerUseDisplay = nextClearComputerUseDisplay,
             ),
         )
+    }
+
+    fun pickComputerUseDisplay(next: Int?) {
+        computerUseDisplay = next
+        clearComputerUseDisplay = next == null
+        queueDefaults(nextComputerUseDisplay = next, nextClearComputerUseDisplay = next == null)
     }
 
     fun editDraft(agent: String, edit: (AgentDraft) -> AgentDraft) {
@@ -391,6 +409,9 @@ fun DeviceSettingsSheet(
                             computerUseModel = next
                             queueDefaults(nextComputerUseModel = next)
                         },
+                        workScreenDisplays = doctor.displays,
+                        computerUseDisplay = computerUseDisplay,
+                        onComputerUseDisplayChange = ::pickComputerUseDisplay,
                     )
                 } else {
                     OptionGroup {
@@ -414,6 +435,13 @@ fun DeviceSettingsSheet(
                                     computerUseModel = next
                                     queueDefaults(nextComputerUseModel = next)
                                 },
+                            )
+                            // NEW-59: the Work screen under the model row.
+                            GroupDivider()
+                            WorkScreenPickerRow(
+                                displays = null,
+                                value = computerUseDisplay,
+                                onSelect = ::pickComputerUseDisplay,
                             )
                         }
                     }
@@ -725,9 +753,15 @@ internal fun buildDefaults(
     computerUse: Boolean? = null,
     // EXP-1236: the switch's model alias; null stays absent the same way.
     computerUseModel: String? = null,
+    // NEW-59: the Work screen; null stays absent unless [clearComputerUseDisplay]
+    // (Auto picked) asks for the explicit null that clears it.
+    computerUseDisplay: Int? = null,
+    clearComputerUseDisplay: Boolean = false,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     computerUse = computerUse,
     computerUseModel = computerUseModel,
+    computerUseDisplay = computerUseDisplay,
+    clearComputerUseDisplay = clearComputerUseDisplay,
     // EXP-1158: no `defaultAgent` — the last used agent is the device's to
     // write, and the request never carries it (`setLaunchDefaultsInput`).
     agents = agents.associateWith { agent ->

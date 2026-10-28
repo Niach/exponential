@@ -31,6 +31,11 @@ data class DeviceDoctorItem(
 data class DeviceDoctor(
     val checkedAt: String? = null,
     val items: List<DeviceDoctorItem> = emptyList(),
+    /**
+     * NEW-59: the device's displays in the OS's order (`work-screen.json`);
+     * null = not reported (an older build, the CLI daemon without a display).
+     */
+    val displays: List<WorkScreenDisplay>? = null,
 )
 
 private val doctorJson = Json { ignoreUnknownKeys = true }
@@ -60,7 +65,24 @@ fun parseDeviceDoctor(raw: String?): DeviceDoctor? {
             import = item.str("import")?.trim()?.takeIf { it.isNotEmpty() },
         )
     }
-    return DeviceDoctor(checkedAt = obj.str("checkedAt"), items = items)
+    return DeviceDoctor(checkedAt = obj.str("checkedAt"), items = items, displays = parseDisplays(obj))
+}
+
+private fun JsonObject.int(name: String): Int? =
+    (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()
+
+/** `doctor.displays`, leniently: absent/bad = null, a malformed entry drops alone. */
+private fun parseDisplays(obj: JsonObject): List<WorkScreenDisplay>? {
+    val array = runCatching { obj["displays"]?.jsonArray }.getOrNull() ?: return null
+    return array.mapNotNull { el ->
+        val display = el as? JsonObject ?: return@mapNotNull null
+        WorkScreenDisplay(
+            number = display.int("number") ?: return@mapNotNull null,
+            width = display.int("width") ?: return@mapNotNull null,
+            height = display.int("height") ?: return@mapNotNull null,
+            primary = (display["primary"] as? JsonPrimitive)?.content == "true",
+        )
+    }
 }
 
 /** The fixture's `glyph` vocabulary; [None] = the computer_use switch row. */

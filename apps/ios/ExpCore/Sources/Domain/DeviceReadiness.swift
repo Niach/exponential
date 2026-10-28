@@ -15,6 +15,10 @@ import Foundation
 public struct DeviceDoctor: Decodable, Sendable, Equatable {
     public let checkedAt: String?
     public let items: [Item]
+    /// NEW-59: the machine's displays (`doctor.displays`, fixture
+    /// `work-screen.json`) in the OS's order; nil = not reported (an older
+    /// build, a daemon without a display). One malformed entry drops alone.
+    public let displays: [WorkScreen.Display]?
 
     public struct Item: Decodable, Sendable, Equatable {
         public let key: String
@@ -50,18 +54,21 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
         }
     }
 
-    public init(checkedAt: String? = nil, items: [Item]) {
+    public init(checkedAt: String? = nil, items: [Item], displays: [WorkScreen.Display]? = nil) {
         self.checkedAt = checkedAt
         self.items = items
+        self.displays = displays
     }
 
-    private enum CodingKeys: String, CodingKey { case checkedAt, items }
+    private enum CodingKeys: String, CodingKey { case checkedAt, items, displays }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         checkedAt = try? c.decodeIfPresent(String.self, forKey: .checkedAt)
         items = ((try? c.decodeIfPresent([FailableItem].self, forKey: .items)) ?? nil)?
             .compactMap(\.value) ?? []
+        displays = ((try? c.decodeIfPresent([FailableDisplay].self, forKey: .displays)) ?? nil)?
+            .compactMap(\.value)
     }
 
     /// The stored column (stringified JSON) as a report; nil for NULL and
@@ -69,6 +76,16 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
     public static func decode(json: String?) -> DeviceDoctor? {
         guard let json, let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(DeviceDoctor.self, from: data)
+    }
+}
+
+/// NEW-59: a display entry that never throws: a malformed one is dropped
+/// instead of losing the whole report.
+private struct FailableDisplay: Decodable {
+    let value: WorkScreen.Display?
+
+    init(from decoder: Decoder) throws {
+        value = try? WorkScreen.Display(from: decoder)
     }
 }
 

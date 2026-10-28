@@ -1,0 +1,591 @@
+{
+  "$comment": "NEW-59 (exponentialTalk (h)): THE work screen, the display coding agents drive with computer use, one spec ×4 (TS reference packages/domain-contract/src/work-screen.ts; desktop computer crate `work_screen` (the gate, the overlay rule) + ui device_settings (the row); iOS ExpCore WorkScreen.swift and Android domain/WorkScreen.kt mirror `copy` and `options` only). SETTING: per device, `launch_defaults.computerUseDisplay` = the 1-based NUMBER of the display in the device's own list (absent or null = Auto). A client save without the key keeps the stored one and an explicit null clears it to Auto; the stored row then carries NO key, and the device reads the row's launch_defaults as a full snapshot, so a missing `computerUseDisplay` there IS Auto (#1295 review: a remote Auto must reach the device). DISPLAYS: the device reports its displays in its doctor (`doctor.displays`, register + heartbeat): `[{number, width, height, primary}]` in the OS's order, width and height in PHYSICAL pixels (a Retina display reports its native pixels, never points); absent = not reported (an older build, the CLI daemon without a display). UI: in device settings ×4 (web, the IDE, iOS, Android) the row `copy.row` is a picker row in the computer-use card, directly under the Computer use model row and only while computer use is on (the same group, the same picker row, no new component). Its options = `options(displays, stored)` (`optionCases`): `copy.auto` first, then one per reported display labelled `copy.display` with {number} plus ` · ` + `{width} × {height}`, plus ` · ` + `copy.primary` for the primary; a stored number the device no longer reports stays pickable at the end as `copy.display` + ` · ` + `copy.notConnected`. The row's value reads the picked option's label. GATE (desktop only; the `computer` hub enforces it, never the prompt; `gateCases`): `workDisplays(state)` = the 0-based indexes agents may drive: the picked display when it is connected; a picked display that is NOT connected = none (#1295 review: a person who picked a screen keeps agents off the others, so a hot-unplug never widens the set); Auto = every display WITHOUT a fullscreen app, in order. `state` = {count, picked (1-based number or null), fullscreen (0-based indexes holding a fullscreen window), active (0-based index of the focused window's display or null), activeFullscreen (the focused window is fullscreen), windowsRead (false = the OS window list could not be read; absent = true)}. A display is a GAMING display when it holds a fullscreen app and is not a work display. NUMBERING: refusals speak the tools' own 0-based display INDEX (`list_windows` / `screenshot`), {display} and {work} (the work indexes joined with `, `); only `pickedGone` names the person's 1-based setting ({picked}). `gate(state, call)` answers `allow` or the refusal `wrong_display` with one of `copy.refusals`, checked in this order (`wait` is always allowed): a picked display that is gone = `pickedGone`; no work display at all = `noWorkScreen`; an input tool or `list_windows` while the window list could not be read = `noWindowList` (fail closed: no focus or fullscreen reading means no input); `screenshot` with a `display` outside the work displays = `notWorkScreen`; `activate_window` of an id `list_windows` does not list or whose centre lies on no display (`windowDisplay` null) = `unknownWindow` ({id}), on a non-work display = `windowElsewhere`; every INPUT tool (`inputTools`) while the focused window is fullscreen on a gaming display = `gaming` (the person is in it, and a foreground action would take their pointer and keyboard); `type` and `key` while the focused window sits on a non-work display = `keysElsewhere`. Everything else is allowed; the run's current display is the picked `screenshot` display while it stays a work display, else the primary when it is one, else the first work display (`currentCases`). `list_windows` lists only windows whose centre lies on a work display and only the work displays (their indexes unchanged). A refusal is a tool result with isError true, the text `copy.refusals[kind]` and structuredContent {refusal: `wrong_display`, kind, work: [indexes]}. FULLSCREEN (per OS, read at every call): macOS = a layer-0 on-screen window of another app than the Dock/Finder/Window Server whose bounds equal a display's full bounds, or (a notched MacBook places a fullscreen window below the camera housing) whose bounds equal the display less the menu-bar strip at the top and whose own Accessibility `AXFullScreen` is true (without Accessibility that shape counts as not fullscreen, since a zoomed window with the Dock hidden has the same frame); Windows = a visible, non-tool top-level window (never Progman/WorkerW/the shell tray) whose rect covers its monitor's full rect; Linux X11 = a `_NET_CLIENT_LIST` window with `_NET_WM_STATE_FULLSCREEN`, on the display holding its centre. OVERLAY: the voice overlay (push to talk, the wake word, calls) never opens on a display with a fullscreen app: `overlayDisplay(state)` (`overlayCases`; state = {count, pointer (0-based display under the pointer), fullscreen, work}) = the pointer's display without one, else the first work display without one, else the first display without one, else null (the overlay stays hidden; the turn still runs and the reply is still spoken). BANNER: the computer-use banner (computer-use-banner.json) floats on the run's current display (the work screen), not the primary, with the session's label.",
+  "copy": {
+    "row": "Work screen",
+    "auto": "Auto",
+    "display": "Display {number}",
+    "primary": "Primary",
+    "notConnected": "Not connected",
+    "refusals": {
+      "noWorkScreen": "Every display has a fullscreen app, so there is no work screen right now. Wait, or ask the person to leave fullscreen.",
+      "pickedGone": "The work screen, display {picked} in Device settings, is not connected. Nothing is done until it is back or the setting changes.",
+      "noWindowList": "The window list can't be read right now, so nothing is done. Try again.",
+      "notWorkScreen": "Display {display} is not a work screen. Agents work on display {work}.",
+      "unknownWindow": "Window {id} is not one list_windows names on a work screen. Agents work on display {work}.",
+      "windowElsewhere": "That window is on display {display}, not a work screen. Agents work on display {work}.",
+      "gaming": "The person is in a fullscreen app on display {display}. Acting now would take their pointer and keyboard; wait until they leave it.",
+      "keysElsewhere": "The focused window is on display {display}, not a work screen. Activate a window on display {work} first."
+    }
+  },
+  "testIds": {
+    "row": "device-settings-work-screen"
+  },
+  "inputTools": [
+    "left_click",
+    "right_click",
+    "middle_click",
+    "double_click",
+    "mouse_move",
+    "drag",
+    "scroll",
+    "type",
+    "key",
+    "activate_window"
+  ],
+  "optionCases": [
+    {
+      "name": "not reported, Auto stored",
+      "displays": null,
+      "stored": null,
+      "expect": [
+        {
+          "value": null,
+          "label": "Auto"
+        }
+      ]
+    },
+    {
+      "name": "two displays, the second primary",
+      "displays": [
+        {
+          "number": 1,
+          "width": 2560,
+          "height": 1440,
+          "primary": false
+        },
+        {
+          "number": 2,
+          "width": 3024,
+          "height": 1964,
+          "primary": true
+        }
+      ],
+      "stored": 1,
+      "expect": [
+        {
+          "value": null,
+          "label": "Auto"
+        },
+        {
+          "value": 1,
+          "label": "Display 1 · 2560 × 1440"
+        },
+        {
+          "value": 2,
+          "label": "Display 2 · 3024 × 1964 · Primary"
+        }
+      ]
+    },
+    {
+      "name": "a stored display that is gone stays pickable at the end",
+      "displays": [
+        {
+          "number": 1,
+          "width": 1920,
+          "height": 1080,
+          "primary": true
+        }
+      ],
+      "stored": 3,
+      "expect": [
+        {
+          "value": null,
+          "label": "Auto"
+        },
+        {
+          "value": 1,
+          "label": "Display 1 · 1920 × 1080 · Primary"
+        },
+        {
+          "value": 3,
+          "label": "Display 3 · Not connected"
+        }
+      ]
+    }
+  ],
+  "gateCases": [
+    {
+      "name": "Auto, nothing fullscreen: every display works, everything allowed",
+      "state": {
+        "count": 2,
+        "picked": null,
+        "fullscreen": [],
+        "active": 0,
+        "activeFullscreen": false
+      },
+      "work": [
+        0,
+        1
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "screenshot",
+            "display": 1
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "left_click"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "type"
+          },
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "Auto, a game fullscreen on display 2 and focused: no input, display 2 refused",
+      "state": {
+        "count": 2,
+        "picked": null,
+        "fullscreen": [
+          1
+        ],
+        "active": 1,
+        "activeFullscreen": true
+      },
+      "work": [
+        0
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "screenshot",
+            "display": 1
+          },
+          "expect": {
+            "kind": "notWorkScreen",
+            "text": "Display 1 is not a work screen. Agents work on display 0."
+          }
+        },
+        {
+          "call": {
+            "tool": "screenshot"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "list_windows"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "left_click"
+          },
+          "expect": {
+            "kind": "gaming",
+            "text": "The person is in a fullscreen app on display 1. Acting now would take their pointer and keyboard; wait until they leave it."
+          }
+        },
+        {
+          "call": {
+            "tool": "type"
+          },
+          "expect": {
+            "kind": "gaming",
+            "text": "The person is in a fullscreen app on display 1. Acting now would take their pointer and keyboard; wait until they leave it."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auto, a fullscreen video on display 2 but the person works on display 1: clicks go",
+      "state": {
+        "count": 2,
+        "picked": null,
+        "fullscreen": [
+          1
+        ],
+        "active": 0,
+        "activeFullscreen": false
+      },
+      "work": [
+        0
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "left_click"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "key"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "activate_window",
+            "windowDisplay": 1,
+            "id": 7
+          },
+          "expect": {
+            "kind": "windowElsewhere",
+            "text": "That window is on display 1, not a work screen. Agents work on display 0."
+          }
+        }
+      ]
+    },
+    {
+      "name": "picked display 2: display 1 refused, keys refused while focus sits on display 1",
+      "state": {
+        "count": 3,
+        "picked": 2,
+        "fullscreen": [],
+        "active": 0,
+        "activeFullscreen": false
+      },
+      "work": [
+        1
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "screenshot",
+            "display": 0
+          },
+          "expect": {
+            "kind": "notWorkScreen",
+            "text": "Display 0 is not a work screen. Agents work on display 1."
+          }
+        },
+        {
+          "call": {
+            "tool": "screenshot",
+            "display": 1
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "left_click"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "type"
+          },
+          "expect": {
+            "kind": "keysElsewhere",
+            "text": "The focused window is on display 0, not a work screen. Activate a window on display 1 first."
+          }
+        },
+        {
+          "call": {
+            "tool": "activate_window",
+            "windowDisplay": 1,
+            "id": 7
+          },
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "picked display 1 holds a fullscreen app of the agent's own: still the work screen",
+      "state": {
+        "count": 2,
+        "picked": 1,
+        "fullscreen": [
+          0
+        ],
+        "active": 0,
+        "activeFullscreen": true
+      },
+      "work": [
+        0
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "left_click"
+          },
+          "expect": "allow"
+        },
+        {
+          "call": {
+            "tool": "type"
+          },
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "picked display gone: nothing runs (never a wider set)",
+      "state": {
+        "count": 2,
+        "picked": 3,
+        "fullscreen": [
+          0
+        ],
+        "active": 1,
+        "activeFullscreen": false
+      },
+      "work": [],
+      "calls": [
+        {
+          "call": {
+            "tool": "screenshot",
+            "display": 0
+          },
+          "expect": {
+            "kind": "pickedGone",
+            "text": "The work screen, display 3 in Device settings, is not connected. Nothing is done until it is back or the setting changes."
+          }
+        },
+        {
+          "call": {
+            "tool": "left_click"
+          },
+          "expect": {
+            "kind": "pickedGone",
+            "text": "The work screen, display 3 in Device settings, is not connected. Nothing is done until it is back or the setting changes."
+          }
+        },
+        {
+          "call": {
+            "tool": "wait"
+          },
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "one display, a fullscreen game: no work screen",
+      "state": {
+        "count": 1,
+        "picked": null,
+        "fullscreen": [
+          0
+        ],
+        "active": 0,
+        "activeFullscreen": true
+      },
+      "work": [],
+      "calls": [
+        {
+          "call": {
+            "tool": "screenshot"
+          },
+          "expect": {
+            "kind": "noWorkScreen",
+            "text": "Every display has a fullscreen app, so there is no work screen right now. Wait, or ask the person to leave fullscreen."
+          }
+        },
+        {
+          "call": {
+            "tool": "list_windows"
+          },
+          "expect": {
+            "kind": "noWorkScreen",
+            "text": "Every display has a fullscreen app, so there is no work screen right now. Wait, or ask the person to leave fullscreen."
+          }
+        },
+        {
+          "call": {
+            "tool": "wait"
+          },
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "an unlisted window id is refused; an unreadable window list stops input",
+      "state": {
+        "count": 2,
+        "picked": null,
+        "fullscreen": [],
+        "active": null,
+        "activeFullscreen": false,
+        "windowsRead": false
+      },
+      "work": [
+        0,
+        1
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "activate_window",
+            "id": 4242
+          },
+          "expect": {
+            "kind": "noWindowList",
+            "text": "The window list can't be read right now, so nothing is done. Try again."
+          }
+        },
+        {
+          "call": {
+            "tool": "type"
+          },
+          "expect": {
+            "kind": "noWindowList",
+            "text": "The window list can't be read right now, so nothing is done. Try again."
+          }
+        },
+        {
+          "call": {
+            "tool": "list_windows"
+          },
+          "expect": {
+            "kind": "noWindowList",
+            "text": "The window list can't be read right now, so nothing is done. Try again."
+          }
+        },
+        {
+          "call": {
+            "tool": "screenshot",
+            "display": 1
+          },
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "activate_window of an id list_windows does not name",
+      "state": {
+        "count": 2,
+        "picked": 2,
+        "fullscreen": [],
+        "active": 1,
+        "activeFullscreen": false
+      },
+      "work": [
+        1
+      ],
+      "calls": [
+        {
+          "call": {
+            "tool": "activate_window",
+            "id": 4242
+          },
+          "expect": {
+            "kind": "unknownWindow",
+            "text": "Window 4242 is not one list_windows names on a work screen. Agents work on display 1."
+          }
+        },
+        {
+          "call": {
+            "tool": "activate_window",
+            "id": 7,
+            "windowDisplay": 1
+          },
+          "expect": "allow"
+        }
+      ]
+    }
+  ],
+  "currentCases": [
+    {
+      "name": "the primary when it works",
+      "work": [
+        0,
+        1
+      ],
+      "primary": 1,
+      "previous": null,
+      "expect": 1
+    },
+    {
+      "name": "the previous pick while it stays a work display",
+      "work": [
+        0,
+        1
+      ],
+      "primary": 1,
+      "previous": 0,
+      "expect": 0
+    },
+    {
+      "name": "the previous pick went fullscreen: the primary",
+      "work": [
+        1
+      ],
+      "primary": 1,
+      "previous": 0,
+      "expect": 1
+    },
+    {
+      "name": "the primary is not a work display: the first work display",
+      "work": [
+        2
+      ],
+      "primary": 0,
+      "previous": null,
+      "expect": 2
+    },
+    {
+      "name": "no work display: none",
+      "work": [],
+      "primary": 0,
+      "previous": 0,
+      "expect": null
+    }
+  ],
+  "overlayCases": [
+    {
+      "name": "the pointer's display without a fullscreen app",
+      "state": {
+        "count": 2,
+        "pointer": 1,
+        "fullscreen": [],
+        "work": [
+          0,
+          1
+        ]
+      },
+      "expect": 1
+    },
+    {
+      "name": "the pointer sits on the game: the work screen",
+      "state": {
+        "count": 3,
+        "pointer": 0,
+        "fullscreen": [
+          0
+        ],
+        "work": [
+          2
+        ]
+      },
+      "expect": 2
+    },
+    {
+      "name": "the work screen is fullscreen too: the first free display",
+      "state": {
+        "count": 3,
+        "pointer": 0,
+        "fullscreen": [
+          0,
+          2
+        ],
+        "work": [
+          2
+        ]
+      },
+      "expect": 1
+    },
+    {
+      "name": "every display fullscreen: hidden",
+      "state": {
+        "count": 1,
+        "pointer": 0,
+        "fullscreen": [
+          0
+        ],
+        "work": []
+      },
+      "expect": null
+    }
+  ]
+}

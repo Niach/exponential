@@ -7,6 +7,13 @@
 //! opens again, wider, when a longer line no longer fits. NEW-55: a call
 //! (`voice_call`) opens its own window of the same kind with the call's
 //! face ([`Face::Call`]).
+//!
+//! NEW-59 (`fixtures/work-screen.json` OVERLAY): never on a display with a
+//! fullscreen app. When the window opens, the computer crate's screen state
+//! is read ONCE and `computer::work_screen::overlay_display` picks the
+//! display: the pointer's without one, else the work screen, else the first
+//! free one; none = the window stays hidden (the turn still runs, the reply
+//! is still spoken).
 
 use exponential_ui::voice_wave::Activity;
 use gpui::{
@@ -39,18 +46,41 @@ pub(crate) struct Overlay {
     window: Option<WindowHandle<OverlayView>>,
     /// The open window's width: a line that needs more reopens it.
     width: f32,
+    /// NEW-59: where this showing went, read once when it opened and kept
+    /// until the face closes (a wider reopen stays on the same display).
+    place: Option<Place>,
+}
+
+/// NEW-59: where the overlay shows.
+#[derive(Clone, Debug, PartialEq)]
+enum Place {
+    /// Every display holds a fullscreen app: no window.
+    Hidden,
+    At(Option<gpui::DisplayId>, Option<Bounds<Pixels>>),
 }
 
 impl Overlay {
     /// Show `view` (None = close the window).
     pub(crate) fn show(&mut self, view: Option<Face>, cx: &mut App) {
         let Some(view) = view else {
+            self.place = None;
             if let Some(window) = self.window.take() {
                 let _ = window.update(cx, |_, window, _| window.remove_window());
             }
             return;
         };
-        let (display, area) = placement(cx);
+        let place = match self.place.clone() {
+            Some(place) => place,
+            None => {
+                let place = placement(cx);
+                self.place = Some(place.clone());
+                place
+            }
+        };
+        let Place::At(display, area) = place else {
+            // NEW-59: no display without a fullscreen app.
+            return;
+        };
         let window_size = window_size(&specimen(&view), area.map(|area| f32::from(area.size.width)), cx);
         if let Some(window) = self.window.take() {
             // The window only grows while it shows: a shorter line sits
@@ -203,18 +233,157 @@ pub(crate) fn bottom_centre(area: Bounds<Pixels>, window: Size<Pixels>) -> Point
     )
 }
 
-/// The display under the pointer and the area the window centres in.
-fn placement(cx: &App) -> (Option<gpui::DisplayId>, Option<Bounds<Pixels>>) {
+/// The display under the pointer and the area the window centres in; NEW-59
+/// moved off (or hidden from) a display with a fullscreen app.
+fn placement(cx: &App) -> Place {
     #[cfg(target_os = "linux")]
     if super::hotkey::session() == Some(domain::voice::VoiceSession::X11) {
-        if let Some(area) = x11_area(cx) {
-            return (cx.primary_display().map(|display| display.id()), Some(area));
+        if let Some(place) = x11_place(cx) {
+            return place;
         }
     }
     let displays = cx.displays();
-    let under = pointer(cx).and_then(|pointer| displays.iter().find(|display| display.bounds().contains(&pointer)).cloned());
-    let display = under.or_else(|| cx.primary_display());
-    (display.as_ref().map(|display| display.id()), display.map(|display| display.visible_bounds()))
+    let primary = cx.primary_display().and_then(|primary| displays.iter().position(|display| display.id() == primary.id()));
+    let under = pointer(cx).and_then(|pointer| displays.iter().position(|display| display.bounds().contains(&pointer)));
+    let at = |display: &std::rc::Rc<dyn gpui::PlatformDisplay>| Place::At(Some(display.id()), Some(display.visible_bounds()));
+    if let (Some(pointer_ix), Some(state)) = (under.or(primary), coding::computer::screen_state()) {
+        let map = display_map(&displays, &state.displays);
+        if let Some(Some(pointer)) = map.get(pointer_ix).copied() {
+            let target = coding::computer::work_screen::overlay_display(state.displays.len(), pointer, &state.fullscreen, &state.work);
+            match target {
+                None => return Place::Hidden,
+                Some(target) => {
+                    if let Some(display) = map.iter().position(|mapped| *mapped == Some(target)).and_then(|ix| displays.get(ix)) {
+                        return at(display);
+                    }
+                }
+            }
+        }
+    }
+    match under.or(primary).and_then(|ix| displays.get(ix)) {
+        Some(display) => at(display),
+        None => Place::At(None, None),
+    }
+}
+
+/// A display rectangle: the toolkit's (logical) or the computer crate's (the
+/// OS's screen units).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Rect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl From<&coding::computer::Display> for Rect {
+    fn from(display: &coding::computer::Display) -> Self {
+        Rect { x: display.x as f32, y: display.y as f32, width: display.width as f32, height: display.height as f32 }
+    }
+}
+
+/// NEW-59: `displays` (the toolkit's) mapped to `screens` (the computer
+/// crate's), index by index ([`map_displays`]). The banner places by it too.
+pub(crate) fn display_map(
+    displays: &[std::rc::Rc<dyn gpui::PlatformDisplay>],
+    screens: &[coding::computer::Display],
+) -> Vec<Option<usize>> {
+    let rects: Vec<Rect> = displays
+        .iter()
+        .map(|display| {
+            let bounds = display.bounds();
+            Rect {
+                x: f32::from(bounds.origin.x),
+                y: f32::from(bounds.origin.y),
+                width: f32::from(bounds.size.width),
+                height: f32::from(bounds.size.height),
+            }
+        })
+        .collect();
+    let screens: Vec<Rect> = screens.iter().map(Rect::from).collect();
+    map_displays(&rects, &screens)
+}
+
+/// NEW-59: the toolkit's displays mapped to the computer crate's (index by
+/// index; `None` = no counterpart). macOS counts both in points, so the
+/// origins agree; where the units differ (Windows scaling) and the counts
+/// agree, the displays pair up by their order on the desktop (left to right,
+/// then top to bottom), which a uniform scale keeps.
+fn map_displays(toolkit: &[Rect], screens: &[Rect]) -> Vec<Option<usize>> {
+    let near = |a: &Rect, b: &Rect| (a.x - b.x).abs() < 2. && (a.y - b.y).abs() < 2.;
+    let exact: Vec<Option<usize>> =
+        toolkit.iter().map(|rect| screens.iter().position(|screen| near(rect, screen))).collect();
+    if exact.iter().all(Option::is_some) || toolkit.len() != screens.len() {
+        return exact;
+    }
+    let order = |rects: &[Rect]| {
+        let mut ix: Vec<usize> = (0..rects.len()).collect();
+        ix.sort_by(|&a, &b| {
+            (rects[a].x, rects[a].y).partial_cmp(&(rects[b].x, rects[b].y)).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ix
+    };
+    let mut out = vec![None; toolkit.len()];
+    for (t, s) in order(toolkit).into_iter().zip(order(screens)) {
+        out[t] = Some(s);
+    }
+    out
+}
+
+/// X11 (NEW-59): RandR's monitors and the computer crate's displays are
+/// both in physical root pixels, so the pointer's monitor maps directly;
+/// the chosen display is scaled into the toolkit's logical pixels.
+#[cfg(target_os = "linux")]
+fn x11_place(cx: &App) -> Option<Place> {
+    let primary = cx.primary_display().map(|display| display.id());
+    if let Some(state) = coding::computer::screen_state() {
+        if let Some((pointer, scale)) = x11_pointer(cx) {
+            let contains = |display: &coding::computer::Display| {
+                pointer.0 >= display.x
+                    && pointer.0 < display.x + display.width as i32
+                    && pointer.1 >= display.y
+                    && pointer.1 < display.y + display.height as i32
+            };
+            let under = state
+                .displays
+                .iter()
+                .position(contains)
+                .or_else(|| state.displays.iter().position(|display| display.primary));
+            if let Some(under) = under {
+                return Some(
+                    match coding::computer::work_screen::overlay_display(state.displays.len(), under, &state.fullscreen, &state.work) {
+                        None => Place::Hidden,
+                        Some(target) => {
+                            let display = &state.displays[target];
+                            Place::At(
+                                primary,
+                                Some(Bounds {
+                                    origin: point(px(display.x as f32 / scale), px(display.y as f32 / scale)),
+                                    size: size(px(display.width as f32 / scale), px(display.height as f32 / scale)),
+                                }),
+                            )
+                        }
+                    },
+                );
+            }
+        }
+    }
+    x11_area(cx).map(|area| Place::At(primary, Some(area)))
+}
+
+/// X11: the pointer in physical root pixels and the root's physical over
+/// logical scale.
+#[cfg(target_os = "linux")]
+fn x11_pointer(cx: &App) -> Option<((i32, i32), f32)> {
+    use x11rb::connection::Connection as _;
+    use x11rb::protocol::xproto::ConnectionExt as _;
+
+    let logical_root_width = f32::from(cx.primary_display()?.bounds().size.width);
+    let (conn, screen) = x11rb::connect(None).ok()?;
+    let root = conn.setup().roots.get(screen)?;
+    let pointer = conn.query_pointer(root.root).ok()?.reply().ok()?;
+    let scale = f32::from(root.width_in_pixels) / logical_root_width;
+    (scale > 0.).then_some(((i32::from(pointer.root_x), i32::from(pointer.root_y)), scale))
 }
 
 /// X11: the toolkit's display is the whole X screen, so the monitor under
@@ -296,5 +465,19 @@ mod tests {
         assert_eq!(activity("speaking"), Activity::Speaking);
         assert_eq!(activity("muted"), Activity::Muted);
         assert_eq!(activity("idle"), Activity::Idle);
+    }
+
+    /// NEW-59: same units pair by origin; scaled units (equal counts) pair
+    /// by the desktop order; a toolkit display without a counterpart maps
+    /// to none.
+    #[test]
+    fn displays_map_by_origin_then_by_order() {
+        let rect = |x: f32, y: f32, width: f32, height: f32| Rect { x, y, width, height };
+        let toolkit = [rect(0., 0., 1512., 982.), rect(-2560., -200., 2560., 1440.)];
+        let points = [rect(-2560., -200., 2560., 1440.), rect(0., 0., 1512., 982.)];
+        assert_eq!(map_displays(&toolkit, &points), vec![Some(1), Some(0)]);
+        let pixels = [rect(-3840., -300., 3840., 2160.), rect(0., 0., 3024., 1964.)];
+        assert_eq!(map_displays(&toolkit, &pixels), vec![Some(1), Some(0)]);
+        assert_eq!(map_displays(&toolkit, &points[..1]), vec![None, Some(0)]);
     }
 }

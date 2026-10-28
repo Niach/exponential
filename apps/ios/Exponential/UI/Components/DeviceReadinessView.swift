@@ -10,6 +10,8 @@ import SwiftUI
 // IS a plain switch row. No subtitles, no footers. EXP-1236: the block form
 // may close the switch's band with the Computer use model picker row, drawn
 // only while the switch is on (the host binds it beside the switch).
+// NEW-59: the Work screen picker row (fixture `work-screen.json`) sits right
+// under it, under the same rule.
 //
 // Three forms over the same row view:
 //   block   — every group (Device settings).
@@ -26,6 +28,9 @@ struct DeviceReadinessView: View {
     private let showsActions: Bool
     private let computerUse: Binding<Bool>?
     private let computerUseModel: Binding<String>?
+    /// NEW-59: the work screen draft (nil = Auto) and its options.
+    private let workScreen: Binding<Int?>?
+    private let workScreenOptions: [WorkScreen.Option]
     private let busyActions: Set<String>
     private let onAction: (DeviceReadiness.Row) -> Void
     /// The Import pill's tap (the host confirms first); nil = no Import pill.
@@ -34,12 +39,15 @@ struct DeviceReadinessView: View {
     /// The whole block. `computerUse` drives the switch row (nil = read-only
     /// at the report's state); `computerUseModel` (EXP-1236) adds the model
     /// picker as the switch band's last row while the switch is on (nil = no
-    /// row); `busyActions` = row keys whose action is in flight (their pills
+    /// row); `workScreen` (NEW-59) adds the Work screen picker under it over
+    /// `workScreenOptions`; `busyActions` = row keys whose action is in flight (their pills
     /// disable); `onImport` = the Import pill's tap (nil = none).
     init(
         groups: [DeviceReadiness.Group],
         computerUse: Binding<Bool>? = nil,
         computerUseModel: Binding<String>? = nil,
+        workScreen: Binding<Int?>? = nil,
+        workScreenOptions: [WorkScreen.Option] = [],
         busyActions: Set<String> = [],
         onAction: @escaping (DeviceReadiness.Row) -> Void,
         onImport: ((DeviceReadiness.Row) -> Void)? = nil
@@ -48,6 +56,8 @@ struct DeviceReadinessView: View {
         showsActions = true
         self.computerUse = computerUse
         self.computerUseModel = computerUseModel
+        self.workScreen = workScreen
+        self.workScreenOptions = workScreenOptions
         self.busyActions = busyActions
         self.onAction = onAction
         self.onImport = onImport
@@ -64,6 +74,8 @@ struct DeviceReadinessView: View {
         showsActions = true
         computerUse = nil
         computerUseModel = nil
+        workScreen = nil
+        workScreenOptions = []
         busyActions = busy ? [row.key] : []
         self.onAction = onAction
         self.onImport = onImport
@@ -75,6 +87,8 @@ struct DeviceReadinessView: View {
         showsActions = false
         computerUse = nil
         computerUseModel = nil
+        workScreen = nil
+        workScreenOptions = []
         busyActions = []
         onAction = { _ in }
         onImport = nil
@@ -97,6 +111,10 @@ struct DeviceReadinessView: View {
                         if let computerUseModel, switchIsOn(in: group) {
                             GlassDivider()
                             computerUseModelRow(computerUseModel)
+                            if let workScreen {
+                                GlassDivider()
+                                workScreenRow(workScreen)
+                            }
                         }
                     }
                     .accessibilityElement(children: .contain)
@@ -152,6 +170,17 @@ struct DeviceReadinessView: View {
         .frame(minHeight: 40)
         .flatRow()
         .accessibilityIdentifier("device-computer-use-model")
+    }
+
+    /// NEW-59: the Work screen picker, right under the model row in the same
+    /// band and rhythm; the value reads the picked option's label.
+    private func workScreenRow(_ selection: Binding<Int?>) -> some View {
+        WorkScreenPickerRow(selection: selection, options: workScreenOptions)
+        .font(.subheadline)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(minHeight: 40)
+        .flatRow()
     }
 
     private func switchRow(_ row: DeviceReadiness.Row) -> some View {
@@ -221,5 +250,24 @@ struct DeviceReadinessView: View {
         case .destructive: DesignTokens.Semantic.red
         case .muted, nil: .white.opacity(TextOpacity.tertiary)
         }
+    }
+}
+
+/// NEW-59: the Work screen row = THE shared `GlassPickerRow` over
+/// `WorkScreen.options` (no new component), tagged with the fixture test id.
+struct WorkScreenPickerRow: View {
+    @Binding var selection: Int?
+    let options: [WorkScreen.Option]
+
+    var body: some View {
+        GlassPickerRow(
+            WorkScreen.Copy.row,
+            selection: $selection,
+            options: options.map(\.value),
+            label: { value in
+                options.first { $0.value == value }?.label ?? WorkScreen.Copy.auto
+            }
+        )
+        .accessibilityIdentifier(WorkScreen.TestIds.row)
     }
 }

@@ -167,6 +167,8 @@ pub mod session_tree;
 pub mod stack;
 pub mod statuses;
 pub mod tree_guides;
+// NEW-59: the Work screen picker's options + copy, fixture-locked ×4.
+pub mod work_screen;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

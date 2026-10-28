@@ -37,8 +37,8 @@ use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, BOOL, HWND, LPAR
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors, GdiFlush, GetDC,
-    GetMonitorInfoW, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, HDC,
-    HMONITOR, MONITORINFO, MONITORINFOEXW, SRCCOPY,
+    GetMonitorInfoW, MonitorFromWindow, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+    DIB_RGB_COLORS, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONULL, SRCCOPY,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
@@ -55,7 +55,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, EnumWindows, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
+    CallNextHookEx, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
     GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
     IsWindowVisible, PeekMessageW, PostThreadMessageW, SetCursorPos, SetForegroundWindow, SetWindowsHookExW,
     ShowWindow, UnhookWindowsHookEx, GWL_EXSTYLE, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED,
@@ -327,6 +327,38 @@ fn exe_stem(pid: u32) -> String {
     Path::new(&path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// The shell's own top-level windows (the desktop, the taskbars): they
+/// cover a monitor without being a fullscreen app.
+const SHELL_CLASSES: &[&str] = &["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
+
+fn class_name(window: HWND) -> String {
+    let mut buf = [0u16; 256];
+    // SAFETY: `buf` holds `buf.len()` units; the call writes at most that
+    // many, the NUL included, and returns the count without it.
+    let len = unsafe { GetClassNameW(window, buf.as_mut_ptr(), buf.len() as i32) };
+    String::from_utf16_lossy(&buf[..len.clamp(0, buf.len() as i32) as usize])
+}
+
+/// NEW-59: a (visible, non-tool: the caller's filter) window whose `rect`
+/// covers its monitor's full rect, the shell's own windows aside.
+fn fullscreen(window: HWND, rect: &RECT) -> bool {
+    // SAFETY: no pointers; null = off every monitor.
+    let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONULL) };
+    if monitor.is_null() {
+        return false;
+    }
+    // SAFETY: MONITORINFO is plain data.
+    let mut info: MONITORINFO = unsafe { zeroed() };
+    info.cbSize = size_of::<MONITORINFO>() as u32;
+    // SAFETY: `info` is a live MONITORINFO whose cbSize says so.
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return false;
+    }
+    let screen = info.rcMonitor;
+    let covers = rect.left <= screen.left && rect.top <= screen.top && rect.right >= screen.right && rect.bottom >= screen.bottom;
+    covers && !SHELL_CLASSES.contains(&class_name(window).as_str())
+}
+
 fn foreground() -> HWND {
     // SAFETY: no pointers.
     unsafe { GetForegroundWindow() }
@@ -470,26 +502,34 @@ impl Backend for Win32 {
             if !visible || ex_style & WS_EX_TOOLWINDOW != 0 || cloaked(window) {
                 continue;
             }
-            let title = window_title(window);
-            if title.is_empty() {
+            let Some(rect) = frame(window) else { continue };
+            let fullscreen = fullscreen(window, &rect);
+            let mut title = window_title(window);
+            // An untitled window is listed only when it is a fullscreen app
+            // (a game): the work screen reads it.
+            if title.is_empty() && !fullscreen {
                 continue;
             }
-            let Some(rect) = frame(window) else { continue };
             let (width, height) = rect_size(&rect);
             let mut pid = 0u32;
             // SAFETY: `pid` is a live u32.
             unsafe { GetWindowThreadProcessId(window, &mut pid) };
             let pid = (pid != 0).then_some(pid);
+            let app = pid.map(exe_stem).unwrap_or_default();
+            if title.is_empty() {
+                title = app.clone();
+            }
             windows.push(WindowInfo {
                 id: window as usize as u64,
                 title,
-                app: pid.map(exe_stem).unwrap_or_default(),
+                app,
                 pid,
                 x: rect.left,
                 y: rect.top,
                 width,
                 height,
                 active: window == active,
+                fullscreen,
             });
         }
         Ok(windows)

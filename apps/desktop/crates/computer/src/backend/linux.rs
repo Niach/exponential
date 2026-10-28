@@ -42,6 +42,8 @@ x11rb::atom_manager! {
         _NET_ACTIVE_WINDOW,
         _NET_WM_NAME,
         _NET_WM_PID,
+        _NET_WM_STATE,
+        _NET_WM_STATE_FULLSCREEN,
         _NET_WORKAREA,
         UTF8_STRING,
     }
@@ -456,6 +458,11 @@ impl Backend for X11 {
             // WM_CLASS = "instance\0class\0": the class names the app.
             let app = class.split('\0').filter(|part| !part.is_empty()).last().unwrap_or_default().to_string();
             let pid = self.property32(window, self.atoms._NET_WM_PID, xproto::AtomEnum::CARDINAL.into()).first().copied();
+            // NEW-59: the client list's (the stacking order of
+            // `_NET_CLIENT_LIST`) windows in the EWMH fullscreen state.
+            let fullscreen = self
+                .property32(window, self.atoms._NET_WM_STATE, xproto::AtomEnum::ATOM.into())
+                .contains(&self.atoms._NET_WM_STATE_FULLSCREEN);
             windows.push(WindowInfo {
                 id: u64::from(window),
                 title,
@@ -466,6 +473,7 @@ impl Backend for X11 {
                 width: u32::from(geometry.width),
                 height: u32::from(geometry.height),
                 active: active == Some(window),
+                fullscreen,
             });
         }
         Ok(windows)

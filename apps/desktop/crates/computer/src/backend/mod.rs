@@ -54,6 +54,12 @@ pub(crate) struct WindowInfo {
     pub width: u32,
     pub height: u32,
     pub active: bool,
+    /// NEW-59: a fullscreen app's window, by the OS's rule
+    /// (`fixtures/work-screen.json` FULLSCREEN): macOS = an app's layer-0
+    /// window (not the Dock's, Finder's or the Window Server's) whose bounds
+    /// equal a display's; Windows = a non-tool window (not the desktop or
+    /// the taskbar) covering its monitor; X11 = `_NET_WM_STATE_FULLSCREEN`.
+    pub fullscreen: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,7 +79,8 @@ pub(crate) trait Backend: Send {
     /// `display`'s pixels now; any resolution, the frame fits it.
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String>;
     fn cursor_position(&self) -> Result<(i32, i32), String>;
-    /// Top first.
+    /// Top first, the focused one `active`, each marked `fullscreen` (one
+    /// window-list read: the work-screen gate reads it on every call).
     fn list_windows(&self) -> Result<Vec<WindowInfo>, String>;
     /// Raise + focus `id` (a `WindowInfo::id`).
     fn activate_window(&self, id: u64) -> Result<(), String>;
@@ -122,6 +129,18 @@ pub(crate) fn request_permissions() -> Vec<(crate::Permission, bool)> {
     return macos::request_permissions();
     #[cfg(not(target_os = "macos"))]
     Vec::new()
+}
+
+/// NEW-59: the native pixel size of the display at this rect (screen
+/// units); the rect's own size where the OS already counts pixels.
+pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) {
+    #[cfg(target_os = "macos")]
+    return macos::pixel_size(x, y, width, height);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (x, y);
+        (width, height)
+    }
 }
 
 /// Open the backend for one call.

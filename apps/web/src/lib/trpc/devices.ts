@@ -133,6 +133,11 @@ function clampLaunchDefaults(
   ) {
     out.computerUseModel = input.computerUseModel
   }
+  // NEW-59: the work screen's 1-based display number (the schema bounds it
+  // 1..16); null (= Auto) is dropped like every cleared field.
+  if (typeof input.computerUseDisplay === `number`) {
+    out.computerUseDisplay = input.computerUseDisplay
+  }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
     for (const [agent, d] of Object.entries(input.agents)) {
@@ -233,6 +238,17 @@ export function clampDoctor(
       ...(item.action ? { action: item.action } : {}),
       ...(item.import ? { import: item.import } : {}),
     })),
+    // NEW-59: the device's displays; absent / null = not reported.
+    ...(input.displays
+      ? {
+          displays: input.displays.map((display) => ({
+            number: display.number,
+            width: display.width,
+            height: display.height,
+            primary: display.primary,
+          })),
+        }
+      : {}),
   }
 }
 
@@ -1071,6 +1087,16 @@ export const devicesRouter = router({
         (contract.codingAgent.values as readonly string[]).includes(storedAgent)
       ) {
         clamped.defaultAgent = storedAgent
+      }
+      // NEW-59: the work screen carries forward too: a save WITHOUT the key
+      // (a client that predates it) keeps the stored display, an explicit
+      // null clears it to Auto.
+      const storedDisplay = row.launchDefaults?.computerUseDisplay
+      if (
+        input.launchDefaults.computerUseDisplay === undefined &&
+        typeof storedDisplay === `number`
+      ) {
+        clamped.computerUseDisplay = storedDisplay
       }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {

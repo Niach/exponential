@@ -35,6 +35,13 @@ impl SearchableListItem for ChoiceItem {
     fn value(&self) -> &SharedString {
         &self.value
     }
+
+    /// picker-presentation.json (3): a long picked value ends in `…` on one
+    /// line (the select itself only clips).
+    fn display_title(&self) -> Option<gpui::AnyElement> {
+        use gpui::IntoElement as _;
+        Some(div().w_full().min_w_0().truncate().child(self.label.clone()).into_any_element())
+    }
 }
 
 /// The select state every coding surface holds (delegate = a plain item vec —
@@ -570,6 +577,46 @@ pub fn choice_select(
         .position(|(_, value)| *value == initial)
         .unwrap_or(0);
     cx.new(|cx| SelectState::new(items, Some(IndexPath::default().row(ix)), window, cx))
+}
+
+/// NEW-59: the Work screen choices (`domain::work_screen::work_screen_options`
+/// over the device's reported displays + the stored pick) as select items:
+/// value `""` = Auto, else the 1-based display number.
+pub fn work_screen_items(
+    displays: &[domain::work_screen::WorkScreenDisplay],
+    stored: Option<u32>,
+) -> Vec<ChoiceItem> {
+    domain::work_screen::work_screen_options(displays, stored)
+        .into_iter()
+        .map(|option| ChoiceItem {
+            label: SharedString::from(option.label),
+            value: work_screen_value(option.value),
+        })
+        .collect()
+}
+
+/// A Work screen pick as the select's value (`""` = Auto).
+pub fn work_screen_value(number: Option<u32>) -> SharedString {
+    number.map(|number| SharedString::from(number.to_string())).unwrap_or_default()
+}
+
+/// THE Work screen select: the device-settings picker row under the
+/// Computer use model, preselecting `stored`.
+pub fn work_screen_select(
+    displays: &[domain::work_screen::WorkScreenDisplay],
+    stored: Option<u32>,
+    window: &mut Window,
+    cx: &mut App,
+) -> ChoiceSelect {
+    let items = work_screen_items(displays, stored);
+    let value = work_screen_value(stored);
+    let ix = items.iter().position(|item| item.value == value).unwrap_or(0);
+    cx.new(|cx| SelectState::new(items, Some(IndexPath::default().row(ix)), window, cx))
+}
+
+/// The Work screen select's pick (`None` = Auto).
+pub fn selected_work_screen(state: &ChoiceSelect, cx: &App) -> Option<u32> {
+    selected(state, cx).parse().ok().filter(|number| *number >= 1)
 }
 
 /// The currently selected VALUE (`""` when nothing is selected — only

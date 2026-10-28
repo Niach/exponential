@@ -985,6 +985,12 @@ export interface DeviceLaunchDefaults {
    * (contract `computerUseModel`); absent = contract
    * `deviceComputerUseDefaults.model`. Same carry-forward as `computerUse`. */
   computerUseModel?: string | null
+  /** NEW-59: the WORK SCREEN, the 1-based number of the display (in the
+   * device's own `doctor.displays` list) agents drive with computer use;
+   * absent / null = Auto (every display without a fullscreen app). A save
+   * without it keeps the stored one, an explicit null clears it to Auto
+   * (spec: domain-contract `fixtures/work-screen.json`). */
+  computerUseDisplay?: number | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
@@ -999,6 +1005,8 @@ export const deviceLaunchDefaultsSchema = z.object({
   computerUse: z.boolean().nullish(),
   // EXP-1236: see DeviceLaunchDefaults.computerUseModel.
   computerUseModel: z.string().max(32).nullish(),
+  // NEW-59: see DeviceLaunchDefaults.computerUseDisplay.
+  computerUseDisplay: z.number().int().min(1).max(16).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
@@ -1260,9 +1268,20 @@ export interface DeviceDoctorItem {
    * action pill. */
   import?: string
 }
+/** NEW-59: one display as the device reports it (the OS's order, pixels). */
+export interface DeviceDisplay {
+  /** 1-based, the number `launch_defaults.computerUseDisplay` stores. */
+  number: number
+  width: number
+  height: number
+  primary: boolean
+}
 export interface DeviceDoctor {
   checkedAt: string
   items: DeviceDoctorItem[]
+  /** NEW-59: the device's displays (the Work screen picker's options);
+   * absent = not reported (an older build, a daemon without a display). */
+  displays?: DeviceDisplay[]
 }
 // EXP-1375: room for up to 12 kept worktree rows beside the checks.
 export const MAX_DEVICE_DOCTOR_ITEMS = 32
@@ -1290,6 +1309,18 @@ export const deviceDoctorSchema = z.object({
     .array(deviceDoctorItemSchema)
     .max(64)
     .transform((items) => items.slice(0, MAX_DEVICE_DOCTOR_ITEMS)),
+  // NEW-59: see DeviceDoctor.displays.
+  displays: z
+    .array(
+      z.object({
+        number: z.number().int().min(1).max(16),
+        width: z.number().int().min(1).max(100000),
+        height: z.number().int().min(1).max(100000),
+        primary: z.boolean(),
+      })
+    )
+    .max(16)
+    .nullish(),
 })
 
 // EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus

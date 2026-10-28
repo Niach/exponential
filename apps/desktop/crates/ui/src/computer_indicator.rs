@@ -228,15 +228,48 @@ impl Render for Banner {
 /// Where the lock's thread leaves what it saw; the foreground loop drains it.
 static PRESENCE: OnceLock<Mutex<std::sync::mpsc::Receiver<Option<String>>>> = OnceLock::new();
 
+/// NEW-59: the toolkit display the computer crate's `target` is (`None` =
+/// no counterpart, e.g. X11's one whole-screen display).
+fn toolkit_display(target: &coding::computer::Display, cx: &App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
+    let screens = coding::computer::displays();
+    let index = screens.iter().position(|screen| screen.number == target.number)?;
+    let displays = cx.displays();
+    let map = crate::push_to_talk::overlay::display_map(&displays, &screens);
+    map.iter().position(|mapped| *mapped == Some(index)).and_then(|ix| displays.get(ix).cloned())
+}
+
+/// NEW-59: on X11 the banner's monitor is the run's work screen when it has
+/// one (the same scaling as the primary's, `ScreenLayout::banner_origin`).
+fn on_work_screen(layout: coding::computer::ScreenLayout, target: Option<&coding::computer::Display>) -> coding::computer::ScreenLayout {
+    match target {
+        Some(display) => coding::computer::ScreenLayout {
+            primary: coding::computer::ScreenRect {
+                x: display.x,
+                y: display.y,
+                width: display.width,
+                height: display.height,
+            },
+            ..layout
+        },
+        None => layout,
+    }
+}
+
 fn banner_options(label: Option<&str>, cx: &App) -> WindowOptions {
-    let display = cx.primary_display();
+    // NEW-59: the banner floats on the run's work screen (its current
+    // display), else the primary as before.
+    let target = coding::computer::banner_display();
+    let display = target
+        .as_ref()
+        .and_then(|target| toolkit_display(target, cx))
+        .or_else(|| cx.primary_display());
     // The visible bounds leave the panel or dock out, like the bulk bar
     // floats above the list's bottom, not over the composer.
     let display_bounds = display.as_ref().map(|display| display.visible_bounds());
     // On X11 the toolkit's display is the whole X screen (every monitor
     // side by side): the primary monitor and the panel come from the
     // server, scaled by the root's logical width (EXP-1273).
-    let layout = coding::computer::screen_layout();
+    let layout = coding::computer::screen_layout().map(|layout| on_work_screen(layout, target.as_ref()));
     let room = display_bounds
         .map(|bounds| {
             let logical_root_width = f32::from(bounds.size.width);
@@ -379,6 +412,23 @@ mod tests {
     /// only exercise the box arithmetic (rounding, slack, sides), not the
     /// real semibold-vs-normal measurement.
     const FRACTIONS: [&str; 3] = ["iii", "Razer Synapse: Basilisk", "WWWW mmmm"];
+
+    /// NEW-59 (X11): the banner centres on the run's work screen, not the
+    /// primary, through the same scaling.
+    #[test]
+    fn the_x11_banner_floats_on_the_work_screen() {
+        use coding::computer::{Display, ScreenLayout, ScreenRect};
+        let layout = ScreenLayout {
+            root: (5120, 1440),
+            primary: ScreenRect { x: 0, y: 0, width: 2560, height: 1440 },
+            work_area: None,
+        };
+        let work = Display { number: 2, x: 2560, y: 0, width: 2560, height: 1440, primary: false };
+        let (x, _) = on_work_screen(layout, Some(&work)).banner_origin(5120., 400., 40., 24.).unwrap();
+        assert_eq!(x, 2560. + 1280. - 200.);
+        let (x, _) = on_work_screen(layout, None).banner_origin(5120., 400., 40., 24.).unwrap();
+        assert_eq!(x, 1280. - 200.);
+    }
 
     /// The banner's view with a probe on the bar: the drawn bar's size.
     struct Probe {

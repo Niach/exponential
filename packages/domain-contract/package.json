@@ -20,6 +20,7 @@
     "./script-card": "./src/script-card.ts",
     "./home-greeting": "./src/home-greeting.ts",
     "./devices-list": "./src/devices-list.ts",
+    "./work-screen": "./src/work-screen.ts",
     "./feedback-mark": "./src/feedback-mark.ts",
     "./session-tree": "./src/session-tree.ts",
     "./session-title": "./src/session-title.ts",

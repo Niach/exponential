@@ -21,6 +21,11 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { promptActions, removeDevicePrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
+import {
+  WORK_SCREEN_COPY,
+  WORK_SCREEN_TEST_IDS,
+  workScreenOptions,
+} from "@exp/domain-contract/work-screen"
 import type { DeviceIcon } from "@exp/db-schema/domain"
 import type { Device } from "@/db/schema"
 import {
@@ -38,6 +43,7 @@ import {
   GlassGroup,
   IconPicker,
   Input,
+  Picker,
   GlassSectionHeader,
   GlassToggleRow,
   Pill,
@@ -91,6 +97,8 @@ export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the dev
 // burst of toggles into ONE write matters more than instant persistence.
 const NAME_DEBOUNCE_MS = 800
 const DEFAULTS_DEBOUNCE_MS = 1_000
+/** NEW-59: the Work screen picker's value for Auto (stored as null). */
+const WORK_SCREEN_AUTO = `auto`
 
 interface AgentDraft {
   model: string
@@ -200,6 +208,10 @@ export function DeviceSettingsDialog({
   const [computerUseModel, setComputerUseModel] = useState<string>(
     contract.deviceComputerUseDefaults.model
   )
+  // NEW-59: the work screen, the 1-based display number; null = Auto.
+  const [computerUseDisplay, setComputerUseDisplay] = useState<number | null>(
+    null
+  )
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -252,6 +264,7 @@ export function DeviceSettingsDialog({
     setComputerUseModel(
       clampComputerUseModel(source.launchDefaults?.computerUseModel)
     )
+    setComputerUseDisplay(source.launchDefaults?.computerUseDisplay ?? null)
     const stored = source.launchDefaults?.defaultAgent
     const agent =
       stored && agents.includes(stored)
@@ -391,6 +404,7 @@ export function DeviceSettingsDialog({
     drafts,
     computerUse,
     computerUseModel,
+    computerUseDisplay,
     namePending,
     defaultsPending,
   })
@@ -401,6 +415,7 @@ export function DeviceSettingsDialog({
     drafts,
     computerUse,
     computerUseModel,
+    computerUseDisplay,
     namePending,
     defaultsPending,
   }
@@ -491,6 +506,8 @@ export function DeviceSettingsDialog({
         launchDefaults: {
           computerUse: snapshot.computerUse,
           computerUseModel: snapshot.computerUseModel,
+          // NEW-59: null = Auto (an explicit clear); sent like the model.
+          computerUseDisplay: snapshot.computerUseDisplay,
           agents,
         },
       }, SKIP_ERROR_TOAST)
@@ -651,6 +668,19 @@ export function DeviceSettingsDialog({
   // EXP-1236: same debounced launch-defaults save as the switch.
   const pickComputerUseModel = (value: string) => {
     setComputerUseModel(clampComputerUseModel(value))
+    scheduleDefaults()
+  }
+  // NEW-59: the work screen rides the same save. Picker values are strings:
+  // `auto` stands for null, a display for its number.
+  const workScreenItems = workScreenOptions(
+    row?.doctor?.displays,
+    computerUseDisplay
+  ).map((option) => ({
+    value: option.value === null ? WORK_SCREEN_AUTO : String(option.value),
+    label: option.label,
+  }))
+  const pickWorkScreen = (value: string) => {
+    setComputerUseDisplay(value === WORK_SCREEN_AUTO ? null : Number(value))
     scheduleDefaults()
   }
 
@@ -890,6 +920,21 @@ export function DeviceSettingsDialog({
                   value={computerUseModel}
                   onChange={pickComputerUseModel}
                   models={subagentModelChoices()}
+                />
+                {/* NEW-59: the display agents drive (work-screen.json). */}
+                <Picker
+                  mode="single"
+                  triggerVariant="row"
+                  width="md"
+                  mobileTitle={WORK_SCREEN_COPY.row}
+                  data-testid={WORK_SCREEN_TEST_IDS.row}
+                  value={
+                    computerUseDisplay === null
+                      ? WORK_SCREEN_AUTO
+                      : String(computerUseDisplay)
+                  }
+                  items={workScreenItems}
+                  onChange={pickWorkScreen}
                 />
               </GlassGroup>
             )}

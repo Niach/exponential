@@ -168,7 +168,10 @@ fn main() -> ExitCode {
     // permissions now, not mid-run.
     if matches!(command, "code" | "run" | "daemon") {
         let data_dir = context::data_dir();
-        if coding::Settings::load(&coding::Settings::default_path(&data_dir)).computer_use {
+        let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
+        // NEW-59: the Work screen the computer hub gates by.
+        coding::computer::set_work_display(settings.computer_use_display);
+        if settings.computer_use {
             coding::computer::prepare_in_background();
         }
     }

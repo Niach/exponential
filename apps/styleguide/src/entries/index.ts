@@ -26,6 +26,7 @@ import { entry as sessionRow } from "./session-row.tsx"
 import { entry as prRow } from "./pr-row.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
+import { entry as workScreen } from "./work-screen.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
 import { entry as draftLeaveDialog } from "./draft-leave-dialog.tsx"
 import { entry as readinessChecklist } from "./readiness-checklist.tsx"
@@ -96,6 +97,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   prRow,
   prGraphBadge,
   deviceSettings,
+  workScreen,
   stackMergeChoiceDialog,
   draftLeaveDialog,
   readinessChecklist,

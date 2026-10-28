@@ -2023,6 +2023,8 @@ fn apply_server_defaults(
     let mut settings = coding::Settings::load(&settings_path);
     let was_on = settings.computer_use;
     let changed = coding::apply_defaults_patch(&mut settings, &patch);
+    // NEW-59: the computer hub reads the Work screen from here.
+    coding::computer::set_work_display(settings.computer_use_display);
     if changed {
         if let Err(err) = settings.save(&settings_path) {
             log::warn!("launch defaults: save failed: {err}");

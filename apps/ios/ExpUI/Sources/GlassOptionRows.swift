@@ -95,8 +95,13 @@ public struct GlassPickerRowLabel: View {
 
     public var body: some View {
         HStack(spacing: 8) {
+            // picker-presentation.json (3): the label never shrinks; only the
+            // value gives way, one line, cut at its end.
             Text(title)
                 .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
             Spacer(minLength: 8)
             if let icon {
                 AppIcon(icon, size: 14)
@@ -107,6 +112,7 @@ public struct GlassPickerRowLabel: View {
             Text(value)
                 .foregroundStyle(.white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary))
                 .lineLimit(1)
+                .truncationMode(.tail)
             AppIcon(AppIcons.uiChevronRight, size: 14)
                 .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
         }

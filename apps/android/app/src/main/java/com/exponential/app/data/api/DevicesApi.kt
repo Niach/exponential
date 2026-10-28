@@ -133,7 +133,7 @@ private val launchDefaultsJson = Json {
  * rides: the last used agent is the DEVICE's to write (EXP-1158), and the
  * server carries the stored value forward when a save omits it. Every other
  * field encodes exactly as [DeviceLaunchDefaults] always did; decoding is
- * untouched.
+ * untouched, except NEW-59's explicit `computerUseDisplay: null` (Auto picked).
  */
 internal fun setLaunchDefaultsInput(
     deviceId: String,
@@ -144,7 +144,18 @@ internal fun setLaunchDefaultsInput(
         .jsonObject
     return buildJsonObject {
         put("deviceId", deviceId)
-        put("launchDefaults", JsonObject(encoded - "defaultAgent"))
+        val launchDefaults = encoded - "defaultAgent"
+        put(
+            "launchDefaults",
+            JsonObject(
+                // NEW-59: Auto picked = the explicit null that clears the stored display.
+                if (defaults.clearComputerUseDisplay && defaults.computerUseDisplay == null) {
+                    launchDefaults + ("computerUseDisplay" to JsonNull)
+                } else {
+                    launchDefaults
+                },
+            ),
+        )
     }
 }
 

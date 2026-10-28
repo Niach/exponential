@@ -229,6 +229,8 @@ impl Backend for Mac {
         let list = copy_window_info(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID)
             .ok_or("macOS returned no window list.")?;
         let front = frontmost_pid();
+        // NEW-59: a window whose bounds equal a display's is a fullscreen app.
+        let displays: Vec<DisplayInfo> = active_displays().map(|all| all.into_iter().map(|(_, info)| info).collect()).unwrap_or_default();
         let mut active_seen = false;
         let mut windows = Vec::new();
         for item in list.iter() {
@@ -251,7 +253,7 @@ impl Backend for Mac {
             let title = text(&entry, window_key(KeyName::Name)).filter(|title| !title.is_empty()).unwrap_or_else(|| app.clone());
             let active = !active_seen && front.is_some() && pid == front;
             active_seen |= active;
-            windows.push(WindowInfo {
+            let mut window = WindowInfo {
                 id,
                 title,
                 app,
@@ -261,7 +263,10 @@ impl Backend for Mac {
                 width: bounds.size.width.round().max(0.0) as u32,
                 height: bounds.size.height.round().max(0.0) as u32,
                 active,
-            });
+                fullscreen: false,
+            };
+            window.fullscreen = fullscreen(&window, &displays);
+            windows.push(window);
         }
         Ok(windows)
     }
@@ -362,6 +367,18 @@ impl Backend for Mac {
 }
 
 /// Every active display with its id, in points of the global space.
+pub(super) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) {
+    let Ok(displays) = active_displays() else { return (width, height) };
+    displays
+        .into_iter()
+        .find(|(_, info)| info.x == x && info.y == y && info.width == width && info.height == height)
+        .and_then(|(id, _)| {
+            let mode = CGDisplay::new(id).display_mode()?;
+            Some((mode.pixel_width() as u32, mode.pixel_height() as u32))
+        })
+        .unwrap_or((width, height))
+}
+
 fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
     let ids = CGDisplay::active_displays().map_err(|err| format!("displays: CGError {err}"))?;
     let mut displays: Vec<(CGDirectDisplayID, DisplayInfo)> = ids
@@ -392,6 +409,45 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
 
 fn same_rect(a: &DisplayInfo, b: &DisplayInfo) -> bool {
     (a.x, a.y, a.width, a.height) == (b.x, b.y, b.width, b.height)
+}
+
+/// The system's own windows, never a fullscreen app.
+const SYSTEM_OWNERS: &[&str] = &["Dock", "Finder", "Window Server"];
+
+/// The tallest band a notched display keeps above a fullscreen window (the
+/// camera housing, points).
+const NOTCH_BAND: i32 = 64;
+
+/// NEW-59: a layer-0 window (the caller's filter) of an app whose bounds
+/// equal one display's full bounds. On a notched display macOS lays a
+/// fullscreen window out BELOW the camera housing, the same frame as a
+/// window filling the screen under the menu bar with the Dock hidden:
+/// there the window's own AXFullScreen decides (Accessibility, which the
+/// lock needs anyway; without it, not fullscreen).
+fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
+    if SYSTEM_OWNERS.contains(&window.app.as_str()) {
+        return false;
+    }
+    let rect = (window.x, window.y, window.width, window.height);
+    if displays.iter().any(|display| (display.x, display.y, display.width, display.height) == rect) {
+        return true;
+    }
+    let below_notch = displays.iter().any(|display| {
+        let band = window.y - display.y;
+        window.x == display.x
+            && window.width == display.width
+            && band > 0
+            && band <= NOTCH_BAND
+            && window.y + window.height as i32 == display.y + display.height as i32
+    });
+    below_notch
+        && window
+            .pid
+            .and_then(|pid| Pid::try_from(pid).ok())
+            .and_then(|pid| ax_window(pid, window))
+            .and_then(|element| ax_copy(&element, "AXFullScreen"))
+            .and_then(|value| value.downcast::<CFBoolean>())
+            .is_some_and(bool::from)
 }
 
 /// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
@@ -450,22 +506,22 @@ fn frontmost_pid() -> Option<u32> {
     })
 }
 
-/// Raise `window` of `pid` over Accessibility: the AX window whose frame
-/// matches the window server's. Best effort, each miss logged.
-fn raise(pid: Pid, window: &WindowInfo) {
+/// The Accessibility window of `pid` whose frame matches the window
+/// server's `window`; each miss logged.
+fn ax_window(pid: Pid, window: &WindowInfo) -> Option<CFType> {
     // SAFETY: returns a new AXUIElement (create rule) for any pid.
     let app = unsafe { AXUIElementCreateApplication(pid) };
     if app.is_null() {
         log::debug!("[computer] no Accessibility element for pid {pid}");
-        return;
+        return None;
     }
     // SAFETY: non-null and ours (create rule).
     let app = unsafe { CFType::wrap_under_create_rule(app) };
     let Some(list) = ax_copy(&app, "AXWindows").and_then(|list| list.downcast::<CFArray>()) else {
         log::debug!("[computer] pid {pid} lists no Accessibility windows");
-        return;
+        return None;
     };
-    let target = list.iter().find_map(|item| {
+    let found = list.iter().find_map(|item| {
         // SAFETY: AXWindows holds AXUIElements, alive as long as `list`.
         let element = unsafe { CFType::wrap_under_get_rule(*item) };
         let (origin, size) = (ax_point(&element)?, ax_size(&element)?);
@@ -476,10 +532,16 @@ fn raise(pid: Pid, window: &WindowInfo) {
             && close(size.height, i64::from(window.height));
         same.then_some(element)
     });
-    let Some(element) = target else {
+    if found.is_none() {
         log::debug!("[computer] no Accessibility window matches window {}", window.id);
-        return;
-    };
+    }
+    found
+}
+
+/// Raise `window` of `pid` over Accessibility: the AX window whose frame
+/// matches the window server's. Best effort, each miss logged.
+fn raise(pid: Pid, window: &WindowInfo) {
+    let Some(element) = ax_window(pid, window) else { return };
     let main = CFString::from_static_string("AXMain");
     let raise = CFString::from_static_string("AXRaise");
     // SAFETY: live element, attribute and value for the length of the calls.
