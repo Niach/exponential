@@ -157,6 +157,9 @@ interface Contract {
     agentInstructionsMaxBytes: number
     treeMaxDepth: number
     treeMaxSessions: number
+    reuseMaxEndedHours: number
+    reuseMaxIdleHours: number
+    reuseMaxChildren: number
   }
   steerCommands: {
     commands: {

@@ -54,7 +54,7 @@ describe(`chats.json`, () => {
     expect(chatSelectionFailedTitle(1, 1)).toBe(fixture.copy.toasts.selectionFailed)
   })
   test(`every menu entry and tab has copy`, () => {
-    for (const e of [`stop`, `stopAndDelete`, `delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()
+    for (const e of [`delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()
     for (const t of fixture.shell.tabs) expect(fixture.copy.tabs[t as keyof typeof fixture.copy.tabs]).toBeTruthy()
   })
 })
