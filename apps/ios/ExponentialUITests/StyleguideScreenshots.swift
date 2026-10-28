@@ -1209,10 +1209,10 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "The session did not open as the thread's \"\(Self.sessionTitle)\" page"
         )
-        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The thread header drew no Stop for the session")
+        // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
         // Back once (the session page → the Threads list) on the system
-        // back button (`goBack`: by name, never the bar's Stop or `…`).
+        // back button (`goBack`: by name, never the bar's `…`).
         goBack(app)
         settle(1)
     }

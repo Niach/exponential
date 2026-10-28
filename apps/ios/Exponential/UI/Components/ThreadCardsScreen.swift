@@ -328,10 +328,10 @@ private struct ThreadStripSpecimens: View {
         .session(sessionId: "s1", name: "Threads impl", markState: .needsYou, nested: [
             ThreadTabNestedSession(sessionId: "s2", name: "Web lane", markState: .working, depth: 1),
             ThreadTabNestedSession(sessionId: "s3", name: "Android lane", markState: .needsYou, depth: 1),
-            ThreadTabNestedSession(sessionId: "s4", name: "Emulator shots", markState: .ended, depth: 2),
+            ThreadTabNestedSession(sessionId: "s4", name: "Emulator shots", markState: .done, depth: 2),
         ]),
-        .session(sessionId: "s5", name: "Docs", markState: .waiting, nested: []),
-        .session(sessionId: "s6", name: "Review", markState: .ended, nested: []),
+        .session(sessionId: "s5", name: "Docs", markState: .idle, nested: []),
+        .session(sessionId: "s6", name: "Review", markState: .done, nested: []),
         .guide(dot: false),
     ]
 
@@ -395,10 +395,9 @@ private struct ThreadStripSpecimens: View {
         HStack(spacing: GlassComposerTokens.toolSpacing) {
             SessionComposerFooter(
                 controls: SessionComposerFooter.Controls(
-                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
+                    modelValue: "opus", agent: "claude", onPickModel: { _ in },
                     usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
-                    devicePin: Self.devicePin(),
-                    plan: .constant(true)
+                    devicePin: Self.devicePin()
                 ),
                 attachEnabled: true,
                 onPhoto: {},
@@ -560,23 +559,15 @@ private struct DockCardSpecimens: View {
     ]
 
     /// EXP-1374: the session's own state cards (session-card.json `banner`,
-    /// web `STATE_ROWS`): interrupted (its device went offline), background
-    /// tasks and (#EXP-1405) queued, waiting for its device.
-    private static let stateRows: [Dock.Row] = Dock.rows([
+    /// web `STATE_ROWS`): background tasks and (#EXP-1405) queued, waiting
+    /// for its device. S-3: no interrupted card.
+    private static let stateRows: [Dock.Row] = Dock.rows(["background", "queued"].map { id in
         .banner(
-            id: SessionState.interrupted.rawValue, icon: SessionState.interrupted.icon,
-            label: SessionState.interrupted.word,
-            text: SessionTree.CardCopy.bannerInterrupted["device_offline"] ?? "", tone: .muted, action: nil
-        ),
-        .banner(
-            id: SessionState.background.rawValue, icon: SessionState.background.icon,
-            label: SessionState.background.word, text: SessionTree.CardCopy.bannerBackground, tone: .muted, action: nil
-        ),
-        .banner(
-            id: SessionState.queued.rawValue, icon: SessionState.queued.icon,
-            label: SessionState.queued.word, text: SessionTree.CardCopy.bannerQueued, tone: .muted, action: nil
-        ),
-    ])
+            id: id, icon: SessionTree.CardCopy.bannerIcons[id] ?? "",
+            label: SessionTree.CardCopy.bannerLabels[id] ?? "",
+            text: SessionTree.CardCopy.banner[id] ?? "", tone: .muted, action: nil
+        )
+    })
 
     private static func action(_ row: Dock.Row) -> AnyView? {
         guard row.kind == .banner, row.id == "banner:wall" else { return nil }

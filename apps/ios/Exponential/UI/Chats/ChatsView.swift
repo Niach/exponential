@@ -6,7 +6,7 @@ import SwiftUI
 /// Thread 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
 /// page header (#EXP-1384 `shell.header`: the large title "Chats", the
 /// native search and INBOX circles), the team agents as BUBBLES, the filter chips All · Needs you ·
-/// Running · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
+/// Working · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
 /// chats (`Chats.chatList` over `partitionThreads`: no bands, no nesting,
 /// newest activity first). A row opens the chat; a bubble's hold its agent
 /// menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
@@ -244,6 +244,8 @@ struct ChatsView: View {
         ) {
             ChatLeadMark(lead: row.lead, cli: lists.clis[row.sessionId])
         }
+        // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed.
+        .opacity(row.dim ? Chats.Shell.dimOpacity : 1)
         .chatSelectedTint(selected)
         // The issue row's tap + long-press (`bulkSelectable`): the same hold,
         // the release never toggles the row back out, ONE haptic (the list's).
@@ -342,19 +344,13 @@ struct ChatsView: View {
         guard let pick = pendingPick else { return }
         pendingPick = nil
         switch pick.entry {
-        case .thread(.stop):
-            actions.stop(rootId: pick.target.id)
-        case .thread(.stopAndDelete), .thread(.delete):
+        case .thread(.delete):
             deleteTarget = pick.target.id
         case let .agent(entry):
             let agentId = pick.target.id
             switch entry {
             case .compact, .newConversation:
                 actions.sendToAgent(agentId: agentId, entry: entry)
-            case .stop:
-                if let conversation = lists.agentConversations[agentId] {
-                    actions.interrupt(sessionId: conversation)
-                }
             case .settings:
                 if let teamId = teamState.activeTeamId {
                     agentSettings = AgentSettingsTarget(teamId: teamId, agentId: agentId)

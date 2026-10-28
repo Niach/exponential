@@ -445,14 +445,10 @@ public struct SessionCardView: View {
     /// The fixture's `icons` concepts.
     static func glyph(_ state: SessionState) -> String {
         switch state {
-        case .queued: AppIcons.uiClock
         case .working: AppIcons.codingRunning
-        case .background: AppIcons.traceBackground
-        case .waiting: AppIcons.codingAssistant
+        case .idle: AppIcons.codingAssistant
         case .needsYou: AppIcons.codingNeedsInput
-        case .interrupted: AppIcons.runPause
-        case .blocked: AppIcons.notificationSessionBlocked
-        case .ended: AppIcons.codingEnded
+        case .done: AppIcons.codingEnded
         }
     }
 

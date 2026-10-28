@@ -92,7 +92,8 @@ final class SessionTreeTests: XCTestCase {
             needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
             unread: (row["unread"] as? Bool) ?? false,
             activityAt: try XCTUnwrap(string(row["activityAt"])),
-            deviceId: string(row["deviceId"])
+            deviceId: string(row["deviceId"]),
+            earlier: row["earlier"] as? Int
         )
     }
 
@@ -280,7 +281,7 @@ final class SessionTreeTests: XCTestCase {
             "key": group.key.rawValue,
             "title": group.title,
             "rows": group.rows.map { row -> [String: Any] in
-                [
+                var out: [String: Any] = [
                     "sessionId": row.sessionId,
                     "teamId": row.teamId,
                     "depth": row.depth,
@@ -293,6 +294,9 @@ final class SessionTreeTests: XCTestCase {
                     "activityAt": row.activityAt,
                     "deviceId": json(row.deviceId),
                 ]
+                // S-3: `earlier` rides ONLY the fold row.
+                if let earlier = row.earlier { out["earlier"] = earlier }
+                return out
             },
         ]
     }
@@ -332,14 +336,10 @@ final class SessionTreeTests: XCTestCase {
         }
         XCTAssertEqual((fixture["testIds"] as? [String: String])?["card"], SessionTree.CardCopy.testId)
         XCTAssertEqual(copy["blockedKinds"] as? [String: String], SessionTree.CardCopy.blockedKinds)
-        // EXP-1374: the interruptions and the Dock banner's words.
-        XCTAssertEqual(copy["interruptedKinds"] as? [String: String], SessionTree.CardCopy.interruptedKinds)
-        let banner = try XCTUnwrap(fixture["banner"] as? [String: Any])
-        XCTAssertEqual(banner["interrupted"] as? [String: String], SessionTree.CardCopy.bannerInterrupted)
-        XCTAssertEqual(banner["background"] as? String, SessionTree.CardCopy.bannerBackground)
-        // #EXP-1405: a queued row waits for its device.
-        XCTAssertEqual(copy["queuedKind"] as? String, SessionTree.CardCopy.queuedKind)
-        XCTAssertEqual(banner["queued"] as? String, SessionTree.CardCopy.bannerQueued)
+        // S-3: the Dock banner's words, icons and labels per id.
+        XCTAssertEqual(fixture["banner"] as? [String: String], SessionTree.CardCopy.banner)
+        XCTAssertEqual(fixture["bannerIcons"] as? [String: String], SessionTree.CardCopy.bannerIcons)
+        XCTAssertEqual(fixture["bannerLabels"] as? [String: String], SessionTree.CardCopy.bannerLabels)
     }
 
     func testSessionCardReplaysEveryCase() throws {
@@ -355,13 +355,14 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    /// NEW-1: a blocked session's card names its kind (`copy.blockedKinds`);
-    /// an unknown or absent kind keeps `states.blocked` (TS
-    /// `sessionKindWord`).
+    /// NEW-1: a session that needs you names its flag's kind
+    /// (`copy.blockedKinds`); an unknown or absent kind keeps
+    /// `states.needs_you` (TS `sessionKindWord`). S-3: an interruption is
+    /// invisible (idle).
     func testABlockedCardNamesItsKind() throws {
         let fixture = try fixture("session-card.json")
         let base = try XCTUnwrap(try cases(fixture).first {
-            (($0["expected"] as? [String: Any])?["state"] as? String) == "blocked"
+            (($0["expected"] as? [String: Any])?["kindWord"] as? String) == "Usage limit"
         })
         let input = try XCTUnwrap(base["input"] as? [String: Any])
         var row = try XCTUnwrap(input["session"] as? [String: Any])
@@ -373,25 +374,22 @@ final class SessionTreeTests: XCTestCase {
         }
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
         let kinds = try XCTUnwrap(copy["blockedKinds"] as? [String: String])
-        let interrupted = try XCTUnwrap(copy["interruptedKinds"] as? [String: String])
         for (kind, text) in kinds {
-            // EXP-1374: an interruption reads its own word, not the blocked one.
-            XCTAssertEqual(try word(["kind": kind]), interrupted[kind] ?? text, kind)
+            XCTAssertEqual(try word(["kind": kind]), text, kind)
         }
-        XCTAssertEqual(try word(["kind": "rate_limit"]), kinds["rate_limit"])
-        XCTAssertEqual(try word(["kind": "device_offline"]), "Interrupted · device offline")
-        XCTAssertEqual(try word(["kind": "restarted"]), "Interrupted · runner restarted")
         XCTAssertEqual(try word(["kind": "unclaimed"]), "Not picked up")
         XCTAssertEqual(try word(["kind": "stuck"]), "Stuck")
-        XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.blocked.word)
-        XCTAssertEqual(try word(["window": "weekly"]), SessionState.blocked.word)
+        XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.needsYou.word)
+        XCTAssertEqual(try word(["window": "weekly"]), SessionState.needsYou.word)
+        row["needsInput"] = false
+        XCTAssertEqual(try word(["kind": "device_offline"]), SessionState.idle.word)
         // The jsonb parse carries the kind (EXP-1374: and `resume`).
         XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"stuck"}"#)?.kind, "stuck")
         XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"restarted","resume":true}"#)?.resume, true)
         XCTAssertNil(TreeSessionBlocked.parse(#"{"kind":"restarted"}"#)?.resume)
     }
 
-    /// EXP-1374: the Dock card of an interrupted or background session
+    /// EXP-1374: the Dock card of a background or queued session
     /// (`bannerCases`: the state inputs alone; the rest of the row is filler
     /// the rule never reads), compared as the whole object.
     func testSessionBannerReplaysEveryCase() throws {
@@ -609,20 +607,24 @@ final class SessionTreeTests: XCTestCase {
                 issues: try issues(input["issues"]),
                 messages: try messages(input["messages"]),
                 teamId: string(input["teamId"]),
-                reads: try reads(input["reads"])
+                reads: try reads(input["reads"]),
+                now: string(input["now"])
             )
             assertJSON(groups.map(json), testCase["expected"], name)
         }
     }
 
-    /// NEW-1: `recent` + `treeState` rules match the fixture.
+    /// NEW-1: `recent` + (S-3) `recentChildMinutes` match the fixture.
     func testListRulesMatchTheFixture() throws {
         let fixture = try fixture("threads-list.json")
         let recent = try XCTUnwrap(fixture["recent"] as? [String: Any])
         XCTAssertEqual(recent["hours"] as? Double, SessionTree.ListRules.recentHours)
         XCTAssertEqual(recent["max"] as? Int, SessionTree.ListRules.recentMax)
-        let state = try XCTUnwrap(fixture["treeState"] as? [String: Any])
-        XCTAssertEqual(state["staleHours"] as? Double, SessionTree.ListRules.staleHours)
+        XCTAssertNil(fixture["treeState"])
+        XCTAssertEqual(fixture["recentChildMinutes"] as? Double, SessionTree.ListRules.recentChildMinutes)
+        let earlier = try XCTUnwrap((fixture["copy"] as? [String: Any])?["earlier"] as? [String: String])
+        XCTAssertEqual(SessionTree.earlierLabel(1), earlier["one"])
+        XCTAssertEqual(SessionTree.earlierLabel(3), earlier["other"]?.replacingOccurrences(of: "{n}", with: "3"))
     }
 
     /// NEW-1: `recentCases` — expected = the Recent group's ROOT ids in order.

@@ -4,17 +4,18 @@ import SwiftUI
 
 /// N-12: a session's Dock beyond the asks (web `useSessionDock`): THE Queue
 /// (task-queue.json), the queued messages (EXP-861, the X revokes a held
-/// one) and the status banners (EXP-550 paused on an offline device, a
-/// dropped stream with its Reconnect, EXP-804 the usage wall with EXP-849's
-/// account switch, EXP-724 compacting, EXP-784 the rate-limit window, the
-/// starting line) as `Dock.Source`s with their sheets (dock.json `banner`:
-/// the host's words). EXP-1374: an interrupted or background session leads
-/// with its own card (`SessionTree.sessionBanner`, session-card.json
-/// `banner`) in place of the paused one. The session view and a thread's
+/// one) and the status banners (a dropped stream with its Reconnect, EXP-804
+/// the usage wall with EXP-849's account switch, EXP-724 compacting, EXP-784
+/// the rate-limit window, the starting line) as `Dock.Source`s with their
+/// sheets (dock.json `banner`: the host's words). EXP-1374: a background or
+/// queued session leads with its own card (`SessionTree.sessionBanner`,
+/// session-card.json `banner`). S-3: no paused strip, no interrupted card
+/// (an offline host is invisible). The session view and a thread's
 /// Conversation share it.
 @MainActor
 enum SessionDock {
-    /// EXP-550: the hosting machine is asleep while the stream is down.
+    /// EXP-550: the hosting machine is asleep while the stream is down (S-3:
+    /// no strip; it only keeps the Connection lost / Starting lines quiet).
     static func hostPaused(_ model: AgentSessionModel) -> Bool {
         guard model.hostDeviceOffline else { return false }
         switch model.phase {
@@ -34,19 +35,12 @@ enum SessionDock {
         let hasFeed = !model.feed.isEmpty
         let row = model.session ?? session
         let tree = TreeSession(sessionRow: row)
-        // EXP-1374 (session-card.json `banner`): an interrupted or background
-        // session's own card; it replaces the offline "paused" banner while
-        // shown.
+        // EXP-1374 (session-card.json `banner`): a background or queued
+        // session's own card.
         if let banner = SessionTree.sessionBanner(tree) {
             out.append(.banner(
                 id: banner.id, icon: banner.icon, label: banner.label, text: banner.text,
                 tone: Dock.Tint(rawValue: banner.tone) ?? .muted, action: banner.action
-            ))
-        } else if paused, hasFeed {
-            out.append(.banner(
-                id: "paused", icon: "ui-device-offline", label: "\(model.hostDevice.displayLabel) is offline",
-                text: "The agent is paused on that machine and continues when it comes back online.",
-                tone: .muted, action: nil
             ))
         }
         if case let .closed(detail, _) = model.phase, !paused {
@@ -56,10 +50,8 @@ enum SessionDock {
             ))
         }
         let blocked = AgentUsagePresentation.parseBlocked(row.blocked)
-        // EXP-1374: an interruption is the session banner above, never the
-        // usage-wall strip.
-        if !SessionTree.isInterruption(tree.blocked),
-           let label = AgentUsagePresentation.blockedBadgeLabel(blocked, now: model.activityNow) {
+        // S-3: an interruption (device_offline, restarted) has no label.
+        if let label = AgentUsagePresentation.blockedBadgeLabel(blocked, now: model.activityNow) {
             out.append(.banner(
                 id: "blocked", icon: "ui-usage", label: "Usage limit", text: label, tone: .warning,
                 action: !model.sessionEnded && model.mayPost && AgentUsagePresentation.isUsageWall(blocked)

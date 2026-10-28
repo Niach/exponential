@@ -8,8 +8,8 @@ import SwiftUI
 /// Conversation, Slack-like, its started threads as session cards).
 ///
 /// * NEW-6 (N-1): a thread with ONE session (the root alone) IS that
-///   session: its page (raw work + composer, Stop in the header while live)
-///   is the main thing and the strip has no Conversation tab; a second
+///   session: its page (raw work + composer; S-3: no header Stop) is the
+///   main thing and the strip has no Conversation tab; a second
 ///   session brings the Conversation tab back.
 /// * Header = the title (plain, never renamed — EXP-1316; a lock when
 ///   private; an agent's icon in its color before its name) and, for a
@@ -113,15 +113,14 @@ struct ThreadScreen: View {
     /// (`attachSteerModel`, paired with `steerSessions.detach`).
     @State private var liveModel: AgentSessionModel?
     @State private var liveClaimId: String?
-    /// EXP-1343: the shown session page's model (its embedded view's claim),
-    /// for the header's Stop; nil off a session page.
+    /// EXP-1343: the shown session page's model (its embedded view's claim);
+    /// nil off a session page.
     @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
-    @State private var sessionStopConfirm = false
     /// EXP-1347: the innermost outlet for issue pills inside this thread.
     @State private var issueOutlet = ThreadIssueOutlet()
     /// EXP-1373 (chats.json MENUS): the header `…` = the chat's menu sheet
-    /// (Stop · Stop and delete / Delete, the Guide's Close PR; an agent
-    /// chat's Compact · New conversation · Stop · Agent settings), its pick
+    /// (S-3: Delete, the Guide's Close PR; an agent chat's Compact · New
+    /// conversation · Agent settings), its pick
     /// run once the sheet has dismissed.
     @State private var chatMenuOpen = false
     @State private var pendingChatPick: ChatMenuSheet.Entry?
@@ -260,10 +259,6 @@ struct ThreadScreen: View {
             // EXP-1307/1316: ONE `…` rides the header's action slot on every
             // tab while it has an entry — Close PR (EXP-1338: no GitHub
             // entry), in THE Menu's sheet.
-            // EXP-1343: a session page's Stop rides the ONE header's
-            // trailing slot while that session is live (always mounted,
-            // EXP-942; draws nothing otherwise).
-            ToolbarItem(placement: .topBarTrailing) { sessionStopButton }
             // NEW-69 (voice-call.json): an agent chat's telephone, left of `…`.
             ToolbarItem(placement: .topBarTrailing) {
                 if editor == nil, let rows, rows.root.isAgent, rows.root.appId == nil,
@@ -302,18 +297,6 @@ struct ThreadScreen: View {
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
                     }
-                }
-        }
-        // EXP-1343: the header Stop's confirm (`Prompts.StopRun`); EXP-1373:
-        // it ends the ROOT (the whole tree), the menu's Stop.
-        .background {
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .glassAlert(isPresented: $sessionStopConfirm) {
-                    GlassAlert(prompt: Prompts.StopRun.copy(), handlers: [
-                        "stop": { chatActions.stop(rootId: rows?.root.id ?? rootId) },
-                    ])
                 }
         }
         .chatDeleteConfirm(target: $deleteTarget) { id in
@@ -468,24 +451,6 @@ struct ThreadScreen: View {
         guideSection = nil
         selectPage(.issue(issueId))
         return true
-    }
-
-    /// EXP-1343: Stop for the shown session page while it is live and this
-    /// viewer may stop it (the session view's own rule).
-    @ViewBuilder
-    private var sessionStopButton: some View {
-        // EXP-1373 (chats.json STOP): a thread's header Stop = the menu's
-        // Stop (ends the tree), shown while the root is not ended; an agent
-        // chat has none (its composer button and the menu's Stop).
-        if editor == nil, let rows, !rows.isAgent,
-           rows.root.status != DomainContract.sessionStatusEnded, canSteer {
-            Button(role: .destructive) { sessionStopConfirm = true } label: {
-                Text("Stop").fontWeight(.medium)
-            }
-            .tint(DesignTokens.Semantic.red)
-            .accessibilityLabel("Stop the session")
-            .accessibilityIdentifier("session-stop")
-        }
     }
 
     /// A member may link and file here (`resolveTeamAccess`: every member
@@ -1182,16 +1147,12 @@ struct ThreadScreen: View {
         guard let pick = pendingChatPick, let rows else { return }
         pendingChatPick = nil
         switch pick {
-        case .thread(.stop):
-            chatActions.stop(rootId: rows.root.id)
-        case .thread(.stopAndDelete), .thread(.delete):
+        case .thread(.delete):
             deleteTarget = rows.root.id
         case let .agent(entry):
             switch entry {
             case .compact, .newConversation:
                 if let text = Chats.agentMenuSends[entry] { reply(text, sessionId: rows.root.id) }
-            case .stop:
-                chatActions.interrupt(sessionId: rows.root.id)
             case .settings:
                 agentSettingsOpen = true
             }
@@ -1808,7 +1769,6 @@ struct ThreadComposer: View {
     private func controls(_ model: AgentSessionModel) -> SessionComposerFooter.Controls {
         let row = root ?? model.session
         return SessionComposerFooter.Controls(
-            planModeActive: model.planModeActive,
             modelValue: model.composerModelValue(row: root),
             agent: model.catalogAgent,
             // EXP-877: a model switch is a PLAIN MESSAGE into the root — never
@@ -1821,11 +1781,8 @@ struct ThreadComposer: View {
             usageSeverity: AgentUsagePresentation.severity(model.sessionUsage?.percent.map(Double.init)),
             onUsage: { showUsageSheet = true },
             ended: row?.status == DomainContract.sessionStatusEnded,
-            planModeFallback: model.sessionConfig == nil && row?.planMode == true,
             // EXP-1252: the root's Device pin (move to another device).
-            devicePin: model.devicePin,
-            // N-12: the Plan switch rides the card's row.
-            plan: planBinding
+            devicePin: model.devicePin
         )
     }
 
@@ -1873,18 +1830,12 @@ struct ThreadComposer: View {
         return caps.contains(cap)
     }
 
-    private var planOn: Bool { picks.planMode ?? steerModel?.planModeActive ?? root?.planMode ?? false }
     private var ultracodeOn: Bool { picks.ultracode ?? root?.ultracode ?? false }
     private var computerUseOn: Bool { picks.computerUse ?? root?.computerUse ?? false }
     private var effort: String { LaunchVocabulary.effortChoice(picks.effort ?? root?.effort) }
 
     private var effortValue: String {
         effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(effort)
-    }
-
-    private var planBinding: Binding<Bool>? {
-        guard LaunchVocabulary.supportsPlanMode(agent), !ended else { return nil }
-        return Binding(get: { planOn }, set: { configure(.init(sessionId: sessionId, planMode: $0)) })
     }
 
     private func openPlusMenu() {
@@ -2187,15 +2138,12 @@ struct ThreadComposer: View {
         let ids = busySessionIds
         Task {
             do {
-                var undelivered = false
-                for id in ids {
-                    let result = try await api.stop(accountId: accountId, sessionId: id)
-                    if result.delivered == false { undelivered = true }
-                }
-                // chats.json STOP: a stop no device got toasts.
-                if undelivered { toaster.warning(Chats.Copy.Toasts.stopNotDelivered) }
+                for id in ids { _ = try await api.stop(accountId: accountId, sessionId: id) }
             } catch {
-                toaster.error(Chats.Copy.Toasts.stopFailed, description: error.userFacingMessage)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "stop", thing: "the turn"),
+                    description: error.userFacingMessage
+                )
             }
         }
     }

@@ -25,7 +25,7 @@ struct SessionStateDot: View {
     /// tasks still run) is the live green, the attention tones their
     /// semantic colour, everything else neutral.
     static func color(_ state: SessionState) -> Color {
-        if state == .working || state == .background { return DesignTokens.Semantic.green }
+        if state == .working { return DesignTokens.Semantic.green }
         return sessionStateBadgeColor(state) ?? DesignTokens.Semantic.neutral
     }
 }
