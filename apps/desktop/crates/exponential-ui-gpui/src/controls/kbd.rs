@@ -16,9 +16,16 @@ pub const KBD_PAD_X: f32 = 4.;
 pub const KBD_GAP: f32 = 4.;
 
 /// One keycap: 20 px tall, at least 20 px wide, 4 px side padding, the
-/// `radius.sm` corner, the muted fill, 12 px medium muted text.
+/// `radius.sm` corner, the glass active wash, 12 px medium muted text.
+///
+/// The fill: web's `bg-muted` maps to the desktop's opaque `muted`
+/// (`#262626`), which is the very colour a settings row composites to
+/// (`fill_row` over the page), so the cap vanished into its row. The cap
+/// wears the translucent glass active fill instead (the same call as
+/// `theme.accent`, EXP-811): one step brighter than whatever it sits on.
 pub fn kbd(label: impl Into<SharedString>, cx: &App) -> Div {
     let theme = cx.theme();
+    let chrome = Chrome::global(cx);
     div()
         .flex()
         .flex_row()
@@ -29,8 +36,8 @@ pub fn kbd(label: impl Into<SharedString>, cx: &App) -> Div {
         .h(px(KBD_H))
         .min_w(px(KBD_H))
         .px(px(KBD_PAD_X))
-        .rounded(px(Chrome::global(cx).radius_sm))
-        .bg(theme.muted)
+        .rounded(px(chrome.radius_sm))
+        .bg(chrome.fill_active)
         .text_size(px(12.))
         .line_height(px(16.))
         .font_weight(FontWeight::MEDIUM)

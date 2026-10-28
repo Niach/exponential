@@ -376,9 +376,12 @@ pub(crate) fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &Ca
         .size_full()
         .items_center()
         .px(px(32.))
-        .pt(px(72.))
         .pb(px(48.))
         .bg(theme.background)
+        // The top inset is the one part that gives way in a short panel
+        // (72 down to 16): the caption never shrinks, so no line of it is
+        // ever cut through.
+        .child(div().flex_shrink_1().h(px(PANEL_TOP)).min_h(px(16.)))
         .child(call_avatar(id.clone(), face, AVATAR_LG, cx))
         .child(
             div()
@@ -403,14 +406,16 @@ pub(crate) fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &Ca
         )
         .child(
             div()
+                // Centred, at most `CAPTION_LINES` lines (voice-call.json
+                // PHONE-CALL UI): whole lines, the last one ellipsised.
                 .mt(px(32.))
-                .min_h_0()
-                .flex_shrink_1()
-                .overflow_hidden()
+                .flex_none()
                 .max_w(px(480.))
                 .text_center()
                 .text_base()
-                .line_clamp(4)
+                .line_height(px(CAPTION_LINE_H))
+                .text_ellipsis()
+                .line_clamp(CAPTION_LINES)
                 .text_color(theme.foreground)
                 .child(SharedString::from(face.view.caption.clone())),
         )
@@ -420,6 +425,16 @@ pub(crate) fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &Ca
 
 /// The panel's avatar box (the halo and the wave inside it).
 pub(crate) const AVATAR_LG: f32 = 200.;
+/// The panel's top inset (it shrinks to 16 px in a short panel).
+const PANEL_TOP: f32 = 72.;
+/// The caption's clamp (voice-call.json: at most 4 lines) and line box.
+pub(crate) const CAPTION_LINES: usize = 4;
+const CAPTION_LINE_H: f32 = 24.;
+/// The height the panel needs to show every part at full size with a
+/// 4-line caption: inset, avatar, name, status, caption, the round buttons
+/// (`CallSize::Lg`), bottom inset (the styleguide frame's floor).
+pub(crate) const PANEL_FULL_H: f32 =
+    PANEL_TOP + AVATAR_LG + 16. + 32. + 4. + 20. + 32. + CAPTION_LINES as f32 * CAPTION_LINE_H + 16. + 56. + 48.;
 /// The pill's avatar.
 const AVATAR_SM: f32 = 28.;
 

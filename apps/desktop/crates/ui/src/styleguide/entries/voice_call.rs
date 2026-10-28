@@ -17,9 +17,10 @@ use crate::voice_overlay::{call_panel, specimen_face, CallActions};
 pub(crate) const ID: &str = "voice-call";
 pub(crate) const OWNER: &str = "NEW-55";
 
-/// One specimen's frame (a narrow portrait: all five in one row).
+/// One specimen's frame (a narrow portrait: all five in one row), tall
+/// enough for the panel at full size with a 4-line caption.
 const FRAME_W: f32 = 208.;
-const FRAME_H: f32 = 560.;
+const FRAME_H: f32 = crate::voice_overlay::PANEL_FULL_H + 8.;
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let actions = CallActions::none();
