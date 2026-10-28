@@ -1,23 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { VOICE_COPY } from "@exp/domain-contract/voice"
-import { trpc } from "@/lib/trpc-client"
-import { VoiceSettingsSection } from "@/components/account/voice-settings-card"
-import { pageTitle } from "@/lib/page-title"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
+// S-3 (settings-nav.json `nav`): Personal → Voice is gone; the voice block
+// is the Assistant page's Voice section (agent-settings.json `assistant`).
+// Old links land there.
 export const Route = createFileRoute(`/t/$teamSlug/settings/voice`)({
-  head: () => ({
-    meta: [{ title: pageTitle(VOICE_COPY.group, `Settings`) }],
-  }),
-  loader: async () => {
-    const settings = await trpc.voice.get.query()
-    return { settings }
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: `/t/$teamSlug/settings/assistant`,
+      params: { teamSlug: params.teamSlug },
+      replace: true,
+    })
   },
-  component: SettingsVoice,
 })
-
-// NEW-67 (voice.json): Personal → Voice, the member's one voice settings row.
-function SettingsVoice() {
-  const { settings } = Route.useLoaderData()
-
-  return <VoiceSettingsSection settings={settings} />
-}

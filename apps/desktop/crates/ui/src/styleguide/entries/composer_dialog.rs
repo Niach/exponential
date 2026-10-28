@@ -61,6 +61,7 @@ fn sample_agent() -> domain::session_tree::AgentRow {
         color: "#f59e0b".to_string(),
         busy: false,
         needs_you: false,
+        assistant: false,
     }
 }
 

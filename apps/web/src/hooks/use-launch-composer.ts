@@ -12,9 +12,12 @@ import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
 import { usePrompts } from "@/hooks/use-prompts"
-import { useAgents } from "@/hooks/use-session-tree"
-import type { AgentRow } from "@/lib/session-tree"
-import { issueCollection, sessionCollection } from "@/lib/collections"
+import {
+  composerAgentRow,
+  TEMPORARY_PICK,
+  type ComposerAgentRowState,
+} from "@exp/domain-contract/composer-agent-row"
+import { agentCollection, issueCollection, sessionCollection } from "@/lib/collections"
 import {
   chatRepoOptions,
   defaultChatRepoId,
@@ -53,8 +56,11 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // composer in the launch dialog). What a session is ABOUT is a SUBJECT picked
 // into the composer (issue chips, or one PROMPT chip off the `/` menu, NEW-2;
 // picking the other kind swaps), the free text is the first message (instructions beside a subject),
-// files ride as attachments, and the options line under the card carries
-// device/account/model with the rest behind the "+" (S-3: no plan switch).
+// files ride as attachments, and the "+" carries every pick (S-3: Device,
+// Account, Model, Repository and the work picks are its rows; no options
+// line). S-3: the AGENT ROW over the card picks the recipient: an agent =
+// `sessions.send({agentId})` into the viewer's chat with it, Temporary
+// session = the start below.
 //
 // EXP-1293 (Threads v2): a start is ONE `sessions.send` in the ACTIVE team: a
 // new root (a thread) on the picked device, with the subject as its facets
@@ -67,14 +73,21 @@ export type { LaunchSeed }
 
 /** One prompt as the composer lists it: the synced, body-less row. */
 export type ComposerPrompt = SyncedPrompt
-/** NEW-3: one agent as the "+" menu lists it (`listAgents`: icon, colour, name). */
-export type ComposerAgent = AgentRow
+/** S-3: one circle of the agent row (composer-home.json `agentRow`): a
+ *  synced `agents` definition the viewer sees. */
+export interface ComposerAgent {
+  id: string
+  name: string
+  icon: string | null
+  color: string | null
+  sortOrder: number
+  role: string | null
+  ownerId: string
+}
 
 export type LaunchSubject =
   | { kind: `issues`; ids: string[] }
   | { kind: `prompt`; id: string }
-  /** NEW-3: a message into the caller's DM with a team agent. */
-  | { kind: `agent`; id: string }
   | null
 
 /** Hard cap per session: parity with `sessions.send`'s zod cap. */
@@ -91,8 +104,12 @@ export const START_SYNC_WAIT_MS = 4_000
 const CODEABLE_STATUSES = new Set<string>([`backlog`, `in_progress`, `in_review`])
 
 /** The submit's label per subject (its aria-label + tooltip). */
-export function submitLabelFor(subject: LaunchSubject): string {
-  if (subject?.kind === `agent`) return `Send`
+export function submitLabelFor(
+  subject: LaunchSubject,
+  /** S-3: the agent row picked an agent (a message, not a start). */
+  toAgent = false
+): string {
+  if (toAgent) return `Send`
   if (subject === null || subject.kind === `prompt`) return `Start session`
   return subject.ids.length >= 2
     ? `Start batch · ${subject.ids.length}`
@@ -116,17 +133,21 @@ export function buildSendInput(args: {
   attachmentIds: readonly string[]
   subject: LaunchSubject
   repoId: string
+  /** S-3: the agent row's pick (null = Temporary session). */
+  agentId?: string | null
 }): SessionsSendInput {
   const { options, subject } = args
   const text = args.text.trim()
-  // NEW-3: an agent subject = a message into the caller's DM with it. The
-  // DM runs on the agent's own device and login: no runner picks ride.
-  if (subject?.kind === `agent`) {
+  // S-3 (composer-home.json `agentRow`): a picked agent = a message into the
+  // caller's conversation with it. It runs on the agent's own device and
+  // login: no runner picks ride; picked issues forward onto it.
+  if (args.agentId) {
     return {
       teamId: args.teamId,
-      agentId: subject.id,
+      agentId: args.agentId,
       ...(text ? { text: args.text } : {}),
       ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
+      ...(subject?.kind === `issues` ? { issueIds: [...subject.ids] } : {}),
     }
   }
   return {
@@ -201,13 +222,13 @@ export interface LaunchComposerModel {
   /** The `/` menu's pick: the prompt becomes the subject. */
   pickPrompt: (promptId: string) => void
   clearPrompt: () => void
-  /** NEW-3: the team's agents (the "+" menu's Message an agent › rows). */
-  agents: ComposerAgent[]
-  /** The subject agent's row (null while it is not synced, or no agent). */
-  selectedAgent: ComposerAgent | null
-  /** The "+" menu's pick: the agent becomes the subject (a DM). */
-  pickAgent: (agentId: string) => void
-  clearAgent: () => void
+  /** S-3: the agent row over the card (composer-home.json `agentRow`);
+   *  null = the host draws none (the launch dialog): Temporary session. */
+  agentRow: ComposerAgentRowState<ComposerAgent> | null
+  /** The picked agent (null = Temporary session: today's launch). */
+  recipient: ComposerAgent | null
+  /** A circle's tap (an agent id or `TEMPORARY_PICK`). */
+  pickRecipient: (id: string) => void
 
   text: string
   setText: (text: string) => void
@@ -251,8 +272,14 @@ export function useLaunchComposer({
   seed,
   onSeedConsumed,
   onStarted,
+  agentRow: withAgentRow = false,
+  me = null,
 }: {
   teamId: string
+  /** S-3: draw the agent row (the New-chat composer: the agent home). */
+  agentRow?: boolean
+  /** The viewer (their own Assistant leads the agent row). */
+  me?: string | null
   /** The caller's machines (`useSteerDevices`); null while syncing. */
   devices: SteerDevice[] | null
   /** The route's one-shot preselection; consumed once, then reported. */
@@ -287,11 +314,35 @@ export function useLaunchComposer({
     subject?.kind !== `prompt`
       ? null
       : (prompts.find((prompt) => prompt.id === subject.id) ?? null)
-  // NEW-3: the team's agents, the "+" menu's Message an agent › rows.
-  // (no viewer: the rows need no busy / needs-you state here)
-  const { agents } = useAgents(teamId, null)
-  const selectedAgent =
-    subject?.kind !== `agent` ? null : (agents.find((agent) => agent.agentId === subject.id) ?? null)
+  // S-3: the agent row (composer-home.json `agentRow`): the viewer's
+  // Assistant first and preselected, the team agents, Temporary session.
+  const { data: agentRows } = useLiveQuery(
+    (query) =>
+      withAgentRow
+        ? query
+            .from({ agents: agentCollection })
+            .where(({ agents }) => inArray(agents.teamId, [teamId]))
+        : undefined,
+    [withAgentRow, teamId]
+  )
+  const [picked, setPicked] = useState<string | null>(null)
+  const agentRow = useMemo(
+    () =>
+      withAgentRow
+        ? composerAgentRow({
+            agents: ((agentRows ?? []) as ComposerAgentSource[]).map(toComposerAgent),
+            me,
+            picked,
+          })
+        : null,
+    [withAgentRow, agentRows, me, picked]
+  )
+  const recipient = agentRow?.agent ?? null
+  const pickRecipient = useCallback((id: string) => {
+    setPicked(id)
+    // NEW-2 prompts start a new root: never a message to an agent.
+    if (id !== TEMPORARY_PICK) setSubject((current) => (current?.kind === `prompt` ? null : current))
+  }, [])
 
   // Codeable issues live on boards that HAVE a repo (coding gates on repo
   // presence). Sorted ids keep the dep string stable.
@@ -429,17 +480,6 @@ export function useLaunchComposer({
     setSubject((current) => (current?.kind === `prompt` ? null : current))
   }, [])
 
-  // NEW-3: the "+" menu's Message an agent › pick. The agent replaces
-  // whatever subject is up (issues and prompts included: picking the other
-  // kind swaps).
-  const pickAgent = useCallback((agentId: string) => {
-    setSubject({ kind: `agent`, id: agentId })
-  }, [])
-
-  const clearAgent = useCallback(() => {
-    setSubject((current) => (current?.kind === `agent` ? null : current))
-  }, [])
-
   // ── Images and files ──────────────────────────────────────────────────────
 
   const addFiles = useCallback(
@@ -486,13 +526,10 @@ export function useLaunchComposer({
         !hasText && images.length === 0
       : subject.kind === `issues`
         ? overCap || spansRepos || spansBranches
-        : subject.kind === `agent`
-          ? // NEW-3: a DM needs the agent's row and something to say.
-            !selectedAgent || (!hasText && images.length === 0)
-          : !selectedPrompt
-  // NEW-3: a DM runs on the agent's device: the composer's machine and its
-  // readiness never gate it.
-  const toAgent = subject?.kind === `agent`
+        : !selectedPrompt
+  // S-3: a message to the picked agent runs on the agent's device: the
+  // composer's machine and its readiness never gate it.
+  const toAgent = recipient !== null
   const blocked =
     busy ||
     (!toAgent && !device) ||
@@ -535,6 +572,7 @@ export function useLaunchComposer({
         attachmentIds,
         subject,
         repoId,
+        agentId: recipient?.id ?? null,
       })
       let result: { sessionId: string; txid: number }
       try {
@@ -545,11 +583,11 @@ export function useLaunchComposer({
         return
       }
       await awaitSynced(result.txid, START_SYNC_WAIT_MS)
-      const agentId = subject?.kind === `agent` ? subject.id : null
+      const agentId = recipient?.id ?? null
       clearDraft()
       onStartedRef.current?.(result.sessionId)
       if (teamSlug) {
-        // NEW-3: a DM opens the agent's conversation, a start its thread.
+        // S-3: a message opens the agent's chat, a start its thread.
         void navigate(
           agentId
             ? { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } }
@@ -586,10 +624,9 @@ export function useLaunchComposer({
     toggleIssue,
     pickPrompt,
     clearPrompt,
-    agents,
-    selectedAgent,
-    pickAgent,
-    clearAgent,
+    agentRow,
+    recipient,
+    pickRecipient,
     text,
     setText,
     images,
@@ -604,7 +641,7 @@ export function useLaunchComposer({
     deviceRequestNote,
     mcpServers: mcp.servers,
     mcpConnectHref,
-    submitLabel: submitLabelFor(subject),
+    submitLabel: submitLabelFor(subject, toAgent),
     blocked,
     overCap,
     spansRepos,
@@ -612,5 +649,28 @@ export function useLaunchComposer({
     costHint: !overCap && !spansRepos && count > BATCH_COST_HINT_THRESHOLD,
     busy,
     submit,
+  }
+}
+
+/** The synced `agents` row as the agent row reads it. */
+interface ComposerAgentSource {
+  id: string
+  name: string
+  icon?: string | null
+  color?: string | null
+  sortOrder?: number | null
+  role?: string | null
+  ownerId: string
+}
+
+function toComposerAgent(row: ComposerAgentSource): ComposerAgent {
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon ?? null,
+    color: row.color ?? null,
+    sortOrder: row.sortOrder ?? 0,
+    role: row.role ?? null,
+    ownerId: row.ownerId,
   }
 }

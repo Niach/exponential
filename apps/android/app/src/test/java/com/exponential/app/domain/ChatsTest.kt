@@ -87,6 +87,7 @@ class ChatsTest {
         color = json.str("color")!!,
         busy = json.bool("busy"),
         needsYou = json.bool("needsYou"),
+        assistant = (json["assistant"] as? JsonPrimitive)?.boolean ?: false,
     )
 
     private fun groupKey(wire: String) = SessionTree.ThreadsGroupKey.entries.first { it.wire == wire }
@@ -232,6 +233,47 @@ class ChatsTest {
             )
             assertEquals(case.str("name"), case.getValue("expected"), encoded)
         }
+    }
+
+    @Test
+    fun `every agent row case matches the fixture (S-3)`() {
+        for (case in cases("agentRowCases")) {
+            val input = case.getValue("input").jsonObject
+            val actual = Chats.agentChatRows(
+                agents = input.list("agents").map(::agent),
+                sessions = input.list("sessions").map(::session),
+                messages = input.list("messages").map(::message),
+                reads = input.list("reads").map(::read),
+                me = input.str("me"),
+                filter = filterOf(input.str("filter")!!),
+                view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") },
+                now = input.str("now")!!,
+                utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
+            )
+            val encoded = JsonArray(
+                actual.map { row ->
+                    buildJsonObject {
+                        put("agentId", row.agentId)
+                        put("sessionId", nullable(row.sessionId))
+                        put("name", row.name)
+                        put("icon", row.icon)
+                        put("color", row.color)
+                        put("assistant", row.assistant)
+                        put("preview", encode(row.preview))
+                        put("time", row.time)
+                        put("activityAt", nullable(row.activityAt))
+                        put("unreadCount", row.unreadCount)
+                        put("needsYou", row.needsYou)
+                        put("busy", row.busy)
+                    }
+                },
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
+        val copy = fixture.getValue("copy").jsonObject.getValue("sections").jsonObject
+        assertEquals(copy.str("agents"), Chats.Copy.SECTION_AGENTS)
+        assertEquals(copy.str("chats"), Chats.Copy.SECTION_CHATS)
+        assertEquals(fixture.getValue("shell").jsonObject.str("chatLead"), Chats.Shell.CHAT_LEAD)
     }
 
     @Test

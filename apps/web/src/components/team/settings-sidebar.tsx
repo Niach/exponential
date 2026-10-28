@@ -2,7 +2,7 @@
 // the 17rem panel slot beside the compact rail while any /settings route is
 // active — so the settings pages no longer
 // carry their own desktop nav column (the in-page nav remains mobile-only).
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useEffect, useState, type ReactNode } from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
@@ -27,18 +27,21 @@ import {
   BoardGlyph,
 } from "@exp/ui"
 import {
+  ASSISTANT_LABEL,
   NEW_AGENT_LABEL,
   NEW_BOARD_LABEL,
   SETTINGS_AGENTS_GROUP,
   SETTINGS_APPS_GROUP,
   NEW_APP_LABEL,
-  SETTINGS_BOARDS_GROUP,
   SETTINGS_NAV,
+  settingsNavListVisible,
   type SettingsNavContext,
   type SettingsNavItem,
 } from "@/routes/t/$teamSlug/settings/-shared"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
+import { AssistantMark } from "@/components/team/assistant-mark"
+import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 
 interface SettingsSidebarProps {
   teamSlug: string
@@ -103,7 +106,7 @@ function NavItemWithChildren({
       {open && children.length > 0 && (
         <SidebarMenuSub>
           {children.map((child) => (
-            <SidebarMenuSubItem key={child.label}>
+            <SidebarMenuSubItem key={child.id}>
               <SidebarMenuSubButton asChild>
                 <Link to={child.to} params={{ teamSlug }}>
                   <child.icon className="h-4 w-4" />
@@ -131,16 +134,107 @@ export function SettingsSidebar({
 
   // EXP-862: the Boards group lists every board as its own entry (the desktop
   // IDE's EXP-288 nav), so this panel needs the live board list. Owner-gated
-  // like the pages behind it.
+  // like the board pages behind it.
   const team = useTeamBySlug(teamSlug)
   const boards = useTeamBoards(team?.id)
-  const showBoards = permissions.isOwner
   const [createOpen, setCreateOpen] = useState(false)
   // EXP-1293: the Agents group lists the team's agents the same way. Every
   // member sees them (their pages read-only); "New agent" is owner-only.
+  // S-3: `useAgents` drops other members' Assistants and puts the viewer's
+  // first; the Assistant is its own `@assistant` row (created on first use
+  // while a settings page is open).
   const { data: authSession } = useSession()
   const { agents } = useAgents(team?.id, authSession?.user?.id)
+  const teamAgents = agents.filter((agent) => !agent.assistant)
   const { apps } = useApps(team?.id)
+  const onSettings = useRouterState({ select: (state) => state.location.pathname.includes(`/settings`) })
+  useEnsureAssistant(onSettings ? team?.id : null)
+
+  const listRows = (list: string): ReactNode => {
+    if (!settingsNavListVisible(list, permissions)) return null
+    switch (list) {
+      case `@boards`:
+        if (!permissions.isOwner) return null
+        return boards.map((board) => (
+          <SidebarMenuItem key={board.id}>
+            <SidebarMenuButton asChild>
+              <Link to="/t/$teamSlug/settings/boards/$boardId" params={{ teamSlug, boardId: board.id }}>
+                <BoardGlyph board={board} />
+                <span>{board.name}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))
+      case `@new-board`:
+        return team ? (
+          <SidebarMenuItem key={list}>
+            <SidebarMenuButton className="text-muted-foreground" onClick={() => setCreateOpen(true)}>
+              <AddIcon className="h-4 w-4" />
+              <span>{NEW_BOARD_LABEL}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null
+      case `@assistant`:
+        return (
+          <SidebarMenuItem key={list}>
+            <SidebarMenuButton asChild>
+              <Link to="/t/$teamSlug/settings/assistant" params={{ teamSlug }} data-testid="settings-assistant">
+                <AssistantMark />
+                <span>{ASSISTANT_LABEL}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )
+      case `@agents`:
+        return teamAgents.map((agent) => (
+          <SidebarMenuItem key={agent.agentId}>
+            <SidebarMenuButton asChild>
+              <Link to="/t/$teamSlug/settings/agents/$agentId" params={{ teamSlug, agentId: agent.agentId }}>
+                <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+                <span>{agent.name}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))
+      case `@new-agent`:
+        return (
+          <SidebarMenuItem key={list}>
+            <SidebarMenuButton asChild className="text-muted-foreground">
+              <Link to="/t/$teamSlug/settings/agents/new" params={{ teamSlug }}>
+                <AddIcon className="h-4 w-4" />
+                <span>{NEW_AGENT_LABEL}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )
+      // VAPP-110: the team's apps + "New app".
+      case `@apps`:
+        if (!permissions.isMember) return null
+        return apps.map((app) => (
+          <SidebarMenuItem key={app.id}>
+            <SidebarMenuButton asChild>
+              <Link to="/t/$teamSlug/settings/apps/$appId" params={{ teamSlug, appId: app.id }}>
+                <BoardGlyph board={{ icon: app.icon, color: app.color }} />
+                <span>{app.name}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))
+      case `@new-app`:
+        return (
+          <SidebarMenuItem key={list}>
+            <SidebarMenuButton asChild className="text-muted-foreground">
+              <Link to="/t/$teamSlug/settings/apps/new" params={{ teamSlug }}>
+                <AddIcon className="h-4 w-4" />
+                <span>{NEW_APP_LABEL}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )
+      default:
+        return null
+    }
+  }
 
   return (
     <>
@@ -148,21 +242,41 @@ export function SettingsSidebar({
 
       <SidebarContent>
         {SETTINGS_NAV.map((group) => {
-          const items = group.items.filter((item) =>
-            item.visible(permissions, navContext)
-          )
-          const withBoards =
-            group.group === SETTINGS_BOARDS_GROUP && showBoards
+          // S-3: the entries in settings-nav.json order, injected lists in
+          // place (Boards: rows, New board, Archived boards; Agents: the
+          // Assistant, the team agents, New agent, MCP servers).
+          const rows = group.entries.map((entry) => {
+            if (entry.kind === `list`) {
+              const drawn = listRows(entry.list)
+              return Array.isArray(drawn) && drawn.length === 0 ? null : drawn
+            }
+            const item = entry.item
+            if (!item.visible(permissions, navContext)) return null
+            return item.children ? (
+              <NavItemWithChildren
+                key={item.id}
+                item={item}
+                teamSlug={teamSlug}
+                permissions={permissions}
+                navContext={navContext}
+              />
+            ) : (
+              <SidebarMenuItem key={item.id}>
+                <SidebarMenuButton asChild>
+                  <Link to={item.to} params={{ teamSlug }}>
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })
+          if (rows.every((row) => row === null)) return null
           const isAgentsGroup = group.group === SETTINGS_AGENTS_GROUP
-          const withAgents =
-            isAgentsGroup && (agents.length > 0 || permissions.isOwner)
-          // VAPP-110: the Apps group lists the team's apps + "New app" (members).
           const isAppsGroup = group.group === SETTINGS_APPS_GROUP
-          const withApps = isAppsGroup && permissions.isMember
-          if (items.length === 0 && !withBoards && !withAgents && !withApps) return null
           return (
             <SidebarGroup
-              key={group.group}
+              key={group.id}
               data-testid={isAgentsGroup ? AGENT_SETTINGS_TEST_IDS.list : undefined}
             >
               {isAgentsGroup ? (
@@ -195,114 +309,9 @@ export function SettingsSidebar({
               )}
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {withBoards && (
-                    <Fragment>
-                      {boards.map((board) => (
-                        <SidebarMenuItem key={board.id}>
-                          <SidebarMenuButton asChild>
-                            <Link
-                              to="/t/$teamSlug/settings/boards/$boardId"
-                              params={{ teamSlug, boardId: board.id }}
-                            >
-                              <BoardGlyph board={board} />
-                              <span>{board.name}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
-                      {team && (
-                        <SidebarMenuItem>
-                          <SidebarMenuButton
-                            className="text-muted-foreground"
-                            onClick={() => setCreateOpen(true)}
-                          >
-                            <AddIcon className="h-4 w-4" />
-                            <span>{NEW_BOARD_LABEL}</span>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      )}
-                    </Fragment>
-                  )}
-                  {withAgents && (
-                    <Fragment>
-                      {agents.map((agent) => (
-                        <SidebarMenuItem key={agent.agentId}>
-                          <SidebarMenuButton asChild>
-                            <Link
-                              to="/t/$teamSlug/settings/agents/$agentId"
-                              params={{ teamSlug, agentId: agent.agentId }}
-                            >
-                              <BoardGlyph
-                                board={{ icon: agent.icon, color: agent.color }}
-                              />
-                              <span>{agent.name}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
-                      {permissions.isOwner && (
-                        <SidebarMenuItem>
-                          <SidebarMenuButton
-                            asChild
-                            className="text-muted-foreground"
-                          >
-                            <Link
-                              to="/t/$teamSlug/settings/agents/new"
-                              params={{ teamSlug }}
-                            >
-                              <AddIcon className="h-4 w-4" />
-                              <span>{NEW_AGENT_LABEL}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      )}
-                    </Fragment>
-                  )}
-                  {withApps && (
-                    <Fragment>
-                      {apps.map((app) => (
-                        <SidebarMenuItem key={app.id}>
-                          <SidebarMenuButton asChild>
-                            <Link
-                              to="/t/$teamSlug/settings/apps/$appId"
-                              params={{ teamSlug, appId: app.id }}
-                            >
-                              <BoardGlyph board={{ icon: app.icon, color: app.color }} />
-                              <span>{app.name}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="text-muted-foreground">
-                          <Link to="/t/$teamSlug/settings/apps/new" params={{ teamSlug }}>
-                            <AddIcon className="h-4 w-4" />
-                            <span>{NEW_APP_LABEL}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </Fragment>
-                  )}
-                  {items.map((item) =>
-                    item.children ? (
-                      <NavItemWithChildren
-                        key={item.label}
-                        item={item}
-                        teamSlug={teamSlug}
-                        permissions={permissions}
-                        navContext={navContext}
-                      />
-                    ) : (
-                      <SidebarMenuItem key={item.label}>
-                        <SidebarMenuButton asChild>
-                          <Link to={item.to} params={{ teamSlug }}>
-                            <item.icon className="h-4 w-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    )
-                  )}
+                  {rows.map((row, index) => (
+                    <Fragment key={index}>{row}</Fragment>
+                  ))}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

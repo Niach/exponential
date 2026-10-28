@@ -480,10 +480,6 @@ fun AgentBubbles(
     ) {
         bubbles.forEach { bubble ->
             val agent = bubble.agent
-            val tint = remember(agent.color) { parseColor(agent.color) }
-            val icon = ExpIcons.byName(agent.icon)
-                ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
-                ?: ExpIcons.settingsAgents
             val ring = when (bubble.ring) {
                 Chats.AgentRing.NeedsYou -> NeedsInputAmber
                 Chats.AgentRing.Unread -> MaterialTheme.colorScheme.onSurface
@@ -506,24 +502,17 @@ fun AgentBubbles(
                     )
                     .testTag(Chats.TestIds.AGENT_BUBBLE),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(Chats.Shell.BUBBLE.dp)
-                        .border(ringWidth, ring, CircleShape)
-                        .padding(Chats.Shell.BUBBLE_RING.dp)
-                        .clip(CircleShape)
-                        .background(DesignTokens.Palette.Background, CircleShape)
-                        .padding(Chats.Shell.BUBBLE_RING.dp)
-                        .clip(CircleShape)
-                        .background(DiscFill, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (agent.busy) {
-                        AgentWorkingMark(agent = null, size = 26.dp)
-                    } else {
-                        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(26.dp))
-                    }
-                }
+                AgentBubbleDisc(
+                    icon = agent.icon,
+                    color = agent.color,
+                    assistant = agent.assistant,
+                    size = Chats.Shell.BUBBLE.dp,
+                    ring = ring,
+                    ringWidth = ringWidth,
+                    ringGap = Chats.Shell.BUBBLE_RING.dp,
+                    glyph = 26.dp,
+                    busy = agent.busy,
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     agent.name,
@@ -538,6 +527,49 @@ fun AgentBubbles(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+/**
+ * S-3: THE agent bubble disc (chats.json `bubble`, composer-home.json
+ * `agentRow`): the agent's icon in its colour on bg muted inside a
+ * [ringGap] background gap, wearing [ring]. The viewer's Assistant paints
+ * the Exponential brand mark in the foreground colour instead.
+ */
+@Composable
+fun AgentBubbleDisc(
+    icon: String?,
+    color: String?,
+    assistant: Boolean,
+    size: Dp,
+    ring: Color,
+    ringWidth: Dp,
+    ringGap: Dp,
+    glyph: Dp,
+    modifier: Modifier = Modifier,
+    busy: Boolean = false,
+) {
+    val tint = remember(color) { parseColor(color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR) }
+    val vector = icon?.let { ExpIcons.byName(it) }
+        ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
+        ?: ExpIcons.settingsAgents
+    Box(
+        modifier = modifier
+            .size(size)
+            .border(ringWidth, ring, CircleShape)
+            .padding(ringGap)
+            .clip(CircleShape)
+            .background(DesignTokens.Palette.Background, CircleShape)
+            .padding(ringGap)
+            .clip(CircleShape)
+            .background(DiscFill, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            busy -> AgentWorkingMark(agent = null, size = glyph)
+            assistant -> ExponentialMark(size = glyph, tint = MaterialTheme.colorScheme.onSurface)
+            else -> Icon(vector, contentDescription = null, tint = tint, modifier = Modifier.size(glyph))
         }
     }
 }

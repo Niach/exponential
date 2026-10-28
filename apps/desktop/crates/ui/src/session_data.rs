@@ -16,7 +16,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
-use domain::contract::{SESSION_STATUS_QUEUED, SESSION_STATUS_RUNNING};
 use domain::message_conversation::ConversationSessions;
 use domain::pr_stack::PrSet;
 use domain::rows::{
@@ -44,14 +43,13 @@ pub(crate) fn now_ms() -> i64 {
 // Row predicates
 // ---------------------------------------------------------------------------
 
-/// A session the agent is working on right now or is about to: status
-/// `queued` or `running` (an `idle` one waits on a person, an `ended` one is
-/// over). The Running band's rule (`partition_threads`).
+/// A session the agent is working on right now or is about to: the shared
+/// four-state rule's `working` (`domain::session_tree::session_state`:
+/// queued, or `busy` and neither ended nor waiting on a person). A
+/// `running` row between turns is idle. The agent mark's and the prune
+/// checks' rule.
 pub(crate) fn session_is_working(session: &SessionRow) -> bool {
-    matches!(
-        session.status.as_deref(),
-        Some(SESSION_STATUS_QUEUED) | Some(SESSION_STATUS_RUNNING)
-    )
+    domain::session_tree::session_state(session) == domain::session_tree::SessionState::Working
 }
 
 /// A non-ended session that waits on a person (a question or a plan).
@@ -1319,7 +1317,7 @@ mod tests {
     fn root(id: &str, team: &str, user: &str, status: &str) -> SessionRow {
         row(json!({
             "id": id, "team_id": team, "kind": "thread", "user_id": user,
-            "status": status, "root_id": id, "shared": true,
+            "status": status, "busy": status == "running", "root_id": id, "shared": true,
             "created_at": "2026-10-13T10:00:00.000Z",
             "updated_at": "2026-10-13T10:00:00.000Z",
         }))
@@ -1328,18 +1326,30 @@ mod tests {
     fn child(id: &str, root_id: &str, team: &str, user: &str, status: &str, updated_at: &str) -> SessionRow {
         row(json!({
             "id": id, "team_id": team, "kind": "thread", "user_id": user,
-            "status": status, "parent_id": root_id, "root_id": root_id, "depth": 1,
+            "status": status, "busy": status == "running", "parent_id": root_id, "root_id": root_id, "depth": 1,
             "created_at": "2026-10-13T10:01:00.000Z",
             "updated_at": updated_at,
         }))
     }
 
     #[test]
-    fn working_means_queued_or_running() {
+    fn working_means_queued_or_busy() {
         assert!(session_is_working(&root("a", "t", "me", "queued")));
+        // `root` marks a `running` row busy (a turn in flight).
         assert!(session_is_working(&root("a", "t", "me", "running")));
         assert!(!session_is_working(&root("a", "t", "me", "idle")));
         assert!(!session_is_working(&root("a", "t", "me", "ended")));
+        // S-3: `running` between turns (not busy) is idle, not working.
+        let mut between = root("a", "t", "me", "running");
+        between.busy = false;
+        assert!(!session_is_working(&between));
+        // Waiting on a person beats busy; ended never works.
+        let mut asking = root("a", "t", "me", "running");
+        asking.needs_input = true;
+        assert!(!session_is_working(&asking));
+        let mut over = root("a", "t", "me", "ended");
+        over.busy = true;
+        assert!(!session_is_working(&over));
     }
 
     /// The switcher counts a thread ONCE however many of my sessions run in

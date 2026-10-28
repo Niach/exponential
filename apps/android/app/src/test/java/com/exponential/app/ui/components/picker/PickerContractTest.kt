@@ -487,9 +487,9 @@ class PickerContractTest {
         assertTrue(picker.contains("onDispose { rowSlot.release(slotKey) }"))
         val row = pickerSource("InlinePickerRow.kt")
         assertTrue(row.contains("CompositionLocalProvider(LocalInlinePickerSlot provides slot)"))
-        val options = moduleFile("src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt").readText()
-        assertTrue(options.contains("InlinePickerRow("))
-        assertFalse("the pins no longer sit in a bare scrolling row", options.contains("horizontalScroll("))
+        // S-3 (composer-menu.json): no options line under any composer; the
+        // runner picks are + rows.
+        assertFalse(moduleFile("src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt").exists())
     }
 
     @Test

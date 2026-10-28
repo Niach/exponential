@@ -526,6 +526,28 @@ val MIGRATION_101_102: Migration = object : Migration(101, 102) {
     }
 }
 
+/**
+ * v103 (S-3): `agents.role` (contract `agentRole`; null reads as `agent`).
+ * Only the agents shape refetches so already-synced rows re-arrive carrying
+ * it (the migrated Assistants among them).
+ */
+val MIGRATION_102_103: Migration = object : Migration(102, 103) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Idempotent: a file that already carries the column keeps it.
+        val present = db.query("PRAGMA table_info(`agents`)").use { cursor ->
+            val name = cursor.getColumnIndex("name")
+            var found = false
+            while (cursor.moveToNext()) if (cursor.getString(name) == "role") found = true
+            found
+        }
+        if (!present) db.execSQL("ALTER TABLE `agents` ADD COLUMN `role` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'agents'",
+        )
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

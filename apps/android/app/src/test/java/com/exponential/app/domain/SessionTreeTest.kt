@@ -401,6 +401,7 @@ class SessionTreeTest {
         put("color", agent.color)
         put("busy", agent.busy)
         put("needsYou", agent.needsYou)
+        put("assistant", agent.assistant)
     }
 
     // ── the cases ───────────────────────────────────────────────────────────
@@ -552,6 +553,8 @@ class SessionTreeTest {
                     icon = it.str("icon"),
                     color = it.str("color"),
                     sortOrder = it.getValue("sortOrder").jsonPrimitive.double,
+                    role = it.str("role"),
+                    ownerId = it.str("ownerId"),
                 )
             }
             val actual = SessionTree.listAgents(
@@ -572,6 +575,16 @@ class SessionTreeTest {
             val input = case.getValue("input").jsonObject
             val actual = SessionTree.threadRowMarkState(input.bool("needsYou"), input.bool("busy"))
             assertEquals(case.str("name"), case.str("expected"), SessionTree.threadRowMarkWire(actual))
+        }
+    }
+
+    @Test
+    fun `every chat mode case matches the fixture (S-3)`() {
+        val cases = threadFixture.list("chatModeCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val root = case.getValue("root").jsonObject
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.threadChatMode(root.str("agentId")).wire)
         }
     }
 

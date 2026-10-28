@@ -1063,6 +1063,17 @@ impl LaunchOptionsSection {
         set_choice(&self.effort, value, window, cx);
     }
 
+    /// S-3: the "+" menu's Model pick (any agent: codex too), into the
+    /// same select the grouped cluster edits.
+    pub(crate) fn pick_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
+        set_choice(&self.model, value, window, cx);
+    }
+
+    /// S-3: the Model submenu's rows and pick (the picked agent's list).
+    pub(crate) fn model_menu(&self, cx: &App) -> (&'static [(&'static str, &'static str)], String) {
+        (model_choices_for(self.agent), selected(&self.model, cx))
+    }
+
     /// EXP-1249: the "+" menu's Subagents pick (claude only).
     pub(crate) fn pick_subagent_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
         set_choice(&self.subagent_model, value, window, cx);

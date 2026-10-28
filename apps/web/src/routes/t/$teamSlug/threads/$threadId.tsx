@@ -54,7 +54,7 @@ import {
   ThreadGuideMerge,
   threadGuidePullRequest,
 } from "@/components/thread/thread-guide"
-import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
+import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu"
 import { useChatActions } from "@/components/thread/chat-menu"

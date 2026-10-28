@@ -210,6 +210,7 @@ fun ThreadScreen(
             name = def?.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS,
             icon = def?.icon,
             color = def?.color,
+            assistant = def?.isAssistant == true,
         )
     } else {
         null
@@ -236,7 +237,14 @@ fun ThreadScreen(
                     .androidxClipCircle()
                     .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted, androidx.compose.foundation.shape.CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { AgentGlyph(icon = agent.icon, color = agent.color, size = 22.dp) }
+            ) {
+                // S-3: the viewer's Assistant wears the brand mark.
+                if (agent.assistant) {
+                    com.exponential.app.ui.components.ExponentialMark(size = 22.dp, tint = MaterialTheme.colorScheme.onSurface)
+                } else {
+                    AgentGlyph(icon = agent.icon, color = agent.color, size = 22.dp)
+                }
+            }
         } else {
             com.exponential.app.ui.components.ChatLeadDisc(lead = chatLead, agent = rootRow?.cli, size = 44.dp)
         }
@@ -365,6 +373,13 @@ fun ThreadScreen(
                         onExpandedChange = onExpandedChange,
                         placeholder = placeholder,
                         capsuleTestTag = "thread-composer-capsule",
+                        // S-3: an agent chat's composer = surface `agent`
+                        // (its + carries Model ›).
+                        surface = if (agent != null) {
+                            com.exponential.app.domain.ComposerMenuSurface.Agent
+                        } else {
+                            com.exponential.app.domain.ComposerMenuSurface.Session
+                        },
                         // Queued rows already sit in the Conversation (EXP-1317).
                         showQueue = false,
                         onOpenUsage = { usageSheetOpen = true },

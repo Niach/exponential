@@ -1356,6 +1356,9 @@ object SessionTree {
         val color: String,
         val busy: Boolean,
         val needsYou: Boolean,
+        /** S-3: the viewer's own Assistant (agents.role assistant): the brand
+         *  mark instead of icon/color, always first. */
+        val assistant: Boolean = false,
     )
 
     /** NEW-2: an `agents` definition row as the list needs it. */
@@ -1366,7 +1369,13 @@ object SessionTree {
         val icon: String?,
         val color: String?,
         val sortOrder: Double,
-    )
+        /** S-3: contract `agentRole` (absent = `agent`). */
+        val role: String? = null,
+        /** S-3: who owns it (an Assistant shows to its owner only). */
+        val ownerId: String? = null,
+    ) {
+        val isAssistant: Boolean get() = role == DomainContract.agentRoleAssistant
+    }
 
     /**
      * The Agents list (rail above Boards, Settings → Agents): one row per
@@ -1388,7 +1397,11 @@ object SessionTree {
         }
         return agents
             .filter { teamId == null || it.teamId == teamId }
-            .sortedWith(compareBy<AgentDefinition>({ it.sortOrder }, { it.name }, { it.id }))
+            // S-3: another member's Assistant is never listed
+            // (agent-settings.json `assistant.visibleCases`); the viewer's own
+            // comes first.
+            .filter { !it.isAssistant || it.ownerId == me }
+            .sortedWith(compareBy<AgentDefinition>({ if (it.isAssistant) 0 else 1 }, { it.sortOrder }, { it.name }, { it.id }))
             .map {
                 val conversation = mine[it.id]
                 val live = conversation != null && conversation.status != DomainContract.sessionStatusEnded
@@ -1400,9 +1413,17 @@ object SessionTree {
                     color = it.color ?: ListCopy.AGENT_DEFAULT_COLOR,
                     busy = live && conversation!!.busy,
                     needsYou = live && conversation!!.needsInput,
+                    assistant = it.isAssistant,
                 )
             }
     }
+
+    /** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode:
+     *  an agent conversation paints chat bubbles, a thread its transcript. */
+    enum class ThreadChatMode(val wire: String) { Bubbles("bubbles"), Transcript("transcript") }
+
+    fun threadChatMode(rootAgentId: String?): ThreadChatMode =
+        if (!rootAgentId.isNullOrEmpty()) ThreadChatMode.Bubbles else ThreadChatMode.Transcript
 
     /** NEW-2: the viewer's own conversation session per agent id (an Agents
      *  row opens it; absent = none yet, `sessions.send({agentId})` makes it). */
@@ -1422,6 +1443,8 @@ object SessionTree {
         icon = row.icon,
         color = row.color,
         sortOrder = row.sortOrder,
+        role = row.role,
+        ownerId = row.ownerId,
     )
 
     // ── the Guide's PR + the session composer (EXP-1306) ────────────────────

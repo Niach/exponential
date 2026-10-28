@@ -2322,6 +2322,10 @@ pub struct AgentRow {
     /// From the VIEWER's own conversation session with the agent.
     pub busy: bool,
     pub needs_you: bool,
+    /// S-3: the viewer's own Assistant (`agents.role = assistant`): the
+    /// brand mark instead of icon/color, always first.
+    #[serde(default)]
+    pub assistant: bool,
 }
 
 /// `localeCompare`-ish: case-insensitive first, then exact.
@@ -2353,12 +2357,17 @@ pub fn list_agents(
         .iter()
         .copied()
         .filter(|agent| team_id.is_none_or(|team| agent.team_id.as_deref() == Some(team)))
+        // S-3: another member's Assistant is never listed (agent-settings
+        // `assistant.visibleCases`); the viewer's own comes first.
+        .filter(|agent| !agent.is_assistant() || (me.is_some() && agent.owner_id.as_deref() == me))
         .collect();
     agents.sort_by(|a, b| {
-        a.sort_order
+        (!a.is_assistant())
+            .cmp(&!b.is_assistant())
+            .then_with(|| a.sort_order
             .unwrap_or(0.0)
             .partial_cmp(&b.sort_order.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| {
                 locale_cmp(a.name.as_deref().unwrap_or_default(), b.name.as_deref().unwrap_or_default())
             })
@@ -2378,9 +2387,36 @@ pub fn list_agents(
                 color: agent.color.clone().unwrap_or_else(|| defaults.color.clone()),
                 busy: live && conversation.is_some_and(|session| session.busy),
                 needs_you: live && conversation.is_some_and(|session| session.needs_input),
+                assistant: agent.is_assistant(),
             }
         })
         .collect()
+}
+
+/// S-3 (TS `threadChatMode`, session-thread.json `chatModeCases`): THE
+/// thread screen's mode: an agent conversation paints chat bubbles, a thread
+/// its transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadChatMode {
+    Bubbles,
+    Transcript,
+}
+
+impl ThreadChatMode {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Bubbles => "bubbles",
+            Self::Transcript => "transcript",
+        }
+    }
+}
+
+pub fn thread_chat_mode(agent_id: Option<&str>) -> ThreadChatMode {
+    if agent_id.is_some_and(|id| !id.is_empty()) {
+        ThreadChatMode::Bubbles
+    } else {
+        ThreadChatMode::Transcript
+    }
 }
 
 #[cfg(test)]
@@ -2959,4 +2995,17 @@ mod tests {
             assert_whole(&layout, &case["expected"], case["name"].as_str().unwrap());
         }
     }
+
+    /// S-3: `session-thread.json` `chatModeCases` (TS `threadChatMode`).
+    #[test]
+    fn chat_mode_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(SESSION_THREAD_JSON).unwrap();
+        let cases = fixture["chatModeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let mode = thread_chat_mode(case["root"]["agentId"].as_str());
+            assert_eq!(Some(mode.key()), case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
 }

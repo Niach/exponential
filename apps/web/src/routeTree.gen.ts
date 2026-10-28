@@ -116,6 +116,7 @@ import { Route as TTeamSlugSettingsIssuesRouteImport } from './routes/t/$teamSlu
 import { Route as TTeamSlugSettingsImportRouteImport } from './routes/t/$teamSlug/settings/import'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
 import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
+import { Route as TTeamSlugSettingsAssistantRouteImport } from './routes/t/$teamSlug/settings/assistant'
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
@@ -700,6 +701,12 @@ const TTeamSlugSettingsBillingRoute =
     path: '/billing',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const TTeamSlugSettingsAssistantRoute =
+  TTeamSlugSettingsAssistantRouteImport.update({
+    id: '/assistant',
+    path: '/assistant',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugSettingsAccountRoute =
   TTeamSlugSettingsAccountRouteImport.update({
     id: '/account',
@@ -952,6 +959,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
+  '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
@@ -1083,6 +1091,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
+  '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
@@ -1219,6 +1228,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
+  '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
@@ -1355,6 +1365,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
+    | '/t/$teamSlug/settings/assistant'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/import'
@@ -1486,6 +1497,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
+    | '/t/$teamSlug/settings/assistant'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/import'
@@ -1621,6 +1633,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
+    | '/t/$teamSlug/settings/assistant'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/import'
@@ -2489,6 +2502,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsBillingRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/assistant': {
+      id: '/t/$teamSlug/settings/assistant'
+      path: '/assistant'
+      fullPath: '/t/$teamSlug/settings/assistant'
+      preLoaderRoute: typeof TTeamSlugSettingsAssistantRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/account': {
       id: '/t/$teamSlug/settings/account'
       path: '/account'
@@ -2721,6 +2741,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsAccountRoute: typeof TTeamSlugSettingsAccountRoute
+  TTeamSlugSettingsAssistantRoute: typeof TTeamSlugSettingsAssistantRoute
   TTeamSlugSettingsBillingRoute: typeof TTeamSlugSettingsBillingRoute
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
   TTeamSlugSettingsImportRoute: typeof TTeamSlugSettingsImportRoute
@@ -2753,6 +2774,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
 const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
   {
     TTeamSlugSettingsAccountRoute: TTeamSlugSettingsAccountRoute,
+    TTeamSlugSettingsAssistantRoute: TTeamSlugSettingsAssistantRoute,
     TTeamSlugSettingsBillingRoute: TTeamSlugSettingsBillingRoute,
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
     TTeamSlugSettingsImportRoute: TTeamSlugSettingsImportRoute,
@@ -2918,13 +2940,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.tsx'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

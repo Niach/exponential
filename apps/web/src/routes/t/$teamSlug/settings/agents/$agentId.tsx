@@ -21,9 +21,13 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/agents/$agentId`)({
 // owner-only controls are hidden inside.
 function SettingsAgent() {
   const { teamSlug, agentId } = Route.useParams()
-  const { team, permissions, resolved } = useSettingsPage(teamSlug)
+  const { session, team, permissions, resolved } = useSettingsPage(teamSlug)
   const { agent: row, isReady } = useAgentRow(agentId)
-  const agent = row && row.teamId === team?.id ? row : null
+  // S-3: an Assistant has its own page (`/settings/assistant`); another
+  // member's is never shown (agent-settings.json `visibleCases`).
+  const assistant = row?.role === `assistant`
+  const mine = assistant && row?.ownerId === session?.user?.id
+  const agent = row && row.teamId === team?.id && !assistant ? row : null
   usePageTitle(agent?.name ? pageTitle(agent.name, `Settings`) : undefined)
   const navigate = useNavigate()
 
@@ -32,12 +36,16 @@ function SettingsAgent() {
   // empty state, never a blank page.
   useEffect(() => {
     if (!isReady || !team || agent) return
+    if (mine && row?.teamId === team.id) {
+      void navigate({ to: `/t/$teamSlug/settings/assistant`, params: { teamSlug }, replace: true })
+      return
+    }
     void navigate({
       to: `/t/$teamSlug/settings/agents`,
       params: { teamSlug },
       replace: true,
     })
-  }, [agent, isReady, navigate, team, teamSlug])
+  }, [agent, isReady, mine, navigate, row?.teamId, team, teamSlug])
 
   return (
     <SettingsSectionGuard resolved={resolved} allowed={permissions.isMember}>
