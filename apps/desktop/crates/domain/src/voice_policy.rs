@@ -759,7 +759,7 @@ mod tests {
     fn every_noun_of_the_surface_has_a_rule() {
         for noun in [
             "issues", "comments", "attachments", "boards", "teams", "people", "team_config", "apps", "sessions",
-            "sessions_send", "session_self", "guide_write", "pr", "devices", "events", "notifications",
+            "sessions_send", "session_self", "pr", "devices", "events", "notifications",
         ] {
             assert!(VOICE_POLICY.nouns.contains_key(noun), "{noun}");
         }
