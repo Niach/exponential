@@ -33,6 +33,8 @@ export { FormRegistry, documentOrder, fieldErrorsVisible, validateOnDefault } fr
 export type { FormField, FormError, FormCheck } from "./form"
 export { scrollParent, listViewport } from "./list"
 export type { ListAxis } from "./list"
+export { layoutSize, visualScale, elementScale } from "./primitives/measure"
+export type { LayoutSize } from "./primitives/measure"
 export { nextEnabledIndex, typeaheadStep, TYPEAHEAD_RESET_MS } from "./listbox"
 export type { TypeaheadBuffer } from "./listbox"
 export { PLACED, placedPartId } from "./parts"

@@ -25,7 +25,7 @@ use gpui_component::{
 
 use api::voice::VoiceUpdate;
 use domain::voice::{
-    agent_options, language_label, shortcut_label, shortcut_options, shortcut_reason, tray_header, voice_device_options, wake_phrase_error, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
+    agent_options, language_label, shortcut_label, shortcut_options, shortcut_reason, tray_header, voice_device_options, voice_text_input, wake_phrase_error, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
     VoiceOption, VoiceSettings, VOICE,
 };
 
@@ -335,9 +335,6 @@ pub(crate) fn wake_placeholder(settings: &VoiceSettings, agents: &[VoiceAgent]) 
     wake_phrase_placeholder(&agent_name(settings, agents))
 }
 
-/// The wake phrase's length limit (web `maxLength={64}`).
-const WAKE_PHRASE_LIMIT: usize = 64;
-
 enum Load {
     Idle,
     Loading,
@@ -394,17 +391,20 @@ impl Field {
 
     fn limit(self) -> usize {
         match self {
-            Field::WakePhrase => WAKE_PHRASE_LIMIT,
+            Field::WakePhrase => VOICE.limits.wake_phrase,
             Field::VoiceFile => VOICE.limits.voice_file,
             Field::VoiceTranscript => VOICE.limits.voice_transcript,
         }
     }
 
-    /// The value as sent and shown: no control characters, trimmed, within
-    /// the limit (the server checks the limit BEFORE trimming).
+    /// #NEW-75: THE input rule ×4 (`voice_text_input`), applied as you type.
+    fn typed(self, raw: &str) -> String {
+        voice_text_input(raw, self.limit())
+    }
+
+    /// The value as sent and shown: the input rule, then trimmed.
     fn normalized(self, raw: &str) -> String {
-        let clean: String = raw.chars().filter(|ch| !ch.is_control()).collect();
-        clean.trim().chars().take(self.limit()).collect::<String>().trim_end().to_string()
+        self.typed(raw).trim().to_string()
     }
 }
 
@@ -595,8 +595,17 @@ impl VoicePrefsPane {
                     state
                 });
                 self._subscriptions.push(cx.subscribe_in(&input, window, move |this, input, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::Change) && matches!(field, Field::WakePhrase) && this.wake_phrase_invalid.take().is_some() {
-                        cx.notify();
+                    if matches!(event, InputEvent::Change) {
+                        // #NEW-75: an over-long paste or a tab never waits for the
+                        // server to refuse it (`set_value` emits no Change).
+                        let raw = input.read(cx).value().to_string();
+                        let typed = field.typed(&raw);
+                        if typed != raw {
+                            input.update(cx, |state, cx| state.set_value(typed, window, cx));
+                        }
+                        if matches!(field, Field::WakePhrase) && this.wake_phrase_invalid.take().is_some() {
+                            cx.notify();
+                        }
                     }
                     if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                         let raw = input.read(cx).value().to_string();

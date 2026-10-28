@@ -39,6 +39,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -76,7 +77,7 @@ fun SyncDiagnosticsScreen(
         containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text("Sync Diagnostics") },
+                title = { TopBarTitle("Sync Diagnostics") },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },

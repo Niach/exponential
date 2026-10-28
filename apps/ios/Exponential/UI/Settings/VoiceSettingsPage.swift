@@ -93,7 +93,8 @@ struct VoiceSettingsPage: View {
                         guard let id else { return Voice.Copy.voiceDeviceNone }
                         return deviceOptions.first { $0.id == id }?.label ?? deviceName(id)
                     },
-                    // THE device picker: each desktop wears its glyph, None none.
+                    // THE device picker: each desktop wears its glyph in the sheet
+                    // (None none); the row's value is the name alone (web, Android).
                     icon: { id in
                         guard let id, let device = devices.first(where: { $0.deviceId == id }) else { return nil }
                         return DeviceIconDisplay.iconName(icon: device.icon, kind: device.kind)
@@ -221,10 +222,10 @@ struct VoiceSettingsPage: View {
             }
         }
 
-        /// voice.json `limits`; the wake phrase takes the server's 64.
+        /// voice.json `limits` (= `voice.update`'s caps).
         var limit: Int {
             switch self {
-            case .wakePhrase: 64
+            case .wakePhrase: Voice.Limits.wakePhrase
             case .voiceFile: Voice.Limits.voiceFile
             case .voiceTranscript: Voice.Limits.voiceTranscript
             }
@@ -300,18 +301,9 @@ struct VoiceSettingsPage: View {
                 text: Binding(
                     get: { draft(input) },
                     set: { next in
-                        // One line (a pasted line break or tab reads as a
-                        // space), no control characters (Cc only: a format
-                        // character such as an emoji's ZWJ stays), at most
-                        // `limits` UTF-16 units, the server's count.
-                        let oneLine = next.replacingOccurrences(of: "\r\n", with: " ")
-                        let clean = Self.clipped(
-                            String(String.UnicodeScalarView(oneLine.unicodeScalars.compactMap { scalar in
-                                if scalar == "\n" || scalar == "\r" || scalar == "\t" { return " " }
-                                return scalar.properties.generalCategory == .control ? nil : scalar
-                            })),
-                            utf16Limit: input.limit
-                        )
+                        // #NEW-75: THE input rule ×4 (control characters
+                        // dropped, cut to the server's UTF-16 limit).
+                        let clean = Voice.textInput(next, max: input.limit)
                         if input == .wakePhrase, clean != wakePhrase { wakePhraseError = nil }
                         setDraft(input, clean)
                         scheduleTextSave(input)
@@ -329,21 +321,6 @@ struct VoiceSettingsPage: View {
                 if old == input, new != input { saveText(input, committed: true) }
             }
         }
-    }
-
-    /// `text` cut to at most `limit` UTF-16 units (zod's `.max` counts those),
-    /// never inside a character.
-    private static func clipped(_ text: String, utf16Limit limit: Int) -> String {
-        guard text.utf16.count > limit else { return text }
-        var end = text.startIndex
-        var used = 0
-        for index in text.indices {
-            let next = used + text[index].utf16.count
-            if next > limit { break }
-            used = next
-            end = text.index(after: index)
-        }
-        return String(text[..<end])
     }
 
     // MARK: - Vocabulary

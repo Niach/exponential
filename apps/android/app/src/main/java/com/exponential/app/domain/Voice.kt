@@ -96,7 +96,7 @@ object Voice {
     object Limits {
         const val VOICE_FILE = 512
         const val VOICE_TRANSCRIPT = 500
-        /** The wake phrase's cap (`voice.update` takes `oneLine(64)`; not in the fixture's `limits`). */
+        /** The wake phrase's cap (`limits.wakePhrase`, `voice.update`'s `oneLine`). */
         const val WAKE_PHRASE = 64
         /** #NEW-56: a stored wake phrase's minimum LETTER count (`limits.wakePhraseMinLetters`). */
         const val WAKE_PHRASE_MIN_LETTERS = 6
@@ -225,6 +225,20 @@ object Voice {
     /** The wake phrase's placeholder (and its value when empty). */
     fun wakePhrasePlaceholder(agentName: String): String =
         Copy.WAKE_PHRASE_PLACEHOLDER.replace("{agent}", agentName)
+
+    /**
+     * #NEW-75: THE rule of the page's one-line inputs, as you type
+     * (`voiceTextInput`): every control character (Cc: C0, DEL, C1, tab and
+     * line breaks too) is dropped, then the value is cut to at most [max]
+     * UTF-16 code units (the server's zod count), whole code points only (a
+     * surrogate pair straddling the cap is dropped whole). Trimming waits for the save.
+     */
+    fun textInput(value: String, max: Int): String {
+        val clean = value.filterNot { it.isISOControl() }
+        if (clean.length <= max) return clean
+        val end = if (max > 0 && Character.isHighSurrogate(clean[max - 1])) max - 1 else max
+        return clean.substring(0, end)
+    }
 
     /**
      * #NEW-56: the Wake phrase field's inline error: a trimmed, non-empty

@@ -3,6 +3,8 @@
 // The window numbers themselves are the core's (`itemOffsets`,
 // `virtualWindow`, `scrollOffsetForIndex`, `stickyHeader`).
 
+import { elementScale } from "./primitives/measure"
+
 export type ListAxis = `vertical` | `horizontal`
 
 /** The nearest ancestor that scrolls on `axis`: overflow auto/scroll AND a
@@ -22,21 +24,27 @@ export function scrollParent(el: HTMLElement | null, axis: ListAxis = `vertical`
 
 /** Where the list's content starts relative to the viewport's start on the
  *  axis (the scroll offset in list coordinates) and the viewport length.
- *  `known` = the scroller already found (null = the window). */
+ *  `known` = the scroller already found (null = the window). NEW-82: both
+ *  in the LIST's layout px: rect deltas are visual px (CSS zoom,
+ *  transforms), so they divide by the list's scale; the scroller's
+ *  client box is in its own layout px, so it multiplies by the scroller's. */
 export function listViewport(el: HTMLElement, axis: ListAxis, rtl: boolean, known?: HTMLElement | null): { scroll: number; viewport: number; scroller: HTMLElement | null } {
   const scroller = known === undefined ? scrollParent(el, axis) : known
   const r = el.getBoundingClientRect()
+  const ls = elementScale(el, r)
   if (axis === `vertical`) {
     if (scroller) {
       const s = scroller.getBoundingClientRect()
-      return { scroll: s.top + scroller.clientTop - r.top, viewport: scroller.clientHeight, scroller }
+      const ss = elementScale(scroller, s).y
+      return { scroll: (s.top + scroller.clientTop * ss - r.top) / ls.y, viewport: (scroller.clientHeight * ss) / ls.y, scroller }
     }
-    return { scroll: -r.top, viewport: window.innerHeight, scroller }
+    return { scroll: -r.top / ls.y, viewport: window.innerHeight / ls.y, scroller }
   }
   if (scroller) {
     const s = scroller.getBoundingClientRect()
-    const scroll = rtl ? r.right - (s.right - scroller.clientLeft) : s.left + scroller.clientLeft - r.left
-    return { scroll, viewport: scroller.clientWidth, scroller }
+    const ss = elementScale(scroller, s).x
+    const scroll = rtl ? r.right - (s.right - scroller.clientLeft * ss) : s.left + scroller.clientLeft * ss - r.left
+    return { scroll: scroll / ls.x, viewport: (scroller.clientWidth * ss) / ls.x, scroller }
   }
-  return { scroll: rtl ? r.right - window.innerWidth : -r.left, viewport: window.innerWidth, scroller }
+  return { scroll: (rtl ? r.right - window.innerWidth : -r.left) / ls.x, viewport: window.innerWidth / ls.x, scroller }
 }

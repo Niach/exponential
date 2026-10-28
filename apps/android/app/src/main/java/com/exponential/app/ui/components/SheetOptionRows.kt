@@ -19,7 +19,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchColors
@@ -125,6 +124,12 @@ fun MetaRow(
  * rows, iOS the same): no caption floating above a field, just one row that
  * says what it holds. The group around it owns the chrome, so the field itself
  * is borderless.
+ *
+ * The VALUE sits at the row's trailing edge (web `GlassInputRow`'s
+ * `text-right text-foreground/70`, iOS `.multilineTextAlignment(.trailing)`):
+ * the label keeps its width, the field takes the rest and right-aligns its
+ * text AND its placeholder, in the picker rows' value type (body-medium at
+ * Secondary emphasis). [textStyle] is merged over that (a monospace prefix).
  */
 @Composable
 internal fun TextFieldRow(
@@ -136,7 +141,7 @@ internal fun TextFieldRow(
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
-    textStyle: TextStyle = LocalTextStyle.current,
+    textStyle: TextStyle = TextStyle.Default,
     trailing: (@Composable () -> Unit)? = null,
     /** Fires when the field loses focus (a blur-saved row); null = nothing. */
     onFocusLost: (() -> Unit)? = null,
@@ -153,6 +158,12 @@ internal fun TextFieldRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        val fieldStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+            ),
+            textAlign = TextAlign.End,
+        ).merge(textStyle)
         GlassTextField(
             value = value,
             onValueChange = onValueChange,
@@ -162,7 +173,7 @@ internal fun TextFieldRow(
             bordered = false,
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
-            textStyle = textStyle,
+            textStyle = fieldStyle,
             containerColor = Color.Transparent,
             modifier = Modifier.weight(1f).onFocusChanged { state ->
                 if (focused && !state.isFocused) onFocusLost?.invoke()

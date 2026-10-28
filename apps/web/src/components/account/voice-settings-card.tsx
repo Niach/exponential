@@ -21,6 +21,7 @@ import {
   VOICE_SHORTCUTS,
   VOICE_TEST_IDS,
   voiceDeviceOptions,
+  voiceTextInput,
   wakePhraseError,
   wakePhrasePlaceholder,
   type VoiceAgentLike,
@@ -59,6 +60,11 @@ const WAKE_PHRASE_DEBOUNCE_MS = 800
 /** The one-line text rows: typed locally, saved debounced or on blur. */
 type TextField = `wakePhrase` | `voiceFile` | `voiceTranscript`
 const TEXT_FIELDS: readonly TextField[] = [`wakePhrase`, `voiceFile`, `voiceTranscript`]
+const TEXT_LIMITS: Record<TextField, number> = {
+  wakePhrase: VOICE_LIMITS.wakePhrase,
+  voiceFile: VOICE_LIMITS.voiceFile,
+  voiceTranscript: VOICE_LIMITS.voiceTranscript,
+}
 const TEXT_FIELD_NAMES: Record<TextField, string> = {
   wakePhrase: `the wake phrase`,
   voiceFile: `the voice file`,
@@ -164,8 +170,9 @@ export function VoiceSettingsCard({
   }
 
   const editText = (field: TextField, raw: string) => {
-    // Control characters never reach the server (iPhone and Android strip them the same way).
-    const value = raw.replace(/\p{Cc}/gu, ``)
+    // #NEW-75: THE input rule ×4 (control characters dropped, cut to the
+    // server's UTF-16 limit), as you type.
+    const value = voiceTextInput(raw, TEXT_LIMITS[field])
     setText((current) => ({ ...current, [field]: value }))
     if (field === `wakePhrase`) setWakePhraseInvalid(null)
     const timer = textTimersRef.current[field]
@@ -234,7 +241,6 @@ export function VoiceSettingsCard({
               data-testid={VOICE_TEST_IDS.voiceFile}
               label={VOICE_COPY.voiceFile}
               placeholder={VOICE_COPY.voiceFilePlaceholder}
-              maxLength={VOICE_LIMITS.voiceFile}
               value={text.voiceFile}
               onChange={(event) => editText(`voiceFile`, event.target.value)}
               onBlur={() => saveText(`voiceFile`, text.voiceFile)}
@@ -244,7 +250,6 @@ export function VoiceSettingsCard({
               data-testid={VOICE_TEST_IDS.voiceTranscript}
               label={VOICE_COPY.voiceTranscript}
               placeholder={VOICE_COPY.voiceTranscriptPlaceholder}
-              maxLength={VOICE_LIMITS.voiceTranscript}
               value={text.voiceTranscript}
               onChange={(event) => editText(`voiceTranscript`, event.target.value)}
               onBlur={() => saveText(`voiceTranscript`, text.voiceTranscript)}
@@ -285,7 +290,6 @@ export function VoiceSettingsCard({
               data-testid={VOICE_TEST_IDS.wakePhrase}
               label={VOICE_COPY.wakePhrase}
               placeholder={wakePhrasePlaceholder(agentName)}
-              maxLength={64}
               aria-invalid={wakePhraseInvalid !== null || undefined}
               aria-describedby={wakePhraseInvalid === null ? undefined : `${VOICE_TEST_IDS.wakePhrase}-error`}
               value={text.wakePhrase}

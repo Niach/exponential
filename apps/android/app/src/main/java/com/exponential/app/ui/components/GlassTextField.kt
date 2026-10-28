@@ -2,6 +2,7 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,6 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.primitives.fieldChrome
 import com.exponential.app.ui.theme.AppPrimitiveTokens
@@ -66,7 +69,7 @@ fun GlassTextField(
         modifier = if (bordered) modifier.glassFieldBorder(focused) else modifier,
         enabled = enabled,
         textStyle = textStyle,
-        placeholder = placeholder?.let { { GlassPlaceholder(it) } },
+        placeholder = placeholder?.let { { GlassPlaceholder(it, textStyle) } },
         leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
         visualTransformation = visualTransformation,
@@ -110,7 +113,7 @@ fun GlassTextField(
         modifier = if (bordered) modifier.glassFieldBorder(focused) else modifier,
         enabled = enabled,
         textStyle = textStyle,
-        placeholder = placeholder?.let { { GlassPlaceholder(it) } },
+        placeholder = placeholder?.let { { GlassPlaceholder(it, textStyle) } },
         leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
         visualTransformation = visualTransformation,
@@ -131,9 +134,25 @@ private val GlassFieldRadius = 12.dp
 /** iOS field corner, as a shape. */
 val GlassFieldShape = RoundedCornerShape(GlassFieldRadius)
 
+/**
+ * A trailing-aligned field (the [TextFieldRow] value) puts its placeholder at
+ * the SAME edge in the field's own type, like web's `text-right` input and
+ * iOS `.multilineTextAlignment(.trailing)`; every other field keeps M3's.
+ */
 @Composable
-private fun GlassPlaceholder(text: String) {
-    Text(text, color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
+private fun GlassPlaceholder(text: String, fieldStyle: TextStyle) {
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    if (fieldStyle.textAlign == TextAlign.End) {
+        Text(
+            text,
+            style = fieldStyle.copy(color = color),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    } else {
+        Text(text, color = color)
+    }
 }
 
 /**

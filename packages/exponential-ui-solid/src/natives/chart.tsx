@@ -14,7 +14,7 @@
 
 import { createMemo, createSignal, createUniqueId, For, Index, Show, type Component, type JSX } from "solid-js"
 import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential_app/ui"
-import { tokenVar } from "@exponential_app/ui/web"
+import { tokenVar, visualScale } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { mergeStyle, type NativeProps } from "../node-view"
 import { createElementSize } from "../platform"
@@ -186,7 +186,8 @@ export function ChartNative(props: NativeProps): JSX.Element {
     const r = plotRef?.getBoundingClientRect()
     if (!r) return
     const g = geo()
-    const x = (g.rtl ? r.right - e.clientX : e.clientX - r.left) - g.pad.l
+    // NEW-82: the pointer offset is in visual px (zoom, transforms); the plot in layout px.
+    const x = (g.rtl ? r.right - e.clientX : e.clientX - r.left) / visualScale(r.width, g.width) - g.pad.l
     const i = sparkline() ? Math.round((x / g.innerW) * (nn - 1)) : Math.floor(x / g.slot)
     setActive(i >= 0 && i < nn ? i : null)
   }

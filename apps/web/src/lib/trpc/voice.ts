@@ -123,7 +123,7 @@ export const voiceRouter = router({
         pushToTalk: z.boolean().optional(),
         pttShortcut: z.enum(SHORTCUT_VALUES).optional(),
         wakeWord: z.boolean().optional(),
-        wakePhrase: oneLine(64, `wake phrase`).optional(),
+        wakePhrase: oneLine(VOICE_LIMITS.wakePhrase, `wake phrase`).optional(),
         language: z.enum(LANGUAGE_VALUES).optional(),
         voiceFile: oneLine(VOICE_LIMITS.voiceFile, `voice file`).optional(),
         voiceTranscript: oneLine(VOICE_LIMITS.voiceTranscript, `transcript`).optional(),

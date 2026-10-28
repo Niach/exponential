@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.exponential.app.AppConstants
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
@@ -57,7 +58,7 @@ fun AboutScreen(
             containerColor = Color.Transparent,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("About") },
+                    title = { TopBarTitle("About") },
                     navigationIcon = {
                         TopBarBackButton(onClick = onBack)
                     },

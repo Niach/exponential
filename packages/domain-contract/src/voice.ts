@@ -331,6 +331,19 @@ export function wakePhraseError(text: string): string | null {
   return letters < fixture.limits.wakePhraseMinLetters ? fixture.copy.wakePhraseTooShort : null
 }
 
+/** #NEW-75: THE rule of the page's one-line inputs, as you type: every
+ *  control character (Cc: C0, DEL, C1, tab and line breaks too) is dropped,
+ *  then the value is cut to at most `max` UTF-16 code units (zod's count),
+ *  whole code points only. Trimming waits for the save. */
+export function voiceTextInput(value: string, max: number): string {
+  let out = ``
+  for (const char of value.replace(/\p{Cc}/gu, ``)) {
+    if (out.length + char.length > max) break
+    out += char
+  }
+  return out
+}
+
 /** #NEW-73: the Language row's trailing detail; every language speaks on
  *  the voice device's GPU only (#NEW-74). Null without a voice device. */
 export function languageNote(_language: string, deviceName: string | null): string | null {

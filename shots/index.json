@@ -3840,8 +3840,8 @@
         "file": "shots/onboarding-devices/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 42346,
-        "sha256": "2d15b4cbfe8d99f48a15c0a97740ed1dffe5ecddd1d43e11e8982f0356fc15f4"
+        "bytes": 41770,
+        "sha256": "ea8f95af76d44cc5890313d095b5cb8cac8d343a4966f123edec5cb8a0ebc707"
       },
       "web": {
         "file": "shots/onboarding-devices/web.webp",

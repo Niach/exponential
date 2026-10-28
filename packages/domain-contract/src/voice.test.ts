@@ -26,6 +26,7 @@ import {
   utteranceInput,
   voiceDeviceOptions,
   wakePhrasePlaceholder,
+  voiceTextInput,
   wakePhraseError,
 } from "./voice"
 
@@ -86,6 +87,12 @@ describe(`voice.json`, () => {
   for (const c of fixture.wakePhraseErrorCases) {
     it(`wakePhraseError ${JSON.stringify(c.in)}`, () => expect(wakePhraseError(c.in)).toBe(c.error))
   }
+  for (const c of fixture.voiceTextInputCases) {
+    it(`voiceTextInput ${JSON.stringify(c.in)} ≤ ${c.max}`, () => expect(voiceTextInput(c.in, c.max)).toBe(c.out))
+  }
+  it(`voiceTextInput: the cap is zod's, the server's limits`, () => {
+    for (const c of fixture.voiceTextInputCases) expect(voiceTextInput(c.in, c.max).length).toBeLessThanOrEqual(c.max)
+  })
   for (const c of fixture.trayMenuCases) {
     it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))
   }

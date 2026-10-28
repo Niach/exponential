@@ -12,6 +12,7 @@
 // layout tree (`<id>.head`, `<id>.item.<i>`, …).
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Component, type JSX } from "solid-js"
+import { elementScale } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { IconGlyph } from "../icons"
@@ -88,8 +89,10 @@ export function SearchBody(props: SearchBodyProps): JSX.Element {
       if (!list || !row) return
       const l = list.getBoundingClientRect()
       const r = row.getBoundingClientRect()
-      if (r.top < l.top) list.scrollTop -= l.top - r.top
-      else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom
+      // NEW-82: rect deltas are visual px, scrollTop is layout px.
+      const sy = elementScale(list, l).y
+      if (r.top < l.top) list.scrollTop -= (l.top - r.top) / sy
+      else if (r.bottom > l.bottom) list.scrollTop += (r.bottom - l.bottom) / sy
     })
   )
   onMount(() => {

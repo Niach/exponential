@@ -36,10 +36,22 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
   // itself: a reader who scrolled up is never yanked back by a row that
   // grows before React commits the state (a busy main thread).
   const atBottomRef = useRef(true)
+  // #EXP-1407: a pin's scroll event can land after the content grew again
+  // (a Dock band measuring in, rows streaming); only the reader scrolling UP
+  // leaves the tail, never a scroll that moved down or stayed.
+  const lastTopRef = useRef(0)
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SCROLL_SLACK
+    const up = el.scrollTop < lastTopRef.current
+    lastTopRef.current = el.scrollTop
+    const atTail = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SCROLL_SLACK
+    const bottom = atTail || (atBottomRef.current && !up)
+    // Still following but short of the tail: the content outgrew the pin.
+    if (bottom && !atTail) {
+      el.scrollTop = el.scrollHeight
+      lastTopRef.current = el.scrollTop
+    }
     atBottomRef.current = bottom
     setAtBottom(bottom)
     setScrolled(el.scrollTop > 0)
@@ -50,6 +62,7 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
     if (el) {
       if (typeof el.scrollTo === `function`) el.scrollTo({ top: el.scrollHeight })
       else el.scrollTop = el.scrollHeight
+      lastTopRef.current = el.scrollTop
     }
     atBottomRef.current = true
     setAtBottom(true)
@@ -63,7 +76,10 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
     const observer = new ResizeObserver(() => {
       if (!atBottomRef.current) return
       const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
+      if (el) {
+        el.scrollTop = el.scrollHeight
+        lastTopRef.current = el.scrollTop
+      }
     })
     observer.observe(node)
     observerRef.current = observer
@@ -73,7 +89,10 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
   useEffect(() => {
     if (!atBottom) return
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el) {
+      el.scrollTop = el.scrollHeight
+      lastTopRef.current = el.scrollTop
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atBottom, ...deps])
 

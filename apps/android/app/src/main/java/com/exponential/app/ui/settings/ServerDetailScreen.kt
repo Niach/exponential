@@ -55,6 +55,7 @@ import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
@@ -448,7 +449,7 @@ fun ServerDetailScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(account?.displayName ?: "Server") },
+                title = { TopBarTitle(account?.displayName ?: "Server") },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },

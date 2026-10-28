@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,8 +23,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.pressScale
@@ -153,6 +158,30 @@ fun TopBarBackButton(
         modifier = Modifier.padding(start = 8.dp),
         enabled = enabled,
         borderless = true,
+    )
+}
+
+/**
+ * The detail-header title type: web `MobileDetailHeader`'s `text-sm
+ * font-medium` from the shared type scale (size/line height `sm`, weight
+ * `medium`). M3 sets a top bar's title in `titleLarge` (22sp semibold),
+ * which read a size and a weight heavier than every other client.
+ */
+val TopBarTitleStyle: TextStyle = TextStyle(
+    fontSize = DesignTokens.Typography.Size.Sm.sp,
+    lineHeight = DesignTokens.Typography.LineHeight.Sm.sp,
+    fontWeight = DesignTokens.Typography.Weight.Medium,
+)
+
+/** THE title for `TopAppBar.title` slots: [TopBarTitleStyle], one line. */
+@Composable
+fun TopBarTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = TopBarTitleStyle,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
     )
 }
 

@@ -55,6 +55,7 @@ import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.gettingstarted.GettingStartedSheet
 import com.exponential.app.ui.gettingstarted.GettingStartedViewModel
@@ -128,7 +129,7 @@ fun SettingsScreen(
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("Settings") },
+                    title = { TopBarTitle("Settings") },
                     navigationIcon = {
                         TopBarBackButton(onClick = onBack)
                     },

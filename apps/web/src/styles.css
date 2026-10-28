@@ -50,6 +50,17 @@
   margin-bottom: 0;
 }
 
+/* #EXP-1407: TrailingNode appends an empty paragraph after a closing list or
+   heading even when read-only; in a message it is a blank row (a plan card's
+   last step sat a line above its decision). The natives end on the block. */
+.tiptap-chat .tiptap-content[contenteditable="false"] > p:last-child:has(> br.ProseMirror-trailingBreak:only-child) {
+  display: none;
+}
+
+.tiptap-chat .tiptap-content[contenteditable="false"] > :nth-last-child(2):has(+ p:last-child > br.ProseMirror-trailingBreak:only-child) {
+  margin-bottom: 0;
+}
+
 .tiptap-chat .tiptap-content h1 {
   font-size: 1.05rem;
 }

@@ -98,6 +98,7 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(limits, [
             "voiceFile": Voice.Limits.voiceFile,
             "voiceTranscript": Voice.Limits.voiceTranscript,
+            "wakePhrase": Voice.Limits.wakePhrase,
             "wakePhraseMinLetters": Voice.Limits.wakePhraseMinLetters,
         ])
     }
@@ -161,6 +162,15 @@ final class VoiceTests: XCTestCase {
     func testWakePhrasePlaceholderCases() throws {
         for testCase in try cases("wakePhrasePlaceholderCases") {
             XCTAssertEqual(Voice.wakePhrasePlaceholder(testCase["agent"] as? String ?? ""), testCase["placeholder"] as? String)
+        }
+    }
+
+    /// #NEW-75: THE input rule (UTF-16 units, never a split surrogate pair).
+    func testVoiceTextInputCases() throws {
+        for testCase in try cases("voiceTextInputCases") {
+            let text = testCase["in"] as? String ?? ""
+            let max = try XCTUnwrap(testCase["max"] as? Int)
+            XCTAssertEqual(Voice.textInput(text, max: max), testCase["out"] as? String, text.debugDescription)
         }
     }
 

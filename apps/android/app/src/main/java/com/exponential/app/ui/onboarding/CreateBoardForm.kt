@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -172,7 +172,7 @@ fun CreateBoardForm(
                     },
                     placeholder = "e.g. API",
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    textStyle = TextStyle(fontFamily = FontFamily.Monospace),
                 )
             }
         }

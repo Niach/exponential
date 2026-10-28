@@ -27,7 +27,7 @@ import {
   DEFAULT_THEME_ID,
 } from "@exponential_app/ui"
 import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/ui"
-import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential_app/ui/web"
+import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, layoutSize, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential_app/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, type SolidExtension } from "./extensions"
 import type { HostPlugin } from "./host"
@@ -377,8 +377,9 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
   onMount(() => {
     const el = rootEl
     if (!el) return
-    const read = () => {
-      const r = el.getBoundingClientRect()
+    // NEW-82: layout px, so a zoomed/scaled host frame keeps its breakpoints.
+    const read = (entries?: ResizeObserverEntry[]) => {
+      const r = layoutSize(el, entries?.find((e) => e.target === el))
       // No layout yet (jsdom, display:none): keep the initial guess.
       if (!untrack(box).measured && r.width === 0 && r.height === 0) return
       // Only an EXPLICIT height is a viewport; a content-sized root is not.
@@ -387,7 +388,7 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
     }
     read()
     if (typeof ResizeObserver === `undefined`) return
-    const ro = new ResizeObserver(read)
+    const ro = new ResizeObserver((entries) => read(entries))
     ro.observe(el)
     onCleanup(() => ro.disconnect())
   })

@@ -60,6 +60,7 @@ import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.picker.AccountPicker
@@ -252,7 +253,7 @@ fun AgentsSettingsScreen(
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(AgentSettings.Copy.TITLE) },
+                title = { TopBarTitle(AgentSettings.Copy.TITLE) },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
@@ -358,11 +359,7 @@ fun AgentSettingsScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Text(
-                        if (isNew) AgentSettings.Copy.NEW_AGENT else agent?.name ?: name,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    TopBarTitle(if (isNew) AgentSettings.Copy.NEW_AGENT else agent?.name ?: name)
                 },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 actions = {

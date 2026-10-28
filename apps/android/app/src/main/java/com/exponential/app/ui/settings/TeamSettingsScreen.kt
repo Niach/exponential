@@ -80,6 +80,7 @@ import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
@@ -205,7 +206,7 @@ fun TeamSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = { TopBarTitle(title) },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },

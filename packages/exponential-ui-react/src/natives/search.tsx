@@ -12,6 +12,7 @@
 // compares the same boxes.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
+import { elementScale } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { IconGlyph } from "../icons"
@@ -88,8 +89,10 @@ export function SearchBody({ part, owner, suffix, rows, query, onQuery, placehol
     if (!list || !row) return
     const l = list.getBoundingClientRect()
     const r = row.getBoundingClientRect()
-    if (r.top < l.top) list.scrollTop -= l.top - r.top
-    else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom
+    // NEW-82: rect deltas are visual px, scrollTop is layout px.
+    const sy = elementScale(list, l).y
+    if (r.top < l.top) list.scrollTop -= (l.top - r.top) / sy
+    else if (r.bottom > l.bottom) list.scrollTop += (r.bottom - l.bottom) / sy
   }, [at])
   const pick = (i: number) => {
     const row = rows[i]
