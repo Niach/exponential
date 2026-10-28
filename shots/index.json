@@ -4856,8 +4856,8 @@
         "file": "shots/settings-voice/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 29288,
-        "sha256": "3dfe2ccec61ff0c678ee465edad4235f47326e07b14a2eb5cea03362a492c00e"
+        "bytes": 27450,
+        "sha256": "cb03f1c0c5929d0a2bb99d31ac2ddd8c8f8afc6d5839e73738c32ff6c084f459"
       },
       "desktop": {
         "file": "shots/settings-voice/desktop.webp",
@@ -4870,8 +4870,8 @@
         "file": "shots/settings-voice/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 30374,
-        "sha256": "cdbdd5bf7d079e5b3734c957f160a998c2b9abb7e78bc616eeeb961500a2af33"
+        "bytes": 28508,
+        "sha256": "8f0282f4d686603a30b5a7e3d45b60966ebdb98f4181ecf28c215be9b9ff707b"
       },
       "web": {
         "file": "shots/settings-voice/web.webp",
