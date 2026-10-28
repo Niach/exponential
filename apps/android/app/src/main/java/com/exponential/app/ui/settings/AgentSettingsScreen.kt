@@ -73,6 +73,8 @@ import com.exponential.app.ui.components.toPickerDevice
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
@@ -115,6 +117,7 @@ fun AgentsSettingsList(
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val events by viewModel.events.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     // NEW-2 (web Settings → Agents): the agents band over the team's Events.
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(24.dp)) {
         AgentsSettingsListContent(
@@ -226,7 +229,12 @@ internal fun AgentsSettingsListContent(
                     .clickable { onOpenAgent(row.agentId) }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                AgentGlyph(row.icon, row.color)
+                if (row.assistant) {
+                    // S-3: the viewer's Assistant = the brand mark, first.
+                    com.exponential.app.ui.components.ExponentialMark(size = 16.dp, tint = MaterialTheme.colorScheme.onSurface)
+                } else {
+                    AgentGlyph(row.icon, row.color)
+                }
                 Text(
                     row.name,
                     maxLines = 1,
@@ -344,7 +352,10 @@ fun AgentSettingsScreen(
     }
     val triggers = if (isNew) draftTriggers else syncedTriggers
     val errors = viewModel.validate(name, deviceId, instructions)
-    val editable = isOwner
+    // S-3: the viewer's Assistant = its own page (owner = the member).
+    val me by viewModel.me.collectAsStateWithLifecycle()
+    val assistant = agent?.isAssistant == true
+    val editable = if (assistant) agent?.ownerId == me else isOwner
 
     // The Triggers sheet: null = closed; -1 = a new trigger, else its index.
     var triggerSheet by remember { mutableStateOf<Int?>(null) }
@@ -466,7 +477,22 @@ fun AgentSettingsScreen(
             } else {
                 null
             },
-            onDelete = if (!isNew && isOwner) ({ confirmDelete = true }) else null,
+            // S-3: nobody deletes an Assistant.
+            onDelete = if (!isNew && isOwner && !assistant) ({ confirmDelete = true }) else null,
+            assistant = assistant,
+            checkIn = AgentSettings.Assistant.scheduleOfStored(syncedTriggers),
+            onCheckIn = { id ->
+                val tz = java.util.TimeZone.getDefault().id
+                patch(UpdateAgentPatch(triggers = AgentSettings.Assistant.scheduleTriggers(id, tz).map { it.toWireJson() }))
+            },
+            model = agent?.model,
+            modelOptions = com.exponential.app.ui.components.modelOptionsFor(agent?.cli?.takeIf { it.isNotBlank() } ?: "claude"),
+            onModelChange = { patch(UpdateAgentPatch(model = it)) },
+            voice = if (assistant && editable) {
+                { AssistantVoiceBlock() }
+            } else {
+                null
+            },
             modifier = Modifier
                 .padding(padding)
                 .consumeWindowInsets(padding)
@@ -561,6 +587,17 @@ internal fun AgentSettingsContent(
     onCreate: (() -> Unit)?,
     onDelete: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /** S-3 (agent-settings.json `assistant`): THE ASSISTANT page = the brand
+     *  mark instead of the icon picker, Runs on (Device, Account, Model),
+     *  Check in (the Picker over the schedules) instead of Triggers, the
+     *  moved Voice block, Instructions; no Delete. */
+    assistant: Boolean = false,
+    checkIn: String? = null,
+    onCheckIn: (String) -> Unit = {},
+    model: String? = null,
+    modelOptions: List<String> = emptyList(),
+    onModelChange: (String) -> Unit = {},
+    voice: (@Composable () -> Unit)? = null,
 ) {
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
@@ -568,6 +605,24 @@ internal fun AgentSettingsContent(
     val device = devices.firstOrNull { it.id == deviceId }
     val account = accountValueKey?.let { key -> accounts.firstOrNull { it.key == key } }
 
+    val devicePicker: @Composable () -> Unit = {
+            DevicePicker(
+                devices = devices,
+                value = deviceId,
+                onChange = onDeviceChange,
+                title = label(AgentSettings.FIELD_DEVICE),
+                trigger = { open ->
+                    PickerValueRow(
+                        label = label(AgentSettings.FIELD_DEVICE),
+                        value = device?.name ?: "Select",
+                        valueIcon = device?.let { deviceIcon(it.icon, it.isServer) },
+                        onClick = open,
+                        enabled = editable,
+                        modifier = Modifier.testTag("agent-settings-device"),
+                    )
+                },
+            )
+    }
     Column(
         modifier = modifier
             .testTag(AgentSettings.TEST_ID_PAGE)
@@ -583,7 +638,16 @@ internal fun AgentSettingsContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
             ) {
-                if (editable) {
+                if (assistant) {
+                    // The Assistant wears the brand mark, never an icon pick.
+                    Box(
+                        Modifier.size(36.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(DesignTokens.Palette.Muted, androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        com.exponential.app.ui.components.ExponentialMark(size = 18.dp, tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                } else if (editable) {
                     IconPicker(selected = icon, onSelect = onIconChange, accentColor = parseColor(color))
                     ColorPicker(selected = color, onSelect = onColorChange)
                 } else {
@@ -604,29 +668,23 @@ internal fun AgentSettingsContent(
                         .commitOnBlur { if (!isNew) onNameCommit() },
                 )
             }
-            GroupDivider()
-            DevicePicker(
-                devices = devices,
-                value = deviceId,
-                onChange = onDeviceChange,
-                title = label(AgentSettings.FIELD_DEVICE),
-                trigger = { open ->
-                    PickerValueRow(
-                        label = label(AgentSettings.FIELD_DEVICE),
-                        value = device?.name ?: "Select",
-                        valueIcon = device?.let { deviceIcon(it.icon, it.isServer) },
-                        onClick = open,
-                        enabled = editable,
-                        modifier = Modifier.testTag("agent-settings-device"),
-                    )
-                },
-            )
+            if (!assistant) {
+                GroupDivider()
+                devicePicker()
+            }
         }
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_IDENTITY), errorOf(AgentSettings.FIELD_DEVICE)))
         Spacer(Modifier.height(12.dp))
 
-        // ── Account + Triggers ───────────────────────────────────────────
+        // ── Account + Triggers (the Assistant: Runs on) ──────────────────
+        if (assistant) {
+            SectionHeader(AgentSettings.Assistant.RUNS_ON, modifier = Modifier.padding(horizontal = 16.dp))
+        }
         OptionGroup {
+            if (assistant) {
+                devicePicker()
+                GroupDivider()
+            }
             AccountPicker(
                 options = accounts,
                 value = account?.key,
@@ -644,7 +702,53 @@ internal fun AgentSettingsContent(
                     )
                 },
             )
-            GroupDivider()
+            if (assistant) {
+                GroupDivider()
+                com.exponential.app.ui.components.picker.ModelPicker(
+                    options = modelOptions.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, com.exponential.app.ui.components.modelLabel(it)) },
+                    value = model,
+                    onChange = onModelChange,
+                    trigger = { open ->
+                        PickerValueRow(
+                            label = "Model",
+                            value = model?.let { com.exponential.app.ui.components.modelLabel(it) } ?: AgentSettings.Copy.ACCOUNT_LAST_USED,
+                            onClick = open,
+                            enabled = editable && modelOptions.isNotEmpty(),
+                            modifier = Modifier.testTag("agent-settings-model"),
+                        )
+                    },
+                )
+            }
+        }
+        if (assistant) {
+            Spacer(Modifier.height(12.dp))
+            SectionHeader(AgentSettings.Assistant.CHECK_IN, modifier = Modifier.padding(horizontal = 16.dp))
+            OptionGroup {
+                com.exponential.app.ui.components.picker.Picker(
+                    items = AgentSettings.Assistant.SCHEDULES.map { com.exponential.app.ui.components.picker.PickerItem(it.id, it.label) },
+                    mode = com.exponential.app.ui.components.picker.PickerMode.Single,
+                    value = setOfNotNull(checkIn),
+                    onChange = { picked -> picked.firstOrNull()?.let(onCheckIn) },
+                    title = AgentSettings.Assistant.CHECK_IN,
+                    trigger = { open ->
+                        PickerValueRow(
+                            label = AgentSettings.Assistant.CHECK_IN,
+                            value = AgentSettings.Assistant.SCHEDULES.firstOrNull { it.id == checkIn }?.label
+                                ?: AgentSettings.Assistant.SCHEDULES.first().label,
+                            onClick = open,
+                            enabled = editable,
+                            modifier = Modifier.testTag("assistant-check-in"),
+                        )
+                    },
+                )
+            }
+            if (voice != null) {
+                Spacer(Modifier.height(12.dp))
+                SectionHeader(AgentSettings.Assistant.VOICE, modifier = Modifier.padding(horizontal = 16.dp))
+                voice()
+            }
+        }
+        if (!assistant) OptionGroup {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
@@ -758,4 +862,34 @@ private fun Modifier.commitOnBlur(onBlur: () -> Unit): Modifier {
 @Composable
 private fun FieldErrors(messages: List<String>) {
     messages.forEach { FieldError(it, modifier = Modifier.padding(start = 20.dp, top = 6.dp)) }
+}
+
+/**
+ * S-3 (agent-settings.json `assistant`): the Voice block on the Assistant
+ * page = the voice.json Settings group MOVED as one block (its rows
+ * unchanged, minus the Voice device and Agent pickers), on THE voice view
+ * model of the active account.
+ */
+@Composable
+private fun AssistantVoiceBlock(viewModel: VoiceSettingsViewModel = hiltViewModel()) {
+    val vocabulary by viewModel.vocabulary.collectAsStateWithLifecycle()
+    val settings = viewModel.settings ?: return
+    VoiceSettingsForm(
+        settings = settings,
+        vocabulary = vocabulary,
+        wakePhrase = viewModel.wakePhrase,
+        wakePhraseError = viewModel.wakePhraseError,
+        onChange = viewModel::save,
+        onMeeting = viewModel::setMeeting,
+        onWakePhraseChange = viewModel::onWakePhraseChange,
+        onWakePhraseDone = viewModel::saveWakePhrase,
+        voiceFile = viewModel.voiceFile,
+        onVoiceFileChange = viewModel::onVoiceFileChange,
+        onVoiceFileDone = viewModel::saveVoiceFile,
+        voiceTranscript = viewModel.voiceTranscript,
+        onVoiceTranscriptChange = viewModel::onVoiceTranscriptChange,
+        onVoiceTranscriptDone = viewModel::saveVoiceTranscript,
+        assistantBlock = true,
+    )
+    FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
 }

@@ -489,7 +489,10 @@ class PickerContractTest {
         assertTrue(row.contains("CompositionLocalProvider(LocalInlinePickerSlot provides slot)"))
         // S-3 (composer-menu.json): no options line under any composer; the
         // runner picks are + rows.
-        assertFalse(moduleFile("src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt").exists())
+        assertFalse(
+            listOf("", "app/", "apps/android/app/")
+                .any { java.io.File("${it}src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt").isFile },
+        )
     }
 
     @Test

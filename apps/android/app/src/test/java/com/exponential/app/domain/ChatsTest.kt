@@ -524,8 +524,7 @@ class ChatsTest {
             setOf(
                 "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "stopTurn",
                 "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
-                "selection", "archived",
-            ),
+                "selection", "archived", "sections"),
             copy.keys,
         )
 
