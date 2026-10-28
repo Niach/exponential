@@ -1,11 +1,8 @@
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { toast } from "@exp/ui"
 import { acquireSteerSession } from "@/lib/steer-session-store"
 import { trpc } from "@/lib/trpc-client"
 
-/** The composer's stop-turn toasts (S-3 dropped chats.json's stop copy with
- *  the Stop menus; the turn interrupt keeps these words). */
-export const STOP_TURN_FAILED = `Couldn't stop the turn`
-export const STOP_NOT_DELIVERED = `The device didn't get the stop`
 
 /** EXP-1342: a composer that drains the store's draft into a field of its
  *  own (`takeDraftText`, the web `SessionComposer`) says how to give a
@@ -39,7 +36,7 @@ export function onStopRetraction(
  *  queue, its next `queue` frame repaints the strip — the text must not sit
  *  in a field too, or it is sent twice) and rethrows. Thread 58cb32df
  *  (chats.json STOP): `delivered === false` (the relay reached no device)
- *  toasts `STOP_NOT_DELIVERED`. */
+ *  toasts `copy.stopTurn.notDelivered`. */
 export async function stopSessionTurn(
   sessionId: string,
   opts?: Parameters<typeof trpc.sessions.stop.mutate>[1]
@@ -58,7 +55,7 @@ export async function stopSessionTurn(
     if (tookQueue) retractHeld(sessionId, store, held, draftBefore)
     throw error
   }
-  if (!delivered) toast.error(STOP_NOT_DELIVERED)
+  if (!delivered) toast.error(CHATS_COPY.stopTurn.notDelivered)
   return { delivered }
 }
 

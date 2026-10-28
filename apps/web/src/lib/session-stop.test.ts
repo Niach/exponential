@@ -63,7 +63,7 @@ beforeEach(() => {
 })
 
 describe(`stopSessionTurn (EXP-1342)`, () => {
-  it(`an undelivered stop toasts STOP_NOT_DELIVERED`, async () => {
+  it(`an undelivered stop toasts copy.stopTurn.notDelivered`, async () => {
     mocks.stop.mockResolvedValue({ txid: 1, delivered: false })
     await expect(stopSessionTurn(`s1`)).resolves.toEqual({ delivered: false })
     expect(mocks.toastError).toHaveBeenCalledWith(`The device didn't get the stop`)

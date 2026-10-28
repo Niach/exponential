@@ -638,12 +638,17 @@ private fun RunFaceContent(
     val toaster = LocalToaster.current
     LaunchedEffect(killError) {
         val failure = killError ?: return@LaunchedEffect
-        val title = FeedbackStates.errorTitle("stop", "the session")
-        toaster.error(
-            title,
-            failure.takeIf { it != title },
-            ToastAction(FeedbackStates.RETRY) { viewModel.stopSession() },
-        )
+        // S-3: chats.json `copy.stopTurn` (the composer's stop-turn).
+        if (failure == Chats.Copy.STOP_TURN_NOT_DELIVERED) {
+            toaster.error(failure, null)
+        } else {
+            val title = Chats.Copy.STOP_TURN_FAILED
+            toaster.error(
+                title,
+                failure.takeIf { it != title },
+                ToastAction(FeedbackStates.RETRY) { viewModel.stopSession() },
+            )
+        }
         viewModel.clearKillError()
     }
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()

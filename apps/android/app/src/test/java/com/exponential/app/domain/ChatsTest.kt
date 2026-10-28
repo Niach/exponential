@@ -443,6 +443,9 @@ class ChatsTest {
         assertEquals(toasts.str("deleteFailed"), Chats.Copy.TOAST_DELETE_FAILED)
         assertEquals(toasts.str("selectionFailed"), Chats.Copy.TOAST_SELECTION_FAILED)
         assertEquals(toasts.str("selectionPartial"), Chats.Copy.TOAST_SELECTION_PARTIAL)
+        val stopTurn = copy.getValue("stopTurn").jsonObject
+        assertEquals(stopTurn.str("failed"), Chats.Copy.STOP_TURN_FAILED)
+        assertEquals(stopTurn.str("notDelivered"), Chats.Copy.STOP_TURN_NOT_DELIVERED)
         assertEquals(3, toasts.size)
         val selection = copy.getValue("selection").jsonObject
         assertEquals(selection.str("select"), Chats.Copy.SELECTION_SELECT)
@@ -477,7 +480,7 @@ class ChatsTest {
         assertEquals(1, copy.getValue("boardMenu").jsonObject.size)
         assertEquals(
             setOf(
-                "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete",
+                "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "stopTurn",
                 "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
                 "selection", "archived",
             ),

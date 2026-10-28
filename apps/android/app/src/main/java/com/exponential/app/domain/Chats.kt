@@ -72,6 +72,10 @@ object Chats {
         val MONTHS_SHORT: List<String> =
             listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
+        /** S-3: the composer stop-turn's toasts (`copy.stopTurn`). */
+        const val STOP_TURN_FAILED = "Couldn't stop the turn"
+        const val STOP_TURN_NOT_DELIVERED = "The device didn't get the stop"
+
         const val MENU_DELETE = "Delete"
         const val MENU_COMPACT = "Compact conversation"
         const val MENU_NEW_CONVERSATION = "New conversation"

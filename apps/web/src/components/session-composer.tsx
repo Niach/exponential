@@ -64,7 +64,8 @@ import { deviceCollection, messageCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
-import { onStopRetraction, STOP_TURN_FAILED, stopSessionTurn } from "@/lib/session-stop"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -372,7 +373,7 @@ export function SessionComposer({
       // undelivered one toasts inside `stopSessionTurn`.
       await stopSessionTurn(sessionId)
     } catch {
-      toast.error(STOP_TURN_FAILED)
+      toast.error(CHATS_COPY.stopTurn.failed)
     }
   }
 
