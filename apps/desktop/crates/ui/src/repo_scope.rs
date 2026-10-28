@@ -11,13 +11,14 @@
 //! Same trigger as the Files worktree switcher beside it (ghost, xsmall,
 //! caret), so the scope row reads as one "repo · branch" pair.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     AnyElement, App, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _,
     Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::{PopupMenuItem},
     Icon, Sizable as _,
 };
 
@@ -70,7 +71,7 @@ pub(crate) fn repo_picker(id: &'static str, window: &Window, cx: &mut App) -> Op
             )))
             .dropdown_caret(true)
             .tooltip(SharedString::from(active.full_name.clone()))
-            .dropdown_menu(move |mut menu, _window, _cx| {
+            .pointer_menu(move |mut menu, _window, _cx| {
                 menu = crate::pickers::single_select_menu(menu).item(PopupMenuItem::label("Repository"));
                 for (repository_id, full_name) in &items {
                     let repository_id = repository_id.clone();

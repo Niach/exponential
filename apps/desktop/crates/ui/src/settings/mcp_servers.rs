@@ -18,6 +18,7 @@
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read like the widget pane's.
 
+use crate::controls::PointerMenuButtonExt as _;
 use crate::toast::Toast;
 use std::time::{Duration, Instant};
 
@@ -30,7 +31,6 @@ use gpui_component::{
     button::{Button, ButtonVariant},
     h_flex,
     input::InputState,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -1038,7 +1038,7 @@ impl McpServersPane {
             .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
             .loading(connected && pending)
             .disabled(self.busy || pending)
-            .dropdown_menu(move |menu, _window, cx| {
+            .pointer_menu(move |menu, _window, cx| {
                 let mut menu = menu;
                 if connected && http {
                     let (target, pane) = (target.clone(), pane.clone());

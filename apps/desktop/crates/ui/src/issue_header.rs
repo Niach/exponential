@@ -21,6 +21,7 @@
 //! no time-of-day component anywhere in the product (REV2-49 deleted the
 //! `due_time`/`end_time` columns), so there is nothing to cascade on clear.
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::rc::Rc;
 
 use chrono::NaiveDate;
@@ -32,7 +33,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     calendar::{CalendarEvent, CalendarState, Date},
-    menu::DropdownMenu as _,
     ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -560,7 +560,7 @@ impl IssueHeader {
                     .text_color(cx.theme().muted_foreground),
             )
             .child(crate::pickers::chip_label(label, current.is_none(), cx));
-        Some(trigger.dropdown_menu(move |menu, _window, _cx| {
+        Some(trigger.pointer_menu(move |menu, _window, _cx| {
             crate::pickers::estimate_menu(
                 menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
                 issue_id.clone(),

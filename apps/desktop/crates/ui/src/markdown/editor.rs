@@ -18,6 +18,7 @@
 //! collections ([`RefResolver`]) — re-resolved on every render, so a pill
 //! that could not resolve yet lights up once its issue syncs (§4.5).
 
+use crate::controls::PointerContextMenuExt as _;
 use crate::toast::Toast;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -41,7 +42,7 @@ use gpui_component::text::TextView;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, PopupMenuItem},
+    menu::PopupMenuItem,
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -1012,7 +1013,7 @@ fn attach_image_context_menu(
     let url = fetch_url.to_string();
     let alt = alt.to_string();
     let editor = hooks.map(|hooks| (hooks.editor.clone(), hooks.block_id));
-    crate::controls::claim_right_click(wrapper).context_menu(move |menu, _window, menu_cx| {
+    crate::controls::claim_right_click(wrapper).pointer_context_menu(move |menu, _window, menu_cx| {
         // Editor blocks: hold edit mode while the menu is open — the popup
         // focuses itself, and the resulting input blur would otherwise flip
         // the editor to preview and unmount this menu (see

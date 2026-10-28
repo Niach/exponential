@@ -24,13 +24,13 @@
 //! gate PUSH as well as email, so they stay live with the master email
 //! switch off — only the digest controls follow it.
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::collections::HashMap;
 
 use gpui::{div, px, IntoElement, ParentElement, Render, SharedString, Styled, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -471,7 +471,7 @@ impl Render for NotificationsPrefsPane {
                         // `flex_none` box that neither shrinks nor truncates.
                         .child(picker_value_label(digest_label))
                         .child(crate::surface::picker_row_chevron(cx))
-                        .dropdown_menu({
+                        .pointer_menu({
                             let entity = cx.entity();
                             let current = digest.clone();
                             move |mut menu, _, _| {
@@ -516,7 +516,7 @@ impl Render for NotificationsPrefsPane {
                             .disabled(digest_disabled)
                             .child(picker_value_label(SharedString::from(format!("{hour}:00"))))
                             .child(crate::surface::picker_row_chevron(cx))
-                            .dropdown_menu({
+                            .pointer_menu({
                                 let entity = cx.entity();
                                 move |mut menu, _, _| {
                                     menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));

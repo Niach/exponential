@@ -974,12 +974,82 @@ pub(crate) fn overlay_enter(id: impl Into<ElementId>, overlay: Div) -> impl Into
 
 /// A menu surface under the pointer layer (half 2 of the section note): the
 /// layer covers the menu, sets the cursor and nothing else. Shared by
-/// [`PointerMenu`] and the styleguide's open specimens.
+/// [`PointerMenu`] and the styleguide's open specimens. The menu lays out in
+/// a [`MenuRem`] scope, so the crate's own rows read the tokens' type too.
 pub(crate) fn with_pointer_layer(menu: impl IntoElement) -> Div {
     div()
         .relative()
-        .child(menu)
+        .child(MenuRem(menu.into_any_element()))
         .child(div().absolute().top_0().left_0().size_full().cursor_pointer())
+}
+
+/// A menu laid out at the web's 16px root (`type.baseSize`) instead of the
+/// IDE's 14px rem: gpui-component sizes EVERY row's text `text_sm`
+/// (0.875rem, crate-fixed, `Submenu` and plain rows included), which is
+/// 12.25px at the IDE's rem and the tokens' 14px (web `text-sm`) here. A
+/// submenu is a deferred child of its menu and keeps the scope (gpui's
+/// deferred draw records the rem). Zed's `ui::WithRemSize`, minus the div.
+struct MenuRem(AnyElement);
+
+impl MenuRem {
+    const REM: f32 = t::typography::BASE_SIZE;
+}
+
+impl IntoElement for MenuRem {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for MenuRem {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, ()) {
+        let layout = window.with_rem_size(Some(px(Self::REM)), |window| self.0.request_layout(window, cx));
+        (layout, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: gpui::Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        window.with_rem_size(Some(px(Self::REM)), |window| self.0.prepaint(window, cx));
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: gpui::Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        window.with_rem_size(Some(px(Self::REM)), |window| self.0.paint(window, cx));
+    }
 }
 
 // ---------------------------------------------------------------------------

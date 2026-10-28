@@ -12,9 +12,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.MenuItemColors
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
@@ -223,7 +226,9 @@ fun GlassMenuItem(
     destructive: Boolean = false,
 ) {
     DropdownMenuItem(
-        text = text,
+        // M3 sets the label in labelLarge (14/20 Medium); the tokens' menu row
+        // is the regular weight (web `text-sm`, iOS, the IDE).
+        text = { ProvideTextStyle(LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), text) },
         onClick = onClick,
         modifier = modifier,
         leadingIcon = if (leadingIcon == null) null else ({ MenuIconSlot(leadingIcon) }),

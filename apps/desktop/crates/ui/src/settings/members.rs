@@ -30,6 +30,7 @@
 //! the generated URL); its seat-cap failure surfaces as the web's "Out of
 //! seats" copy, rendered as a §4.9 inline notice — never an upgrade dialog.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, ElementId, Entity, FontWeight,
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
@@ -37,7 +38,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -396,7 +396,7 @@ fn member_actions_menu(
         Icon::new(registry::UI_MORE),
         cx,
     )
-        .dropdown_menu({
+        .pointer_menu({
             let member_id = member_id.clone();
             let team_id = team_id.to_string();
             let name = name.to_string();

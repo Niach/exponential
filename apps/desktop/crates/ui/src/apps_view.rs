@@ -9,12 +9,13 @@
 //! manage only their own apps, owners every app. A row opens the editor
 //! ([`Screen::App`]).
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, App, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement,
     MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _,
     Styled, Subscription, Window,
 };
-use gpui_component::{menu::DropdownMenu as _, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use domain::apps::{sort_apps, version_label, AppListLike, APPS};
@@ -185,7 +186,7 @@ fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyEleme
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
             crate::controls::ghost_icon_button(("apps-row-menu", index), Icon::new(registry::UI_MORE), cx)
-                .dropdown_menu(move |menu, _window, cx| {
+                .pointer_menu(move |menu, _window, cx| {
                     let rename_row = row.clone();
                     let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
                     let export_id = row.id.clone();

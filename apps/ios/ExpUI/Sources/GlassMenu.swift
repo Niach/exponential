@@ -136,7 +136,7 @@ public struct GlassMenuItemLabel: View {
     }
 
     public var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DesignTokens.Menu.Touch.itemGap) {
             if let image {
                 image
                     .resizable()
@@ -147,8 +147,10 @@ public struct GlassMenuItemLabel: View {
                 AppIcon(icon, size: 16)
                     .foregroundStyle(iconColor)
             }
+            // The tokens' small type (14pt, web `text-sm`, Android labelLarge),
+            // not `.subheadline` (15pt).
             Text(title)
-                .font(.subheadline)
+                .font(.system(size: DesignTokens.Typography.Size.sm))
                 .foregroundStyle(titleColor)
                 .lineLimit(1)
             Spacer(minLength: 0)

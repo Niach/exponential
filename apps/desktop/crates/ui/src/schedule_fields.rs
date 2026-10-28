@@ -10,6 +10,7 @@
 //! minutes / hourly) · Cron (a custom, MCP-written expression only — the one
 //! place cron is ever visible). Every option list scrolls.
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::rc::Rc;
 
 use gpui::{
@@ -20,7 +21,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
-    menu::DropdownMenu as _,
     ActiveTheme as _,
 };
 
@@ -441,7 +441,7 @@ fn menu_control<V: Render>(
         picker_trigger_bare(id.into(), label, cx)
     };
     trigger
-        .dropdown_menu(move |menu, _window, _cx| {
+        .pointer_menu(move |menu, _window, _cx| {
             let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
             for (text, value) in options.iter().cloned() {
                 let view = view.clone();
