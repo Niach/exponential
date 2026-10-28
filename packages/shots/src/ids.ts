@@ -12,6 +12,7 @@
  * The ids themselves come from `apps/web`'s `screenshots:ids` script, which is
  * the only thing that can see the database.
  */
+import { captureDbEnv } from "./capture-db.ts"
 import { run } from "./lib/proc.ts"
 import { repoRoot } from "./paths.ts"
 import { join } from "node:path"
@@ -115,6 +116,7 @@ export async function fetchDemoIds(): Promise<DemoIds> {
   const result = await run({
     cmd: [`bun`, `run`, `screenshots:ids`],
     cwd: join(repoRoot(), `apps/web`),
+    env: captureDbEnv(),
     timeoutMs: 120_000,
   })
   if (result.code !== 0) {
