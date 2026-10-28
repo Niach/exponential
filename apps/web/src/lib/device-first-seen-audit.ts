@@ -15,7 +15,11 @@ import type { db as Db } from "@/db/connection"
 // not candidates. A candidate's evidence = its first `sessions` row on the
 // id (`user_id` = the starter), its eldest `devices` row, the pin's
 // `created_at`, the current `first_seen_at`; the earliest wins, ties
-// sessions > devices > pin > first-seen, then the lower user id.
+// sessions > devices > pin > first-seen, then the lower user id. 0209 then
+// skips three kinds of row this audit does NOT (so it lists them as
+// mismatches on purpose, for a person): a first-seen account holding the
+// pin, one with a removal for the id, and a row 0206 did not write (an
+// admin `pinTo`, a register after it).
 
 export const EVIDENCE_SOURCES = [`sessions`, `devices`, `pin`, `first_seen`] as const
 export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number]

@@ -8,10 +8,20 @@
  *
  * Usage (from apps/web, DATABASE_URL = the target database):
  *   bun run audit:device-first-seen
+ * It prints the host and database it reads, and refuses the local dev
+ * database (localhost:54321) unless `--dev` says that is the target.
  */
 import { sql } from "drizzle-orm"
 import { db, pool } from "@/db/connection"
 import { deviceFirstSeenFindings, settleCall, type FirstSeenFinding } from "@/lib/device-first-seen-audit"
+
+const target = new URL(process.env.DATABASE_URL ?? ``)
+const where = `${target.hostname}:${target.port || `5432`}${target.pathname}`
+console.log(`[device-first-seen] reading ${where}`)
+if ([`localhost`, `127.0.0.1`, `::1`, `[::1]`].includes(target.hostname) && target.port === `54321` && !process.argv.includes(`--dev`)) {
+  console.error(`[device-first-seen] ${where} is the local dev database; point DATABASE_URL at the target, or pass --dev`)
+  process.exit(2)
+}
 
 const findings = await db.transaction(async (tx) => {
   await tx.execute(sql`SET TRANSACTION READ ONLY`)

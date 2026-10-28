@@ -54,7 +54,12 @@ export async function postMeetingStopNote(
   const [conversation] = await exec
     .select({ id: sessions.id, rootId: sessions.rootId, teamId: sessions.teamId, shared: sessions.shared, userId: sessions.userId })
     .from(sessions)
-    .where(and(eq(sessions.agentId, agentId), eq(sessions.userId, userId), isNull(sessions.parentId)))
+    // Private only (a shared conversation never carries meeting rows, as
+    // `meetingAllowed` refuses it); the eldest, so a duplicate never moves it.
+    .where(
+      and(eq(sessions.agentId, agentId), eq(sessions.userId, userId), isNull(sessions.parentId), eq(sessions.shared, false))
+    )
+    .orderBy(sessions.createdAt, sessions.id)
     .limit(1)
   if (!conversation) return null
   return exec.transaction((tx) =>

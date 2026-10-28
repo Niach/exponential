@@ -145,6 +145,31 @@ pub fn mark_display_pushed(settings_path: &std::path::Path) -> std::io::Result<(
     settings.save(settings_path)
 }
 
+/// #FEED-164 TWINS UPGRADE (`work-screen.json` `legacyIdCases`): a Work
+/// screen pick stored as an order-based twin id (`base`, `base#n`) becomes
+/// the connector id it names now, so the next converge pushes it (the
+/// fingerprint moved) and every client lists the new id. Saves only on a
+/// rewrite; returns whether it did.
+pub fn upgrade_display_pick(settings_path: &std::path::Path) -> bool {
+    let mut settings = Settings::load(settings_path);
+    let Some(stored) = settings.computer_use_display_id.clone() else {
+        return false;
+    };
+    let displays = crate::computer::displays();
+    let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
+    let Some(id) = crate::computer::picked_display_id(&ids, &stored).filter(|id| *id != stored) else {
+        return false;
+    };
+    settings.computer_use_display_id = Some(id.to_string());
+    match settings.save(settings_path) {
+        Ok(()) => true,
+        Err(err) => {
+            log::debug!("[launch-defaults] Work screen upgrade save failed: {err}");
+            false
+        }
+    }
+}
+
 /// Apply `patch` onto `settings`, FIELD-wise and ignore-invalid: a value
 /// outside the agent's closed vocabulary (or a toggle the agent doesn't
 /// support) is dropped without touching the field — a patch must never

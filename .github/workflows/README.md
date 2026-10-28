@@ -45,14 +45,23 @@ again. The operations runbook (credentials, Coolify app uuids, the target
 database URLs) lives outside this repository.
 
 One-off right AFTER the deploy that ships migrations 0206 + 0209 (FEED-165):
-`cd apps/web && DATABASE_URL=<target database> bun run audit:device-first-seen`.
-It is read-only (a READ ONLY transaction) and lists every machine id whose
-first-seen account (the FEED-159 pin owner) is not the account with the
-earliest evidence (first session on the id, eldest `devices` row, the pin),
-and every id whose pin another account holds, with each candidate's evidence
-and the `admin.clearDeviceKey({deviceId, pinTo})` call that settles it. 0209
-recomputes first-seen from that same rule, so a mismatch after it means the
-rule and the migration drifted; review the pin list by hand. During the
+`cd apps/web && DATABASE_URL=<target database> bun run audit:device-first-seen`
+(it prints the host/database it reads and refuses the local dev database
+without `--dev`). It is read-only (a READ ONLY transaction) and lists every
+machine id whose first-seen account (the FEED-159 pin owner) is not the
+account with the earliest evidence (first session on the id, eldest
+`devices` row, the pin), and every id whose pin another account holds, with
+each candidate's evidence and the `admin.clearDeviceKey({deviceId, pinTo})`
+call that settles it. 0209 recomputes first-seen from that same rule but
+leaves three kinds of row alone, which the audit therefore lists as
+mismatches ON PURPOSE: a first-seen account that holds the pin (a migration
+never moves a live pin: a pre-deploy squat's pin and an owner's after a
+Remove + relaunch look the same in the data), one with a `device_removals`
+row for the id (its Remove deleted its original row, so an older squat row
+could read as earliest), and a row an admin `pinTo` (or a register after
+the deploy) wrote. Review each by hand: keep it (no call) or settle it with
+the printed `pinTo`. Any OTHER mismatch means the rule and the migration
+drifted. Review the pin list by hand too. During the
 rolling deploy, old pods still register without writing first-seen (a short
 window: the next register on a new pod writes it).
 

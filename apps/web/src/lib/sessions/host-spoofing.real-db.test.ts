@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, deviceFirstSeen, deviceKeys, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, deviceFirstSeen, deviceKeys, deviceRemovals, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
 import { deviceKeyMessage } from "@/lib/device-keys"
 
@@ -821,6 +821,15 @@ describe.skipIf(!ready.ok)(`FEED-165: 0209 makes the earliest evidence first-see
       .onConflictDoUpdate({ target: deviceFirstSeen.deviceId, set: { userId: out.after0209 as string } })
     return out
   }
+  /** 0209 alone on the world as it stands (rolled back). */
+  async function only0209(deviceId: string) {
+    let after: unknown
+    await inRollback(async (tx) => {
+      for (const statement of migration(`0209_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
+      after = await firstSeenIn(tx, deviceId)
+    })
+    return after
+  }
   /** The box owner on an old client, then a squat of the id; a team. */
   async function preDeploy() {
     const owner = await user()
@@ -853,14 +862,26 @@ describe.skipIf(!ready.ok)(`FEED-165: 0209 makes the earliest evidence first-see
     return { owner, squat, mate, deviceId, started, box: machineKey(), own: machineKey() }
   }
 
-  it(`a squat that held the pin before the deploy: 0206 made it first-seen, 0209 the owner, whose upgrade takes the pin`, async () => {
+  it(`a squat that held the pin before the deploy keeps first-seen (0209 never moves a pin holder's); the audit lists it`, async () => {
     const m = await preDeploy()
     // The squat's pin from before FEED-159 (the first key won).
     await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.own.hex, userId: m.squat })
-    expect(await backfill(m.deviceId)).toEqual({ after0206: m.squat, after0209: m.owner, mismatch: false })
-    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: true })
-    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
-    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+    expect(await backfill(m.deviceId)).toEqual({ after0206: m.squat, after0209: m.squat, mismatch: true })
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.squat, publicKey: m.own.hex })
+  })
+
+  it(`an owner who removed, relaunched and pinned keeps first-seen over a squat's older row; the squat never pins`, async () => {
+    const m = await preDeploy()
+    await db
+      .update(devices)
+      .set({ createdAt: new Date(Date.now() - 10 * 86_400_000) })
+      .where(and(eq(devices.userId, m.squat), eq(devices.deviceId, m.deviceId)))
+    // The relaunch deletes the removal: only the pin is left to guard on.
+    await devicesAs(m.owner).remove({ deviceId: m.deviceId })
+    await register(m.owner, m.deviceId, { launch: true })
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.box.hex, userId: m.owner })
+    expect(await backfill(m.deviceId)).toEqual({ after0206: m.owner, after0209: m.owner, mismatch: true })
     expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: false })
     expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
   })
@@ -878,6 +899,42 @@ describe.skipIf(!ready.ok)(`FEED-165: 0209 makes the earliest evidence first-see
     expect(await pinOf(m.deviceId)).toBeUndefined()
     expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
     expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+  })
+
+  it(`an owner whose Remove stands keeps first-seen over a squat's older row`, async () => {
+    const m = await preDeploy()
+    // 0206 made the owner first-seen (no pin) from a row since gone (an old
+    // backfill); the squat's row reads older still; then the owner removed
+    // the box (the hard delete takes its row, the removal stays).
+    await db
+      .update(deviceFirstSeen)
+      .set({ userId: m.owner, firstSeenAt: new Date(Date.now() - 20 * 86_400_000) })
+      .where(eq(deviceFirstSeen.deviceId, m.deviceId))
+    await db
+      .update(devices)
+      .set({ createdAt: new Date(Date.now() - 30 * 86_400_000) })
+      .where(and(eq(devices.userId, m.squat), eq(devices.deviceId, m.deviceId)))
+    await devicesAs(m.owner).remove({ deviceId: m.deviceId })
+    expect(await only0209(m.deviceId)).toBe(m.owner)
+    await db.delete(deviceRemovals).where(eq(deviceRemovals.deviceId, m.deviceId))
+    expect(await only0209(m.deviceId)).toBe(m.squat)
+  })
+
+  it(`an admin's pinTo from before 0209 is never overwritten`, async () => {
+    const m = await preDeploy()
+    // An admin pinned the id to the squat on purpose (the clear drops the
+    // pin, so only the marker protects the row): 0209 keeps it.
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.own.hex, userId: m.squat })
+    const admin = await user()
+    await db.execute(sql`UPDATE users SET is_admin = true WHERE id = ${admin}`)
+    await adminAs(admin).clearDeviceKey({ deviceId: m.deviceId, pinTo: m.squat })
+    expect(await only0209(m.deviceId)).toBe(m.squat)
+    // The same row as 0206 would have written it (the squat's own row's
+    // `created_at`, in SQL: a JS Date drops the microseconds) moves.
+    await db.execute(sql`
+      UPDATE device_first_seen f SET first_seen_at = d.created_at
+        FROM devices d WHERE d.device_id = f.device_id AND d.user_id = f.user_id AND f.device_id = ${m.deviceId}`)
+    expect(await only0209(m.deviceId)).toBe(m.owner)
   })
 
   it(`the audit lists a first-seen squat 0206 left behind, with the pinTo that settles it`, async () => {

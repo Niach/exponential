@@ -700,6 +700,14 @@ impl DeviceSettingsView {
         } else {
             remote_baseline(row.launch_defaults.as_ref())
         };
+        // #FEED-164 TWINS UPGRADE: an old twin id reads as the twin it named.
+        if let Some(stored) = seeded.computer_use_display_id.clone() {
+            let displays = Self::displays_for(Some(row), own, cx);
+            let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
+            if let Some(id) = coding::computer::picked_display_id(&ids, &stored) {
+                seeded.computer_use_display_id = Some(id.to_string());
+            }
+        }
         let configured: Vec<String> = row
             .launch_defaults
             .as_ref()

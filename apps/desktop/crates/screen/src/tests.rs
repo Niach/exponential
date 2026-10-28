@@ -128,13 +128,25 @@ fn start_listing(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<Scree
 /// [`start_listing`] over a window list and a display epoch the capturer
 /// may share.
 fn start_rig(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, windows: Shared<Vec<VisibleWindow>>, epoch: Arc<AtomicU64>, interval_ms: u64) -> Rig {
+    start_epochs(dir, capturer, first, windows, (epoch.clone(), epoch), interval_ms)
+}
+
+/// [`start_rig`] whose window list reads one epoch and whose grabs another
+/// (`(read, now)`).
+fn start_epochs(
+    dir: &TempDir,
+    capturer: Box<dyn Capturer>,
+    first: Option<ScreenView>,
+    windows: Shared<Vec<VisibleWindow>>,
+    (read_epoch, now_epoch): (Arc<AtomicU64>, Arc<AtomicU64>),
+    interval_ms: u64,
+) -> Rig {
     let view = Arc::new(Mutex::new(first));
     let hotkey = Arc::new(AtomicBool::new(false));
     let statuses = Arc::new(Mutex::new(Vec::new()));
     let source = view.clone();
     let listed = windows.clone();
     let heard = statuses.clone();
-    let (read_epoch, now_epoch) = (epoch.clone(), epoch.clone());
     let memory = Memory::start(
         &dir.0,
         capturer,
@@ -1105,4 +1117,27 @@ fn a_frame_read_against_the_display_set_before_a_hot_plug_is_dropped() {
     assert!(rows.iter().any(|row| row.at < plugged - 450), "frames before the hot-plug were stored");
     assert!(stamps.lock().unwrap().iter().any(|at| stale(*at)), "frames captured before it were handed out after it");
     assert!(!rows.iter().any(|row| stale(row.at)), "none of them stored");
+}
+
+/// #FEED-164 DISPLAY SET: a re-read after the grab that numbers the displays
+/// differently places no mask, so the grab is skipped even for frames whose
+/// own reading still matches the grab's epoch.
+#[test]
+fn a_frame_is_dropped_when_the_re_read_after_its_grab_is_of_another_display_set() {
+    let dir = TempDir::new();
+    let stamps: Shared<Vec<i64>> = Default::default();
+    let (listed, grabbed) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 10, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() };
+    let rig = start_epochs(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), Default::default(), (listed.clone(), grabbed), 40);
+    std::thread::sleep(Duration::from_millis(600));
+    let plugged = engine::now_ms();
+    listed.store(1, Ordering::Release);
+    std::thread::sleep(Duration::from_millis(600));
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    // Captured before the change (their reading = epoch 0), handed out after.
+    let late = |at: i64| at > plugged - 350;
+    assert!(rows.iter().any(|row| row.at < plugged - 450), "frames before the change were stored");
+    assert!(stamps.lock().unwrap().iter().any(|at| late(*at) && *at < plugged - 50), "frames captured before it were handed out after it");
+    assert!(!rows.iter().any(|row| late(row.at)), "none stored after the change");
 }

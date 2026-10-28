@@ -304,6 +304,16 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     expect(await notes()).toHaveLength(2)
   })
 
+  it(`FEED-163: the note lands only in a PRIVATE conversation, never a shared one`, async () => {
+    const w = await world()
+    const { postMeetingStopNote } = await import(`@/lib/sessions/meeting-access`)
+    const convo = await sendSession({ userId: w.owner, input: { agentId: w.ops, text: `hello` } })
+    await db.update(sessions).set({ shared: true }).where(eq(sessions.id, convo.sessionId))
+    expect(await postMeetingStopNote(db, w.owner, w.ops, `autoStop`, 2)).toBeNull()
+    await db.update(sessions).set({ shared: false }).where(eq(sessions.id, convo.sessionId))
+    expect(await postMeetingStopNote(db, w.owner, w.ops, `autoStop`, 2)).not.toBeNull()
+  })
+
   it(`FEED-163: voice.update writes meetingAutoStopHours (one of hoursValues) and leaves an expired stamp to the clear`, async () => {
     const w = await world()
     await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId })

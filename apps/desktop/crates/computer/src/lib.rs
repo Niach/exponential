@@ -205,6 +205,14 @@ pub fn set_work_display(id: Option<String>) {
     work_screen::set_picked(id);
 }
 
+/// #FEED-164 TWINS UPGRADE (`work-screen.json` `legacyIdCases`): the id
+/// among `ids` (the reported displays, in order) a stored Work screen pick
+/// names: itself, or for an id stored before twins carried their connector
+/// (`base`, `base#n`) the twin the old scheme named; `None` = not connected.
+pub fn picked_display_id<'a>(ids: &[&'a str], stored: &str) -> Option<&'a str> {
+    work_screen::picked_index(ids, stored).map(|index| ids[index])
+}
+
 /// NEW-59: the displays for the doctor (`doctor.displays`). Empty without a
 /// display (a server, Wayland) or when the backend does not open.
 pub fn displays() -> Vec<Display> {

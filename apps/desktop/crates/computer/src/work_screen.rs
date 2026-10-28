@@ -200,10 +200,31 @@ pub(crate) fn picked() -> Option<String> {
 }
 
 /// The gate's `picked` off the stored id: the 1-based number of the display
-/// carrying it, 0 when none does; `None` = Auto.
+/// carrying it ([`picked_index`]), 0 when none does; `None` = Auto.
 pub(crate) fn resolve(displays: &[DisplayInfo], picked: Option<&str>) -> Option<u32> {
     let id = picked?;
-    Some(displays.iter().position(|display| display.id == id).map_or(0, |index| index as u32 + 1))
+    let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
+    Some(picked_index(&ids, id).map_or(0, |index| index as u32 + 1))
+}
+
+/// The 0-based display a stored pick names among `ids` (the OS's order):
+/// the one carrying it, else (#FEED-164 TWINS UPGRADE, `legacyIdCases`) an
+/// id stored before twins carried their connector: `base` or `base#n` = the
+/// n-th (bare = the 1st) of the `base@<connector>` twins, the display the
+/// old order-based scheme named.
+pub(crate) fn picked_index(ids: &[&str], stored: &str) -> Option<usize> {
+    if let Some(index) = ids.iter().position(|id| *id == stored) {
+        return Some(index);
+    }
+    let (base, n) = match stored.rsplit_once('#') {
+        Some((base, n)) if !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit()) => (base, n.parse::<usize>().ok().filter(|n| *n >= 2)?),
+        _ => (stored, 1),
+    };
+    // A twin id cut to fit 128 keeps only a prefix of its base.
+    let twin_of = |id: &str| {
+        id.match_indices('@').any(|(at, _)| at > 0 && (&id[..at] == base || (id.chars().count() == backend::ID_MAX && base.starts_with(&id[..at]))))
+    };
+    ids.iter().enumerate().filter(|(_, id)| twin_of(id)).map(|(index, _)| index).nth(n - 1)
 }
 
 /// The 0-based display `window` overlaps MOST (ties: the lower index;
@@ -552,6 +573,33 @@ mod tests {
         assert_eq!(resolve(&[display("a")], None), None);
         let state = State { count: 1, picked: resolve(&[display("a")], Some("b")), windows_read: true, ..State::default() };
         assert!(work_displays(&state).is_empty());
+    }
+
+    /// #FEED-164 TWINS UPGRADE: `work-screen.json` `legacyIdCases`.
+    #[test]
+    fn an_id_stored_before_connector_twins_names_the_same_twin() {
+        for case in fixture()["legacyIdCases"].as_array().unwrap() {
+            let ids: Vec<&str> = case["displays"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            let got = picked_index(&ids, case["stored"].as_str().unwrap()).map(|index| ids[index]);
+            assert_eq!(got, case["expect"].as_str(), "{}", case["name"]);
+            let displays: Vec<DisplayInfo> =
+                ids.iter().map(|id| DisplayInfo { id: id.to_string(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new() }).collect();
+            let number = got.map_or(0, |id| ids.iter().position(|other| *other == id).unwrap() as u32 + 1);
+            assert_eq!(resolve(&displays, case["stored"].as_str()), Some(number), "{}", case["name"]);
+        }
+        // Every old id names its own twin under the new one, ids cut to 128 too.
+        let long = "x".repeat(200);
+        for base in ["edid:0123456789abcdef", long.as_str()] {
+            let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new() };
+            let mut old = [display(base), display("uuid-b"), display(base), display(base)];
+            let mut new = old.clone();
+            backend::finish_ids(&mut old, &[]);
+            backend::finish_ids(&mut new, &[Some("HDMI-1".into()), Some("1".into()), Some("DP-1".into()), Some("DP-2".into())]);
+            let ids: Vec<&str> = new.iter().map(|display| display.id.as_str()).collect();
+            for (index, display) in old.iter().enumerate() {
+                assert_eq!(picked_index(&ids, &display.id), Some(index), "{}", display.id);
+            }
+        }
     }
 
     /// NEW-58: screen memory's view: the focused window with its app id,
