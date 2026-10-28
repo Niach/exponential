@@ -75,7 +75,6 @@ class StoreScreenshotsTest {
         private const val START_CODING_ISSUE_TITLE = "Dark mode contrast pass across settings"
 
         // APP-14: the open PR whose diff is fetched from GitHub for real.
-        private const val REVIEW_ISSUE_TITLE = "Group board issues by assignee"
 
         // A fragment of the question screenshot-desktop.ts ends its transcript
         // on (DEMO_FEED_QUESTION) — proof that relay frames actually arrived.
@@ -92,7 +91,6 @@ class StoreScreenshotsTest {
         private const val SYNC_TIMEOUT = ScreenshotFlow.SYNC_TIMEOUT
         private const val FIRST_SYNC_TIMEOUT = ScreenshotFlow.FIRST_SYNC_TIMEOUT
         private const val NETWORK_TIMEOUT = ScreenshotFlow.NETWORK_TIMEOUT
-        private const val SIBLING_TIMEOUT = ScreenshotFlow.SIBLING_TIMEOUT
     }
 
     private val permissionRule: GrantPermissionRule = ScreenshotFlow.permissionRule()
@@ -242,50 +240,8 @@ class StoreScreenshotsTest {
         flow.settle(longer = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
 
-        // --- PR review: EXP-1303 — APP-14's Threads chip opens the thread
-        // holding it; its Guide tab's Changes row opens the diff page (its
-        // white Merge capsule, `work-merge-pr-section` PopRects pops, sits on
-        // the floating bar; the Guide's own carries `thread-guide-merge`,
-        // EXP-1307). The PR comes from GitHub via
-        // pullRequests.files — the seed points APP-14 at a real public PR —
-        // and with no report its whole diff is ONE Changes row, counted once
-        // the files load.
-        flow.waitFor(hasTestTag("${Chats.TestIds.BOARD_CHIP}-all"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("issue-list"))
-            .performScrollToNode(hasText(REVIEW_ISSUE_TITLE, substring = true))
-        composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()
-        flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
-        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
-        flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
-        flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-        // P60: the slide is the catalog's Complete diff page — tap the
-        // Guide's "Show complete diff" row (with no report the ONE Changes
-        // row already is the whole diff) and photograph the page it opens.
-        // At rest the rows can sit under the floating Merge capsule, so
-        // swipe the Guide to its end first, where the bottom inset lifts
-        // every row clear of the bar.
-        composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
-        flow.settle()
-        if (flow.waitForOptional(hasTestTag("guide-complete-diff"), SIBLING_TIMEOUT)) {
-            composeRule.onNode(hasTestTag("guide-complete-diff")).performClick()
-        } else {
-            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
-        }
-        flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-        // The section page's own capsule (the Guide's stays composed below).
-        flow.waitForOptional(hasTestTag("work-merge-pr-section"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("5_review", popRects = true)
-        // Section page → Guide, thread → issue → board.
-        composeRule.onNode(hasTestTag("guide-section-back")).performClick()
-        flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
-        Espresso.pressBack()
-        flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.settle()
+        // S-3: the PR review slide (5_review) is retired with the Guide tab
+        // it walked (stories replace the Guide; iOS retired 05_review too).
 
         // NEW-7: the Actions slide is gone with the tab (prompts replaced
         // actions: the composer's `/` menu and Settings → Prompts).

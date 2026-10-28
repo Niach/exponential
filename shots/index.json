@@ -4053,13 +4053,6 @@
       }
     },
     "review-diff": {
-      "android": {
-        "file": "shots/review-diff/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 82378,
-        "sha256": "71bce8e157ff1d553409f88bf09f00bed41a5941c119db0c146da4db4bbb67ef"
-      },
       "web": {
         "file": "shots/review-diff/web.webp",
         "width": 1800,

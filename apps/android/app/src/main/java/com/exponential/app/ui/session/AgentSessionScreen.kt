@@ -2118,6 +2118,13 @@ private class AnswerCards(
  *  any other row draws nothing. */
 @Composable
 private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
+    // S-3: the relay's ask lives inline only now (dock.json); the store
+    // shot's pop-out (`4_steering`) finds it by this tag.
+    Box(Modifier.testTag("feed-question")) { AnswerCardRowBody(row, cards) }
+}
+
+@Composable
+private fun AnswerCardRowBody(row: AgentFeedRow, cards: AnswerCards) {
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,

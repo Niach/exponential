@@ -53,7 +53,7 @@ object PopRects {
      * The tags live on the product composables (`issue-description`,
      * `agent-composer-headline` (EXP-1038: the run's subject moved out of the
      * card, so the pop-out has to take it in) + `agent-composer` +
-     * `agent-options-row`, `dock-card` (N-12: the waiting question's card),
+     * `agent-options-row`, `feed-question` (S-3: the relay's waiting question, inline),
      * `work-merge-pr-section` (EXP-1154/1251: the Guide section page's white Merge capsule; EXP-1307: the thread Guide's own carries the fixture's `thread-guide-merge`, so the first match is the on-screen one), `notification-row`, plus the pre-existing `action-row`,
      * `support-thread-row` and the EXP-642 `issue-row-<identifier>`) and are
      * mirrored 1:1 as iOS accessibility identifiers.
@@ -62,8 +62,7 @@ object PopRects {
         "1_board" to listOf("issue-row-APP-5"),
         "2_issue-detail" to listOf("issue-description"),
         "3_start-coding" to listOf("agent-composer-headline", "agent-composer", "agent-options-row"),
-        "4_steering" to listOf("dock-card"),
-        "5_review" to listOf("work-merge-pr-section"),
+        "4_steering" to listOf("feed-question"),
         "6_actions" to listOf("action-row"),
         "7_inbox" to listOf("notification-row"),
         "8_support" to listOf("support-thread-row"),

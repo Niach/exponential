@@ -1192,15 +1192,11 @@
         "settleMs": 1200
       },
       "webMobile": "inherit",
-      "android": {
-        "shot": "5_review",
-        "lane": "store"
-      },
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor is a line of the first card's own patch (strings.xml's added feature_topic_api_error string). EXP-1251: the page sits under the Guide (a back row to it); on md+ the file tree is the column beside the cards, the phone lists the files in the bar's sheet beside the white Merge capsule.",
         "desktop": "EXP-1251: the issue tab's Guide owns the diff pages (`steer_viewer` guide_page) and nothing deep-links straight to the complete diff any more, so `issue:<id>?face=guide` lands on the Guide; the desktop half of this view is the `guide` drive until a page deep link exists.",
         "ios": "S-3: no iOS capture; the diff was reached through the Guide tab, which is gone (stories replace it).",
-        "android": "EXP-1303: 5_review opens APP-14's thread from its Threads chip on the Guide tab, taps Show complete diff (or the single Changes row without a report) and shoots that page; the pop-out is the page capsule work-merge-pr-section."
+        "android": "S-3: no Android capture; the diff was reached through the Guide tab, which is gone (stories replace it)."
       }
     },
     {
