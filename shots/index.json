@@ -4799,8 +4799,8 @@
         "file": "shots/settings-root/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 25814,
-        "sha256": "73af26865624f2f74de831f582a65f0a6e39e7b4fd7bf307ede5d02b82d4c918"
+        "bytes": 26740,
+        "sha256": "c9d84f8c2c63fb76a49e48c5f9d89a131c27bfe70603970c52e60110893b4ed1"
       },
       "ios": {
         "file": "shots/settings-root/ios.webp",
