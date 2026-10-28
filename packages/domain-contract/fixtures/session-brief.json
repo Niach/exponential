@@ -1,10 +1,9 @@
 {
-  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Plan (EXP-1280: a session started in plan mode, `planMode`; body = `plan`; right behind the Request so the byte cap can never trim it) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
+  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line. S-3 (owner 2026-10-28): plan mode is GONE (a plan is an `exponential_show {plan}` card, no gate): no Plan section.",
   "headings": {
     "request": "Request",
     "issues": "Issues",
-    "parent": "Parent",
-    "plan": "Plan"
+    "parent": "Parent"
   },
   "parent": "You are a sub-session (depth {depth} of {maxDepth}) of \"{title}\". Base your work on its branch: `git fetch origin {branch} && git reset --hard origin/{branch}` before any edit, then open your PR with `pr_open({base: \"{branch}\"})`.",
   "parentNoBranch": "You are a sub-session (depth {depth} of {maxDepth}) of \"{title}\".",
@@ -70,21 +69,6 @@
         "text": "   "
       },
       "expected": "Wait for the next message."
-    },
-    {
-      "name": "EXP-1280: a worker started in plan mode on an issue",
-      "input": {
-        "text": "Make the picker faster.",
-        "planMode": true,
-        "issues": [
-          {
-            "identifier": "APP-5",
-            "title": "Reduce cold start below 800 ms"
-          }
-        ]
-      },
-      "expected": "## Request\n\nMake the picker faster.\n\n## Plan\n\nThis session is in plan mode (EXP-1280): research and design first. You may draft UI on your branch only to picture it; no commits, pushes or PRs until a person approves (`exponential_pr` op open refuses). Present the plan with `exponential_session_self` op `plan` (`plan` markdown with `![alt](upload:<label>)` pictures, `pictures`, choice `questions`, an optional Exponential UI `surface`) as the LAST call of your turn, then stop: the decision, answers and feedback arrive as your next message. Rejected = keep planning.\n\n## Issues\n\n- APP-5 Reduce cold start below 800 ms"
     }
-  ],
-  "plan": "This session is in plan mode (EXP-1280): research and design first. You may draft UI on your branch only to picture it; no commits, pushes or PRs until a person approves (`exponential_pr` op open refuses). Present the plan with `exponential_session_self` op `plan` (`plan` markdown with `![alt](upload:<label>)` pictures, `pictures`, choice `questions`, an optional Exponential UI `surface`) as the LAST call of your turn, then stop: the decision, answers and feedback arrive as your next message. Rejected = keep planning."
+  ]
 }
