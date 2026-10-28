@@ -116,14 +116,14 @@ const EXTRA_ISSUES = [
   { id: `i-6`, identifier: `EXP-26`, title: `Model picker` },
 ]
 const FOLDED_TABS: typeof FOLDED.tabs = [
-  ...FOLDED.tabs.filter((tab) => tab.kind !== `session` && tab.kind !== `guide`),
+  ...FOLDED.tabs.filter((tab) => tab.kind !== `session`),
   ...EXTRA_ISSUES.map((issue) => ({
     kind: `issue` as const,
     issueId: issue.id,
     identifier: issue.identifier,
     nested: [],
   })),
-  ...FOLDED.tabs.filter((tab) => tab.kind === `session` || tab.kind === `guide`),
+  ...FOLDED.tabs.filter((tab) => tab.kind === `session`),
 ]
 
 type IssueTab = Extract<(typeof THREAD.tabs)[number], { kind: `issue` }>

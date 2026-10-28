@@ -598,7 +598,6 @@ const WEB_EDIT_CARD = `packages/ui/src/edited-files-card.tsx`
 const WEB_DIFF_TREE = `packages/ui/src/file-diff-tree.tsx`
 const DESKTOP_DIFF = `apps/desktop/crates/ui/src/diff.rs`
 const DESKTOP_SESSION_EXTRAS = `apps/desktop/crates/ui/src/session_extras.rs`
-const DESKTOP_DIFF_PANE = `apps/desktop/crates/ui/src/diff_pane.rs`
 const IOS_DIFF_CARD = `apps/ios/Exponential/UI/Issue/DiffFileCard.swift`
 const IOS_EDIT_CARD = `apps/ios/Exponential/UI/Session/EditedFilesCard.swift`
 const IOS_DIFF_TREE = `apps/ios/Exponential/UI/Issue/DiffFileTree.swift`
@@ -1090,7 +1089,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-916: the file column beside a diff — the review's summary line, a "Filter files" field, then the changed files as a TREE. \`diffFileTree\` is the shape: directories before files, each group by lower-cased name, a lone-child directory chain compacted into one node (\`packages/ui/src\`), a directory's counts its subtree's sums. Folders open by default and fold by path; a non-blank filter returns a FLAT list of matching files in input order, because a search result is not a pruned tree. Picking a row only reports the path — the caller scrolls, or closes its sheet.`,
     status: {
       web: ok(`FileDiffTree`, WEB_DIFF_TREE),
-      desktop: ok(`diff_pane::file_tree`, DESKTOP_DIFF_PANE),
+      desktop: na(`S-3 retired the Guide's PR review pane, its only host; diff_pane keeps the file model`),
       ios: ok(`DiffFileTree`, IOS_DIFF_TREE),
       android: ok(`DiffFileTree`, ANDROID_DIFF_TREE),
     },
@@ -1103,13 +1102,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-895: the ONE diff view — DiffFile[] in, the file tree column beside a stack of file diff cards, nothing else. A Guide section page, the complete diff (an issue's or a session's) and one tool call's patch are all this, differing only in \`nav\` (the md+ tree column, or none when a sheet or a top bar owns the list), \`density\` and whether the cards start collapsed. A pick in the tree scrolls the card into view and opens it; a publisher-cut diff ends in one "N more lines truncated" note. On a phone the file list is the changes sheet off the work bar, never a 64-wide column.`,
     status: {
       web: ok(`FileDiffList`, `packages/ui/src/file-diff-list.tsx`),
-      desktop: ok(`diff_pane::render`, DESKTOP_DIFF_PANE),
+      desktop: na(`S-3 retired the Guide's PR review pane, its only host`),
       ios: ok(`DiffFileList`, `apps/ios/Exponential/UI/Session/SessionDiffList.swift`),
-      android: leftover(
-        `GuideSectionDiff`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt`,
-        `the card stack is inlined in the Guide section page (and EditedFilesCard); no shared list composable`
-      ),
+      android: na(`S-3 retired the Guide section page that inlined the card stack; EditedFilesCard keeps its own`),
     },
     island: () => <FileDiffList files={[FIXTURE_FILE, ...TREE_FILES.slice(0, 2)]} truncatedLines={12} />,
   },
@@ -2532,11 +2527,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `apps/ios/Exponential/UI/Components/AttachmentStrips.swift`,
         `the system QuickLook sheet, not our chrome: no shared component and no in-app audio caption`
       ),
-      android: leftover(
-        `ResultPreviewDialog`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
-        `private and results-only; an issue attachment hands off to another app (ui/issue/AttachmentOpen.kt)`
-      ),
+      android: na(`S-3 retired the Guide face's results preview; an attachment hands off to another app (AttachmentOpen.kt)`),
     },
     island: () => (
       <div className="w-fit rounded-lg border border-glass-stroke-card bg-glass-card-opaque p-2">
@@ -2556,11 +2547,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `opened by SessionResultsView; the dialog is ImagePreviewDialog's panel mode`
       ),
       desktop: ok(`image_preview::open_guide_viewer`, `apps/desktop/crates/ui/src/image_preview.rs`),
-      ios: ok(`GuidePictureViewer`, `apps/ios/Exponential/UI/Work/GuidePictureViewer.swift`),
-      android: ok(
-        `GuidePictureViewer`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuidePictureViewer.kt`
-      ),
+      ios: na(`S-3 retired the Guide face; story pictures open in the StoryViewer`),
+      android: na(`S-3 retired the Guide face; story pictures open in the StoryViewer`),
     },
     island: () => (
       <div className="flex h-[26rem] max-w-4xl overflow-hidden rounded-2xl border border-glass-stroke-card bg-card/85">
@@ -2624,12 +2612,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the pure rules (grouping, tile width, the fitting factor) are session-results.ts, mirrored byte for byte ×4`
       ),
       desktop: ok(`session_results::render`, `apps/desktop/crates/ui/src/session_results.rs`),
-      ios: ok(`GuideFace`, `apps/ios/Exponential/UI/Work/GuideFace.swift`, `the tiles are SessionResultTiles.swift`),
-      android: ok(
-        `GuideFace`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
-        `ResultTile + ResultPreviewDialog sit in the same file`
-      ),
+      ios: na(`S-3 retired the Guide face that held the results; results are stories now`),
+      android: na(`S-3 retired the Guide face that held the results; results are stories now`),
     },
     island: () => (
       <SessionResultsView
