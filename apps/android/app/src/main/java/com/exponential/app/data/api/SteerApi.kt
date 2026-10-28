@@ -109,14 +109,14 @@ data class DeviceLaunchDefaults(
      */
     @SerialName("computerUseModel") val computerUseModel: String? = null,
     /**
-     * NEW-59: the Work screen, the 1-based NUMBER of the display agents drive
-     * (`work-screen.json`); null = Auto. Same carry-forward: null stays ABSENT
+     * NEW-59/#FEED-161: the Work screen, the stable `id` of the display agents
+     * drive (`work-screen.json`); null = Auto. Same carry-forward: null stays ABSENT
      * on the wire so the server keeps what is stored, unless
-     * [clearComputerUseDisplay] asks for the explicit null that clears it.
+     * [clearComputerUseDisplayId] asks for the explicit null that clears it.
      */
-    @SerialName("computerUseDisplay") val computerUseDisplay: Int? = null,
-    /** NEW-59: the person picked Auto: send `computerUseDisplay: null`. Never decoded. */
-    @kotlinx.serialization.Transient val clearComputerUseDisplay: Boolean = false,
+    @SerialName("computerUseDisplayId") val computerUseDisplayId: String? = null,
+    /** NEW-59: the person picked Auto: send `computerUseDisplayId: null`. Never decoded. */
+    @kotlinx.serialization.Transient val clearComputerUseDisplayId: Boolean = false,
 )
 
 /**

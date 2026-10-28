@@ -117,27 +117,27 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// nil = the key is absent (or not a string): every reader seeds
     /// `DomainContract.deviceComputerUseDefaultsModel`.
     public let computerUseModel: String?
-    /// NEW-59: the work screen, the 1-based number of the display in the
-    /// device's own `doctor.displays` list (fixture `work-screen.json`).
-    /// nil = Auto (the key absent, null, or not an integer).
-    public let computerUseDisplay: Int?
+    /// NEW-59/#FEED-161: the work screen, the stable `id` of the display in
+    /// the device's own `doctor.displays` list (fixture `work-screen.json`).
+    /// nil = Auto (the key absent, null, or not a string).
+    public let computerUseDisplayId: String?
 
     public init(
         defaultAgent: String? = nil,
         agents: [String: AgentLaunchDefaults]? = nil,
         computerUse: Bool? = nil,
         computerUseModel: String? = nil,
-        computerUseDisplay: Int? = nil
+        computerUseDisplayId: String? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
         self.computerUse = computerUse
         self.computerUseModel = computerUseModel
-        self.computerUseDisplay = computerUseDisplay
+        self.computerUseDisplayId = computerUseDisplayId
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, agents, computerUse, computerUseModel, computerUseDisplay
+        case defaultAgent, agents, computerUse, computerUseModel, computerUseDisplayId
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -149,7 +149,7 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
         computerUse = (try? c.decodeIfPresent(Bool.self, forKey: .computerUse)) ?? nil
         computerUseModel = (try? c.decodeIfPresent(String.self, forKey: .computerUseModel)) ?? nil
-        computerUseDisplay = (try? c.decodeIfPresent(Int.self, forKey: .computerUseDisplay)) ?? nil
+        computerUseDisplayId = (try? c.decodeIfPresent(String.self, forKey: .computerUseDisplayId)) ?? nil
     }
 }
 

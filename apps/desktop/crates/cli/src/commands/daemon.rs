@@ -2024,7 +2024,7 @@ fn apply_server_defaults(
     let was_on = settings.computer_use;
     let changed = coding::apply_defaults_patch(&mut settings, &patch);
     // NEW-59: the computer hub reads the Work screen from here.
-    coding::computer::set_work_display(settings.computer_use_display);
+    coding::computer::set_work_display(settings.computer_use_display_id.clone());
     if changed {
         if let Err(err) = settings.save(&settings_path) {
             log::warn!("launch defaults: save failed: {err}");
@@ -2041,10 +2041,11 @@ fn apply_server_defaults(
         }
     }
     // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);
-    // recording the stamp stops a re-apply loop either way.
+    // recording the stamp stops a re-apply loop either way. #FEED-161
+    // UPGRADE: a Work screen pick the row never carried queues a push.
     let marker = coding::SyncMarker {
         synced_at: stamp.map(str::to_string),
-        dirty: false,
+        dirty: coding::display_push_pending(&settings),
         hash: Some(coding::defaults_fingerprint(&settings)),
     };
     if let Err(err) = coding::write_marker(&settings_path, device_id, &marker) {
@@ -2083,6 +2084,10 @@ fn push_local_defaults(
             };
             if let Err(err) = coding::write_marker(&settings_path, device_id, &marker) {
                 log::debug!("launch defaults: marker write failed: {err}");
+            }
+            // #FEED-161: the row carries this device's Work screen now.
+            if let Err(err) = coding::mark_display_pushed(&settings_path) {
+                log::debug!("launch defaults: pushed-flag save failed: {err}");
             }
         }
         Err(err) => {

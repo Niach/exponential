@@ -170,7 +170,7 @@ fn main() -> ExitCode {
         let data_dir = context::data_dir();
         let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
         // NEW-59: the Work screen the computer hub gates by.
-        coding::computer::set_work_display(settings.computer_use_display);
+        coding::computer::set_work_display(settings.computer_use_display_id.clone());
         if settings.computer_use {
             coding::computer::prepare_in_background();
         }

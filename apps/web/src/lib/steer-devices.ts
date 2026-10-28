@@ -101,8 +101,8 @@ export interface DeviceLaunchDefaults {
   /** EXP-1236: the screen-driving subagents' model alias (contract
    * `codingModel`, THE model vocabulary); absent = `deviceComputerUseDefaults.model`. */
   computerUseModel?: string | null
-  /** NEW-59: the work screen's 1-based display number; absent/null = Auto. */
-  computerUseDisplay?: number | null
+  /** NEW-59 / #FEED-161: the work screen's stable display id; absent/null = Auto. */
+  computerUseDisplayId?: string | null
   agents?: Record<string, AgentLaunchDefaults>
 }
 

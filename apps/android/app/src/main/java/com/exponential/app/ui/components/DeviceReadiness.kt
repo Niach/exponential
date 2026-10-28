@@ -71,9 +71,9 @@ fun DeviceReadinessBlock(
     /** NEW-59: the device's reported displays (`doctor.displays`). */
     workScreenDisplays: List<com.exponential.app.domain.WorkScreenDisplay>? = null,
     /** NEW-59: the stored Work screen (null = Auto). */
-    computerUseDisplay: Int? = null,
+    computerUseDisplayId: String? = null,
     /** NEW-59: adds the Work screen row under the model row; null = no row. */
-    onComputerUseDisplayChange: ((Int?) -> Unit)? = null,
+    onComputerUseDisplayChange: ((String?) -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("device-readiness")) {
         groups.forEachIndexed { index, group ->
@@ -129,7 +129,7 @@ fun DeviceReadinessBlock(
                         GroupDivider()
                         WorkScreenPickerRow(
                             displays = workScreenDisplays,
-                            value = computerUseDisplay,
+                            value = computerUseDisplayId,
                             onSelect = onComputerUseDisplayChange,
                         )
                     }

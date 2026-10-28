@@ -208,10 +208,10 @@ export function DeviceSettingsDialog({
   const [computerUseModel, setComputerUseModel] = useState<string>(
     contract.deviceComputerUseDefaults.model
   )
-  // NEW-59: the work screen, the 1-based display number; null = Auto.
-  const [computerUseDisplay, setComputerUseDisplay] = useState<number | null>(
-    null
-  )
+  // NEW-59 / #FEED-161: the work screen, the display's stable id; null = Auto.
+  const [computerUseDisplayId, setComputerUseDisplayId] = useState<
+    string | null
+  >(null)
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -264,7 +264,7 @@ export function DeviceSettingsDialog({
     setComputerUseModel(
       clampComputerUseModel(source.launchDefaults?.computerUseModel)
     )
-    setComputerUseDisplay(source.launchDefaults?.computerUseDisplay ?? null)
+    setComputerUseDisplayId(source.launchDefaults?.computerUseDisplayId ?? null)
     const stored = source.launchDefaults?.defaultAgent
     const agent =
       stored && agents.includes(stored)
@@ -404,7 +404,7 @@ export function DeviceSettingsDialog({
     drafts,
     computerUse,
     computerUseModel,
-    computerUseDisplay,
+    computerUseDisplayId,
     namePending,
     defaultsPending,
   })
@@ -415,7 +415,7 @@ export function DeviceSettingsDialog({
     drafts,
     computerUse,
     computerUseModel,
-    computerUseDisplay,
+    computerUseDisplayId,
     namePending,
     defaultsPending,
   }
@@ -507,7 +507,7 @@ export function DeviceSettingsDialog({
           computerUse: snapshot.computerUse,
           computerUseModel: snapshot.computerUseModel,
           // NEW-59: null = Auto (an explicit clear); sent like the model.
-          computerUseDisplay: snapshot.computerUseDisplay,
+          computerUseDisplayId: snapshot.computerUseDisplayId,
           agents,
         },
       }, SKIP_ERROR_TOAST)
@@ -671,16 +671,16 @@ export function DeviceSettingsDialog({
     scheduleDefaults()
   }
   // NEW-59: the work screen rides the same save. Picker values are strings:
-  // `auto` stands for null, a display for its number.
+  // `auto` stands for null, a display for its stable id (#FEED-161).
   const workScreenItems = workScreenOptions(
     row?.doctor?.displays,
-    computerUseDisplay
+    computerUseDisplayId
   ).map((option) => ({
-    value: option.value === null ? WORK_SCREEN_AUTO : String(option.value),
+    value: option.value ?? WORK_SCREEN_AUTO,
     label: option.label,
   }))
   const pickWorkScreen = (value: string) => {
-    setComputerUseDisplay(value === WORK_SCREEN_AUTO ? null : Number(value))
+    setComputerUseDisplayId(value === WORK_SCREEN_AUTO ? null : value)
     scheduleDefaults()
   }
 
@@ -929,9 +929,7 @@ export function DeviceSettingsDialog({
                   mobileTitle={WORK_SCREEN_COPY.row}
                   data-testid={WORK_SCREEN_TEST_IDS.row}
                   value={
-                    computerUseDisplay === null
-                      ? WORK_SCREEN_AUTO
-                      : String(computerUseDisplay)
+                    computerUseDisplayId ?? WORK_SCREEN_AUTO
                   }
                   items={workScreenItems}
                   onChange={pickWorkScreen}

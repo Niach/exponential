@@ -117,17 +117,18 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 /// toggled); nil writes no key and the server carries the stored value forward.
 /// EXP-1236: `computerUseModel` rides the same way beside it (a contract
 /// `computerUseModel` alias; the server clamps unknown ones).
-/// NEW-59: `computerUseDisplay` (the work screen) is TRI-STATE: `.keep`
+/// NEW-59: `computerUseDisplayId` (the work screen) is TRI-STATE: `.keep`
 /// writes no key (the server carries the stored display forward), `.auto` an
-/// explicit null (clears it to Auto), `.display(n)` the 1-based number.
+/// explicit null (clears it to Auto), `.display(id)` the display's stable id
+/// (#FEED-161).
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public enum DisplayPick: Equatable, Sendable {
         case keep
         case auto
-        case display(Int)
+        case display(String)
 
         /// The sheet's draft (nil = Auto) as an explicit pick.
-        public init(_ value: Int?) {
+        public init(_ value: String?) {
             self = value.map(DisplayPick.display) ?? .auto
         }
     }
@@ -135,22 +136,22 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let agents: [String: AgentLaunchDefaultsInput]?
     public let computerUse: Bool?
     public let computerUseModel: String?
-    public let computerUseDisplay: DisplayPick
+    public let computerUseDisplayId: DisplayPick
 
     public init(
         agents: [String: AgentLaunchDefaultsInput]? = nil,
         computerUse: Bool? = nil,
         computerUseModel: String? = nil,
-        computerUseDisplay: DisplayPick = .keep
+        computerUseDisplayId: DisplayPick = .keep
     ) {
         self.agents = agents
         self.computerUse = computerUse
         self.computerUseModel = computerUseModel
-        self.computerUseDisplay = computerUseDisplay
+        self.computerUseDisplayId = computerUseDisplayId
     }
 
     private enum CodingKeys: String, CodingKey {
-        case agents, computerUse, computerUseModel, computerUseDisplay
+        case agents, computerUse, computerUseModel, computerUseDisplayId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -158,10 +159,10 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
         try c.encodeIfPresent(agents, forKey: .agents)
         try c.encodeIfPresent(computerUse, forKey: .computerUse)
         try c.encodeIfPresent(computerUseModel, forKey: .computerUseModel)
-        switch computerUseDisplay {
+        switch computerUseDisplayId {
         case .keep: break
-        case .auto: try c.encodeNil(forKey: .computerUseDisplay)
-        case .display(let number): try c.encode(number, forKey: .computerUseDisplay)
+        case .auto: try c.encodeNil(forKey: .computerUseDisplayId)
+        case .display(let id): try c.encode(id, forKey: .computerUseDisplayId)
         }
     }
 }

@@ -1,8 +1,12 @@
 //! HASH (`hashCases`): a 64-bit average hash of the frame. Integer luma,
-//! a box downscale to 64 x 64, 8 x 8 blocks of 8 x 8, bit k (the first block
-//! the most significant) set when the block is brighter than the mean.
-//! One pass over the source rows, each summed in its 64 column spans, so
-//! the cost is a luma per pixel and nothing else.
+//! a box downscale to 64 x 64 that reads every kx-th pixel of every ky-th
+//! row of each box (kx = max(1, W / 256), ky likewise: about 4 x 4 samples
+//! a box, so a 5K frame costs ~65 k lumas, not 15 M), 8 x 8 blocks of
+//! 8 x 8, bit k (the first block the most significant) set when the block is
+//! brighter than the mean. MASK: a masked pixel reads black (luma 0), as if
+//! the frame had been filled there.
+
+use crate::store::Rect;
 
 const SIDE: usize = 64;
 const BLOCKS: usize = 8;
@@ -12,6 +16,11 @@ const BLOCKS: usize = 8;
 fn span(index: usize, len: usize) -> (usize, usize) {
     let start = index * len / SIDE;
     (start, ((index + 1) * len / SIDE).max(start + 1))
+}
+
+/// The sampling step along an axis of `len` pixels.
+fn step(len: usize) -> usize {
+    (len / (SIDE * 4)).max(1)
 }
 
 /// Integer luma of one pixel whose red is byte `R` and blue byte `2 - R`.
@@ -26,40 +35,56 @@ pub(crate) fn hash(width: u32, height: u32, rgba: &[u8]) -> u64 {
     if rgba.len() < width as usize * height as usize * 4 {
         return 0;
     }
-    hash_rows(width, height, width as usize * 4, false, rgba)
+    hash_rows(width, height, width as usize * 4, false, rgba, &[])
 }
 
 /// The hash of a frame as the OS lends it: rows `stride` bytes apart, RGBA
-/// or (`bgra`) BGRA; 0 for an empty one.
-pub(crate) fn hash_rows(width: u32, height: u32, stride: usize, bgra: bool, bytes: &[u8]) -> u64 {
+/// or (`bgra`) BGRA, `masks` read as black; 0 for an empty one.
+pub(crate) fn hash_rows(width: u32, height: u32, stride: usize, bgra: bool, bytes: &[u8], masks: &[Rect]) -> u64 {
     if bgra {
-        hash_with::<2>(width, height, stride, bytes)
+        hash_with::<2>(width, height, stride, bytes, masks)
     } else {
-        hash_with::<0>(width, height, stride, bytes)
+        hash_with::<0>(width, height, stride, bytes, masks)
     }
 }
 
-fn hash_with<const R: usize>(width: u32, height: u32, stride: usize, bytes: &[u8]) -> u64 {
+fn hash_with<const R: usize>(width: u32, height: u32, stride: usize, bytes: &[u8], masks: &[Rect]) -> u64 {
     let (width, height) = (width as usize, height as usize);
     if width == 0 || height == 0 || stride < width * 4 || bytes.len() < stride * (height - 1) + width * 4 {
         return 0;
     }
+    let (kx, ky) = (step(width), step(height));
     let columns: Vec<(usize, usize)> = (0..SIDE).map(|i| span(i, width)).collect();
     let mut targets = [0u64; SIDE * SIDE];
+    let mut covered: Vec<(usize, usize)> = Vec::new();
     for j in 0..SIDE {
         let (top, bottom) = span(j, height);
         let mut sums = [0u64; SIDE];
-        for y in top..bottom {
+        let mut rows = 0u64;
+        for y in (top..bottom).step_by(ky) {
+            rows += 1;
             let row = &bytes[y * stride..y * stride + width * 4];
+            covered.clear();
+            covered.extend(masks.iter().filter(|mask| (mask.y.max(0) as usize..(mask.y.max(0) as usize + mask.height as usize)).contains(&y)).map(|mask| {
+                let left = mask.x.max(0) as usize;
+                (left, left + mask.width as usize)
+            }));
             for (sum, &(left, right)) in sums.iter_mut().zip(&columns) {
-                let part: u32 = row[left * 4..right * 4].chunks_exact(4).map(luma::<R>).sum();
+                let part: u32 = if covered.is_empty() {
+                    (left..right).step_by(kx).map(|x| luma::<R>(&row[x * 4..x * 4 + 4])).sum()
+                } else {
+                    (left..right)
+                        .step_by(kx)
+                        .filter(|x| !covered.iter().any(|(from, to)| (*from..*to).contains(x)))
+                        .map(|x| luma::<R>(&row[x * 4..x * 4 + 4]))
+                        .sum()
+                };
                 *sum += u64::from(part);
             }
         }
-        let rows = (bottom - top) as u64;
         for (i, sum) in sums.iter().enumerate() {
             let (left, right) = columns[i];
-            targets[j * SIDE + i] = sum / (rows * (right - left) as u64);
+            targets[j * SIDE + i] = sum / (rows * (right - left).div_ceil(kx) as u64);
         }
     }
     let total: u64 = targets.iter().sum();
@@ -159,7 +184,27 @@ pub(crate) mod tests {
                     bgra[y * stride + x * 4..y * stride + x * 4 + 4].copy_from_slice(&[px[2], px[1], px[0], 0]);
                 }
             }
-            assert_eq!(hex(hash_rows(width, height, stride, true, &bgra)), case["hash"].as_str().unwrap(), "{}", case["image"]);
+            assert_eq!(hex(hash_rows(width, height, stride, true, &bgra, &[])), case["hash"].as_str().unwrap(), "{}", case["image"]);
         }
+    }
+
+    /// MASK: a masked rect hashes exactly like the frame filled black there
+    /// (a rect past the edge clips).
+    #[test]
+    fn a_masked_rect_hashes_like_the_frame_filled_black() {
+        let image = serde_json::json!({ "width": 1030, "height": 600, "pattern": "gradientX" });
+        let (width, height, mut rgba) = pattern(&image);
+        let masks = [Rect { x: 100, y: 40, width: 300, height: 200 }, Rect { x: 900, y: 500, width: 400, height: 400 }];
+        let masked = hash_rows(width, height, width as usize * 4, false, &rgba, &masks);
+        for mask in &masks {
+            for y in mask.y as u32..(mask.y as u32 + mask.height).min(height) {
+                for x in mask.x as u32..(mask.x as u32 + mask.width).min(width) {
+                    let at = ((y * width + x) * 4) as usize;
+                    rgba[at..at + 3].fill(0);
+                }
+            }
+        }
+        assert_eq!(masked, hash(width, height, &rgba));
+        assert_ne!(masked, hash_rows(width, height, width as usize * 4, false, &pattern(&image).2, &[]));
     }
 }

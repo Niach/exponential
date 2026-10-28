@@ -208,13 +208,11 @@ fn save_state(data_dir: &std::path::Path, state: &TrayState) {
     }
 }
 
-/// NEW-58: this OS captures (ScreenCaptureKit, the ScreenCast portal or X11,
-/// Windows Graphics Capture): the Screen memory row shows.
-const SCREEN_AVAILABLE: bool = cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows"));
-
 /// NEW-58: what the tray asks of the `screen` crate. They join threads and
 /// touch the disk, so ONE background task runs them, in the order asked: a
-/// start never overtakes the stop before it.
+/// start never overtakes the stop before it. #FEED-162: a start runs on its
+/// own thread (the Linux portal's dialog may hold it), so a later stop or
+/// delete does not wait behind it: it cancels it ([`screen::ticket`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ScreenOp {
     /// Start capturing; the answer comes back with this generation.
@@ -261,7 +259,7 @@ fn screen_step(screen: &mut ScreenMemory, account: Option<String>, voice_device:
         step.ops.push(ScreenOp::Forget);
         return step;
     }
-    let wanted = SCREEN_AVAILABLE && screen.on && voice_device && account.is_some() && account == screen.account;
+    let wanted = screen.available && screen.on && voice_device && account.is_some() && account == screen.account;
     if wanted == screen.running {
         return step;
     }
@@ -271,9 +269,31 @@ fn screen_step(screen: &mut ScreenMemory, account: Option<String>, voice_device:
     step
 }
 
+/// NEW-58: the tray's Screen memory item flipped to `on` (by `account`):
+/// off = stop and delete the buffer, running or not (a stop that kept it may
+/// have come first); on = owned by that account (the next sync starts it).
+fn switch_step(screen: &mut ScreenMemory, on: bool, account: Option<String>) -> ScreenStep {
+    let mut step = ScreenStep::default();
+    if on == screen.on {
+        return step;
+    }
+    screen.on = on;
+    screen.account = if on { account } else { None };
+    step.changed = true;
+    if !on {
+        screen.running = false;
+        screen.generation += 1;
+        step.ops.push(ScreenOp::Forget);
+    }
+    step
+}
+
 /// NEW-58: the Screen memory switch and the capture it drives.
 #[derive(Debug)]
 struct ScreenMemory {
+    /// #FEED-162: this machine can capture ([`screen::available`]: not on
+    /// Wayland, which has no window list): else no row and no start.
+    available: bool,
     /// The switch (device-local, kept).
     on: bool,
     /// The account that turned it on.
@@ -294,8 +314,8 @@ struct ScreenMemory {
 
 impl ScreenMemory {
     /// The switch as this device left it; nothing running yet.
-    fn new(on: bool, account: Option<String>) -> Self {
-        ScreenMemory { on, account, status: screen::Status::Off, running: false, generation: 0, seen_account: false, last_account: None }
+    fn new(on: bool, account: Option<String>, available: bool) -> Self {
+        ScreenMemory { available, on, account, status: screen::Status::Off, running: false, generation: 0, seen_account: false, last_account: None }
     }
 }
 
@@ -341,7 +361,7 @@ pub fn install(cx: &mut App) {
     let state = load_state(&data_dir);
     let muted = state.muted;
     let switch_on = state.screen_memory;
-    let screen = ScreenMemory::new(switch_on, state.screen_account);
+    let screen = ScreenMemory::new(switch_on, state.screen_account, screen::available());
     // NEW-58: the stops and deletes join threads: one background task runs
     // them in order; a start's answer comes back to the tray.
     let (screen_ops, ops_rx) = flume::unbounded::<ScreenOp>();
@@ -353,7 +373,15 @@ pub fn install(cx: &mut App) {
                 while let Ok(op) = ops_rx.recv_async().await {
                     match op {
                         ScreenOp::Start(generation) => {
-                            let _ = started_tx.send((generation, screen::start(data_dir.clone())));
+                            // The ticket in queue order: a stop queued after
+                            // it cancels it, even mid-dialog.
+                            let (ticket, data_dir, answer) = (screen::ticket(), data_dir.clone(), started_tx.clone());
+                            let spawned = std::thread::Builder::new().name("screen-memory-start".into()).spawn(move || {
+                                let _ = answer.send((generation, screen::start_with(data_dir, ticket)));
+                            });
+                            if let Err(err) = spawned {
+                                let _ = started_tx.send((generation, Err(format!("Could not start screen memory: {err}"))));
+                            }
                         }
                         ScreenOp::Stop { forget } => screen::stop(forget),
                         ScreenOp::Forget => screen::forget(&data_dir),
@@ -510,17 +538,12 @@ impl VoiceTray {
 
     /// NEW-58: the Screen memory item.
     fn set_screen_memory(&mut self, on: bool, cx: &mut Context<Self>) {
-        if on == self.screen.on {
+        let step = switch_step(&mut self.screen, on, crate::speak_replies::session_account(cx));
+        if !step.changed {
             return;
         }
-        self.screen.on = on;
-        self.screen.account = if on { crate::speak_replies::session_account(cx) } else { None };
-        if !on {
-            // Off = stop and delete the buffer, running or not (a stop that
-            // kept it may have come first).
-            self.screen.running = false;
-            self.screen.generation += 1;
-            let _ = self.screen_ops.send(ScreenOp::Forget);
+        for op in step.ops {
+            let _ = self.screen_ops.send(op);
         }
         self.save();
         cx.notify();
@@ -547,7 +570,7 @@ impl VoiceTray {
     /// NEW-58: a start's answer. A stale one is left alone: the stop or
     /// delete that made it stale is queued behind it.
     fn screen_started(&mut self, generation: u64, result: Result<(), String>, cx: &mut Context<Self>) {
-        if self.screen.generation != generation {
+        if self.screen.generation != generation || result.as_ref().is_err_and(|reason| reason == screen::CANCELLED) {
             return;
         }
         if let Err(reason) = result {
@@ -589,7 +612,7 @@ impl VoiceTray {
             device_is_voice_device,
             shortcut_unavailable: status.reason().is_some(),
             shortcut_label: status.trigger(),
-            screen_memory: SCREEN_AVAILABLE.then_some(ScreenMemoryState {
+            screen_memory: self.screen.available.then_some(ScreenMemoryState {
                 on: self.screen.on,
                 paused: self.screen.status == screen::Status::Paused,
             }),
@@ -1007,7 +1030,7 @@ mod tests {
     #[test]
     fn screen_memory_steps_delete_the_buffer_on_sign_out_whatever_the_switch() {
         let acct = || Some("acct".to_string());
-        let mut screen = ScreenMemory::new(true, acct());
+        let mut screen = ScreenMemory::new(true, acct(), true);
         // Before the settings are known nothing runs; then it starts.
         assert_eq!(screen_step(&mut screen, None, false, false).ops, []);
         let step = screen_step(&mut screen, acct(), true, true);
@@ -1020,7 +1043,7 @@ mod tests {
         assert!(step.changed && !screen.on && !screen.running);
 
         // Switch OFF, signed in as acct: an account change still deletes.
-        let mut screen = ScreenMemory::new(false, None);
+        let mut screen = ScreenMemory::new(false, None, true);
         assert_eq!(screen_step(&mut screen, acct(), true, true).ops, []);
         let step = screen_step(&mut screen, Some("other".into()), true, true);
         assert_eq!(step.ops, [ScreenOp::Forget]);
@@ -1029,16 +1052,73 @@ mod tests {
         assert_eq!(screen_step(&mut screen, None, true, true).ops, [], "once");
 
         // Another voice device: off and deleted.
-        let mut screen = ScreenMemory::new(true, acct());
+        let mut screen = ScreenMemory::new(true, acct(), true);
         screen_step(&mut screen, acct(), true, true);
         let step = screen_step(&mut screen, acct(), false, true);
         assert_eq!(step.ops, [ScreenOp::Forget]);
         assert!(step.changed && !screen.on);
         // Running, then the settings say this is not the voice device yet
         // unknown: a stop that keeps the buffer.
-        let mut screen = ScreenMemory::new(true, acct());
+        let mut screen = ScreenMemory::new(true, acct(), true);
         screen_step(&mut screen, acct(), true, true);
         assert_eq!(screen_step(&mut screen, acct(), false, false).ops, [ScreenOp::Stop { forget: false }]);
+    }
+
+    /// NEW-58 / #FEED-162: the item going off is the tray's Forget (stop
+    /// and delete), running or not; on only records the account; a machine
+    /// that cannot capture (Wayland) never starts.
+    #[test]
+    fn switching_screen_memory_off_forgets_and_unavailable_never_starts() {
+        let acct = || Some("acct".to_string());
+        let mut screen = ScreenMemory::new(false, None, true);
+        let step = switch_step(&mut screen, true, acct());
+        assert_eq!((step.ops.as_slice(), step.changed), ([].as_slice(), true));
+        assert_eq!(screen.account, acct());
+        assert_eq!(screen_step(&mut screen, acct(), true, true).ops, [ScreenOp::Start(screen.generation)]);
+        let started = screen.generation;
+        let step = switch_step(&mut screen, false, acct());
+        assert_eq!((step.ops.as_slice(), step.changed), ([ScreenOp::Forget].as_slice(), true));
+        assert!(!screen.running && screen.account.is_none() && screen.generation > started, "the start's answer is stale");
+        assert_eq!(switch_step(&mut screen, false, acct()), ScreenStep::default(), "off again: nothing");
+        assert_eq!(screen_step(&mut screen, acct(), true, true).ops, [], "stays off");
+
+        let mut wayland = ScreenMemory::new(true, acct(), false);
+        assert_eq!(screen_step(&mut wayland, acct(), true, true).ops, []);
+        assert!(!wayland.running);
+    }
+
+    /// NEW-58: the tray entity's own path: switching the item off queues the
+    /// Forget and keeps the switch off on disk.
+    #[gpui::test]
+    async fn the_tray_item_going_off_queues_the_forget(cx: &mut gpui::TestAppContext) {
+        let dir = std::env::temp_dir().join(format!("voice-tray-screen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (screen_ops, ops) = flume::unbounded();
+        let (tx, _rx) = flume::unbounded();
+        let tray = cx.update(|cx| {
+            cx.new(|_| VoiceTray {
+                muted: false,
+                screen: ScreenMemory::new(false, None, true),
+                screen_ops,
+                data_dir: dir.clone(),
+                pending: None,
+                generation: 0,
+                device_id: "this-device".into(),
+                menu: None,
+                icon: None,
+                hosted: None,
+                rail: None,
+                backend: backend::Backend::new(tx),
+            })
+        });
+        tray.update(cx, |tray, cx| tray.set_screen_memory(true, cx));
+        assert!(load_state(&dir).screen_memory);
+        assert!(ops.try_iter().all(|op| op != ScreenOp::Forget));
+        tray.update(cx, |tray, cx| tray.set_screen_memory(false, cx));
+        assert_eq!(ops.try_iter().collect::<Vec<_>>(), [ScreenOp::Forget]);
+        assert!(!load_state(&dir).screen_memory);
+        tray.update(cx, |tray, _| assert!(!tray.screen.on && !tray.screen.running));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

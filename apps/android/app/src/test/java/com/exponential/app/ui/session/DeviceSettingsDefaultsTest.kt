@@ -353,49 +353,58 @@ class DeviceSettingsDefaultsTest {
     }
 
     /**
-     * NEW-59: the Work screen (`computerUseDisplay`, 1-based, null = Auto)
+     * NEW-59: the Work screen (`computerUseDisplayId`, a display id per
+     * #FEED-161, null = Auto)
      * decodes leniently, rides as itself once picked, stays ABSENT while unset
      * (the server carries it forward) and is an explicit null once Auto is
      * picked (which clears it).
      */
     @Test
-    fun `computerUseDisplay carries forward and an explicit null clears it`() {
+    fun `computerUseDisplayId carries forward and an explicit null clears it`() {
         val json = Json { ignoreUnknownKeys = true }
         assertNull(
-            json.decodeFromString(DeviceLaunchDefaults.serializer(), """{"agents":{}}""").computerUseDisplay,
+            json.decodeFromString(DeviceLaunchDefaults.serializer(), """{"agents":{}}""").computerUseDisplayId,
         )
         assertEquals(
-            2,
+            "uuid-b",
+            json.decodeFromString(
+                DeviceLaunchDefaults.serializer(),
+                """{"computerUseDisplayId":"uuid-b","agents":{}}""",
+            ).computerUseDisplayId,
+        )
+        // The #1295 number key is gone (no legacy): it reads as Auto.
+        assertNull(
             json.decodeFromString(
                 DeviceLaunchDefaults.serializer(),
                 """{"computerUseDisplay":2,"agents":{}}""",
-            ).computerUseDisplay,
+            ).computerUseDisplayId,
         )
         assertNull(
             json.decodeFromString(
                 DeviceLaunchDefaults.serializer(),
-                """{"computerUseDisplay":null,"agents":{}}""",
-            ).computerUseDisplay,
+                """{"computerUseDisplayId":null,"agents":{}}""",
+            ).computerUseDisplayId,
         )
 
         val picked = setLaunchDefaultsInput(
             deviceId = "dev-1",
-            defaults = buildDefaults(listOf("claude"), emptyMap(), computerUseDisplay = 2),
+            defaults = buildDefaults(listOf("claude"), emptyMap(), computerUseDisplayId = "uuid-b"),
         ).getValue("launchDefaults").jsonObject
-        assertEquals(JsonPrimitive(2), picked["computerUseDisplay"])
+        assertEquals(JsonPrimitive("uuid-b"), picked["computerUseDisplayId"])
+        assertFalse(picked.containsKey("computerUseDisplay"))
 
         val unset = setLaunchDefaultsInput(
             deviceId = "dev-1",
             defaults = buildDefaults(listOf("claude"), emptyMap()),
         ).getValue("launchDefaults").jsonObject
-        assertFalse(unset.containsKey("computerUseDisplay"))
+        assertFalse(unset.containsKey("computerUseDisplayId"))
 
         val auto = setLaunchDefaultsInput(
             deviceId = "dev-1",
-            defaults = buildDefaults(listOf("claude"), emptyMap(), clearComputerUseDisplay = true),
+            defaults = buildDefaults(listOf("claude"), emptyMap(), clearComputerUseDisplayId = true),
         ).getValue("launchDefaults").jsonObject
-        assertEquals(JsonNull, auto["computerUseDisplay"])
-        assertFalse(auto.containsKey("clearComputerUseDisplay"))
+        assertEquals(JsonNull, auto["computerUseDisplayId"])
+        assertFalse(auto.containsKey("clearComputerUseDisplayId"))
     }
 
     /** EXP-773 deleted the "Start in terminal" preference. A stored

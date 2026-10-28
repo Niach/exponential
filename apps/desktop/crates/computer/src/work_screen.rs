@@ -3,8 +3,8 @@
 //! the run's current display and where the voice overlay may open. The
 //! pure rules replay the fixture; the OS reads go through the backend.
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
 
@@ -50,7 +50,8 @@ pub const KEYS_ELSEWHERE: &str = "keysElsewhere";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub count: usize,
-    /// 1-based; `None` = Auto.
+    /// The 1-based number of the display whose id is stored, 0 when that
+    /// id is not connected (#FEED-161); `None` = Auto.
     pub picked: Option<u32>,
     /// 0-based displays holding a fullscreen window.
     pub fullscreen: Vec<usize>,
@@ -70,8 +71,9 @@ pub struct Call<'a> {
     pub id: Option<u64>,
     /// `screenshot`'s 0-based `display` argument.
     pub display: Option<usize>,
-    /// `activate_window`: the 0-based display holding the LISTED window's
-    /// centre; `None` = list_windows does not name the id.
+    /// `activate_window`: the 0-based display the LISTED window overlaps
+    /// most ([`window_display`]); `None` = list_windows does not name the
+    /// id or it lies on no display.
     pub window_display: Option<usize>,
 }
 
@@ -98,7 +100,6 @@ pub fn work_displays(state: &State) -> Vec<usize> {
 #[derive(Default)]
 struct Fields {
     display: Option<usize>,
-    picked: Option<u32>,
     id: Option<u64>,
 }
 
@@ -109,7 +110,6 @@ fn refuse(kind: &'static str, fields: Fields, work: &[usize]) -> Refusal {
     let work = work.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     let text = template
         .replace("{display}", &text_of(fields.display.map(|display| display.to_string())))
-        .replace("{picked}", &text_of(fields.picked.map(|picked| picked.to_string())))
         .replace("{id}", &text_of(fields.id.map(|id| id.to_string())))
         .replace("{work}", &work);
     Refusal { kind, text }
@@ -122,12 +122,17 @@ pub fn gate(state: &State, call: Call<'_>) -> Result<(), Refusal> {
         return Ok(());
     }
     if state.picked.is_some() && work.is_empty() {
-        return Err(refuse(PICKED_GONE, Fields { picked: state.picked, ..Fields::default() }, &work));
+        return Err(refuse(PICKED_GONE, Fields::default(), &work));
     }
     if work.is_empty() {
         return Err(refuse(NO_WORK_SCREEN, Fields::default(), &work));
     }
     let input = is_input(call.tool);
+    // #FEED-161: Auto without a window list knows no display to be free
+    // (no fullscreen reading); a connected pick still screenshots.
+    if !state.windows_read && state.picked.is_none() {
+        return Err(refuse(NO_WINDOW_LIST, Fields::default(), &work));
+    }
     if !state.windows_read && (input || call.tool == "list_windows") {
         return Err(refuse(NO_WINDOW_LIST, Fields::default(), &work));
     }
@@ -181,25 +186,42 @@ pub fn overlay_display(count: usize, pointer: usize, fullscreen: &[usize], work:
     (0..count).find(|&index| free(index))
 }
 
-/// The device's Work screen setting, 1-based; 0 = Auto.
-static PICKED: AtomicU32 = AtomicU32::new(0);
+/// The device's Work screen setting: the picked display's stable id
+/// (#FEED-161); `None` = Auto. Resolved to a number on every call
+/// ([`resolve`]), so a hot-plug or a reorder never moves it.
+static PICKED: Mutex<Option<String>> = Mutex::new(None);
 
-pub(crate) fn set_picked(number: Option<u32>) {
-    PICKED.store(number.unwrap_or(0), Ordering::Release);
+pub(crate) fn set_picked(id: Option<String>) {
+    *PICKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = id.filter(|id| !id.is_empty());
 }
 
-pub(crate) fn picked() -> Option<u32> {
-    Some(PICKED.load(Ordering::Acquire)).filter(|number| *number > 0)
+pub(crate) fn picked() -> Option<String> {
+    PICKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
 }
 
-/// The 0-based display holding the point; `None` off every display.
-pub(crate) fn display_at(displays: &[DisplayInfo], x: i32, y: i32) -> Option<usize> {
-    displays.iter().position(|display| display.contains(x, y))
+/// The gate's `picked` off the stored id: the 1-based number of the display
+/// carrying it, 0 when none does; `None` = Auto.
+pub(crate) fn resolve(displays: &[DisplayInfo], picked: Option<&str>) -> Option<u32> {
+    let id = picked?;
+    Some(displays.iter().position(|display| display.id == id).map_or(0, |index| index as u32 + 1))
 }
 
-/// The 0-based display holding `window`'s centre.
+/// The 0-based display `window` overlaps MOST (ties: the lower index;
+/// #FEED-161, never its centre alone); `None` when it is on no display.
 pub(crate) fn window_display(displays: &[DisplayInfo], window: &WindowInfo) -> Option<usize> {
-    display_at(displays, window.x + window.width as i32 / 2, window.y + window.height as i32 / 2)
+    most_overlap(displays, window.x, window.y, window.width, window.height)
+}
+
+/// The 0-based display a rect overlaps most (ties: the lower index).
+pub(crate) fn most_overlap(displays: &[DisplayInfo], x: i32, y: i32, width: u32, height: u32) -> Option<usize> {
+    let mut best: Option<(usize, u64)> = None;
+    for (index, display) in displays.iter().enumerate() {
+        let area = display.overlap(x, y, width, height);
+        if area > 0 && best.is_none_or(|(_, most)| area > most) {
+            best = Some((index, area));
+        }
+    }
+    best.map(|(index, _)| index)
 }
 
 /// The gate's state off the backend's displays and window list (top
@@ -234,6 +256,7 @@ pub(crate) fn set_banner(display: Option<usize>) {
 
 fn public(index: usize, display: &DisplayInfo) -> Display {
     Display {
+        id: display.id.clone(),
         number: index as u32 + 1,
         x: display.x,
         y: display.y,
@@ -262,7 +285,8 @@ pub(crate) fn screen_state() -> Option<ScreenState> {
         log::debug!("[computer] no window list for the work screen ({reason})");
         Vec::new()
     });
-    let state = state_of(&displays, &windows, picked());
+    let picked = resolve(&displays, picked().as_deref());
+    let state = state_of(&displays, &windows, picked);
     let work = work_displays(&state);
     Some(ScreenState {
         displays: displays.iter().enumerate().map(|(index, display)| public(index, display)).collect(),
@@ -301,7 +325,7 @@ pub(crate) fn screen_view() -> Option<crate::ScreenView> {
         }
     };
     let windows = backend.list_windows().ok()?;
-    Some(view_of(&displays, &windows, picked(), backend::app_id))
+    Some(view_of(&displays, &windows, picked().as_deref(), backend::app_id))
 }
 
 /// [`screen_view`] off one display set (with pixel sizes) and one window
@@ -310,10 +334,11 @@ pub(crate) fn screen_view() -> Option<crate::ScreenView> {
 pub(crate) fn view_of(
     displays: &[(DisplayInfo, (u32, u32))],
     windows: &[WindowInfo],
-    picked: Option<u32>,
+    picked: Option<&str>,
     app_id: impl Fn(u32) -> Option<String>,
 ) -> crate::ScreenView {
     let infos: Vec<DisplayInfo> = displays.iter().map(|(display, _)| display.clone()).collect();
+    let picked = resolve(&infos, picked);
     let work = work_displays(&state_of(&infos, windows, picked)).into_iter().map(|index| index as u32 + 1).collect();
     let mut tops: Vec<crate::TopWindow> = Vec::new();
     for window in windows {
@@ -439,7 +464,7 @@ mod tests {
     #[test]
     fn the_focused_rect_is_in_the_displays_pixels_and_clipped_to_it() {
         // A Retina panel: 1512x982 points, 3024x1964 pixels, right of a 1920 one.
-        let display = DisplayInfo { x: 1920, y: 0, width: 1512, height: 982, primary: false, name: String::new() };
+        let display = DisplayInfo { id: String::new(), x: 1920, y: 0, width: 1512, height: 982, primary: false, name: String::new() };
         let window = |x, y, width, height| WindowInfo {
             id: 1,
             title: String::new(),
@@ -461,8 +486,8 @@ mod tests {
     }
 
     #[test]
-    fn the_state_reads_fullscreen_and_focus_off_the_window_centres() {
-        let display = |x, primary| DisplayInfo { x, y: 0, width: 1000, height: 1000, primary, name: String::new() };
+    fn the_state_reads_fullscreen_and_focus_off_the_windows_displays() {
+        let display = |x, primary| DisplayInfo { id: format!("id-{x}"), x, y: 0, width: 1000, height: 1000, primary, name: String::new() };
         let displays = [display(0, true), display(1000, false)];
         let window = |x, active, fullscreen| WindowInfo {
             id: 1,
@@ -484,11 +509,56 @@ mod tests {
         assert_eq!(state_of(&displays, &[], Some(2)).active, None);
     }
 
+    /// #FEED-161: a window's display = the one its rect overlaps MOST
+    /// (ties: the lower index), never its centre alone.
+    #[test]
+    fn a_window_belongs_to_the_display_it_overlaps_most() {
+        // Display 0 is short (600 tall), display 1 is 1000.
+        let displays = [
+            DisplayInfo { id: "a".into(), x: 0, y: 0, width: 1000, height: 600, primary: true, name: String::new() },
+            DisplayInfo { id: "b".into(), x: 1000, y: 0, width: 1000, height: 1000, primary: false, name: String::new() },
+        ];
+        let window = |x, y, width, height| WindowInfo {
+            id: 1,
+            title: String::new(),
+            app: String::new(),
+            pid: None,
+            x,
+            y,
+            width,
+            height,
+            active: false,
+            fullscreen: false,
+        };
+        // Centres on no display: the overlap still places them.
+        assert_eq!(window_display(&displays, &window(200, 300, 1500, 800)), Some(1));
+        assert_eq!(window_display(&displays, &window(0, 0, 1200, 1400)), Some(0));
+        // Centre (950, 500) on display 0, most of it (200x1000 vs 300x600) on 1.
+        assert_eq!(window_display(&displays, &window(700, 0, 500, 1000)), Some(1));
+        // An exact tie: the lower index.
+        assert_eq!(window_display(&displays, &window(800, 0, 400, 400)), Some(0));
+        // Off every display.
+        assert_eq!(window_display(&displays, &window(5000, 0, 100, 100)), None);
+    }
+
+    /// #FEED-161: the stored id names the display wherever it sits now; an
+    /// id nobody carries = 0 (gone), never Auto.
+    #[test]
+    fn the_picked_id_resolves_to_its_display_after_a_reorder() {
+        let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new() };
+        assert_eq!(resolve(&[display("a"), display("b")], Some("b")), Some(2));
+        assert_eq!(resolve(&[display("b"), display("a")], Some("b")), Some(1));
+        assert_eq!(resolve(&[display("a")], Some("b")), Some(0));
+        assert_eq!(resolve(&[display("a")], None), None);
+        let state = State { count: 1, picked: resolve(&[display("a")], Some("b")), windows_read: true, ..State::default() };
+        assert!(work_displays(&state).is_empty());
+    }
+
     /// NEW-58: screen memory's view: the focused window with its app id,
     /// the work displays 1-based, each display's top window.
     #[test]
     fn the_screen_view_reads_focus_work_and_top_windows_in_one_list() {
-        let display = |x, primary| (DisplayInfo { x, y: 0, width: 1000, height: 1000, primary, name: String::new() }, (2000, 2000));
+        let display = |x, primary| (DisplayInfo { id: format!("id-{x}"), x, y: 0, width: 1000, height: 1000, primary, name: String::new() }, (2000, 2000));
         let displays = [display(0, true), display(1000, false)];
         let window = |app: &str, x, active, fullscreen| WindowInfo {
             id: 1,
@@ -511,7 +581,7 @@ mod tests {
         let tops: Vec<(u32, &str)> = view.tops.iter().map(|top| (top.display, top.app.as_str())).collect();
         assert_eq!(tops, [(1, "Passwords"), (2, "Notes")]);
         // A picked display that is gone: no work display; no focus = None.
-        let view = view_of(&displays, &windows[..1], Some(3), |_| None);
+        let view = view_of(&displays, &windows[..1], Some("id-unplugged"), |_| None);
         assert_eq!((view.focused, view.work), (None, vec![]));
     }
 }

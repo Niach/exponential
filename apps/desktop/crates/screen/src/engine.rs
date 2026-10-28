@@ -10,10 +10,14 @@
 //! next tick retries the change, re-grabbing those displays' latest frame
 //! (SKIP IF BUSY). STALE: a display coming back into capture (the pause
 //! ends, its top window leaves the denylist, it turns a work display again)
-//! takes only frames delivered one interval after that. The retention sweep
-//! runs every interval, paused or not.
+//! takes only frames delivered one interval after that, and once that
+//! interval is over a still display is captured FRESH once (the OS stream
+//! delivers only changes). LABEL and MASK read the window list nearest the
+//! frame's capture time (a short ring of readings), so a frame the OS
+//! captured before a focus change is labelled (and masked) as it was then.
+//! The retention sweep runs every interval, paused or not.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -21,15 +25,20 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use computer::visible::{ScreenLook, VisibleWindow};
 use computer::{FocusedWindow, ScreenView};
 
 use crate::capture::{Capturer, Frame, Want};
 use crate::store::{self, Rect, Row, Store};
 use crate::{fixture, hash, ring, shrink, Status};
 
-/// The screen now (`computer::screen_view`; a fake in tests). `None` = no
-/// window list: paused (fail closed).
-pub(crate) type ViewSource = Box<dyn FnMut() -> Option<ScreenView> + Send>;
+/// The screen now (`computer::visible::screen_look`; a fake in tests).
+/// `None` = no window list: paused (fail closed).
+pub(crate) type ViewSource = Box<dyn FnMut() -> Option<ScreenLook> + Send>;
+
+/// How long the window-list readings are kept for LABEL / MASK: longer than
+/// any frame the OS still hands out (the slot holds at most one interval).
+const READINGS_KEPT_MS: i64 = 3_000;
 /// Hears Active / Paused changes.
 pub(crate) type StatusSink = Arc<dyn Fn(Status) + Send + Sync>;
 
@@ -77,6 +86,28 @@ pub(crate) fn capturing(view: Option<&ScreenView>, paused: bool) -> Vec<u32> {
         .copied()
         .filter(|display| !view.tops.iter().any(|top| top.display == *display && ring::denied(&top.app, &top.app, &top.title)))
         .collect()
+}
+
+/// MASK: the rects of `display`'s denylisted windows (not the top one: that
+/// skips the display) in a `width` x `height` frame; `None` = one of them
+/// cannot be placed (the reading's display size is not the frame's), so the
+/// frame is dropped.
+pub(crate) fn masks(windows: &[&VisibleWindow], display: u32, width: u32, height: u32) -> Option<Vec<Rect>> {
+    let mut masks = Vec::new();
+    for window in windows.iter().filter(|window| window.display == display) {
+        if !ring::denied(window.app_id.as_deref().unwrap_or(&window.app), &window.app, &window.title) {
+            continue;
+        }
+        if window.display_size != (width, height) {
+            return None;
+        }
+        if let Some(rect) = clip(window.rect, width, height) {
+            if !masks.contains(&rect) {
+                masks.push(rect);
+            }
+        }
+    }
+    Some(masks)
 }
 
 /// LABEL: the display holding the focused window carries its app and
@@ -139,6 +170,8 @@ impl Memory {
             retry: Vec::new(),
             captured: None,
             since: HashMap::new(),
+            owed: Vec::new(),
+            readings: VecDeque::new(),
         };
         let thread = std::thread::Builder::new()
             .name("screen-memory".into())
@@ -197,6 +230,12 @@ struct Loop {
     captured: Option<Vec<u32>>,
     /// STALE: per display, the earliest delivery a grab takes.
     since: HashMap<u32, Instant>,
+    /// FRESH: displays back in capture that still need one frame (a still
+    /// screen delivers none); captured fresh once their `since` passed.
+    owed: Vec<u32>,
+    /// The window-list readings of the last [`READINGS_KEPT_MS`] (Unix ms,
+    /// oldest first; `None` = no window list then).
+    readings: VecDeque<(i64, Option<Arc<ScreenLook>>)>,
 }
 
 impl Loop {
@@ -204,12 +243,14 @@ impl Loop {
         let mut next_tick = Instant::now();
         let mut next_sweep = Instant::now();
         loop {
-            let view = (self.view)();
-            let focus = view.as_ref().and_then(|view| view.focused.clone());
+            let look = (self.view)().map(Arc::new);
+            self.remember(now_ms(), look.clone());
+            let view = look.as_ref().map(|look| &look.view);
+            let focus = view.and_then(|view| view.focused.clone());
             let paused = self.hotkey.load(Ordering::Acquire) || paused_by(focus.as_ref());
             self.show(if paused { Status::Paused } else { Status::Active });
             let now = Instant::now();
-            let capturing = capturing(view.as_ref(), paused);
+            let capturing = capturing(view, paused);
             self.resume(&capturing, now);
             if paused {
                 // Nothing, not even the tick; the next tick after the
@@ -217,7 +258,7 @@ impl Loop {
                 self.last_focus = None;
                 self.retry.clear();
             } else if now >= next_tick {
-                self.tick(view.as_ref(), &capturing);
+                self.tick(&capturing);
                 next_tick += self.timing.interval;
                 if next_tick <= now {
                     next_tick = now + self.timing.interval;
@@ -228,7 +269,7 @@ impl Loop {
                     let display = focus.as_ref().expect("a focused window").display;
                     if capturing.contains(&display) {
                         match self.capturer.grab(self.want(display)) {
-                            Ok(Some(frame)) => self.keep(vec![frame], view.as_ref()),
+                            Ok(Some(frame)) => self.keep(vec![frame]),
                             Ok(None) => {}
                             Err(reason) => log::debug!("[screen] no focus-change frame: {reason}"),
                         }
@@ -260,14 +301,33 @@ impl Loop {
         }
     }
 
+    /// Keep this reading; drop the ones older than [`READINGS_KEPT_MS`]
+    /// (the newest stays).
+    fn remember(&mut self, at: i64, look: Option<Arc<ScreenLook>>) {
+        self.readings.push_back((at, look));
+        while self.readings.len() > 1 && self.readings.front().is_some_and(|(first, _)| *first < at - READINGS_KEPT_MS) {
+            self.readings.pop_front();
+        }
+    }
+
+    /// The reading nearest `at` (Unix ms; a tie takes the later one).
+    fn reading_at(&self, at: i64) -> Option<&Arc<ScreenLook>> {
+        self.readings.iter().rev().min_by_key(|(when, _)| (when - at).abs()).and_then(|(_, look)| look.as_ref())
+    }
+
     /// STALE: a display back in capture takes only frames delivered one
-    /// interval from now (the OS may still hold one from before).
+    /// interval from now (the OS may still hold one from before), and owes
+    /// a FRESH frame.
     fn resume(&mut self, capturing: &[u32], now: Instant) {
         if let Some(before) = &self.captured {
             for display in capturing.iter().filter(|display| !before.contains(display)) {
                 self.since.insert(*display, now + self.timing.interval);
+                if !self.owed.contains(display) {
+                    self.owed.push(*display);
+                }
             }
         }
+        self.owed.retain(|display| capturing.contains(display));
         self.captured = Some(capturing.to_vec());
     }
 
@@ -275,7 +335,7 @@ impl Loop {
         Want { display, since: self.since.get(&display).copied() }
     }
 
-    fn tick(&mut self, view: Option<&ScreenView>, capturing: &[u32]) {
+    fn tick(&mut self, capturing: &[u32]) {
         // No work display (a picked one gone, every one fullscreen): no grab.
         if capturing.is_empty() {
             self.retry.clear();
@@ -291,7 +351,24 @@ impl Loop {
                         }
                     }
                 }
-                self.keep(frames, view);
+                // FRESH: a display back in capture whose screen stood still
+                // since (no delivery) is captured now, once.
+                let now = Instant::now();
+                for display in self.owed.clone() {
+                    let due = self.since.get(&display).is_none_or(|since| now >= *since);
+                    if !due || !capturing.contains(&display) || frames.iter().any(|frame| frame.display == display) {
+                        continue;
+                    }
+                    match self.capturer.fresh(display) {
+                        Ok(Some(frame)) => frames.push(frame),
+                        Ok(None) => self.owed.retain(|owed| *owed != display),
+                        Err(reason) => {
+                            log::debug!("[screen] no fresh frame of display {display}: {reason}");
+                            self.owed.retain(|owed| *owed != display);
+                        }
+                    }
+                }
+                self.keep(frames);
             }
             Err(reason) => log::debug!("[screen] no frames this tick: {reason}"),
         }
@@ -299,36 +376,51 @@ impl Loop {
 
     /// Hash and dedupe the frames; the kept ones go to the worker as one
     /// batch unless it is still busy.
-    fn keep(&mut self, frames: Vec<Frame>, view: Option<&ScreenView>) {
+    fn keep(&mut self, frames: Vec<Frame>) {
         // Busy: not even the hash (the gate would skip them all anyway).
         if !self.gate.worker.ready() {
             self.skip(frames.iter().map(|frame| frame.display));
             return;
         }
-        let focus = view.and_then(|view| view.focused.as_ref());
         let grabbed = now_ms();
-        let frames: Vec<(Frame, u64, (String, String))> = frames
+        let latest = self.readings.back().and_then(|(_, look)| look.clone());
+        let frames: Vec<(Frame, u64, (String, String), Option<Rect>)> = frames
             .into_iter()
             .filter(Frame::valid)
-            .map(|frame| {
-                let hash = hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes());
+            .filter_map(|mut frame| {
+                let at = *frame.at.get_or_insert(grabbed);
+                // The screen as it was when the OS captured this frame; none
+                // (no window list then), a denylisted focus or top window
+                // then = dropped (fail closed).
+                let reading = self.reading_at(at)?.clone();
+                let view = Some(&reading.view);
+                let focus = reading.view.focused.as_ref();
+                if paused_by(focus) || !capturing(view, false).contains(&frame.display) {
+                    return None;
+                }
+                // MASK: every denylisted window on the display then and now.
+                let windows: Vec<&VisibleWindow> = reading.windows.iter().chain(latest.iter().flat_map(|look| look.windows.iter())).collect();
+                frame.masks = masks(&windows, frame.display, frame.width, frame.height)?;
+                let hash = hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes(), &frame.masks);
                 let label = label(view, frame.display);
-                (frame, hash, label)
+                let focus = focus.filter(|window| window.display == frame.display).and_then(|window| clip(window.rect, frame.width, frame.height));
+                Some((frame, hash, label, focus))
             })
             .collect();
         let keys: Vec<(u32, u64, &str, &str)> =
-            frames.iter().map(|(frame, hash, (app, title))| (frame.display, *hash, app.as_str(), title.as_str())).collect();
+            frames.iter().map(|(frame, hash, (app, title), _)| (frame.display, *hash, app.as_str(), title.as_str())).collect();
         let Some(admitted) = self.gate.admit(&keys) else {
             let displays: Vec<u32> = keys.iter().map(|key| key.0).collect();
             self.skip(displays.into_iter());
             return;
         };
+        // FRESH: a display with a frame through the gate owes none.
+        self.owed.retain(|display| !keys.iter().any(|key| key.0 == *display));
         let batch: Vec<Job> = frames
             .into_iter()
             .zip(admitted)
             .filter(|(_, admitted)| *admitted)
-            .map(|((frame, hash, (app, title)), _)| {
-                let focus = focus.filter(|window| window.display == frame.display).and_then(|window| clip(window.rect, frame.width, frame.height));
+            .map(|((frame, hash, (app, title), focus), _)| {
                 let at = frame.at.unwrap_or(grabbed);
                 let row = Row {
                     at,

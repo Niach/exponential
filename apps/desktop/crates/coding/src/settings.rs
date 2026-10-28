@@ -87,7 +87,7 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 27] = [
+const DEAD_KEYS: [&str; 28] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -119,7 +119,13 @@ const DEAD_KEYS: [&str; 27] = [
     "workflowStrongModel",
     // The pre-document engine state (`workflowEngine.<deviceId>`).
     "workflowEngine",
+    // #FEED-161: the NEW-59 Work screen NUMBER; the pick is a display id
+    // now (`computerUseDisplayId`), no legacy.
+    "computerUseDisplay",
 ];
+
+/// [`Settings::computer_use_display_id_pushed`] on disk.
+const PUSHED_KEY: &str = "computerUseDisplayIdPushed";
 
 /// The resolved coding settings. `repos_root` is stored in its raw
 /// (possibly `~`-prefixed) form and tilde-expanded at use
@@ -199,11 +205,18 @@ pub struct Settings {
     /// [`DEFAULT_COMPUTER_USE_MODEL`]. Device-level like `computer_use`
     /// (`launch_defaults.computerUseModel`); claude-only in effect.
     pub computer_use_model: String,
-    /// NEW-59: the Work screen, the 1-based number of the display agents
-    /// drive (`launch_defaults.computerUseDisplay`, `fixtures/work-screen.json`);
-    /// `None` = Auto. Device-level like `computer_use`; the computer hub
-    /// reads it through [`crate::computer::set_work_display`].
-    pub computer_use_display: Option<u32>,
+    /// NEW-59: the Work screen, the stable id of the display agents drive
+    /// (`launch_defaults.computerUseDisplayId`, `fixtures/work-screen.json`;
+    /// #FEED-161: an id, never the OS order); `None` = Auto. Device-level
+    /// like `computer_use`; the computer hub reads it through
+    /// [`crate::computer::set_work_display`].
+    pub computer_use_display_id: Option<String>,
+    /// #FEED-161 UPGRADE: this device pushed its `computerUseDisplayId` (or
+    /// adopted a row carrying the key) at least once. Until then a row
+    /// WITHOUT the key does not mean Auto: the local pick stays and is
+    /// pushed on the converge ([`crate::remote_admin::display_push_pending`]).
+    /// Local bookkeeping, never on the wire.
+    pub computer_use_display_id_pushed: bool,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -309,7 +322,8 @@ impl Default for Settings {
             auto_rotate_accounts: true,
             computer_use: false,
             computer_use_model: DEFAULT_COMPUTER_USE_MODEL.to_string(),
-            computer_use_display: None,
+            computer_use_display_id: None,
+            computer_use_display_id_pushed: false,
             terminal_shell: None,
             changelog_seen_id: None,
             app_editor_layout: None,
@@ -381,8 +395,10 @@ impl Settings {
             MODEL_ALIASES,
             DEFAULT_COMPUTER_USE_MODEL,
         );
-        // Display numbers are 1-based: a hand-edited 0 reads as Auto.
-        settings.computer_use_display = settings.computer_use_display.filter(|number| *number >= 1);
+        // A blank or overlong hand-edited display id reads as Auto.
+        settings.computer_use_display_id = settings
+            .computer_use_display_id
+            .filter(|id| crate::remote_admin::valid_display_id(id));
         // Blank/whitespace shell degrades to None (= auto-detect).
         settings.terminal_shell = settings
             .terminal_shell
@@ -407,8 +423,14 @@ impl Settings {
             .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
         let ours = serde_json::to_value(self).expect("settings serialize cannot fail");
         if let (Some(target), Some(source)) = (root.as_object_mut(), ours.as_object()) {
+            // #FEED-161: the pushed flag only ever turns on; a stale
+            // in-memory copy (the IDE hub's) never turns it back off.
+            let pushed = target.get(PUSHED_KEY).and_then(serde_json::Value::as_bool) == Some(true);
             for (key, value) in source {
                 target.insert(key.clone(), value.clone());
+            }
+            if pushed {
+                target.insert(PUSHED_KEY.to_string(), serde_json::Value::Bool(true));
             }
             for key in DEAD_KEYS {
                 target.remove(key);
@@ -994,7 +1016,8 @@ mod tests {
             auto_rotate_accounts: false,
             computer_use: true,
             computer_use_model: "sonnet".to_string(),
-            computer_use_display: Some(2),
+            computer_use_display_id: Some("37D8832A-2D66-02CA-B9F7-8F30A301B230".to_string()),
+            computer_use_display_id_pushed: true,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             app_editor_layout: Some("docked".to_string()),
@@ -1133,6 +1156,28 @@ mod tests {
         let raw = fs::read_to_string(&path).unwrap();
         assert!(!raw.contains("usageWindow"), "{raw}");
         assert!(!raw.contains("terminalDockBubble"), "{raw}");
+    }
+
+    /// #FEED-161: the NEW-59 Work screen number is gone (the pick is a
+    /// display id now, no legacy): an old file loads as Auto and the
+    /// merge-save scrubs the key.
+    #[test]
+    fn the_retired_work_screen_number_is_scrubbed_on_save() {
+        let dir = TempDir::new("work-screen-number");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"claudeModel":"opus","computerUseDisplay":2}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.computer_use_display_id, None);
+        assert!(!settings.computer_use_display_id_pushed);
+        settings.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("\"computerUseDisplay\""), "{raw}");
+        // The pushed flag only turns on: a stale copy saving false keeps it.
+        Settings { computer_use_display_id_pushed: true, ..Settings::default() }.save(&path).unwrap();
+        Settings::default().save(&path).unwrap();
+        assert!(Settings::load(&path).computer_use_display_id_pushed);
+        fs::write(&path, r#"{"computerUseDisplayId":"  "}"#).unwrap();
+        assert_eq!(Settings::load(&path).computer_use_display_id, None, "blank = Auto");
     }
 
     /// EXP-723: the EXP-282 rail-expanded preference is gone (the sidebar is

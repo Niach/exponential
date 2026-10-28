@@ -146,8 +146,8 @@ fn point(args: &Value, frame: Frame, x: &str, y: &str) -> Result<(i32, i32), Str
 pub(crate) struct CallContext<'a> {
     pub interrupted: &'a dyn Fn() -> bool,
     pub display: &'a mut Option<usize>,
-    /// `launch_defaults.computerUseDisplay` (1-based; `None` = Auto).
-    pub picked: Option<u32>,
+    /// `launch_defaults.computerUseDisplayId` (a display id; `None` = Auto).
+    pub picked: Option<String>,
     /// Takes the person's input; runs once the call passed the gate, so a
     /// refused call never locks them out. `Err` = the answer.
     pub engage: &'a dyn Fn() -> Result<(), String>,
@@ -163,14 +163,16 @@ struct Screen {
 }
 
 impl Screen {
-    fn read(backend: &dyn Backend, name: &str, picked: Option<u32>) -> Result<Screen, String> {
+    fn read(backend: &dyn Backend, name: &str, picked: Option<&str>) -> Result<Screen, String> {
         let displays = backend.displays()?;
         if displays.is_empty() {
             return Err("No display.".to_string());
         }
+        // #FEED-161: the stored id names the display, whatever its index now.
+        let picked = work_screen::resolve(&displays, picked);
         // A connected pick is the work screen whatever is fullscreen: only
         // the input tools (the focus rules) and list_windows read windows.
-        let pinned = picked.is_some_and(|number| number >= 1 && number as usize <= displays.len());
+        let pinned = picked.is_some_and(|number| number >= 1);
         let windows = if !pinned || work_screen::is_input(name) || name == "list_windows" {
             backend.list_windows()
         } else {
@@ -212,7 +214,7 @@ fn refusal(refusal: work_screen::Refusal, work: &[usize]) -> Value {
 
 /// One call: the work-screen gate, the lease, the tool.
 pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut CallContext<'_>) -> Value {
-    let screen = match Screen::read(backend, name, ctx.picked) {
+    let screen = match Screen::read(backend, name, ctx.picked.as_deref()) {
         Ok(screen) => screen,
         Err(text) => return error(text),
     };
@@ -274,13 +276,14 @@ fn dispatch(
             std::thread::sleep(Duration::from_millis(50));
         }
         // The screen after the wait: a fullscreen app may have closed.
-        let screen = Screen::read(backend, "screenshot", ctx.picked)?;
+        let screen = Screen::read(backend, "screenshot", ctx.picked.as_deref())?;
+        // The screenshot it answers with passes the gate too (#FEED-161: in
+        // Auto without a window list no display is known to be free).
+        if let Err(refused) = work_screen::gate(&screen.state, work_screen::Call { tool: "screenshot", ..Default::default() }) {
+            return Ok(ok(refused.text, json!({ "work": [] })));
+        }
         let Some(current) = work_screen::current(&screen.work, screen.primary(), *ctx.display) else {
-            let text = work_screen::gate(&screen.state, work_screen::Call { tool: "screenshot", ..Default::default() })
-                .err()
-                .map(|refused| refused.text)
-                .unwrap_or_default();
-            return Ok(ok(text, json!({ "work": [] })));
+            return Ok(ok("No work screen.".to_string(), json!({ "work": [] })));
         };
         *ctx.display = Some(current);
         work_screen::set_banner(Some(current));
@@ -439,8 +442,7 @@ fn press(backend: &dyn Backend, key: Key) -> Result<(), String> {
 fn window_json(w: &WindowInfo, frame: Frame, displays: &[DisplayInfo]) -> Value {
     let (x, y) = frame.to_frame(w.x, w.y);
     let (width, height) = frame.length_to_frame(w.width, w.height);
-    let (cx, cy) = (w.x + w.width as i32 / 2, w.y + w.height as i32 / 2);
-    let display = displays.iter().position(|display| display.contains(cx, cy)).unwrap_or(0);
+    let display = work_screen::window_display(displays, w).unwrap_or(0);
     json!({ "id": w.id, "title": w.title, "app": w.app, "pid": w.pid, "display": display, "x": x, "y": y, "width": width, "height": height, "active": w.active })
 }
 
@@ -510,8 +512,8 @@ pub(crate) mod tests {
     impl Backend for FakeBackend {
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
-                DisplayInfo { x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into() },
-                DisplayInfo { x: 2000, y: 0, width: 1000, height: 1000, primary: false, name: "B".into() },
+                DisplayInfo { id: "uuid-A".into(), x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into() },
+                DisplayInfo { id: "uuid-B".into(), x: 2000, y: 0, width: 1000, height: 1000, primary: false, name: "B".into() },
             ])
         }
         fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {
@@ -584,7 +586,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_frame_fits_1280x800_and_maps_both_ways() {
-        let display = |x, y, width, height| DisplayInfo { x, y, width, height, primary: true, name: String::new() };
+        let display = |x, y, width, height| DisplayInfo { id: String::new(), x, y, width, height, primary: true, name: String::new() };
         let frame = Frame::fit(&display(0, 0, 2560, 1440));
         assert_eq!(frame.image, (1280, 720));
         assert_eq!(frame.to_screen(640.0, 360.0), (1280, 720));
@@ -688,7 +690,8 @@ pub(crate) mod tests {
             Ok(())
         };
         let mut display = None;
-        let mut run = |name: &str, args: Value, picked: Option<u32>| {
+        let mut run = |name: &str, args: Value, picked: Option<&str>| {
+            let picked = picked.map(str::to_string);
             call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked, engage: &engage })
         };
         let click = run("left_click", json!({ "x": 1, "y": 1 }), None);
@@ -703,8 +706,9 @@ pub(crate) mod tests {
         let unknown = run("activate_window", json!({ "id": 4242 }), None);
         assert_eq!(unknown["structuredContent"]["kind"], "unknownWindow");
         // A picked display that is gone: nothing runs, never Auto.
-        let gone = run("left_click", json!({ "x": 1, "y": 1 }), Some(3));
+        let gone = run("left_click", json!({ "x": 1, "y": 1 }), Some("uuid-unplugged"));
         assert_eq!(gone["structuredContent"]["kind"], "pickedGone");
+        assert_eq!(run("screenshot", json!({}), Some("uuid-unplugged"))["structuredContent"]["kind"], "pickedGone");
         assert_eq!(engaged.get(), 0, "a refusal never locks the person out");
         assert!(backend.log.lock().unwrap().is_empty());
         // list_windows: only display A and its windows.
@@ -713,8 +717,8 @@ pub(crate) mod tests {
         assert_eq!(windows["structuredContent"]["windows"][0]["id"], 7);
         assert_eq!(windows["structuredContent"]["displays"].as_array().unwrap().len(), 1);
         assert_eq!(windows["structuredContent"]["displays"][0]["index"], 0);
-        // The device picked display 2: its fullscreen app is the agent's own.
-        let click = run("left_click", json!({ "x": 0, "y": 0 }), Some(2));
+        // The device picked display B (by its id): its fullscreen app is the agent's own.
+        let click = run("left_click", json!({ "x": 0, "y": 0 }), Some("uuid-B"));
         assert_eq!(click["isError"], Value::Null, "{click}");
         assert_eq!(engaged.get(), 2);
         assert_eq!(display, Some(1));
@@ -722,7 +726,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_unreadable_window_list_refuses_input_but_still_shows_the_screen() {
+    fn an_unreadable_window_list_refuses_everything_in_auto_but_a_pick_still_shows_the_screen() {
         let backend = FakeBackend { no_windows: true, ..Default::default() };
         let never = || false;
         let engaged = std::cell::Cell::new(0);
@@ -731,15 +735,25 @@ pub(crate) mod tests {
             Ok(())
         };
         let mut display = None;
-        let mut run = |name: &str, args: Value| {
-            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engage })
+        let mut run = |name: &str, args: Value, picked: Option<&str>| {
+            let picked = picked.map(str::to_string);
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked, engage: &engage })
         };
-        for (name, args) in [("type", json!({ "text": "x" })), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({}))] {
-            let refused = run(name, args);
-            assert_eq!(refused["structuredContent"]["kind"], "noWindowList", "{name}");
+        for picked in [None, Some("uuid-A")] {
+            for (name, args) in [("type", json!({ "text": "x" })), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({}))] {
+                let refused = run(name, args, picked);
+                assert_eq!(refused["structuredContent"]["kind"], "noWindowList", "{name} {picked:?}");
+            }
         }
+        // #FEED-161: Auto without a window list knows no free display.
+        assert_eq!(run("screenshot", json!({}), None)["structuredContent"]["kind"], "noWindowList");
         assert_eq!(engaged.get(), 0);
-        assert_eq!(run("screenshot", json!({}))["isError"], Value::Null);
+        let waited = run("wait", json!({ "seconds": 0 }), None);
+        assert_eq!(waited["isError"], Value::Null);
+        assert_eq!(waited["structuredContent"]["work"], json!([]), "no screenshot after the wait: {waited}");
+        let shot = run("screenshot", json!({}), Some("uuid-B"));
+        assert_eq!(shot["isError"], Value::Null);
+        assert_eq!(shot["structuredContent"]["display"], 1);
     }
 
     #[test]

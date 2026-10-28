@@ -5,7 +5,7 @@ import Foundation
 // (desktop computer crate `work_screen`, Android `domain/WorkScreen.kt`),
 // byte-locked by `fixtures/work-screen.json` (`copy`, `testIds` and
 // `optionCases`, replayed by `WorkScreenTests`). The phones only show and edit
-// the device's setting (`launchDefaults.computerUseDisplay`): the gate and the
+// the device's setting (`launchDefaults.computerUseDisplayId`): the gate and the
 // overlay rule are desktop-only. The fixture's `$comment` holds the rules.
 
 public enum WorkScreen {
@@ -25,14 +25,18 @@ public enum WorkScreen {
 
     /// One display as the device reports it in `doctor.displays` (OS order,
     /// pixels). Decoded leniently by `DeviceDoctor`: an entry missing a field
-    /// drops alone.
+    /// (an `id` included, #FEED-161) drops alone.
     public struct Display: Decodable, Equatable, Sendable {
+        /// #FEED-161: stable across reconnects and reorders (the stored value).
+        public let id: String
+        /// 1-based position, for the label only.
         public let number: Int
         public let width: Int
         public let height: Int
         public let primary: Bool
 
-        public init(number: Int, width: Int, height: Int, primary: Bool) {
+        public init(id: String, number: Int, width: Int, height: Int, primary: Bool) {
+            self.id = id
             self.number = number
             self.width = width
             self.height = height
@@ -40,13 +44,13 @@ public enum WorkScreen {
         }
     }
 
-    /// One picker option; `value` = the stored `computerUseDisplay` (1-based),
-    /// nil = Auto.
+    /// One picker option; `value` = the stored `computerUseDisplayId` (the
+    /// display's `id`), nil = Auto.
     public struct Option: Equatable, Hashable, Sendable {
-        public let value: Int?
+        public let value: String?
         public let label: String
 
-        public init(value: Int?, label: String) {
+        public init(value: String?, label: String) {
             self.value = value
             self.label = label
         }
@@ -60,15 +64,15 @@ public enum WorkScreen {
 
     /// The Work screen picker's options: Auto, the reported displays, then a
     /// stored display the device no longer reports.
-    public static func options(displays: [Display]?, stored: Int?) -> [Option] {
+    public static func options(displays: [Display]?, stored: String?) -> [Option] {
         var out = [Option(value: nil, label: Copy.auto)]
         for display in displays ?? [] {
             var label = "\(displayLabel(display.number))\(separator)\(display.width) × \(display.height)"
             if display.primary { label += "\(separator)\(Copy.primary)" }
-            out.append(Option(value: display.number, label: label))
+            out.append(Option(value: display.id, label: label))
         }
         if let stored, !out.contains(where: { $0.value == stored }) {
-            out.append(Option(value: stored, label: "\(displayLabel(stored))\(separator)\(Copy.notConnected)"))
+            out.append(Option(value: stored, label: Copy.notConnected))
         }
         return out
     }

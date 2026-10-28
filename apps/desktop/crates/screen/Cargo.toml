@@ -47,7 +47,7 @@ windows-capture = "1.5.0"
 # the `screencapturekit` 0.2 wrapper, whose callbacks can panic across FFI.
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSString"] }
-objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation", "libc", "SCShareableContent", "SCStream"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation", "libc", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
 objc2-core-media = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-core-video", "CMBase", "CMSampleBuffer", "CMSync", "CMTime"] }
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std"] }

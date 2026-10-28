@@ -1,7 +1,9 @@
 //! NEW-58 live check of the macOS capturer: opens it, waits 2 s, grabs every
 //! display, prints each frame and saves display 1 as a PNG. `--bench <secs>`
 //! then grabs all displays once a second for that long (CPU measurement);
-//! `--force` also lends display 1 every tick (a busy screen).
+//! `--force` also lends display 1 every tick (a busy screen); `--fresh` also
+//! takes one FRESH screenshot of display 1 every tick (its cost after a
+//! resume). Prints the process's CPU share.
 //!
 //! cargo run -p screen --example capture_mac [-- --bench 20]
 
@@ -9,6 +11,19 @@
 #[allow(dead_code)]
 #[path = "../src/capture/mod.rs"]
 mod capture;
+
+/// The capture module's one outside type (a frame's masks).
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+mod store {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Rect {
+        pub x: i32,
+        pub y: i32,
+        pub width: u32,
+        pub height: u32,
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn main() {
@@ -66,6 +81,13 @@ fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse::<u64>().ok())
     {
+        let cpu = || {
+            let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+            unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+            let seconds = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
+            seconds(usage.ru_utime) + seconds(usage.ru_stime)
+        };
+        let cpu_before = cpu();
         let begin = Instant::now();
         let (mut ticks, mut got) = (0, 0);
         while begin.elapsed() < Duration::from_secs(secs) {
@@ -76,10 +98,14 @@ fn main() {
             if args.iter().any(|a| a == "--force") {
                 got += capturer.grab(capture::Want { display: 1, since: None }).expect("grab").is_some() as usize;
             }
+            if args.iter().any(|a| a == "--fresh") {
+                got += capturer.fresh(1).expect("fresh").is_some() as usize;
+            }
             ticks += 1;
             std::thread::sleep(Duration::from_secs(1).saturating_sub(tick.elapsed()));
         }
-        println!("bench: {ticks} ticks, {got} frames in {:?}", begin.elapsed());
+        let wall = begin.elapsed();
+        println!("bench: {ticks} ticks, {got} frames in {wall:?}, {:.2} % of a core", (cpu() - cpu_before) / wall.as_secs_f64() * 100.);
     }
 }
 

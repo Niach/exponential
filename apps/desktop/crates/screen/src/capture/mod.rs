@@ -12,6 +12,8 @@ mod windows;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::store::Rect;
+
 /// One display's pixels, 8 bits per channel, physical resolution, as the
 /// OS hands them out: rows `stride` bytes apart, RGBA or BGRA. Only a frame
 /// the ring keeps is ever copied (cut to its window on the encode worker),
@@ -28,6 +30,9 @@ pub(crate) struct Frame {
     /// STAMP: when the OS captured or delivered it (Unix ms); `None` = a
     /// live read (the grab's time).
     pub at: Option<i64>,
+    /// MASK: rects (within the frame) read as black by the hash and filled
+    /// black in the stored picture: denylisted windows that are not on top.
+    pub masks: Vec<Rect>,
     pixels: Box<dyn Pixels>,
 }
 
@@ -42,20 +47,26 @@ impl Pixels for Vec<u8> {
     }
 }
 
+/// A buffer the capturer keeps and shares (Windows' latest frame): handed
+/// out without a copy.
+impl Pixels for std::sync::Arc<Vec<u8>> {
+    fn bytes(&self) -> &[u8] {
+        self
+    }
+}
+
 impl Frame {
     /// A tightly packed RGBA8 frame.
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub(crate) fn rgba(display: u32, width: u32, height: u32, rgba: Vec<u8>) -> Frame {
-        Frame { display, width, height, stride: width as usize * 4, bgra: false, at: None, pixels: Box::new(rgba) }
+        Frame { display, width, height, stride: width as usize * 4, bgra: false, at: None, masks: Vec::new(), pixels: Box::new(rgba) }
     }
 
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn lent(display: u32, width: u32, height: u32, stride: usize, bgra: bool, pixels: Box<dyn Pixels>) -> Frame {
-        Frame { display, width, height, stride, bgra, at: None, pixels }
+        Frame { display, width, height, stride, bgra, at: None, masks: Vec::new(), pixels }
     }
 
     /// The same frame stamped `at` (Unix ms).
-    #[allow(dead_code, reason = "the X11 root reader reads live")]
     pub(crate) fn stamped(mut self, at: i64) -> Frame {
         self.at = Some(at);
         self
@@ -97,10 +108,17 @@ pub(crate) trait Capturer: Send {
     /// (the focus-change capture, the retry after a skipped batch); `None` =
     /// nothing (new enough) yet.
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String>;
+    /// FRESH: one capture of `display` taken NOW, not the stream's last
+    /// delivery (a still screen after a resume, which the OS stream never
+    /// delivers again); `None` = this capturer cannot (the next delivery
+    /// counts).
+    fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        let _ = display;
+        Ok(None)
+    }
 }
 
 /// Unix ms now.
-#[allow(dead_code, reason = "the X11 root reader reads live")]
 pub(crate) fn wall_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_millis() as i64).unwrap_or_default()
 }

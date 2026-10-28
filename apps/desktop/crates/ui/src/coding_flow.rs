@@ -114,7 +114,7 @@ impl CodingHub {
         let settings_path = Settings::default_path(&data_dir);
         let settings = Settings::load(&settings_path);
         // NEW-59: the computer hub reads the Work screen from here.
-        coding::computer::set_work_display(settings.computer_use_display);
+        coding::computer::set_work_display(settings.computer_use_display_id.clone());
         let hub = cx.new(|_| CodingHub {
             settings,
             settings_path,
@@ -202,7 +202,7 @@ impl CodingHub {
             let result = settings
                 .save(&this.settings_path)
                 .map_err(|err| format!("Could not save settings: {err}"));
-            coding::computer::set_work_display(settings.computer_use_display);
+            coding::computer::set_work_display(settings.computer_use_display_id.clone());
             this.settings = settings.clone();
             cx.notify();
             (result, this.settings_path.clone())

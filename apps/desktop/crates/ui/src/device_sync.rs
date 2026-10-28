@@ -880,10 +880,11 @@ fn apply_server_defaults(
         log::info!("[device-sync] applied server launch defaults");
     }
     // Clamped fields are NOT pushed back (ping-pong); the stamp still
-    // records so the apply never loops.
+    // records so the apply never loops. #FEED-161 UPGRADE: a Work screen
+    // pick the row has never carried queues a push for the next beat.
     let marker = coding::SyncMarker {
         synced_at: stamp.map(str::to_string),
-        dirty: false,
+        dirty: coding::display_push_pending(&settings),
         hash: Some(coding::defaults_fingerprint(&settings)),
     };
     let _ = coding::write_marker(&snapshot.settings_path, &snapshot.device_id, &marker);
@@ -919,6 +920,10 @@ fn push_defaults(
                 hash: Some(coding::defaults_fingerprint(settings)),
             };
             let _ = coding::write_marker(&snapshot.settings_path, &snapshot.device_id, &marker);
+            // #FEED-161: the row carries this device's Work screen now.
+            if let Err(err) = coding::mark_display_pushed(&snapshot.settings_path) {
+                log::debug!("[device-sync] pushed-flag save failed: {err}");
+            }
             false
         }
         Err(err) => {
@@ -1382,7 +1387,7 @@ fn adopt_disk_settings(cx: &mut App) {
     let hub = CodingHub::global(cx);
     hub.update(cx, |hub, cx| {
         if hub.settings != settings {
-            coding::computer::set_work_display(settings.computer_use_display);
+            coding::computer::set_work_display(settings.computer_use_display_id.clone());
             hub.settings = settings;
             cx.notify();
         }
@@ -1395,7 +1400,7 @@ fn reload_hub_settings(cx: &mut App) {
     let hub = CodingHub::global(cx);
     hub.update(cx, |hub, cx| {
         hub.settings = coding::Settings::load(&settings_path);
-        coding::computer::set_work_display(hub.settings.computer_use_display);
+        coding::computer::set_work_display(hub.settings.computer_use_display_id.clone());
         cx.notify();
     });
     // Doctor refresh re-derives the advertisement → the relay re-dials with

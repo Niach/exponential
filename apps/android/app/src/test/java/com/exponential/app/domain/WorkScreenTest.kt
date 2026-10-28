@@ -18,8 +18,8 @@ class WorkScreenTest {
     private val fixture: JsonObject =
         Json.parseToJsonElement(contractFixtureJson("work-screen.json")).jsonObject
 
-    private fun intOrNull(element: kotlinx.serialization.json.JsonElement?): Int? =
-        element?.takeIf { it !is JsonNull }?.jsonPrimitive?.int
+    private fun strOrNull(element: kotlinx.serialization.json.JsonElement?): String? =
+        element?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
 
     @Test
     fun copyMatchesTheFixture() {
@@ -45,6 +45,7 @@ class WorkScreenTest {
             val displays = case["displays"]?.takeIf { it !is JsonNull }?.jsonArray?.map {
                 val d = it.jsonObject
                 WorkScreenDisplay(
+                    id = d.getValue("id").jsonPrimitive.content,
                     number = d.getValue("number").jsonPrimitive.int,
                     width = d.getValue("width").jsonPrimitive.int,
                     height = d.getValue("height").jsonPrimitive.int,
@@ -53,22 +54,24 @@ class WorkScreenTest {
             }
             val expect = case.getValue("expect").jsonArray.map {
                 val o = it.jsonObject
-                WorkScreenOption(intOrNull(o["value"]), o.getValue("label").jsonPrimitive.content)
+                WorkScreenOption(strOrNull(o["value"]), o.getValue("label").jsonPrimitive.content)
             }
-            assertEquals(name, expect, workScreenOptions(displays, intOrNull(case["stored"])))
+            assertEquals(name, expect, workScreenOptions(displays, strOrNull(case["stored"])))
         }
     }
 
     @Test
     fun doctorDisplaysDecodeLeniently() {
         val doctor = parseDeviceDoctor(
-            """{"items":[],"displays":[{"number":1,"width":2560,"height":1440,"primary":false},""" +
-                """{"number":2,"width":3024,"height":1964,"primary":true},{"number":"x"}]}""",
+            """{"items":[],"displays":[{"id":"uuid-a","number":1,"width":2560,"height":1440,"primary":false},""" +
+                """{"number":2,"width":1920,"height":1080,"primary":false},""" +
+                """{"id":"uuid-c","number":3,"width":3024,"height":1964,"primary":true},{"id":"uuid-d","number":"x"}]}""",
         )
         assertEquals(
             listOf(
-                WorkScreenDisplay(1, 2560, 1440, false),
-                WorkScreenDisplay(2, 3024, 1964, true),
+                WorkScreenDisplay("uuid-a", 1, 2560, 1440, false),
+                // #FEED-161: the entry without an `id` dropped alone.
+                WorkScreenDisplay("uuid-c", 3, 3024, 1964, true),
             ),
             doctor?.displays,
         )

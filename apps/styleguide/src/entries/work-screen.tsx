@@ -23,12 +23,12 @@ const MODELS = [
 
 /** The fixture's two-display case: display 2 is the primary. */
 const DISPLAYS = [
-  { number: 1, width: 2560, height: 1440, primary: false },
-  { number: 2, width: 3024, height: 1964, primary: true },
+  { id: `uuid-a`, number: 1, width: 2560, height: 1440, primary: false },
+  { id: `uuid-b`, number: 2, width: 3024, height: 1964, primary: true },
 ]
 
 const ITEMS = workScreenOptions(DISPLAYS, null).map((option) => ({
-  value: option.value === null ? `auto` : String(option.value),
+  value: option.value ?? `auto`,
   label: option.label,
 }))
 
@@ -37,7 +37,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `NEW-59`,
   title: `Work screen`,
-  blurb: `The display agents drive with computer use (NEW-59, work-screen.json). Device settings → the computer-use card carries a "${WORK_SCREEN_COPY.row}" picker row directly under the Computer use model row, only while computer use is on, on all four clients. Its options: "${WORK_SCREEN_COPY.auto}" first (every display without a fullscreen app), then one row per display the device reports in its doctor, "${WORK_SCREEN_COPY.display}" · width × height, the primary one ending in " · ${WORK_SCREEN_COPY.primary}"; a stored display the device no longer reports stays pickable last as " · ${WORK_SCREEN_COPY.notConnected}". The row's value is the picked option's label; the pick rides the dialog's launch-defaults save (launch_defaults.computerUseDisplay, null = Auto). The desktop computer hub enforces it: agents only see and drive the work screen, and never click or type while the person is in a fullscreen app on another display.`,
+  blurb: `The display agents drive with computer use (NEW-59, work-screen.json). Device settings → the computer-use card carries a "${WORK_SCREEN_COPY.row}" picker row directly under the Computer use model row, only while computer use is on, on all four clients. Its options: "${WORK_SCREEN_COPY.auto}" first (every display without a fullscreen app), then one row per display the device reports in its doctor, "${WORK_SCREEN_COPY.display}" · width × height, the primary one ending in " · ${WORK_SCREEN_COPY.primary}"; a stored display the device no longer reports stays pickable last as "${WORK_SCREEN_COPY.notConnected}". The row's value is the picked option's label; the pick rides the dialog's launch-defaults save as the display's stable id (launch_defaults.computerUseDisplayId, null = Auto; #FEED-161: plugging in or reordering displays never moves it to another monitor). The desktop computer hub enforces it: agents only see and drive the work screen, and never click or type while the person is in a fullscreen app on another display.`,
   status: {
     web: {
       state: `ok`,
