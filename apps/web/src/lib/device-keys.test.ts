@@ -67,8 +67,9 @@ describe(`checkDeviceKeyProof (FEED-159: clock skew is diagnosable)`, () => {
 })
 
 // A transaction fake for pinDeviceKeyInTx: its selects resolve in call order
-// (the pin, the machine's rows eldest first, the squats); writes are recorded.
-// The SQL itself (ordering, cardinality) is covered by the real-db suite.
+// (the pin, the first-seen account, the sharing rows, the squats); writes are
+// recorded. The SQL itself (Remove + relaunch, the admin's pinTo) is covered
+// by host-spoofing.real-db.test.ts.
 const t = vi.hoisted(() => ({
   selects: [] as unknown[][],
   inserted: [] as unknown[],
@@ -103,72 +104,57 @@ const tx = {
   }),
 }
 
-const OLD = new Date(`2026-01-01T00:00:00Z`)
-const MID = new Date(`2026-05-01T00:00:00Z`)
-const NEW = new Date(`2026-09-01T00:00:00Z`)
 const KEY = `ab`.repeat(32)
+const OTHER = `ef`.repeat(32)
 const pin = (args: { userId: string; deviceId: string; publicKey: string }) => pinDeviceKeyInTx(tx as never, args)
 
-describe(`pinDeviceKeyInTx (FEED-159: the eldest row pins)`, () => {
+describe(`pinDeviceKeyInTx (FEED-159: the first-seen account pins)`, () => {
   beforeEach(() => {
     t.selects = []
     t.inserted = []
     t.updated = []
   })
 
-  it(`pins first for the account of the machine's eldest row`, async () => {
-    t.selects = [[], [{ userId: `owner`, createdAt: OLD, sharedTeamIds: [] }, { userId: `squat`, createdAt: NEW, sharedTeamIds: [] }], []]
+  it(`pins first for the machine's first-seen account`, async () => {
+    t.selects = [[], [{ userId: `owner` }], [], []]
     expect(await pin({ userId: `owner`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: true, squats: [] })
     expect(t.inserted).toEqual([{ deviceId: `dev-1`, publicKey: KEY, userId: `owner` }])
   })
 
-  it(`refuses a first pin for a younger account that learned the id`, async () => {
-    t.selects = [[], [{ userId: `owner`, createdAt: OLD, sharedTeamIds: [] }, { userId: `squat`, createdAt: NEW, sharedTeamIds: [] }]]
+  it(`refuses a first pin for any other account`, async () => {
+    t.selects = [[], [{ userId: `owner` }]]
     expect(await pin({ userId: `squat`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: false, squats: [] })
     expect(t.inserted).toEqual([])
   })
 
   it(`keeps the bootstrap rule: no first pin while only another account's row shares`, async () => {
-    t.selects = [[], [{ userId: `eldest`, createdAt: OLD, sharedTeamIds: [] }, { userId: `host`, createdAt: NEW, sharedTeamIds: [`t`] }]]
-    expect(await pin({ userId: `eldest`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: false, squats: [] })
+    t.selects = [[], [{ userId: `owner` }], [{ userId: `host` }]]
+    expect(await pin({ userId: `owner`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: false, squats: [] })
     expect(t.inserted).toEqual([])
   })
 
-  it(`the eldest row's account re-pins over a younger account's pin and withdraws its shares`, async () => {
+  it(`the first-seen account re-pins over another account's pin and withdraws its shares`, async () => {
     const squatRow = { id: `row-s`, userId: `squat`, deviceId: `dev-1`, label: `box`, sharedTeamIds: [`t`] }
-    t.selects = [
-      [{ publicKey: `ef`.repeat(32), userId: `squat`, createdAt: MID }],
-      [{ userId: `owner`, createdAt: OLD, sharedTeamIds: [] }, { userId: `squat`, createdAt: new Date(`2026-02-01T00:00:00Z`), sharedTeamIds: [`t`] }],
-      [squatRow],
-    ]
+    t.selects = [[{ publicKey: OTHER, userId: `squat` }], [{ userId: `owner` }], [squatRow]]
     expect(await pin({ userId: `owner`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: true, squats: [squatRow] })
     expect(t.updated).toEqual([expect.objectContaining({ publicKey: KEY, userId: `owner` })])
   })
 
-  it(`never takes over from a holder whose row was re-created after it pinned (Remove + launch)`, async () => {
-    t.selects = [
-      [{ publicKey: `ef`.repeat(32), userId: `owner`, createdAt: MID }],
-      [{ userId: `squat`, createdAt: OLD, sharedTeamIds: [] }, { userId: `owner`, createdAt: NEW, sharedTeamIds: [] }],
-    ]
+  it(`any other account never takes over the pin`, async () => {
+    t.selects = [[{ publicKey: OTHER, userId: `owner` }], [{ userId: `owner` }]]
     expect(await pin({ userId: `squat`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: false, squats: [] })
     expect(t.updated).toEqual([])
   })
 
-  it(`never takes over from a holder whose row is gone`, async () => {
-    t.selects = [[{ publicKey: `ef`.repeat(32), userId: `owner`, createdAt: MID }], [{ userId: `squat`, createdAt: OLD, sharedTeamIds: [] }]]
-    expect(await pin({ userId: `squat`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: false, squats: [] })
+  it(`a second account proving the pinned key is accepted and leaves the pin as it is`, async () => {
+    t.selects = [[{ publicKey: KEY, userId: `owner` }], []]
+    expect(await pin({ userId: `second`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: true, squats: [] })
+    expect(t.updated).toEqual([])
+    expect(t.inserted).toEqual([])
   })
 
-  it(`a younger account never takes over the eldest's pin`, async () => {
-    t.selects = [
-      [{ publicKey: `ef`.repeat(32), userId: `owner`, createdAt: MID }],
-      [{ userId: `owner`, createdAt: OLD, sharedTeamIds: [] }, { userId: `squat`, createdAt: NEW, sharedTeamIds: [] }],
-    ]
-    expect(await pin({ userId: `squat`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: false, squats: [] })
-  })
-
-  it(`the holder rotates its own key whatever its row's age`, async () => {
-    t.selects = [[{ publicKey: `ef`.repeat(32), userId: `owner`, createdAt: MID }], []]
+  it(`the holder rotates its own key`, async () => {
+    t.selects = [[{ publicKey: OTHER, userId: `owner` }], []]
     expect(await pin({ userId: `owner`, deviceId: `dev-1`, publicKey: KEY })).toEqual({ pinned: true, squats: [] })
     expect(t.updated).toEqual([expect.objectContaining({ publicKey: KEY })])
     expect(t.updated[0]).not.toHaveProperty(`userId`)

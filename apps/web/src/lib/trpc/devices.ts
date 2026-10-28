@@ -46,6 +46,7 @@ import {
   deviceCommands,
   deviceDoctorSchema,
   deviceKeys,
+  deviceFirstSeen,
   deviceRemovals,
   deviceLaunchDefaultsSchema,
   devices,
@@ -650,20 +651,36 @@ async function settleSquats(
  * of the id, since no row holds a pinned key any more (`withdrawShareInTx`:
  * the runs those shares hosted for teammates end after commit, first-sharer
  * agents disarm, each row's owner is told). The next proven register of the
- * id pins again (`pinDeviceKeyInTx`); until then nobody can share it.
+ * id's first-seen account pins again (`pinDeviceKeyInTx`); until then nobody
+ * can share it. `pinTo` settles a dispute: that account (it must have a row
+ * for the id) becomes the first-seen one, so only its proof pins.
  */
 export async function clearDeviceKey(
   db: Context[`db`],
-  input: { deviceId: string; actorId: string }
+  input: { deviceId: string; actorId: string; pinTo?: string }
 ): Promise<{ ok: true; txid: number }> {
   const { txid, withdrawn, ending } = await db.transaction(async (tx) => {
     const id = await generateTxId(tx)
     await lockDeviceShares(tx, input.deviceId)
+    if (input.pinTo) {
+      const [row] = await tx
+        .select({ id: devices.id })
+        .from(devices)
+        .where(and(eq(devices.userId, input.pinTo), eq(devices.deviceId, input.deviceId)))
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `That account has not registered that machine` })
+      }
+      await tx
+        .insert(deviceFirstSeen)
+        .values({ deviceId: input.deviceId, userId: input.pinTo })
+        .onConflictDoUpdate({ target: deviceFirstSeen.deviceId, set: { userId: input.pinTo, firstSeenAt: new Date() } })
+    }
     const cleared = await tx
       .delete(deviceKeys)
       .where(eq(deviceKeys.deviceId, input.deviceId))
       .returning({ deviceId: deviceKeys.deviceId })
-    if (cleared.length === 0) {
+    if (cleared.length === 0 && !input.pinTo) {
       throw new TRPCError({ code: `NOT_FOUND`, message: `No key is pinned for that machine` })
     }
     const rows = await tx
@@ -832,8 +849,14 @@ export const devicesRouter = router({
           launchDefaults: devices.launchDefaults,
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
-      // FEED-154: a proven key pins the machine (first key wins) and clears
-      // the shares other accounts hold of it without the key.
+      // FEED-159: the first account to register the id is its owner for
+      // pinning; Remove never clears it.
+      await ctx.db
+        .insert(deviceFirstSeen)
+        .values({ deviceId: input.deviceId, userId })
+        .onConflictDoNothing()
+      // FEED-154: a proven key pins the machine (the first-seen account's)
+      // and clears the shares other accounts hold of it without the key.
       let keyAccepted = false
       if (publicKey) {
         const { pinned, squats, ending } = await ctx.db.transaction(async (tx) => {

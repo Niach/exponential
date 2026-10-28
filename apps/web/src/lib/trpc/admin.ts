@@ -1168,9 +1168,10 @@ export const adminRouter = router({
   // or a box whose key file was lost). The next proven register of the id
   // pins again; until then nobody can add a share of it. FEED-159: under the
   // pin lock, every row's share of the id goes with it (their hosted runs
-  // end, owners are told): `clearDeviceKey`.
+  // end, owners are told): `clearDeviceKey`. `pinTo` = the account whose
+  // proof alone pins it next (it must have registered the id).
   clearDeviceKey: adminProcedure
-    .input(z.object({ deviceId: z.string().min(1).max(128) }))
+    .input(z.object({ deviceId: z.string().min(1).max(128), pinTo: z.string().min(1).max(255).optional() }))
     .mutation(async ({ ctx, input }) =>
       clearDeviceKey(ctx.db, { ...input, actorId: ctx.session.user.id })
     ),

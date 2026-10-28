@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, deviceKeys, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, deviceFirstSeen, deviceKeys, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
 import { deviceKeyMessage } from "@/lib/device-keys"
 
@@ -123,6 +123,7 @@ async function world() {
     .insert(devices)
     .values({ userId: boxOwner, deviceId, label: `box`, kind: `server`, sharedTeamIds: [teamId], publicKey: box.hex })
   await db.insert(deviceKeys).values({ deviceId, publicKey: box.hex, userId: boxOwner })
+  await db.insert(deviceFirstSeen).values({ deviceId, userId: boxOwner })
   const hosted = (await sendSession({ userId: mate, input: { teamId, deviceId, text: `on the shared box` } })).sessionId
   /** A teammate's devices row for the box. `shares` = a row from before
    *  the one-sharer rule (a legacy duplicate): written straight to the
@@ -156,6 +157,7 @@ afterAll(async () => {
   }
   if (made.devices.length) {
     await db.execute(sql`DELETE FROM device_keys WHERE device_id IN ${sql.raw(`('${made.devices.join(`','`)}')`)}`)
+    await db.execute(sql`DELETE FROM device_first_seen WHERE device_id IN ${sql.raw(`('${made.devices.join(`','`)}')`)}`)
   }
 })
 
@@ -690,6 +692,92 @@ describe.skipIf(!ready.ok)(`FEED-154: the machine key`, () => {
     await adminAs(admin).clearDeviceKey({ deviceId: w.deviceId })
     expect(await db.select().from(deviceKeys).where(eq(deviceKeys.deviceId, w.deviceId))).toEqual([])
     await expect(adminAs(admin).clearDeviceKey({ deviceId: w.deviceId })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+})
+
+// FEED-159: the owner signal for pinning is the account that registered
+// the id FIRST, which Remove never clears. The eldest `devices` row was
+// not: the owner's Remove + relaunch made the squat's row the eldest.
+describe.skipIf(!ready.ok)(`FEED-159: the first-seen account pins`, () => {
+  const register = (userId: string, deviceId: string, extra: { launch?: boolean; key?: ReturnType<ReturnType<typeof machineKey>[`prove`]> } = {}) =>
+    devicesAs(userId).register({ deviceId, label: `box`, kind: `server`, doctor, ...extra })
+  const pinOf = async (deviceId: string) =>
+    (await db.select({ userId: deviceKeys.userId, publicKey: deviceKeys.publicKey }).from(deviceKeys).where(eq(deviceKeys.deviceId, deviceId)))[0]
+  /** The box owner on an old client (no key), then a teammate squats the id. */
+  async function squatted() {
+    const owner = await user()
+    const squat = await user()
+    const deviceId = `dev-${id8()}`
+    made.devices.push(deviceId)
+    const box = machineKey()
+    const own = machineKey()
+    await register(owner, deviceId, { launch: true })
+    await register(squat, deviceId)
+    return { owner, squat, deviceId, box, own }
+  }
+  /** The box owner presses Remove and relaunches: its row is now younger. */
+  async function removeAndRelaunch(owner: string, deviceId: string) {
+    await devicesAs(owner).remove({ deviceId })
+    await register(owner, deviceId, { launch: true })
+    const ages = await db
+      .select({ userId: devices.userId })
+      .from(devices)
+      .where(eq(devices.deviceId, deviceId))
+      .orderBy(devices.createdAt, devices.id)
+    expect(ages[0]!.userId).not.toBe(owner)
+  }
+
+  it(`after the owner's Remove + relaunch the squat's eldest row still cannot pin first; the owner's upgrade pins`, async () => {
+    const m = await squatted()
+    await removeAndRelaunch(m.owner, m.deviceId)
+    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await pinOf(m.deviceId)).toBeUndefined()
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+  })
+
+  it(`a squat holding the pin never takes it back after the owner's Remove + relaunch, and the owner takes it over`, async () => {
+    const m = await squatted()
+    await removeAndRelaunch(m.owner, m.deviceId)
+    // A pin the squat took before FEED-159 (the first key won).
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.own.hex, userId: m.squat })
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+    // The owner shares; the squat's next register neither re-pins nor withdraws it.
+    const [team] = await db.insert(teams).values({ name: `Pin`, slug: `pin-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(team!.id)
+    await db.insert(teamMembers).values([
+      { teamId: team!.id, userId: m.owner, role: `owner` },
+      { teamId: team!.id, userId: m.squat, role: `member` },
+    ])
+    await devicesAs(m.owner).setShared({ deviceId: m.deviceId, teamId: team!.id, shared: true })
+    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+    expect(await shareOfRow(m.owner, m.deviceId)).toEqual([team!.id])
+  })
+
+  it(`an admin clear hands the next pin to the first-seen owner, not the eldest row; pinTo moves it`, async () => {
+    const m = await squatted()
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    await removeAndRelaunch(m.owner, m.deviceId)
+    const admin = await user()
+    await db.execute(sql`UPDATE users SET is_admin = true WHERE id = ${admin}`)
+    await adminAs(admin).clearDeviceKey({ deviceId: m.deviceId })
+    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    // The admin settles it the other way: only the named account's proof pins.
+    await expect(adminAs(admin).clearDeviceKey({ deviceId: m.deviceId, pinTo: await user() })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await adminAs(admin).clearDeviceKey({ deviceId: m.deviceId, pinTo: m.squat })
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.squat, publicKey: m.own.hex })
+  })
+
+  it(`a second account proving the pinned key is accepted; the pin stays the first's`, async () => {
+    const m = await squatted()
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    expect(await register(m.squat, m.deviceId, { key: m.box.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
   })
 })
 

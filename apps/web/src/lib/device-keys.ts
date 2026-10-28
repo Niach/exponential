@@ -1,8 +1,7 @@
 import { createPublicKey, verify } from "node:crypto"
 import { and, eq, ne, sql } from "drizzle-orm"
-import { deviceKeys, devices } from "@/db/schema"
+import { deviceFirstSeen, deviceKeys, devices } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
-import { SHARING_ORDER } from "@/lib/sessions/host"
 
 // FEED-154: proof of possession for a machine id. A machine's id shows in
 // team-visible sessions, so anyone can register it; what they cannot do is
@@ -14,14 +13,14 @@ import { SHARING_ORDER } from "@/lib/sessions/host"
 // equal the pin (`devices.setShared`), so a squat of the id never shares.
 //
 // FEED-159: WHO may pin. The id becomes visible (team sessions) only after
-// the real daemon registered it, so the machine's ELDEST `devices` row
-// (`SHARING_ORDER`: created_at, id) is the owner signal: a first pin is the
-// eldest row's account's only, and that account re-pins over a pin a
-// younger account took first (a squat that beat the owner's upgrade), which
-// withdraws the younger account's shares like any squat. A pin whose holder
-// re-created its row after pinning (Remove, then a fresh launch) is never
-// taken over: the eldest row is then the squat's. An instance admin resets
-// what neither rule settles (`admin.clearDeviceKey`).
+// the real daemon registered it, so the account that registered the id
+// FIRST (`device_first_seen`, written on every register, never deleted) is
+// the owner signal: a first pin is that account's only, and that account
+// re-pins over a pin another account took first (a squat that beat the
+// owner's upgrade), which withdraws the other account's shares like any
+// squat. Not the eldest `devices` row: Remove deletes the owner's row and
+// the relaunch makes a younger one, so a squat's row would turn eldest. An
+// instance admin settles a dispute (`admin.clearDeviceKey({pinTo})`).
 
 /** How old (or how far ahead) a proof's `signedAt` may be. */
 export const DEVICE_KEY_PROOF_SKEW_MS = 10 * 60 * 1000
@@ -94,54 +93,61 @@ export type SquatRow = { id: string; userId: string; deviceId: string; label: st
 /**
  * Pins `publicKey` for the machine, or keeps the pin it has. Call it under
  * `lockDeviceShares(deviceId)`, after the caller's row carries the proven
- * key. Only the pinning account rotates its key. FEED-159: a FIRST pin is
- * the machine's eldest row's account's only (see the header), and still
- * waits while ANOTHER account's row shares the id and the caller's does not
- * (machines registered before keys existed: the sharing row is the box's
- * host until it proves otherwise). The eldest row's account takes over a
- * pin a younger account holds, unless that holder's row was re-created
- * after it pinned.
+ * key and its register recorded `device_first_seen`. Only the pinning
+ * account rotates its key. FEED-159: a FIRST pin is the first-seen
+ * account's only (see the header), and still waits while ANOTHER account's
+ * row shares the id and the caller's does not (machines registered before
+ * keys existed: the sharing row is the box's host until it proves
+ * otherwise). The first-seen account takes over a pin another account
+ * holds. Another account proving the PINNED key is the same box under a
+ * second login: accepted, the pin stays.
  *
- * Returns whether the caller now holds the pin, and the other accounts'
- * rows that share the id WITHOUT the pinned key (squats; legacy shares from
- * before the proof; a taken-over holder's shares): the caller withdraws them.
+ * Returns whether the caller's key is the pinned one, and the other
+ * accounts' rows that share the id WITHOUT the pinned key (squats; legacy
+ * shares from before the proof; a taken-over holder's shares): the caller
+ * withdraws them.
  */
 export async function pinDeviceKeyInTx(
   tx: Tx,
   args: { userId: string; deviceId: string; publicKey: string }
 ): Promise<{ pinned: boolean; squats: SquatRow[] }> {
   const [pin] = await tx
-    .select({ publicKey: deviceKeys.publicKey, userId: deviceKeys.userId, createdAt: deviceKeys.createdAt })
+    .select({ publicKey: deviceKeys.publicKey, userId: deviceKeys.userId })
     .from(deviceKeys)
     .where(eq(deviceKeys.deviceId, args.deviceId))
     .limit(1)
   const refused = { pinned: false, squats: [] }
-  if (!pin || pin.userId !== args.userId) {
-    const rows = await tx
-      .select({ userId: devices.userId, createdAt: devices.createdAt, sharedTeamIds: devices.sharedTeamIds })
+  if (pin && pin.userId !== args.userId && pin.publicKey !== args.publicKey) {
+    const [owner] = await tx
+      .select({ userId: deviceFirstSeen.userId })
+      .from(deviceFirstSeen)
+      .where(eq(deviceFirstSeen.deviceId, args.deviceId))
+      .limit(1)
+    if (owner?.userId !== args.userId) return refused
+    const now = new Date()
+    await tx
+      .update(deviceKeys)
+      .set({ publicKey: args.publicKey, userId: args.userId, createdAt: now, updatedAt: now })
+      .where(eq(deviceKeys.deviceId, args.deviceId))
+  } else if (!pin) {
+    const [owner] = await tx
+      .select({ userId: deviceFirstSeen.userId })
+      .from(deviceFirstSeen)
+      .where(eq(deviceFirstSeen.deviceId, args.deviceId))
+      .limit(1)
+    if (owner?.userId !== args.userId) return refused
+    const sharing = await tx
+      .select({ userId: devices.userId })
       .from(devices)
-      .where(eq(devices.deviceId, args.deviceId))
-      .orderBy(...SHARING_ORDER)
-    if (rows[0]?.userId !== args.userId) return refused
-    if (!pin) {
-      const sharing = rows.filter((row) => (row.sharedTeamIds ?? []).length > 0)
-      if (sharing.some((row) => row.userId !== args.userId) && !sharing.some((row) => row.userId === args.userId)) {
-        return refused
-      }
-      await tx
-        .insert(deviceKeys)
-        .values({ deviceId: args.deviceId, publicKey: args.publicKey, userId: args.userId })
-        .onConflictDoNothing()
-    } else {
-      const holder = rows.find((row) => row.userId === pin.userId)
-      if (!holder || holder.createdAt.getTime() > pin.createdAt.getTime()) return refused
-      const now = new Date()
-      await tx
-        .update(deviceKeys)
-        .set({ publicKey: args.publicKey, userId: args.userId, createdAt: now, updatedAt: now })
-        .where(eq(deviceKeys.deviceId, args.deviceId))
+      .where(and(eq(devices.deviceId, args.deviceId), sql`cardinality(${devices.sharedTeamIds}) > 0`))
+    if (sharing.some((row) => row.userId !== args.userId) && !sharing.some((row) => row.userId === args.userId)) {
+      return refused
     }
-  } else if (pin.publicKey !== args.publicKey) {
+    await tx
+      .insert(deviceKeys)
+      .values({ deviceId: args.deviceId, publicKey: args.publicKey, userId: args.userId })
+      .onConflictDoNothing()
+  } else if (pin.userId === args.userId && pin.publicKey !== args.publicKey) {
     await tx
       .update(deviceKeys)
       .set({ publicKey: args.publicKey, updatedAt: new Date() })

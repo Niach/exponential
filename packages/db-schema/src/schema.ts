@@ -1462,6 +1462,21 @@ export const deviceKeys = pgTable(`device_keys`, {
   ...timestamps,
 })
 
+// FEED-159: the account that registered a machine id FIRST, the owner signal
+// for pinning (`pinDeviceKeyInTx`). The id shows in team-visible sessions
+// only after the real daemon registered it, so the first account to
+// register it is the box's. Written insert-or-ignore on every register and
+// NEVER deleted by Remove: the eldest `devices` row stopped being that signal
+// once the owner's Remove + relaunch made its row younger than a squat's. An
+// instance admin moves it (`admin.clearDeviceKey({pinTo})`). Server-only.
+export const deviceFirstSeen = pgTable(`device_first_seen`, {
+  deviceId: varchar(`device_id`, { length: 128 }).primaryKey(),
+  userId: text(`user_id`)
+    .notNull()
+    .references(() => users.id, { onDelete: `cascade` }),
+  firstSeenAt: timestamp(`first_seen_at`, { withTimezone: true }).notNull().defaultNow(),
+})
+
 // EXP-1417: a machine its owner REMOVED. A running daemon or desktop app
 // re-registered the row on its next heartbeat miss or re-dial, so Remove
 // never stuck; while this row stands only a fresh launch of that build
@@ -3530,9 +3545,10 @@ export const selectSyncedMessageSchema = selectMessageSchema.omit({
   ownerId: true,
 })
 export const selectSessionReadSchema = createSelectSchema(sessionReads)
+// FEED-160: `github_updated_at` is server-only (outside the shape allowlist).
 export const selectPullRequestSchema = createSelectSchema(pullRequests, {
   state: prStateSchema,
-})
+}).omit({ githubUpdatedAt: true })
 export const selectPullRequestIssueSchema = createSelectSchema(pullRequestIssues)
 export const selectSyncedPullRequestIssueSchema = selectPullRequestIssueSchema.omit({
   boardId: true,

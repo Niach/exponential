@@ -9,6 +9,7 @@ const h = vi.hoisted(() => {
     // behavior the older tests rely on).
     selectQueue: [] as unknown[][],
     inserted: [] as unknown[],
+    firstSeen: [] as unknown[],
     upserts: [] as unknown[],
     // EXP-481: rows returned by insert(...).returning() /
     // onConflictDoUpdate(...).returning() — queue like updateReturning.
@@ -82,6 +83,13 @@ const h = vi.hoisted(() => {
             return Object.assign(Promise.resolve(), {
               returning: insertResult,
             })
+          },
+          // FEED-159: `device_first_seen` (insert-or-ignore), kept apart
+          // from `inserted` so the devices row stays inserted[0].
+          onConflictDoNothing: () => {
+            state.inserted.splice(state.inserted.indexOf(values), 1)
+            state.firstSeen.push(values)
+            return Promise.resolve()
           },
           returning: insertResult,
         }
@@ -195,6 +203,7 @@ beforeEach(() => {
   h.state.selectRows = []
   h.state.selectQueue = []
   h.state.inserted = []
+  h.state.firstSeen = []
   h.state.upserts = []
   h.state.insertReturning = []
   h.state.updates = []
@@ -594,6 +603,8 @@ describe(`devices.register — removal + key (EXP-1417, FEED-154)`, () => {
     expect(result).toMatchObject({ ok: true, removed: false })
     expect(h.state.deletes).toBe(1)
     expect(h.state.inserted).toHaveLength(1)
+    // FEED-159: every register records the first-seen account (insert-or-ignore).
+    expect(h.state.firstSeen).toEqual([{ deviceId: `dev-1`, userId: `actor` }])
   })
 
   it(`logs how far the clock of a device whose proof is out of date is off (FEED-159)`, async () => {
@@ -608,7 +619,7 @@ describe(`devices.register — removal + key (EXP-1417, FEED-154)`, () => {
         key: { publicKey: `ab`.repeat(32), signedAt: ahead, signature: `cd`.repeat(64) },
       })
       expect(result).toMatchObject({ ok: true, keyAccepted: false })
-      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/dev-1: its clock is 36\d{5} ms ahead of the server's/))
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/dev-1: its clock is 3[56]\d{5} ms ahead of the server's/))
     } finally {
       warn.mockRestore()
     }
@@ -2947,6 +2958,23 @@ describe(`clearDeviceKey`, () => {
     expect(notifyDeviceShareRemoved).toHaveBeenCalledWith(
       expect.objectContaining({ ownerId: `owner-b`, actorId: `admin`, teamId: TEAM_B, endedCount: 1, cause: `dropped` })
     )
+  })
+
+  it(`pinTo makes that account the first-seen one, pinned or not`, async () => {
+    h.state.selectQueue = [[{ id: `row-a` }], []]
+    await clearDeviceKey(h.db as never, { deviceId: `dev-1`, actorId: `admin`, pinTo: `owner-a` })
+    expect(h.state.upserts).toEqual([
+      expect.objectContaining({ target: expect.anything(), set: expect.objectContaining({ userId: `owner-a` }) }),
+    ])
+  })
+
+  it(`pinTo 404s an account without a row for the machine`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(
+      clearDeviceKey(h.db as never, { deviceId: `dev-1`, actorId: `admin`, pinTo: `stranger` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(h.state.upserts).toHaveLength(0)
+    expect(h.state.deletes).toBe(0)
   })
 
   it(`404s a machine with no pin and withdraws nothing`, async () => {

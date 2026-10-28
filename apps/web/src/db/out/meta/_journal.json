@@ -1443,6 +1443,13 @@
       "when": 1793187393092,
       "tag": "0205_feed160_pr_github_updated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793190174891,
+      "tag": "0206_feed159_device_first_seen",
+      "breakpoints": true
     }
   ]
 }
