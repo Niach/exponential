@@ -36,6 +36,13 @@ behind a debug flag in each renderer (`SurfaceModel.benchCounters` in Swift
 and Compose, the harness's probe on web, a counting allocator in the core's
 example) and cost a release build nothing.
 
+`memoryMb` on web (EXP-1394) is the RETAINED JS heap of the mounted
+surface: once the page script returns, the runner forces a full GC over CDP
+(`HeapProfiler.collectGarbage`) before each of 5 `Runtime.getHeapUsage`
+reads and keeps their median (then the median over the repeats, like every
+metric). The page's own `performance.memory` read without a GC measured
+when the collector last ran: 49 to 236 MB for the same Solid build on CI.
+
 What one **pass** includes differs by renderer and the manifest says it
 (`renderers[].pass`): the core lays out with a fixed fake measure; gpui draws
 a full headless frame; React flushes the DOM update and reads the layout back
@@ -69,9 +76,13 @@ HEAD). Commit a rerun whole, never edit a number.
 ## The ratchet
 
 `budgets.json` holds, per machine × renderer × scenario × metric, the number
-CI accepts (`exponential-ui.yml`: each renderer's job runs its runner and
-uploads the fragment, overwriting its earlier attempt's, so a re-run job
-replaces it; `bench` ratchets them all and uploads `ratchet-results`). The rules (`src/ratchet.ts`),
+CI accepts (`exponential-ui.yml`: each renderer's job runs its runner,
+uploads the fragment, overwriting its earlier attempt's, and ratchets it
+right there; `bench` ratchets them all again as one report and uploads
+`ratchet-results`). EXP-1394: the gate sits in the job that MEASURED, because
+"Re-run failed jobs" only reruns failed jobs: a gate only in `bench`
+re-ratchets the passed jobs' uploaded fragments and reports the identical
+numbers. The rules (`src/ratchet.ts`),
 in the style of the Compose conformance budgets:
 
 - a metric **worse** than its budget fails;

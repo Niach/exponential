@@ -44,6 +44,10 @@ reset with `admin.clearDeviceKey({deviceId})`; the box's next register pins
 again. The operations runbook (credentials, Coolify app uuids, the target
 database URLs) lives outside this repository.
 
+Steer relay order (#EXP-1415): deploy the relay BEFORE web, and roll web
+back with any relay rollback. Web mints `live` viewer tickets for idle
+sessions; a relay that ignores the claim shows those sessions as Ended.
+
 ## What runs when (2026-10-26)
 
 | When | Workflow | What |

@@ -251,6 +251,23 @@ private fun toneColor(tone: DoctorTone): Color = when (tone) {
 }
 
 /**
+ * EXP-1375: the composer's low-disk row — when nothing blocks the start on
+ * [device] but it is low on disk, its `disk` doctor row (a warning, no pill;
+ * the start stays enabled). Renders nothing otherwise.
+ */
+@Composable
+fun DeviceLowDiskRow(device: SteerDevice, modifier: Modifier = Modifier) {
+    val row = device.doctor?.let { DeviceReadiness.warningRow(it, remote = true) } ?: return
+    DeviceReadinessRow(
+        row = row,
+        onAction = {},
+        modifier = modifier.testTag("launch-low-disk-row"),
+        horizontalPadding = 0.dp,
+        verticalPadding = 4.dp,
+    )
+}
+
+/**
  * The composer's single-row mode (EXP-1196 rule: for the picked device + agent
  * when that agent cannot run there, ONLY that agent's row — the Git row when
  * Git is the failure — with its action). A phone is always another device, so

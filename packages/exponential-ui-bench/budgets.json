@@ -188,7 +188,7 @@
           "firstPaintMs": 182.2,
           "nodes": 614,
           "coldStartMs": 226.4,
-          "memoryMb": 37.3
+          "memoryMb": 32.4
         },
         "card-grid": {
           "warmPassMs": 0.7
@@ -198,7 +198,7 @@
           "scrollToIndexMs": 83.9,
           "scrollStepMs": 5.5,
           "renderedItems": 30,
-          "memoryMb": 154.1
+          "memoryMb": 45.9
         },
         "streaming": {
           "nodes": 607,
@@ -239,7 +239,7 @@
           "firstPaintMs": 146.7,
           "nodes": 614,
           "coldStartMs": 253.1,
-          "memoryMb": 33
+          "memoryMb": 24.5
         },
         "card-grid": {
           "warmPassMs": 0.7
@@ -249,7 +249,7 @@
           "scrollToIndexMs": 5.7,
           "scrollStepMs": 3,
           "renderedItems": 30,
-          "memoryMb": 182.3
+          "memoryMb": 40.7
         },
         "streaming": {
           "nodes": 607,
@@ -290,7 +290,7 @@
           "firstPaintMs": 182.3,
           "nodes": 614,
           "coldStartMs": 229.7,
-          "memoryMb": 38.3
+          "memoryMb": 32.6
         },
         "card-grid": {
           "warmPassMs": 0.7
@@ -300,7 +300,7 @@
           "scrollToIndexMs": 87.8,
           "scrollStepMs": 5.4,
           "renderedItems": 30,
-          "memoryMb": 145.3
+          "memoryMb": 46.1
         },
         "streaming": {
           "nodes": 607,
@@ -579,7 +579,7 @@
           "firstPaintMs": 512.7,
           "nodes": 614,
           "coldStartMs": 628.2,
-          "memoryMb": 41.9
+          "memoryMb": 32.5
         },
         "card-grid": {
           "warmPassMs": 1.5
@@ -589,7 +589,7 @@
           "scrollToIndexMs": 23.3,
           "scrollStepMs": 16.6,
           "renderedItems": 30,
-          "memoryMb": 130
+          "memoryMb": 45.9
         },
         "streaming": {
           "nodes": 607,
@@ -630,7 +630,7 @@
           "firstPaintMs": 440.7,
           "nodes": 614,
           "coldStartMs": 749.7,
-          "memoryMb": 39.6
+          "memoryMb": 24.2
         },
         "card-grid": {
           "warmPassMs": 2.5
@@ -640,7 +640,7 @@
           "scrollToIndexMs": 14.6,
           "scrollStepMs": 8,
           "renderedItems": 30,
-          "memoryMb": 151.3
+          "memoryMb": 40.5
         },
         "streaming": {
           "nodes": 607,
@@ -681,7 +681,7 @@
           "firstPaintMs": 506.1,
           "nodes": 614,
           "coldStartMs": 641.5,
-          "memoryMb": 43.1
+          "memoryMb": 32.2
         },
         "card-grid": {
           "warmPassMs": 1.7
@@ -691,7 +691,7 @@
           "scrollToIndexMs": 23.3,
           "scrollStepMs": 16.3,
           "renderedItems": 30,
-          "memoryMb": 211.2
+          "memoryMb": 46.1
         },
         "streaming": {
           "nodes": 607,

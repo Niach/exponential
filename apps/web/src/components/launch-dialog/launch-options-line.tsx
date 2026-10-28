@@ -8,6 +8,7 @@ import {
   RepositoryPicker,
   Switch,
   deviceReadinessBlocker,
+  deviceReadinessWarning,
 } from "@exp/ui"
 import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
@@ -159,7 +160,9 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
       </ComposerOptionsRow>
       {/* EXP-1196: the picked device's failing doctor row (Git, else the
           agent's own) with its one action, instead of a sentence. */}
-      {device && deviceReadinessBlocker(device.doctor, agent) && (
+      {device &&
+        (deviceReadinessBlocker(device.doctor, agent) ||
+          (!launch.agentNotReady && deviceReadinessWarning(device.doctor))) && (
         <DeviceReadinessNotice
           device={device}
           agent={agent}

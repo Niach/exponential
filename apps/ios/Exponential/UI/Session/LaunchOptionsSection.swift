@@ -291,9 +291,10 @@ struct LaunchOptionsSection: View {
 
     /// EXP-1196/1219: that machine's failing doctor row (Git when Git is the
     /// failure, else the agent's), same row the Agent composer shows.
+    /// EXP-1375: a ready machine low on disk shows its disk row (a warning).
     private var notReadyRow: DeviceReadiness.Row? {
-        guard let device = resolvedDevice, !agent.isEmpty, device.agentNotReady(agent),
-              let doctor = device.doctor else { return nil }
+        guard let device = resolvedDevice, !agent.isEmpty, let doctor = device.doctor else { return nil }
+        guard device.agentNotReady(agent) else { return DeviceReadiness.warningRow(doctor, remote: true) }
         return DeviceReadiness.failingRow(
             doctor, agent: agent, remote: true
         )

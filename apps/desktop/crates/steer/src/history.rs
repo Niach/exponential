@@ -642,6 +642,8 @@ pub async fn publish_history(
         // EXP-90: always the explicit opt-out (an absent key means "public"
         // to legacy relays).
         activity_public: Some(false),
+        // #EXP-1415: never evict the run's live publisher.
+        replay: Some(true),
     }
     .to_json();
     ws.send(Message::Text(hello))
@@ -720,16 +722,18 @@ impl HistoryInFlight {
 /// it to the waiting room. Non-blocking — everything happens on the steer
 /// runtime, so the control socket's select loop is never held up.
 ///
-/// Silent no-ops, all of them normal: no journal for that id (the run
-/// happened on another machine, or the file was pruned), an empty journal, a
-/// relay that reports disabled, or a replay already in flight. The relay's
-/// 20s timer tells the viewer; there is no failure frame to send.
+/// #EXP-1415: no journal for that id (the run happened on another machine,
+/// or the file was pruned) or an empty one is ANSWERED through `reply` with
+/// [`ClientFrame::HistoryNone`], so the relay tells the viewer at once and
+/// backs the session off. Silent no-ops, both normal: a relay that reports
+/// disabled (or a failed mint) and a replay already in flight.
 pub fn serve_history_request(
     runtime: &crate::SteerRuntime,
     tickets: std::sync::Arc<dyn crate::publisher::PublisherTickets>,
     data_dir: PathBuf,
     session_id: String,
     in_flight: HistoryInFlight,
+    reply: crate::control_channel::HistoryPageReply,
 ) {
     // Never republish over a run this machine is still hosting: the relay
     // would hand the room to the replay and close the live publisher as
@@ -744,7 +748,9 @@ pub fn serve_history_request(
         return;
     }
     runtime.handle().spawn(async move {
-        serve_history_task(tickets, data_dir, &session_id).await;
+        if !serve_history_task(tickets, data_dir, &session_id).await {
+            reply(ClientFrame::HistoryNone { session_id: session_id.clone() });
+        }
         in_flight.release(&session_id);
     });
 }
@@ -789,11 +795,14 @@ pub fn serve_history_page(
     });
 }
 
+/// `false` = this device holds no transcript for the session (the caller
+/// answers `history_none`); every other outcome is `true`, failures included
+/// (a mint or a dial that failed may work on the viewer's redial).
 async fn serve_history_task(
     tickets: std::sync::Arc<dyn crate::publisher::PublisherTickets>,
     data_dir: PathBuf,
     session_id: &str,
-) {
+) -> bool {
     let read_dir = data_dir.clone();
     let read_id = session_id.to_string();
     let events =
@@ -802,28 +811,35 @@ async fn serve_history_task(
         Ok(Some(events)) if !events.is_empty() => events,
         Ok(_) => {
             log::info!("steer history: no stored transcript for {session_id}");
-            return;
+            return false;
         }
         Err(err) => {
             log::warn!("steer history: journal read panicked: {err}");
-            return;
+            return true;
         }
     };
     let minted = match tokio::task::spawn_blocking(move || tickets.mint()).await {
         Ok(Ok(Some(ticket))) => ticket,
         Ok(Ok(None)) => {
             log::info!("steer history: relay disabled; not replaying {session_id}");
-            return;
+            return true;
         }
         Ok(Err(err)) => {
             log::warn!("steer history: ticket mint for {session_id} failed: {err}");
-            return;
+            return true;
         }
         Err(err) => {
             log::warn!("steer history: mint task panicked: {err}");
-            return;
+            return true;
         }
     };
+    // #EXP-1415: the run may have come back while the journal was read and
+    // the ticket minted; its live publisher owns the room (the relay refuses
+    // a replay over it too — this only skips the dial).
+    if crate::publisher::is_publishing(session_id) {
+        log::info!("steer history: {session_id} started publishing here; replay dropped");
+        return true;
+    }
     match publish_history(&minted.url, session_id, &events).await {
         Ok(()) => log::info!(
             "steer history: replayed {} event(s) for {session_id}",
@@ -831,6 +847,7 @@ async fn serve_history_task(
         ),
         Err(reason) => log::warn!("steer history: replay of {session_id} failed: {reason}"),
     }
+    true
 }
 
 #[cfg(test)]
@@ -1109,6 +1126,62 @@ mod tests {
             frame,
             r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h9","events":[{"kind":"narration","text":"row 0"}],"seqs":[0],"done":true}"#
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1415: a history ask for a session this device holds no journal
+    /// for is ANSWERED (`history_none`, down the control socket), never left
+    /// to the relay's 20s timer — and the ticket is never minted for it.
+    #[test]
+    fn a_missing_journal_answers_history_none() {
+        struct NoMint(std::sync::Arc<std::sync::atomic::AtomicBool>);
+        impl crate::publisher::PublisherTickets for NoMint {
+            fn mint(&self) -> Result<Option<api::steer::MintedTicket>, api::error::ApiError> {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(None)
+            }
+        }
+        let dir = temp_dir("none");
+        let minted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let runtime = crate::SteerRuntime::new().unwrap();
+        let in_flight = HistoryInFlight::new();
+        let (tx, rx) = flume::bounded::<String>(1);
+        serve_history_request(
+            &runtime,
+            std::sync::Arc::new(NoMint(minted.clone())),
+            dir.clone(),
+            "sess-gone".to_string(),
+            in_flight.clone(),
+            Box::new(move |frame| {
+                let _ = tx.send(frame.to_json());
+            }),
+        );
+        let frame = rx.recv_timeout(Duration::from_secs(10)).expect("an answer");
+        assert_eq!(frame, r#"{"t":"history_none","sessionId":"sess-gone"}"#);
+        assert!(!minted.load(std::sync::atomic::Ordering::SeqCst));
+
+        // A journal that exists but the relay is disabled for: no answer
+        // (the mint ran; a redial may find it enabled).
+        let mut writer = JournalWriter::open(&dir, "sess-here").unwrap();
+        writer.append(&ActivityEvent::narration("kept"));
+        drop(writer);
+        let (tx, rx) = flume::bounded::<String>(1);
+        serve_history_request(
+            &runtime,
+            std::sync::Arc::new(NoMint(minted.clone())),
+            dir.clone(),
+            "sess-here".to_string(),
+            in_flight,
+            Box::new(move |frame| {
+                let _ = tx.send(frame.to_json());
+            }),
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !minted.load(std::sync::atomic::Ordering::SeqCst) {
+            assert!(std::time::Instant::now() < deadline, "the mint never ran");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 

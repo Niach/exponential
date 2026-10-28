@@ -4,7 +4,8 @@
     { "key": "required", "label": "Required", "tag": null },
     { "key": "agents", "label": "Coding agents", "tag": "optional" },
     { "key": "computer_use", "label": "Computer use", "tag": "optional" },
-    { "key": "voice", "label": "Voice", "tag": "optional" }
+    { "key": "voice", "label": "Voice", "tag": "optional" },
+    { "key": "storage", "label": "Storage", "tag": null }
   ],
   "labels": {
     "git": "Git",
@@ -14,7 +15,8 @@
     "screen_recording": "Screen Recording",
     "accessibility": "Accessibility",
     "microphone": "Microphone",
-    "speech": "Speech"
+    "speech": "Speech",
+    "disk": "Disk"
   },
   "states": {
     "ok": { "glyph": "check", "tone": "success" },
@@ -49,7 +51,11 @@
     "needsVersion": "{version} · needs {min}",
     "importTitle": "Import {email}?",
     "importBody": "Your login moves into Exponential. Sign in again outside of it.",
-    "alreadyAdded": "{email} was already added. Refreshed it."
+    "alreadyAdded": "{email} was already added. Refreshed it.",
+    "diskFree": "{size} free",
+    "keptUncommitted": "Uncommitted changes",
+    "keptUnpushed": "Unpushed commits",
+    "keptFailed": "Cleanup failed"
   },
   "rules": [
     "The computer_use item IS the switch row: label + switch, no glyph, no detail. Its switch writes launch_defaults.computerUse. state off = switch off; ok/action = on.",
@@ -69,6 +75,7 @@
     "EXP-1273: computer use is foreground only on X11, macOS and Windows. A session the device cannot drive (a Wayland session, no display) renders the computer_use row as `missing` with the DEVICE's reason as its detail (e.g. 'Wayland session: computer use needs an X11 session for now.'); `unavailable` is the detail only when the device gives no reason.",
     "NEW-78: the voice group's ONE row is `microphone`, and only the IDE adds it: on the member's voice device (user_voice_settings.voice_device_id) with Push to talk on; everywhere else (and the CLI daemon always) there is no voice band. States: ok · Granted; action · Not granted · grant; missing · No input device (grey, no pill). On macOS `grant` asks for access while the OS has not asked yet, else opens System Settings → Privacy → Microphone; Linux and Windows have no microphone permission, so an input device there = ok · Granted. `grant` is local-only, and the row never touches `runnable`.",
     "NEW-54: Windows transcribes on the CPU with the MSVC OpenMP runtime (VCOMP140.dll); a machine without it reads error · Needs the Visual C++ runtime · install (local-only: opens Microsoft's Visual C++ Redistributable download), the one `error` row outside the required group, and push to talk never opens the microphone until it is there.",
+    "EXP-1375: the storage group = the device's free disk and the worktrees it KEPT. Row `disk` (every device that can read its free space; the volume holding the repos root): detail = diskFree with the size in decimal GB (`214 GB`, one decimal below 10 GB: `6.2 GB`); state ok at or above 10 GB, else action (the warning tone, no pill). The DEVICE decides; clients never compare bytes. Then one row per worktree the automatic cleanup kept (newest first, at most 12): key `worktree-<n>`, parent `disk` (indented), its own `label` = the worktree's directory name (an item `label` replaces the labels map, for these rows only), state off (grey, never a problem), detail = why: keptUncommitted (tracked changes and no origin to park them on), keptUnpushed (commits the base lacks, no origin), keptFailed (the WIP commit, push or removal failed). Removed and parked worktrees are never listed. The composer: when nothing blocks the picked device + agent but `disk` is action, it shows the disk row (a warning, the start stays enabled); sessions.send's start result carries `warning` = '{device} is low on disk: {size} free.' for such a device.",
     "NEW-55: the voice group's second row is `speech`, also IDE-only: on the voice device with Speak replies on, once the speech worker reported what it can speak. States: ok · Ready; off · Downloading… (the voice is being fetched, no pill); missing · No usable GPU (the voice runs on the GPU only, so replies there are shown, never spoken, and calls are off: voice-call.json `noGpu`). Absent = not checked yet (voice-call.json `preparing`). It never touches `runnable`."
   ],
   "cases": [
@@ -245,6 +252,42 @@
       "runnable": ["claude"],
       "localPrimary": "microphone",
       "remotePills": { "codex": "sign_in" }
+    },
+    {
+      "name": "EXP-1375: plenty of disk, nothing kept",
+      "doctor": {
+        "checkedAt": "2026-10-28T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "disk", "group": "storage", "state": "ok", "detail": "214 GB free" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "composerWarning": null
+    },
+    {
+      "name": "EXP-1375: low disk with two kept worktrees: a warning, never a blocker",
+      "doctor": {
+        "checkedAt": "2026-10-28T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "disk", "group": "storage", "state": "action", "detail": "6.2 GB free" },
+          { "key": "worktree-1", "group": "storage", "parent": "disk", "label": "exp-session-9497089a", "state": "off", "detail": "Uncommitted changes" },
+          { "key": "worktree-2", "group": "storage", "parent": "disk", "label": "exp-EXP-1375", "state": "off", "detail": "Unpushed commits" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "composerWarning": "disk"
     }
   ]
 }

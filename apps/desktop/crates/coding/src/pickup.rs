@@ -2087,8 +2087,26 @@ pub enum ReclaimStep {
     Unstarted,
 }
 
+/// FEED-153: the `recorded` input of [`reclaim_step`] — this machine holds
+/// the session's run record AND that run got as far as an agent session
+/// (`session/new` answered: the engine wrote its ACP / native id). A record
+/// `prepare` wrote for a run whose process died before the agent ever had
+/// a session (the host restarted or the spawn died mid-start) names nothing
+/// to continue: the claim consumed its first message and no turn ran, so it
+/// is [`ReclaimStep::Unstarted`] — said and idled — never a silent idle.
+pub fn reclaim_recorded(data_dir: &std::path::Path, session_id: &str) -> bool {
+    crate::run_registry::get(data_dir, session_id).is_some_and(|record| run_started(&record))
+}
+
+/// FEED-153: the record names an agent session (see [`reclaim_recorded`]).
+fn run_started(record: &RunRecord) -> bool {
+    let set = |id: &Option<String>| id.as_deref().is_some_and(|id| !id.trim().is_empty());
+    set(&record.acp_session_id) || set(&record.agent_native_session_id)
+}
+
 /// [`ReclaimStep`] for `row` (`pending` = an input waits for it; `recorded`
-/// = this machine holds its run record). Pure.
+/// = this machine holds its run record and that run had an agent session,
+/// [`reclaim_recorded`]). Pure.
 pub fn reclaim_step(row: &SessionRow, pending: bool, recorded: bool) -> ReclaimStep {
     if pending {
         ReclaimStep::Replay
@@ -3237,6 +3255,31 @@ mod tests {
         assert_eq!(reclaim_step(&row("idle", true), false, false), ReclaimStep::Unstarted);
         assert_eq!(reclaim_step(&row("running", false), true, false), ReclaimStep::Replay);
         assert_eq!(reclaim_step(&row("idle", false), false, false), ReclaimStep::Waiting);
+    }
+
+    /// FEED-153: a record `prepare` wrote for a run that never got an agent
+    /// session (the host died mid-start, after the claim consumed the
+    /// brief) counts as no record — the row is Unstarted (said, idled),
+    /// never a silent `running → idle`; one that had a session is a record.
+    #[test]
+    fn a_record_without_an_agent_session_reclaims_as_unstarted() {
+        let dir = temp_dir("pickup-reclaim-unstarted");
+        assert!(!reclaim_recorded(&dir.0, "s1"), "no record");
+        crate::run_registry::record(&dir.0, record(&dir.0, "s1"));
+        assert!(!reclaim_recorded(&dir.0, "s1"), "prepared, never a session");
+        let running = SessionRow { id: "s1".to_string(), status: Some("running".to_string()), ..SessionRow::default() };
+        assert_eq!(reclaim_step(&running, false, reclaim_recorded(&dir.0, "s1")), ReclaimStep::Unstarted);
+        crate::run_registry::record(
+            &dir.0,
+            RunRecord { acp_session_id: Some("acp-1".to_string()), ..record(&dir.0, "s1") },
+        );
+        assert!(reclaim_recorded(&dir.0, "s1"));
+        assert_eq!(reclaim_step(&running, false, reclaim_recorded(&dir.0, "s1")), ReclaimStep::Idle);
+        crate::run_registry::record(
+            &dir.0,
+            RunRecord { agent_native_session_id: Some("native-1".to_string()), ..record(&dir.0, "s2") },
+        );
+        assert!(reclaim_recorded(&dir.0, "s2"));
     }
 
     /// EXP-1341: a pending message wakes a persistent root through Resume
@@ -5687,6 +5730,87 @@ mod tests {
         let options = host.deps.live.options("sess-1").expect("options");
         assert_eq!(options.model.as_deref(), Some("opus"));
         assert_eq!(options_delta(&switched, &options).model, None);
+    }
+
+    /// EXP-1401: a rate-limit model wall the server clears by moving the
+    /// row's model (`blocked` → null, `model` → the new pick) carries the
+    /// messages queued behind it: a live engine gets a reconfigure Switch
+    /// with every pending message (the switch moves the model live and
+    /// hands them, oldest first); a row with no engine here gets a Resume
+    /// with all of them.
+    #[test]
+    fn a_cleared_model_wall_hands_the_queued_messages() {
+        let walled = SessionRow {
+            model: Some("opus".to_string()),
+            updated_at: Some("u1".to_string()),
+            blocked: Some(serde_json::json!({"kind": "rate_limit", "model": "opus"})),
+            ..session("sess-1", SESSION_STATUS_IDLE, DEV, "2026-10-01T00:00:00Z")
+        };
+        let cleared = SessionRow {
+            model: Some("sonnet".to_string()),
+            updated_at: Some("u2".to_string()),
+            blocked: Some(serde_json::Value::Null),
+            ..walled.clone()
+        };
+        let queued = vec![
+            message("m2", "sess-1", "2026-10-02T00:00:02Z"),
+            message("m1", "sess-1", "2026-10-02T00:00:01Z"),
+        ];
+        let ids = |messages: &[MessageRow]| messages.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+        let view = LiveView {
+            row_account: Some(String::new()),
+            options: Some(LaunchedOptions::of(&walled, Some(Vec::new())).for_agent(CodingAgent::Claude)),
+            agent_model: Some("opus".to_string()),
+            ..LiveView::default()
+        };
+
+        // Live engine: one reconfigure carrying both messages, no delivery
+        // racing it.
+        let actions = Pass::new(vec![cleared.clone()], queued.clone()).live("sess-1", view.clone()).run();
+        match actions.as_slice() {
+            [PickupAction::Switch { session, account, messages }] => {
+                assert_eq!(session.id, "sess-1");
+                assert!(account.is_empty(), "a reconfigure, not an account move");
+                assert_eq!(ids(messages), vec!["m1", "m2"]);
+            }
+            other => panic!("expected one Switch, got {other:?}"),
+        }
+
+        // No engine here (the walled run exited): a Resume with both.
+        let actions = Pass::new(vec![cleared.clone()], queued.clone()).run();
+        match actions.as_slice() {
+            [PickupAction::Resume { session, messages }] => {
+                assert_eq!(session.id, "sess-1");
+                assert_eq!(ids(messages), vec!["m1", "m2"]);
+            }
+            other => panic!("expected one Resume, got {other:?}"),
+        }
+
+        // The switch itself: the model moves live, both messages are handed
+        // in order, nothing relaunches.
+        let dir = temp_dir("pickup-model-wall");
+        let host = host("http://127.0.0.1:9", &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", view.options.clone());
+        *host.engine.model.lock().unwrap() = Some("opus".to_string());
+        let Some(PickupAction::Switch { messages, .. }) = Pass::new(vec![cleared.clone()], queued.clone())
+            .live("sess-1", host.deps.live.live_views().remove("sess-1").unwrap())
+            .run()
+            .into_iter()
+            .next()
+        else {
+            panic!("expected a Switch");
+        };
+        assert_eq!(switch_session(&cleared, "", None, &messages, &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(*host.engine.model_switches.lock().unwrap(), vec!["sonnet".to_string()]);
+        assert_eq!(host.engine.delivered_ids(), vec!["m1", "m2"]);
+        assert!(host.spawned.lock().unwrap().is_empty());
+        // Handed: the next pass plans nothing more for them.
+        let after = Pass::new(vec![cleared], queued)
+            .live("sess-1", host.deps.live.live_views().remove("sess-1").unwrap())
+            .run();
+        assert!(after.is_empty(), "{after:?}");
     }
 
     // ---- EXP-1252: a row naming another device releases its engine ----

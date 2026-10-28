@@ -764,7 +764,12 @@ pub fn sweep_stale_worktrees_if_due(
             return None;
         }
     }
-    Some(sweep_stale_worktrees(clone, data_dir, now, policy))
+    let report = sweep_stale_worktrees(clone, data_dir, now, policy);
+    // EXP-1375: what stayed is listed in the doctor; `git worktree prune` and
+    // the stale lock cleanup run with the removal.
+    crate::worktree_lifecycle::record_sweep(data_dir, clone, &report, now);
+    crate::worktree_lifecycle::maintain_clone(clone, now);
+    Some(report)
 }
 
 /// NEW-5: one sweep pass's log line + the ONE conversation line per parked

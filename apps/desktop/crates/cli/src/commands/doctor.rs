@@ -171,9 +171,9 @@ pub fn render_block(doctor: &DeviceDoctor, device_label: Option<&str>) -> Vec<St
                 };
                 lines.push(format!("  {} {text}", glyph(item.state)));
             } else if item.parent.is_some() {
-                lines.push(row(4, item, device_doctor::label(&item.key)));
+                lines.push(row(4, item, device_doctor::item_label(item)));
             } else {
-                lines.push(row(2, item, device_doctor::label(&item.key)));
+                lines.push(row(2, item, device_doctor::item_label(item)));
             }
         }
     }

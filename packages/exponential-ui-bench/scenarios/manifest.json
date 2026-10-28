@@ -79,7 +79,7 @@
           "id": "memoryMb",
           "kind": "mb",
           "optional": true,
-          "what": "The process's resident footprint after the scenario (RSS / phys_footprint; the JS heap in Chromium), in MB."
+          "what": "The process's resident footprint after the scenario (RSS / phys_footprint; in Chromium the JS heap retained after a forced GC), in MB."
         },
         {
           "id": "allocations",
@@ -162,7 +162,7 @@
           "id": "memoryMb",
           "kind": "mb",
           "optional": true,
-          "what": "The process's resident footprint after the scenario (RSS / phys_footprint; the JS heap in Chromium), in MB."
+          "what": "The process's resident footprint after the scenario (RSS / phys_footprint; in Chromium the JS heap retained after a forced GC), in MB."
         }
       ]
     },

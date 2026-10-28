@@ -42,6 +42,8 @@ final class DeviceReadinessTests: XCTestCase {
         /// Agent → the ambient login's email the `import` pill offers (on
         /// the device and, with `agent-import`, on another one). Absent = none.
         let importPills: [String: String]?
+        /// EXP-1375: the composer's non-blocking row (absent = none).
+        let composerWarning: String?
     }
 
     private func fixture() throws -> Fixture {
@@ -106,7 +108,7 @@ final class DeviceReadinessTests: XCTestCase {
             XCTAssertEqual(Set(rows.map(\.key)), Set(expectedItems.map(\.key)), c.name)
             for item in expectedItems {
                 guard let row = rows.first(where: { $0.key == item.key }) else { continue }
-                XCTAssertEqual(row.label, f.labels[item.key], "\(c.name) \(item.key)")
+                XCTAssertEqual(row.label, item.label ?? f.labels[item.key], "\(c.name) \(item.key)")
                 XCTAssertEqual(row.indented, item.parent != nil, "\(c.name) \(item.key)")
                 if item.key == "computer_use" {
                     // The switch row: label + switch, no glyph, no detail.
@@ -168,6 +170,18 @@ final class DeviceReadinessTests: XCTestCase {
                     .flatMap(\.rows).first { $0.key == row?.key }
                 XCTAssertEqual(row?.action, blockRow?.action, "\(c.name) \(agent)")
                 XCTAssertEqual(row?.detail, blockRow?.detail, "\(c.name) \(agent)")
+            }
+        }
+    }
+
+    /// EXP-1375: the low-disk row is the composer's warning, never a blocker.
+    func testLowDiskIsAWarningOnly() throws {
+        for c in try fixture().cases {
+            let row = DeviceReadiness.warningRow(c.doctor, remote: true)
+            XCTAssertEqual(row?.key, c.composerWarning, c.name)
+            if row != nil {
+                XCTAssertNil(row?.action, c.name)
+                XCTAssertFalse(c.runnable.isEmpty, c.name)
             }
         }
     }

@@ -10,14 +10,19 @@
 // the element: the synchronous signal write) and the layout read back on
 // the main thread (as scripts/bench-list.ts); a frame is awaited BETWEEN
 // passes, never inside a measurement. Each repeat is a fresh page; the fragment holds the MEDIAN
-// per metric over the repeats.
+// per metric over the repeats. EXP-1394: `memoryMb` is the RETAINED JS heap
+// of the mounted surface: after the page script returns, a forced full GC
+// (CDP `HeapProfiler.collectGarbage`) before each of MEMORY_SAMPLES reads of
+// `Runtime.getHeapUsage`, the median of them. The page's own
+// `performance.memory` read without a GC measured when the collector last
+// ran (49 to 236 MB for the same build on CI).
 //
 //   runners/<name>.ts [--scenario <id>]… [--repeat <n>]
 //
 // Writes `{ renderer, platform: "web", … }` to $EXPONENTIAL_UI_BENCH_OUT
 // (default .bench/<renderer>.json).
 
-import { chromium } from "playwright"
+import { chromium, type Page } from "playwright"
 import manifest from "../scenarios/manifest.json"
 import { generateItems, SCENARIOS } from "../src/scenarios"
 import { round, writeFragment, type Metrics } from "../src/results"
@@ -59,6 +64,29 @@ const median = (v: number[]) => {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
 }
 
+/** EXP-1394: forced-GC heap reads per page (their median is the page's `memoryMb`). */
+const MEMORY_SAMPLES = 5
+
+/** The scenarios whose manifest entry has a `memoryMb` metric. */
+const MEMORY_SCENARIOS = new Set(manifest.scenarios.filter((s) => s.metrics.some((m) => m.id === `memoryMb`)).map((s) => s.id))
+
+/** EXP-1394: the page's retained JS heap in MB: a forced full GC before each
+ *  of MEMORY_SAMPLES `Runtime.getHeapUsage` reads, the median. */
+async function retainedHeapMb(page: Page): Promise<number> {
+  const cdp = await page.context().newCDPSession(page)
+  try {
+    const samples: number[] = []
+    for (let i = 0; i < MEMORY_SAMPLES; i++) {
+      await cdp.send(`HeapProfiler.collectGarbage`)
+      const { usedSize } = await cdp.send(`Runtime.getHeapUsage`)
+      samples.push(usedSize / 2 ** 20)
+    }
+    return median(samples)
+  } finally {
+    await cdp.detach()
+  }
+}
+
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body><div id="app"></div><script type="module" src="/dist/main.js"></script></body></html>`
 
 /** Run every wanted scenario through the harness and write the fragment (the runner's main). */
@@ -77,7 +105,7 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
       return new Response(PAGE, { headers: { "content-type": `text/html` } })
     },
   })
-  const browser = await chromium.launch({ args: [`--enable-precise-memory-info`] })
+  const browser = await chromium.launch()
 
   /** Drive one scenario on a fresh page; the page-side script measures. */
   async function runOnce(id: string): Promise<Metrics> {
@@ -229,12 +257,11 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
               break
             }
           }
-          const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
-          if (mem) out.memoryMb = mem.usedJSHeapSize / 2 ** 20
           return out
         },
         { id, steps, rebind }
       )
+      if (MEMORY_SCENARIOS.has(id)) metrics.memoryMb = await retainedHeapMb(page)
       return metrics
     } finally {
       await page.close()

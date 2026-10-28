@@ -10,7 +10,7 @@ import type { SessionRow } from "@/lib/session-tree"
 //
 // EXP-1334: the ONE composer — the "+" is the options menu (never the file
 // chooser), mid-session options ride `sessions.configure`, and the options
-// line under the card carries the model pin (a pick = `/model <alias>`,
+// line under the card carries the model pin (a pick = `sessions.configure {model}`,
 // shown at once) and the Plan switch.
 
 const mocks = vi.hoisted(() => ({
@@ -280,8 +280,10 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     expect(document.querySelector(`[data-slot="composer-options"]`)).toBeNull()
   })
 
-  it(`a model pick sends /model and reads as picked at once`, async () => {
-    mocks.send.mockResolvedValue({ txid: 1 })
+  // EXP-1401: the pick is the row's (sessions.configure), never a `/model`
+  // turn a walled session would never take.
+  it(`a model pick configures the session and reads as picked at once`, async () => {
+    mocks.configure.mockResolvedValue({ txid: 1 })
     renderComposer()
     const pin = screen.getByTestId(`session-composer-model`)
     expect(pin.textContent).toContain(`Opus`)
@@ -291,17 +293,14 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     act(() => {
       fireEvent.click(document.querySelector(`[data-value="sonnet"]`)!)
     })
-    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    expect(mocks.send.mock.calls[0]![0]).toEqual({
-      teamId: `t1`,
-      sessionId: `s1`,
-      text: `/model sonnet`,
-    })
+    await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
+    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, model: `sonnet` })
+    expect(mocks.send).not.toHaveBeenCalled()
     expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
   })
 
   it(`a refused model pick toasts Couldn't switch the model and reverts`, async () => {
-    mocks.send.mockRejectedValue(new Error(`Device offline`))
+    mocks.configure.mockRejectedValue(new Error(`This session is blocked by the haiku usage limit`))
     renderComposer()
     act(() => {
       fireEvent.click(screen.getByTestId(`session-composer-model`).querySelector(`button`)!)
@@ -348,7 +347,7 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
   })
 
   it(`a second model pick while one is in flight sends nothing`, async () => {
-    mocks.send.mockResolvedValue({ txid: 1 })
+    mocks.configure.mockResolvedValue({ txid: 1 })
     renderComposer()
     const pick = (alias: string) => {
       act(() => {
@@ -360,8 +359,8 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     }
     pick(`sonnet`)
     pick(`haiku`)
-    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    expect(mocks.send.mock.calls[0]![0]).toEqual({ teamId: `t1`, sessionId: `s1`, text: `/model sonnet` })
+    await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
+    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, model: `sonnet` })
     expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
   })
 

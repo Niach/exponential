@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db, pool } from "@/db/connection"
 import { boards, devices, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
@@ -44,6 +44,7 @@ const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const { mergeRefusalText } = await import(`@/lib/merge-refusal`)
 const { MergeRefusal } = await import(`@/lib/trpc/pr-merge-error`)
 const { maybeMergeYoloThread } = await import(`@/lib/yolo-tree-merge`)
+const { drainYoloEdges } = await import(`@/lib/yolo-edge`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -79,8 +80,9 @@ beforeEach(() => {
 const readAll = (rootId: string) =>
   db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.rootId, rootId))
 
-/** Fire-and-forget edges: give a skipped one the time a fired one takes. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 300))
+// A case that ends on its first merge may still have an edge in flight; it
+// must land before the next case's mockReset, never as that case's call.
+afterEach(drainYoloEdges)
 
 /** A thread (running, busy) with a child (running, busy) that opened PR #7. */
 async function thread(yoloMode = true) {
@@ -124,7 +126,13 @@ async function thread(yoloMode = true) {
   await readAll(root)
   const report = (
     sessionId: string,
-    input: { status?: `idle` | `ended`; busy?: boolean; needsInput?: boolean; blocked?: { kind: string } | null }
+    input: {
+      status?: `idle` | `ended`
+      busy?: boolean
+      needsInput?: boolean
+      blocked?: { kind: string } | null
+      interrupted?: boolean
+    }
   ) =>
     sessionsRouter
       .createCaller({ session: { user: { id: owner } }, db } as never)
@@ -156,8 +164,12 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
   it(`a child ending leaves its report unread in the idle parent: nothing merges until the parent's turn on it ends`, async () => {
     const t = await thread()
     await t.report(t.root, { status: `idle`, busy: false })
+    // Its turn is over (idle), then its process goes: it ends (NEW-17: a
+    // process going MID-turn is an interruption, not an end).
+    await drainYoloEdges()
+    await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.id, t.child))
     await t.report(t.child, { status: `ended` })
-    await settle()
+    await drainYoloEdges()
     expect(merge).not.toHaveBeenCalled()
     expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
     // The parent reads the report and its turn on it ends.
@@ -184,7 +196,7 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     await t.report(t.child, { status: `idle`, busy: false })
     await stopSession({ userId: t.owner, sessionId: t.root })
     await t.report(t.root, { status: `idle`, busy: false })
-    await settle()
+    await drainYoloEdges()
     expect(merge).not.toHaveBeenCalled()
     expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
     // A later message resumes it: busy again clears the Stop, its end merges.
@@ -195,12 +207,39 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
   })
 
+  it(`#EXP-1418: a Stop that raced a turn ending by itself holds nothing once the device says the turn was not interrupted`, async () => {
+    const t = await thread()
+    await t.report(t.child, { status: `idle`, busy: false })
+    await stopSession({ userId: t.owner, sessionId: t.root })
+    // An older device says nothing: the Stop holds the thread.
+    const u = await thread()
+    await u.report(u.child, { status: `idle`, busy: false })
+    await stopSession({ userId: u.owner, sessionId: u.root })
+    await u.report(u.root, { status: `idle`, busy: false })
+    await drainYoloEdges()
+    expect(merge).not.toHaveBeenCalled()
+    // `interrupted: false` = the turn finished by itself: the Stop settles.
+    await t.report(t.root, { status: `idle`, busy: false, interrupted: false })
+    const [row] = await db.select({ stoppedAt: sessions.stoppedAt }).from(sessions).where(eq(sessions.id, t.root))
+    expect(row!.stoppedAt).toBeNull()
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledWith({ userId: t.owner, pullRequestId: t.prId }))
+    expect(merge).toHaveBeenCalledTimes(1)
+  })
+
+  it(`#EXP-1418: a turn the device never reported busy for (running → idle) is an edge`, async () => {
+    const t = await thread()
+    await t.report(t.child, { status: `idle`, busy: false })
+    await db.update(sessions).set({ status: `running`, busy: false }).where(eq(sessions.id, t.root))
+    await t.report(t.root, { status: `idle` })
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
+  })
+
   it(`Stopping a never-started session merges nothing`, async () => {
     const t = await thread()
     await t.report(t.root, { status: `idle`, busy: false })
     await db.update(sessions).set({ status: `queued`, busy: false, startedAt: null }).where(eq(sessions.id, t.child))
     await stopSession({ userId: t.owner, sessionId: t.child })
-    await settle()
+    await drainYoloEdges()
     expect(merge).not.toHaveBeenCalled()
   })
 
@@ -208,13 +247,13 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     const t = await thread()
     await t.report(t.child, { status: `idle`, busy: false })
     await t.report(t.root, { status: `idle`, busy: false, needsInput: true })
-    await settle()
+    await drainYoloEdges()
     expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `waiting` })
 
     const u = await thread()
     await u.report(u.child, { status: `idle`, busy: false, blocked: { kind: `usage_limit` } })
     await u.report(u.root, { status: `idle`, busy: false })
-    await settle()
+    await drainYoloEdges()
     expect(await maybeMergeYoloThread(u.root)).toEqual({ status: `waiting` })
     expect(merge).not.toHaveBeenCalled()
   })
@@ -226,7 +265,7 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
     await t.report(t.root, { status: `idle`, busy: false })
     await t.report(t.root, { status: `idle` })
-    await settle()
+    await drainYoloEdges()
     expect(merge).toHaveBeenCalledTimes(1)
   })
 
@@ -235,7 +274,7 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     await db.update(pullRequests).set({ state: `draft` }).where(eq(pullRequests.id, t.prId))
     await t.report(t.child, { status: `idle`, busy: false })
     await t.report(t.root, { status: `idle`, busy: false })
-    await settle()
+    await drainYoloEdges()
     expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `merged`, outcomes: { [t.prId]: { kind: `draft` } } })
     expect(merge).not.toHaveBeenCalled()
     expect(await refusals(t.root)).toHaveLength(0)
@@ -245,13 +284,26 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     const t = await thread()
     await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.rootId, t.root))
     let release!: () => void
-    merge.mockImplementation(() => new Promise((resolve) => (release = () => resolve({ queued: false }))))
+    // The merge lands in the DB (as the real one does): EXP-1418's re-run
+    // of the coalesced second trigger finds nothing left to merge.
+    merge.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            void db
+              .update(pullRequests)
+              .set({ state: `merged` })
+              .where(eq(pullRequests.id, t.prId))
+              .then(() => resolve({ queued: false }))
+        })
+    )
     const a = maybeMergeYoloThread(t.root)
     const b = maybeMergeYoloThread(t.root)
     await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
     release()
     expect(await a).toEqual(await b)
     expect(merge).toHaveBeenCalledTimes(1)
+    await db.update(pullRequests).set({ state: `open` }).where(eq(pullRequests.id, t.prId))
 
     // Another instance holds the thread's lock: this one stands down.
     const other = await pool.connect()
@@ -262,7 +314,12 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     } finally {
       other.release()
     }
-    merge.mockResolvedValue({ queued: false })
+    // (the waiting pass schedules one retry: the merge below lands in the
+    // DB, so that retry finds nothing left.)
+    merge.mockImplementation(async () => {
+      await db.update(pullRequests).set({ state: `merged` }).where(eq(pullRequests.id, t.prId))
+      return { queued: false }
+    })
     expect(await maybeMergeYoloThread(t.root)).toMatchObject({ status: `merged` })
     expect(merge).toHaveBeenCalledTimes(2)
   })

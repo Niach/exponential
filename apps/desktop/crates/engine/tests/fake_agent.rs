@@ -92,6 +92,8 @@ struct FakeState {
     /// The exit code `terminal/wait_for_exit` reported (`-1` = a signal
     /// death, which is what a Stop looks like from here).
     terminal_exit: Mutex<Option<i32>>,
+    /// FEED-153: how many `fail-*` prompts the fake has refused so far.
+    failures: AtomicUsize,
 }
 
 struct FakeAgent {
@@ -223,6 +225,18 @@ impl ConnectTo<Client> for FakeAgent {
                             .lock()
                             .expect("the prompt log is not poisoned")
                             .push(text.clone());
+                        // FEED-153: `fail-once` refuses its FIRST send
+                        // (an adapter erroring on a prompt it never ran),
+                        // `fail-always` every one.
+                        if text == "fail-always"
+                            || (text == "fail-once" && prompt_state.failures.load(Ordering::SeqCst) == 0)
+                        {
+                            prompt_state.failures.fetch_add(1, Ordering::SeqCst);
+                            let _ = responder.respond_with_error(
+                                Error::internal_error().data(serde_json::Value::String("overloaded".to_string())),
+                            );
+                            return Ok(());
+                        }
                         // EXP-873: claude replays every user message the
                         // moment it takes it in (`--replay-user-messages`);
                         // so does the fake — at once, or once the test's gate
@@ -2218,6 +2232,53 @@ fn a_seed_message_is_consumed_once_the_seed_turn_is_sent() {
         harness.state.prompts.lock().expect("the prompt log is not poisoned").clone(),
         vec!["wake up".to_string()]
     );
+    harness.session.kill("killed");
+}
+
+/// FEED-153: a seed prompt (the brief) the agent refuses outright — several
+/// runs starting at once on one machine — is sent once more, so the first
+/// turn runs instead of the run idling with nothing done.
+#[test]
+fn a_refused_seed_is_retried_once() {
+    let harness = start_fake_prepared(
+        "seed-retry",
+        |_| {},
+        |prepared| prepared.acp.prompt = Some("fail-once".to_string()),
+    );
+    until("the retried seed answers", || {
+        harness.state.answered.lock().expect("the answer log is not poisoned").clone() == vec!["fail-once".to_string()]
+    });
+    assert_eq!(
+        harness.state.prompts.lock().expect("the prompt log is not poisoned").clone(),
+        vec!["fail-once".to_string(), "fail-once".to_string()]
+    );
+    assert_eq!(harness.state.failures.load(Ordering::SeqCst), 1);
+    harness.session.kill("killed");
+}
+
+/// FEED-153: a turn whose prompt keeps failing (the seed's one retry
+/// included) replies the error into the Conversation — never a silent idle
+/// — and a later message still runs; only the SEED is retried.
+#[test]
+fn a_failed_turn_with_nothing_said_replies_the_error() {
+    let harness = start_fake_prepared(
+        "seed-fails",
+        |_| {},
+        |prepared| prepared.acp.prompt = Some("fail-always".to_string()),
+    );
+    until("the error reply", || !harness.conversation.replies().is_empty());
+    assert_eq!(harness.state.failures.load(Ordering::SeqCst), 2, "the seed and its one retry");
+    let replies = harness.conversation.replies();
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert!(replies[0].0.starts_with("Agent error:"), "{replies:?}");
+    assert!(replies[0].0.contains("overloaded"), "{replies:?}");
+
+    harness.session.send_prompt("fail-always".to_string());
+    until("the second error reply", || harness.conversation.replies().len() == 2);
+    assert_eq!(harness.state.failures.load(Ordering::SeqCst), 3, "a later turn is not retried");
+    harness.session.send_prompt("reply".to_string());
+    until("the next turn's reply", || harness.conversation.replies().len() == 3);
+    assert_eq!(harness.conversation.replies()[2].0, "All done.");
     harness.session.kill("killed");
 }
 

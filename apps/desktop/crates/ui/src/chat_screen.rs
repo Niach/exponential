@@ -1330,6 +1330,32 @@ impl ChatScreenView {
         }
     }
 
+    /// EXP-1375: the picked machine's low-disk row when nothing blocks the
+    /// start there (`device_readiness::warning_row`), with the remote target
+    /// like [`Self::readiness_blocker`]. Never a blocker.
+    fn readiness_warning(
+        &self,
+        cx: &App,
+    ) -> Option<(device_readiness::ReadinessRow, Option<(String, SharedString)>)> {
+        self.launch.as_ref()?;
+        match self.remote_device() {
+            Some(device) => {
+                let store = Store::try_global(cx)?;
+                let rows = store.collections().devices.read(cx);
+                let row = rows.get(&device.row_id)?;
+                let doctor = device_readiness::parse(row.doctor.as_ref())?;
+                let row = device_readiness::warning_row(&doctor, false)?;
+                Some((row, Some((device.device_id.clone(), device.label.clone().into()))))
+            }
+            None => {
+                let hub = CodingHub::global_ref(cx)?;
+                let hub = hub.read(cx);
+                let doctor = hub.doctor.device.as_ref()?;
+                Some((device_readiness::warning_row(doctor, true)?, None))
+            }
+        }
+    }
+
     /// The readiness row under the composer, wired to its action (THIS
     /// device: every action; another: the remote ones only).
     fn render_readiness_row(
@@ -2380,7 +2406,11 @@ impl ChatScreenView {
         // row (with its action) instead of a sentence.
         // NEW-3: a DM runs on the agent's own device: no machine notes.
         let to_agent = self.to_agent();
-        let readiness = self.readiness_blocker(cx).filter(|_| !to_agent);
+        // EXP-1375: else the low-disk warning row (the start stays enabled).
+        let readiness = self
+            .readiness_blocker(cx)
+            .or_else(|| self.readiness_warning(cx))
+            .filter(|_| !to_agent);
         let readiness_summary = readiness
             .as_ref()
             .map(|(row, _)| SharedString::from(device_readiness::summary(row)));

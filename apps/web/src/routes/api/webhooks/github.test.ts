@@ -79,11 +79,12 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   adoptOutOfBandPullRequest: vi.fn(async () => {}),
   applyPullRequestBase: vi.fn(async () => ({ txid: 1 })),
   applyPullRequestClosed: vi.fn(async () => ({ applied: true, txid: 1 })),
-  applyPullRequestDraft: vi.fn(async () => {}),
+  applyPullRequestDraft: vi.fn(async (): Promise<{ rootSessionId: string | null } | null> => null),
   applyPullRequestMerged: vi.fn(async () => ({ applied: true, txid: 1 })),
   applyPullRequestReopened: vi.fn(async () => {}),
   loadPullRequestByUrl: vi.fn(async (): Promise<{ id: string } | null> => null),
 }))
+vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge: vi.fn() }))
 // EXP-617: the resolver itself is covered in github-identity.test.ts — here
 // we only assert WHICH actor the webhook hands it and that it reaches the
 // writers.
@@ -94,6 +95,7 @@ vi.mock(`@/lib/integrations/github-identity`, () => ({
 import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import { repositories } from "@/db/schema"
+import { yoloEdge } from "@/lib/yolo-edge"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
 // claim → webhook handoff end to end.
 import {
@@ -151,6 +153,7 @@ function pullRequestPayload(overrides: {
   merged_by?: unknown
   sender?: unknown
   changes?: unknown
+  updated_at?: string
 }): unknown {
   return {
     action: overrides.action,
@@ -161,6 +164,7 @@ function pullRequestPayload(overrides: {
       merged: overrides.merged ?? false,
       merged_at: overrides.merged_at ?? null,
       draft: overrides.draft ?? false,
+      ...(overrides.updated_at ? { updated_at: overrides.updated_at } : {}),
       head: { ref: `exp/EXP-9` },
       ...(overrides.base ? { base: { ref: overrides.base } } : {}),
       user: overrides.user,
@@ -335,6 +339,41 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
     known()
     await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action })) })
     expect(prSyncMock.applyPullRequestDraft).toHaveBeenCalledWith({ pullRequestId: PR_ID, draft })
+  })
+
+  // EXP-1418: every delivery carries GitHub's draft flag; the row follows it.
+  it.each([
+    [`synchronize`, true],
+    [`edited`, false],
+    [`opened`, true],
+  ])(`%s syncs the stored draft state from pull_request.draft`, async (action, draft) => {
+    known()
+    await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action, draft })) })
+    expect(prSyncMock.applyPullRequestDraft).toHaveBeenCalledWith({ pullRequestId: PR_ID, draft })
+  })
+
+  it(`a generic delivery's draft flag carries its updated_at (an older one never wins); an explicit flip does not`, async () => {
+    known()
+    const at = `2026-10-28T09:00:00Z`
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `synchronize`, draft: true, updated_at: at })),
+    })
+    expect(prSyncMock.applyPullRequestDraft).toHaveBeenLastCalledWith({ pullRequestId: PR_ID, draft: true, notBefore: new Date(at) })
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `ready_for_review`, updated_at: at })),
+    })
+    expect(prSyncMock.applyPullRequestDraft).toHaveBeenLastCalledWith({ pullRequestId: PR_ID, draft: false })
+  })
+
+  it(`a draft readied on GitHub is a yolo edge for its thread; no flip, no edge`, async () => {
+    known()
+    prSyncMock.applyPullRequestDraft.mockResolvedValueOnce({ rootSessionId: `root-1` })
+    await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action: `ready_for_review` })) })
+    expect(vi.mocked(yoloEdge)).toHaveBeenCalledWith(`root-1`)
+    vi.mocked(yoloEdge).mockClear()
+    prSyncMock.applyPullRequestDraft.mockResolvedValueOnce(null)
+    await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action: `ready_for_review` })) })
+    expect(vi.mocked(yoloEdge)).not.toHaveBeenCalled()
   })
 
   it(`rejects a bad signature with 401 before touching anything`, async () => {

@@ -53,6 +53,10 @@ pub(crate) struct RunLifecycle {
     kill: Option<KillFeed>,
     /// Clears the ticker thread and the publisher's activity path.
     active: Arc<AtomicBool>,
+    /// NEW-17: fires when the ticker thread finished its teardown, so a
+    /// `lost` report lands AFTER every ticker write (the server clears the
+    /// interruption on the next ordinary report).
+    ticker_exit: Option<flume::Receiver<()>>,
     /// EXP-447 parity: the launch-time installation token dies after an hour,
     /// so a session outliving it would strand the agent's `git push`.
     _refresher: Option<coding::RefresherHold>,
@@ -74,6 +78,7 @@ impl RunLifecycle {
                 publisher: None,
                 kill: None,
                 active,
+                ticker_exit: None,
                 _refresher: None,
             });
         }
@@ -108,7 +113,7 @@ impl RunLifecycle {
                 let _ = commands.send(EngineCommand::Cancel);
             })
         });
-        spawn_tickers(&ctx, Arc::clone(&active), commands);
+        let ticker_exit = spawn_tickers(&ctx, Arc::clone(&active), commands);
 
         let refresher = ctx.run.repository_id.as_deref().map(|repository_id| {
             coding::clone_refreshers().retain(Arc::clone(&ctx.trpc), repository_id, &ctx.run.clone)
@@ -118,6 +123,7 @@ impl RunLifecycle {
             publisher,
             kill: Some(kill),
             active,
+            ticker_exit: Some(ticker_exit),
             _refresher: refresher,
         })
     }
@@ -140,8 +146,21 @@ impl RunLifecycle {
         if let Some(publisher) = &self.publisher {
             publisher.shutdown(Some(outcome.to_string()));
         }
+        // NEW-17: judged BEFORE the tickers stop — a lost run's teardown
+        // writes nothing (the `lost` report is the death's only write).
+        let lost = (!ctx.replay && outcome != RELEASED_OUTCOME)
+            .then(|| run_lost(ctx, outcome))
+            .flatten();
+        if let Some(lost) = lost {
+            let _ = ctx.lost.set(lost);
+        }
         // 3. Nothing else may publish from here on (the tickers stop).
         self.active.store(false, Ordering::SeqCst);
+        if lost.is_some() {
+            if let Some(exit) = self.ticker_exit.take() {
+                let _ = exit.recv_timeout(TICKER_EXIT_WAIT);
+            }
+        }
         // 4. EXP-1292: the Conversation catches up first — the last turn's
         //    reply and the consumed messages land before the row's status
         //    says the agent is gone. Bounded: a dead server never holds the
@@ -168,7 +187,7 @@ impl RunLifecycle {
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
         //    message or trigger firing wakes the SAME row).
-        let end = (!ctx.replay).then(|| if released { Ok(()) } else { finish_row(ctx, outcome) });
+        let end = (!ctx.replay).then(|| if released { Ok(()) } else { finish_row(ctx, outcome, lost) });
         // 6. EXP-758: this run's child (if it had one) is gone with the
         //    connection, so the record must stop naming it: a pid left here
         //    would make the next start's reaper sweep hunt a dead process,
@@ -232,12 +251,65 @@ pub fn keeps_workspace(outcome: &str) -> bool {
     outcome == SUSPEND_OUTCOME || outcome == RELEASED_OUTCOME
 }
 
-/// EXP-1292: the row's last status write at the end of a run.
-fn finish_row(ctx: &SessionCtx, outcome: &str) -> Result<(), api::ApiError> {
+/// EXP-1292: the row's last status write at the end of a run. NEW-17: a run
+/// whose process went away unasked, or a host stopping under a live turn,
+/// says so (`lost`) — never a silent end or idle.
+fn finish_row(
+    ctx: &SessionCtx,
+    outcome: &str,
+    lost: Option<api::session_device::LostReason>,
+) -> Result<(), api::ApiError> {
+    // A turn the agent never closed (the slot stays open on a death).
+    let mid_turn = ctx.busy_at_shutdown.load(Ordering::SeqCst) || !ctx.turn_signal.is_idle();
     if !ends_row(ctx.persistent, outcome) {
-        return api::session_device::report(&ctx.trpc, &ctx.session_id, &agent_idle_report());
+        let report = api::session_device::SessionReport {
+            lost,
+            mid_turn: lost.map(|_| mid_turn),
+            ..agent_idle_report()
+        };
+        return api::session_device::report(&ctx.trpc, &ctx.session_id, &report);
     }
-    coding::end_session(&ctx.trpc, &ctx.session_id)
+    match lost {
+        Some(lost) => coding::end_session_lost(&ctx.trpc, &ctx.session_id, lost, mid_turn),
+        None => coding::end_session(&ctx.trpc, &ctx.session_id),
+    }
+}
+
+/// NEW-17: how long the end sequence waits for the ticker thread's
+/// teardown before a `lost` report (bounded: a dead server never holds it).
+const TICKER_EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// NEW-17: [`lost_reason`] for this run's end.
+fn run_lost(ctx: &SessionCtx, outcome: &str) -> Option<api::session_device::LostReason> {
+    let asked = ctx.outcome.lock().map(|slot| slot.is_some()).unwrap_or(true);
+    lost_reason(
+        outcome,
+        asked,
+        ctx.turns_started.load(Ordering::SeqCst) > 0,
+        ctx.busy_at_shutdown.load(Ordering::SeqCst),
+    )
+}
+
+/// NEW-17: why a run's process went away without the agent finishing, if
+/// it did. `asked` = the host shut the run down (a Stop, a kill, a release,
+/// a suspend, the stall watchdog, an aside's end); `started` = a turn ever
+/// opened (a launch that never got one is a failed start, which ends);
+/// `busy_at_shutdown` = a turn (or background task) was live when the host
+/// asked. A suspend is the host stopping (a daemon restart, an app quit;
+/// an account switch only ever suspends an IDLE run): lost only mid-turn.
+/// Anything else asked is a real end; an UNASKED exit (a signal, the OOM
+/// killer, a crash: the child simply went away) is lost.
+pub(crate) fn lost_reason(
+    outcome: &str,
+    asked: bool,
+    started: bool,
+    busy_at_shutdown: bool,
+) -> Option<api::session_device::LostReason> {
+    use api::session_device::LostReason;
+    if outcome == SUSPEND_OUTCOME {
+        return busy_at_shutdown.then_some(LostReason::DaemonRestart);
+    }
+    (!asked && started).then_some(LostReason::ProcessLost)
 }
 
 /// Does this exit END the row? A thread session's does, unless the host
@@ -615,9 +687,10 @@ fn spawn_tickers(
     ctx: &Arc<SessionCtx>,
     active: Arc<AtomicBool>,
     commands: flume::Sender<EngineCommand>,
-) {
+) -> flume::Receiver<()> {
     let ctx = Arc::clone(ctx);
-    let _ = std::thread::Builder::new()
+    let (exit_tx, exit_rx) = flume::bounded(1);
+    let spawned = std::thread::Builder::new()
         .name("engine-ticks".to_string())
         .spawn(move || {
             let mut diffs = steer::DiffSnapshots::new();
@@ -636,6 +709,8 @@ fn spawn_tickers(
             // the end sequence writes the row's last status itself.
             let mut status = steer::StatusForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
+            // EXP-1418: the turns seen so far ([`missed_turn`]).
+            let mut seen_turns = 0u64;
             let report = {
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
@@ -661,9 +736,12 @@ fn spawn_tickers(
             // (`SessionCtx::agent_busy`).
             let busy_hook: Option<steer::AgentBusyHook> = {
                 let report = report.clone();
+                let ctx = Arc::clone(&ctx);
                 Some(Arc::new(move |busy| {
                     report(api::session_device::SessionReport {
                         busy: Some(busy),
+                        // EXP-1418: a turn end says whether a Stop cut it.
+                        interrupted: (!busy).then(|| ctx.with_mapper(|mapper| mapper.last_turn_interrupted())),
                         ..Default::default()
                     })
                 }))
@@ -688,9 +766,13 @@ fn spawn_tickers(
             };
             let status_hook: Option<steer::StatusHook> = {
                 let report = report.clone();
+                let ctx = Arc::clone(&ctx);
                 Some(Arc::new(move |state| {
+                    let idle = state == api::session_device::ReportStatus::Idle;
                     report(api::session_device::SessionReport {
                         status: Some(state),
+                        // EXP-1418: the turn-end report's interrupt verdict.
+                        interrupted: idle.then(|| ctx.with_mapper(|mapper| mapper.last_turn_interrupted())),
                         ..Default::default()
                     })
                 }))
@@ -738,8 +820,22 @@ fn spawn_tickers(
                 if !active.load(Ordering::SeqCst) {
                     break;
                 }
+                // NEW-17: the child is gone — its run's last word is the end
+                // sequence's (`lost`), never this dying turn's idle edge.
+                if ctx.child_exit.get().is_some() {
+                    continue;
+                }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
-                agent_busy.tick(ctx.agent_busy(), &busy_hook);
+                let busy_now = ctx.agent_busy();
+                // EXP-1418: a turn that opened and closed between two ticks
+                // still says `busy: true` (and `running`) before its idle.
+                if missed_turn(&mut seen_turns, ctx.turns_started.load(Ordering::SeqCst), busy_now) {
+                    agent_busy.tick(true, &busy_hook);
+                    if ctx.feed.phase() == Some(EnginePhase::Live) {
+                        status.tick(false, &status_hook);
+                    }
+                }
+                agent_busy.tick(busy_now, &busy_hook);
                 background.tick(ctx.background(), &background_hook);
                 // EXP-1292: only once the session is live — the handshake's
                 // "between turns" is no idle the row should flap through.
@@ -786,20 +882,43 @@ fn spawn_tickers(
                     ctx.dispatch(out);
                 }
             }
-            // Teardown tidiness: never leave the synced attention flag stuck
-            // on a session whose engine is gone.
-            needs_input.clear_on_teardown(&hook);
             // EXP-848: a run whose engine is gone is never working — nor
             // are its background tasks (FEED-44, EXP-1374), which died with
             // it.
             ctx.background_tasks_live.store(false, Ordering::SeqCst);
-            agent_busy.clear_on_teardown(&busy_hook);
-            background.clear_on_teardown(&background_hook);
-            blocked.clear_on_teardown(&blocked_hook);
+            // NEW-17: a LOST run's teardown writes nothing — the end
+            // sequence's `lost` report is its only word (it idles the row
+            // itself, and any later report would clear the interruption).
+            if ctx.lost.get().is_none() {
+                // Teardown tidiness: never leave the synced attention flag
+                // stuck on a session whose engine is gone.
+                needs_input.clear_on_teardown(&hook);
+                agent_busy.clear_on_teardown(&busy_hook);
+                background.clear_on_teardown(&background_hook);
+                blocked.clear_on_teardown(&blocked_hook);
+            }
             // EXP-905: NOT cleared — but a name learned in the run's last
             // second still lands (the row is live until the end path runs).
-            agent_title.tick(ctx.agent_title.get().as_deref(), &title_hook);
+            if ctx.lost.get().is_none() {
+                agent_title.tick(ctx.agent_title.get().as_deref(), &title_hook);
+            }
+            let _ = exit_tx.send(());
         });
+    if let Err(err) = spawned {
+        log::warn!("engine: ticker thread failed to spawn: {err}");
+    }
+    exit_rx
+}
+
+/// EXP-1418: did a whole turn open AND close since the last tick? The busy
+/// mirror polls once a second, so a short turn (a quick reply, a prompt the
+/// agent refused) could go `idle` without ever having read `busy: true` —
+/// and the server's yolo turn end keys on that edge. `seen` advances to
+/// `started` either way.
+pub(crate) fn missed_turn(seen: &mut u64, started: u64, busy_now: bool) -> bool {
+    let moved = started != *seen;
+    *seen = started;
+    moved && !busy_now
 }
 
 /// One watchdog tick (FEED-25). Runs on the ticker thread, never in the
@@ -928,6 +1047,35 @@ mod tests {
     /// EXP-758: the reason is a phase of its own, and it comes BEFORE the
     /// end: a view that reads the two in order paints the banner and then
     /// closes the session, never the other way round.
+    /// NEW-17: only an unasked exit after a turn, or a host stopping under
+    /// a live turn, is lost; every asked end is a real one.
+    #[test]
+    fn a_run_is_lost_only_when_its_process_went_away_unasked() {
+        use api::session_device::LostReason;
+        assert_eq!(lost_reason("exit:137", false, true, false), Some(LostReason::ProcessLost));
+        assert_eq!(lost_reason("ended", false, true, true), Some(LostReason::ProcessLost));
+        assert_eq!(lost_reason("exit:1", false, false, false), None, "a start that never ran a turn ends");
+        assert_eq!(lost_reason("killed", true, true, true), None, "a person's stop");
+        assert_eq!(lost_reason("ended", true, true, true), None, "the stall watchdog / an aside");
+        assert_eq!(lost_reason(RELEASED_OUTCOME, true, true, true), None);
+        assert_eq!(lost_reason(SUSPEND_OUTCOME, true, true, true), Some(LostReason::DaemonRestart));
+        assert_eq!(lost_reason(SUSPEND_OUTCOME, true, true, false), None, "an idle suspend just idles");
+    }
+
+    /// EXP-1418: a turn the one-second tick never saw open still reads as
+    /// one; a turn still open, or no new turn, does not.
+    #[test]
+    fn a_turn_between_two_ticks_is_not_missed() {
+        let mut seen = 0;
+        assert!(!missed_turn(&mut seen, 0, false), "no turn yet");
+        assert!(!missed_turn(&mut seen, 1, true), "open: the plain mirror says busy");
+        assert!(!missed_turn(&mut seen, 1, false), "closed after a tick saw it open");
+        assert!(missed_turn(&mut seen, 2, false), "opened and closed between ticks");
+        assert_eq!(seen, 2);
+        assert!(!missed_turn(&mut seen, 2, false), "reported once");
+        assert!(missed_turn(&mut seen, 4, false), "two quick turns: one busy edge");
+    }
+
     #[test]
     fn a_failed_exit_says_why_before_it_says_ended() {
         assert_eq!(end_phases(None), vec![EnginePhase::Ended]);

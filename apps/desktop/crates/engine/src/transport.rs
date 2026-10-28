@@ -287,8 +287,13 @@ impl Drop for ChildGuard {
 /// used minus the hook/observer env `prepare` skips on the Acp arm (D2).
 /// `PATH` is seeded from [`login_path`] first so a spec-provided `PATH`
 /// still wins.
+///
+/// NEW-17: on Linux the child runs in its own systemd scope when the host
+/// can ([`crate::run_scope`]) — `systemd-run --scope` execs it in place, so
+/// the pid and pipes below are the agent's own.
 pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<ChildLines> {
-    let mut cmd = background_command(&spec.program);
+    let argv = crate::run_scope::ScopeMode::current().wrap(&spec.program, &spec.args);
+    let mut cmd = background_command(&argv[0]);
     cmd.env("PATH", login_path());
     for (key, value) in &spec.env {
         cmd.env(key, value);
@@ -296,7 +301,7 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     if let Some(cwd) = &spec.cwd {
         cmd.current_dir(cwd);
     }
-    cmd.args(&spec.args)
+    cmd.args(&argv[1..])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(match stderr {

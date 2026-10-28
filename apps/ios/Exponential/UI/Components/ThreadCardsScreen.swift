@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice|device-readiness>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness"]
 
     var body: some View {
         if kind == "settings-voice" {
@@ -59,6 +59,7 @@ struct ThreadCardsScreen: View {
                     case "schedule-picker": SchedulePickerSpecimens()
                     case "mention-pill": MentionPillSpecimens()
                     case "voice-call": VoiceCallSpecimens()
+                    case "device-readiness": DeviceReadinessSpecimens()
                     default: workCards
                     }
                 }
@@ -805,5 +806,41 @@ private struct VoiceCallSpecimens: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// EXP-1375: the `device-readiness` entry's low-disk case (device-doctor.json,
+/// the last `case`) as a phone draws them (always another device): the
+/// block in Device settings, then the composer's low-disk row
+/// (`DeviceReadiness.warningRow`, a warning with no pill).
+private struct DeviceReadinessSpecimens: View {
+    private static let cases: [(name: String, json: String)] = [
+        ("EXP-1375: low disk with two kept worktrees: a warning, never a blocker", #"""
+        {"checkedAt":"2026-10-28T09:00:00.000Z","items":[{"key":"git","group":"required","state":"ok","detail":"2.55.0"},{"key":"claude","group":"agents","state":"ok","detail":"2.1.289"},{"key":"codex","group":"agents","state":"missing","detail":"Signed out","action":"sign_in"},{"key":"computer_use","group":"computer_use","state":"off"},{"key":"disk","group":"storage","state":"action","detail":"6.2 GB free"},{"key":"worktree-1","group":"storage","parent":"disk","label":"exp-session-9497089a","state":"off","detail":"Uncommitted changes"},{"key":"worktree-2","group":"storage","parent":"disk","label":"exp-EXP-1375","state":"off","detail":"Unpushed commits"}]}
+        """#),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(Self.cases.enumerated()), id: \.offset) { _, specimen in
+                if let doctor = DeviceDoctor.decode(json: specimen.json) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        caption(specimen.name)
+                        DeviceReadinessView(groups: DeviceReadiness.groups(doctor, remote: true), onAction: { _ in })
+                        if let row = DeviceReadiness.warningRow(doctor, remote: true) {
+                            caption("Composer")
+                            DeviceReadinessView(row: row, onAction: { _ in })
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 }

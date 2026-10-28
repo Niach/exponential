@@ -49,11 +49,12 @@ import {
   deleteSession,
   endDeadSessionInTx,
   endSession,
+  relayKillSessionsBestEffort,
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { answeredOwnCard, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
-import { clearBlockedInTx, INTERRUPTIONS } from "@/lib/sessions/watchdog"
+import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
   dismissSuggestion,
@@ -633,6 +634,19 @@ export const sessionsRouter = router({
         // switch mid-session), so a resume launches on it. Outside the
         // agent's vocabulary (a full model id) = ignored, never refused.
         model: z.string().min(1).max(64).optional(),
+        // EXP-1418: on a turn-end report, whether an interrupt (a person's
+        // Stop) cut that turn. `false` = it finished by itself: a Stop that
+        // raced it (stamped while the turn was ending) holds nothing.
+        // Absent (older devices) = the Stop counts.
+        interrupted: z.boolean().optional(),
+        // NEW-17: the run's process went away WITHOUT the agent finishing
+        // (`process_lost` = killed/OOM/crashed, `daemon_restart` = the host
+        // restarted under it). Sent with `status: "ended"` or alone; the
+        // session reads interrupted (`restarted`), never "done".
+        lost: z.enum([`process_lost`, `daemon_restart`]).optional(),
+        // NEW-17: with `lost`, the device's own word that a turn was still
+        // open (the row can already read idle off a late status tick).
+        midTurn: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -646,6 +660,67 @@ export const sessionsRouter = router({
         // and so are a device's the session moved away from (and a deleted
         // row's).
         return noOpTx(ctx.db)
+      }
+      // NEW-17: the device says the run's PROCESS went away without the
+      // agent finishing (killed / OOM / the daemon restarted under it). The
+      // session never ends on it and never reads "done": idle, and when it
+      // was mid-turn the `restarted` INTERRUPTION (resume: its device
+      // continues it; the watchdog's `resumeMinutes` rule puts it on a
+      // person if it does not), said once to its parent. Not a yolo edge.
+      // An older device says neither: a process that ENDS while its turn
+      // is open (busy, not only background tasks; or `running`: the
+      // device's teardown clears busy before its end report) never
+      // finished it (an OOM kill, a crash; a finished turn goes idle
+      // first), so it reads lost too. A launch that never reached a turn
+      // (`lastTurnAt` null) still ends. A device that sends either new
+      // field is never guessed for, and its explicit `midTurn` wins over
+      // the row's state.
+      const midTurn = input.midTurn ?? (session.busy || session.status === `running`)
+      const lost =
+        input.lost ??
+        (input.midTurn === undefined &&
+        input.status === `ended` &&
+        ((session.busy && !session.background) || (session.status === `running` && session.lastTurnAt !== null))
+          ? (`process_lost` as const)
+          : undefined)
+      if (lost) {
+        const now = new Date()
+        // A usage wall the device wrote stays (it names the real blocker).
+        const flaggable =
+          session.blocked === null ||
+          session.blocked.kind === `stuck` ||
+          (INTERRUPTIONS as readonly string[]).includes(session.blocked.kind)
+        const txid = await ctx.db.transaction(async (tx) => {
+          const txid = await generateTxId(tx)
+          // A watchdog `stuck` flag held needs_input: re-derived first.
+          if (session.blocked?.kind === `stuck`) await clearBlockedInTx(tx, [session.id], `stuck`)
+          await tx
+            .update(sessions)
+            .set({
+              status: `idle`,
+              busy: false,
+              background: false,
+              // A Stop's pending settle has no turn left to settle.
+              stoppedAt: null,
+              ...(midTurn && flaggable
+                ? { blocked: interruption(`restarted`, now, true, now) }
+                : {}),
+              lastActivityAt: now,
+              updatedAt: now,
+            })
+            .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
+          if (midTurn && flaggable) {
+            await busLine(
+              tx,
+              session,
+              `session_interrupted`,
+              lost === `process_lost` ? BUS_COPY.session_lost : BUS_COPY.session_interrupted,
+              { waking: false }
+            )
+          }
+          return txid
+        })
+        return { txid }
       }
       // A session that SURVIVES its process: an agent's conversation never
       // ends, and neither does a thread's ROOT (FEED-134: the conversation
@@ -690,14 +765,20 @@ export const sessionsRouter = router({
       // end of a turn a person's Stop interrupted (`stoppedAt`).
       const nowBusy =
         input.busy !== undefined ? input.busy : status === `idle` ? false : session.busy
-      const yoloTurnEnd = ending || (session.busy && !nowBusy && !session.stoppedAt)
+      // EXP-1418: a turn = busy seen true OR the row `running` (a device
+      // that never reports `busy: true` still flips running → idle); a Stop
+      // the device says cut nothing (`interrupted: false`) holds nothing.
+      const turnWasLive = session.busy || (session.status === `running` && status === `idle`)
+      const stopSettled = !!session.stoppedAt && !nowBusy && input.interrupted === false
+      const yoloTurnEnd = ending || (turnWasLive && !nowBusy && (!session.stoppedAt || stopSettled))
+      let endedHere = false
       const txid = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         if (ending) {
           // The agent process went away = the session ended: like an
           // explicit End of this one row (once: only when THIS report flips
           // it). The bus posts its report.
-          await endDeadSessionInTx(tx, session)
+          endedHere = await endDeadSessionInTx(tx, session)
           return txid
         }
         const needsInput =
@@ -735,7 +816,7 @@ export const sessionsRouter = router({
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
             // EXP-1413: working again = the Stop is settled.
-            ...(nowBusy && session.stoppedAt ? { stoppedAt: null } : {}),
+            ...((nowBusy || stopSettled) && session.stoppedAt ? { stoppedAt: null } : {}),
             lastActivityAt: now,
             updatedAt: now,
           })
@@ -752,6 +833,8 @@ export const sessionsRouter = router({
         return txid
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)
+      // EXP-1415: a watched room learns the end like any other End.
+      if (endedHere) await relayKillSessionsBestEffort([session.id])
       // EXP-1413: a turn ending (or a child's process going) is a yolo edge.
       if (yoloTurnEnd) yoloEdge(session.rootId)
       return { txid }

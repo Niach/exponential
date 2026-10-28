@@ -315,6 +315,9 @@ internal fun LaunchOptionsSection(
             fallback = "Not ready on ${device.deviceLabel.ifBlank { device.deviceId }}. Run the doctor there.",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
+    } else if (device != null && agent.isNotEmpty()) {
+        // EXP-1375: a ready machine low on disk: its disk row, a warning.
+        DeviceLowDiskRow(device, Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
     }
 }
 

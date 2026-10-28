@@ -104,7 +104,9 @@ class DeviceDoctorTest {
             for ((item, row) in items.zip(rows)) {
                 val key = item.strOrNull("key")!!
                 val state = item.strOrNull("state")!!
-                assertEquals("$name/$key", fixtureLabels[key], row.label)
+                // EXP-1375: a kept worktree row carries its own label.
+                val label = item.strOrNull("label") ?: fixtureLabels[key]
+                assertEquals("$name/$key", label, row.label)
                 if (key == "computer_use") {
                     // The switch row: label + switch, no glyph, no detail.
                     assertTrue(row.isSwitch)
@@ -245,6 +247,19 @@ class DeviceDoctorTest {
         assertEquals("git", noGit.key)
         assertEquals(DoctorGlyph.X, noGit.glyph)
         assertNull(noGit.action)
+    }
+
+    @Test
+    fun `the low-disk row is the composer's warning, never a blocker`() {
+        for (case in cases) {
+            val name = case.strOrNull("name")
+            val row = DeviceReadiness.warningRow(doctorOf(case))
+            assertEquals(name, case.strOrNull("composerWarning"), row?.key)
+            if (row != null) {
+                assertNull(name, row.action)
+                assertNull(name, DeviceReadiness.failingRow(doctorOf(case), "claude"))
+            }
+        }
     }
 
     @Test

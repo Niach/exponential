@@ -5,7 +5,12 @@
 // queues `agent_login {import: true}` which MOVES the
 // agent CLI's ambient login into one of the machine's profiles.
 import { useCallback } from "react"
-import { DeviceReadiness, deviceReadinessBlocker, toast } from "@exp/ui"
+import {
+  DeviceReadiness,
+  deviceReadinessBlocker,
+  deviceReadinessWarning,
+  toast,
+} from "@exp/ui"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { alreadyAddedCopy } from "@/components/device-agent-account"
 import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
@@ -143,7 +148,11 @@ export function DeviceReadinessNotice({
 }) {
   const onAction = useDeviceReadinessAction(device)
   if (!device) return null
-  const blocker = deviceReadinessBlocker(device.doctor, agent)
+  // EXP-1375: nothing blocks, but the device is low on disk: its disk row
+  // (a warning; the start stays enabled).
+  const blocker =
+    deviceReadinessBlocker(device.doctor, agent) ??
+    (notReady ? null : deviceReadinessWarning(device.doctor))
   if (blocker) {
     return (
       <DeviceReadiness

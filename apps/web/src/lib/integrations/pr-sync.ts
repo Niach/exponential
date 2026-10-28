@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, lte, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -1201,20 +1201,28 @@ export async function applyPullRequestReopened(opts: {
   })
 }
 
-/** GitHub's draft flag flipped (live rows only). */
+/** GitHub's draft flag (live rows only). EXP-1418: written only when it
+ *  differs (every pull_request delivery carries it); returns the flipped
+ *  row's root, or null when nothing changed. */
 export async function applyPullRequestDraft(opts: {
   pullRequestId: string
   draft: boolean
-}): Promise<void> {
-  await db
+  /** The delivery's own `updated_at`: the row flips only when it was last
+   *  written no later than that (an older delivery never wins). */
+  notBefore?: Date
+}): Promise<{ rootSessionId: string | null } | null> {
+  const [row] = await db
     .update(pullRequests)
     .set({ state: opts.draft ? `draft` : `open`, updatedAt: new Date() })
     .where(
       and(
         eq(pullRequests.id, opts.pullRequestId),
-        inArray(pullRequests.state, [...LIVE_PR_STATES])
+        eq(pullRequests.state, opts.draft ? `open` : `draft`),
+        opts.notBefore ? lte(pullRequests.updatedAt, opts.notBefore) : undefined
       )
     )
+    .returning({ rootSessionId: pullRequests.rootSessionId })
+  return row ?? null
 }
 
 /** Stores `base` and the live PR it sits on; returns that stack parent. */

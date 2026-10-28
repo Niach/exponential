@@ -1330,7 +1330,7 @@ fn dial_control(
     let history_trpc = Arc::clone(&ctx.trpc);
     let history_dir = ctx.data_dir.clone();
     let history_in_flight = steer::HistoryInFlight::new();
-    let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id: String| {
+    let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id: String, reply| {
         let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
             trpc: Arc::clone(&history_trpc),
             session_id: session_id.clone(),
@@ -1341,6 +1341,7 @@ fn dial_control(
             history_dir.clone(),
             session_id,
             history_in_flight.clone(),
+            reply,
         );
     });
     // EXP-796: "Load earlier" on a run this machine already replayed — the
@@ -3088,7 +3089,7 @@ impl DaemonHost {
                 }
                 continue;
             }
-            let recorded = coding::run_registry::get(&self.pickup.ctx.data_dir, &row.id).is_some();
+            let recorded = coding::pickup::reclaim_recorded(&self.pickup.ctx.data_dir, &row.id);
             match coding::pickup::reclaim_step(row, pending.contains(row.id.as_str()), recorded) {
                 coding::pickup::ReclaimStep::Replay => {
                     log::info!("reclaim: session {} re-claimed — its pending messages replay", row.id);

@@ -304,6 +304,8 @@ fn recording_hooks_with(
     }
 }
 
+// NEW-93: the panic names the CALLER's line, not this helper's.
+#[track_caller]
 fn wait_for(what: &str, predicate: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !predicate() {
@@ -484,7 +486,7 @@ fn full_protocol_flow_against_the_real_relay() {
         Arc::new(move || checked_in_clone.store(true, Ordering::SeqCst)),
         // EXP-773: no stored transcript in this fixture — the relay never
         // asks, and an ask would be a no-op anyway.
-        Arc::new(|_session_id| {}),
+        Arc::new(|_session_id, _reply| {}),
         // EXP-796: nor a page of one.
         Arc::new(|_ask, _reply| {}),
         // NEW-55: no voice here.
@@ -1029,13 +1031,14 @@ fn a_finished_run_replays_from_the_device_and_then_pages_through_its_control_soc
             relay_port: relay.port,
         }),
         Arc::new(|| {}),
-        Arc::new(move |session_id| {
+        Arc::new(move |session_id, reply| {
             steer::serve_history_request(
                 &request_runtime,
                 tickets.clone(),
                 request_dir.clone(),
                 session_id,
                 in_flight.clone(),
+                reply,
             );
         }),
         Arc::new(move |ask, reply| {
@@ -1124,4 +1127,182 @@ fn a_finished_run_replays_from_the_device_and_then_pages_through_its_control_soc
 
     control.stop();
     let _ = std::fs::remove_dir_all(&data_dir);
+}
+
+/// #EXP-1415: an IDLE session (`live` viewer ticket) whose journal is gone
+/// from the device that ran it (pruned, or never written). The production
+/// device half answers the relay's `history_request` with `history_none`, so
+/// the viewer gets the retryable `no_such_session` at once instead of a 20s
+/// "history pending" spinner, and its redial is answered by the relay's
+/// backoff without asking the device again.
+#[test]
+fn a_missing_journal_is_answered_at_once_and_backed_off() {
+    if !bun_available() {
+        eprintln!("skipping relay integration test: bun not on PATH");
+        return;
+    }
+    let relay = start_relay();
+    let runtime = SteerRuntime::new().unwrap();
+    const GONE_SESSION: &str = "77777777-8888-9999-0000-111111111111";
+    const DEVICE_ID: &str = "device-none-1";
+    let data_dir = std::env::temp_dir().join(format!(
+        "exp-steer-relay-none-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    let asks = Arc::new(Mutex::new(0usize));
+    let tickets: Arc<dyn PublisherTickets> = Arc::new(BunTicketsFor {
+        relay_port: relay.port,
+        session_id: GONE_SESSION.to_string(),
+    });
+    let in_flight = steer::HistoryInFlight::new();
+    let (request_runtime, request_dir, request_asks) =
+        (runtime.clone(), data_dir.clone(), asks.clone());
+    let control = spawn_control_channel(
+        &runtime,
+        DeviceIdentity {
+            device_id: DEVICE_ID.to_string(),
+            device_label: "NoneBox".to_string(),
+        },
+        Arc::new(BunControlApi {
+            relay_port: relay.port,
+        }),
+        Arc::new(|| {}),
+        Arc::new(move |session_id, reply| {
+            *request_asks.lock().unwrap() += 1;
+            steer::serve_history_request(
+                &request_runtime,
+                tickets.clone(),
+                request_dir.clone(),
+                session_id,
+                in_flight.clone(),
+                reply,
+            );
+        }),
+        Arc::new(|_ask, _reply| {}),
+        Arc::new(|_ring| {}),
+    );
+    wait_for("device presence (nudge delivered)", || {
+        http_request(
+            relay.port,
+            "POST",
+            &format!("/devices/user-int/{DEVICE_ID}/nudge"),
+            &[("x-relay-secret", SECRET)],
+            None,
+        )
+        .is_some_and(|body| body.contains("\"delivered\":true"))
+    });
+
+    let claims = format!(
+        r#"{{"sub":"user-int","team":"team-int","sessionId":"{GONE_SESSION}","role":"viewer","deviceId":"{DEVICE_ID}","live":true}}"#
+    );
+    let started = Instant::now();
+    let viewer = connect_viewer_with(
+        &runtime,
+        relay.port,
+        r#"{"t":"join","channel":"activity"}"#,
+        &claims,
+    );
+    wait_for("the device's no-journal answer", || {
+        viewer
+            .texts()
+            .iter()
+            .any(|text| text.contains(r#""code":"no_such_session""#))
+    });
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "answered by the device, not the relay's 20s timer"
+    );
+    let texts = viewer.texts();
+    assert!(
+        !texts.iter().any(|text| text.contains(r#""t":"bye""#)),
+        "a live session's answer is retryable, never an ending: {texts:?}"
+    );
+    assert_eq!(*asks.lock().unwrap(), 1);
+
+    // The redial lands on the relay's backoff: answered, the device not asked.
+    let redial = connect_viewer_with(
+        &runtime,
+        relay.port,
+        r#"{"t":"join","channel":"activity"}"#,
+        &claims,
+    );
+    wait_for("the backoff answer", || {
+        redial
+            .texts()
+            .iter()
+            .any(|text| text.contains(r#""code":"no_such_session""#))
+    });
+    assert!(
+        !redial.texts().iter().any(|text| text.contains("history_pending")),
+        "no spinner on the redial: {:?}",
+        redial.texts()
+    );
+    assert_eq!(*asks.lock().unwrap(), 1, "the device was not asked again");
+
+    control.stop();
+    let _ = std::fs::remove_dir_all(&data_dir);
+}
+
+/// #EXP-1415: the production journal replay (`publish_history`, hello
+/// `replay:true`) dialing a room the run's LIVE production publisher holds
+/// is refused by the real relay: the live publisher keeps its room and is
+/// never closed as `replaced` (terminal for it).
+#[test]
+fn a_journal_replay_never_evicts_the_live_publisher() {
+    if !bun_available() {
+        eprintln!("skipping relay integration test: bun not on PATH");
+        return;
+    }
+    let relay = start_relay();
+    let runtime = SteerRuntime::new().unwrap();
+    const LIVE_SESSION: &str = "88888888-9999-0000-1111-222222222222";
+    let recorded = Arc::new(Recorded::default());
+    let publisher = publish(
+        &runtime,
+        PublishSpec {
+            session_id: LIVE_SESSION.to_string(),
+            issue_id: None,
+            journal_dir: None,
+            embeds: steer::ImageEmbeds::default(),
+        },
+        Arc::new(BunTicketsFor {
+            relay_port: relay.port,
+            session_id: LIVE_SESSION.to_string(),
+        }),
+        recording_hooks(recorded.clone()),
+    );
+    let room_live = || {
+        http_request(
+            relay.port,
+            "GET",
+            &format!("/sessions/{LIVE_SESSION}"),
+            &[("x-relay-secret", SECRET)],
+            None,
+        )
+        .is_some_and(|body| body.contains("\"live\":true"))
+    };
+    wait_for("room live", room_live);
+
+    let replay_ticket = mint_ticket(&format!(
+        r#"{{"sub":"user-int","team":"team-int","sessionId":"{LIVE_SESSION}","role":"publisher"}}"#
+    ));
+    let events = vec![(0u64, ActivityEvent::narration("a stale replay"))];
+    let _ = runtime
+        .handle()
+        .block_on(steer::publish_history(&ws_url(relay.port, &replay_ticket), LIVE_SESSION, &events));
+    wait_for("the relay counted the refusal", || {
+        http_request(relay.port, "GET", "/stats", &[("x-relay-secret", SECRET)], None)
+            .is_some_and(|body| body.contains("\"replayRefusals\":1"))
+    });
+    // The live publisher still holds the room, on its first connection.
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(room_live(), "the live publisher kept its room");
+    assert!(publisher.is_active(), "the live publisher was never replaced");
+    assert!(recorded.kills.lock().unwrap().is_empty());
 }

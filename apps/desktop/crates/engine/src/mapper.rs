@@ -339,6 +339,12 @@ pub struct Mapper {
     /// starts it over; a turn start clears it.
     turn_reply: String,
     turn_reply_id: Option<String>,
+    /// FEED-153: the turn's `session/prompt` failed ([`Mapper::on_turn_error`]):
+    /// a turn that ends with nothing said replies the error instead.
+    turn_error: Option<String>,
+    /// EXP-1418: the last turn to close was cut by an interrupt (a Stop,
+    /// the stall watchdog): its turn-end report says `interrupted`.
+    last_turn_interrupted: bool,
     /// EXP-1292: the subagent/picture cards already posted (`subagent:<id>`,
     /// `picture:<tool id>`), so a history reload re-streaming the same
     /// edges never posts one twice.
@@ -612,6 +618,8 @@ impl Mapper {
             ordinal: 0,
             turn_reply: String::new(),
             turn_reply_id: None,
+            turn_error: None,
+            last_turn_interrupted: false,
             carded: std::collections::HashSet::new(),
         }
     }
@@ -1175,6 +1183,7 @@ impl Mapper {
         if cancelled {
             self.on_cancel(out);
         }
+        self.last_turn_interrupted = cancelled;
         self.prompt_turn_open = false;
         if !cancelled {
             // EXP-1342: a turn ran to its end after the Stop — any replay
@@ -1223,9 +1232,15 @@ impl Mapper {
         // is still one secret) and capped at the server's body limit.
         let reply = std::mem::take(&mut self.turn_reply);
         self.turn_reply_id = None;
+        let error = self.turn_error.take();
         if self.turn_live && !reply.trim().is_empty() {
             out.replies.push(Reply::text(self.clean_marked(
                 reply.trim(),
+                domain::contract::SESSIONS_SEND_MESSAGE_BODY_MAX,
+            )));
+        } else if let Some(error) = error.filter(|_| self.turn_live) {
+            out.replies.push(Reply::text(self.clean_marked(
+                &format!("Agent error: {}", error.trim()),
                 domain::contract::SESSIONS_SEND_MESSAGE_BODY_MAX,
             )));
         }
@@ -1319,6 +1334,7 @@ impl Mapper {
             self.turn_tokens_published_at = None;
             // EXP-1292: a new turn, a new reply.
             self.reset_turn_reply();
+            self.turn_error = None;
         }
         emit(out, self.turn_event(), None);
     }
@@ -1800,6 +1816,20 @@ impl Mapper {
     /// prefixed so it reads as the session speaking, not the agent.
     pub fn on_error(&mut self, message: &str, out: &mut MapOut) {
         self.on_notice(&format!("Agent error: {message}"), out);
+    }
+
+    /// FEED-153: the turn's own `session/prompt` failed. Narrated like any
+    /// error, and remembered: a turn that closes with no reply of its own
+    /// replies the error, so the Conversation (and the parent, through the
+    /// bus) hears why the run went idle instead of reading a silent one.
+    /// EXP-1418: did an interrupt cut the last turn that closed?
+    pub fn last_turn_interrupted(&self) -> bool {
+        self.last_turn_interrupted
+    }
+
+    pub fn on_turn_error(&mut self, message: &str, out: &mut MapOut) {
+        self.on_error(message, out);
+        self.turn_error = Some(message.to_string());
     }
 
     /// The ENGINE itself speaking into the transcript (FEED-25: the stall

@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
+import { yoloEdge } from "@/lib/yolo-edge"
 import {
   adoptOutOfBandPullRequest,
   applyPullRequestBase,
@@ -194,6 +195,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         merged_at?: string | null
         title?: string
         draft?: boolean
+        // When GitHub last changed the PR: a generic draft sync never lets
+        // an older delivery overwrite a newer state.
+        updated_at?: string
         head?: { ref?: string }
         // The base GitHub reports on every delivery.
         base?: { ref?: string }
@@ -277,6 +281,35 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       return jsonResponse(200, { ok: true })
     }
 
+    // EXP-1418: every other delivery carries GitHub's draft flag; a live
+    // row follows it (a PR drafted or readied while a delivery was lost,
+    // our own pr_open's row, an `edited`/`synchronize`). Ready again = a
+    // yolo edge: the thread may be complete already, waiting on it.
+    const draft =
+      payload.action === `converted_to_draft`
+        ? true
+        : payload.action === `ready_for_review`
+          ? false
+          : typeof pr.draft === `boolean`
+            ? pr.draft
+            : null
+    if (row && draft !== null) {
+      const explicit = payload.action === `converted_to_draft` || payload.action === `ready_for_review`
+      const changedAt = pr.updated_at ? new Date(pr.updated_at) : null
+      const flipped = await applyPullRequestDraft({
+        pullRequestId: row.id,
+        draft,
+        // The flag riding any other delivery: only when that delivery is
+        // not older than the row's last write (a late `synchronize` must
+        // not undo a newer `ready_for_review`).
+        ...(!explicit && changedAt && !Number.isNaN(changedAt.getTime()) ? { notBefore: changedAt } : {}),
+      })
+      if (flipped && !draft) yoloEdge(flipped.rootSessionId)
+      if (explicit) {
+        return jsonResponse(200, { ok: true })
+      }
+    }
+
     if (payload.action === `opened` && repoFullName && headRef && pr.number) {
       // EXP-494: pr_open claimed its actor keyed on the head branch.
       const claim = takePrOpenClaim(repoFullName, headRef)
@@ -304,17 +337,6 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // Retargeted (on github.com, by our own retarget, or GitHub's restack).
     if (payload.action === `edited` && payload.changes?.base && row && pr.base?.ref) {
       await applyPullRequestBase({ pullRequestId: row.id, base: pr.base.ref })
-      return jsonResponse(200, { ok: true })
-    }
-
-    if (
-      (payload.action === `converted_to_draft` || payload.action === `ready_for_review`) &&
-      row
-    ) {
-      await applyPullRequestDraft({
-        pullRequestId: row.id,
-        draft: payload.action === `converted_to_draft`,
-      })
       return jsonResponse(200, { ok: true })
     }
 

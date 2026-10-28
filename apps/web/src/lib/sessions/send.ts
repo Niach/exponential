@@ -23,6 +23,7 @@ import {
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { startDiskWarning } from "@/lib/device-disk"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
@@ -484,13 +485,17 @@ async function assertSessionAccount(target: Session, account: string, cli: strin
 
 /** EXP-1376: an agent's composer `/model <alias>` over MCP is the model
  *  pick itself (what a person's ModelPicker asks for), never a turn: a
- *  walled session takes none, so the line would wait forever. */
+ *  walled session takes none, so the line would wait forever. EXP-1401: a
+ *  PERSON's `/model <alias>` (any client: web, desktop, iOS, Android) is the
+ *  same pick, with the same wall verdict (`liftWallInTx`). A person's bare
+ *  `/model` stays a message (their CLI's own menu); an agent's is refused. */
 const MODEL_COMMAND = /^\/model(?:\s+(\S+))?\s*$/
 
-function agentModelCommand(input: SessionsSendInput): SessionsSendInput {
+export function modelCommand(input: SessionsSendInput, viaMcp: boolean): SessionsSendInput {
   const match = input.attachmentIds?.length ? null : MODEL_COMMAND.exec(input.text?.trim() ?? ``)
   if (!match) return input
   if (!match[1] && !input.model) {
+    if (!viaMcp) return input
     throw new TRPCError({ code: `BAD_REQUEST`, message: `/model needs a model: pass model, e.g. "/model opus"` })
   }
   return { ...input, text: undefined, model: input.model || match[1] }
@@ -597,11 +602,14 @@ export async function sendSession(args: {
     }
   }
   if (outcome.messageId) fireAndForgetSessionMessageNotify({ messageId: outcome.messageId })
+  // EXP-1375: a start on a device low on disk says so.
+  const warning = outcome.queued ? await startDiskWarning(outcome.queued) : null
   return {
     sessionId: outcome.sessionId,
     messageId: outcome.messageId,
     status: outcome.status,
     txid: outcome.txid,
+    ...(warning ? { warning } : {}),
   }
 }
 
@@ -690,7 +698,7 @@ async function messageSession(
   if (sent.teamId && sent.teamId !== target.teamId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The session is in another team` })
   }
-  const input = viaMcp ? agentModelCommand(sent) : sent
+  const input = modelCommand(sent, viaMcp)
   // EXP-1376: the runner picks apply to the session (never dropped), in the
   // vocabulary of the agent it runs.
   const cli = await effectiveCli(target)

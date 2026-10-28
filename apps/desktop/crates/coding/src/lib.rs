@@ -90,6 +90,8 @@ pub mod token_refresh_host;
 pub mod trunk_state;
 pub mod usage_cache;
 pub mod worktree_agents;
+// EXP-1375: build-output prune, worktree prune + stale locks, the kept list, free disk.
+pub mod worktree_lifecycle;
 
 /// EXP-1196: the device's computer-use server, re-exported so the hosts
 /// (engine, ui, cli) reach it through the launcher crate they already link.
@@ -139,7 +141,7 @@ pub use launch_gate::LaunchHold;
 pub use launcher::{apply_account_env, set_session_end_observer};
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, context_layers_for, default_device_label,
-    end_session, end_session_best_effort, idle_session, idle_session_on, locate_claude_transcript, prepare,
+    end_session, end_session_best_effort, end_session_lost, idle_session, idle_session_on, locate_claude_transcript, prepare,
     prepare_agent_shell, record_last_used, session_branch, session_label, session_launch_options,
     AcpLaunch, ACP_TRANSPORT, AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError,
     DisabledReason, GitWorktrees, LaunchOutcome, Prepared, PreparedAgentShell, PrepareRequest,

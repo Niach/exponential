@@ -364,7 +364,7 @@ fn reclaim_left_behind(
             continue;
         }
         crate::session_registry::settle_left_behind(&row.id);
-        let recorded = coding::run_registry::get(&data_dir, &row.id).is_some();
+        let recorded = coding::pickup::reclaim_recorded(&data_dir, &row.id);
         match pickup::reclaim_step(row, pending.contains(row.id.as_str()), recorded) {
             pickup::ReclaimStep::Replay => {
                 log::info!("[pickup] reclaim: session {} re-claimed — its pending messages replay", row.id);

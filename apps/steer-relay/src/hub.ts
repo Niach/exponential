@@ -142,6 +142,11 @@ interface Room {
    *  run's publisher takes it back when it continues), and every way it
    *  fails answers the retryable `no_such_session`, never a terminal `bye`. */
   live: boolean
+  /** #EXP-1415: the run's LIVE publisher (a `hello` without `replay`) holds
+   *  this room, or held it and is inside its reconnect grace. A device's
+   *  journal replay is refused while this is set: the live one always wins,
+   *  because a `replaced` close is terminal for it. */
+  liveHeld: boolean
   /** EXP-796: fires HISTORY_ROOM_LINGER_MS after the replay's `bye`. */
   lingerTimer: ReturnType<typeof setTimeout> | null
   /** EXP-936: the ONE `compact_request` awaiting the host's verdict, or
@@ -334,6 +339,16 @@ export const COMPACT_VERDICT_TIMEOUT_MS = 4_000
  *  this expires or the last viewer leaves, whichever is first, and viewers
  *  never re-dial to page. */
 export const HISTORY_ROOM_LINGER_MS = 5 * 60_000
+/** #EXP-1415: a session whose device had no transcript to give (it answered
+ *  `history_none`, or stayed silent past HISTORY_TIMEOUT_MS) is not asked
+ *  again for this long, doubling per miss up to the cap: joins inside the
+ *  window are answered at once (`no_such_session` for a live session,
+ *  `history_unavailable` for an ended one) instead of parking 20s each. A
+ *  publisher `hello` for the session clears it. */
+export const NO_HISTORY_BACKOFF_MS = 30_000
+export const NO_HISTORY_BACKOFF_CAP_MS = 10 * 60_000
+/** #EXP-1415: how many sessions the backoff table remembers (oldest out). */
+const NO_HISTORY_MAX_ENTRIES = 10_000
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
@@ -403,6 +418,14 @@ export class Hub {
   private historyRequests = 0
   private historyDeviceOffline = 0
   private historyTimeouts = 0
+  /** #EXP-1415: `history_none` answers, joins answered from the backoff,
+   *  and journal replays refused because a live publisher holds the room. */
+  private historyNone = 0
+  private historyBackoffAnswers = 0
+  private replayRefusals = 0
+  /** #EXP-1415: sessionId → the no-transcript backoff (insertion-ordered, so
+   *  the oldest entry is the first key). */
+  private noHistory = new Map<string, { until: number; misses: number }>()
   /** EXP-783: `history_page` asks routed to a publisher, and (EXP-795) how
    *  many of them the publisher never answered. */
   private historyPageRequests = 0
@@ -696,12 +719,27 @@ export class Hub {
         if (conn.claims.role !== `publisher`) return
         const sessionId = conn.claims.sessionId
         if (!sessionId || msg.sessionId !== sessionId) return
-        conn.sessionId = sessionId
+        const replay = msg.replay === true
         let room = this.rooms.get(sessionId)
+        // #EXP-1415: a journal replay never takes a room from the run's live
+        // publisher, connected or inside its reconnect grace (`is_publishing`
+        // on the device can miss that window: an idle run's publisher coming
+        // back while the ask is in flight). Refused before the socket joins
+        // the room, so its frames and its close touch nothing here.
+        if (replay && room?.liveHeld && (room.publisher || room.staleTimer !== null)) {
+          this.replayRefusals += 1
+          conn.sock.close(CLOSE_REPLACED, `live_publisher`)
+          return
+        }
+        conn.sessionId = sessionId
+        // A publisher for the session exists, so it has a transcript now.
+        this.noHistory.delete(sessionId)
         if (!room) {
           room = this.newRoom(sessionId, conn, msg.issueId)
+          room.liveHeld = !replay
           this.rooms.set(sessionId, room)
         } else {
+          room.liveHeld = !replay
           // EXP-773: the publisher this room was WAITING for (a history
           // replay, or a live publisher that raced the ask) — the room stops
           // being pending and the timeout is off.
@@ -934,6 +972,26 @@ export class Hub {
         return
       }
 
+      // #EXP-1415: the device has no transcript for a pending room it was
+      // asked about. Only the device the room was opened against counts.
+      case `history_none`: {
+        if (conn.claims.role !== `control` || !conn.deviceId) return
+        const room = this.rooms.get(msg.sessionId)
+        if (!room || room.publisher || !room.pendingHistory) return
+        const device = room.historyDevice
+        if (
+          !device ||
+          device.userId !== conn.claims.sub ||
+          device.deviceId !== conn.deviceId
+        ) {
+          return
+        }
+        this.historyNone += 1
+        this.noteNoHistory(room.sessionId)
+        this.failPendingHistory(room)
+        return
+      }
+
       // EXP-783: publisher → one page of older transcript, delivered to the
       // ONE viewer that asked for it under the id IT used. Deliberately never
       // appended to `activityLog`: these events are older than everything in
@@ -1076,6 +1134,18 @@ export class Hub {
   /** Server-side kill (steer.killSession fallback path). */
   killSession(sessionId: string): boolean {
     const room = this.rooms.get(sessionId)
+    // #EXP-1415: every end the server makes posts here (`sessions/lifecycle`
+    // relay kills), and it is the only way a LIVE history room (an idle
+    // session's transcript, up while watched) learns the row ended: from
+    // here on it is an ended session's room. Served → its viewers get the
+    // ending now; still pending → the replay's outcome is terminal.
+    if (room?.historyDevice && room.live) {
+      room.live = false
+      if (room.historyServed && !room.publisher) {
+        this.closeRoom(room, HISTORY_OUTCOME)
+        return false
+      }
+    }
     if (!room?.publisher) return false
     room.publisher.sock.send(frame({ t: `kill` }))
     return true
@@ -1171,6 +1241,9 @@ export class Hub {
       historyRequests: this.historyRequests,
       historyDeviceOffline: this.historyDeviceOffline,
       historyTimeouts: this.historyTimeouts,
+      historyNone: this.historyNone,
+      historyBackoffAnswers: this.historyBackoffAnswers,
+      replayRefusals: this.replayRefusals,
       historyPageRequests: this.historyPageRequests,
       historyPageTimeouts: this.historyPageTimeouts,
       historyPagesViaDevice: this.historyPagesViaDevice,
@@ -1389,6 +1462,9 @@ export class Hub {
    *  right after the `bye`, and `onClose` then finds it is no member. */
   private lingerHistoryRoom(room: Room, publisher: Conn) {
     room.publisher = null
+    // #EXP-1415: a `bye history` is a replay's by definition (an old device
+    // sends no `replay` marker): nothing live holds this room.
+    room.liveHeld = false
     publisher.sessionId = undefined
     // Asks addressed to the replay socket are dead with it.
     this.dropHistoryPages(room)
@@ -1443,6 +1519,38 @@ export class Hub {
       member.sock.send(err)
     }
     this.closeRoom(room, code)
+  }
+
+  /** #EXP-1415: a pending history room the device cannot serve. A live
+   *  session's viewers get the retryable `no_such_session` (their redials
+   *  land on the backoff, not on the device); an ended one's the terminal
+   *  `history_unavailable`, as before. */
+  private failPendingHistory(room: Room) {
+    if (this.rooms.get(room.sessionId) !== room) return
+    if (room.live) {
+      this.dropLiveRoom(room)
+      return
+    }
+    for (const member of room.activityMembers.keys()) {
+      member.sock.send(frame({ t: `error`, code: `history_unavailable` }))
+    }
+    this.closeRoom(room, `history_unavailable`)
+  }
+
+  /** #EXP-1415: one more miss for `sessionId`: back off 30s, doubling. */
+  private noteNoHistory(sessionId: string) {
+    const prior = this.noHistory.get(sessionId)
+    const misses = (prior?.misses ?? 0) + 1
+    const wait = Math.min(
+      NO_HISTORY_BACKOFF_MS * 2 ** (misses - 1),
+      NO_HISTORY_BACKOFF_CAP_MS
+    )
+    this.noHistory.delete(sessionId)
+    if (this.noHistory.size >= NO_HISTORY_MAX_ENTRIES) {
+      const oldest = this.noHistory.keys().next().value
+      if (oldest !== undefined) this.noHistory.delete(oldest)
+    }
+    this.noHistory.set(sessionId, { until: Date.now() + wait, misses })
   }
 
   /** #EXP-1405: take a live session's history room down with the answer a
@@ -1542,6 +1650,7 @@ export class Hub {
       historyDevice: null,
       historyServed: false,
       live: false,
+      liveHeld: publisher !== null,
       lingerTimer: null,
       compactAsk: null,
     }
@@ -1592,6 +1701,21 @@ export class Hub {
       this.historyDeviceOffline += 1
       return undefined
     }
+    // #EXP-1415: the device said (or showed) it has no transcript a moment
+    // ago: answer now, never park the viewer on another 20s ask.
+    const backoff = this.noHistory.get(sessionId)
+    if (backoff && backoff.until > Date.now()) {
+      this.historyBackoffAnswers += 1
+      if (live) {
+        conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
+        conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
+      } else {
+        conn.sock.send(frame({ t: `error`, code: `history_unavailable` }))
+        conn.sock.send(frame({ t: `bye`, outcome: `history_unavailable` }))
+        conn.sock.close(CLOSE_SESSION_ENDED, `history_unavailable`)
+      }
+      return undefined
+    }
     const room = this.newRoom(sessionId, null)
     // EXP-796: remembered so the room can page through the device once the
     // replay is over and the publisher socket is gone.
@@ -1600,14 +1724,9 @@ export class Hub {
     room.historyTimer = setTimeout(() => {
       room.historyTimer = null
       this.historyTimeouts += 1
-      if (room.live) {
-        this.dropLiveRoom(room)
-        return
-      }
-      for (const member of room.activityMembers.keys()) {
-        member.sock.send(frame({ t: `error`, code: `history_unavailable` }))
-      }
-      this.closeRoom(room, `history_unavailable`)
+      // #EXP-1415: an old device answers a missing journal with silence.
+      this.noteNoHistory(sessionId)
+      this.failPendingHistory(room)
     }, HISTORY_TIMEOUT_MS)
     this.rooms.set(sessionId, room)
     control.sock.send(frame({ t: `history_request`, sessionId }))

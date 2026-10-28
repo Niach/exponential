@@ -142,9 +142,14 @@ final class StoreScreenshots: XCTestCase {
         expect(sessionCard, within: Wait.sync, "The thread drew no session card")
         // EXP-1323: the conversation opens scrolled to its live tail (the
         // Queue + status row is its last row), so the child's card can sit
-        // above the fold; scroll it back into reach before tapping.
-        for _ in 0..<4 where !sessionCard.isHittable { app.swipeDown() }
-        sessionCard.tap()
+        // above the fold. NEW-16: scroll it below the strip (a card under the
+        // header still reads hittable) and tap its centre.
+        revealAndTap(
+            app,
+            sessionCard,
+            below: anyElement(app, identified: "thread-tab-conversation"),
+            "The thread's session card never scrolled into view"
+        )
         expect(
             app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
             within: Wait.nav,

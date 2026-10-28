@@ -62,7 +62,7 @@ export const INTERRUPTIONS = [`device_offline`, `restarted`] as const
 /** EXP-1374: an interruption flag. `resume` = the run was mid-turn, so its
  *  device continues it by itself; `resumeSince` = since when the device
  *  could (it is back): the `resumeMinutes` clock. */
-function interruption(
+export function interruption(
   kind: (typeof INTERRUPTIONS)[number],
   now: Date,
   resume: boolean,
