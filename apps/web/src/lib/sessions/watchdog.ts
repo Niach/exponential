@@ -31,8 +31,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface WatchdogRun {
   unclaimed: number
-  /** FEED-153: claimed first messages whose turn never ran, pending again. */
-  redelivered: number
   nudged: number
   stuck: number
   offline: number
@@ -169,67 +167,6 @@ async function nudgeStalled(now: Date): Promise<number> {
     void relayPostNudge(config, host, row.deviceId)
   }
   return seen.size
-}
-
-/** FEED-153: how far back a claimed-but-never-run start is still re-delivered
- *  (older rows are history, never touched by a deploy of this rule). */
-export const UNSTARTED_REDELIVER_HOURS = 6
-
-/** FEED-153: a claim delivers a new session's first person message (the
- *  brief's Request is consumed AT the claim), so a first turn that died at
- *  launch (a fast-failing prompt, a launch given up after the claim) left
- *  the row idle with nothing pending and nothing to wake it until a person
- *  wrote again. A started session `nudgeMinutes` idle whose ONLY person
- *  message is that claim-consumed one (`consumed_at = started_at`, the
- *  claim's own stamp) and that never produced anything (no agent or system
- *  message from a turn, no child) gets it back as PENDING input: its device
- *  is nudged and runs it like any message. Once: the device's own delivery
- *  re-stamps `consumed_at`, so a second failure is never re-delivered. */
-async function redeliverUnstarted(now: Date): Promise<number> {
-  const cutoff = new Date(now.getTime() - contract.sessionWatchdog.nudgeMinutes * MIN)
-  const horizon = new Date(now.getTime() - UNSTARTED_REDELIVER_HOURS * 60 * MIN)
-  const rows = await db.transaction(async (tx) => {
-    const found = await tx
-      .select({ id: sessions.id, deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
-      .from(sessions)
-      .where(
-        and(
-          eq(sessions.status, `idle`),
-          eq(sessions.busy, false),
-          isNull(sessions.blocked),
-          eq(sessions.needsInput, false),
-          sql`${sessions.startedAt} IS NOT NULL`,
-          sql`${sessions.startedAt} > ${horizon}`,
-          lt(sessions.updatedAt, cutoff),
-          sql`NOT EXISTS (SELECT 1 FROM ${sessions} c WHERE c.parent_id = ${sessions.id})`,
-          // Exactly one person message, the one the claim delivered.
-          sql`(SELECT count(*) FROM ${messages} m WHERE m.session_id = ${sessions.id} AND m.author_kind = 'user') = 1`,
-          sql`EXISTS (SELECT 1 FROM ${messages} m WHERE m.session_id = ${sessions.id} AND m.author_kind = 'user' AND m.consumed_at = ${sessions.startedAt})`,
-          // Nothing a turn would leave: no agent reply, no line of its own,
-          // no input from another session.
-          sql`NOT EXISTS (SELECT 1 FROM ${messages} m WHERE m.session_id = ${sessions.id} AND (m.author_kind = 'agent' OR m.author_session_id IS NOT NULL))`
-        )
-      )
-      .for(`update`, { skipLocked: true })
-    for (const row of found) {
-      await tx.execute(sql`
-        UPDATE ${messages} SET consumed_at = NULL, updated_at = ${now}
-        WHERE session_id = ${row.id} AND author_kind = 'user' AND consumed_at IS NOT NULL`)
-      await tx.update(sessions).set({ updatedAt: now }).where(eq(sessions.id, row.id))
-    }
-    return found
-  })
-  const config = getSteerRelayConfig()
-  if (config) {
-    const seen = new Set<string>()
-    for (const row of rows) {
-      const host = await resolveSessionHost(row)
-      if (!host || seen.has(`${host}:${row.deviceId}`)) continue
-      seen.add(`${host}:${row.deviceId}`)
-      void relayPostNudge(config, host, row.deviceId)
-    }
-  }
-  return rows.length
 }
 
 /** A busy session with NO SIGN OF LIFE for `stuckMinutes`: flagged once.
@@ -581,7 +518,6 @@ export async function flagDeadSessionsInTx(
 export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> {
   return {
     unclaimed: await flagUnclaimed(now),
-    redelivered: await redeliverUnstarted(now),
     nudged: await nudgeStalled(now),
     stuck: await flagStuck(now),
     offline: await flagOffline(now),
@@ -606,7 +542,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.redelivered} redelivered, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
         })
       )
       .catch((error: unknown) => {

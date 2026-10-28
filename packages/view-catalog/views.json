@@ -5980,6 +5980,35 @@
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call`: the IDE styleguide twin drawn full-window (a call itself rides the voice capsule).",
         "web-mobile": "See web."
       }
+    },
+    {
+      "id": "device-readiness",
+      "group": "coding",
+      "title": "Device readiness",
+      "blurb": "THE device readiness block (device-doctor.json), here its Storage band (EXP-1375): the Disk row (amber below 10 GB free) with the worktrees the cleanup kept indented under it, each with why, and the composer's low-disk row (a warning with no pill; the start stays enabled).",
+      "order": 45,
+      "ios": {
+        "shot": "sg_device-readiness",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_device-readiness",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:device-readiness"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "A styleguide specimen (apps/styleguide entry `device-readiness`); live in Device settings and the composer.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_device-readiness: the fixture's low-disk case as a phone draws it (remote) + the composer row.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:device-readiness`: the IDE styleguide twin drawn full-window (every fixture case from the top).",
+        "web-mobile": "See web."
+      }
     }
   ]
 }

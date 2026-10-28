@@ -891,41 +891,41 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     await w.host.report({ sessionId: late, status: `ended`, lost: `process_lost`, midTurn: true })
     expect(await row(late)).toMatchObject({ status: `idle`, endedAt: null, blocked: { kind: `restarted` } })
 
+    // The device's explicit `midTurn: false` wins over a running row, and
+    // the lost path clears a Stop's pending settle.
+    const between = await w.child(rootId, `between turns`)
+    await w.host.claim({ sessionId: between, deviceId: w.deviceId })
+    await w.host.report({ sessionId: between, status: `running`, busy: true })
+    await backdate(() => sql`UPDATE sessions SET stopped_at = now() WHERE id = ${between}`)
+    await w.host.report({ sessionId: between, status: `ended`, lost: `process_lost`, midTurn: false })
+    expect(await row(between)).toMatchObject({ status: `idle`, endedAt: null, blocked: null, stoppedAt: null })
+    expect(await lines(rootId, `session_interrupted`, between)).toHaveLength(0)
+
     // Its device continuing it reports: the flag clears.
     await w.host.report({ sessionId: killed, status: `running`, busy: true })
     expect(await row(killed)).toMatchObject({ busy: true, blocked: null })
   })
 
-  it(`FEED-153: a claimed first message whose turn never ran is pending again (once) and its device nudged`, async () => {
+  it(`FEED-153: a claimed first message stays delivered: a first turn that ended with an empty reply (no agent message) is never re-run by the watchdog`, async () => {
+    // The device owns FEED-153's retries (pickup's unstarted reclaim, the
+    // seed prompt's one retry): the server cannot tell a turn that never ran
+    // from one that did real work and ended silently.
     const w = await world()
-    const lost = await w.root(`never ran`)
-    const ran = await w.root(`ran`)
-    for (const id of [lost, ran]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
-    const brief = async (id: string) =>
-      (await db.select().from(messages).where(and(eq(messages.sessionId, id), eq(messages.authorKind, `user`))))[0]!
-    // The claim delivers the Request with its own stamp.
-    expect((await brief(lost)).consumedAt?.getTime()).toBe((await row(lost)).startedAt?.getTime())
-    await w.host.reply({ sessionId: ran, body: `Done.` })
+    const silent = await w.root(`ended silently`)
+    await w.host.claim({ sessionId: silent, deviceId: w.deviceId })
+    const brief = async () =>
+      (await db.select().from(messages).where(and(eq(messages.sessionId, silent), eq(messages.authorKind, `user`))))[0]!
+    await w.host.report({ sessionId: silent, busy: true })
+    await w.host.report({ sessionId: silent, status: `idle`, busy: false })
     const at = ago((watchdog.nudgeMinutes + 5) * MIN).toISOString()
-    for (const id of [lost, ran]) {
-      await backdate(
-        () => sql`UPDATE sessions SET status = 'idle', busy = false, started_at = ${at}, updated_at = ${at} WHERE id = ${id}`
-      )
-      await backdate(() => sql`UPDATE messages SET consumed_at = ${at} WHERE session_id = ${id} AND author_kind = 'user'`)
-    }
+    await backdate(
+      () => sql`UPDATE sessions SET status = 'idle', busy = false, started_at = ${at}, updated_at = ${at} WHERE id = ${silent}`
+    )
+    await backdate(() => sql`UPDATE messages SET consumed_at = ${at} WHERE session_id = ${silent} AND author_kind = 'user'`)
 
     relay.on = true
-    const run = await runWatchdog(NOW)
-    expect(run.redelivered).toBeGreaterThanOrEqual(1)
-    expect((await brief(lost)).consumedAt).toBeNull()
-    expect(relay.nudges).toContainEqual({ userId: w.owner, deviceId: w.deviceId })
-    // A session whose turn ran keeps its delivery.
-    expect((await brief(ran)).consumedAt).not.toBeNull()
-
-    // The device delivers it this time: never re-delivered again.
-    await w.host.consume({ sessionId: lost, messageIds: [(await brief(lost)).id] })
-    await backdate(() => sql`UPDATE sessions SET updated_at = ${at} WHERE id = ${lost}`)
     await runWatchdog(NOW)
-    expect((await brief(lost)).consumedAt).not.toBeNull()
+    expect((await brief()).consumedAt).not.toBeNull()
+    expect(relay.nudges).not.toContainEqual({ userId: w.owner, deviceId: w.deviceId })
   })
 })

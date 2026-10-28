@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, lte, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -1207,6 +1207,9 @@ export async function applyPullRequestReopened(opts: {
 export async function applyPullRequestDraft(opts: {
   pullRequestId: string
   draft: boolean
+  /** The delivery's own `updated_at`: the row flips only when it was last
+   *  written no later than that (an older delivery never wins). */
+  notBefore?: Date
 }): Promise<{ rootSessionId: string | null } | null> {
   const [row] = await db
     .update(pullRequests)
@@ -1214,7 +1217,8 @@ export async function applyPullRequestDraft(opts: {
     .where(
       and(
         eq(pullRequests.id, opts.pullRequestId),
-        eq(pullRequests.state, opts.draft ? `open` : `draft`)
+        eq(pullRequests.state, opts.draft ? `open` : `draft`),
+        opts.notBefore ? lte(pullRequests.updatedAt, opts.notBefore) : undefined
       )
     )
     .returning({ rootSessionId: pullRequests.rootSessionId })

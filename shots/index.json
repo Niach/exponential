@@ -800,6 +800,29 @@
         "sha256": "916239c2133d06b1920e89934847f9fb09e6f8df52d67caace1c658ee4529db8"
       }
     },
+    "device-readiness": {
+      "android": {
+        "file": "shots/device-readiness/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 28746,
+        "sha256": "3fe217d0a47e31b80cbfd0fdc1c17a6c1bcde039ddfc2693fbb09282457a6a04"
+      },
+      "desktop": {
+        "file": "shots/device-readiness/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 69122,
+        "sha256": "037b1ae14e7d9466312933b2b1c72a1ebc32aac672f957e869f9e1254b811f2f"
+      },
+      "ios": {
+        "file": "shots/device-readiness/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 27980,
+        "sha256": "5ddf565df43b8422d509642ae021193ceeffe4cdf0b329588aee790b0178e0f5"
+      }
+    },
     "dock-card": {
       "android": {
         "file": "shots/dock-card/android.webp",

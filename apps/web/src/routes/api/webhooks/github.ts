@@ -195,6 +195,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         merged_at?: string | null
         title?: string
         draft?: boolean
+        // When GitHub last changed the PR: a generic draft sync never lets
+        // an older delivery overwrite a newer state.
+        updated_at?: string
         head?: { ref?: string }
         // The base GitHub reports on every delivery.
         base?: { ref?: string }
@@ -291,9 +294,18 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             ? pr.draft
             : null
     if (row && draft !== null) {
-      const flipped = await applyPullRequestDraft({ pullRequestId: row.id, draft })
+      const explicit = payload.action === `converted_to_draft` || payload.action === `ready_for_review`
+      const changedAt = pr.updated_at ? new Date(pr.updated_at) : null
+      const flipped = await applyPullRequestDraft({
+        pullRequestId: row.id,
+        draft,
+        // The flag riding any other delivery: only when that delivery is
+        // not older than the row's last write (a late `synchronize` must
+        // not undo a newer `ready_for_review`).
+        ...(!explicit && changedAt && !Number.isNaN(changedAt.getTime()) ? { notBefore: changedAt } : {}),
+      })
       if (flipped && !draft) yoloEdge(flipped.rootSessionId)
-      if (payload.action === `converted_to_draft` || payload.action === `ready_for_review`) {
+      if (explicit) {
         return jsonResponse(200, { ok: true })
       }
     }

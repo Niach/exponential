@@ -672,11 +672,14 @@ export const sessionsRouter = router({
       // device's teardown clears busy before its end report) never
       // finished it (an OOM kill, a crash; a finished turn goes idle
       // first), so it reads lost too. A launch that never reached a turn
-      // (`lastTurnAt` null) still ends.
-      const midTurn = session.busy || session.status === `running` || (!!input.lost && input.midTurn === true)
+      // (`lastTurnAt` null) still ends. A device that sends either new
+      // field is never guessed for, and its explicit `midTurn` wins over
+      // the row's state.
+      const midTurn = input.midTurn ?? (session.busy || session.status === `running`)
       const lost =
         input.lost ??
-        (input.status === `ended` &&
+        (input.midTurn === undefined &&
+        input.status === `ended` &&
         ((session.busy && !session.background) || (session.status === `running` && session.lastTurnAt !== null))
           ? (`process_lost` as const)
           : undefined)
@@ -697,6 +700,8 @@ export const sessionsRouter = router({
               status: `idle`,
               busy: false,
               background: false,
+              // A Stop's pending settle has no turn left to settle.
+              stoppedAt: null,
               ...(midTurn && flaggable
                 ? { blocked: interruption(`restarted`, now, true, now) }
                 : {}),
