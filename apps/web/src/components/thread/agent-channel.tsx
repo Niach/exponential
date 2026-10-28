@@ -14,6 +14,7 @@ import {
   ComposerFrame,
   ComposerSubmit,
   SessionCard,
+  SessionXref,
   Spinner,
   ThreadConversation,
   toast,
@@ -39,6 +40,7 @@ import { sessionCollection } from "@/lib/collections"
 import { cn } from "@/lib/utils"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useNow } from "@/hooks/use-now"
+import { useXrefAgent } from "@/hooks/use-session-nav"
 import type { MessagePage } from "@/hooks/use-session-tree"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
@@ -172,6 +174,7 @@ export function AgentChannel({
   users,
   canAnswer,
   onOpenSession,
+  onOpenXref,
   layout = `transcript`,
   onSurfaceReply,
   scrollRef,
@@ -200,6 +203,8 @@ export function AgentChannel({
   canAnswer: boolean
   /** A card was tapped: its session row (a root opens its thread). */
   onOpenSession: (session: SessionRow) => void
+  /** S-3: an inter-session link was tapped (the back stack's push). */
+  onOpenXref?: (sessionId: string) => void
   /** #EXP-1380: the transcript's scroller (Load earlier keeps its place). */
   scrollRef?: RefObject<HTMLElement | null>
   /** #EXP-1380 (chats.json WORKING): the status line after the last row. */
@@ -224,8 +229,9 @@ export function AgentChannel({
   const own = useAnswerMessage()
   const { answer, pending } = answering ?? own
   // The callbacks a skipped (memoized) row holds read the latest ones.
-  const latest = useRef({ onOpenSession, onSurfaceReply, sessionsById })
-  latest.current = { onOpenSession, onSurfaceReply, sessionsById }
+  const latest = useRef({ onOpenSession, onOpenXref, onSurfaceReply, sessionsById })
+  latest.current = { onOpenSession, onOpenXref, onSurfaceReply, sessionsById }
+  const xrefAgent = useXrefAgent()
 
   const agentName = agent.name
   const agentLead = (
@@ -248,6 +254,25 @@ export function AgentChannel({
       : undefined
 
   const render = (row: ThreadRow) => {
+    const body = renderBody(row)
+    // S-3: another session's line heads its row with its link.
+    if (row.type === `message` && row.xref) {
+      return (
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className={cn(`flex min-w-0`, !bubbles && `pl-11`)}>
+            <SessionXref
+              xref={row.xref}
+              agent={row.xref.agentId ? xrefAgent(row.xref.agentId) : null}
+              onOpen={onOpenXref ? (id) => latest.current.onOpenXref?.(id) : undefined}
+            />
+          </div>
+          {body}
+        </div>
+      )
+    }
+    return body
+  }
+  const renderBody = (row: ThreadRow) => {
     if (row.type === `divider`) {
       return <TranscriptDivider kind={row.kind} at={row.at} />
     }
@@ -310,6 +335,8 @@ export function AgentChannel({
           pending={pending}
           onSurfaceReply={onSurfaceReply ? (text) => latest.current.onSurfaceReply?.(text) : undefined}
           arrived={arrived}
+          onOpenXref={onOpenXref ? (id) => latest.current.onOpenXref?.(id) : undefined}
+          xrefAgent={xrefAgent}
         />
       </div>
     )
@@ -333,6 +360,8 @@ export function AgentChannel({
             pending.has(row.id),
             canAnswer,
             !onSurfaceReply,
+            !onOpenXref,
+            row.type === `message` || row.type === `report` ? xrefAgent : null,
             agentName,
             agent.icon,
             agent.color,

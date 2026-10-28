@@ -65,11 +65,11 @@ const paragraph = (text: string): ReactNode => (
 export function scene(step: number): { rows: Rows; draft: string; streaming: boolean } {
   const rows: Rows = []
   if (step > TYPE) {
-    rows.push({ type: `message`, id: `prompt`, author: `user`, authorId: `you`, body: PROMPT, queued: false, authorSessionId: null })
+    rows.push({ type: `message`, id: `prompt`, author: `user`, authorId: `you`, body: PROMPT, queued: false, authorSessionId: null, xref: null })
   }
   const words = Math.min(WORDS.length, Math.max(0, step - SEND))
   if (words > 0) {
-    rows.push({ type: `message`, id: `answer`, author: `agent`, authorId: null, body: WORDS.slice(0, words).join(` `), queued: false, authorSessionId: null })
+    rows.push({ type: `message`, id: `answer`, author: `agent`, authorId: null, body: WORDS.slice(0, words).join(` `), queued: false, authorSessionId: null, xref: null })
   }
   const nodes = Math.max(0, step - WORDS_END)
   if (nodes > 0) {

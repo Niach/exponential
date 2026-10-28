@@ -8,6 +8,7 @@
       "toast",
       "jump-to-bottom",
       "strip-chip",
+      "session-xref",
       "mention-pill",
       "feedback-states",
       "trace", "code-block"
@@ -42,6 +43,7 @@
     "toast": "EXP-1031",
     "jump-to-bottom": "EXP-1191",
     "strip-chip": "EXP-1334",
+    "session-xref": "S-3",
     "mention-pill": "EXP-1373",
     "trace": "EXP-1324",
     "code-block": "EXP-1324",

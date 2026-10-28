@@ -16,6 +16,7 @@ import {
   partitionThreadStrip,
   SUGGESTIONS_COPY,
   type SessionTabMarkState,
+  type SessionXref as SessionXrefModel,
   type SuggestionRow,
   type ThreadRow,
   type ThreadStripLayout,
@@ -56,6 +57,8 @@ import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
 import { Menu, MenuRow, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
+import { SessionXref } from "./session-xref"
+import type { UserAvatarAgent } from "./user-avatar"
 import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
 import { StripChip, StripOverflowButton } from "./strip-chip"
 import { TREE_BASE, TREE_INDENT, treeGuides } from "./tree-guides"
@@ -88,7 +91,7 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //                        EXP-1316) answered IN the card, a person's own
 //                        queued row with its X (EXP-1317), subagent /
 //                        picture / event lines; EXP-1323: a child's
-//                        `report` line (opens it) and THE suggested tasks
+//                        report line (S-3 SessionXref) and THE suggested tasks
 //                        card (`ThreadSuggestionsCard`), then the host's
 //                        live tail (Tasks card + status line)
 //   ThreadsListItem      a Threads list row: lead glyph, the title (bold
@@ -101,8 +104,6 @@ const GuideIcon = conceptIcon(`guide-changes`)
 const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
-const ReportIcon = conceptIcon(`notification-reporter-reply`)
-const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const SuggestionsIcon = conceptIcon(`ui-checklist`)
 const MoreIcon = conceptIcon(`ui-more`)
 
@@ -779,6 +780,15 @@ export interface ThreadConversationProps {
   attachmentSrc: (attachmentId: string) => string
   /** A session card was tapped (its raw view). */
   onOpenSession?: (sessionId: string) => void
+  /** S-3: an inter-session link was tapped (the host pushes its back
+   *  stack); absent = `onOpenSession`. */
+  onOpenXref?: (sessionId: string) => void
+  /** S-3: the agent mark of an xref's `agentId` (absent = the session
+   *  glyph). */
+  xrefAgent?: (agentId: string) => UserAvatarAgent | null
+  /** S-3: who started the viewed session (`SessionThreadView.origin`): its
+   *  header line on top of the rows. */
+  origin?: SessionXrefModel | null
   /** A question card's answer: the picks / the typed free text + the
    *  surface's data (absent = read-only). */
   onAnswer?: (rowId: string, input: ThreadQuestionAnswer) => void
@@ -826,6 +836,9 @@ export function ThreadConversation(props: ThreadConversationProps) {
     messageCaption,
     attachmentSrc,
     onOpenSession,
+    onOpenXref,
+    xrefAgent,
+    origin,
     onAnswer,
     onDecide,
     pending,
@@ -849,7 +862,33 @@ export function ThreadConversation(props: ThreadConversationProps) {
   const ownArrivals = useLiveArrivals(rows.map((row) => row.id))
   const isLive = arrived ?? ownArrivals
   const bubbles = layout === `bubbles`
+  const canOpenXref = Boolean(onOpenXref ?? onOpenSession)
+  const xrefLine = (xref: SessionXrefModel, key?: string) => (
+    <SessionXref
+      key={key}
+      xref={xref}
+      agent={xref.agentId ? (latest.current.xrefAgent?.(xref.agentId) ?? null) : null}
+      onOpen={
+        canOpenXref
+          ? (id) => (latest.current.onOpenXref ?? latest.current.onOpenSession)?.(id)
+          : undefined
+      }
+    />
+  )
   const renderRow = (row: ThreadRow): ReactNode => {
+    const body = renderRowBody(row)
+    // S-3: another session's line heads its bubble with its link.
+    if (row.type === `message` && row.xref && body) {
+      return (
+        <div key={row.id} data-slot="thread-xref-row" className="flex min-w-0 flex-col gap-1">
+          {xrefLine(row.xref)}
+          {body}
+        </div>
+      )
+    }
+    return body
+  }
+  const renderRowBody = (row: ThreadRow): ReactNode => {
     // FEED-140: a waiting plan / question never leaves the conversation.
     if (docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) return null
     const enter = bubbles && isLive(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
@@ -977,13 +1016,8 @@ export function ThreadConversation(props: ThreadConversationProps) {
           </div>
         )
       case `report`:
-        return (
-          <ThreadReportLine
-            key={row.id}
-            text={row.text}
-            onOpen={onOpenSession ? () => latest.current.onOpenSession?.(row.sessionId) : undefined}
-          />
-        )
+        // S-3: a report IS its link line (`Report from <session> ›`).
+        return xrefLine(row.xref, row.id)
       case `suggestions`:
         return (
           <ThreadSuggestionsCard
@@ -1004,6 +1038,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
       data-layout={layout}
       className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`, className)}
     >
+      {origin ? xrefLine(origin) : null}
       {rows.map((row) => (
         <StableRow
           key={row.id}
@@ -1021,6 +1056,8 @@ export function ThreadConversation(props: ThreadConversationProps) {
             !onAnswer,
             !onDecide,
             !onOpenSession,
+            !onOpenXref,
+            row.type === `message` || row.type === `report` ? xrefAgent : null,
             !onSurfaceReply,
             renderText,
             attachmentSrc,
@@ -1031,37 +1068,6 @@ export function ThreadConversation(props: ThreadConversationProps) {
       ))}
       {tail}
     </div>
-  )
-}
-
-/** EXP-1323: a child's report = ONE event line `Report from <session> ›`
- *  opening that session; its summary is never repeated (the parent's next
- *  message relays it). */
-export function ThreadReportLine({ text, onOpen }: { text: string; onOpen?: () => void }) {
-  const content = (
-    <>
-      <ReportIcon className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{text}</span>
-      {onOpen && <ChevronRightIcon className="size-3.5 shrink-0" />}
-    </>
-  )
-  const className = `flex min-w-0 max-w-full items-center gap-1.5 self-start text-xs text-muted-foreground`
-  if (!onOpen) {
-    return (
-      <div data-slot="thread-report" className={className}>
-        {content}
-      </div>
-    )
-  }
-  return (
-    <button
-      type="button"
-      data-slot="thread-report"
-      className={cn(className, `text-left hover:text-foreground`)}
-      onClick={onOpen}
-    >
-      {content}
-    </button>
   )
 }
 

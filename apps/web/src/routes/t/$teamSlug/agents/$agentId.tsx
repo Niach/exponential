@@ -38,6 +38,9 @@ import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { THREADS_LIST_COPY, type SessionRow } from "@/lib/session-tree"
+import { backSearch } from "@/lib/session-back"
+import { useSessionNav } from "@/hooks/use-session-nav"
+import { BackStackButton } from "@/components/thread/session-body"
 
 // EXP-1293 / NEW-2: a team agent's page (the rail's Agents section, the
 // phones' Agents band). The route id IS the `agents` row; the page shows the
@@ -57,6 +60,8 @@ const SYNC_GRACE_MS = 4_000
 
 export const Route = createFileRoute(`/t/$teamSlug/agents/$agentId`)({
   head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.agents) }] }),
+  // S-3: `back` = the inter-session back stack (`lib/session-back.ts`).
+  validateSearch: (search: Record<string, unknown>): { back?: string } => backSearch(search.back),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -70,6 +75,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agents/$agentId`)({
 
 function AgentChannelPage() {
   const { teamSlug, agentId } = Route.useParams()
+  const { back } = Route.useSearch()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const team = useTeamBySlug(teamSlug)
@@ -90,6 +96,8 @@ function AgentChannelPage() {
   // here and answers in place (`sessions.answer`, straight to that child).
   const messages = useTreeMessages(conversation?.id)
   const { rows, tabs } = useAgentChannelRows({ conversation, messages, teamSessions })
+  // S-3: an xref pushes this conversation on the back stack; `‹` pops it.
+  const nav = useSessionNav({ teamSlug, here: conversation?.id ?? null, back })
   // #EXP-1407 (ask-dock.json, dock.json): one in-flight set for a card
   // answered inline or in its Dock sheet.
   const answering = useAnswerMessage()
@@ -197,11 +205,12 @@ function AgentChannelPage() {
         <MobileDetailHeader
           // Chats (the draft, iOS/Android): the agent's disc, the name over `Agent`.
           title={<AgentHeaderTitle name={name} icon={agent.icon} color={agent.color} />}
-          onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
+          onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } }))}
           menu={headerMenu(HEADER_BUTTON_CLASS)}
         />
       ) : (
         <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 pt-6 pb-5 md:px-10">
+          <BackStackButton onPop={nav.pop} className="-ml-2" />
           {glyph}
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight md:text-2xl">
             {name}
@@ -236,6 +245,7 @@ function AgentChannelPage() {
               users={users as User[]}
               canAnswer={permissions.isMember}
               onOpenSession={openSession}
+              onOpenXref={nav.open}
               layout={isMobile ? `bubbles` : `transcript`}
               onSurfaceReply={permissions.isMember ? sendSurfaceReply : undefined}
               scrollRef={follow.scrollRef}

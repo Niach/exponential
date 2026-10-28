@@ -84,6 +84,7 @@ export function toTreeSession(row: SessionRow): TreeSession {
     parentId: row.parentId,
     rootId: row.rootId ?? row.id,
     agentId: row.agentId ?? null,
+    startedByAgentId: row.startedByAgentId ?? null,
     appId: row.appId ?? null,
     userId: row.userId,
     deviceId: row.deviceId ?? null,
