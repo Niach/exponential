@@ -4352,6 +4352,15 @@
         "sha256": "ce1ffdce8102475322a023df903b32c66b9fa333f72f8726b4cc9c479d2cc4ff"
       }
     },
+    "session-xref": {
+      "ios": {
+        "file": "shots/session-xref/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 14052,
+        "sha256": "c159725145db57153f4dfd046f57b03b1f5942e55ae21682161bc641e229d219"
+      }
+    },
     "settings-account": {
       "android": {
         "file": "shots/settings-account/android.webp",
@@ -5086,8 +5095,8 @@
         "file": "shots/thread/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 67572,
-        "sha256": "c1ab4cc74cc5edd6fbf8c0c2db78c6e6cf591bc25c2426fcdacad68cefe7e1a6"
+        "bytes": 77738,
+        "sha256": "b296e52348afc0e489b37fe11cb0caf74cb5606e4bf6b6a1d5c0a7ab7684ad22"
       },
       "web": {
         "file": "shots/thread/web.webp",
