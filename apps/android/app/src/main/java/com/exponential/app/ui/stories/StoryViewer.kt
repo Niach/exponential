@@ -302,7 +302,8 @@ private fun StoryNavigable(
             },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        story.title?.let {
+        // The plan text already begins with its title line (stories.json).
+        story.title?.takeIf { story.text == null }?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.titleMedium,
