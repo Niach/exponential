@@ -92,7 +92,8 @@ pub const CANCEL_QUEUED_META_KEY: &str = "exponentialCancelQueued";
 /// the whole plan either way).
 pub const FRESH_CONTEXT_META_KEY: &str = "exponentialFreshContext";
 
-/// EXP-1280: the one line a person's switch INTO plan mode steers to the
+/// EXP-1280 (S-3: plan mode is gone server-side; a legacy mode switch still
+/// steers this line): the one line a person's switch INTO plan mode steers to the
 /// agent (plan mode is Exponential's: instructions + the server's `pr_open`
 /// gate, never the CLI's permission mode) = `plan-card.json`
 /// `copy.planModeGate`, the same sentence the server's gate speaks.
@@ -3326,7 +3327,7 @@ mod tests {
     #[test]
     fn the_plan_mode_line_is_the_fixture_gate() {
         assert_eq!(plan_mode_line(crate::adapters::PLAN_MODE_ID), domain::plan_card::copy().plan_mode_gate);
-        assert!(plan_mode_on_line().contains("exponential_session_self"));
+        assert!(plan_mode_on_line().contains("exponential_show"));
         assert_eq!(plan_mode_line("default"), PLAN_MODE_OFF_LINE);
     }
 

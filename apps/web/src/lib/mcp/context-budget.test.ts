@@ -315,6 +315,7 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_pr`,
     `exponential_guide_write`,
     `exponential_events`,
+    `exponential_show`,
   ]) {
     expect(playbook, `playbook names ${name}`).toContain(name)
   }
