@@ -1,0 +1,75 @@
+{
+  "$comment": "NEW-83: the issue's FILES list ×4 (web lib/attachment-files.ts `issueFileRows`, desktop ui::issue_files `issue_file_rows`, iOS ExpCore AttachmentFiles.issueFileRows, Android domain/AttachmentFiles.kt `issueFileRows`): same cases, same names. An attachment is listed under Files iff it is issue-level (`commentId` null; a comment's rows render in that comment's strip, EXP-554) AND either (a) it is a FILE row (a type that never inlines, or `asFile`, EXP-297/EXP-1247) or (b) it is an inline image/video/audio row that NO text of the issue links: neither the description nor any comment body contains `/api/attachments/<id>` (id compared case-insensitively, relative or absolute url, inside `![]()` or `[]()` alike). So an inline upload nobody embedded (an MCP upload whose markdown was never pasted, an embed deleted from the description) stays reachable instead of vanishing on every client; once a text links it, it leaves Files and renders in place. `texts` = the description plus every comment body (null/empty entries ignored); `rows` keep the caller's order (callers sort oldest first); `files` = the ids listed, in that order.",
+  "cases": [
+    {
+      "name": "a plain file is listed",
+      "texts": [""],
+      "rows": [{ "id": "a1", "contentType": "application/pdf", "asFile": false, "commentId": null }],
+      "files": ["a1"]
+    },
+    {
+      "name": "an embedded image is not listed",
+      "texts": ["Look ![shot.png](/api/attachments/a1)"],
+      "rows": [{ "id": "a1", "contentType": "image/png", "asFile": false, "commentId": null }],
+      "files": []
+    },
+    {
+      "name": "an unlinked audio upload is listed",
+      "texts": ["Three samples: `lukas.mp3`"],
+      "rows": [{ "id": "a1", "contentType": "audio/mpeg", "asFile": false, "commentId": null }],
+      "files": ["a1"]
+    },
+    {
+      "name": "a linked audio upload is not listed",
+      "texts": ["[lukas.mp3](/api/attachments/a1)"],
+      "rows": [{ "id": "a1", "contentType": "audio/mpeg", "asFile": false, "commentId": null }],
+      "files": []
+    },
+    {
+      "name": "an unlinked image and video are listed",
+      "texts": [null],
+      "rows": [
+        { "id": "a1", "contentType": "image/webp", "asFile": false, "commentId": null },
+        { "id": "a2", "contentType": "video/mp4", "asFile": false, "commentId": null }
+      ],
+      "files": ["a1", "a2"]
+    },
+    {
+      "name": "a link in a comment body counts",
+      "texts": ["no media here", "see [clip.mp4](/api/attachments/a1)"],
+      "rows": [{ "id": "a1", "contentType": "video/mp4", "asFile": false, "commentId": null }],
+      "files": []
+    },
+    {
+      "name": "an absolute url and another id case count",
+      "texts": ["![x](https://app.exponential.at/api/attachments/0B6C1A52-3E1F-4D7A-9C55-2F8E4A1B7C90)"],
+      "rows": [{ "id": "0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90", "contentType": "image/png", "asFile": false, "commentId": null }],
+      "files": []
+    },
+    {
+      "name": "an asFile row is listed even when linked",
+      "texts": ["![x](/api/attachments/a1)"],
+      "rows": [{ "id": "a1", "contentType": "image/png", "asFile": true, "commentId": null }],
+      "files": ["a1"]
+    },
+    {
+      "name": "comment rows are never listed",
+      "texts": [""],
+      "rows": [
+        { "id": "a1", "contentType": "application/pdf", "asFile": false, "commentId": "c1" },
+        { "id": "a2", "contentType": "audio/mpeg", "asFile": false, "commentId": "c1" }
+      ],
+      "files": []
+    },
+    {
+      "name": "the caller's order is kept",
+      "texts": ["![b](/api/attachments/b2)"],
+      "rows": [
+        { "id": "c3", "contentType": "audio/wav", "asFile": false, "commentId": null },
+        { "id": "b2", "contentType": "image/png", "asFile": false, "commentId": null },
+        { "id": "a1", "contentType": "text/plain", "asFile": false, "commentId": null }
+      ],
+      "files": ["c3", "a1"]
+    }
+  ]
+}
