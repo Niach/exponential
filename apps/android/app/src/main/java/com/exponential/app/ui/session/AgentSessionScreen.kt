@@ -872,40 +872,6 @@ private fun RunFaceContent(
             question.wireId, question.askId, listOf(key), listOf(label), text,
         )
     }
-    // N-12: THE Dock (dock.json): the card waiting on this viewer leaves the
-    // transcript and floats as a DockCard over the composer; a tap opens its
-    // sheet. The relay's own card is the front-most source.
-    val dockable = phase == AgentPhase.Live && !sessionEnded
-    val toolAsks by viewModel.toolAsks.collectAsStateWithLifecycle()
-    val dockActive = remember(feed) { activeQuestionIds(feed) }
-    val dockedRow = remember(feed, dockActive, dockable) {
-        if (!dockable || dockActive.isEmpty()) null else dockedAskRow(groupFeedRows(feed), dockActive)
-    }
-    val dockCards = AnswerCards(
-        answered = remember(answerStates) { answerStates.filterValues { it.locksCard() }.keys },
-        activeQuestionIds = dockActive,
-        answerEnabled = dockable,
-        answerStates = answerStates,
-        answerLabels = answerLabels,
-        onAnswer = onAnswer,
-        onPlanFollowUp = onPlanFollowUp,
-    )
-    val relaySource: Dock.Source.Ask? = dockedRow?.let { row ->
-        val item = when (row) {
-            is AgentFeedRow.QuestionStepper -> row.steps.firstOrNull { it.id in dockActive } ?: row.steps.firstOrNull()
-            is AgentFeedRow.Single -> row.item as? AgentFeedItem.Question
-            else -> null
-        } ?: return@let null
-        val key = if (row is AgentFeedRow.QuestionStepper) row.askId else row.id.toString()
-        Dock.Source.Ask(
-            id = "relay:$key",
-            kind = if (item.planMode) AskDockModel.Kind.Plan else AskDockModel.Kind.Question,
-            text = item.text,
-            sessionName = null,
-            questions = 0,
-            createdAt = Long.MAX_VALUE,
-        )
-    }
     // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
     // relay ask: THE rich card answers it through `sessions.answer`.
     val answerToolCard: ThreadAnswer = { messageId, a, settled ->
@@ -942,35 +908,10 @@ private fun RunFaceContent(
         val anchors = AskDock.anchorSessionCards(AskDock.feedCalls(feed), sessionCards.map { it.first })
         SessionCardSlots(anchors, sessionCards.associate { it.first.id to it.second })
     }
-    val toolPending = if (sessionEnded) emptyList() else AskDockModel.threadPendingAsks(toolAsks) { null }
-    val toolById = remember(toolAsks) { toolAsks.associateBy { it.id } }
-    val askSources: List<Dock.Source> = listOfNotNull(relaySource) + toolPending.map { ask ->
-        Dock.Source.Ask(ask.id, ask.kind, ask.text, null, ask.questions ?: 0, ask.createdAt)
-    }
-    val dock: @Composable (SessionDock) -> Unit = { sessionDock ->
-        SessionDockCards(
-            sessionDock = sessionDock,
-            asks = askSources,
-            autoOpenReady = phase == AgentPhase.Live,
-            askSheet = { row, scope, _ ->
-                val relay = dockedRow
-                if (relaySource != null && row.id == relaySource.id && relay != null) {
-                    DockSheetBody {
-                        CompositionLocalProvider(LocalAskCardPlain provides true) { AnswerCardRow(relay, dockCards) }
-                    }
-                } else {
-                    toolById[row.id]?.let { threadRow ->
-                        PlanAskCard(
-                            row = threadRow,
-                            onAnswer = answerToolCard,
-                            onDecidePlan = decideToolPlan,
-                            sheet = scope,
-                        )
-                    }
-                }
-            },
-        )
-    }
+    // S-3 STORIES (dock.json, ask-dock.json): a waiting plan or question is a
+    // story now, never a DockCard: no plan/question source, no auto-open; the
+    // card stays inline in the transcript, answerable.
+    val dock: @Composable (SessionDock) -> Unit = { sessionDock -> SessionDockCards(sessionDock) }
     // The placeholder states (no feed yet): connecting, an ended run's
     // history fetch, an old desktop (S-3: no paused host).
     val placeholderBody: @Composable () -> Unit = {
@@ -1145,7 +1086,6 @@ private fun RunFaceContent(
                             )
                         }
                     },
-                    docked = dockedRow,
                     sessionCards = cardSlots,
                     renderCard = { row ->
                         when (row) {
@@ -2124,6 +2064,13 @@ private class AnswerCards(
  *  any other row draws nothing. */
 @Composable
 private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
+    // S-3: the relay's ask lives inline only now (dock.json); the store
+    // shot's pop-out (`4_steering`) finds it by this tag.
+    Box(Modifier.testTag("feed-question")) { AnswerCardRowBody(row, cards) }
+}
+
+@Composable
+private fun AnswerCardRowBody(row: AgentFeedRow, cards: AnswerCards) {
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,

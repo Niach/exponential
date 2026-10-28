@@ -138,10 +138,20 @@ struct ChatListSpecimens: View {
                 AppBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        AgentBubbles(items: Self.bubbles, onTap: { _ in }, onHold: { _ in })
-                            .padding(.horizontal, -16)
-                            .padding(.top, 4)
-                            .padding(.bottom, 14)
+                        // S-3 (stories.json specimen): Triage + Designer wear
+                        // their rings, the two chat rings follow.
+                        AgentBubbles(
+                            items: Self.bubbles,
+                            rings: StorySpecimensScreen.rings,
+                            onTap: { _ in },
+                            onHold: { _ in },
+                            onOpenStory: { _ in }
+                        ) { ring in
+                            StoryRingAvatarView(avatar: StorySpecimensScreen.avatar(ring))
+                        }
+                        .padding(.horizontal, -16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 14)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(Chats.filters, id: \.self) { option in
@@ -572,5 +582,124 @@ struct SessionXrefSpecimens: View {
                 SessionXrefHeader(xref: xref, agent: mark) {}
             }
         }
+    }
+}
+
+/// S-3 STORIES (stories.json `specimen`, styleguide `story-ring` /
+/// `story-viewer`): THE same data ×4, hardcoded from `specimen.input` and
+/// folded by `Stories.rings`. story-ring = the rings at the bubble size with
+/// their titles, the same rings at `smallRing` without titles, then a
+/// StoryProgress; story-viewer = THE viewer on ring 0, story 0, the progress
+/// frozen at 0. Capture only: `-uiTestingStyleguide story-ring|story-viewer`
+/// (presented by the navigator beside `ThreadCardsScreen`).
+struct StorySpecimensScreen: View {
+    let kind: String
+
+    static let kinds: Set<String> = ["story-ring", "story-viewer"]
+
+    private static let now: Double = 1800000000000
+    private static let smallRing: CGFloat = 36
+
+    private static let sessions: [Stories.SessionInput] = [
+        Stories.SessionInput(
+            id: "triage", rootId: "triage", name: "Triage", agentId: "ag1", startedByAgentId: nil
+        ),
+        Stories.SessionInput(
+            id: "board", rootId: "board", name: "Board header polish", agentId: nil, startedByAgentId: nil
+        ),
+        Stories.SessionInput(
+            id: "designer", rootId: "designer", name: "Designer", agentId: "ag2", startedByAgentId: nil
+        ),
+        Stories.SessionInput(
+            id: "ship", rootId: "ship", name: "Ship the launch checklist", agentId: nil, startedByAgentId: nil
+        ),
+    ]
+
+    /// The chat sessions' CLI (`specimen.input.sessions[].cli`).
+    private static let clis: [String: String] = ["board": "claude", "ship": "claude"]
+
+    private static let agents: [(Stories.AgentInput, StoryRingAvatar)] = [
+        (Stories.AgentInput(id: "ag1", name: "Triage", assistant: false), .agent(icon: "bug", color: "#a855f7")),
+        (Stories.AgentInput(id: "ag2", name: "Designer", assistant: false), .agent(icon: "bot", color: "#6366f1")),
+    ]
+
+    private static let messages: [Stories.MessageInput] = [
+        Stories.MessageInput(
+            id: "triage-plan", sessionId: "triage", authorSessionId: "triage",
+            createdAt: 1799999460000, answeredAt: nil,
+            card: TreeMessageCard.parse(###"{"kind":"plan","plan":"## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.","decision":null}"###)
+        ),
+        Stories.MessageInput(
+            id: "triage-result", sessionId: "triage", authorSessionId: "triage",
+            createdAt: 1799998200000, answeredAt: nil,
+            card: TreeMessageCard.parse(###"{"kind":"surface","story":true,"title":"Today's triage","surface":{"root":{"id":"r","component":"Text","props":{"text":"3 labelled"}}}}"###)
+        ),
+        Stories.MessageInput(
+            id: "board-question", sessionId: "board", authorSessionId: "board",
+            createdAt: 1799999760000, answeredAt: nil,
+            card: TreeMessageCard.parse(###"{"kind":"question","question":"Which accent for the board header?","options":["Indigo","Emerald"],"optionDescriptions":["The brand accent","Matches the merged state"],"custom":false,"surface":{"root":{"id":"root","component":"Stack","props":{"gap":"md"},"children":[{"id":"title","component":"Text","props":{"text":"Board header"},"children":[]},{"id":"accent","component":"ChoiceTiles","props":{"name":"accent","options":[{"label":"Indigo","value":"indigo"},{"label":"Emerald","value":"emerald"}],"value":{"path":"/accent"}},"children":[]},{"id":"stat","component":"StatTile","props":{"label":"Header height","value":"48 px","delta":"−8 px","tone":"success"},"children":[]}]},"data":{"accent":"indigo"}}}"###)
+        ),
+        Stories.MessageInput(
+            id: "designer-result", sessionId: "designer", authorSessionId: "designer",
+            createdAt: 1799996400000, answeredAt: nil,
+            card: TreeMessageCard.parse(###"{"kind":"surface","story":true,"title":"Spacing review","surface":{"root":{"id":"r","component":"Text","props":{"text":"No drift"}}}}"###)
+        ),
+        Stories.MessageInput(
+            id: "ship-result", sessionId: "ship", authorSessionId: "ship",
+            createdAt: 1799992800000, answeredAt: nil,
+            card: TreeMessageCard.parse(###"{"kind":"surface","story":true,"title":"Checklist done","surface":{"root":{"id":"r","component":"Text","props":{"text":"12 of 12"}}}}"###)
+        ),
+    ]
+
+    static let rings: [Stories.StoryRing] = Stories.rings(
+        now: now,
+        sessions: sessions,
+        agents: agents.map(\.0),
+        messages: messages,
+        reads: [Stories.ReadInput(sessionId: "ship", readAt: 1_799_996_400_000, storySeenAt: nil)]
+    )
+
+    static func card(_ storyId: String) -> TreeMessageCard? {
+        messages.first { $0.id == storyId }?.card
+    }
+
+    /// An agent ring = its icon in its colour; a chat ring = the bare brand
+    /// mark of its root's CLI.
+    static func avatar(_ ring: Stories.StoryRing) -> StoryRingAvatar {
+        guard let agentId = ring.agentId, let avatar = agents.first(where: { $0.0.id == agentId })?.1 else {
+            return .chat(cli: ring.rootId.flatMap { clis[$0] })
+        }
+        guard case let .agent(icon, color) = avatar else { return avatar }
+        return .agent(icon: BoardTypeDisplay.iconName(for: icon) ?? icon, color: color)
+    }
+
+    var body: some View {
+        ZStack {
+            AppBackground()
+            if kind == "story-viewer" {
+                StoryViewer(
+                    rings: Self.rings, startKey: Self.rings[0].key, card: Self.card, avatar: Self.avatar, fraction: 0,
+                    onClose: {}
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 20) {
+                    StoryRingStrip(rings: Self.rings, avatar: Self.avatar) { _ in }
+                        .padding(.horizontal, -16)
+                    HStack(spacing: 16) {
+                        ForEach(Self.rings) { ring in
+                            StoryRing(stories: ring.stories, size: Self.smallRing) {
+                                StoryRingAvatarView(avatar: Self.avatar(ring))
+                            }
+                        }
+                    }
+                    StoryProgress(count: 4, index: 1, fraction: 0.4)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread-cards-screen")
     }
 }

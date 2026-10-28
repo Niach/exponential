@@ -58,10 +58,9 @@ struct ThreadStripFold: Identifiable, Equatable {
 
 /// EXP-1295/1316/1334: the thread header's ONE strip as the phone's pager
 /// tabs (fixture `session-thread.json` `tabs`), and it NEVER scrolls: the
-/// "+" (link or file an issue) and `Conversation` pinned left, `Guide` (a
-/// green dot while the root's Guide holds anything) pinned right, both
-/// ICON-ONLY on phones (`action-chat`, `guide-changes`); between
-/// them the issue chips (status glyph + mono identifier, + the title while
+/// "+" (link or file an issue) and `Conversation` (ICON-ONLY on phones,
+/// `action-chat`) pinned left; S-3: the Guide tab is gone and the trailing
+/// zone is empty. After them the issue chips (status glyph + mono identifier, + the title while
 /// everything fits) then the session chips (the row mark + name; a tap
 /// shows that session's page, EXP-1343), laid out by `SessionTree.partitionThreadStrip`
 /// over MEASURED widths (`ThreadStripMetrics`): titles go first, then each
@@ -102,7 +101,7 @@ struct ThreadStripTabs: View {
     /// The strip's one gap (between chips and between the zones).
     static let gap: CGFloat = 4
 
-    /// The room between Conversation and Guide (measured).
+    /// The room right of Conversation (measured).
     @State private var available: CGFloat = 0
 
     private var issueTabs: [ThreadTab] {
@@ -134,8 +133,6 @@ struct ThreadStripTabs: View {
                 }
                 .overlay(alignment: .leading) { middle }
                 .clipped()
-            pageTab(.guide)
-                .fixedSize()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -382,28 +379,6 @@ struct ThreadStripTabs: View {
         switch page {
         case .issue, .session:
             EmptyView()
-        case .guide:
-            // EXP-1334: phones draw Conversation and Guide ICON-ONLY in the
-            // same chip box (the word stays the accessibility label), so the
-            // middle zones get the room.
-            let dot = tabs.contains(.guide(dot: true))
-            ThreadStripTab(selected: selected, bordered: false, fresh: false) {
-                AppIcon(AppIcons.guideChanges, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)
-                    .overlay(alignment: .topTrailing) {
-                        if dot {
-                            Circle()
-                                .fill(DesignTokens.Semantic.green)
-                                .frame(width: 6, height: 6)
-                                .offset(x: 4, y: -3)
-                                .accessibilityHidden(true)
-                        }
-                    }
-            }
-            .onTapGesture { onSelect(page) }
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(SessionTree.ThreadCopy.guide)
-            .accessibilityIdentifier("thread-tab-guide")
         case .conversation:
             ThreadStripTab(selected: selected, bordered: false, fresh: false) {
                 AppIcon(AppIcons.actionChat, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)
@@ -425,7 +400,7 @@ enum ThreadStripMetrics {
     static let innerSpacing: CGFloat = 5
     static let markSize: CGFloat = 13
     static let chevronSize: CGFloat = 10
-    /// The icon-only Conversation / Guide tabs (phones).
+    /// The icon-only Conversation tab (phones).
     static let pinnedIconSize: CGFloat = 16
     /// A full chip's title never grows past this.
     static let titleMax: CGFloat = 140

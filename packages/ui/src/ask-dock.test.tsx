@@ -47,7 +47,7 @@ function renderDock(rows = ROWS, props: Partial<Parameters<typeof ThreadDock>[0]
       renderText={(text) => <p>{text}</p>}
       onDecide={onDecide}
       onAnswer={onAnswer}
-      autoOpen={false}
+      asks
       {...props}
     />
   )

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/pr-body.json"
-import { PR_BODY_MAX, prBodyFromGuide, renderPrBody } from "./pr-body"
+import { PR_BODY_MAX, prBodyFromGuide, prBodyFromStories, renderPrBody } from "./pr-body"
 import { PR_BODY_MAX as PR_UPDATE_BODY_MAX } from "./trpc/pr-update"
 
 // EXP-1154: the PR body = a text projection of the run's report, locked by
@@ -78,4 +78,12 @@ describe(`prBodyFromGuide`, () => {
   it(`no Guide, no body`, () => {
     expect(prBodyFromGuide(null)).toBeNull()
   })
+})
+
+describe(`prBodyFromStories`, () => {
+  for (const c of fixture.storyCases) {
+    it(c.name, () => {
+      expect(prBodyFromStories(c.input)).toBe(c.expected)
+    })
+  }
 })

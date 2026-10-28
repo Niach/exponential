@@ -38,8 +38,8 @@ final class DeepLinkBus: @unchecked Sendable {
     // the account it belongs to.
     var pendingThreadId: String?
     var pendingThreadAccountId: String?
-    // The page the thread opens on (a PR body's `?view=guide` → `.guide`);
-    // nil = its Conversation.
+    // The page the thread opens on (an issue or session tab); nil = its
+    // Conversation.
     var pendingThreadPage: ThreadPage?
     // EXP-825: a `/t/{team}/agent` universal link — Home in that team,
     // under the signed-in account whose host matched the URL.
@@ -89,11 +89,11 @@ final class DeepLinkBus: @unchecked Sendable {
     }
 
     /// EXP-1291: a `/t/{team}/sessions/{id}` link (the PR body footer, agent
-    /// prose). A ROOT opens its thread — on the Guide with `?view=guide` —
-    /// and so does an id this account has not synced (the thread screen
+    /// prose). A ROOT opens its thread on its Conversation (S-3: a legacy
+    /// `?view=guide` too, the Guide tab is gone), and so does an id this account has not synced (the thread screen
     /// resolves or says not found); a CHILD opens its raw session.
     func navigateToSessionLink(
-        _ sessionId: String, account: ServerAccount, guide: Bool, db: DatabaseManager
+        _ sessionId: String, account: ServerAccount, db: DatabaseManager
     ) {
         let row = (try? db.pool(forAccountId: account.id).read { db in
             try SessionQueries.session(db: db, id: sessionId)
@@ -101,7 +101,7 @@ final class DeepLinkBus: @unchecked Sendable {
         if let row, !row.isRoot {
             navigateToSession(sessionId, userId: account.userId)
         } else {
-            navigateToThread(sessionId, accountId: account.id, page: guide ? .guide : nil)
+            navigateToThread(sessionId, accountId: account.id)
         }
     }
 

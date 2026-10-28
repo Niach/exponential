@@ -7,8 +7,8 @@
 // its own inside 512 chars, because Codex reads only that much. Claude Code
 // truncates at 2KB, so the whole string stays under 2000 chars.
 //
-// EXP-1291 (Threads v2): one session verb (`exponential_sessions_send`), one
-// Guide per thread (`exponential_guide_write`), people are pinged by an
+// EXP-1291 (Threads v2): one session verb (`exponential_sessions_send`);
+// S-3: stories replace the Guide (`exponential_show`); people are pinged by an
 // `@email` mention in a message (no notify tool). The close-out wording is
 // per caller (gates.ts): an unattended session ends itself LAST, an attended
 // one only when asked, a team agent never.
@@ -27,9 +27,9 @@ export function mcpServerInstructions(gates: {
   reportBug: boolean
 }): string {
   const paragraphs = [
-    // NEW-4: 17 tools, one per noun (+ 3 verbs), each with an `op`; statuses change
+    // NEW-4: 16 tools, one per noun (+ 2 verbs), each with an `op`; statuses change
     // AUTOMATICALLY on PR open/merge; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and a Guide. 17 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, exponential_guide_write, exponential_pr {op: "open"}. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and stories. 16 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, screenshots as stories, exponential_pr {op: "open"}. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
     // S-3: a launched session (the header) also carries the runbook, which
     // says this at length; only an outside client needs the verb spelled out.
     ...(gates.inSession
@@ -66,11 +66,11 @@ export function mcpServerInstructions(gates: {
   if (gates.inSession) {
     paragraphs.push(SHOW_SENTENCE)
   }
-  // EXP-879/1251: LAST, so it is what a truncating client keeps least — but
-  // present, because a session never asked for its Guide never writes one.
+  // S-3: LAST, so it is what a truncating client keeps least; the PR body
+  // is server-written (a summary + the story pictures by platform).
   if (gates.inSession && !gates.agent) {
     paragraphs.push(
-      `Close out with a Guide, never a chat summary: exponential_guide_write files per topic 2-3 sentences of GFM plus the files it touched ('Summary' first; together they cover every changed file) and screenshots (one label each). The Guide IS every PR's body: write it (with screenshots) BEFORE exponential_pr {op: "open"}.`
+      `Show your work as stories: exponential_show with pictures (label = platform-prefixed: 'web …', 'ios …') before exponential_pr {op: "open"}; the PR body is written for you.`
     )
   }
   return paragraphs.join(`\n\n`)

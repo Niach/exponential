@@ -50,7 +50,7 @@ import {
   stripPendingUploads,
   useSurfaceDataRef,
 } from "./plan-card"
-import { Dock, DockSheetBody, DockSheetFooter, useDockAutoOpen, useDockSheetMeta } from "./dock"
+import { Dock, DockSheetBody, DockSheetFooter, useDockSheetMeta } from "./dock"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
@@ -79,9 +79,9 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //
 //   ThreadTabs           the header's ONE strip, nothing scrolls (EXP-1334):
 //                        "+" · Conversation | issue chips … +X | session
-//                        chips … +Y | Guide (a dot while it holds anything);
-//                        `pager` = the phones' tabs (Conversation and Guide
-//                        icon-only there). Chips = THE strip chip
+//                        chips … +Y (S-3: the Guide tab is gone, stories
+//                        replace it); `pager` = the phones' tabs
+//                        (Conversation icon-only there). Chips = THE strip chip
 //                        (`strip-chip.tsx`); a folded chip opens its subtree
 //                        (`ThreadChipSubtree`) on a click
 //   ThreadConversation   the conversation rows: messages (a person's bubble
@@ -100,7 +100,6 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //   ChannelMessageRow    an agent channel's comment-style row
 
 const ConversationIcon = conceptIcon(`action-chat`)
-const GuideIcon = conceptIcon(`guide-changes`)
 const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
@@ -162,20 +161,19 @@ function sameMeasure(a: StripMeasure | null, b: StripMeasure): boolean {
 
 /**
  * EXP-1334: the thread header's ONE strip ×4 — NOTHING scrolls. Pinned left:
- * the "+" (THE Menu: Link an issue ›, New issue) and Conversation; pinned
- * right: Guide (a dot while it holds anything). Between them two zones,
+ * the "+" (THE Menu: Link an issue ›, New issue) and Conversation (S-3: no
+ * Guide tab any more; stories.json). Then two zones,
  * issues then sessions: everything full → the issues identifier-only → fold,
  * each zone with its own "+N" (`partitionThreadStrip`, the contract's
  * `stripCases`), the open chip always drawn. `pager` = the phones' header
- * band: Conversation and Guide ICON-ONLY (the strip chip box, the label as
- * aria-label/title, the Guide dot on the icon's corner).
+ * band: Conversation ICON-ONLY (the strip chip box, the label as
+ * aria-label/title).
  */
 export function ThreadTabs({
   conversation,
   issues,
   add,
   sessions = [],
-  guide,
   variant = `bar`,
   layout: forced,
   className,
@@ -188,7 +186,6 @@ export function ThreadTabs({
   add?: ReactNode
   /** The session chips (the dispatcher's direct children). */
   sessions?: readonly ThreadStripItem[]
-  guide: { label: string; active: boolean; dot: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
   variant?: `bar` | `pager`
   /** A fixed layout instead of the measured one (a static render — the
@@ -384,46 +381,6 @@ export function ThreadTabs({
           `thread-tabs-more-sessions`
         )}
       </div>
-      {!pager && divider}
-      <Button
-        type="button"
-        variant="ghost"
-        role="tab"
-        aria-selected={guide.active}
-        data-testid="thread-tab-guide"
-        aria-label={pager ? guide.label : undefined}
-        title={pager ? guide.label : undefined}
-        className={cn(tabClass(guide.active, pager), pager && `px-2`)}
-        onClick={guide.onSelect}
-      >
-        {pager ? (
-          // Phones: the icon alone, the dot on its corner.
-          <span className="relative flex shrink-0">
-            <GuideIcon className="size-3.5 shrink-0" />
-            {guide.dot && (
-              <span
-                data-testid="thread-guide-dot"
-                className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400"
-              >
-                <span className="sr-only">The Guide has content</span>
-              </span>
-            )}
-          </span>
-        ) : (
-          <>
-            <GuideIcon className="size-3.5 shrink-0" />
-            {guide.label}
-            {guide.dot && (
-              <span
-                data-testid="thread-guide-dot"
-                className="size-1.5 shrink-0 rounded-full bg-emerald-400"
-              >
-                <span className="sr-only">The Guide has content</span>
-              </span>
-            )}
-          </>
-        )}
-      </Button>
       </div>
     </div>
   )
@@ -1858,13 +1815,12 @@ export function ThreadPlanSheet({
 
 const defaultAttachmentSrc = (attachmentId: string) => `/api/attachments/${attachmentId}`
 
-/** N-12: THE Dock in a thread or a session (fixtures/dock.json): the tree's
- *  waiting cards (`threadPendingAsks`) plus the host's other `sources`
- *  (THE Queue, the queued messages, banners) as DockCards above the
- *  composer; an ask opens as its sheet (`ThreadPlanSheet` /
- *  `ThreadQuestionSheet`), the rest through `renderSheet`. A plan or
- *  question that arrives while the view is in front opens itself
- *  (`autoOpen`). */
+/** N-12: THE Dock in a thread or a session (fixtures/dock.json): the
+ *  host's `sources` (THE Queue, the queued messages, banners) and the open
+ *  suggestions as DockCards above the composer. S-3 (stories.json): a
+ *  waiting plan or question is a STORY, never a DockCard, and nothing opens
+ *  itself; `asks` (the specimens' legacy pile only) still docks them, each
+ *  opening as its sheet (`ThreadPlanSheet` / `ThreadQuestionSheet`). */
 export function ThreadDock({
   rows,
   sessionName,
@@ -1882,8 +1838,7 @@ export function ThreadDock({
   composer,
   onHeight,
   phoneClearance,
-  autoOpen = true,
-  autoOpenReady = true,
+  asks: withAsks = false,
   initialOpenId = null,
   initialExpanded,
   className,
@@ -1909,10 +1864,8 @@ export function ThreadDock({
   composer?: ReactNode
   onHeight?: (height: number) => void
   phoneClearance?: boolean
-  autoOpen?: boolean
-  /** The host's data has loaded (the relay live, the rows in): cards shown
-   *  before that, and shortly after, never open themselves. */
-  autoOpenReady?: boolean
+  /** S-3: dock the waiting plans/questions too (legacy; hosts never do). */
+  asks?: boolean
   /** The sheet open on mount (the styleguide's open state). */
   initialOpenId?: string | null
   initialExpanded?: boolean
@@ -1920,17 +1873,16 @@ export function ThreadDock({
 }) {
   const asks = useMemo<DockSource[]>(
     () =>
-      threadPendingAsks(rows, sessionName).map((ask) =>
+      (withAsks ? threadPendingAsks(rows, sessionName) : []).map((ask) =>
         ask.kind === `plan`
           ? { kind: `plan`, id: ask.id, text: ask.text, sessionName: ask.sessionName, questions: ask.questions ?? 0, createdAt: ask.createdAt }
           : { kind: `question`, id: ask.id, text: ask.text, sessionName: ask.sessionName, createdAt: ask.createdAt }
       ),
-    [rows, sessionName]
+    [rows, sessionName, withAsks]
   )
   const suggested = useMemo<DockSource[]>(() => (suggestions ? suggestionSources(rows) : []), [rows, suggestions])
   const dockedRows = useMemo(() => dockRows([...asks, ...suggested, ...(sources ?? [])]), [asks, suggested, sources])
   const [openId, setOpenId] = useState<string | null>(initialOpenId)
-  useDockAutoOpen(dockedRows, autoOpen, setOpenId, autoOpenReady)
   return (
     <Dock
       rows={dockedRows}
@@ -2093,13 +2045,14 @@ export function ChannelMessageRow({
 }
 
 /** N-12: the Conversation rows THE Dock holds (they leave the transcript):
- *  the waiting asks and the suggestion rows with an open item. */
+ *  the suggestion rows with an open item. S-3: a waiting ask is a story,
+ *  never docked (`sessionName` kept for the callers' shape). */
 export function threadDockedIds(
   rows: readonly ThreadRow[],
-  sessionName: (sessionId: string) => string | null,
+  _sessionName: (sessionId: string) => string | null,
   withSuggestions = true
 ): Set<string> {
-  const ids = new Set(threadPendingAsks(rows, sessionName).map((ask) => ask.id))
+  const ids = new Set<string>()
   if (withSuggestions) for (const source of suggestionSources(rows)) ids.add(source.id)
   return ids
 }

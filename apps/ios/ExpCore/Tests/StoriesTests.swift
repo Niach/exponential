@@ -1,0 +1,159 @@
+import Foundation
+import XCTest
+@testable import ExpCore
+
+// S-3 stories, locked ×4 against
+// `packages/domain-contract/fixtures/stories.json`: every case, the WHOLE
+// expected array. Read through `#filePath`: the unit-test bundle carries no
+// repo resources.
+final class StoriesTests: XCTestCase {
+    private func fixture() throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/stories.json")
+        let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+        return try XCTUnwrap(json as? [String: Any])
+    }
+
+    private func num(_ raw: Any?) -> Double? { (raw as? NSNumber)?.doubleValue }
+
+    private func json(_ ring: Stories.StoryRing) -> [String: Any] {
+        func orNull(_ value: Any?) -> Any { value ?? NSNull() }
+        return [
+            "key": ring.key,
+            "agentId": orNull(ring.agentId),
+            "rootId": orNull(ring.rootId),
+            "title": ring.title,
+            "assistant": ring.assistant,
+            "waiting": ring.waiting,
+            "unseen": ring.unseen,
+            "stories": ring.stories.map { story -> [String: Any] in
+                [
+                    "id": story.id,
+                    "sessionId": story.sessionId,
+                    "rootId": story.rootId,
+                    "sessionName": story.sessionName,
+                    "kind": story.kind.rawValue,
+                    "waiting": story.waiting,
+                    "seen": story.seen,
+                    "createdAt": story.createdAt,
+                    "meta": story.meta,
+                    "title": orNull(story.title),
+                    "pictures": story.pictures.map { picture -> [String: Any] in
+                        [
+                            "label": picture.label,
+                            "attachmentId": picture.attachmentId,
+                            "width": orNull(picture.width),
+                            "height": orNull(picture.height),
+                            "caption": orNull(picture.caption),
+                        ]
+                    },
+                    "surface": story.surface,
+                    "text": orNull(story.text),
+                    "footer": story.footer.rawValue,
+                    "autoAdvanceMs": orNull(story.autoAdvanceMs),
+                ]
+            },
+        ]
+    }
+
+    func testConstantsMatchTheFixture() throws {
+        let f = try fixture()
+        let constants = try XCTUnwrap(f["constants"] as? [String: NSNumber])
+        XCTAssertEqual(constants["seenHours"]?.doubleValue, Stories.Constants.seenHours)
+        XCTAssertEqual(constants["unseenHours"]?.doubleValue, Stories.Constants.unseenHours)
+        XCTAssertEqual(constants["autoAdvanceMs"]?.doubleValue, Stories.Constants.autoAdvanceMs)
+        XCTAssertEqual(f["copy"] as? [String: String], [
+            "plan": Stories.Copy.plan, "question": Stories.Copy.question, "result": Stories.Copy.result,
+            "now": Stories.Copy.now, "approve": Stories.Copy.approve, "change": Stories.Copy.change,
+            "reply": Stories.Copy.reply, "close": Stories.Copy.close, "next": Stories.Copy.next,
+            "previous": Stories.Copy.previous,
+        ])
+        XCTAssertEqual(f["ring"] as? [String: Double], ["width": Stories.Ring.width, "gap": Stories.Ring.gap])
+        XCTAssertEqual(
+            f["progress"] as? [String: Double], ["height": Stories.Progress.height, "gap": Stories.Progress.gap]
+        )
+        XCTAssertEqual(f["viewer"] as? [String: Double], [
+            "width": Stories.Viewer.width, "height": Stories.Viewer.height, "radius": Stories.Viewer.radius,
+        ])
+        XCTAssertEqual(f["testIds"] as? [String: String], [
+            "ring": Stories.TestIds.ring, "viewer": Stories.TestIds.viewer, "progress": Stories.TestIds.progress,
+            "header": Stories.TestIds.header, "next": Stories.TestIds.next, "previous": Stories.TestIds.previous,
+        ])
+    }
+
+    /// `stories(input)` over a fixture input object.
+    private func fold(_ input: [String: Any], _ name: String) throws -> [Stories.StoryRing] {
+        let sessions = try XCTUnwrap(input["sessions"] as? [[String: Any]], name).map { raw in
+            Stories.SessionInput(
+                id: raw["id"] as? String ?? "",
+                rootId: raw["rootId"] as? String ?? "",
+                name: raw["name"] as? String ?? "",
+                agentId: raw["agentId"] as? String,
+                startedByAgentId: raw["startedByAgentId"] as? String
+            )
+        }
+        let agents = try XCTUnwrap(input["agents"] as? [[String: Any]], name).map { raw in
+            Stories.AgentInput(
+                id: raw["id"] as? String ?? "",
+                name: raw["name"] as? String ?? "",
+                assistant: raw["assistant"] as? Bool ?? false
+            )
+        }
+        let messages = try XCTUnwrap(input["messages"] as? [[String: Any]], name).map { raw in
+            Stories.MessageInput(
+                id: raw["id"] as? String ?? "",
+                sessionId: raw["sessionId"] as? String ?? "",
+                authorSessionId: raw["authorSessionId"] as? String,
+                createdAt: num(raw["createdAt"]) ?? 0,
+                answeredAt: num(raw["answeredAt"]),
+                card: (raw["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
+            )
+        }
+        let reads = try XCTUnwrap(input["reads"] as? [[String: Any]], name).map { raw in
+            Stories.ReadInput(
+                sessionId: raw["sessionId"] as? String ?? "",
+                readAt: num(raw["readAt"]),
+                storySeenAt: num(raw["storySeenAt"])
+            )
+        }
+        return Stories.rings(
+            now: try XCTUnwrap(num(input["now"]), name),
+            sessions: sessions, agents: agents, messages: messages, reads: reads
+        )
+    }
+
+    func testCases() throws {
+        let cases = try XCTUnwrap(try fixture()["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? "?"
+            let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
+            let actual = try fold(input, name).map(json)
+            let expected = try XCTUnwrap(entry["expected"] as? [Any], name)
+            XCTAssertTrue(
+                NSArray(array: actual).isEqual(to: expected),
+                "\(name)\nactual: \(actual)\nexpected: \(expected)"
+            )
+        }
+    }
+
+    /// chats.json BUBBLES + STORY RING (TS `bubbleRings`): the specimen's
+    /// agent rings ride bubbleCases[0]'s bubbles, the chat rings follow.
+    func testBubbleRings() throws {
+        let specimen = try XCTUnwrap(try fixture()["specimen"] as? [String: Any])
+        let rings = try fold(try XCTUnwrap(specimen["input"] as? [String: Any]), "specimen")
+        let all = Stories.bubbleRings(["as", "ag1", "ag2", "ag3"], rings)
+        XCTAssertEqual(all.byAgent.keys.sorted(), ["ag1", "ag2"])
+        XCTAssertEqual(all.byAgent["ag1"]?.key, "agent:ag1")
+        XCTAssertEqual(all.rest.map(\.key), rings.filter { $0.agentId == nil }.map(\.key))
+        // An agent ring with no bubble follows in ring order.
+        let one = Stories.bubbleRings(["ag2"], rings)
+        XCTAssertEqual(Array(one.byAgent.keys), ["ag2"])
+        XCTAssertEqual(one.rest.map(\.key), rings.filter { $0.agentId != "ag2" }.map(\.key))
+    }
+}

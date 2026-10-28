@@ -13,6 +13,7 @@ import type { ThreadRow } from "@exp/domain-contract/session-tree"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
 import { AgentBubbles, CHAT_SELECTION_ICONS, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
+import { STORY_RING_SPECIMEN, storySpecimenAvatar } from "./stories-specimen"
 import { Dialog } from "./dialog"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
@@ -62,7 +63,9 @@ export function ChatListSpecimen() {
       className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4"
     >
       <ChatsHeader inboxUnread />
-      <AgentBubbles bubbles={BUBBLES} />
+      {/* S-3 (stories.json specimen): Triage + Designer wear their rings,
+          the two chat rings follow. */}
+      <AgentBubbles bubbles={BUBBLES} rings={STORY_RING_SPECIMEN} ringAvatar={storySpecimenAvatar} />
       <ChatFilterChips value={filter} counts={LIST.counts} onChange={setFilter} />
       <ChatList rows={rows} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
     </div>

@@ -137,7 +137,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role"]
+             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
+             "v86_session_read_story_seen_at"]
         )
     }
 
@@ -196,7 +197,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role"]
+             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
+             "v86_session_read_story_seen_at"]
         )
     }
 
@@ -727,7 +729,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role"]
+             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
+             "v86_session_read_story_seen_at"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -834,7 +837,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
              "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
-             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role"]
+             "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
+             "v86_session_read_story_seen_at"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1910,7 +1914,7 @@ final class DatabaseMigrationTests: XCTestCase {
         )
         XCTAssertEqual(
             try columnNames(pool, "session_reads"),
-            ["id", "user_id", "session_id", "read_at", "archived_at", "created_at", "updated_at"]
+            ["id", "user_id", "session_id", "read_at", "archived_at", "created_at", "updated_at", "story_seen_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_requests"),
@@ -3547,6 +3551,34 @@ final class DatabaseMigrationTests: XCTestCase {
             """#.utf8))
         XCTAssertFalse(missing.background)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // S-3: v85 adds `session_reads.story_seen_at`, resetting ONLY the
+    // session-reads cursor so synced read marks re-arrive with it.
+    func testSessionReadStorySeenAtColumnAdded() throws {
+        let pool = try makePool("s3-session-read-story-seen")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v84_session_read_archived_at")
+        try pool.write { db in
+            for shape in ["session-reads", "sessions"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "session_reads").contains("story_seen_at"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["session-reads"])
+        }
     }
 
     // #EXP-1388: v84 adds `session_reads.archived_at`, resetting ONLY the

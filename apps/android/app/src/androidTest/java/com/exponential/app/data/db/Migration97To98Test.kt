@@ -41,7 +41,7 @@ class Migration97To98Test {
         createVersion97()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100, MIGRATION_100_101, MIGRATION_101_102)
+            .addMigrations(MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100, MIGRATION_100_101, MIGRATION_101_102, MIGRATION_102_103, MIGRATION_103_104)
             .allowMainThreadQueries()
             .build()
         try {

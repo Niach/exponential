@@ -192,6 +192,31 @@ export const sessionsRouter = router({
       })
     }),
 
+  /** S-3 (stories.json): the caller saw a story of this ROOT's tree; the
+   *  root's `story_seen_at` keeps the greatest `at`. A new row's `read_at`
+   *  is the epoch, so seeing a story never marks the chat read. */
+  markStoriesSeen: authedProcedure
+    .input(z.object({ sessionId: uuid, at: z.number().int().nonnegative() }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const session = await loadSessionForUser(userId, input.sessionId)
+      const at = new Date(Math.min(input.at, Date.now()))
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        await tx
+          .insert(sessionReads)
+          .values({ userId, sessionId: session.rootId, readAt: new Date(0), storySeenAt: at })
+          .onConflictDoUpdate({
+            target: [sessionReads.userId, sessionReads.sessionId],
+            set: {
+              storySeenAt: sql`greatest(coalesce(${sessionReads.storySeenAt}, 'epoch'::timestamptz), ${at.toISOString()}::timestamptz)`,
+              updatedAt: new Date(),
+            },
+          })
+        return { txid }
+      })
+    }),
+
   /** #EXP-1388: the Chats selection's Mark read / Mark unread. Read = the
    *  `markRead` upsert per chat; unread = the root's read just before its
    *  newest non-event agent message (one unread; none = unchanged). */

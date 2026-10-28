@@ -22,12 +22,11 @@ class ThreadPagesTest {
                 nested = listOf(SessionTree.NestedSession("s2", "Measure", SessionTree.SessionState.NeedsYou, 1)),
             ),
             ThreadTab.SessionTab("s3", "Cache", SessionTree.SessionState.Done),
-            ThreadTab.Guide(dot = false),
         )
         assertEquals(
             listOf(
                 "conversation", "issue:i1", "issue:i2", "issue:i3",
-                "session:s1", "session:s2", "session:s3", "guide",
+                "session:s1", "session:s2", "session:s3",
             ),
             threadPages(tabs).map(::threadTabKey),
         )
@@ -54,10 +53,9 @@ class ThreadPagesTest {
             ThreadTab.Add,
             ThreadTab.Conversation,
             ThreadTab.IssueTab("i1", "APP-1"),
-            ThreadTab.Guide(dot = false),
         )
         assertEquals(
-            listOf("session:root", "issue:i1", "guide"),
+            listOf("session:root", "issue:i1"),
             threadMainPages(threadPages(tabs), "root").map(::threadTabKey),
         )
     }
@@ -77,7 +75,7 @@ class ThreadPagesTest {
 
     @Test
     fun noMainSessionKeepsThePagesAsTheyAre() {
-        val tabs = listOf(ThreadTab.Conversation, ThreadTab.Guide(dot = false))
-        assertEquals(listOf("conversation", "guide"), threadMainPages(threadPages(tabs), null).map(::threadTabKey))
+        val tabs = listOf(ThreadTab.Conversation, ThreadTab.IssueTab("i1", "APP-1"))
+        assertEquals(listOf("conversation", "issue:i1"), threadMainPages(threadPages(tabs), null).map(::threadTabKey))
     }
 }

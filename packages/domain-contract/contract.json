@@ -866,17 +866,6 @@
         "result": "list"
       },
       {
-        "name": "guide_write",
-        "title": "Write the Guide",
-        "blurb": "Writes the thread's Guide: GFM sections with their files and screenshots, the body of every PR.",
-        "progressive": "Writing the Guide",
-        "done": "Wrote the Guide",
-        "progressiveMany": "Writing the Guide {n} times",
-        "doneMany": "Wrote the Guide {n} times",
-        "subjectKey": "topic",
-        "result": "results"
-      },
-      {
         "name": "show",
         "title": "Show a card",
         "blurb": "Posts or updates the session's one card: an Exponential UI surface, a question or a plan a person answers in the card.",
@@ -1667,7 +1656,6 @@
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "events_emit", "refs": "" },
       { "name": "events_list", "refs": "list:event@events" },
-      { "name": "guide_write", "refs": "" },
       { "name": "show", "refs": "" },
       { "name": "people_invites_create", "refs": "invite@invite" },
       { "name": "people_invites_list", "refs": "list:invite@" },

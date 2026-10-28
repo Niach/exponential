@@ -78,6 +78,10 @@ import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenTestId
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenScreen
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenTestId
+import com.exponential.app.ui.styleguide.StoryRingSpecimenScreen
+import com.exponential.app.ui.styleguide.StoryRingSpecimenTestId
+import com.exponential.app.ui.styleguide.StoryViewerSpecimenScreen
+import com.exponential.app.ui.styleguide.StoryViewerSpecimenTestId
 import com.exponential.app.ui.styleguide.TraceSpecimenKind
 import com.exponential.app.ui.styleguide.TraceSpecimenScreen
 import com.exponential.app.ui.theme.ExponentialTheme
@@ -116,7 +120,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues ·
  *   sg_machine-settings · sg_threads ·
- *   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
+ *   sg_session-row · sg_pr-row ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
@@ -126,14 +130,14 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_voice-call · sg_settings-assistant · sg_device-readiness
+ *   sg_app-export · sg_app-import · sg_voice-call · sg_settings-assistant · sg_device-readiness ·
+ *   sg_story-ring · sg_story-viewer
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
  * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
- * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the Guide
- * tab of APP-15's thread (web's `guide` thread, EXP-1303),
- * `sg_guide-section` = APP-14's Changes section page.
+ * `sg_pr-row` = the issue page's pull-request row. S-3 retired `sg_guide`
+ * and `sg_guide-section` with the Guide tab (stories replaced it).
  *
  * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
  * walks the live app against the seeded backend; [captureOnlyScreens] needs NO
@@ -214,6 +218,8 @@ class StyleguideScreenshotsTest {
             "sg_voice-call",
             // EXP-1375: the Storage band + the composer's low-disk row.
             "sg_device-readiness",
+            // S-3 STORIES: THE story ring row + THE story viewer.
+            "sg_story-ring", "sg_story-viewer",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -244,15 +250,12 @@ class StyleguideScreenshotsTest {
         // Issues segment is showing, not the Inbox one.
         private const val MY_ISSUE_TITLE = "Group board issues by assignee"
 
-        // APP-14: the seed's realPr issue, so its thread's Guide has files
-        // from GitHub. Addressed by row tag so the lazy board list can
-        // scroll to it.
+        // APP-14: the seed's realPr issue (its open PR row). Addressed by
+        // row tag so the lazy board list can scroll to it.
         private const val GUIDE_ISSUE_ROW = "issue-row-APP-14"
 
-        // APP-15: its thread is web's `guide` thread (`DEMO_GUIDE_THREAD_ID`),
-        // the seeded Guide's Summary + one section, its PR the stack's bottom.
+        // APP-15: its thread carries the seeded quick replies.
         private const val BATCH_GUIDE_ISSUE_ROW = "issue-row-APP-15"
-        private const val BATCH_GUIDE_SECTION = "Label picker on the selection bar"
 
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
@@ -564,70 +567,10 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_pr-row")
 
-        // --- sg_guide-section: a Guide section page (EXP-1251/1295). The
-        // issue's Threads row opens the thread holding it; its strip's Guide
-        // tab: APP-14's real PR has no report, so its whole diff is ONE
-        // Changes section; that row opens the section page. A detour no later
-        // shot needs (it pops back to the issue), so a scoped run that did
-        // not ask for it skips it whole — its GitHub fetch is the walk's one
-        // network dependency.
-        if (ScreenshotFlow.isShotWanted("sg_guide-section")) {
-            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
-            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
-            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
-            flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
-            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-            // At rest the Changes row can sit under the floating Merge capsule
-            // (APP-14 is a stack member: `Merge stack`), and a centre click
-            // would land on the capsule. Swipe the Guide to its end, where the
-            // bottom inset lifts every row clear of the bar.
-            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
-            flow.settle()
-            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
-            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_guide-section")
-            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
-            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
-            // Thread → the issue page.
-            Espresso.pressBack()
-            flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
-            flow.waitFor(hasTestTag("issue-pr-row"), NAV_TIMEOUT)
-            flow.settle()
-        }
         // Issue → board.
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
-
-        // --- sg_guide: web's `guide` thread (EXP-1303). APP-15's thread, the
-        // one web/desktop photograph: its seeded Guide (Summary + one
-        // section) led by the Stack band + rail (EXP-1306) under THE Merge
-        // stack capsule (its PR is the bottom of APP-14's stack).
-        if (ScreenshotFlow.isShotWanted("sg_guide")) {
-            composeRule.onNode(hasTestTag("issue-list"))
-                .performScrollToNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW))
-            composeRule.onNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW)).performClick()
-            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
-            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
-            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
-            flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
-            flow.waitFor(hasText(BATCH_GUIDE_SECTION, substring = true), SYNC_TIMEOUT)
-            flow.waitFor(hasText("Merge stack"), SYNC_TIMEOUT)
-            // EXP-1307: the Guide's capsule carries the fixture's test id.
-            flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE), SYNC_TIMEOUT)
-            flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK), SYNC_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_guide")
-            // Thread → issue → board.
-            Espresso.pressBack()
-            flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
-            composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
-            flow.settle()
-        }
 
         // --- sg_thread-replies: the quick replies (EXP-1211). APP-15's
         // thread again, left on its Conversation: the seeded `replies`
@@ -900,7 +843,9 @@ class StyleguideScreenshotsTest {
         // VAPP-122: a scoped run that does not ask for this shot skips the
         // walk (the apps views alone must not wait on the channel).
         if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
-            composeRule.onAllNodes(agentRow).onFirst().performClick()
+            // S-3: the pinned agent row (its bubble wears a story ring and
+            // opens the viewer, not the channel).
+            composeRule.onAllNodes(hasTestTag("chat-agent-row") and hasText(AGENT_NAME)).onFirst().performClick()
             flow.waitFor(hasText(AGENT_REQUEST_FRAGMENT, substring = true), SYNC_TIMEOUT)
             flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
             flow.settle()
@@ -913,7 +858,7 @@ class StyleguideScreenshotsTest {
         // --- sg_thread: the cold-start thread (APP-5): the strip, the
         // Conversation with its session cards, the agent's reply and the
         // pending question card, the reply box. EXP-1334: the strip never
-        // scrolls — + and Conversation pinned left, Guide pinned right, the
+        // scrolls — + and Conversation pinned left, the
         // issue + session chips between them partitioned (titles → identifiers
         // → a "+N" per zone), so the gate is the laid-out strip with its pins.
         val coldStartRow = hasTestTag(Chats.TestIds.CHAT_ROW) and
@@ -925,11 +870,11 @@ class StyleguideScreenshotsTest {
         tapClearOfBar(coldStartRow)
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
         flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
-        // N-12: THE Dock: the seeded question + the child's plan as DockCards above the composer.
-        flow.waitFor(hasTestTag("dock-card"), SYNC_TIMEOUT)
+        // S-3: the seeded question stays inline (the Dock takes no asks and
+        // the Guide tab is gone; stories carry them).
+        flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-strip-chips"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("thread-tab-guide"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-session"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_thread")
@@ -954,9 +899,8 @@ class StyleguideScreenshotsTest {
         }
         flow.waitFor(childCard, SYNC_TIMEOUT)
         composeRule.onAllNodes(childCard).onFirst().performClick()
-        // N-12: the relay's question is a DockCard above the composer, no
-        // longer a feed row.
-        flow.waitFor(hasTestTag("dock-card"), NETWORK_TIMEOUT)
+        // S-3: the relay's question is inline in the feed again (dock.json).
+        flow.waitFor(hasTestTag("feed-question"), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_session")
         // Session → Threads: the session page is a page OF the thread (its
@@ -1319,6 +1263,14 @@ class StyleguideScreenshotsTest {
         // case's block and the composer's low-disk row.
         show(DeviceReadinessSpecimenTestId) { DeviceReadinessSpecimenScreen() }
         flow.screenshot("sg_device-readiness")
+        // --- sg_story-ring · sg_story-viewer (S-3, stories.json): the ring
+        // row over static rings (the Assistant's, a waiting chat, an unseen
+        // result, a seen one) + single rings + THE progress, and THE viewer
+        // on a draft question (its eUI surface, two choices; timer frozen).
+        show(StoryRingSpecimenTestId) { StoryRingSpecimenScreen() }
+        flow.screenshot("sg_story-ring")
+        show(StoryViewerSpecimenTestId) { StoryViewerSpecimenScreen() }
+        flow.screenshot("sg_story-viewer")
 
         finished = true
     }

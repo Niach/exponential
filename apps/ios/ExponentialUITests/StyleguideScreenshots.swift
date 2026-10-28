@@ -20,7 +20,7 @@ import XCTest
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_composer-menu · sg_chat-issues ·
 ///   sg_machine-settings · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
-///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
+///   sg_session-row · sg_pr-row ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
@@ -29,7 +29,8 @@ import XCTest
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
-///   sg_app-export · sg_app-import · sg_voice-call · sg_settings-voice · sg_device-readiness
+///   sg_app-export · sg_app-import · sg_voice-call · sg_settings-voice · sg_device-readiness ·
+///   sg_story-ring · sg_story-viewer
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -49,9 +50,8 @@ import XCTest
 ///     (EXP-1343; DEMO_SESSION_ID, fed by the relay stub), its pending
 ///     question in the composer's place;
 ///   * `sg_settings-team-agent` = Settings → team → Agents → Triage;
-///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the
-///     Guide tab of APP-15's thread (web's `guide` thread, EXP-1303),
-///     `sg_guide-section` = APP-14's Changes section page.
+///   * `sg_pr-row` = the issue page's pull-request row (S-3 retired
+///     `sg_guide` + `sg_guide-section` with the Guide tab).
 ///
 /// EXP-1284 added `sg_thread` + `sg_agent-channel` (the THREAD screen).
 ///
@@ -128,13 +128,10 @@ final class StyleguideScreenshots: XCTestCase {
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
     /// Assigned to the demo user, so it is on My Issues.
     private static let myIssueTitle = "Dark mode contrast pass across settings"
-    /// APP-14: the seed's realPr issue, so its thread's Guide has files from
-    /// GitHub.
+    /// APP-14: the seed's realPr issue (its open PR row).
     private static let guideTitle = "Group board issues by assignee"
-    /// APP-15: its thread is web's `guide` thread (`DEMO_GUIDE_THREAD_ID`),
-    /// the seeded Guide's Summary + one section, its PR the stack's bottom.
+    /// APP-15: its thread carries the seeded quick replies.
     private static let batchGuideTitle = "Batch-edit labels from the board"
-    private static let batchGuideSection = "Label picker on the selection bar"
     private static let searchQuery = "cold start"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
@@ -624,53 +621,9 @@ final class StyleguideScreenshots: XCTestCase {
         expect(prRow, within: Wait.sync, "APP-14's page drew no pull-request row")
         snapshot("sg_pr-row", settle: 1)
 
-        // ── sg_guide-section: a Guide section page (EXP-1251/1295) ──────────
-        // The issue's Threads row opens the thread holding it on the Guide
-        // tab: APP-14's real PR has no report, so its whole diff is ONE
-        // Changes section; that row opens the section page.
-        if ScreenshotShots.isWanted("sg_guide-section") {
-            let threadChip = anyElement(app, identified: "issue-thread-chip")
-            _ = scrollUntilVisible(app, threadChip)
-            expect(threadChip, within: Wait.sync, "APP-14 sits in no thread — reseed with `bun run seed:screenshots`")
-            threadChip.tap()
-            openThreadGuide(app)
-            let changesRow = anyElement(app, identified: "guide-changes-row")
-            // Below the fold on a phone (the PR body comes first).
-            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(Wait.network))
-            XCTAssertTrue(
-                changesRow.exists,
-                "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
-            )
-            changesRow.tap()
-            let sectionPage = anyElement(app, identified: "guide-section-page")
-            expect(sectionPage, within: Wait.nav, "The Guide section page did not open")
-            snapshot("sg_guide-section", settle: 2)
-            anyElement(app, identified: "guide-section-back").tap()
-            goBack(app)
-        }
         // Issue → board.
         goBack(app)
         settle(1)
-
-        // ── sg_guide: web's `guide` thread (EXP-1303) ────────────────────────
-        // APP-15's thread, the one web/desktop photograph: its seeded Guide
-        // (Summary + one section) under THE Merge stack capsule (its PR is
-        // the bottom of APP-14's stack).
-        if ScreenshotShots.isWanted("sg_guide") {
-            openIssue(app, title: Self.batchGuideTitle)
-            let threadChip = anyElement(app, identified: "issue-thread-chip")
-            _ = scrollUntilVisible(app, threadChip)
-            expect(threadChip, within: Wait.sync, "APP-15 sits in no thread — reseed with `bun run seed:screenshots`")
-            threadChip.tap()
-            openThreadGuide(app)
-            expect(app.staticTexts[Self.batchGuideSection], within: Wait.sync, "APP-15's thread drew no seeded Guide")
-            expect(app.buttons["Merge stack"], within: Wait.sync, "APP-15's Guide drew no Merge stack capsule")
-            snapshot("sg_guide", settle: 2)
-            // Thread → issue → board.
-            goBack(app)
-            goBack(app)
-            settle(1)
-        }
 
         // ── sg_thread-replies: the quick replies (EXP-1211) ──────────────────
         // APP-15's thread again, left on its Conversation: the seeded
@@ -989,12 +942,13 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_settings-voice (NEW-71, voice.json: THE Voice page over the
-        // seed's rows) · sg_device-readiness (EXP-1375) · sg_session-xref (S-3): the styleguide entries'
+        // seed's rows) · sg_device-readiness (EXP-1375) · sg_session-xref ·
+        // sg_story-ring · sg_story-viewer (S-3, stories.json): the styleguide entries'
         // specimens.
         for entry in [
             "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
             "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-            "settings-voice", "device-readiness", "session-xref",
+            "settings-voice", "device-readiness", "session-xref", "story-ring", "story-viewer",
         ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
@@ -1011,6 +965,8 @@ final class StyleguideScreenshots: XCTestCase {
             case "settings-voice": snapshot("sg_settings-voice", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
             case "session-xref": snapshot("sg_session-xref", settle: 2)
+            case "story-ring": snapshot("sg_story-ring", settle: 2)
+            case "story-viewer": snapshot("sg_story-viewer", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
@@ -1165,20 +1121,25 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_threads", settle: 2)
 
         // ── sg_agent-channel: the Triage agent's chat (DEMO_AGENT_ID) off its
-        // header bubble (EXP-1373).
-        let agentRow = app.descendants(matching: .any)
-            .matching(identifier: "agent-bubble")
-            .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
-            .firstMatch
-        expect(agentRow, within: Wait.sync, "The Chats header has no \(Self.agentName) bubble")
-        agentRow.tap()
-        expect(
-            anyElement(app, containing: Self.agentRequest),
-            within: Wait.sync,
-            "\(Self.agentName)'s channel never drew the seeded request"
-        )
-        snapshot("sg_agent-channel", settle: 2)
-        goBack(app)
+        // pinned agent row (S-3: its header bubble wears a story ring and
+        // opens the viewer, not the channel; the agent rows sit above every
+        // chat row, so the first `chat-row` named Triage is its own). Like Android, a scoped run that
+        // does not ask for this shot skips the walk.
+        if ScreenshotShots.isWanted("sg_agent-channel") {
+            let agentRow = app.descendants(matching: .any)
+                .matching(identifier: "chat-row")
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
+                .firstMatch
+            expect(agentRow, within: Wait.sync, "The Chats list has no \(Self.agentName) agent row")
+            agentRow.tap()
+            expect(
+                anyElement(app, containing: Self.agentRequest),
+                within: Wait.sync,
+                "\(Self.agentName)'s channel never drew the seeded request"
+            )
+            snapshot("sg_agent-channel", settle: 2)
+            goBack(app)
+        }
         // A subset run that wants neither of the next two stops here: the
         // session step needs the relay stub (`bun run screenshots:desktop`).
         guard ScreenshotShots.isWanted("sg_thread") || ScreenshotShots.isWanted("sg_session") else { return }
@@ -1187,16 +1148,10 @@ final class StyleguideScreenshots: XCTestCase {
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
         coldStart.tap()
-        // N-12: THE Dock: the seeded question + the child's plan wait on the
-        // viewer as DockCards piled above the composer.
-        expect(
-            anyElement(app, identified: "dock-card"),
-            within: Wait.sync,
-            "The cold-start thread drew no DockCard"
-        )
         // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
-        // left, Guide pinned right, the chips folded between them.
-        for id in ["thread-strip-add", "thread-tab-conversation", "thread-tab-guide"] {
+        // left, the chips folded beside them (S-3: no Guide tab; the seeded
+        // question + the child's plan stay inline, not in the Dock).
+        for id in ["thread-strip-add", "thread-tab-conversation"] {
             let pinned = anyElement(app, identified: id)
             expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
@@ -1258,19 +1213,18 @@ final class StyleguideScreenshots: XCTestCase {
         // EXP-1343: a session chip of THIS thread opens as its page under
         // the thread's ONE header (the thread title, Stop while live) — no
         // pushed session screen, no back row (Android's `sg_session` is the
-        // same page). N-12: the relay feed's pending question waits as a
-        // DockCard ("Question: …") above the composer once the feed is live
-        // and answerable; the neighbouring Conversation page's cards are
-        // off screen, so gate on a HITTABLE one.
-        let relayCard = app.buttons
-            .matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "dock-card", "Question"))
+        // same page). S-3: the relay feed's pending question stays inline
+        // (`feed-question`, dock.json) once the feed is live and answerable;
+        // the neighbouring Conversation page's cards are off screen, so gate
+        // on a HITTABLE one.
+        let relayCard = app.descendants(matching: .any).matching(identifier: "feed-question")
         let deadline = Date().addingTimeInterval(Wait.firstSync)
         while Date() < deadline, !relayCard.allElementsBoundByIndex.contains(where: \.isHittable) {
             settle(1)
         }
         XCTAssertTrue(
             relayCard.allElementsBoundByIndex.contains(where: \.isHittable),
-            "The session drew no pending question in its Dock — is `bun run screenshots:desktop` publishing its feed?"
+            "The session drew no pending question inline — is `bun run screenshots:desktop` publishing its feed?"
         )
         expect(
             anyElement(app, identified: "thread-tab-session-\(Self.sessionId)"),
@@ -1292,14 +1246,6 @@ final class StyleguideScreenshots: XCTestCase {
             .matching(identifier: "chat-row")
             .matching(NSPredicate(format: "label CONTAINS %@", fragment))
             .firstMatch
-    }
-
-    /// A thread's strip → its Guide tab.
-    @MainActor
-    private func openThreadGuide(_ app: XCUIApplication) {
-        let guideTab = anyElement(app, identified: "thread-tab-guide")
-        expect(guideTab, within: Wait.sync, "The thread never opened on its strip")
-        guideTab.tap()
     }
 
     /// #EXP-1384: the board menu → the named board (on the board view the

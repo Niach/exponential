@@ -15,6 +15,8 @@ import {
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
   SessionXrefSpecimen,
+  StoryRingSpecimen,
+  StoryViewerSpecimen,
   PhoneTabBarSpecimen,
   PhoneBoardMenuSpecimen,
   PhonePageHeaderSpecimen,
@@ -75,7 +77,7 @@ const str = (value: unknown): string | undefined =>
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, FEED-160 `?dev=device-readiness` its specimen, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
 // `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
-// `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens; S-3 `session-xref` THE session link) (identical
+// `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens; S-3 `session-xref` THE session link, `story-ring` / `story-viewer` THE story ring + viewer) (identical
 // ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -93,6 +95,8 @@ const DEV_VIEWS = [
   `phone-board-menu`,
   `phone-page-header`,
   `session-xref`,
+  `story-ring`,
+  `story-viewer`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -149,6 +153,10 @@ function AgentRoute() {
           <ChatTranscriptSpecimen />
         ) : dev === `session-xref` ? (
           <SessionXrefSpecimen />
+        ) : dev === `story-ring` ? (
+          <StoryRingSpecimen />
+        ) : dev === `story-viewer` ? (
+          <StoryViewerSpecimen />
         ) : dev === `phone-tab-bar` ? (
           <PhoneTabBarSpecimen />
         ) : dev === `phone-board-menu` ? (

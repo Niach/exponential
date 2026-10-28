@@ -194,7 +194,6 @@ final class SessionTreeTests: XCTestCase {
                     ["sessionId": $0.sessionId, "name": $0.name, "markState": $0.markState.rawValue, "depth": $0.depth] as [String: Any]
                 },
             ]
-        case let .guide(dot): ["kind": "guide", "dot": dot]
         }
     }
 

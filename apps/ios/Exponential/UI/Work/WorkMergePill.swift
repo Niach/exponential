@@ -10,7 +10,8 @@ import SwiftUI
 /// THE stack confirm and merges THROUGH the stack's top (`stack: true`). Every refusal toasts the server's words
 /// (EXP-1391: the server also posts it into the thread's root, which takes it
 /// over); every refusal, a conflict included, offers Retry.
-/// The host mounts it only while the PR is open.
+/// The host mounts it only while the PR is open. S-3: `.toolbar` = the same
+/// control as a header button (the thread header's action slot, left of `…`).
 struct WorkMergePill: View {
     let pullRequest: PullRequestEntity
     /// The issues the PR links (`pull_request_issues`): the confirm names a
@@ -22,7 +23,7 @@ struct WorkMergePill: View {
     @Binding var state: WorkMergeState
     var identifier = "work-merge-pr"
     var style: Style = .capsule
-    enum Style { case capsule, circle }
+    enum Style { case capsule, circle, toolbar }
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -62,6 +63,7 @@ struct WorkMergePill: View {
             switch style {
             case .capsule: pill
             case .circle: circle
+            case .toolbar: toolbarButton
             }
         }
         // EXP-1215: the app's own alert card (`GlassAlert`), on a zero-size
@@ -106,6 +108,28 @@ struct WorkMergePill: View {
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
             }
         }
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// S-3: the header's action slot (the header Stop's shape: a plain
+    /// toolbar button, the merge glyph before its label).
+    private var toolbarButton: some View {
+        Button { showMergeConfirm = true } label: {
+            HStack(spacing: 6) {
+                if merging {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    AppIcon(AppIcons.prMerged, size: AppIcon.Size.small, weight: .medium)
+                }
+                Text(label)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white.opacity(TextOpacity.primary))
+        }
+        .disabled(merging)
+        .fixedSize()
+        .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
     }
 

@@ -12,13 +12,11 @@ import {
   teams,
   type PullRequest,
 } from "@/db/schema"
-import type { GuideEntry } from "@exp/db-schema/domain"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { boardVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
-import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
-import { NOT_RUN_TOPIC, PR_BODY_MAX, prBodyFromGuide } from "@/lib/pr-body"
-import { tagGuideForPullRequest, writeGuide } from "@/lib/sessions/guide"
+import { PR_BODY_MAX, prBodyFromStories } from "@/lib/pr-body"
+import { compareCommitMessages, linkedIssuesOfPullRequest, loadStoryPictures, storiesUrlFor } from "@/lib/pr-stories"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
   compareChangedPaths,
@@ -89,7 +87,6 @@ import {
   resolveGatedRepoToken,
 } from "@/lib/trpc/repositories"
 
-export { prBodyFromGuide } from "@/lib/pr-body"
 export type { PullRequest } from "@/db/schema"
 
 // EXP-1291: THE pull-request API. A thread (root session) has n PRs (a tree,
@@ -142,15 +139,15 @@ export async function pullRequestHeadSha(pullRequestId: string): Promise<string 
   }
 }
 
-/** EXP-1315: a thread's PR that changes UI needs a labelled Guide picture
- *  per touched platform, or `notRun` naming it. A failed compare never
- *  blocks the PR: it is logged and the guard skipped. */
+/** EXP-1315 → S-3: a thread's PR that changes UI needs a labelled STORY
+ *  picture per touched platform, or `notRun` naming it. A failed compare
+ *  never blocks the PR: it is logged and the guard skipped. */
 async function assertUiPictures(args: {
   repo: string
   base: string
   head: string
   token: string
-  guide: GuideEntry[] | null
+  pictures: { label: string; attachmentId: string }[]
   notRun: string | null
 }): Promise<void> {
   let paths: string[]
@@ -160,28 +157,29 @@ async function assertUiPictures(args: {
     console.warn(`[pr_open] UI picture guard skipped for ${args.repo} ${args.base}...${args.head}:`, err)
     return
   }
-  const missing = missingPlatformPictures(uiPlatformsOfPaths(paths), args.guide, args.notRun)
+  const missing = missingPlatformPictures(uiPlatformsOfPaths(paths), args.pictures, args.notRun)
   if (missing.length > 0) fail(`BAD_REQUEST`, missingPicturesMessage(missing))
 }
 
-async function loadRoot(rootId: string): Promise<{ id: string; teamId: string; guide: GuideEntry[] | null } | null> {
+async function loadRoot(rootId: string): Promise<{ id: string; teamId: string } | null> {
   const [row] = await db
-    .select({ id: sessions.id, teamId: sessions.teamId, guide: sessions.guide })
+    .select({ id: sessions.id, teamId: sessions.teamId })
     .from(sessions)
     .where(eq(sessions.id, rootId))
     .limit(1)
   return row ?? null
 }
 
-/** The footer link of every PR body: the thread (root session) Guide. */
-async function guideUrlFor(teamId: string, rootId: string): Promise<string | null> {
+/** The footer link of every PR body: the thread (root session). */
+async function threadUrlFor(teamId: string, rootId: string): Promise<string | null> {
   const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
-  return team ? `${appBaseUrl()}${buildSessionDeepLinkPath(team.slug, rootId)}?view=guide` : null
+  return team ? storiesUrlFor(team.slug, rootId) : null
 }
 
 interface IssueForPr {
   id: string
   identifier: string
+  title: string
   teamId: string
   boardRepositoryId: string | null
   boardDefaultBranch: string | null
@@ -193,6 +191,7 @@ async function loadIssuesForPr(ids: string[]): Promise<IssueForPr[]> {
     .select({
       id: issues.id,
       identifier: issues.identifier,
+      title: issues.title,
       teamId: issues.teamId,
       boardRepositoryId: boards.repositoryId,
       boardDefaultBranch: boards.defaultBranch,
@@ -353,16 +352,28 @@ export async function openPullRequest(args: {
   }
   const linked = candidates.filter(belongs)
   const linkedIdentifiers = linked.map((issue) => issue.identifier)
-  const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || null
   const token = await repoToken(repo)
-  // EXP-1315: `notRun` lives in the Guide (topic `Not run`), so every later
-  // body render and the next pr_open keep it.
-  let guide = root?.guide ?? null
-  if (notRun && caller && root) {
-    await writeGuide({ userId: args.userId, sessionId: caller.id, topic: NOT_RUN_TOPIC, text: notRun })
-    guide = (await loadRoot(root.id))?.guide ?? null
+  const existing = await loadLivePullRequestByHead(repo.id, head!)
+  // S-3: `notRun` lives on the PR row (`pull_requests.not_run`), so every
+  // later body render and the next pr_open keep it.
+  const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || existing?.notRun || null
+  const threadUrl = root ? await threadUrlFor(repo.teamId, root.id) : null
+  // S-3: the PR's pictures = the opener's stories (its logical session and
+  // subtree); the body = a server summary + those pictures.
+  const pictures = root ? await loadStoryPictures(root.id, caller?.id ?? null) : []
+  const storyBody = async (base: string) =>
+    prBodyFromStories({
+      title: args.title,
+      issues: linked.map((issue) => ({ identifier: issue.identifier, title: issue.title })),
+      commits: await compareCommitMessages({ repo: repo.fullName, base, head: head!, token }),
+      pictures,
+      notRun,
+      storiesUrl: threadUrl,
+    })
+  const keepNotRun = async (pullRequestId: string) => {
+    if (args.notRun === undefined) return
+    await db.update(pullRequests).set({ notRun, updatedAt: new Date() }).where(eq(pullRequests.id, pullRequestId))
   }
-  const guideUrl = root ? await guideUrlFor(repo.teamId, root.id) : null
   const actor = {
     actorUserId: args.userId,
     actorViaAgent: Boolean(caller),
@@ -385,12 +396,8 @@ export async function openPullRequest(args: {
       ...actor,
     })
 
-  const existing = await loadLivePullRequestByHead(repo.id, head!)
   if (existing) {
-    const body =
-      args.body ??
-      prBodyFromGuide(guide, { prUrl: existing.url, guideUrl }) ??
-      undefined
+    const body = args.body ?? (root ? await storyBody(existing.base) : undefined)
     await patchPullDescription({
       repoFullName: repo.fullName,
       prNumber: existing.number,
@@ -402,6 +409,7 @@ export async function openPullRequest(args: {
       await applyPullRequestDraft({ pullRequestId: existing.id, draft: args.draft })
     }
     await record({ url: existing.url, number: existing.number, base: existing.base, title: args.title })
+    await keepNotRun(existing.id)
     return { pullRequestId: existing.id, url: existing.url, number: existing.number, base: existing.base, head: head!, issues: linkedIdentifiers }
   }
 
@@ -422,8 +430,8 @@ export async function openPullRequest(args: {
         stopBranches: stackStopBranches(defaults),
       })
     ).base
-  const body = args.body ?? prBodyFromGuide(guide, { prUrl: null, guideUrl }) ?? ``
-  if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, guide, notRun })
+  if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, pictures, notRun })
+  const body = args.body ?? (root ? await storyBody(base) : ``)
 
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
   // `opened` webhook (which beats our own write) fires attributed.
@@ -448,13 +456,7 @@ export async function openPullRequest(args: {
 
   const recorded = await record({ url: created.url, number: created.number, base: created.base, title: args.title })
   await joinGithubStack({ pr: recorded.pullRequest, repoFullName: repo.fullName, token })
-  // EXP-1397: the opener's untagged topics are this PR's now, so a later PR
-  // of the thread never claims them.
-  if (caller && root) {
-    if (await tagGuideForPullRequest({ sessionId: caller.id, prUrl: created.url })) {
-      void syncPullRequestBodies(root.id)
-    }
-  }
+  await keepNotRun(recorded.pullRequest.id)
   return {
     pullRequestId: recorded.pullRequest.id,
     url: created.url,
@@ -938,13 +940,13 @@ export async function pullRequestFiles(args: {
   }
 }
 
-// One chain per thread: overlapping Guide writes PATCH in call order, and
-// each link re-reads the committed Guide, so the last PATCH carries it.
+// One chain per thread: overlapping story uploads PATCH in call order, and
+// each link re-reads the committed stories, so the last PATCH carries it.
 const bodySyncChains = new Map<string, Promise<void>>()
 
-/** Re-render every LIVE PR body of a thread from its Guide (each PR keeps
- *  its own topics plus the untagged ones). Best effort: never throws, a
- *  thread without Guide text leaves the bodies alone. */
+/** S-3: re-render every LIVE PR body of a thread from its stories (each
+ *  PR: its title, linked issues and commits, its opener's story pictures,
+ *  its notRun). Best effort: never throws. */
 export function syncPullRequestBodies(rootId: string): Promise<void> {
   const previous = bodySyncChains.get(rootId) ?? Promise.resolve()
   const run = previous.then(() => syncPullRequestBodiesNow(rootId))
@@ -961,12 +963,10 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
     if (!root) return
     const prs = await livePullRequestsOfRoot(rootId)
     if (prs.length === 0) return
-    const guideUrl = await guideUrlFor(root.teamId, root.id)
+    const threadUrl = await threadUrlFor(root.teamId, root.id)
     const tokens = new Map<string, Promise<string | null>>()
     for (const pr of prs) {
       try {
-        const body = prBodyFromGuide(root.guide, { prUrl: pr.url, guideUrl })
-        if (!body) continue
         if (!tokens.has(pr.repositoryId)) {
           tokens.set(
             pr.repositoryId,
@@ -976,6 +976,14 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
         const token = await tokens.get(pr.repositoryId)!
         const repoFullName = repoFromPrUrl(pr.url)
         if (!token || !repoFullName) continue
+        const body = prBodyFromStories({
+          title: pr.title ?? ``,
+          issues: await linkedIssuesOfPullRequest(pr.id),
+          commits: await compareCommitMessages({ repo: repoFullName, base: pr.base, head: pr.head, token }),
+          pictures: await loadStoryPictures(rootId, pr.sessionId),
+          notRun: pr.notRun,
+          storiesUrl: threadUrl,
+        })
         await patchPullDescription({ repoFullName, prNumber: pr.number, token, fields: { body } })
       } catch (err) {
         console.warn(`[pull-requests] body sync of ${pr.url} failed`, err)

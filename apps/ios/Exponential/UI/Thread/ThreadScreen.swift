@@ -20,21 +20,19 @@ import SwiftUI
 /// * Header = the title (plain, never renamed — EXP-1316; a lock when
 ///   private; an agent's icon in its color before its name) and, for a
 ///   thread, THE strip — Conversation · one chip per linked issue · "+" ·
-///   the session chips · Guide — as the pager (`FacePager`). Nothing else:
-///   no caption, no Stop, no device, no Show work.
+///   the session chips — as the pager (`FacePager`). Nothing else:
+///   no caption, no device, no Show work.
 /// * Conversation = `ThreadConversationView` over `buildSessionThread`, with
 ///   THE session composer box under it (`ThreadComposer` →
 ///   `SessionComposerCard`), sending
 ///   `sessions.send({sessionId: root})`.
 /// * An issue tab = the issue page EMBEDDED (EXP-1316): no own header, no
 ///   Threads row, no Start; the bottom bar keeps properties + Comment.
-/// * Guide = the existing Guide face over the root's `guide` (the PR body),
-///   counting the thread PR's files, with its Merge capsule while it is open
-///   and ONE `…` in the header's action slot (EXP-1307: THE Menu's sheet,
+/// * S-3 (session-thread.json): the Guide tab is gone. The thread PR
+///   (`guidePullRequest`) keeps its Merge pill in the header's action slot
+///   while it is open, left of ONE `…` (EXP-1307: THE Menu's sheet,
 ///   `guideMenuEntries` — Close PR (EXP-1338) behind the close-pr.json
-///   confirm). EXP-1306: while that PR
-///   sits in a linear open stack, a `Stack` band + THE `StackRail` lead it
-///   (a row opens that PR's thread, a hold offers Merge through here).
+///   confirm).
 ///
 /// The "+" (left of Conversation, EXP-1334) opens THE Menu's sheet: Link an
 /// issue (THE search list → `sessions.linkIssues`) · New issue (the New
@@ -45,7 +43,8 @@ import SwiftUI
 ///
 /// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
 /// & co. (its ⋯ = THE Menu's sheet, `SuggestionOptionsSheet`); N-12: while
-/// any item is open the card rides THE Dock and opens as its sheet; the
+/// any item is open the card rides THE Dock and opens as its sheet (S-3: a
+/// waiting plan or question never does; it stays inline); the
 /// live root's relay state draws THE bottom strip (Tasks + status lines,
 /// the session view's own) above the composer; opening the screen stamps
 /// the viewer's read of the root (`sessions.markRead`).
@@ -103,14 +102,9 @@ struct ThreadScreen: View {
     @State private var composerTop: CGFloat = 0
     @State private var anchorBottom: CGFloat = 0
     @State private var insetCorrection: CGFloat = 0
-    // Guide
-    @State private var guideSection: GuideSectionKey?
-    @State private var focusPath: String?
+    // The thread PR (`guidePullRequest`)
     @State private var mergeState = WorkMergeState()
-    /// EXP-1306: a rail member's Merge through here, awaiting its confirm.
-    @State private var mergeThrough: PullRequestStack.Confirm?
-    @State private var prChanges: ChangesViewModel?
-    /// EXP-1307: the Guide PR awaiting the Close PR confirm.
+    /// EXP-1307: the thread PR awaiting the Close PR confirm.
     @State private var closePrTarget: PullRequestEntity?
     // EXP-1323: suggested tasks
     /// In-flight suggestion actions (`ThreadSuggestionActions.key`).
@@ -141,7 +135,7 @@ struct ThreadScreen: View {
         self.editor = editor
         // An issue or session tab may not be in the strip yet: hold it
         // (`pendingPage`).
-        if initialPage != .conversation, initialPage != .guide {
+        if initialPage != .conversation {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: initialPage)
         } else {
@@ -167,7 +161,6 @@ struct ThreadScreen: View {
             case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
             case let .session(sessionId, _, _, nested):
                 [.session(sessionId)] + nested.map { .session($0.sessionId) }
-            case .guide: [.guide]
             case .add: []
             }
         }
@@ -274,6 +267,10 @@ struct ThreadScreen: View {
                     AgentCallButton(agentId: agentId, agentName: rows.agentName)
                 }
             }
+            // S-3 (session-thread.json): the thread PR's Merge pill, left of
+            // `…`, on every page while the PR is open (the phones' bottom
+            // capsule left with the Guide tab).
+            ToolbarItem(placement: .topBarTrailing) { headerMergePill }
             ToolbarItem(placement: .topBarTrailing) {
                 if editor == nil, !chatMenuEntries.isEmpty {
                     Button { openChatMenu() } label: {
@@ -386,7 +383,8 @@ struct ThreadScreen: View {
             guard let request, request.threadId == rootId else { return }
             land(on: request.page)
         }
-        .onChange(of: rows?.guidePullRequest?.id, initial: true) { _, _ in syncPrChanges() }
+        // EXP-1154: a new thread PR starts with no merge in flight.
+        .onChange(of: rows?.guidePullRequest?.id) { _, _ in mergeState = WorkMergeState() }
         // EXP-1323: the live tail follows the root while it is not ended.
         .onChange(of: model?.view?.liveSessionId, initial: true) { _, _ in syncLiveTail() }
         // A newer agent message read here is read: re-stamp the root.
@@ -455,7 +453,6 @@ struct ThreadScreen: View {
     private func openIssueTab(_ issueId: String) -> Bool {
         guard currentPages.contains(.issue(issueId)) else { return false }
         pendingPage = nil
-        guideSection = nil
         selectPage(.issue(issueId))
         return true
     }
@@ -478,8 +475,6 @@ struct ThreadScreen: View {
             issuePage(issueId)
         case let .session(sessionId):
             sessionPage(sessionId, rows: rows)
-        case .guide:
-            guidePage(rows: rows)
         }
     }
 
@@ -595,7 +590,7 @@ struct ThreadScreen: View {
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     // N-12: THE Dock over the Conversation's bottom edge: the
-                    // tree's waiting cards, the live root's Queue, queued
+                    // suggested tasks, the live root's Queue, queued
                     // messages and banners, then THE composer (always).
                     let dockRows = conversationDockRows(rows: rows, view: view)
                     DockView(
@@ -625,13 +620,6 @@ struct ThreadScreen: View {
                         )
                     }
                     .floatingBarEdge(!dockRows.isEmpty)
-                    // AUTO-OPEN: a plan or question that arrives while the
-                    // Conversation is in front opens its sheet; the rows
-                    // already there when it loaded stay collapsed. The pager
-                    // keeps this page alive beside the others, so a card
-                    // arriving while an issue, session or Guide page is in
-                    // front stays collapsed (dock.json: the view IN FRONT).
-                    .dockAutoOpen(dockRows, enabled: page == .conversation, ready: !view.rows.isEmpty) { dockOpenId = $0 }
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
                     // the conversation's bottom inset; a pinned conversation
@@ -653,20 +641,20 @@ struct ThreadScreen: View {
 
     private static let coordSpace = "thread-conversation-scroll"
 
-    /// N-12: the Conversation's DockCards: every card of the tree still
-    /// waiting on this reader, the suggested tasks with an open item, then
-    /// the live root's own (`SessionDock`).
+    /// N-12: the Conversation's DockCards: the suggested tasks with an open
+    /// item, then the live root's own (`SessionDock`). S-3 (dock.json): a
+    /// waiting plan or question is a story, never a DockCard; it stays
+    /// inline in the transcript, answerable.
     private func conversationDockRows(rows: ThreadRows, view: SessionThreadView) -> [Dock.Row] {
         guard canEdit else { return [] }
-        let asks = AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
         let live = liveModel.map { SessionDock.sources($0, session: rows.root) } ?? []
         // #EXP-1383: the agent chat's "Instructions changed" banner.
         let hint = SessionDock.agentHint(root: rows.root, agent: rows.agent).map { [$0] } ?? []
-        return Dock.rows(asks.map(\.dockSource) + Dock.suggestionSources(view.rows) + live + hint)
+        return Dock.rows(Dock.suggestionSources(view.rows) + live + hint)
     }
 
-    /// A card's sheet: an ask = THE plan / question sheet, the root's Queue
-    /// and queued messages their lists.
+    /// A card's sheet: the suggested tasks' sheet, the root's Queue and
+    /// queued messages their lists.
     private func conversationDockSheet(
         _ row: Dock.Row, rows: ThreadRows, view: SessionThreadView, close: @escaping () -> Void
     ) -> AnyView? {
@@ -688,37 +676,7 @@ struct ThreadScreen: View {
                 onClose: close
             ))
         }
-        if let card = view.rows.first(where: { $0.id == row.id }) {
-            return card.dockSheet(
-                row,
-                canAnswer: canEdit,
-                busy: answeringId == card.id,
-                markdownContext: askMarkdownContext(rows: rows),
-                // The answered card leaves the Dock, and its sheet with it.
-                onSubmit: submitAnswer,
-                onClose: close
-            )
-        }
         return liveModel.flatMap { SessionDock.sheet(row, model: $0, close: close) }
-    }
-
-    /// The Conversation's markdown context (attachments through the
-    /// instance, `#EXP-1` refs against the root's team) for the dock's cards.
-    private func askMarkdownContext(rows: ThreadRows) -> AgentMarkdownContext {
-        AgentMarkdownContext(
-            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-            accountId: accountId,
-            httpClient: deps.httpClient,
-            issueRefs: AgentIssueRefContext(
-                teamId: rows.root.teamId,
-                db: deps.db,
-                onOpen: { [deps, accountId, issueOutlet] issueId in
-                    openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
-                },
-                mentionMembers: ChatMentionMembers.members(
-                    teamId: rows.root.teamId, db: deps.db, accountId: accountId)
-            )
-        )
     }
 
     /// EXP-1316: pin the newest row above the floating composer — now, after
@@ -799,148 +757,25 @@ struct ThreadScreen: View {
         }
     }
 
-    // MARK: - Guide (the root's Guide = the PR body)
+    // MARK: - The thread PR's Merge pill
 
-    private func guidePage(rows: ThreadRows) -> some View {
-        let pullRequest = rows.guidePullRequest
-        let openPullRequest = pullRequest.flatMap { $0.isOpen ? $0 : nil }
-        return GuideFace(
-            groups: parseSessionResultGroups(rows.root.guide),
-            files: prChanges?.loadedFiles,
-            diffStatus: prDiffStatus,
-            teamId: rows.root.teamId,
-            section: $guideSection,
-            focusPath: $focusPath,
-            stack: guideStack(rows: rows),
-            guideRaw: rows.root.guide,
-            showsMerge: openPullRequest != nil
-        ) {
-            if let openPullRequest {
-                WorkMergePill(
-                    pullRequest: openPullRequest,
-                    issueCount: rows.pullRequestIssueIds[openPullRequest.id]?.count ?? 0,
-                    stackConfirm: rows.guideStackConfirm,
-                    state: $mergeState,
-                    // EXP-1307: the thread Guide's capsule (`testIds.guideMerge`).
-                    identifier: SessionTree.ThreadCopy.guideMergeTestId
-                )
-                .id(openPullRequest.id)
-            }
+    /// S-3 (session-thread.json): the header's Merge pill over the thread PR
+    /// (`guidePullRequest`) while it is open (EXP-1307 `testIds.guideMerge`);
+    /// on a member of an open stack it merges the stack (`guideStackConfirm`).
+    @ViewBuilder
+    private var headerMergePill: some View {
+        if editor == nil, canEdit, let rows,
+           let pullRequest = rows.guidePullRequest, pullRequest.isOpen {
+            WorkMergePill(
+                pullRequest: pullRequest,
+                issueCount: rows.pullRequestIssueIds[pullRequest.id]?.count ?? 0,
+                stackConfirm: rows.guideStackConfirm,
+                state: $mergeState,
+                identifier: SessionTree.ThreadCopy.guideMergeTestId,
+                style: .toolbar
+            )
+            .id(pullRequest.id)
         }
-    }
-
-    /// EXP-1306: the Guide PR's stack block (desktop `stack_card`): the
-    /// `Stack` band over THE `StackRail`, top first, the Guide PR's row in the
-    /// current wash, down to the base branch. nil = no linear open stack.
-    private func guideStack(rows: ThreadRows) -> AnyView? {
-        guard let view = rows.guideStackView else { return nil }
-        let members = view.rows.map {
-            StackRailMember(id: $0.pullRequestId, identifier: $0.identifier, title: $0.title, current: $0.isCurrent)
-        }
-        let roots = Dictionary(
-            view.rows.compactMap { row in row.rootSessionId.map { (row.pullRequestId, $0) } },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return AnyView(
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(SessionTree.ThreadCopy.stack) {
-                    AppIcon(AppIcons.prStack, size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                } trailing: {
-                    EmptyView()
-                }
-                StackRail(
-                    members: members,
-                    baseBranch: view.baseBranch ?? "",
-                    onOpen: { member in
-                        // The thread on screen is already open.
-                        guard let rootId = roots[member.id], rootId != self.rootId else { return }
-                        pushRoute(.thread(accountId: accountId, threadId: rootId))
-                    },
-                    onMergeThrough: canEdit && !mergeState.merging
-                        ? { member in mergeThrough = rows.mergeThroughConfirm(pullRequestId: member.id) }
-                        : nil
-                )
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(SessionTree.ThreadCopy.guideStackTestId)
-            // THE stack confirm, on a zero-size node of its own (EXP-240).
-            .background {
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .allowsHitTesting(false)
-                    .glassAlert(item: $mergeThrough) { confirm in
-                        GlassAlert(
-                            title: confirm.title,
-                            message: confirm.body,
-                            actions: [
-                                GlassAlertAction(
-                                    PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel"
-                                ) {},
-                                GlassAlertAction(confirm.title, role: .primary, id: "merge-through") {
-                                    merge(through: confirm)
-                                },
-                            ]
-                        )
-                    }
-            }
-        )
-    }
-
-    /// Merge through a rail member: `pullRequests.merge({stack: true})` on
-    /// it. Shares the capsule's in-flight state, so both spin together.
-    /// EXP-1391: every refusal offers Retry.
-    private func merge(through confirm: PullRequestStack.Confirm) {
-        mergeState.merging = true
-        let api = deps.pullRequestsApi
-        let accountId = accountId
-        let title = FeedbackStates.Errors.title(verb: "merge", thing: "the stack")
-        Task {
-            do {
-                let result = try await api.merge(
-                    accountId: accountId, pullRequestId: confirm.throughId, stack: true
-                )
-                if !result.merged, result.queued != true {
-                    toaster.error(title, description: result.error)
-                }
-            } catch {
-                toaster.error(
-                    title,
-                    description: error.userFacingMessage,
-                    action: ToastAction(label: FeedbackStates.Errors.retry) {
-                        Task { @MainActor in merge(through: confirm) }
-                    }
-                )
-            }
-            mergeState.merging = false
-        }
-    }
-
-    private var prDiffStatus: GuideDiffStatus {
-        guard let prChanges else { return .ready }
-        switch prChanges.load {
-        case .loading: return .loading
-        case let .failed(message): return .failed(message)
-        case .loaded: return .ready
-        }
-    }
-
-    /// The Guide counts the thread PR's files (open, else merged).
-    private func syncPrChanges() {
-        let wanted = rows?.guidePullRequest?.id
-        guard prChanges?.pullRequestId != wanted else { return }
-        prChanges?.stopObserving()
-        prChanges = nil
-        mergeState = WorkMergeState()
-        guard let wanted else { return }
-        let changes = ChangesViewModel(
-            accountId: accountId,
-            pullRequestId: wanted,
-            db: deps.db,
-            pullRequestsApi: deps.pullRequestsApi
-        )
-        prChanges = changes
-        changes.startObserving()
     }
 
     // MARK: - Cards (answered in place)
@@ -1307,7 +1142,6 @@ struct ThreadScreen: View {
             model = ThreadScreenModel(rootId: rootId, accountId: accountId, db: deps.db)
         }
         model?.start()
-        prChanges?.startObserving()
         syncIssueModels()
         syncLiveTail()
         markRead()
@@ -1316,7 +1150,6 @@ struct ThreadScreen: View {
     private func disappear() {
         UIApplication.endEditing()
         model?.stop()
-        prChanges?.stopObserving()
         stopIssueModel()
         releaseLiveTail()
     }
@@ -1385,7 +1218,6 @@ struct ThreadScreen: View {
     private func land(on request: ThreadPage) {
         let target = resolved(request)
         menuTarget = nil
-        guideSection = nil
         if currentPages.contains(target) {
             pendingPage = nil
             selectPage(target)

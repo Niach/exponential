@@ -129,8 +129,8 @@ pub mod result {
     pub const BOARD: &str = "board";
     pub const ACTION: &str = "action";
     pub const LIST: &str = "list";
-    /// EXP-933 → EXP-1291: `guide_write` — the thread's Guide (the report
-    /// the agent is filing); a settled row offers to open it.
+    /// EXP-933 → EXP-1291: the retired Guide's kind (S-3: no tool answers
+    /// with it since `guide_write` left the surface; kept as a contract value).
     pub const RESULTS: &str = "results";
     /// EXP-1172: a contract kind for ONE picture; no tool answers with it
     /// since EXP-1291 (the server cards a Guide picture itself).
@@ -235,9 +235,6 @@ mod tests {
     /// EXP-933: every named result kind is one the contract lists.
     #[test]
     fn every_named_result_kind_is_a_contract_kind() {
-        let display = exp_tool_display("mcp__exponential__exponential_guide_write", true)
-            .expect("ours");
-        assert_eq!(display.result, result::RESULTS);
         for kind in [
             result::NONE,
             result::ISSUE,
@@ -256,18 +253,14 @@ mod tests {
         }
     }
 
-    /// The Guide tool (`guide_write`, EXP-1291) answers the RESULTS kind,
-    /// with its own captions.
+    /// S-3: `guide_write` left the surface; an old transcript's call is no
+    /// longer one of ours and falls back to the generic row.
     #[test]
-    fn guide_write_answers_the_results_kind() {
-        let running = exp_tool_display("mcp__exponential__exponential_guide_write", false)
-            .expect("ours");
-        assert_eq!(running.row, "guide_write");
-        assert_eq!(running.result, result::RESULTS);
-        assert_eq!(running.subject_key, "topic");
-        assert_eq!(running.caption, "Writing the Guide");
-        let done = exp_tool_display("exponential_guide_write", true).expect("ours");
-        assert_eq!(done.caption, "Wrote the Guide");
+    fn a_retired_guide_write_call_is_generic() {
+        assert!(exp_tool_display("mcp__exponential__exponential_guide_write", false).is_none());
+        assert_eq!(exp_tool_row("exponential_guide_write"), None);
+        let show = exp_tool_display("mcp__exponential__exponential_show", true).expect("ours");
+        assert_eq!(show.row, "show");
     }
 
     /// EXP-862 — the settings list: every built-in tool, its wire name whole

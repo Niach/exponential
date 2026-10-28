@@ -160,7 +160,6 @@ fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
     is SessionTree.ThreadTab.IssueTab -> "issue:${tab.issueId}"
     SessionTree.ThreadTab.Add -> "add"
     is SessionTree.ThreadTab.SessionTab -> "session:${tab.sessionId}"
-    is SessionTree.ThreadTab.Guide -> "guide"
 }
 
 /** A `question` answer: (message id, the answer, settled(ok)); EXP-1280
@@ -199,45 +198,6 @@ fun ThreadTitle(title: String, private: Boolean, modifier: Modifier = Modifier) 
                 tint = Muted,
                 modifier = Modifier.size(14.dp).testTag("thread-private"),
             )
-        }
-    }
-}
-
-/**
- * EXP-1307: the thread header's `…` on the Guide (session-thread.json
- * `guideMenuEntries` ×4): Close PR (destructive) while the PR is open and
- * the viewer is a member (EXP-1338: no GitHub entry). THE app menu (the issue `…`'s
- * [GlassDropdownMenu]); the host hosts Close's confirm. Empty = no trigger.
- */
-@Composable
-fun ThreadGuideMenuButton(
-    entries: List<SessionTree.GuideMenuEntry>,
-    onClosePr: () -> Unit,
-) {
-    if (entries.isEmpty()) return
-    var open by remember { mutableStateOf(false) }
-    // The Box anchors the dropdown to the button.
-    Box {
-        CircleIconButton(
-            ExpIcons.uiMore,
-            "More",
-            onClick = { open = true },
-            modifier = Modifier.padding(end = 8.dp).testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU),
-            borderless = true,
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for (entry in entries) when (entry) {
-                SessionTree.GuideMenuEntry.ClosePr -> GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.prClosed, contentDescription = null) },
-                    text = { Text(DomainContract.diffUiClosePr) },
-                    destructive = true,
-                    onClick = {
-                        open = false
-                        onClosePr()
-                    },
-                    modifier = Modifier.testTag("thread-guide-menu-close-pr"),
-                )
-            }
         }
     }
 }
@@ -338,7 +298,6 @@ fun ThreadTabStrip(
     var sheet by remember { mutableStateOf<StripSheet?>(null) }
     val issueTabs = tabs.filterIsInstance<SessionTree.ThreadTab.IssueTab>()
     val sessionTabs = tabs.filterIsInstance<SessionTree.ThreadTab.SessionTab>()
-    val guide = tabs.filterIsInstance<SessionTree.ThreadTab.Guide>().firstOrNull()
 
     // A chip's tap: its page / session, or its subtree when it folds rows.
     val activate: (SessionTree.ThreadTab) -> Unit = { tab ->
@@ -364,8 +323,8 @@ fun ThreadTabStrip(
                 Icon(ExpIcons.uiAdd, contentDescription = ThreadUiCopy.ADD, tint = Secondary, modifier = Modifier.size(16.dp))
             }
         }
-        // Phones: Conversation and Guide are ICON-ONLY tabs (session-thread.json:
-        // action-chat, guide-changes; the label stays the accessible name).
+        // Phones: Conversation is an ICON-ONLY tab (session-thread.json:
+        // action-chat; the label stays the accessible name).
         val conversationSelected = selectedKey == "conversation"
         ThreadTab(conversationSelected, { onSelect("conversation") }, null, "thread-tab-conversation") {
             Icon(
@@ -386,30 +345,6 @@ fun ThreadTabStrip(
             onMore = { zone, hidden -> sheet = StripSheet.Hidden(zone, hidden) },
             modifier = Modifier.weight(1f),
         )
-        if (guide != null) {
-            val guideSelected = selectedKey == "guide"
-            ThreadTab(guideSelected, { onSelect("guide") }, null, "thread-tab-guide") {
-                Box {
-                    Icon(
-                        ExpIcons.guideChanges,
-                        contentDescription = SessionTree.ThreadCopy.GUIDE,
-                        tint = if (guideSelected) MaterialTheme.colorScheme.onSurface else Secondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    if (guide.dot) {
-                        // The Guide dot rides the icon's corner.
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = 3.dp, y = (-3).dp)
-                                .size(6.dp)
-                                .background(LiveGreen, CircleShape)
-                                .testTag("thread-guide-dot"),
-                        )
-                    }
-                }
-            }
-        }
     }
 
     when (val open = sheet) {
@@ -1506,45 +1441,33 @@ fun rememberLiveArrivals(key: String, rows: List<SessionTree.ThreadRow>): (Strin
 }
 
 /**
- * N-12: THE Dock in a thread (dock.json; web `ThreadDock`): the tree's
- * waiting cards ([AskDock.threadPendingAsks] over [rows], the asking
- * session's name as the caption) plus the host's other [sources] (the root's
- * Queue, queued messages, banners) as DockCards above the composer; an ask
- * opens as its sheet ([PlanAskCard] in sheet mode), a suggested-tasks row
- * with an open item (only with [suggestions]; null = read-only, the rows stay
- * in the Conversation) as [ThreadSuggestionsSheet], the rest through
- * [sessionSheet]. A plan or question that arrives while the view is in front
- * opens itself ([autoOpen]). [initialOpenId] / [initialExpanded] seed the
+ * N-12: THE Dock in a thread (dock.json; web `ThreadDock`): the host's
+ * [sources] (the root's Queue, queued messages, banners) plus the
+ * suggested-tasks rows with an open item (only with [suggestions]; null =
+ * read-only, the rows stay in the Conversation) as DockCards above the
+ * composer; a suggestions card opens [ThreadSuggestionsSheet], the rest
+ * through [sessionSheet]. S-3 STORIES: a waiting plan or question is a story
+ * now, never a DockCard (it stays inline in the Conversation, answerable),
+ * so nothing opens itself. [initialOpenId] / [initialExpanded] seed the
  * styleguide's states.
  */
 @Composable
 fun ThreadDock(
     rows: List<SessionTree.ThreadRow>,
-    sessionName: (sessionId: String) -> String?,
-    onAnswer: ThreadAnswer,
-    onDecidePlan: ThreadPlanDecision,
     modifier: Modifier = Modifier,
     sources: List<Dock.Source> = emptyList(),
     sessionSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
     action: (@Composable (Dock.Row) -> Unit)? = null,
-    autoOpen: Boolean = true,
-    autoOpenReady: Boolean = true,
     initialOpenId: String? = null,
     initialExpanded: Boolean = false,
     suggestions: ThreadSuggestionActions? = null,
     onOpenSession: ((String) -> Unit)? = null,
 ) {
-    val asks = remember(rows, sessionName) {
-        AskDock.threadPendingAsks(rows, sessionName).map { ask ->
-            Dock.Source.Ask(ask.id, ask.kind, ask.text, ask.sessionName, ask.questions ?: 0, ask.createdAt)
-        }
-    }
     val suggested = remember(rows, suggestions != null) {
         if (suggestions != null) threadSuggestionSources(rows) else emptyList()
     }
-    val docked = Dock.dockRows(asks + suggested + sources)
+    val docked = Dock.dockRows(suggested + sources)
     var openId by remember { mutableStateOf(initialOpenId) }
-    DockAutoOpen(docked, autoOpen, autoOpenReady) { openId = it }
     val byId = remember(rows) { rows.associateBy { it.id } }
     DockCards(
         rows = docked,
@@ -1555,9 +1478,7 @@ fun ThreadDock(
         initialExpanded = initialExpanded,
     ) { row, scope, close ->
         val threadRow = byId[row.id]
-        if (row.kind.isAsk && threadRow != null) {
-            PlanAskCard(threadRow, onAnswer, onDecidePlan, sheet = scope)
-        } else if (threadRow is SessionTree.ThreadRow.Suggestions) {
+        if (threadRow is SessionTree.ThreadRow.Suggestions) {
             ThreadSuggestionsSheet(threadRow, suggestions, onOpenSession)
         } else {
             sessionSheet?.invoke(this, row, scope, close)
@@ -1574,17 +1495,10 @@ fun threadSuggestionSources(rows: List<SessionTree.ThreadRow>): List<Dock.Source
     )
 
 /** N-12: the Conversation rows THE Dock holds (they leave the transcript):
- *  the waiting asks and the suggestion rows with an open item (web
- *  `threadDockedIds`). */
-fun threadDockedIds(
-    rows: List<SessionTree.ThreadRow>,
-    sessionName: (sessionId: String) -> String?,
-    withSuggestions: Boolean = true,
-): Set<String> {
-    val ids = AskDock.threadPendingAsks(rows, sessionName).mapTo(mutableSetOf()) { it.id }
-    if (withSuggestions) threadSuggestionSources(rows).mapTo(ids) { it.id }
-    return ids
-}
+ *  the suggestion rows with an open item (web `threadDockedIds`). S-3: the
+ *  waiting asks stay inline (stories.json). */
+fun threadDockedIds(rows: List<SessionTree.ThreadRow>): Set<String> =
+    threadSuggestionSources(rows).mapTo(mutableSetOf()) { it.id }
 
 /** A `picture` card: the attachment through the markdown image path (auth,
  *  probed size), the caption muted under it. */

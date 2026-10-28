@@ -191,15 +191,26 @@ struct ChatsView: View {
         let archivedEntry = view == .list && list.archived > 0 && filter == .all
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if !bubbles.isEmpty {
-                    AgentBubbles(
-                        items: bubbles,
-                        onTap: { agentId in pushRoute(.agentChannel(accountId: accountId, agentId: agentId)) },
-                        onHold: openAgentMenu
-                    )
-                    .padding(.horizontal, -16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 14)
+                // S-3 (stories.json STORY RING): the rings ride the bubbles
+                // row: a bubble with a ring opens the viewer at it, else the
+                // agent's chat; the other rings follow.
+                if view == .list {
+                    ChatStoriesHost(teamId: teamState.activeTeamId) { stories in
+                        if !bubbles.isEmpty || !stories.rings.isEmpty {
+                            AgentBubbles(
+                                items: bubbles,
+                                rings: stories.rings,
+                                onTap: { agentId in pushRoute(.agentChannel(accountId: accountId, agentId: agentId)) },
+                                onHold: openAgentMenu,
+                                onOpenStory: stories.open
+                            ) { ring in
+                                StoryRingAvatarView(avatar: stories.avatar(ring))
+                            }
+                            .padding(.horizontal, -16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 14)
+                        }
+                    }
                 }
                 filterChips(list.counts)
                     .padding(.bottom, 4)

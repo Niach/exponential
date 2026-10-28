@@ -186,11 +186,6 @@ class ThreadViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The root's raw Guide (`sessions.guide` jsonb TEXT; parse with
-     *  `parseSessionResultGroups`). */
-    val guide: StateFlow<String?> = root.map { it?.guide }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
     /** #EXP-1380 (chats.json PERF): the tree's messages, keyed through
      *  their conversations — the transcript reads THIS tree, never every
      *  synced message. */

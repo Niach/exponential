@@ -47,12 +47,7 @@ import {
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
-import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
-import {
-  ThreadGuide,
-  ThreadGuideMerge,
-  threadGuidePullRequest,
-} from "@/components/thread/thread-guide"
+import { ThreadGuideMerge, threadGuidePullRequest } from "@/components/thread/thread-guide"
 import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu"
@@ -94,19 +89,17 @@ import { threadChatMode } from "@exp/domain-contract/session-tree"
 
 // EXP-1293 Threads v2 / S-3: THE thread screen (fixture session-thread.json
 // ×4): the header (title + ONE tab strip), the Conversation (THE Dock, the
-// composer, the jump button, selection), the issue / Guide / session tabs.
+// composer, the jump button, selection), the issue / session tabs.
 // The thread route (`/t/$teamSlug/threads/$threadId`) and an agent's chat
 // (`/t/$teamSlug/agents/$agentId`, chats.json CHAT MODE: `threadChatMode`
 // = bubbles, the agent's name, call button and agent menu in the header)
 // both render it; the route owns the `?tab=` search and how it navigates.
 
 export type ThreadSearch = {
-  tab?: `issue` | `guide` | `session`
+  tab?: `issue` | `session`
   issue?: string
   /** The session open in place (`tab=session`). */
   session?: string
-  section?: GuideSectionKey
-  file?: string
   /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
   from?: string
   /** S-3: the inter-session back stack (`lib/session-back.ts`); the
@@ -117,17 +110,12 @@ export type ThreadSearch = {
 /** The `?tab=` search the thread screen reads (the agent chat's too). */
 export function validateThreadSearch(search: Record<string, unknown>): ThreadSearch {
   const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
-  const tab =
-    search.tab === `issue` || search.tab === `guide` || search.tab === `session`
-      ? search.tab
-      : undefined
-  const section = tab === `guide` ? parseGuideSection(search.section) : undefined
+  // S-3: `?tab=guide` (the retired Guide tab) falls back to the conversation.
+  const tab = search.tab === `issue` || search.tab === `session` ? search.tab : undefined
   return {
     ...(tab ? { tab } : {}),
     ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
     ...(tab === `session` && pick(search.session) ? { session: pick(search.session) } : {}),
-    ...(section !== undefined ? { section } : {}),
-    ...(section !== undefined && pick(search.file) ? { file: pick(search.file) } : {}),
     ...(pick(search.from) ? { from: pick(search.from) } : {}),
     ...backSearch(search.back),
   }
@@ -223,7 +211,6 @@ export function ThreadScreen({
     () => new Map(((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])),
     [issueRows]
   )
-  const guideTab = view.tabs.find((tab) => tab.kind === `guide`)
   const guidePr = useMemo(() => threadGuidePullRequest(pullRequests), [pullRequests])
 
   const rowsById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
@@ -249,13 +236,11 @@ export function ThreadScreen({
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
-      : search.tab === `guide`
-        ? { kind: `guide` as const }
-        : search.tab === `session` && focused && focused.id !== root.id
-          ? { kind: `session` as const, sessionId: focused.id }
-          : mainSession
-            ? { kind: `session` as const, sessionId: mainSession.id }
-            : { kind: `conversation` as const }
+      : search.tab === `session` && focused && focused.id !== root.id
+        ? { kind: `session` as const, sessionId: focused.id }
+        : mainSession
+          ? { kind: `session` as const, sessionId: mainSession.id }
+          : { kind: `conversation` as const }
   const sessionInPlace = tab.kind === `session` ? (focused?.id === tab.sessionId ? focused : mainSession) : null
 
   // S-3: the back stack rides along every tab switch; an xref pushes it.
@@ -277,7 +262,9 @@ export function ThreadScreen({
   const page = threadPageOf(tab)
   const showPage = (next: ThreadPage) => {
     if (isMobile) primeTabEnter(pages, page, next)
-    go(threadPageSearch(next))
+    // S-3: no Guide page any more (`threadPages` never lists it).
+    const { tab: nextTab, ...rest } = threadPageSearch(next)
+    go(nextTab === `guide` ? {} : { ...(nextTab ? { tab: nextTab } : {}), ...rest })
   }
   const swipe = useFaceSwipe(pages, page, showPage)
   /** A chip's pick swaps the tab in place (a page on phones). */
@@ -481,12 +468,6 @@ export function ThreadScreen({
       issues={issueItems}
       add={menu.addMenu}
       sessions={sessionItems}
-      guide={{
-        label: THREAD_COPY.guide,
-        active: tab.kind === `guide`,
-        dot: guideTab?.kind === `guide` && guideTab.dot,
-        onSelect: () => showPage(`guide`),
-      }}
     />
   )
 
@@ -525,36 +506,6 @@ export function ThreadScreen({
           <SkeletonRows />
         </div>
       )
-  } else if (tab.kind === `guide`) {
-    body = (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-          style={topInset ? { paddingTop: topInset } : undefined}
-        >
-          <div className="mx-auto w-full max-w-3xl pb-8">
-            <ThreadGuide
-              root={root}
-              pullRequest={guidePr}
-              teamSlug={teamSlug}
-              section={search.section}
-              file={search.file ?? null}
-              onSection={(section, file) =>
-                go({
-                  tab: `guide`,
-                  ...(section !== undefined ? { section } : {}),
-                  ...(section !== undefined && file ? { file } : {}),
-                })
-              }
-              canMerge={permissions.isMember}
-            />
-          </div>
-        </div>
-        {isMobile && search.section === undefined && (
-          <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
-        )}
-      </div>
-    )
   } else {
     body = (
       <ConversationBody
@@ -574,7 +525,7 @@ export function ThreadScreen({
   }
 
   // EXP-1307/1316: the header's `…` (Close PR, EXP-1338) on EVERY tab
-  // while the Guide has an open PR. Thread 58cb32df: the same `…` holds
+  // while the thread has an open PR. Thread 58cb32df: the same `…` holds
   // THE chat menu (Stop · Stop and delete | Delete, chats.json MENUS).
   const chatActions = useChatActions(teamSlug)
   const headerMenu = (className?: string) =>
@@ -688,7 +639,12 @@ export function ThreadScreen({
             }
             onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } }))}
             menu={
-              <span className="flex shrink-0 items-center gap-1">{trailing}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                {/* S-3: the Merge pill moved up from the retired bottom
+                    capsule into the header, like md+. */}
+                <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
+                {trailing}
+              </span>
             }
             below={<div className="px-3 pb-2">{tabs}</div>}
           />
@@ -716,7 +672,7 @@ export function ThreadScreen({
           <div className="flex items-center gap-3">
             <BackStackButton onPop={nav.pop} className="-ml-2" />
             <div className="min-w-0 flex-1">{title}</div>
-            <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
+            <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
             {headerMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>
@@ -787,16 +743,15 @@ function ConversationBody({
   // keeps its transcript (phones: the bubbles of thread 58cb32df).
   const bubbles = threadChatMode(root) === `bubbles` || isMobile
   const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
-  // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
-  // composer's slot, exactly like a session's card; read-only viewers keep
-  // them inline.
+  // The Dock holds the open suggestions; S-3: a waiting plan or question is
+  // a story (stories.json), never docked, and stays inline answerable.
   const dockedIds = useMemo(
     () => (canReply ? threadDockedIds(view.rows, () => null) : new Set<string>()),
     [canReply, view.rows]
   )
   const sessionName = useMemo(() => threadSessionNames(view.tabs), [view.tabs])
-  // N-12: THE Dock over the Conversation's bottom edge: the tree's waiting
-  // cards, the root's Queue, queued messages and banners, then the composer
+  // N-12: THE Dock over the Conversation's bottom edge: the root's Queue,
+  // queued messages, banners and open suggestions, then the composer
   // (a phone's floats in the work bar); the scroller pads by its height.
   const sessionDock = useSessionDock(root)
   const sendSurfaceReply = (text: string) => {
@@ -909,7 +864,6 @@ function ConversationBody({
           composer={isMobile ? undefined : composer}
           onHeight={setDockHeight}
           phoneClearance={isMobile}
-          autoOpenReady={view.rows.length > 0}
         />
       )}
       </div>

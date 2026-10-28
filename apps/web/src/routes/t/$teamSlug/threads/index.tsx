@@ -18,6 +18,7 @@ import {
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { ChatSelectionBar } from "@/components/thread/chat-selection-bar"
+import { useChatStories } from "@/components/stories/story-ring-row"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useChatList } from "@/hooks/use-chat-list"
@@ -86,6 +87,8 @@ function ThreadsPage() {
   const me = authSession?.user?.id ?? null
   const [filter, setFilter] = useState<ChatFilter>(`all`)
   const { list, bubbles, agentRows, cliOf, isReady } = useChatList(team?.id, me, filter, view)
+  // S-3 (stories.json STORY RING): the rings ride the bubbles row.
+  const stories = useChatStories(team?.id, teamSlug)
   // S-3: the viewer's Assistant exists once the list mounts (first use).
   useEnsureAssistant(team?.id)
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
@@ -234,10 +237,15 @@ function ThreadsPage() {
           {!archivedView && (
             <AgentBubbles
               bubbles={bubbles}
-              // S-3 INTERIM: a bubble opens the agent's chat.
+              // S-3 (stories.json STORY RING): a bubble with a ring opens the
+              // viewer at it, else the agent's chat; the other rings follow.
+              rings={stories.rings}
+              ringAvatar={stories.avatarFor}
               onOpen={openAgent}
+              onOpenStory={stories.open}
             />
           )}
+          {stories.viewer}
           <ChatFilterChips value={filter} counts={list.counts} onChange={setFilter} />
           <div ref={listRef}>
             <ChatList

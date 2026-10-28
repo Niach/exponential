@@ -84,6 +84,8 @@ object SessionTree {
         val readAt: String,
         /** #EXP-1388: the viewer archived the chat (null = not). */
         val archivedAt: String? = null,
+        /** S-3 (stories.json): the greatest story createdAt shown (null = none). */
+        val storySeenAt: String? = null,
     )
 
     /** NEW-1: [sessionId] = the session that HOLDS the issue (the row sits on it). */
@@ -534,7 +536,7 @@ object SessionTree {
             val markState: SessionState,
             val nested: List<NestedSession> = emptyList(),
         ) : ThreadTab
-        data class Guide(val dot: Boolean) : ThreadTab
+        // S-3: the Guide tab is gone ×4 (stories replace it).
     }
 
     sealed interface ThreadRow {
@@ -593,6 +595,8 @@ object SessionTree {
             val answers: List<String>? = null,
             /** EXP-1280: the surface's data model as the person answered it. */
             val surfaceData: JsonObject? = null,
+            /** S-3 (stories.json): the explicit story flag (null = absent). */
+            val story: Boolean? = null,
         ) : ThreadRow
 
         /** One choice of a question card: the answer is the [label] (EXP-1322);
@@ -623,6 +627,8 @@ object SessionTree {
             val feedback: String? = null,
             /** EXP-1280: the surface's data model as the person answered it. */
             val surfaceData: JsonObject? = null,
+            /** S-3 (stories.json): the explicit story flag (null = absent). */
+            val story: Boolean? = null,
         ) : ThreadRow
 
         data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
@@ -647,6 +653,10 @@ object SessionTree {
             val sessionId: String,
             val title: String?,
             val surface: CardSurface,
+            /** S-3 (stories.json): the explicit story flag (null = absent). */
+            val story: Boolean? = null,
+            /** S-3: a result story's screenshots (plan-card pictures' shape). */
+            val pictures: List<PlanCard.Picture> = emptyList(),
         ) : ThreadRow
     }
 
@@ -727,6 +737,7 @@ object SessionTree {
                 surface = cardSurface(card["surface"]),
                 answers = (card["answers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
                 surfaceData = card["surfaceData"] as? JsonObject,
+                story = card.bool("story"),
             )
             DomainContract.messageCardKindPlan -> ThreadRow.Plan(
                 id = message.id,
@@ -739,6 +750,7 @@ object SessionTree {
                 answers = planAnswers(card["answers"]),
                 feedback = card.str("feedback")?.takeIf { it.isNotEmpty() },
                 surfaceData = card["surfaceData"] as? JsonObject,
+                story = card.bool("story"),
             )
             else -> null
         }
@@ -754,8 +766,20 @@ object SessionTree {
             sessionId = message.sessionId,
             title = card.str("title")?.trim()?.takeIf { it.isNotEmpty() },
             surface = surface,
+            story = card.bool("story"),
+            pictures = PlanCard.cardPictures(card["pictures"]),
         )
     }
+
+    /** S-3: `typeof card[key] === 'boolean'` (null = absent or another type). */
+    private fun JsonObject.bool(key: String): Boolean? =
+        (this[key] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.let {
+            when (it) {
+                "true" -> true
+                "false" -> false
+                else -> null
+            }
+        }
 
     /** EXP-1398: the session view's cards ([AskDock.sessionCards]) with the
      *  rows they draw as, oldest first. */
@@ -1141,9 +1165,6 @@ object SessionTree {
             }
         }
 
-        val guideDot = root.guide.orEmpty().any { entry ->
-            (entry.text ?: "").trim().isNotEmpty() || entry.label != null
-        }
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
         // NEW-6 (N-1): the root alone = the thread IS that session.
         val single = tree.all { it.id == root.id }
@@ -1170,7 +1191,6 @@ object SessionTree {
                 add(ThreadTab.Conversation)
                 addAll(issueTabs)
                 addAll(sessionTabs)
-                add(ThreadTab.Guide(guideDot))
             },
             rows = rows,
             composer = Composer(root.id, ThreadCopy.PLACEHOLDER),
@@ -1826,7 +1846,7 @@ object SessionTree {
         authorSessionId = row.authorSessionId,
     )
 
-    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt)
+    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt, storySeenAt = row.storySeenAt)
 
     fun pullRequest(row: PullRequestEntity): PullRequest? =
         row.number?.let { PullRequest(id = row.id, number = it, state = row.state) }

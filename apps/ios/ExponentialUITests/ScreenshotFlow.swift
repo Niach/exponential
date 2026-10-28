@@ -753,51 +753,6 @@ extension XCTestCase {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    /// The Guide body is a LazyVStack: a row below the fold is not in the
-    /// accessibility tree until it scrolls on screen. Swipe up until one of
-    /// `rows` exists or the deadline passes (a loading Guide just keeps
-    /// waiting; the swipes are harmless on a short page).
-    @MainActor
-    func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
-        while Date() < deadline && !rows.contains(where: { $0.exists }) {
-            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
-            app.swipeUp()
-        }
-    }
-
-    /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
-    /// file cards. Open the COMPLETE diff page ("Changes", section=all, the
-    /// catalog's review-diff view, as web) — the Guide's last row, under every
-    /// section — or, on a report-less Guide that has no such row, its ONE
-    /// Changes section, which already is the whole diff. Then wait for the
-    /// file cards, which come from GitHub.
-    ///
-    /// EXP-1267: both rows are awaited TOGETHER. Waiting for the complete-diff
-    /// row first cost every report-less Guide (the seeded APP-14) its full
-    /// deadline before the Changes row was even looked at.
-    @MainActor
-    func openGuideDiffPage(_ app: XCUIApplication, failure: String) {
-        let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        let changesRow = anyElement(app, identified: "guide-changes-row")
-        revealGuideRow(app, [completeDiff, changesRow], deadline: Date().addingTimeInterval(Wait.network))
-        // The complete-diff row is the Guide's LAST: a Changes row on screen
-        // may still have it one swipe below.
-        if changesRow.exists && !completeDiff.exists {
-            revealGuideRow(app, [completeDiff], deadline: Date().addingTimeInterval(3))
-        }
-        if completeDiff.exists {
-            completeDiff.tap()
-        } else {
-            guard changesRow.exists else {
-                XCTFail("\(failure) — missing: \(changesRow.description)")
-                return
-            }
-            changesRow.tap()
-        }
-        expect(anyElement(app, identified: "guide-section-page"), within: Wait.nav, "The Guide section page did not open")
-        expect(anyElement(app, identified: "changes-file-row"), within: Wait.network, failure)
-    }
-
     /// Dismisses a sheet. Since EXP-687 NO sheet has a close button, so this is
     /// the only way out of one: tap the dimmed area above a short sheet, then
     /// fall back to dragging the sheet's own header down — never a plain

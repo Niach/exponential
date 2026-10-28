@@ -27,7 +27,7 @@
     {
       "id": "reviews",
       "label": "Reviews",
-      "blurb": "A thread's Guide (the PR body of every PR it opened), the read-only diff view behind it and the PR row.",
+      "blurb": "The read-only diff view and the PR row (S-3: the Guide is gone; stories carry what a session shows).",
       "order": 5
     },
     {
@@ -1027,7 +1027,7 @@
       "id": "thread",
       "group": "coding",
       "title": "Thread",
-      "blurb": "A thread (EXP-1293, Threads v2): a ROOT session. The title over ONE tab strip (Conversation · one chip per linked issue · + · Guide), the conversation's rows (the person's request, ONE session card per child session, the agent's reply, a question answered in its card) and the composer at the bottom. The demo thread waits on a person through its child session.",
+      "blurb": "A thread (EXP-1293, Threads v2): a ROOT session. The title over ONE tab strip (Conversation · one chip per linked issue · +; S-3: no Guide tab), the conversation's rows (the person's request, ONE session card per child session, the agent's reply, a question answered in its card) and the composer at the bottom. The demo thread waits on a person through its child session.",
       "order": 17,
       "web": {
         "route": "/t/$teamSlug/threads/$threadId",
@@ -1196,89 +1196,11 @@
         "settleMs": 1200
       },
       "webMobile": "inherit",
-      "ios": {
-        "shot": "05_review",
-        "lane": "store"
-      },
-      "android": {
-        "shot": "5_review",
-        "lane": "store"
-      },
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor is a line of the first card's own patch (strings.xml's added feature_topic_api_error string). EXP-1251: the page sits under the Guide (a back row to it); on md+ the file tree is the column beside the cards, the phone lists the files in the bar's sheet beside the white Merge capsule.",
         "desktop": "EXP-1251: the issue tab's Guide owns the diff pages (`steer_viewer` guide_page) and nothing deep-links straight to the complete diff any more, so `issue:<id>?face=guide` lands on the Guide; the desktop half of this view is the `guide` drive until a page deep link exists.",
-        "ios": "EXP-1295: 05_review opens APP-14's thread from its Threads chip on the Guide tab, then taps Show complete diff (else the one Changes row of a report-less Guide) and waits for guide-section-page + changes-file-row before the shot.",
-        "android": "EXP-1303: 5_review opens APP-14's thread from its Threads chip on the Guide tab, taps Show complete diff (or the single Changes row without a report) and shoots that page; the pop-out is the page capsule work-merge-pr-section."
-      }
-    },
-    {
-      "id": "guide",
-      "group": "reviews",
-      "title": "Guide",
-      "blurb": "A thread's Guide tab (EXP-1293: ONE Guide per thread = every PR body): the Summary lead and numbered sections, each ending in ONE Changes row. APP-15's thread is idle with its PR open and ready to merge.",
-      "order": 4,
-      "web": {
-        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide",
-        "anchor": {
-          "text": "Label picker on the selection bar",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_guide",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_guide",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "`$guideThreadId` resolves to DEMO_GUIDE_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the APP-15 thread with two seeded Guide entries. The anchor is the second entry's topic.",
-        "ios": "EXP-1303: the walk opens APP-15's thread (web's) from its Threads chip on the Guide tab, under THE Merge stack capsule (APP-15's PR is the bottom of APP-14's stack).",
-        "android": "EXP-1303: as iOS, APP-15's thread from its Threads chip on the Guide tab, under the Merge stack capsule.",
-        "desktop": "EXP-1305: APP-15's thread (web's) opened on its Guide tab: `thread:$guideThread` + `EXP_DEV_THREAD_CHILD=guide`."
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "thread:$guideThread"
-        },
-        "env": {
-          "EXP_DEV_THREAD_CHILD": "guide"
-        }
-      }
-    },
-    {
-      "id": "guide-section",
-      "group": "reviews",
-      "title": "Guide section",
-      "blurb": "A Guide section's diff as a page under the thread's Guide (`?tab=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
-      "order": 5,
-      "web": {
-        "route": "/t/$teamSlug/threads/$diffThreadId?tab=guide&section=other",
-        "anchor": {
-          "text": "Unable to load topic",
-          "timeoutMs": 60000
-        },
-        "recipe": "expandFirstDiffFile",
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_guide-section",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_guide-section",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID (EXP-1308): APP-14's thread, the one seeded PR with a real GitHub diff. EXP-1251: APP-14 has no report, so the whole diff is its ONE Changes row, the `other` page (`section=other`, titled Changes); the anchor is a line of the first card's own patch, as on review-diff.",
-        "ios": "EXP-1303: APP-14's thread (the only seeded PR with a real GitHub diff; APP-15's Guide draws no Changes row), its one Changes row's section page.",
-        "android": "EXP-1303: as iOS, APP-14's one Changes row's section page.",
-        "desktop": "EXP-1251: a section page is state inside the Guide (`SteerSessionView::open_guide_page`) with no dev deep link yet, so the desktop half is not driven."
+        "ios": "S-3: no iOS capture; the diff was reached through the Guide tab, which is gone (stories replace it).",
+        "android": "S-3: no Android capture; the diff was reached through the Guide tab, which is gone (stories replace it)."
       }
     },
     {
@@ -5545,7 +5467,7 @@
       "id": "chat-list",
       "group": "coding",
       "title": "Chat list",
-      "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
+      "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread; S-3: a bubble with stories wears its story ring, the chat rings follow), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
       "order": 32,
       "web": {
         "route": "/t/$teamSlug/agent?dev=chat-list",
@@ -6062,6 +5984,82 @@
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:device-readiness`: the IDE styleguide twin drawn full-window (every fixture case from the top).",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width."
+      }
+    },
+    {
+      "id": "story-ring",
+      "group": "coding",
+      "title": "Story ring",
+      "blurb": "THE story ring ×4 (S-3, stories.json): an avatar inside a ring with one arc per story (waiting = the ask tint, unseen = foreground, seen = the hairline), riding the agent bubbles row over the chat list.",
+      "order": 47,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=story-ring",
+        "anchor": {
+          "testId": "story-ring-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_story-ring",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_story-ring",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:story-ring"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=story-ring` on the Agent route: `@exp/ui` `StoryRingSpecimen`: an Assistant ring, a waiting chat, an unseen result and a seen one.",
+        "ios": "The specimen in ChatSpecimens / StyleguideScreenshots, shot sg_story-ring.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-ring`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web."
+      }
+    },
+    {
+      "id": "story-viewer",
+      "group": "coding",
+      "title": "Story viewer",
+      "blurb": "THE story viewer ×4 (S-3, stories.json): the progress segments, the header (avatar, session, kind · age, close), the draft as an Exponential UI surface and its choices in the footer; phones full screen, wide a centered modal.",
+      "order": 48,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=story-viewer",
+        "anchor": {
+          "testId": "story-viewer-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_story-viewer",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_story-viewer",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:story-viewer"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=story-viewer` on the Agent route: `@exp/ui` `StoryViewerSpecimen`: a draft question with a surface and two choices.",
+        "ios": "The specimen in ChatSpecimens / StyleguideScreenshots, shot sg_story-viewer.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-viewer`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web."
       }
     }
   ]

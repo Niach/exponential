@@ -51,9 +51,6 @@ final class StoreScreenshots: XCTestCase {
     /// session of its own — an issue the demo user is already coding on turns
     /// the bottom-bar circle into the session link instead of the start action.
     private static let startCodingTitle = "Dark mode contrast pass across settings"
-    /// APP-14: the open PR whose diff is fetched from GitHub for real; the
-    /// thread holding it carries the Guide.
-    private static let reviewTitle = "Group board issues by assignee"
     /// A fragment of the question screenshot-desktop.ts ends its transcript on
     /// (DEMO_FEED_QUESTION) — proof that relay frames actually arrived. It has
     /// to be the LAST event: the feed is bottom-anchored and lazy, so anything
@@ -199,32 +196,8 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
         goBack(app)
 
-        // ── 05: PR review (real diff + merge bar) ───────────────────────────
-        // EXP-1295: APP-14's Threads chip opens the thread holding it; its
-        // Guide tab's "Show complete diff" row opens the whole diff page (the
-        // cards over `[files][Merge PR]`). The file list comes from GitHub via
-        // pullRequests.files — the seed points APP-14's PR at a real public
-        // PR so there is an actual diff to show.
-        openIssue(app, title: Self.reviewTitle)
-        let reviewChip = app.descendants(matching: .any)
-            .matching(identifier: "issue-thread-chip").firstMatch
-        expect(reviewChip, within: Wait.sync, "APP-14 sits in no thread — reseed with `bun run seed:screenshots`")
-        reviewChip.tap()
-        let guideTab = app.descendants(matching: .any)
-            .matching(identifier: "thread-tab-guide").firstMatch
-        expect(guideTab, within: Wait.sync, "The thread never opened on its strip")
-        guideTab.tap()
-        openGuideDiffPage(
-            app,
-            failure: "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
-        )
-        // EXP-916: every file card starts OPEN (only a huge one folds itself
-        // away), so the shot already shows patches rather than a filename list.
-        snapshot("05_review", settle: 2, popRects: app)
-        // Section page → Guide, thread → issue → board.
-        anyElement(app, identified: "guide-section-back").tap()
-        goBack(app)
-        goBack(app)
+        // ── 05: retired (S-3) — the Guide tab and its diff page entry are
+        // gone; results land as stories.
 
         // ── 06: retired (NEW-7) — the Actions tab is gone: prompts live in
         // the composer's `/` menu and Settings → Prompts.

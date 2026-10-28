@@ -6,11 +6,10 @@
 //!
 //! * The HEADER: the title (EXP-1316: derived, plain text, nobody renames
 //!   it) and a lock while private — no caption; its trailing slot holds the
-//!   Merge pill while the Guide's PR is open, then the Guide `…`, on EVERY
-//!   tab.
+//!   Merge pill while the thread's PR is open, then the `…`, on EVERY tab.
 //! * The STRIP (EXP-1334, [`thread_strip`], never scrolls): `+` ·
-//!   `Conversation` pinned left, `Guide` (a green dot while the root's guide
-//!   has content) pinned right; between them the TOP-LEVEL linked issues
+//!   `Conversation` pinned left (S-3: no Guide tab, stories carry what a
+//!   session shows); after them the TOP-LEVEL linked issues
 //!   (status glyph, mono identifier, title) then the dispatcher's DIRECT
 //!   children, laid out by `partition_thread_strip` (titles → identifiers
 //!   → a "+N" menu per zone). A chip with sub-issues / deeper sessions wears
@@ -33,9 +32,7 @@
 //!   in the strip; the first child turns it into the dispatcher's
 //!   conversation.
 //! * An ISSUE child = the issue detail, EMBEDDED (no work header bar, no
-//!   Threads row); the GUIDE child = the Guide page
-//!   ([`crate::session_results::render`]) over the root's guide and its pull
-//!   request's files (`pullRequests.files`) and the Stack card.
+//!   Threads row).
 //! * THE Menu on the `+` and on every issue chip: `Link an issue` (THE
 //!   search list, `sessions.linkIssues`), `New issue` and, on a chip,
 //!   `Unlink <IDENT>` (`sessions.unlinkIssue`).
@@ -64,15 +61,11 @@ use crate::controls::WebText as _;
 use crate::icons::registry;
 use crate::markdown::{ImageCache, IssueChipCache, MarkdownView, RefResolver};
 use crate::navigation::Screen;
-use crate::session_results::GuidePage;
 use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 
 /// The menu copy.
 pub(crate) const LINK_ISSUE_LABEL: &str = "Link an issue";
 pub(crate) const NEW_ISSUE_LABEL: &str = "New issue";
-/// The Guide child before the root's guide (or its pull request) has
-/// anything to read.
-pub(crate) const NO_GUIDE_COPY: &str = "No Guide yet. The agent files one as it works.";
 
 /// `Unlink EXP-1270`.
 pub(crate) fn unlink_label(identifier: &str) -> String {
@@ -103,7 +96,6 @@ const CHIP_BADGE_PX: f32 = 5.;
 pub(crate) enum ThreadChildSel {
     Conversation,
     Issue(String),
-    Guide,
 }
 
 // ---------------------------------------------------------------------------
@@ -504,25 +496,6 @@ pub(crate) fn strip_issue_body(
             .into_any_element(),
     ]);
     body
-}
-
-/// The Guide chip's green dot (the root's guide has content).
-pub(crate) fn guide_dot(cx: &App) -> AnyElement {
-    div()
-        .size(px(6.))
-        .rounded_full()
-        .bg(cx.theme().success)
-        .into_any_element()
-}
-
-/// The strip's vertical divider before Guide.
-pub(crate) fn strip_divider(cx: &App) -> AnyElement {
-    div()
-        .w(px(1.))
-        .h(px(16.))
-        .mx_1()
-        .bg(cx.theme().border)
-        .into_any_element()
 }
 
 /// The page title (draft 3): the title at the header rung, a lock while the
@@ -1065,7 +1038,7 @@ pub(crate) fn plan_card(
         .into_any_element()
 }
 
-fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
+pub(crate) fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
     match row {
         SessionThreadRow::Plan { id, plan, questions, surface, decision, fresh, answers, feedback, surface_data, .. } => Some((
             id,
@@ -1085,7 +1058,7 @@ fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate:
     }
 }
 
-fn question_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::QuestionFacts<'a>)> {
+pub(crate) fn question_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::QuestionFacts<'a>)> {
     match row {
         SessionThreadRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, .. } => Some((
             id,
@@ -1156,49 +1129,6 @@ pub(crate) fn ask_row_sheet(
     Some(crate::plan_card::question_sheet(&facts, body, images, window, cx))
 }
 
-/// N-12: a waiting `question` / `plan` row as a Dock source (`created_at` =
-/// its order, oldest first).
-pub(crate) fn ask_source(row: &SessionThreadRow, session_name: Option<String>, created_at: i64) -> Option<DockSource> {
-    match row {
-        SessionThreadRow::Plan { id, plan, questions, .. } => Some(DockSource::Plan {
-            id: id.clone(),
-            text: plan.clone(),
-            session_name,
-            questions: questions.len(),
-            created_at,
-        }),
-        SessionThreadRow::Question { id, question, .. } => Some(DockSource::Question {
-            id: id.clone(),
-            text: question.clone(),
-            session_name,
-            created_at,
-        }),
-        _ => None,
-    }
-}
-
-/// A thread's waiting cards (`thread_pending_asks`) as Dock sources.
-pub(crate) fn pending_sources(pending: &[domain::ask_dock::AskDockPending]) -> Vec<DockSource> {
-    pending
-        .iter()
-        .map(|ask| match ask.kind {
-            domain::ask_dock::AskDockKind::Plan => DockSource::Plan {
-                id: ask.id.clone(),
-                text: ask.text.clone(),
-                session_name: ask.session_name.clone(),
-                questions: ask.questions.unwrap_or(0),
-                created_at: ask.created_at,
-            },
-            domain::ask_dock::AskDockKind::Question => DockSource::Question {
-                id: ask.id.clone(),
-                text: ask.text.clone(),
-                session_name: ask.session_name.clone(),
-                created_at: ask.created_at,
-            },
-        })
-        .collect()
-}
-
 /// N-12: the suggestions rows with an OPEN item as Dock sources
 /// (`suggestionSources` ×4): the row leaves the Conversation and opens as
 /// [`suggestions_sheet`].
@@ -1231,52 +1161,42 @@ pub(crate) fn suggestion_sources(rows: &[SessionThreadRow]) -> Vec<DockSource> {
 }
 
 /// N-12: the Conversation rows THE Dock holds (web `threadDockedIds`): the
-/// waiting asks and, with `suggestions`, the suggestions rows with an open
-/// item.
-pub(crate) fn docked_ids(
-    rows: &[SessionThreadRow],
-    pending: &[domain::ask_dock::AskDockPending],
-    suggestions: bool,
-) -> HashSet<String> {
-    let mut ids: HashSet<String> = pending.iter().map(|ask| ask.id.clone()).collect();
-    if suggestions {
-        ids.extend(suggestion_sources(rows).into_iter().filter_map(|source| match source {
+/// suggestions rows with an open item (S-3: a waiting plan / question is a
+/// story, never docked; it stays inline).
+pub(crate) fn docked_ids(rows: &[SessionThreadRow]) -> HashSet<String> {
+    suggestion_sources(rows)
+        .into_iter()
+        .filter_map(|source| match source {
             DockSource::Suggestions { id, .. } => Some(id),
             _ => None,
-        }));
-    }
-    ids
+        })
+        .collect()
 }
 
 /// N-12: THE Dock of a root's Conversation (a thread, an agent channel;
-/// `fixtures/dock.json`): the tree's waiting cards (`pending`, captioned by
-/// their session) plus the root's own cards (THE Queue, the queued
+/// `fixtures/dock.json`): the root's own cards (THE Queue, the queued
 /// messages, the banners, off the hosted composer view) above THE
 /// composer; returns the band and the open card's sheet. `suggestions` =
 /// the root's id when its suggested-tasks cards dock too (the thread).
-/// Auto-open runs here (the screen is in front while it renders).
+/// S-3: no plan / question source (a story now, inline in the
+/// Conversation) and nothing opens itself.
 #[allow(clippy::too_many_arguments)] // the host's facts
 pub(crate) fn root_dock(
     prefix: &str,
     rows: &[SessionThreadRow],
-    pending: &[domain::ask_dock::AskDockPending],
     suggestions: Option<&str>,
     state: &Entity<crate::dock::DockState>,
     composer: &Entity<crate::steer_viewer::SteerSessionView>,
     text: &ThreadText,
-    images: &Entity<ImageCache>,
     window: &mut Window,
     cx: &mut App,
 ) -> (Option<AnyElement>, Option<AnyElement>) {
-    let mut sources = pending_sources(pending);
+    let mut sources = Vec::new();
     if suggestions.is_some() {
         sources.extend(suggestion_sources(rows));
     }
     sources.extend(composer.read(cx).session_dock_sources(cx));
     let dock_rows = domain::dock::dock_rows(&sources);
-    // Loaded = the Conversation's rows arrived (web `autoOpenReady`, iOS and
-    // Android the same): what already waited when they land stays collapsed.
-    state.update(cx, |state, _| state.auto_open(&dock_rows, true, !rows.is_empty()));
     let sheet = match state.read(cx).sheet_id().map(str::to_string) {
         Some(open) => match dock_rows.iter().find(|row| row.id == open).cloned() {
             Some(dock_row) => {
@@ -1285,7 +1205,7 @@ pub(crate) fn root_dock(
                     Some(SessionThreadRow::Suggestions { id, start_all, items, .. }) => {
                         Some(suggestions_sheet(id, *start_all, items, suggestions.unwrap_or_default(), text.team_id(), cx))
                     }
-                    Some(row) => ask_row_sheet(row, text, images, window, cx),
+                    Some(_) => None,
                     None => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
                 });
                 content.map(|content| crate::dock::sheet(state, &dock_row, content, window, cx))
@@ -2013,7 +1933,6 @@ fn open_session_in_place(session_id: String, window: &mut Window, cx: &mut App) 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StripPick {
     Conversation,
-    Guide,
     Issue(String),
     Session(String),
 }
@@ -2030,8 +1949,8 @@ pub(crate) struct StripIssue {
 pub(crate) type OnStripPick = std::rc::Rc<dyn Fn(StripPick, &mut Window, &mut App)>;
 
 /// THE thread strip's inputs (the screen and the styleguide draw it):
-/// `[+] [Conversation] | issue chips … +X  session chips … +Y | [Guide]`,
-/// nothing scrolls — `+` and Conversation pinned left, Guide right, the
+/// `[+] [Conversation] | issue chips … +X  session chips … +Y`, nothing
+/// scrolls — `+` and Conversation pinned left (S-3: no Guide tab), the
 /// middle laid out by `domain::session_tree::partition_thread_strip`.
 pub(crate) struct ThreadStrip {
     /// Element id prefix (`thread` on the screen).
@@ -2370,7 +2289,6 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     let issue_tabs: Vec<&ThreadTab> = spec.tabs.iter().filter(|tab| matches!(tab, ThreadTab::Issue { .. })).collect();
     let session_tabs: Vec<&ThreadTab> =
         spec.tabs.iter().filter(|tab| matches!(tab, ThreadTab::Session { .. })).collect();
-    let guide_dot_on = spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Guide { dot: true }));
 
     // The layout: measured widths through the contract's partition.
     let mut session_caps: HashMap<usize, f32> = HashMap::new();
@@ -2678,13 +2596,6 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     );
     middle.extend(overflow("sessions", &session_tabs, &layout.sessions, cx));
 
-    let guide = strip_tab(SharedString::from(format!("{prefix}-child-guide")), spec.open == StripPick::Guide, cx)
-        .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
-        .child(SharedString::from(THREAD.copy.guide.clone()))
-        .when(guide_dot_on, |chip| chip.child(guide_dot(cx)))
-        .on_click(pick(StripPick::Guide))
-        .into_any_element();
-
     let on_slot = spec.on_slot.clone();
     h_flex()
         .when_some(on_slot, |row, on_slot| {
@@ -2710,8 +2621,6 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
                 .overflow_x_hidden()
                 .children(middle),
         )
-        .child(strip_divider(cx))
-        .child(guide)
         .into_any_element()
 }
 
@@ -2835,15 +2744,6 @@ pub(crate) fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>,
     hasher.finish()
 }
 
-/// The Guide child's own state: the open diff page, the pull request's
-/// diff, the hovered stack member. Merges ride [`crate::pr_merge`]'s state.
-#[derive(Default)]
-struct GuideState {
-    page: Option<GuidePage>,
-    diff: Option<(String, Entity<crate::pr_diff::PrDiffView>)>,
-    stack_hovered: Option<String>,
-}
-
 pub(crate) struct ThreadScreenView {
     root_id: String,
     child: ThreadChildSel,
@@ -2859,7 +2759,6 @@ pub(crate) struct ThreadScreenView {
     chip_gen: u64,
     /// The issue child's detail view (built on first show, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
-    guide: GuideState,
     images: Entity<ImageCache>,
     /// THE session composer, targeting the ROOT: the session view over the
     /// root's live source (`session_screen::root_composer_view`), whose
@@ -2879,8 +2778,6 @@ pub(crate) struct ThreadScreenView {
     /// The projection the list indexes into: indices into the model's rows
     /// (the docked asks left out), then the live tail row while it shows.
     conv: ConversationRows,
-    /// THE Dock's waiting cards, scanned once per model change.
-    pending_asks: Vec<domain::ask_dock::AskDockPending>,
     /// The chip memo behind [`Self::text`] (cleared when the issues or
     /// statuses notify) and this frame's resolver over it.
     chip_cache: IssueChipCache,
@@ -2964,7 +2861,6 @@ impl ThreadScreenView {
             refresh_queued: false,
             chip_gen: 0,
             issue_view: None,
-            guide: GuideState::default(),
             images,
             composer,
             dock: cx.new(|_| crate::dock::DockState::default()),
@@ -2976,7 +2872,6 @@ impl ThreadScreenView {
                 list
             },
             conv: ConversationRows::default(),
-            pending_asks: Vec::new(),
             chip_cache: Default::default(),
             text: ThreadText::default(),
             focus_handle: cx.focus_handle(),
@@ -2992,10 +2887,6 @@ impl ThreadScreenView {
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
-        // A capture (and a debug launch) can open a thread on its Guide.
-        if std::env::var("EXP_DEV_THREAD_CHILD").ok().as_deref() == Some("guide") {
-            this.child = ThreadChildSel::Guide;
-        }
         this
     }
 
@@ -3027,15 +2918,6 @@ impl ThreadScreenView {
                 }
             }
         }
-        self.pending_asks = model
-            .as_ref()
-            .map(|model| {
-                domain::ask_dock::thread_pending_asks(
-                    &model.view.rows,
-                    domain::ask_dock::thread_session_names(&model.view.tabs),
-                )
-            })
-            .unwrap_or_default();
         // Thread 58cb32df: a surface card arriving while the chat is open
         // plays its entrance once.
         if let Some(model) = &model {
@@ -3118,7 +3000,6 @@ impl ThreadScreenView {
             let issue_id = issue_id.clone();
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
         }
-        self.guide.page = None;
         self.child = child;
         cx.notify();
     }
@@ -3170,34 +3051,6 @@ impl ThreadScreenView {
             });
         }
         self.set_child(child, window, cx);
-    }
-
-    // ── the Guide ────────────────────────────────────────────────────────
-
-    /// The pull request's diff view, built (and fetched) once per PR.
-    fn pull_diff(
-        &mut self,
-        pull_request_id: &str,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Entity<crate::pr_diff::PrDiffView> {
-        if let Some((id, view)) = &self.guide.diff {
-            if id == pull_request_id {
-                return view.clone();
-            }
-        }
-        let view = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
-        cx.observe(&view, |_, _, cx| cx.notify()).detach();
-        let id = pull_request_id.to_string();
-        view.update(cx, |view, cx| view.set_pull_request(id.clone(), cx));
-        self.guide.diff = Some((id, view.clone()));
-        self.guide.page = None;
-        view
-    }
-
-    fn open_guide_page(&mut self, page: Option<GuidePage>, cx: &mut gpui::Context<Self>) {
-        self.guide.page = page;
-        cx.notify();
     }
 
     // ── render ───────────────────────────────────────────────────────────
@@ -3254,7 +3107,6 @@ impl ThreadScreenView {
         let open = match (self.focus_id(), &self.child) {
             (Some(focus), _) => StripPick::Session(focus.to_string()),
             (None, ThreadChildSel::Conversation) => StripPick::Conversation,
-            (None, ThreadChildSel::Guide) => StripPick::Guide,
             (None, ThreadChildSel::Issue(id)) => StripPick::Issue(id.clone()),
         };
         let issues: HashMap<String, StripIssue> = model
@@ -3287,7 +3139,6 @@ impl ThreadScreenView {
             other => {
                 let child = match other {
                     StripPick::Issue(id) => ThreadChildSel::Issue(id),
-                    StripPick::Guide => ThreadChildSel::Guide,
                     _ => ThreadChildSel::Conversation,
                 };
                 let _ = this.update(cx, |this, cx| this.select_child(child, window, cx));
@@ -3422,7 +3273,7 @@ impl ThreadScreenView {
             // FEED-140: a waiting plan / question stays inline (with its
             // actions) besides THE Dock; only the open suggestions leave.
             let docked = if may_message {
-                docked_ids(&model.view.rows, &[], true)
+                docked_ids(&model.view.rows)
             } else {
                 HashSet::new()
             };
@@ -3570,12 +3421,10 @@ impl ThreadScreenView {
             root_dock(
                 "thread",
                 &model.view.rows,
-                &self.pending_asks,
                 Some(&self.root_id),
                 &self.dock,
                 &self.composer,
                 &self.text,
-                &self.images,
                 window,
                 cx,
             )
@@ -3615,138 +3464,6 @@ impl ThreadScreenView {
             Some(view) => div().flex_1().min_h_0().w_full().child(view.clone()).into_any_element(),
             None => div().flex_1().into_any_element(),
         }
-    }
-
-    fn render_guide_child(
-        &mut self,
-        model: &ThreadModel,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let groups = domain::session_results::parse_session_result_groups(model.root.guide.as_ref());
-        let pull = model.pull().cloned();
-        let diff_view = pull.as_ref().map(|pull| self.pull_diff(&pull.id, window, cx));
-        let files = diff_view
-            .as_ref()
-            .map(|view| view.read(cx).pane_files(cx))
-            .unwrap_or_default();
-        // A diff page: the `← Guide` row over the filtered diff.
-        if let (Some(page), Some(view)) = (self.guide.page, diff_view.as_ref()) {
-            let diff = crate::session_results::guide_diff_files(&files);
-            let page_view = crate::session_results::guide_page_view(&groups, &diff, page, false)
-                .or_else(|| crate::session_results::guide_page_view(&groups, &diff, GuidePage::All, false));
-            if let Some(page_view) = page_view {
-                let filtered = page != GuidePage::All;
-                view.update(cx, |view, cx| view.set_paths(filtered.then(|| page_view.paths.clone()), cx));
-                let this = cx.entity().downgrade();
-                let back = crate::session_results::guide_page_header(
-                    &page_view,
-                    std::rc::Rc::new(move |_window, cx| {
-                        let _ = this.update(cx, |this, cx| this.open_guide_page(None, cx));
-                    }),
-                    cx,
-                );
-                return v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .child(crate::issue_detail::centered_column(div().w_full().child(back)))
-                    .child(div().flex_1().min_h_0().w_full().child(view.clone()))
-                    .into_any_element();
-            }
-        }
-        let body: AnyElement = if groups.is_empty() && files.is_empty() {
-            div()
-                .flex_1()
-                .w_full()
-                .pt_10()
-                .flex()
-                .justify_center()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(NO_GUIDE_COPY)
-                .into_any_element()
-        } else {
-            let this = cx.entity().downgrade();
-            let on_open: crate::session_results::OnOpenGuidePage = std::rc::Rc::new(move |page, _window, cx| {
-                let _ = this.update(cx, |this, cx| this.open_guide_page(Some(page), cx));
-            });
-            let stack = pull.as_ref().and_then(|pull| self.stack_card(model, pull, cx));
-            let width = f32::from(window.viewport_size().width).min(crate::work_header::WORK_COLUMN_W)
-                - 2. * crate::work_header::WORK_GUTTER;
-            crate::session_results::render(
-                &groups,
-                width,
-                &self.images,
-                model.root.team_id.as_deref(),
-                crate::session_results::GuideSpec {
-                    diff: (!files.is_empty()).then_some(files),
-                    on_open: Some(on_open),
-                    stack,
-                    fallback_lead: None,
-                    unnumbered: false,
-                    scroll: None,
-                    viewer: model.root.guide.clone().map(|guide| crate::session_results::GuideViewerSource {
-                        guide: std::rc::Rc::new(guide),
-                        team_id: model.root.team_id.clone(),
-                    }),
-                },
-                cx,
-            )
-        };
-        // EXP-1316: the Merge pill lives in the header's trailing slot.
-        v_flex().flex_1().min_h_0().w_full().child(body).into_any_element()
-    }
-
-    /// The Stack card of the thread's pull request: a pick opens that PR's
-    /// thread, the hovered member merges through.
-    fn stack_card(&self, model: &ThreadModel, pull: &PullRequestRow, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let team_id = model.root.team_id.as_deref()?;
-        let snapshot = crate::session_data::team_pr_snapshot(team_id, cx);
-        let view = snapshot.with_set(|set| domain::pr_stack::stack_view(pull, set))?;
-        let roots: HashMap<String, String> = snapshot
-            .pulls
-            .iter()
-            .filter_map(|pull| Some((pull.id.clone(), pull.root_session_id.clone()?)))
-            .collect();
-        let on_pick: crate::session_results::OnPickStackRow = std::rc::Rc::new(move |pull_request_id, window, cx| {
-            if let Some(root_id) = roots.get(pull_request_id) {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    Screen::Thread {
-                        session_id: root_id.clone(),
-                    },
-                );
-            }
-        });
-        // Merge through the hovered member = the stack's ONE confirm.
-        let on_merge: crate::session_results::OnPickStackRow = std::rc::Rc::new(move |pull_request_id, window, cx| {
-            crate::pr_merge::ask_stack_merge_mode(
-                pull_request_id,
-                domain::pr_stack::StackConfirmMode::Through,
-                window,
-                cx,
-            );
-        });
-        let this = cx.entity().downgrade();
-        let on_hover: crate::session_results::OnHoverStackRow = std::rc::Rc::new(move |hovered, _window, cx| {
-            let _ = this.update(cx, |this, cx| {
-                if this.guide.stack_hovered != hovered {
-                    this.guide.stack_hovered = hovered;
-                    cx.notify();
-                }
-            });
-        });
-        Some(crate::session_results::stack_card(
-            &view,
-            None,
-            Some(on_pick),
-            Some(on_merge),
-            self.guide.stack_hovered.clone(),
-            Some(on_hover),
-            cx,
-        ))
     }
 }
 
@@ -3846,7 +3563,6 @@ impl Render for ThreadScreenView {
         let child = match self.child.clone() {
             ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
             ThreadChildSel::Issue(_) => self.render_issue_child(),
-            ThreadChildSel::Guide => self.render_guide_child(&model, window, cx),
         };
         v_flex()
             .track_focus(&self.focus_handle)
@@ -3947,10 +3663,8 @@ mod tests {
         for copy in [
             LINK_ISSUE_LABEL,
             NEW_ISSUE_LABEL,
-            NO_GUIDE_COPY,
             THREAD.copy.placeholder.as_str(),
             THREAD.copy.conversation.as_str(),
-            THREAD.copy.guide.as_str(),
         ] {
             assert!(!copy.to_lowercase().contains("thread"), "{copy}");
         }

@@ -31,8 +31,8 @@ pub const RUN_SKILL: &str = include_str!("runbook.md");
 pub const DISPATCH_HEADING: &str = "## Agents";
 
 /// The coding-work sections a dispatcher never reads: it hands that work
-/// to children instead (S-3: `## Show` is everyone's).
-pub const CODING_ONLY_HEADINGS: [&str; 3] = ["## Fan out", "## Pull requests", "## Guide"];
+/// to children instead (S-3: `## Show` and `## Stories` are everyone's).
+pub const CODING_ONLY_HEADINGS: [&str; 2] = ["## Fan out", "## Pull requests"];
 
 /// The playbook ONE run gets: a dispatcher's swaps the coding-work sections
 /// ([`CODING_ONLY_HEADINGS`]) for [`DISPATCH_HEADING`]; every other run
@@ -154,8 +154,8 @@ an API; use the screen only when the task needs a desktop app or the person's lo
 image's pixels; `list_windows` + `activate_window` put the right window in front), then \
 `screenshot` again to verify; an unverified effect is not success. A run works on one display at \
 a time; `screenshot {display}` switches.
-- Show the person a frame that matters: file a screenshot as a `label`ed picture on a Guide topic \
-(`exponential_guide_write`, through its returned upload line).
+- Show the person a frame that matters: a story, `exponential_show` with a `label`ed picture \
+(through its returned upload line).
 - Drive the screen from ONE subagent at a time on model `{model}` (the `Agent` tool's `model`, a \
 fast one by design): there is one pointer and one keyboard, so screen work never runs in parallel; \
 keep the plan and the final check in this conversation.
@@ -341,7 +341,6 @@ run `bun test`.\n"
             "exponential_issues",
             "exponential_people",
             "exponential_attachments",
-            "exponential_guide_write",
             "exponential_pr",
             "exponential_events",
             "exponential_show",
@@ -353,6 +352,7 @@ run `bun test`.\n"
             "exponential_sessions_message",
             "exponential_threads_get",
             "exponential_sessions_guide",
+            "exponential_guide_write",
             "exponential_sessions_get",
             "exponential_plan_propose",
             "exponential_report_bug",

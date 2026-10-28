@@ -1,4 +1,5 @@
-import type { ComponentProps, MouseEvent as ReactMouseEvent, ReactNode } from "react"
+import { useMemo, type ComponentProps, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import { bubbleRings, type StoryRing as StoryRingModel } from "@exp/domain-contract/stories"
 import {
   CHAT_FILTERS,
   CHATS_COPY,
@@ -25,6 +26,7 @@ import { conceptIcon } from "./icons.generated"
 import { menuProps } from "./menu"
 import { Pill } from "./pill"
 import { SkeletonRows } from "./skeleton"
+import { StoryRing, StoryRingButton } from "./stories"
 
 // Thread 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
 // screen's pieces, shared by the web-mobile page and the styleguide so they
@@ -104,50 +106,66 @@ const BUBBLE_RING: Record<NonNullable<AgentBubble[`ring`]> | `none`, string> = {
 
 /** One agent bubble: the 66 circle (a 3px ring around a 3px background gap
  *  around the agent's icon on bg muted) with the name under it. A tap opens
- *  the agent's chat; right-click / long-press = its agent menu. */
+ *  the agent's chat; right-click / long-press = its agent menu. S-3
+ *  (stories.json STORY RING): a bubble with a `story` ring wears THE
+ *  StoryRing instead and a tap opens the story viewer at it. */
 export function AgentBubbleButton({
   bubble,
+  story = null,
   onOpen,
+  onOpenStory,
   className,
 }: {
   bubble: AgentBubble
+  /** Its agent's story ring (`bubbleRings`); null = none. */
+  story?: StoryRingModel | null
   onOpen?: (agentId: string) => void
+  onOpenStory?: (key: string) => void
   className?: string
 }) {
   const size = CHATS_SHELL.bubble
   const ring = CHATS_SHELL.bubbleRing
+  const avatar = bubble.busy ? (
+    <AgentWorkingMark agent={null} className="size-6" />
+  ) : (
+    <AgentAvatar agent={bubble} className="size-6" />
+  )
+  const opensStory = story !== null && onOpenStory !== undefined
   return (
     <button
       type="button"
       data-testid={CHATS_TEST_IDS.agentBubble}
       data-ring={bubble.ring ?? `none`}
+      data-story={story ? story.key : undefined}
       {...menuProps(`agent`, bubble.agentId)}
-      onClick={onOpen ? () => onOpen(bubble.agentId) : undefined}
+      onClick={
+        opensStory ? () => onOpenStory(story.key) : onOpen ? () => onOpen(bubble.agentId) : undefined
+      }
       className={cn(
         `flex shrink-0 flex-col items-center gap-1.5 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
         className
       )}
       style={{ width: size + 6 }}
     >
-      <span
-        className={cn(`relative flex shrink-0 rounded-full`, BUBBLE_RING[bubble.ring ?? `none`])}
-        style={{ width: size, height: size, borderWidth: ring, padding: ring }}
-      >
-        {bubble.ring === null && (
-          <span aria-hidden className="absolute -inset-[3px] rounded-full border border-glass-stroke" />
-        )}
-        <span className="flex size-full items-center justify-center rounded-full bg-muted">
-          {bubble.busy ? (
-            <AgentWorkingMark agent={null} className="size-6" />
-          ) : (
-            <AgentAvatar agent={bubble} className="size-6" />
+      {story ? (
+        <StoryRing stories={story.stories} size={size}>
+          <span className="flex size-full items-center justify-center rounded-full bg-muted">{avatar}</span>
+        </StoryRing>
+      ) : (
+        <span
+          className={cn(`relative flex shrink-0 rounded-full`, BUBBLE_RING[bubble.ring ?? `none`])}
+          style={{ width: size, height: size, borderWidth: ring, padding: ring }}
+        >
+          {bubble.ring === null && (
+            <span aria-hidden className="absolute -inset-[3px] rounded-full border border-glass-stroke" />
           )}
+          <span className="flex size-full items-center justify-center rounded-full bg-muted">{avatar}</span>
         </span>
-      </span>
+      )}
       <span
         className={cn(
           `w-full truncate text-center text-xs`,
-          bubble.ring ? `font-medium text-foreground` : `text-muted-foreground`
+          bubble.ring || story?.unseen ? `font-medium text-foreground` : `text-muted-foreground`
         )}
       >
         {bubble.name}
@@ -156,24 +174,47 @@ export function AgentBubbleButton({
   )
 }
 
-/** The Chats header's agents row (`agentBubbles`, in `listAgents` order). */
+/** The Chats header's agents row (`agentBubbles`, in `listAgents` order).
+ *  S-3: each bubble wears its agent's story ring, the rings no bubble wears
+ *  follow in the same row (`bubbleRings`). */
 export function AgentBubbles({
   bubbles,
+  rings = [],
+  ringAvatar,
   onOpen,
+  onOpenStory,
   className,
 }: {
   bubbles: readonly AgentBubble[]
+  /** The story rings (`stories()`, ring order). */
+  rings?: readonly StoryRingModel[]
+  /** A trailing ring's avatar (a root ring's brand mark). */
+  ringAvatar?: (ring: StoryRingModel) => ReactNode
   onOpen?: (agentId: string) => void
+  onOpenStory?: (key: string) => void
   className?: string
 }) {
-  if (bubbles.length === 0) return null
+  const { byAgent, rest } = useMemo(
+    () => bubbleRings(bubbles.map((bubble) => bubble.agentId), rings),
+    [bubbles, rings]
+  )
+  if (bubbles.length === 0 && rest.length === 0) return null
   return (
     <div
       data-slot="agent-bubbles"
       className={cn(`-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]`, className)}
     >
       {bubbles.map((bubble) => (
-        <AgentBubbleButton key={bubble.agentId} bubble={bubble} onOpen={onOpen} />
+        <AgentBubbleButton
+          key={bubble.agentId}
+          bubble={bubble}
+          story={byAgent.get(bubble.agentId) ?? null}
+          onOpen={onOpen}
+          onOpenStory={onOpenStory}
+        />
+      ))}
+      {rest.map((ring) => (
+        <StoryRingButton key={ring.key} ring={ring} avatar={ringAvatar?.(ring)} onOpen={onOpenStory} />
       ))}
     </div>
   )

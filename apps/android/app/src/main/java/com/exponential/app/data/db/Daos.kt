@@ -415,6 +415,15 @@ interface MessageDao {
     )
     fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
 
+    // S-3 STORIES (stories.json): every session's OWN cards (posted into its
+    // own conversation) — the fold keeps the plan / question / surface ones.
+    @Query(
+        "SELECT messages.* FROM messages JOIN conversations ON conversations.id = messages.conversation_id " +
+            "WHERE messages.card IS NOT NULL AND messages.card != 'null' " +
+            "AND messages.author_session_id = conversations.session_id ORDER BY messages.created_at, messages.id",
+    )
+    fun observeOwnCards(): Flow<List<MessageEntity>>
+
     // #EXP-1399: the given messages by id (an `ask` mirror's ORIGIN card,
     // which lives in another tree than the conversation drawing it).
     @Query("SELECT * FROM messages WHERE id IN (:ids) ORDER BY created_at, id")
