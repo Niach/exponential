@@ -2594,3 +2594,53 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     expect(fresh.replaced).toBe(false)
   })
 })
+
+describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures`, async () => {
+  const { sessionReads } = await import(`@/db/schema`)
+  const { buildSurfaceCard, postShowCard, publishCardPicture } = await import(`@/lib/sessions/plan`)
+  const { loadStoryPictures } = await import(`@/lib/pr-stories`)
+  const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+  const caller = (userId: string) =>
+    sessionsRouter.createCaller({
+      session: { user: { id: userId } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+  const surface = { root: { id: `t`, component: `Text`, props: { text: `Green` } } }
+
+  it(`markStoriesSeen keeps the greatest mark on the ROOT's row and never marks the chat read`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part` } })
+    const me = caller(w.owner)
+    await me.markStoriesSeen({ sessionId: child.sessionId, at: 2_000_000_000_000 })
+    await me.markStoriesSeen({ sessionId: root.sessionId, at: 1_000_000_000_000 })
+    const [read] = await db
+      .select()
+      .from(sessionReads)
+      .where(and(eq(sessionReads.sessionId, root.sessionId), eq(sessionReads.userId, w.owner)))
+    // Capped at now, then never lowered.
+    expect(read!.storySeenAt!.getTime()).toBeLessThanOrEqual(Date.now())
+    expect(read!.storySeenAt!.getTime()).toBeGreaterThan(1_000_000_000_000)
+    expect(read!.readAt.getTime()).toBe(0)
+  })
+
+  it(`a surface story's picture resolves on its card and is a PR picture of the opener's subtree only`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `ios part` } })
+    const card = buildSurfaceCard({ surface, pictures: [{ label: `ios chats` }] })
+    const posted = await postShowCard({ userId: w.owner, sessionId: child.sessionId, card, replace: false })
+    expect(posted.uploads.map((upload) => upload.label)).toEqual([`ios chats`])
+    const attachmentId = crypto.randomUUID()
+    await publishCardPicture(
+      { messageId: posted.messageId, sessionId: child.sessionId, teamId: w.teamId, label: `ios chats`, uploaderId: w.owner },
+      { attachmentId, storageKey: `s3/${attachmentId}`, url: ``, width: 10, height: 20, contentType: `image/png`, sizeBytes: 1, filename: `a.png` }
+    )
+    const row = (await db.select().from(messages).where(eq(messages.id, posted.messageId)))[0]!
+    expect((row.card as { pictures: { attachmentId: string }[] }).pictures[0]!.attachmentId).toBe(attachmentId)
+    expect((await loadStoryPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
+    const sibling = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `web part` } })
+    expect(await loadStoryPictures(root.sessionId, sibling.sessionId)).toEqual([])
+  })
+})
