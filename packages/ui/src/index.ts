@@ -16,6 +16,8 @@ export * from "./ask-card"
 export * from "./dock"
 export * from "./ask-dock-specimen"
 export * from "./dock-card-specimen"
+// FEED-160: the web device-readiness specimen (the app's ?dev= capture).
+export * from "./device-readiness-specimen"
 // EXP-1280: THE rich plan / question card's form parts + its specimen.
 export * from "./plan-card"
 export * from "./plan-card-specimen"

@@ -43,6 +43,7 @@ import { parseRecordsQuery, recordsValue, type AppRecordRow } from "@exp/domain-
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { appMediaAllowed } from "@exp/domain-contract/apps"
+import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
@@ -461,7 +462,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
     policy: {
       functions: { ask: [`harness.mcp`, `exponential.*`] },
       // A granted typed action runs without the card; anything else asks.
-      onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(options.grantedTools?.() ?? [], call.name, call.args) ? true : options.consent.ask(call)),
+      onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(grantableTools(options.grantedTools?.()), call.name, call.args) ? true : options.consent.ask(call)),
       media: { baseUrl: origin, allowPrivate },
       urls: { baseUrl: origin, allowPrivate },
       openUrl: (url) => {

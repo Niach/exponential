@@ -26,13 +26,12 @@ import {
   emailDeliveries,
   creem_subscriptions,
   devices,
-  deviceKeys,
   userClientPlatforms,
   sessions as agentSessions,
   repositories,
 } from "@/db/schema"
 import { suppressSesDestination } from "@/lib/email"
-import { dropDeviceShare } from "@/lib/trpc/devices"
+import { clearDeviceKey, dropDeviceShare } from "@/lib/trpc/devices"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import {
   getTeamPlan,
@@ -1167,19 +1166,14 @@ export const adminRouter = router({
 
   // FEED-154: clear a machine id's pinned key (a squat that pinned first,
   // or a box whose key file was lost). The next proven register of the id
-  // pins again; until then nobody can add a share of it.
+  // pins again; until then nobody can add a share of it. FEED-159: under the
+  // pin lock, every row's share of the id goes with it (their hosted runs
+  // end, owners are told): `clearDeviceKey`.
   clearDeviceKey: adminProcedure
     .input(z.object({ deviceId: z.string().min(1).max(128) }))
-    .mutation(async ({ ctx, input }) => {
-      const cleared = await ctx.db
-        .delete(deviceKeys)
-        .where(eq(deviceKeys.deviceId, input.deviceId))
-        .returning({ deviceId: deviceKeys.deviceId })
-      if (cleared.length === 0) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `No key is pinned for that machine` })
-      }
-      return { ok: true }
-    }),
+    .mutation(async ({ ctx, input }) =>
+      clearDeviceKey(ctx.db, { ...input, actorId: ctx.session.user.id })
+    ),
 })
 
 async function isTargetAdmin(

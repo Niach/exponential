@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   clientIpFromRequest,
   proxyAttestedClientIp,
+  rateLimitIpAddress,
   rateLimitIpKey,
   resetWidgetRateLimitersForTest,
   takeWidgetConfirmationMailToken,
@@ -161,6 +162,20 @@ describe(`rateLimitIpKey (NEW-85)`, () => {
     [``, `unknown`],
   ])(`%s -> %s`, (raw, key) => {
     expect(rateLimitIpKey(raw)).toBe(key)
+  })
+})
+
+// FEED-159: the same grouping as a plain IP literal (Better Auth's limiter
+// only accepts a valid address).
+describe(`rateLimitIpAddress`, () => {
+  it.each([
+    [`203.0.113.7:51234`, `203.0.113.7`],
+    [`::ffff:203.0.113.7`, `203.0.113.7`],
+    [`2001:db8:aa:bb:1:2:3:4`, `2001:db8:aa:bb::`],
+    [`[fe80::1%25en0]:8443`, `fe80:0:0:0::`],
+    [`unknown`, `unknown`],
+  ])(`%s -> %s`, (raw, address) => {
+    expect(rateLimitIpAddress(raw)).toBe(address)
   })
 })
 

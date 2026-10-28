@@ -42,6 +42,7 @@ import { recordNotificationFanout } from "@/lib/metrics/registry"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { deriveSessionTitle } from "@/lib/sessions/brief"
 import { resolveMentions } from "@/lib/integrations/mentions"
+import { reporterFacingText } from "@/lib/reporter/report-text"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
 
@@ -1265,7 +1266,10 @@ export function fireAndForgetReporterResolution(args: {
           try {
             const result = await sendReporterResolutionEmail({
               to: email,
-              issueTitle,
+              // FEED-159: the title is member-editable text the reporter
+              // receives: its `@<email>` mentions read "@Support" like every
+              // other reporter egress (reporterFacingText).
+              issueTitle: reporterFacingText(issueTitle, email),
             })
             await db.insert(emailDeliveries).values({
               userId: null,

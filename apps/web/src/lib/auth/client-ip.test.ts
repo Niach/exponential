@@ -62,4 +62,27 @@ describe(`withProxyAttestedClientIp`, () => {
       vi.unstubAllEnvs()
     }
   })
+
+  // FEED-159: Better Auth's buckets group an IPv6 subscriber line by its /64
+  // like the widget limiter; IPv4 and IPv4-mapped clients key on the IPv4.
+  it.each([
+    [`6.6.6.6, 2001:db8:1:2:aaaa:bbbb:cccc:dddd`, `2001:db8:1:2::`],
+    [`2001:db8:1:2::9`, `2001:db8:1:2::`],
+    [`6.6.6.6, ::ffff:203.0.113.7`, `203.0.113.7`],
+    [`6.6.6.6, 203.0.113.7`, `203.0.113.7`],
+  ])(`rewrites %s to the limiter address %s`, (header, expected) => {
+    const request = new Request(`https://app.test/api/auth/sign-in/email`, {
+      headers: { "x-forwarded-for": header },
+    })
+    expect(withProxyAttestedClientIp(request).headers.get(`x-forwarded-for`)).toBe(expected)
+  })
+
+  it(`buckets two interface ids of one /64 together`, () => {
+    const at = (ip: string) =>
+      withProxyAttestedClientIp(
+        new Request(`https://app.test/api/auth/sign-in/email`, { headers: { "x-forwarded-for": ip } })
+      ).headers.get(`x-forwarded-for`)
+    expect(at(`2001:db8:1:2::1`)).toBe(at(`2001:db8:1:2:ffff::7`))
+    expect(at(`2001:db8:1:2::1`)).not.toBe(at(`2001:db8:1:3::1`))
+  })
 })

@@ -288,14 +288,31 @@ pub fn wake_phrase_placeholder(agent_name: &str) -> String {
 }
 
 /// #NEW-75: THE rule of the page's one-line inputs, as you type
-/// (`voiceTextInput`): every control character (Cc: C0, DEL, C1, tab and
-/// line breaks too) is dropped, then the value is cut to at most `max`
+/// (`voiceTextInput`): each run of whitespace controls (tab, LF, VT, FF,
+/// CR, NEL) becomes one space (#FEED-160), every other control character
+/// (Cc: C0, DEL, C1) is dropped, then the value is cut to at most `max`
 /// UTF-16 code units (the server's zod count), whole code points only.
 /// Trimming waits for the save.
 pub fn voice_text_input(value: &str, max: usize) -> String {
+    let is_space_control = |ch: char| matches!(ch, '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | '\u{85}');
+    let mut clean = String::with_capacity(value.len());
+    let mut in_run = false;
+    for ch in value.chars() {
+        if is_space_control(ch) {
+            if !in_run {
+                clean.push(' ');
+            }
+            in_run = true;
+            continue;
+        }
+        in_run = false;
+        if !ch.is_control() {
+            clean.push(ch);
+        }
+    }
     let mut out = String::new();
     let mut used = 0;
-    for ch in value.chars().filter(|ch| !ch.is_control()) {
+    for ch in clean.chars() {
         used += ch.len_utf16();
         if used > max {
             break;

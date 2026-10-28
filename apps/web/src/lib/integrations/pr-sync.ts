@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -911,7 +911,7 @@ export async function recordPullRequestOpened(
           // (it beat pr_open) learns it here.
           rootSessionId: existing.rootSessionId ?? args.rootSessionId,
           sessionId: existing.sessionId ?? args.sessionId,
-          ...(existing.state === `closed` ? { state } : {}),
+          ...(existing.state === `closed` ? { state, githubUpdatedAt: new Date() } : {}),
           updatedAt: new Date(),
         })
         .where(eq(pullRequests.id, existing.id))
@@ -1189,12 +1189,18 @@ export async function applyPullRequestReopened(opts: {
   pullRequestId: string
   base?: string | null
   draft?: boolean
+  /** The delivery's `updated_at` (GitHub's clock); omitted = now. */
+  githubUpdatedAt?: Date
 }): Promise<void> {
   await db.transaction(async (tx) => {
     await generateTxId(tx)
     const [row] = await tx
       .update(pullRequests)
-      .set({ state: opts.draft ? `draft` : `open`, updatedAt: new Date() })
+      .set({
+        state: opts.draft ? `draft` : `open`,
+        githubUpdatedAt: opts.githubUpdatedAt ?? new Date(),
+        updatedAt: new Date(),
+      })
       .where(and(eq(pullRequests.id, opts.pullRequestId), eq(pullRequests.state, `closed`)))
       .returning()
     if (row && opts.base) await writeBaseInTx(tx, row, opts.base)
@@ -1207,18 +1213,28 @@ export async function applyPullRequestReopened(opts: {
 export async function applyPullRequestDraft(opts: {
   pullRequestId: string
   draft: boolean
-  /** The delivery's own `updated_at`: the row flips only when it was last
-   *  written no later than that (an older delivery never wins). */
+  /** GitHub's `updated_at` of this state, stored as `github_updated_at`
+   *  (omitted = now: our own flip). */
+  githubUpdatedAt?: Date
+  /** A generic delivery's `updated_at`: the row flips only when its last
+   *  applied PR state (`github_updated_at`, never the row's `updated_at`,
+   *  which any write moves) is no newer (an older delivery never wins). */
   notBefore?: Date
 }): Promise<{ rootSessionId: string | null } | null> {
   const [row] = await db
     .update(pullRequests)
-    .set({ state: opts.draft ? `draft` : `open`, updatedAt: new Date() })
+    .set({
+      state: opts.draft ? `draft` : `open`,
+      githubUpdatedAt: opts.githubUpdatedAt ?? opts.notBefore ?? new Date(),
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(pullRequests.id, opts.pullRequestId),
         eq(pullRequests.state, opts.draft ? `open` : `draft`),
-        opts.notBefore ? lte(pullRequests.updatedAt, opts.notBefore) : undefined
+        opts.notBefore
+          ? or(isNull(pullRequests.githubUpdatedAt), lte(pullRequests.githubUpdatedAt, opts.notBefore))
+          : undefined
       )
     )
     .returning({ rootSessionId: pullRequests.rootSessionId })

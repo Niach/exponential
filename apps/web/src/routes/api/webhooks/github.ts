@@ -270,12 +270,19 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       return jsonResponse(200, { ok: true })
     }
 
+    // FEED-160: GitHub's own clock for this delivery's PR state; stored as
+    // the row's `github_updated_at`, the only thing a late delivery is
+    // compared with (our `updated_at` moves on any unrelated write).
+    const parsedAt = pr.updated_at ? new Date(pr.updated_at) : null
+    const changedAt = parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt : null
+
     if (payload.action === `reopened`) {
       if (row) {
         await applyPullRequestReopened({
           pullRequestId: row.id,
           base: pr.base?.ref ?? null,
           draft: pr.draft === true,
+          ...(changedAt ? { githubUpdatedAt: changedAt } : {}),
         })
       }
       return jsonResponse(200, { ok: true })
@@ -295,14 +302,14 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             : null
     if (row && draft !== null) {
       const explicit = payload.action === `converted_to_draft` || payload.action === `ready_for_review`
-      const changedAt = pr.updated_at ? new Date(pr.updated_at) : null
       const flipped = await applyPullRequestDraft({
         pullRequestId: row.id,
         draft,
         // The flag riding any other delivery: only when that delivery is
-        // not older than the row's last write (a late `synchronize` must
-        // not undo a newer `ready_for_review`).
-        ...(!explicit && changedAt && !Number.isNaN(changedAt.getTime()) ? { notBefore: changedAt } : {}),
+        // not older than the last PR state we applied (a late `synchronize`
+        // must not undo a newer `ready_for_review`). An explicit flip always
+        // applies and records its time.
+        ...(changedAt ? (explicit ? { githubUpdatedAt: changedAt } : { notBefore: changedAt }) : {}),
       })
       if (flipped && !draft) yoloEdge(flipped.rootSessionId)
       if (explicit) {

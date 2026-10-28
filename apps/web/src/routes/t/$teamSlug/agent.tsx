@@ -8,6 +8,7 @@ import {
   TraceSpecimen,
   AskDockSpecimen,
   DockCardSpecimen,
+  DeviceReadinessSpecimen,
   PlanCardSpecimen,
   ChatListSpecimen,
   ChatSelectionSpecimen,
@@ -69,7 +70,7 @@ const str = (value: unknown): string | undefined =>
 // EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
 // feedback kinds side by side, for the view catalog's `feedback-states`
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
-// CodeBlock specimens (`?dev=ask-dock` THE ask dock's, EXP-1280 `?dev=plan-card`
+// CodeBlock specimens (`?dev=ask-dock` THE ask dock's, FEED-160 `?dev=device-readiness` its specimen, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
 // `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens) (identical
@@ -80,6 +81,7 @@ const DEV_VIEWS = [
   `code-block`,
   `ask-dock`,
   `dock-card`,
+  `device-readiness`,
   `plan-card`,
   `chat-list`,
   `chat-menus`,
@@ -130,6 +132,8 @@ function AgentRoute() {
           <AskDockSpecimen />
         ) : dev === `dock-card` ? (
           <DockCardSpecimen />
+        ) : dev === `device-readiness` ? (
+          <DeviceReadinessSpecimen />
         ) : dev === `plan-card` ? (
           <PlanCardSpecimen />
         ) : dev === `chat-list` ? (

@@ -70,7 +70,7 @@ import { voiceSettingsOf } from "@/lib/trpc/voice"
 import { versionPayload } from "@/lib/client-version"
 import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
-import { pinDeviceKeyInTx, shareKeyRefusal, verifyDeviceKeyProof, type SquatRow } from "@/lib/device-keys"
+import { checkDeviceKeyProof, deviceKeyRejectionLog, pinDeviceKeyInTx, shareKeyRefusal, type SquatRow } from "@/lib/device-keys"
 import { hostedIds, withdrawShareInTx, type HostedByTeam } from "@/lib/device-shares"
 import { notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
 import {
@@ -614,30 +614,77 @@ export async function dropDeviceShare(
 }
 
 /** FEED-154: after the key holder's register committed, end the runs each
- *  squat hosted and tell its owner why their share went. */
+ *  squat hosted and tell its owner why their share went (`key`). FEED-159:
+ *  an instance admin's key reset settles every withdrawn row the same way
+ *  (`dropped`: the admin removed it). */
 async function settleSquats(
-  keyHolderId: string,
+  actorId: string,
   squats: readonly SquatRow[],
-  ending: ReadonlyMap<string, HostedByTeam>
+  ending: ReadonlyMap<string, HostedByTeam>,
+  cause: `key` | `dropped` = `key`
 ): Promise<void> {
   for (const squat of squats) {
     const hosted = ending.get(squat.id) ?? []
     const ended = await endHostedSessions(hostedIds(hosted), {
-      actorId: keyHolderId,
+      actorId,
       deviceLabel: squat.label,
       cause: `dropped`,
     })
     for (const { teamId, ids } of hosted) {
       await notifyDeviceShareRemoved({
         ownerId: squat.userId,
-        actorId: keyHolderId,
+        actorId,
         teamId,
         deviceLabel: squat.label,
         endedCount: ids.filter((id) => ended.includes(id)).length,
-        cause: `key`,
+        cause,
       })
     }
   }
+}
+
+/**
+ * FEED-154/FEED-159: an instance admin clears a machine id's pinned key (a
+ * squat that pinned first, or a box whose key file was lost). Under the
+ * machine's lock, like pinning: the pin goes, and so does every row's share
+ * of the id, since no row holds a pinned key any more (`withdrawShareInTx`:
+ * the runs those shares hosted for teammates end after commit, first-sharer
+ * agents disarm, each row's owner is told). The next proven register of the
+ * id pins again (`pinDeviceKeyInTx`); until then nobody can share it.
+ */
+export async function clearDeviceKey(
+  db: Context[`db`],
+  input: { deviceId: string; actorId: string }
+): Promise<{ ok: true; txid: number }> {
+  const { txid, withdrawn, ending } = await db.transaction(async (tx) => {
+    const id = await generateTxId(tx)
+    await lockDeviceShares(tx, input.deviceId)
+    const cleared = await tx
+      .delete(deviceKeys)
+      .where(eq(deviceKeys.deviceId, input.deviceId))
+      .returning({ deviceId: deviceKeys.deviceId })
+    if (cleared.length === 0) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: `No key is pinned for that machine` })
+    }
+    const rows = await tx
+      .select({
+        id: devices.id,
+        userId: devices.userId,
+        deviceId: devices.deviceId,
+        label: devices.label,
+        sharedTeamIds: devices.sharedTeamIds,
+      })
+      .from(devices)
+      .where(and(eq(devices.deviceId, input.deviceId), sql`cardinality(${devices.sharedTeamIds}) > 0`))
+    const withdrawn: SquatRow[] = rows.map((row) => ({ ...row, sharedTeamIds: row.sharedTeamIds ?? [] }))
+    const ending = new Map<string, HostedByTeam>()
+    for (const row of withdrawn) {
+      ending.set(row.id, await withdrawShareInTx(tx, row, row.sharedTeamIds))
+    }
+    return { txid: id, withdrawn, ending }
+  })
+  await settleSquats(input.actorId, withdrawn, ending, `dropped`)
+  return { ok: true, txid }
 }
 
 export const devicesRouter = router({
@@ -714,12 +761,11 @@ export const devicesRouter = router({
           return { ok: false, removed: true, keyAccepted: false, launchDefaults: null, launchDefaultsUpdatedAt: null }
         }
       }
-      const publicKey =
-        input.key && verifyDeviceKeyProof({ userId, deviceId: input.deviceId, proof: input.key }, now)
-          ? input.key.publicKey
-          : null
-      if (input.key && !publicKey) {
-        console.warn(`[devices.register] rejected a key proof for ${input.deviceId}`)
+      const proof = input.key ? checkDeviceKeyProof({ userId, deviceId: input.deviceId, proof: input.key }, now) : null
+      const publicKey = input.key && proof?.ok ? input.key.publicKey : null
+      if (proof && !proof.ok) {
+        // FEED-159: a stale/future `signedAt` logs how far the clock is off.
+        console.warn(deviceKeyRejectionLog(input.deviceId, proof))
       }
       const [row] = await ctx.db
         .insert(devices)
@@ -1790,31 +1836,27 @@ export const devicesRouter = router({
     .input(z.object({ deviceId: deviceIdInput }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      const [probe] = await ctx.db
-        .select({ sharedTeamIds: devices.sharedTeamIds })
-        .from(devices)
-        .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
-        .limit(1)
-      if (!probe) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
-      }
-      const disarmable: string[] = []
-      for (const teamId of probe.sharedTeamIds ?? []) {
-        const member = await getTeamMember(userId, teamId)
-        if (member?.role !== `owner`) disarmable.push(teamId)
-      }
       const { txid, ending, label } = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         await lockDeviceShares(tx, input.deviceId)
+        // FEED-159: the shares (and so which teams disarm) are read HERE,
+        // locked, never from a probe before the transaction: a team shared
+        // in between would keep its agents armed on a removed machine.
         const [row] = await tx
           .select({ id: devices.id, label: devices.label, sharedTeamIds: devices.sharedTeamIds })
           .from(devices)
           .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
           .limit(1)
+          .for(`update`)
         if (!row) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
         }
         const shared = row.sharedTeamIds ?? []
+        const disarmable: string[] = []
+        for (const teamId of shared) {
+          const member = await getTeamMember(userId, teamId)
+          if (member?.role !== `owner`) disarmable.push(teamId)
+        }
         const ending: string[] = []
         for (const teamId of shared) {
           ending.push(...(await foreignHostedSessionIds(tx, userId, teamId, [input.deviceId])))
@@ -1822,7 +1864,7 @@ export const devicesRouter = router({
         const pause = await firstSharerTeams(
           tx,
           { id: row.id, deviceId: input.deviceId },
-          disarmable.filter((teamId) => shared.includes(teamId))
+          disarmable
         )
         if (pause.length > 0) {
           await pauseDeviceAgents(tx, pause, input.deviceId)

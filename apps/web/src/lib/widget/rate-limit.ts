@@ -268,19 +268,36 @@ function ipv6Groups(text: string): number[] | null {
  * anything unparseable keys on its own lowercased text.
  */
 export function rateLimitIpKey(raw: string): string {
+  const { address, v6 } = limiterAddress(raw)
+  return v6 ? `${address}/64` : address
+}
+
+/**
+ * FEED-159: `rateLimitIpKey` as a plain IP literal, for a limiter that
+ * insists on a valid address (Better Auth's `getIp` drops anything else):
+ * IPv4 and IPv4-mapped = the IPv4 address, IPv6 = the /64's network
+ * address (`2001:db8:1:2::`), unparseable = its own lowercased text.
+ */
+export function rateLimitIpAddress(raw: string): string {
+  return limiterAddress(raw).address
+}
+
+function limiterAddress(raw: string): { address: string; v6: boolean } {
   let text = raw.trim().toLowerCase()
   const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(text)
   if (bracketed) text = bracketed[1]!
   else if (/^[\d.]+:\d+$/.test(text)) text = text.slice(0, text.lastIndexOf(`:`))
   const zone = text.indexOf(`%`)
   if (zone !== -1) text = text.slice(0, zone)
-  if (ipv4Octets(text)) return ipv4Octets(text)!.join(`.`)
+  const v4 = ipv4Octets(text)
+  if (v4) return { address: v4.join(`.`), v6: false }
   const groups = text.includes(`:`) ? ipv6Groups(text) : null
-  if (!groups) return text || `unknown`
+  if (!groups) return { address: text || `unknown`, v6: false }
   if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
-    return [groups[6]! >> 8, groups[6]! & 255, groups[7]! >> 8, groups[7]! & 255].join(`.`)
+    const mapped = [groups[6]! >> 8, groups[6]! & 255, groups[7]! >> 8, groups[7]! & 255]
+    return { address: mapped.join(`.`), v6: false }
   }
-  return `${groups.slice(0, 4).map((g) => g.toString(16)).join(`:`)}::/64`
+  return { address: `${groups.slice(0, 4).map((g) => g.toString(16)).join(`:`)}::`, v6: true }
 }
 
 /** The per-IP limiter key of a request: its proxy-attested client address

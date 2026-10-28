@@ -4,7 +4,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // EXP-1291 — every PR of the member's teams (the PR state that left
 // `issues`). Team-visible: an issue's PR badge is team data, a private
-// thread's PR included (GitHub shows it anyway). Every column syncs.
+// thread's PR included (GitHub shows it anyway). Every column syncs but
+// FEED-160's `github_updated_at` (the webhook's draft guard, server-only).
 export const PULL_REQUEST_COLUMNS = [
   `id`,
   `team_id`,

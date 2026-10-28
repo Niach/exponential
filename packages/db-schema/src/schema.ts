@@ -2518,6 +2518,10 @@ export const pullRequests = pgTable(
     ),
     state: prStateEnum().notNull().default(`open`),
     mergedAt: timestamp(`merged_at`, { withTimezone: true }),
+    // FEED-160: GitHub's `updated_at` of the last PR state (draft/open) we
+    // applied; a generic delivery older than it never flips the draft flag.
+    // `updated_at` moves on any write, so it cannot guard. Server-only.
+    githubUpdatedAt: timestamp(`github_updated_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [

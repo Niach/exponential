@@ -901,6 +901,16 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(between)).toMatchObject({ status: `idle`, endedAt: null, blocked: null, stoppedAt: null })
     expect(await lines(rootId, `session_interrupted`, between)).toHaveLength(0)
 
+    // FEED-160: a deliberate end (`end_session`: `midTurn: false`, no
+    // `lost`) on a running row that ran a turn ENDS: never guessed lost.
+    const deliberate = await w.child(rootId, `deliberate end`)
+    await w.host.claim({ sessionId: deliberate, deviceId: w.deviceId })
+    await w.host.report({ sessionId: deliberate, status: `running`, busy: true })
+    await w.host.report({ sessionId: deliberate, busy: false })
+    await w.host.report({ sessionId: deliberate, status: `ended`, midTurn: false })
+    expect(await row(deliberate)).toMatchObject({ status: `ended`, blocked: null })
+    expect(await lines(rootId, `session_interrupted`, deliberate)).toHaveLength(0)
+
     // Its device continuing it reports: the flag clears.
     await w.host.report({ sessionId: killed, status: `running`, busy: true })
     expect(await row(killed)).toMatchObject({ busy: true, blocked: null })

@@ -2,6 +2,8 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
+import { GRANTABLE_ACTIONS } from "@/lib/app-grants"
+import { apps } from "@/db/schema"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
@@ -67,6 +69,22 @@ export function isCloudInstance(): boolean {
   return (process.env.CLOUD_INSTANCE ?? ``).toLowerCase() === `true`
 }
 
+/** FEED-159: drops every stored app grant that is not grantable any more
+ *  (lib/app-grants.ts), on every app at once. Idempotent; touches only the
+ *  rows that carry one, order of the kept names preserved. */
+export async function stripUngrantableGrants(): Promise<void> {
+  const keep = sql`${sql.param([...GRANTABLE_ACTIONS])}::text[]`
+  await db
+    .update(apps)
+    .set({
+      grantedTools: sql`COALESCE((SELECT jsonb_agg(t.name ORDER BY t.ord) FROM jsonb_array_elements_text(${apps.grantedTools}) WITH ORDINALITY AS t(name, ord) WHERE t.name = ANY(${keep})), '[]'::jsonb)`,
+      updatedAt: new Date(),
+    })
+    .where(
+      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${apps.grantedTools}) AS g(name) WHERE g.name <> ALL(${keep}))`
+    )
+}
+
 let bootstrapPromise: Promise<void> | null = null
 
 // One attempt of the boot-time work, throwing on failure. Exported for tests;
@@ -74,6 +92,9 @@ let bootstrapPromise: Promise<void> | null = null
 export async function runBootstrapPass(): Promise<void> {
   await applyCustomSql()
   await promoteInitialAdmins()
+  // FEED-159: a deploy that made an action owner-only or destructive strips
+  // the grants apps still store for it.
+  await stripUngrantableGrants()
 }
 
 const RETRY_BASE_DELAY_MS = 5 * 1000
