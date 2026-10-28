@@ -52,9 +52,12 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
     } else {
         theme.muted
     };
-    let brand = || {
-        crate::coding_selects::agent_mark(agent.unwrap_or_default())
+    // S-3: the lead is the plain chat glyph (`shell.chatLead`), never the
+    // brand mark (that is the Assistant's avatar now).
+    let chat_glyph = || {
+        Icon::new(registry::concept_by_name(&CHATS.shell.chat_lead).unwrap_or(registry::ACTION_CHAT))
             .with_size(px(GLYPH_PX))
+            .text_color(theme.foreground)
             .into_any_element()
     };
     let body = match lead {
@@ -68,7 +71,7 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
             .with_size(px(GLYPH_PX))
             .text_color(crate::pr_rows::PR_MERGED_TINT.to_hsla())
             .into_any_element(),
-        ChatLead::NeedsYou | ChatLead::Waiting => brand(),
+        ChatLead::NeedsYou | ChatLead::Waiting => chat_glyph(),
     };
     div()
         .relative()
@@ -365,63 +368,80 @@ pub(crate) fn chat_selection_bar(
     bar.into_any_element()
 }
 
+/// S-3: THE agent avatar glyph: the working mark while busy, the
+/// Exponential brand mark (foreground) for the viewer's Assistant, else the
+/// agent's icon in its colour.
+pub(crate) fn agent_avatar_glyph(icon: &str, color: &str, assistant: bool, busy: bool, size: f32, cx: &App) -> AnyElement {
+    if busy {
+        crate::coding_selects::agent_working_mark(None, size).into_any_element()
+    } else if assistant {
+        Icon::from(crate::icons::ExpIcon::Logo)
+            .with_size(px(size))
+            .text_color(cx.theme().foreground)
+            .into_any_element()
+    } else {
+        crate::icons::agent_icon(Some(icon), Some(color)).with_size(px(size)).into_any_element()
+    }
+}
+
+/// THE agent circle: `size` px, a `ring_width` ring (`ring` None = the glass
+/// hairline) around a `ring_width` background gap around `glyph` on bg
+/// muted. The bubble (66) and the composer agent row (40) both paint it.
+pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Option<gpui::Hsla>, glyph: AnyElement, cx: &App) -> Div {
+    let theme = cx.theme();
+    div()
+        .relative()
+        .size(px(size))
+        .flex_shrink_0()
+        .rounded_full()
+        .border(px(ring_width))
+        .border_color(ring.unwrap_or(gpui::transparent_black()))
+        .p(px(ring_gap))
+        .when(ring.is_none(), |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .top(px(-ring_width))
+                    .left(px(-ring_width))
+                    .right(px(-ring_width))
+                    .bottom(px(-ring_width))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla()),
+            )
+        })
+        .child(
+            div()
+                .size_full()
+                .rounded_full()
+                .bg(theme.muted)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(glyph),
+        )
+}
+
 /// One agent bubble: the 66 circle (a 3px ring around a 3px background gap
-/// around the agent's icon on bg muted; the working mark while busy) with
-/// the name under it. The caller hangs the click and the agent menu.
+/// around the agent's icon on bg muted; the working mark while busy; S-3:
+/// the brand mark for the viewer's Assistant) with the name under it. The
+/// caller hangs the click and the agent menu.
 pub(crate) fn agent_bubble(bubble: &AgentBubble, cx: &App) -> Div {
     let theme = cx.theme();
     let shell = &CHATS.shell;
     let ring = match bubble.ring {
-        Some(AgentRing::NeedsYou) => theme::tokens::YELLOW.to_hsla(),
-        Some(AgentRing::Unread) => theme.foreground,
-        None => gpui::transparent_black(),
+        Some(AgentRing::NeedsYou) => Some(theme::tokens::YELLOW.to_hsla()),
+        Some(AgentRing::Unread) => Some(theme.foreground),
+        None => None,
     };
     let agent = &bubble.agent;
-    let glyph = if agent.busy {
-        crate::coding_selects::agent_working_mark(None, GLYPH_PX).into_any_element()
-    } else {
-        crate::icons::agent_icon(Some(&agent.icon), Some(&agent.color))
-            .with_size(px(GLYPH_PX))
-            .into_any_element()
-    };
+    let glyph = agent_avatar_glyph(&agent.icon, &agent.color, agent.assistant, agent.busy, GLYPH_PX, cx);
     v_flex()
         .w(px(shell.bubble + 6.))
         .flex_shrink_0()
         .items_center()
         .gap_1p5()
-        .child(
-            div()
-                .relative()
-                .size(px(shell.bubble))
-                .flex_shrink_0()
-                .rounded_full()
-                .border(px(shell.bubble_ring))
-                .border_color(ring)
-                .p(px(shell.bubble_ring))
-                .when(bubble.ring.is_none(), |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .top(px(-shell.bubble_ring))
-                            .left(px(-shell.bubble_ring))
-                            .right(px(-shell.bubble_ring))
-                            .bottom(px(-shell.bubble_ring))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla()),
-                    )
-                })
-                .child(
-                    div()
-                        .size_full()
-                        .rounded_full()
-                        .bg(theme.muted)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(glyph),
-                ),
-        )
+        .child(agent_circle(shell.bubble, shell.bubble_ring, shell.bubble_ring, ring, glyph, cx))
         .child(
             div()
                 .w_full()
@@ -432,6 +452,83 @@ pub(crate) fn agent_bubble(bubble: &AgentBubble, cx: &App) -> Div {
                 .text_color(if bubble.ring.is_some() { theme.foreground } else { theme.muted_foreground })
                 .child(SharedString::from(agent.name.clone())),
         )
+}
+
+/// A composer agent row tap (the option id; the temporary id = Temporary
+/// session).
+pub(crate) type OnAgentPick = Rc<dyn Fn(String, &mut Window, &mut App)>;
+
+/// S-3 — THE composer agent row (composer-home.json `agentRow`, styleguide
+/// `composer-agent-row`): the muted label line (`To <name>` / `Temporary
+/// session`) `labelToRow` over the single-select circles = the agent bubble
+/// at `size` (selected = the foreground ring, others the glass hairline, no
+/// name under it: the name is the tooltip), the dotted circle
+/// (`temporaryIcon`) last; scrolls sideways; `rowToCard` over the card.
+pub(crate) fn composer_agent_row(
+    state: &domain::composer_agent_row::ComposerAgentRowState<'_>,
+    on_pick: OnAgentPick,
+    cx: &App,
+) -> AnyElement {
+    let spec = &*domain::composer_agent_row::COMPOSER_AGENT_ROW;
+    let theme = cx.theme();
+    let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+    let glyph_size = 18.;
+    let mut circles: Vec<AnyElement> = Vec::new();
+    let mut option = |id: String, name: String, glyph: AnyElement| {
+        let selected = state.selected == id;
+        let ring = selected.then_some(theme.foreground);
+        let on_pick = on_pick.clone();
+        let pick = id.clone();
+        circles.push(
+            div()
+                .id(SharedString::from(spec.test_ids.option.replace("{id}", &id)))
+                .flex_shrink_0()
+                .cursor_pointer()
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx))
+                .on_click(move |_, window, cx| on_pick(pick.clone(), window, cx))
+                .child(agent_circle(spec.size, spec.ring_width, spec.ring_gap, ring, glyph, cx))
+                .into_any_element(),
+        );
+    };
+    for agent in &state.agents {
+        let glyph = agent_avatar_glyph(
+            agent.icon.as_deref().unwrap_or(defaults.icon.as_str()),
+            agent.color.as_deref().unwrap_or(defaults.color.as_str()),
+            agent.is_assistant(),
+            false,
+            glyph_size,
+            cx,
+        );
+        option(agent.id.clone(), agent.name.clone().unwrap_or_default(), glyph);
+    }
+    let dotted = Icon::new(registry::concept_by_name(&spec.temporary_icon).unwrap_or(registry::UI_ICON_PLACEHOLDER))
+        .with_size(px(glyph_size))
+        .text_color(theme.muted_foreground)
+        .into_any_element();
+    option(spec.temporary_id.clone(), spec.copy.temporary.clone(), dotted);
+    v_flex()
+        .id(SharedString::from(spec.test_ids.row.clone()))
+        .w_full()
+        .min_w_0()
+        .px_1()
+        .pb(px((spec.row_to_card - 8.).max(0.)))
+        .gap(px(spec.label_to_row))
+        .child(
+            div()
+                .id(SharedString::from(spec.test_ids.label.clone()))
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child(SharedString::from(state.label.clone())),
+        )
+        .child(
+            h_flex()
+                .id("composer-agent-circles")
+                .w_full()
+                .gap(px(spec.gap))
+                .overflow_x_scroll()
+                .children(circles),
+        )
+        .into_any_element()
 }
 
 /// The Chats header's agents row: the bubbles in `list_agents` order,

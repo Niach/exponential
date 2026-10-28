@@ -188,6 +188,9 @@ export function SessionComposer({
   teamId,
   sessionId,
   agentId,
+  appId,
+  deviceId,
+  disabled = false,
   surface = `session`,
   onSent,
   placeholder,
@@ -205,6 +208,13 @@ export function SessionComposer({
   sessionId: string | null
   /** The agent a first message goes to (`sessionId` null). */
   agentId?: string
+  /** VAPP-110: or the app whose editor session a first message opens
+   *  (`sessions.send({appId, deviceId})`). */
+  appId?: string
+  /** The device a fresh editor session runs on (an app send). */
+  deviceId?: string
+  /** Nothing can be sent (an app editor with no device). */
+  disabled?: boolean
   /** composer-menu.json: a thread / a session, or an agent chat. */
   surface?: Exclude<ComposerMenuSurface, `launch`>
   /** The conversation a first message opened. */
@@ -350,7 +360,7 @@ export function SessionComposer({
   const empty = text.trim().length === 0 && files.length === 0
 
   const send = async (confirmed = false) => {
-    if (sending || empty) return
+    if (sending || empty || disabled) return
     // A slash command is the WHOLE message: no attachments around it, and a
     // context-discarding one asks first (the device runs what it receives).
     const command = parseSteerCommand(text, commands)
@@ -380,7 +390,7 @@ export function SessionComposer({
       }
       const result = await trpc.sessions.send.mutate({
         teamId,
-        ...(sessionId ? { sessionId } : { agentId }),
+        ...(sessionId ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
         text: text.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       })
@@ -535,7 +545,7 @@ export function SessionComposer({
             <ComposerSubmit
               stop={showStop}
               aria-label={showStop ? `Stop` : `Send`}
-              disabled={!showStop && (empty || sending)}
+              disabled={!showStop && (empty || sending || disabled)}
               onClick={showStop ? stop : () => void send()}
             >
               {sending ? <Spinner size={16} label="Sending" /> : undefined}

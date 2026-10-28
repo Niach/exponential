@@ -331,6 +331,12 @@ class AgentComposerViewModel @Inject constructor(
      * shown.
      */
     private val _chatRepoId = MutableStateFlow("")
+    /** S-3: the + menu's Repository › (a team with more than one). */
+    val chatRepoId: StateFlow<String> = _chatRepoId
+
+    fun setChatRepo(repoId: String) {
+        _chatRepoId.value = repoId
+    }
 
     /** EXP-481: "Resume previous session" — ON whenever it is offerable; a
      * manual flip sticks for the page's lifetime. */

@@ -48,6 +48,8 @@ import com.exponential.app.ui.components.ChatFilterChips
 import com.exponential.app.ui.components.ChatArchivedRow
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.ChatRow
+import com.exponential.app.ui.components.AgentChatRowItem
+import com.exponential.app.ui.components.ChatSectionHeader
 import com.exponential.app.ui.components.ChatSelectionBar
 import com.exponential.app.ui.components.SelectionBarSlot
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -113,6 +115,8 @@ fun ThreadsScreen(
     val list by viewModel.chatList.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
+    val agentRows by viewModel.agentRows.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val facts by viewModel.rootFacts.collectAsStateWithLifecycle()
     val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
@@ -180,6 +184,8 @@ fun ThreadsScreen(
                 },
                 onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
                 onLongPressAgent = { agentMenuFor = it },
+                agentRows = agentRows,
+                onOpenAgentRow = { row -> row.sessionId?.let(onOpenThread) ?: onOpenAgent(row.agentId) },
                 onOpenInbox = onOpenInbox,
                 inboxUnread = inboxUnread,
                 view = view,
@@ -264,6 +270,10 @@ fun ChatsContent(
     /** #EXP-1388: the selection (empty = not selecting). */
     selected: List<String> = emptyList(),
     onToggleSelect: (rootSessionId: String) -> Unit = {},
+    /** S-3: the AGENT rows pinned on top (Assistant first); a tap opens the
+     *  agent's chat. */
+    agentRows: List<Chats.AgentChatRow> = emptyList(),
+    onOpenAgentRow: (Chats.AgentChatRow) -> Unit = {},
 ) {
     // #EXP-1384: the header's search pushes the phone search; the inbox
     // circle is this list's own (the specimen drives it).
@@ -296,6 +306,20 @@ fun ChatsContent(
         }
         item(key = "__filters__") {
             ChatFilterChips(selected = filter, counts = list.counts, onSelect = onSelectFilter)
+        }
+        // S-3: the pinned AGENTS section, its headers only while an agent
+        // row exists.
+        val sections = agentRows.isNotEmpty() && !archivedPage
+        if (sections) {
+            item(key = "__section_agents__") { ChatSectionHeader(Chats.Copy.SECTION_AGENTS) }
+            itemsIndexed(agentRows, key = { _, row -> "agent_${row.agentId}" }) { index, row ->
+                AgentChatRowItem(
+                    row = row,
+                    onClick = { if (!selecting) onOpenAgentRow(row) },
+                    divider = index < agentRows.lastIndex,
+                )
+            }
+            item(key = "__section_chats__") { ChatSectionHeader(Chats.Copy.SECTION_CHATS) }
         }
         if (archivedEntry) {
             item(key = "__archived__") {

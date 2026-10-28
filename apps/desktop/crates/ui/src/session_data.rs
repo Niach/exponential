@@ -81,6 +81,52 @@ pub(crate) fn session(session_id: &str, cx: &App) -> Option<SessionRow> {
     store.collections().sessions.read(cx).get(session_id).cloned()
 }
 
+/// S-3: the teams whose Assistant this app run already ensured.
+#[derive(Default)]
+struct EnsuredAssistants(HashSet<String>);
+
+impl gpui::Global for EnsuredAssistants {}
+
+/// S-3 `agents.ensureAssistant({teamId})`: the composer home, the chats list
+/// and the Settings Agents group call it on mount; it runs ONCE per team per
+/// app run (fire-and-forget, the synced `agents` row is the answer; a
+/// failure only logs and re-arms).
+pub(crate) fn ensure_assistant(team_id: &str, cx: &mut App) {
+    if team_id.is_empty() {
+        return;
+    }
+    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains(team_id)) {
+        return;
+    }
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        return;
+    };
+    cx.default_global::<EnsuredAssistants>().0.insert(team_id.to_string());
+    let team = team_id.to_string();
+    cx.spawn(async move |cx| {
+        let probe = team.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::agents::ensure_assistant(&trpc, &probe) })
+            .await;
+        if let Err(err) = result {
+            log::warn!("[ui] agents.ensureAssistant failed: {err}");
+            let _ = cx.update(|cx| {
+                cx.default_global::<EnsuredAssistants>().0.remove(&team);
+            });
+        }
+    })
+    .detach();
+}
+
+/// S-3: the viewer's own Assistant in `team_id` (synced row), if any.
+pub(crate) fn my_assistant(team_id: &str, cx: &App) -> Option<domain::rows::AgentDefRow> {
+    let store = Store::try_global(cx)?;
+    let me = signed_in_user(cx);
+    let agents = store.collections().agents.read(cx);
+    domain::agent_settings::my_assistant(agents.iter(), team_id, me.as_deref()).cloned()
+}
+
 /// NEW-2: one synced agent DEFINITION (`agents` shape).
 pub(crate) fn agent_def(agent_id: &str, cx: &App) -> Option<domain::rows::AgentDefRow> {
     let store = Store::try_global(cx)?;

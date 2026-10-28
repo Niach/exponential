@@ -64,9 +64,10 @@ private val DiscFill: Color = DesignTokens.Palette.Muted
 /** The inbox circle's unread dot. */
 val ChatsInboxDot: Color = DesignTokens.Semantic.Blue
 
-/** The 52 lead DISC of a chat row (`lead`): needs_you = the brand mark with
- *  the amber badge, working = the working mark, open / merged = the root's PR
- *  glyph (emerald / violet), waiting = the bare brand mark. */
+/** The 52 lead DISC of a chat row (`lead`): S-3 needs_you = the chat glyph
+ *  (`shell.chatLead`) with the amber badge, working = the working mark, open
+ *  / merged = the root's PR glyph (emerald / violet), waiting = the plain
+ *  chat glyph. */
 @Composable
 fun ChatLeadDisc(
     lead: Chats.ChatLead,
@@ -83,12 +84,23 @@ fun ChatLeadDisc(
         contentAlignment = Alignment.Center,
     ) {
         when (lead) {
-            Chats.ChatLead.NeedsYou -> AgentRunMark(
-                agent = agent,
-                state = SessionTree.SessionState.NeedsYou,
-                size = glyph,
-                badgeSize = size * 0.18f,
-            )
+            // S-3 (chats.json `shell.chatLead`): the plain chat glyph, never
+            // the brand mark; needs you = that glyph + the amber badge.
+            Chats.ChatLead.NeedsYou -> Box {
+                Icon(
+                    ExpIcons.actionChat,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.size(glyph),
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .size(size * 0.18f)
+                        .clip(CircleShape)
+                        .background(NeedsInputAmber, CircleShape),
+                )
+            }
             Chats.ChatLead.Working -> AgentWorkingMark(agent = agent, size = glyph)
             Chats.ChatLead.Open -> Icon(
                 ExpIcons.prOpen,
@@ -102,11 +114,11 @@ fun ChatLeadDisc(
                 tint = DesignTokens.Avatar.Violet,
                 modifier = Modifier.size(glyph),
             )
-            Chats.ChatLead.Waiting -> AgentRunMark(
-                agent = agent,
-                state = SessionTree.SessionState.Idle,
-                size = glyph,
-                badgeSize = size * 0.18f,
+            Chats.ChatLead.Waiting -> Icon(
+                ExpIcons.actionChat,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.size(glyph),
             )
         }
     }
@@ -203,6 +215,95 @@ fun ChatRow(
                     Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline)
                         .then(if (isSelected) Modifier else Modifier.background(GlassTokens.StrokeCard)),
                 )
+            }
+        }
+    }
+}
+
+/** S-3 (chats.json `copy.sections`): the Agents / Chats header over the
+ *  list's two sections (only while an agent row exists). */
+@Composable
+fun ChatSectionHeader(label: String, modifier: Modifier = Modifier) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = ChatRowEdge, end = ChatRowEdge, top = 12.dp, bottom = 4.dp)
+            .testTag("chat-section-header"),
+    )
+}
+
+/**
+ * S-3 (chats.json `agentChatRows`): ONE agent row pinned on top of the list
+ * = THE chat row's layout with the agent's disc as its lead (the viewer's
+ * Assistant = the brand mark), its name, the conversation's preview, time
+ * and unread badge. A tap opens the agent's chat.
+ */
+@Composable
+fun AgentChatRowItem(
+    row: Chats.AgentChatRow,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    divider: Boolean = true,
+) {
+    val unread = row.unreadCount > 0
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val timeColor = when {
+        row.needsYou -> NeedsInputAmber
+        unread -> MaterialTheme.colorScheme.onSurface
+        else -> muted
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag("chat-agent-row")
+            .padding(start = ChatRowEdge),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AgentBubbleDisc(
+            icon = row.icon,
+            color = row.color,
+            assistant = row.assistant,
+            size = Chats.Shell.LEAD_DISC.dp,
+            ring = Color.Transparent,
+            ringWidth = 0.dp,
+            ringGap = 0.dp,
+            glyph = (Chats.Shell.LEAD_DISC * 0.5f).dp,
+            busy = row.busy,
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (unread || row.needsYou) FontWeight.SemiBold else FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (row.time.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(row.time, style = MaterialTheme.typography.labelMedium, color = timeColor, maxLines = 1)
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ChatPreviewText(row.preview, Modifier.weight(1f))
+                    if (unread) {
+                        Spacer(Modifier.width(8.dp))
+                        UnreadBadge(row.unreadCount, amber = row.needsYou)
+                    }
+                }
+            }
+            if (divider) {
+                Box(Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
             }
         }
     }

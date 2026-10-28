@@ -21,9 +21,8 @@ use gpui_component::menu::PopupMenu;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::chat_screen::{
-    agent_chip, composer_menu_rows, ComposerMenuConditions, ComposerMenuRow, MENU_ADD_FILE,
-    MENU_COMPUTER_USE, MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_MESSAGE_AGENT, MENU_ULTRACODE,
-    PLUS_TOOLTIP,
+    composer_menu_rows, ComposerMenuConditions, ComposerMenuRow, ComposerSurface, MENU_ADD_FILE,
+    MENU_COMPUTER_USE, MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_ULTRACODE, PLUS_TOOLTIP,
 };
 use crate::composer::{
     composer_tool, session_composer_card, session_composer_field, session_context_ring, session_model_pin,
@@ -50,20 +49,6 @@ pub(super) enum Phase {
 pub(super) const SAMPLE_DEVICE: &str = "mint · This device";
 pub(super) const SAMPLE_ACCOUNT: &str = "danny@example.dev";
 pub(super) const SAMPLE_REPOSITORY: &str = "Niach/exponential";
-
-/// NEW-3: the agent a message goes to (the agent case's chip).
-fn sample_agent() -> domain::session_tree::AgentRow {
-    domain::session_tree::AgentRow {
-        agent_id: "sg-agent-triage".to_string(),
-        team_id: "sg-team".to_string(),
-        name: "Triage".to_string(),
-        icon: "bug".to_string(),
-        color: "#f59e0b".to_string(),
-        busy: false,
-        needs_you: false,
-        assistant: false,
-    }
-}
 
 /// The model on the line, THE model list's alias: `opus`, `haiku` while idle.
 pub(super) fn sample_model(phase: Phase) -> &'static str {
@@ -259,19 +244,13 @@ impl Render for ComposerSpecimen {
             // In a session: model … the context ring.
             _ => (model, None, context_ring(prefix, phase, cx)),
         };
-        // NEW-3: a message to an agent runs on the agent's own device and
-        // login: no options line at all.
-        // N-12: before a start the options line sits UNDER the card; in a
-        // session the pins sit IN its tool row, the ring beside Stop.
-        let (controls, under) = if self.to_agent {
+        // S-3: NO options line under any composer (Device, Account, Model
+        // and Repository are "+" rows); a session keeps its context ring.
+        let _ = (device_pin, model_pin, repository);
+        let (controls, under): (SessionComposerControls, Option<Div>) = if self.to_agent || phase == Phase::Start {
             (SessionComposerControls::default(), None)
-        } else if phase == Phase::Start {
-            (
-                SessionComposerControls::default(),
-                Some(h_flex().w_full().min_w_0().px_1().pt_1p5().gap_2().items_center().children(model_pin).children(repository)),
-            )
         } else {
-            (SessionComposerControls { device_pin, model_pin, context_ring }, None)
+            (SessionComposerControls { device_pin: None, model_pin: None, context_ring }, None)
         };
         let replies = self
             .replies
@@ -328,7 +307,7 @@ fn agent_composer_specimen(key: &'static str, window: &mut Window, cx: &mut App)
             ..ComposerSpecimen::new(
                 key,
                 Phase::Start,
-                domain::contract::COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER,
+                crate::home_greeting::HOME_PLACEHOLDER,
                 window,
                 cx,
             )
@@ -366,19 +345,28 @@ impl Render for OpenMenu {
 /// (Implement issue ›, Message an agent ›) go: they exist only before a
 /// start.
 pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
-    composer_menu_rows(Some(ComposerMenuConditions {
-        subagent_model: true,
-        ultracode: true,
-        mcp: true,
-        computer_use: true,
-        agents: true,
-    }))
+    // S-3: a start = the launch surface on Temporary session (every runner
+    // and work row); a session = the session surface (the model only).
+    let (surface, temporary) = match phase {
+        Phase::Start => (ComposerSurface::Launch, true),
+        _ => (ComposerSurface::Session, false),
+    };
+    composer_menu_rows(
+        surface,
+        ComposerMenuConditions {
+            temporary,
+            device: temporary,
+            account: temporary,
+            model: true,
+            repositories: true,
+            subagent_model: true,
+            ultracode: true,
+            mcp: true,
+            computer_use: true,
+        },
+    )
     .into_iter()
     .filter(|row| *row != ComposerMenuRow::Subagents)
-    .filter(|row| {
-        phase == Phase::Start
-            || !matches!(row, ComposerMenuRow::ImplementIssue | ComposerMenuRow::MessageAgent)
-    })
     .collect()
 }
 
@@ -410,9 +398,34 @@ fn plus_menu(
             ComposerMenuRow::Effort => {
                 menu.submenu_with_icon(Some(menu_icon(row)), "Effort · High", window, cx, |sub, _, _| sub)
             }
-            ComposerMenuRow::MessageAgent => {
-                menu.submenu_with_icon(Some(menu_icon(row)), MENU_MESSAGE_AGENT, window, cx, |sub, _, _| sub)
-            }
+            ComposerMenuRow::Device => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {SAMPLE_DEVICE}", row.label()),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            ComposerMenuRow::Account => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {SAMPLE_ACCOUNT}", row.label()),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            ComposerMenuRow::Model => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {}", row.label(), crate::steer_viewer::model_label(sample_model(phase))),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            ComposerMenuRow::Repository => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {SAMPLE_REPOSITORY}", row.label()),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
             ComposerMenuRow::Subagents => menu,
             ComposerMenuRow::Ultracode => menu.item(
                 pointer_toggle_item(format!("{prefix}-ultracode"), None, MENU_ULTRACODE, false, |_, _, _| {})
@@ -481,14 +494,6 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         window,
         cx,
     );
-    // NEW-3: Message an agent: the agent's ONE chip IS the headline (no
-    // verb), the options line hides, the submit sends.
-    let agent_headline = h_flex()
-        .flex_wrap()
-        .items_center()
-        .gap_2()
-        .px_1()
-        .child(agent_chip(Some(&sample_agent()), |_, _, _| {}, cx));
     let agent_start = agent_composer_specimen("sg-composer-dialog-agent-start", window, cx);
     let start_menu = plus_menu_open("sg-composer-dialog-plus-start", Phase::Start, window, cx);
     let session_menu = plus_menu_open("sg-composer-dialog-plus-session", Phase::Running, window, cx);
@@ -557,7 +562,6 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .max_w_full()
                 .gap_2()
                 .child(caption("Message an agent: one agent chip, no options line, the submit sends.", cx))
-                .child(agent_headline)
                 .child(agent_start),
         )
 }
@@ -575,9 +579,13 @@ mod tests {
         assert_eq!(
             plus_menu_rows(Phase::Start),
             vec![
-                ImplementIssue,
-                MessageAgent,
                 AddFile,
+                ImplementIssue,
+                Separator,
+                Device,
+                Account,
+                Model,
+                Repository,
                 Separator,
                 Effort,
                 Ultracode,
@@ -586,10 +594,7 @@ mod tests {
                 ComputerUse
             ]
         );
-        assert_eq!(
-            plus_menu_rows(Phase::Running),
-            vec![AddFile, Separator, Effort, Ultracode, Separator, McpServers, ComputerUse]
-        );
+        assert_eq!(plus_menu_rows(Phase::Running), vec![AddFile, ImplementIssue, Separator, Model]);
         assert_eq!(plus_menu_rows(Phase::Idle), plus_menu_rows(Phase::Running));
     }
 

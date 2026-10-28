@@ -52,7 +52,17 @@ class ThreadsViewModel @Inject constructor(
     selection: TeamSelection,
     private val sessionsApi: SessionsApi,
     private val sender: SessionSender,
+    private val agentsApi: com.exponential.app.data.api.AgentsApi,
 ) : ViewModel() {
+
+    /** S-3: the chats list makes sure the viewer has an Assistant (once per
+     *  team per app run). */
+    fun ensureAssistant() {
+        val team = activeTeam.value
+        viewModelScope.launch {
+            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
+        }
+    }
 
     /** chats.json: the ONE active team every phone list filters to. */
     private val activeTeam: StateFlow<String?> = selection.selectedId
@@ -254,6 +264,28 @@ class ThreadsViewModel @Inject constructor(
             visible = input.sessions.mapTo(HashSet()) { it.id },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
+
+    /** S-3 (chats.json `agentChatRows`): the AGENT rows pinned on top of the
+     *  list, [agents] order (the viewer's Assistant first), under the chip;
+     *  none on the Archived page. */
+    val agentRows: StateFlow<List<Chats.AgentChatRow>> = combine(
+        combine(agents, inputs) { a, i -> a to i },
+        auth.userId,
+        combine(_filter, _view) { f, v -> f to v },
+        minuteClock,
+    ) { (rows, input), me, (filter, view), now ->
+        Chats.agentChatRows(
+            agents = rows,
+            sessions = input.sessions,
+            messages = input.messages,
+            reads = input.reads,
+            me = me,
+            filter = filter,
+            view = view,
+            now = SessionTree.nowIso(now),
+            utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** What a chat row's menu needs per root: its status, whether the
      *  viewer may steer it (shared, or the starter) and whether the viewer

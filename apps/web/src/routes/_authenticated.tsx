@@ -7,10 +7,16 @@ import {
 } from "@/lib/conversion/first-touch"
 import { trpc } from "@/lib/trpc-client"
 
+type SessionData = NonNullable<Awaited<ReturnType<typeof fetchSessionOnce>>>
+type AuthenticatedContext = { session: SessionData[`session`]; user: SessionData[`user`] }
+
 export const Route = createFileRoute(`/_authenticated`)({
   ssr: false,
   component: AuthenticatedLayout,
-  beforeLoad: async ({ location }) => {
+  // The context is annotated: an inferred one runs through the typed
+  // `redirect` below, a cycle with the route tree that can turn every
+  // child's loader data into `any` as the tree grows.
+  beforeLoad: async ({ location }): Promise<AuthenticatedContext> => {
     const sessionData = await fetchSessionOnce()
 
     if (!sessionData) {
