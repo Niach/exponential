@@ -528,8 +528,8 @@
         "file": "shots/chat-list/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 52394,
-        "sha256": "7f987c656a5260cdb3606d94bae485681c496171e5ed38e68136f6eabf9efa6e"
+        "bytes": 54028,
+        "sha256": "34db6caf55e8231c2d73657675ad2be51086eeb2b8b823e1190edd7c9df0a80e"
       },
       "desktop": {
         "file": "shots/chat-list/desktop.webp",
@@ -5003,8 +5003,8 @@
         "file": "shots/story-ring/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 21684,
-        "sha256": "ddd040952cc7e2c27eda4e9048e2c28bdb54a2814215a879dcf8f4f045878f40"
+        "bytes": 19336,
+        "sha256": "fae7f4a437a25b5d11c5d676cf990e147c911f770e0ca138f0edf67a5825a83f"
       },
       "desktop": {
         "file": "shots/story-ring/desktop.webp",
@@ -5040,8 +5040,8 @@
         "file": "shots/story-viewer/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22312,
-        "sha256": "bdfb72984ab5150255910238ea9cf1125d6d31af27962da827534c7aa96b0866"
+        "bytes": 21696,
+        "sha256": "fee9ce3a58c3d267a0505523cf3faedad46b5519b426723ec655d1ae35bc3598"
       },
       "desktop": {
         "file": "shots/story-viewer/desktop.webp",
@@ -5102,8 +5102,8 @@
         "file": "shots/thread/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 67094,
-        "sha256": "ba5359d4f2a8fbb41b5dcc43ca528f1185f55d36c7fb91dba357eb7dd6ea844c"
+        "bytes": 66488,
+        "sha256": "20d0412725cc059e8023382d13e8555e20f73c70cb1977fc1050b6be3b232a2e"
       },
       "desktop": {
         "file": "shots/thread/desktop.webp",
@@ -5176,8 +5176,8 @@
         "file": "shots/threads/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 80150,
-        "sha256": "a3da76a5915384f48dbece49960016e81ae9eceed09ce4b1bcd857a9442e8698"
+        "bytes": 64516,
+        "sha256": "57a57a5f0ad630b614d43e7b99ddddd7fbd86e9e41eef9194587d3ea0a1c79ad"
       },
       "desktop": {
         "file": "shots/threads/desktop.webp",
