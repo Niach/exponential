@@ -17,9 +17,19 @@
     "next": "Next",
     "previous": "Previous"
   },
-  "ring": { "width": 3, "gap": 6 },
-  "progress": { "height": 3, "gap": 4 },
-  "viewer": { "width": 440, "height": 760, "radius": 16 },
+  "ring": {
+    "width": 3,
+    "gap": 6
+  },
+  "progress": {
+    "height": 3,
+    "gap": 4
+  },
+  "viewer": {
+    "width": 440,
+    "height": 760,
+    "radius": 16
+  },
   "testIds": {
     "ring": "story-ring",
     "viewer": "story-viewer",
@@ -31,35 +41,92 @@
   "cases": [
     {
       "name": "nothing: no rings",
-      "input": { "now": 1800000000000, "sessions": [], "agents": [], "messages": [], "reads": [] },
+      "input": {
+        "now": 1800000000000,
+        "sessions": [],
+        "agents": [],
+        "messages": [],
+        "reads": []
+      },
       "expected": []
     },
     {
       "name": "a waiting question in a chat: one root ring, unseen; a plain surface without story is not a story",
       "input": {
         "now": 1800000000000,
-        "sessions": [{ "id": "r1", "rootId": "r1", "name": "Fix the nav", "agentId": null, "startedByAgentId": null }],
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Fix the nav",
+            "agentId": null,
+            "startedByAgentId": null
+          }
+        ],
         "agents": [],
         "messages": [
           {
-            "id": "m1", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799999700000, "answeredAt": null,
-            "card": { "kind": "question", "question": "Which colour?", "options": ["Green", "Blue"], "custom": false }
+            "id": "m1",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799999700000,
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Which colour?",
+              "options": [
+                "Green",
+                "Blue"
+              ],
+              "custom": false
+            }
           },
           {
-            "id": "m2", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799999800000, "answeredAt": null,
-            "card": { "kind": "surface", "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Status" }
+            "id": "m2",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799999800000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "Status"
+            }
           }
         ],
         "reads": []
       },
       "expected": [
         {
-          "key": "root:r1", "agentId": null, "rootId": "r1", "title": "Fix the nav", "assistant": false, "waiting": 1, "unseen": true,
+          "key": "root:r1",
+          "agentId": null,
+          "rootId": "r1",
+          "title": "Fix the nav",
+          "assistant": false,
+          "waiting": 1,
+          "unseen": true,
           "stories": [
             {
-              "id": "m1", "sessionId": "r1", "rootId": "r1", "sessionName": "Fix the nav", "kind": "question", "waiting": true, "seen": false,
-              "createdAt": 1799999700000, "meta": "Question · 5m", "title": "Which colour?", "pictures": [], "surface": false, "text": null,
-              "footer": "choices", "autoAdvanceMs": null
+              "id": "m1",
+              "sessionId": "r1",
+              "rootId": "r1",
+              "sessionName": "Fix the nav",
+              "kind": "question",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799999700000,
+              "meta": "Question · 5m",
+              "title": "Which colour?",
+              "pictures": [],
+              "surface": false,
+              "text": null,
+              "footer": "choices",
+              "autoAdvanceMs": null
             }
           ]
         }
@@ -70,71 +137,235 @@
       "input": {
         "now": 1800000000000,
         "sessions": [
-          { "id": "conv", "rootId": "conv", "name": "Ops agent", "agentId": "a1", "startedByAgentId": null },
-          { "id": "t1", "rootId": "t1", "name": "Nightly deploy", "agentId": null, "startedByAgentId": "a1" },
-          { "id": "c1", "rootId": "t1", "name": "Smoke tests", "agentId": null, "startedByAgentId": null }
-        ],
-        "agents": [{ "id": "a1", "name": "Ops", "assistant": false }],
-        "messages": [
           {
-            "id": "seen-result", "sessionId": "conv", "authorSessionId": "conv", "createdAt": 1799990000000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Deploy green" }
+            "id": "conv",
+            "rootId": "conv",
+            "name": "Ops agent",
+            "agentId": "a1",
+            "startedByAgentId": null
           },
           {
-            "id": "new-result", "sessionId": "c1", "authorSessionId": "c1", "createdAt": 1799996400000, "answeredAt": null,
+            "id": "t1",
+            "rootId": "t1",
+            "name": "Nightly deploy",
+            "agentId": null,
+            "startedByAgentId": "a1"
+          },
+          {
+            "id": "c1",
+            "rootId": "t1",
+            "name": "Smoke tests",
+            "agentId": null,
+            "startedByAgentId": null
+          }
+        ],
+        "agents": [
+          {
+            "id": "a1",
+            "name": "Ops",
+            "assistant": false
+          }
+        ],
+        "messages": [
+          {
+            "id": "seen-result",
+            "sessionId": "conv",
+            "authorSessionId": "conv",
+            "createdAt": 1799990000000,
+            "answeredAt": null,
             "card": {
-              "kind": "surface", "surface": { "root": { "id": "c", "component": "Card" } }, "title": null,
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "Deploy green"
+            }
+          },
+          {
+            "id": "new-result",
+            "sessionId": "c1",
+            "authorSessionId": "c1",
+            "createdAt": 1799996400000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": null,
               "pictures": [
-                { "label": "web smoke", "attachmentId": "att1", "width": 1200, "height": 800, "caption": "All green" },
-                { "label": "ios smoke", "attachmentId": null, "width": null, "height": null, "caption": null }
+                {
+                  "label": "web smoke",
+                  "attachmentId": "att1",
+                  "width": 1200,
+                  "height": 800,
+                  "caption": "All green"
+                },
+                {
+                  "label": "ios smoke",
+                  "attachmentId": null,
+                  "width": null,
+                  "height": null,
+                  "caption": null
+                }
               ]
             }
           },
           {
-            "id": "plan", "sessionId": "t1", "authorSessionId": "t1", "createdAt": 1799999000000, "answeredAt": null,
-            "card": { "kind": "plan", "plan": "## Roll back\n\nRevert **v2** first.", "decision": null, "pictures": [], "questions": [] }
+            "id": "plan",
+            "sessionId": "t1",
+            "authorSessionId": "t1",
+            "createdAt": 1799999000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "## Roll back\n\nRevert **v2** first.",
+              "decision": null,
+              "pictures": [],
+              "questions": []
+            }
           },
           {
-            "id": "old-plan", "sessionId": "t1", "authorSessionId": "t1", "createdAt": 1799998000000, "answeredAt": 1799999000000,
-            "card": { "kind": "plan", "plan": "Old", "decision": "superseded" }
+            "id": "old-plan",
+            "sessionId": "t1",
+            "authorSessionId": "t1",
+            "createdAt": 1799998000000,
+            "answeredAt": 1799999000000,
+            "card": {
+              "kind": "plan",
+              "plan": "Old",
+              "decision": "superseded"
+            }
           },
           {
-            "id": "answered", "sessionId": "conv", "authorSessionId": "conv", "createdAt": 1799997000000, "answeredAt": 1799998000000,
-            "card": { "kind": "question", "question": "Ok?", "options": ["Yes"], "answer": "Yes" }
+            "id": "answered",
+            "sessionId": "conv",
+            "authorSessionId": "conv",
+            "createdAt": 1799997000000,
+            "answeredAt": 1799998000000,
+            "card": {
+              "kind": "question",
+              "question": "Ok?",
+              "options": [
+                "Yes"
+              ],
+              "answer": "Yes"
+            }
           },
           {
-            "id": "relay-ask", "sessionId": "conv", "authorSessionId": "conv", "createdAt": 1799997500000, "answeredAt": null,
-            "card": { "kind": "plan", "plan": "Engine plan", "decision": null, "questionId": "q1" }
+            "id": "relay-ask",
+            "sessionId": "conv",
+            "authorSessionId": "conv",
+            "createdAt": 1799997500000,
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "Engine plan",
+              "decision": null,
+              "questionId": "q1"
+            }
           },
           {
-            "id": "mirror", "sessionId": "conv", "authorSessionId": "t1", "createdAt": 1799999000001, "answeredAt": null,
-            "card": { "kind": "ask", "sessionId": "t1", "messageId": "plan" }
+            "id": "mirror",
+            "sessionId": "conv",
+            "authorSessionId": "t1",
+            "createdAt": 1799999000001,
+            "answeredAt": null,
+            "card": {
+              "kind": "ask",
+              "sessionId": "t1",
+              "messageId": "plan"
+            }
           }
         ],
         "reads": [
-          { "sessionId": "conv", "readAt": 1799991000000, "storySeenAt": null },
-          { "sessionId": "t1", "readAt": null, "storySeenAt": 1799995000000 }
+          {
+            "sessionId": "conv",
+            "readAt": 1799991000000,
+            "storySeenAt": null
+          },
+          {
+            "sessionId": "t1",
+            "readAt": null,
+            "storySeenAt": 1799995000000
+          }
         ]
       },
       "expected": [
         {
-          "key": "agent:a1", "agentId": "a1", "rootId": null, "title": "Ops", "assistant": false, "waiting": 1, "unseen": true,
+          "key": "agent:a1",
+          "agentId": "a1",
+          "rootId": null,
+          "title": "Ops",
+          "assistant": false,
+          "waiting": 1,
+          "unseen": true,
           "stories": [
             {
-              "id": "plan", "sessionId": "t1", "rootId": "t1", "sessionName": "Nightly deploy", "kind": "plan", "waiting": true, "seen": false,
-              "createdAt": 1799999000000, "meta": "Plan · 16m", "title": "Roll back", "pictures": [], "surface": false,
-              "text": "## Roll back\n\nRevert **v2** first.", "footer": "plan", "autoAdvanceMs": null
+              "id": "plan",
+              "sessionId": "t1",
+              "rootId": "t1",
+              "sessionName": "Nightly deploy",
+              "kind": "plan",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799999000000,
+              "meta": "Plan · 16m",
+              "title": "Roll back",
+              "pictures": [],
+              "surface": false,
+              "text": "## Roll back\n\nRevert **v2** first.",
+              "footer": "plan",
+              "autoAdvanceMs": null
             },
             {
-              "id": "new-result", "sessionId": "c1", "rootId": "t1", "sessionName": "Smoke tests", "kind": "result", "waiting": false, "seen": false,
-              "createdAt": 1799996400000, "meta": "Result · 1h", "title": null,
-              "pictures": [{ "label": "web smoke", "attachmentId": "att1", "width": 1200, "height": 800, "caption": "All green" }],
-              "surface": true, "text": null, "footer": "none", "autoAdvanceMs": 6000
+              "id": "new-result",
+              "sessionId": "c1",
+              "rootId": "t1",
+              "sessionName": "Smoke tests",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799996400000,
+              "meta": "Result · 1h",
+              "title": null,
+              "pictures": [
+                {
+                  "label": "web smoke",
+                  "attachmentId": "att1",
+                  "width": 1200,
+                  "height": 800,
+                  "caption": "All green"
+                }
+              ],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             },
             {
-              "id": "seen-result", "sessionId": "conv", "rootId": "conv", "sessionName": "Ops agent", "kind": "result", "waiting": false, "seen": true,
-              "createdAt": 1799990000000, "meta": "Result · 2h", "title": "Deploy green", "pictures": [], "surface": true, "text": null,
-              "footer": "none", "autoAdvanceMs": 6000
+              "id": "seen-result",
+              "sessionId": "conv",
+              "rootId": "conv",
+              "sessionName": "Ops agent",
+              "kind": "result",
+              "waiting": false,
+              "seen": true,
+              "createdAt": 1799990000000,
+              "meta": "Result · 2h",
+              "title": "Deploy green",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             }
           ]
         }
@@ -144,45 +375,151 @@
       "name": "expiry: a seen result older than seenHours drops, an unseen one stays until unseenHours; a waiting question never expires",
       "input": {
         "now": 1800000000000,
-        "sessions": [{ "id": "r1", "rootId": "r1", "name": "Old chat", "agentId": null, "startedByAgentId": null }],
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Old chat",
+            "agentId": null,
+            "startedByAgentId": null
+          }
+        ],
         "agents": [],
         "messages": [
           {
-            "id": "seen-old", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799900000000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "A" }
+            "id": "seen-old",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799900000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "A"
+            }
           },
           {
-            "id": "unseen-old", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799910000000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "B" }
+            "id": "unseen-old",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799910000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "B"
+            }
           },
           {
-            "id": "unseen-ancient", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799000000000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "C" }
+            "id": "unseen-ancient",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799000000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "C"
+            }
           },
           {
-            "id": "waiting-ancient", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1798000000000, "answeredAt": null,
-            "card": { "kind": "question", "question": "Still there?", "options": [], "custom": true }
+            "id": "waiting-ancient",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1798000000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Still there?",
+              "options": [],
+              "custom": true
+            }
           },
           {
-            "id": "not-story", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799999990000, "answeredAt": null,
-            "card": { "kind": "question", "story": false, "question": "Hidden", "options": ["x"] }
+            "id": "not-story",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799999990000,
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "story": false,
+              "question": "Hidden",
+              "options": [
+                "x"
+              ]
+            }
           }
         ],
-        "reads": [{ "sessionId": "r1", "readAt": 1799905000000, "storySeenAt": null }]
+        "reads": [
+          {
+            "sessionId": "r1",
+            "readAt": 1799905000000,
+            "storySeenAt": null
+          }
+        ]
       },
       "expected": [
         {
-          "key": "root:r1", "agentId": null, "rootId": "r1", "title": "Old chat", "assistant": false, "waiting": 1, "unseen": true,
+          "key": "root:r1",
+          "agentId": null,
+          "rootId": "r1",
+          "title": "Old chat",
+          "assistant": false,
+          "waiting": 1,
+          "unseen": true,
           "stories": [
             {
-              "id": "waiting-ancient", "sessionId": "r1", "rootId": "r1", "sessionName": "Old chat", "kind": "question", "waiting": true, "seen": true,
-              "createdAt": 1798000000000, "meta": "Question · 23d", "title": "Still there?", "pictures": [], "surface": false, "text": null,
-              "footer": "reply", "autoAdvanceMs": null
+              "id": "waiting-ancient",
+              "sessionId": "r1",
+              "rootId": "r1",
+              "sessionName": "Old chat",
+              "kind": "question",
+              "waiting": true,
+              "seen": true,
+              "createdAt": 1798000000000,
+              "meta": "Question · 23d",
+              "title": "Still there?",
+              "pictures": [],
+              "surface": false,
+              "text": null,
+              "footer": "reply",
+              "autoAdvanceMs": null
             },
             {
-              "id": "unseen-old", "sessionId": "r1", "rootId": "r1", "sessionName": "Old chat", "kind": "result", "waiting": false, "seen": false,
-              "createdAt": 1799910000000, "meta": "Result · 1d", "title": "B", "pictures": [], "surface": true, "text": null,
-              "footer": "none", "autoAdvanceMs": 6000
+              "id": "unseen-old",
+              "sessionId": "r1",
+              "rootId": "r1",
+              "sessionName": "Old chat",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799910000000,
+              "meta": "Result · 1d",
+              "title": "B",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             }
           ]
         }
@@ -193,92 +530,855 @@
       "input": {
         "now": 1800000000000,
         "sessions": [
-          { "id": "as", "rootId": "as", "name": "Assistant", "agentId": "assist", "startedByAgentId": null },
-          { "id": "r-seen", "rootId": "r-seen", "name": "Seen chat", "agentId": null, "startedByAgentId": null },
-          { "id": "r-unseen", "rootId": "r-unseen", "name": "Unseen chat", "agentId": null, "startedByAgentId": null },
-          { "id": "r-wait", "rootId": "r-wait", "name": "Waiting chat", "agentId": null, "startedByAgentId": null },
-          { "id": "r-unseen2", "rootId": "r-unseen2", "name": "Newer unseen", "agentId": null, "startedByAgentId": null }
+          {
+            "id": "as",
+            "rootId": "as",
+            "name": "Assistant",
+            "agentId": "assist",
+            "startedByAgentId": null
+          },
+          {
+            "id": "r-seen",
+            "rootId": "r-seen",
+            "name": "Seen chat",
+            "agentId": null,
+            "startedByAgentId": null
+          },
+          {
+            "id": "r-unseen",
+            "rootId": "r-unseen",
+            "name": "Unseen chat",
+            "agentId": null,
+            "startedByAgentId": null
+          },
+          {
+            "id": "r-wait",
+            "rootId": "r-wait",
+            "name": "Waiting chat",
+            "agentId": null,
+            "startedByAgentId": null
+          },
+          {
+            "id": "r-unseen2",
+            "rootId": "r-unseen2",
+            "name": "Newer unseen",
+            "agentId": null,
+            "startedByAgentId": null
+          }
         ],
-        "agents": [{ "id": "assist", "name": "Assistant", "assistant": true }],
+        "agents": [
+          {
+            "id": "assist",
+            "name": "Assistant",
+            "assistant": true
+          }
+        ],
         "messages": [
           {
-            "id": "a1", "sessionId": "as", "authorSessionId": "as", "createdAt": 1799999000000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Brief" }
+            "id": "a1",
+            "sessionId": "as",
+            "authorSessionId": "as",
+            "createdAt": 1799999000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "Brief"
+            }
           },
           {
-            "id": "s1", "sessionId": "r-seen", "authorSessionId": "r-seen", "createdAt": 1799999970000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Done" }
+            "id": "s1",
+            "sessionId": "r-seen",
+            "authorSessionId": "r-seen",
+            "createdAt": 1799999970000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "Done"
+            }
           },
           {
-            "id": "u1", "sessionId": "r-unseen", "authorSessionId": "r-unseen", "createdAt": 1799999000000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Draft" }
+            "id": "u1",
+            "sessionId": "r-unseen",
+            "authorSessionId": "r-unseen",
+            "createdAt": 1799999000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "Draft"
+            }
           },
           {
-            "id": "u2", "sessionId": "r-unseen2", "authorSessionId": "r-unseen2", "createdAt": 1799999500000, "answeredAt": null,
-            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Draft 2" }
+            "id": "u2",
+            "sessionId": "r-unseen2",
+            "authorSessionId": "r-unseen2",
+            "createdAt": 1799999500000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "surface": {
+                "root": {
+                  "id": "c",
+                  "component": "Card"
+                }
+              },
+              "title": "Draft 2"
+            }
           },
           {
-            "id": "w1", "sessionId": "r-wait", "authorSessionId": "r-wait", "createdAt": 1799000000000, "answeredAt": null,
-            "card": { "kind": "question", "question": "Ship?", "options": ["Yes", "No"] }
+            "id": "w1",
+            "sessionId": "r-wait",
+            "authorSessionId": "r-wait",
+            "createdAt": 1799000000000,
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Ship?",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            }
           }
         ],
         "reads": [
-          { "sessionId": "as", "readAt": 1799999950000, "storySeenAt": null },
-          { "sessionId": "r-seen", "readAt": null, "storySeenAt": 1799999970000 }
+          {
+            "sessionId": "as",
+            "readAt": 1799999950000,
+            "storySeenAt": null
+          },
+          {
+            "sessionId": "r-seen",
+            "readAt": null,
+            "storySeenAt": 1799999970000
+          }
         ]
       },
       "expected": [
         {
-          "key": "agent:assist", "agentId": "assist", "rootId": null, "title": "Assistant", "assistant": true, "waiting": 0, "unseen": false,
+          "key": "agent:assist",
+          "agentId": "assist",
+          "rootId": null,
+          "title": "Assistant",
+          "assistant": true,
+          "waiting": 0,
+          "unseen": false,
           "stories": [
             {
-              "id": "a1", "sessionId": "as", "rootId": "as", "sessionName": "Assistant", "kind": "result", "waiting": false, "seen": true,
-              "createdAt": 1799999000000, "meta": "Result · 16m", "title": "Brief", "pictures": [], "surface": true, "text": null,
-              "footer": "none", "autoAdvanceMs": 6000
+              "id": "a1",
+              "sessionId": "as",
+              "rootId": "as",
+              "sessionName": "Assistant",
+              "kind": "result",
+              "waiting": false,
+              "seen": true,
+              "createdAt": 1799999000000,
+              "meta": "Result · 16m",
+              "title": "Brief",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             }
           ]
         },
         {
-          "key": "root:r-wait", "agentId": null, "rootId": "r-wait", "title": "Waiting chat", "assistant": false, "waiting": 1, "unseen": true,
+          "key": "root:r-wait",
+          "agentId": null,
+          "rootId": "r-wait",
+          "title": "Waiting chat",
+          "assistant": false,
+          "waiting": 1,
+          "unseen": true,
           "stories": [
             {
-              "id": "w1", "sessionId": "r-wait", "rootId": "r-wait", "sessionName": "Waiting chat", "kind": "question", "waiting": true, "seen": false,
-              "createdAt": 1799000000000, "meta": "Question · 11d", "title": "Ship?", "pictures": [], "surface": false, "text": null,
-              "footer": "choices", "autoAdvanceMs": null
+              "id": "w1",
+              "sessionId": "r-wait",
+              "rootId": "r-wait",
+              "sessionName": "Waiting chat",
+              "kind": "question",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799000000000,
+              "meta": "Question · 11d",
+              "title": "Ship?",
+              "pictures": [],
+              "surface": false,
+              "text": null,
+              "footer": "choices",
+              "autoAdvanceMs": null
             }
           ]
         },
         {
-          "key": "root:r-unseen2", "agentId": null, "rootId": "r-unseen2", "title": "Newer unseen", "assistant": false, "waiting": 0, "unseen": true,
+          "key": "root:r-unseen2",
+          "agentId": null,
+          "rootId": "r-unseen2",
+          "title": "Newer unseen",
+          "assistant": false,
+          "waiting": 0,
+          "unseen": true,
           "stories": [
             {
-              "id": "u2", "sessionId": "r-unseen2", "rootId": "r-unseen2", "sessionName": "Newer unseen", "kind": "result", "waiting": false, "seen": false,
-              "createdAt": 1799999500000, "meta": "Result · 8m", "title": "Draft 2", "pictures": [], "surface": true, "text": null,
-              "footer": "none", "autoAdvanceMs": 6000
+              "id": "u2",
+              "sessionId": "r-unseen2",
+              "rootId": "r-unseen2",
+              "sessionName": "Newer unseen",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799999500000,
+              "meta": "Result · 8m",
+              "title": "Draft 2",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             }
           ]
         },
         {
-          "key": "root:r-unseen", "agentId": null, "rootId": "r-unseen", "title": "Unseen chat", "assistant": false, "waiting": 0, "unseen": true,
+          "key": "root:r-unseen",
+          "agentId": null,
+          "rootId": "r-unseen",
+          "title": "Unseen chat",
+          "assistant": false,
+          "waiting": 0,
+          "unseen": true,
           "stories": [
             {
-              "id": "u1", "sessionId": "r-unseen", "rootId": "r-unseen", "sessionName": "Unseen chat", "kind": "result", "waiting": false, "seen": false,
-              "createdAt": 1799999000000, "meta": "Result · 16m", "title": "Draft", "pictures": [], "surface": true, "text": null,
-              "footer": "none", "autoAdvanceMs": 6000
+              "id": "u1",
+              "sessionId": "r-unseen",
+              "rootId": "r-unseen",
+              "sessionName": "Unseen chat",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799999000000,
+              "meta": "Result · 16m",
+              "title": "Draft",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             }
           ]
         },
         {
-          "key": "root:r-seen", "agentId": null, "rootId": "r-seen", "title": "Seen chat", "assistant": false, "waiting": 0, "unseen": false,
+          "key": "root:r-seen",
+          "agentId": null,
+          "rootId": "r-seen",
+          "title": "Seen chat",
+          "assistant": false,
+          "waiting": 0,
+          "unseen": false,
           "stories": [
             {
-              "id": "s1", "sessionId": "r-seen", "rootId": "r-seen", "sessionName": "Seen chat", "kind": "result", "waiting": false, "seen": true,
-              "createdAt": 1799999970000, "meta": "Result · now", "title": "Done", "pictures": [], "surface": true, "text": null,
-              "footer": "none", "autoAdvanceMs": 6000
+              "id": "s1",
+              "sessionId": "r-seen",
+              "rootId": "r-seen",
+              "sessionName": "Seen chat",
+              "kind": "result",
+              "waiting": false,
+              "seen": true,
+              "createdAt": 1799999970000,
+              "meta": "Result · now",
+              "title": "Done",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the styleguide specimen (specimen.input)",
+      "input": {
+        "now": 1800000000000,
+        "sessions": [
+          {
+            "id": "triage",
+            "rootId": "triage",
+            "name": "Triage",
+            "agentId": "a-triage",
+            "startedByAgentId": null
+          },
+          {
+            "id": "board",
+            "rootId": "board",
+            "name": "Board header polish",
+            "agentId": null,
+            "startedByAgentId": null
+          },
+          {
+            "id": "designer",
+            "rootId": "designer",
+            "name": "Designer",
+            "agentId": "a-designer",
+            "startedByAgentId": null
+          },
+          {
+            "id": "ship",
+            "rootId": "ship",
+            "name": "Ship the launch checklist",
+            "agentId": null,
+            "startedByAgentId": null
+          }
+        ],
+        "agents": [
+          {
+            "id": "a-triage",
+            "name": "Triage",
+            "assistant": false,
+            "icon": "bug",
+            "color": "#a855f7"
+          },
+          {
+            "id": "a-designer",
+            "name": "Designer",
+            "assistant": false,
+            "icon": "palette",
+            "color": "#ec4899"
+          }
+        ],
+        "messages": [
+          {
+            "id": "triage-plan",
+            "sessionId": "triage",
+            "authorSessionId": "triage",
+            "createdAt": 1799999460000,
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
+              "decision": null
+            }
+          },
+          {
+            "id": "triage-result",
+            "sessionId": "triage",
+            "authorSessionId": "triage",
+            "createdAt": 1799998200000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "title": "Today's triage",
+              "surface": {
+                "root": {
+                  "id": "r",
+                  "component": "Text",
+                  "props": {
+                    "text": "3 labelled"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "board-question",
+            "sessionId": "board",
+            "authorSessionId": "board",
+            "createdAt": 1799999760000,
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Which accent for the board header?",
+              "options": [
+                "Indigo",
+                "Emerald"
+              ],
+              "optionDescriptions": [
+                "The brand accent",
+                "Matches the merged state"
+              ],
+              "custom": false,
+              "surface": {
+                "root": {
+                  "id": "root",
+                  "component": "Stack",
+                  "props": {
+                    "gap": "md"
+                  },
+                  "children": [
+                    {
+                      "id": "title",
+                      "component": "Text",
+                      "props": {
+                        "text": "Board header"
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "accent",
+                      "component": "ChoiceTiles",
+                      "props": {
+                        "name": "accent",
+                        "options": [
+                          {
+                            "label": "Indigo",
+                            "value": "indigo"
+                          },
+                          {
+                            "label": "Emerald",
+                            "value": "emerald"
+                          }
+                        ],
+                        "value": {
+                          "path": "/accent"
+                        }
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "stat",
+                      "component": "StatTile",
+                      "props": {
+                        "label": "Header height",
+                        "value": "48 px",
+                        "delta": "−8 px",
+                        "tone": "success"
+                      },
+                      "children": []
+                    }
+                  ]
+                },
+                "data": {
+                  "accent": "indigo"
+                }
+              }
+            }
+          },
+          {
+            "id": "designer-result",
+            "sessionId": "designer",
+            "authorSessionId": "designer",
+            "createdAt": 1799996400000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "title": "Spacing review",
+              "surface": {
+                "root": {
+                  "id": "r",
+                  "component": "Text",
+                  "props": {
+                    "text": "No drift"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "ship-result",
+            "sessionId": "ship",
+            "authorSessionId": "ship",
+            "createdAt": 1799992800000,
+            "answeredAt": null,
+            "card": {
+              "kind": "surface",
+              "story": true,
+              "title": "Checklist done",
+              "surface": {
+                "root": {
+                  "id": "r",
+                  "component": "Text",
+                  "props": {
+                    "text": "12 of 12"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "ship",
+            "readAt": 1799996400000,
+            "storySeenAt": null
+          }
+        ]
+      },
+      "expected": [
+        {
+          "key": "root:board",
+          "agentId": null,
+          "rootId": "board",
+          "title": "Board header polish",
+          "assistant": false,
+          "waiting": 1,
+          "unseen": true,
+          "stories": [
+            {
+              "id": "board-question",
+              "sessionId": "board",
+              "rootId": "board",
+              "sessionName": "Board header polish",
+              "kind": "question",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799999760000,
+              "meta": "Question · 4m",
+              "title": "Which accent for the board header?",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "choices",
+              "autoAdvanceMs": null
+            }
+          ]
+        },
+        {
+          "key": "agent:a-triage",
+          "agentId": "a-triage",
+          "rootId": null,
+          "title": "Triage",
+          "assistant": false,
+          "waiting": 1,
+          "unseen": true,
+          "stories": [
+            {
+              "id": "triage-plan",
+              "sessionId": "triage",
+              "rootId": "triage",
+              "sessionName": "Triage",
+              "kind": "plan",
+              "waiting": true,
+              "seen": false,
+              "createdAt": 1799999460000,
+              "meta": "Plan · 9m",
+              "title": "Close the duplicates",
+              "pictures": [],
+              "surface": false,
+              "text": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
+              "footer": "plan",
+              "autoAdvanceMs": null
+            },
+            {
+              "id": "triage-result",
+              "sessionId": "triage",
+              "rootId": "triage",
+              "sessionName": "Triage",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799998200000,
+              "meta": "Result · 30m",
+              "title": "Today's triage",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
+            }
+          ]
+        },
+        {
+          "key": "agent:a-designer",
+          "agentId": "a-designer",
+          "rootId": null,
+          "title": "Designer",
+          "assistant": false,
+          "waiting": 0,
+          "unseen": true,
+          "stories": [
+            {
+              "id": "designer-result",
+              "sessionId": "designer",
+              "rootId": "designer",
+              "sessionName": "Designer",
+              "kind": "result",
+              "waiting": false,
+              "seen": false,
+              "createdAt": 1799996400000,
+              "meta": "Result · 1h",
+              "title": "Spacing review",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
+            }
+          ]
+        },
+        {
+          "key": "root:ship",
+          "agentId": null,
+          "rootId": "ship",
+          "title": "Ship the launch checklist",
+          "assistant": false,
+          "waiting": 0,
+          "unseen": false,
+          "stories": [
+            {
+              "id": "ship-result",
+              "sessionId": "ship",
+              "rootId": "ship",
+              "sessionName": "Ship the launch checklist",
+              "kind": "result",
+              "waiting": false,
+              "seen": true,
+              "createdAt": 1799992800000,
+              "meta": "Result · 2h",
+              "title": "Checklist done",
+              "pictures": [],
+              "surface": true,
+              "text": null,
+              "footer": "none",
+              "autoAdvanceMs": 6000
             }
           ]
         }
       ]
     }
-  ]
+  ],
+  "specimen": {
+    "$comment": "THE styleguide specimens ×4 (story-ring, story-viewer) draw THIS data, hardcoded identically on every platform, and `cases` replays it as 'the styleguide specimen'. story-ring = the rings of stories(input) at the bubble size (chats.json shell bubble) with their titles under them, then the same rings at `smallRing` px without titles, then a StoryProgress of `progress.count` segments at `progress.index` with `progress.fraction`; no state words. story-viewer = THE viewer (its phone/wide frame) open on ring `viewer.ring`, story `viewer.story`, the progress frozen at `viewer.fraction`. AVATARS ×4: an agent ring = the agent's icon in its colour on the bg-muted disc (the bubble's look, agents[].icon/color); a chat ring = the chat row's BARE brand mark on the bg-muted disc (chats.json LIST lead, no badge, no PR glyph). The Assistant (once agents carry the role) = its own bubble mark.",
+    "input": {
+      "now": 1800000000000,
+      "sessions": [
+        {
+          "id": "triage",
+          "rootId": "triage",
+          "name": "Triage",
+          "agentId": "a-triage",
+          "startedByAgentId": null
+        },
+        {
+          "id": "board",
+          "rootId": "board",
+          "name": "Board header polish",
+          "agentId": null,
+          "startedByAgentId": null
+        },
+        {
+          "id": "designer",
+          "rootId": "designer",
+          "name": "Designer",
+          "agentId": "a-designer",
+          "startedByAgentId": null
+        },
+        {
+          "id": "ship",
+          "rootId": "ship",
+          "name": "Ship the launch checklist",
+          "agentId": null,
+          "startedByAgentId": null
+        }
+      ],
+      "agents": [
+        {
+          "id": "a-triage",
+          "name": "Triage",
+          "assistant": false,
+          "icon": "bug",
+          "color": "#a855f7"
+        },
+        {
+          "id": "a-designer",
+          "name": "Designer",
+          "assistant": false,
+          "icon": "palette",
+          "color": "#ec4899"
+        }
+      ],
+      "messages": [
+        {
+          "id": "triage-plan",
+          "sessionId": "triage",
+          "authorSessionId": "triage",
+          "createdAt": 1799999460000,
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "plan": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
+            "decision": null
+          }
+        },
+        {
+          "id": "triage-result",
+          "sessionId": "triage",
+          "authorSessionId": "triage",
+          "createdAt": 1799998200000,
+          "answeredAt": null,
+          "card": {
+            "kind": "surface",
+            "story": true,
+            "title": "Today's triage",
+            "surface": {
+              "root": {
+                "id": "r",
+                "component": "Text",
+                "props": {
+                  "text": "3 labelled"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "board-question",
+          "sessionId": "board",
+          "authorSessionId": "board",
+          "createdAt": 1799999760000,
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "question": "Which accent for the board header?",
+            "options": [
+              "Indigo",
+              "Emerald"
+            ],
+            "optionDescriptions": [
+              "The brand accent",
+              "Matches the merged state"
+            ],
+            "custom": false,
+            "surface": {
+              "root": {
+                "id": "root",
+                "component": "Stack",
+                "props": {
+                  "gap": "md"
+                },
+                "children": [
+                  {
+                    "id": "title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Board header"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "accent",
+                    "component": "ChoiceTiles",
+                    "props": {
+                      "name": "accent",
+                      "options": [
+                        {
+                          "label": "Indigo",
+                          "value": "indigo"
+                        },
+                        {
+                          "label": "Emerald",
+                          "value": "emerald"
+                        }
+                      ],
+                      "value": {
+                        "path": "/accent"
+                      }
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "stat",
+                    "component": "StatTile",
+                    "props": {
+                      "label": "Header height",
+                      "value": "48 px",
+                      "delta": "−8 px",
+                      "tone": "success"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              "data": {
+                "accent": "indigo"
+              }
+            }
+          }
+        },
+        {
+          "id": "designer-result",
+          "sessionId": "designer",
+          "authorSessionId": "designer",
+          "createdAt": 1799996400000,
+          "answeredAt": null,
+          "card": {
+            "kind": "surface",
+            "story": true,
+            "title": "Spacing review",
+            "surface": {
+              "root": {
+                "id": "r",
+                "component": "Text",
+                "props": {
+                  "text": "No drift"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "ship-result",
+          "sessionId": "ship",
+          "authorSessionId": "ship",
+          "createdAt": 1799992800000,
+          "answeredAt": null,
+          "card": {
+            "kind": "surface",
+            "story": true,
+            "title": "Checklist done",
+            "surface": {
+              "root": {
+                "id": "r",
+                "component": "Text",
+                "props": {
+                  "text": "12 of 12"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "reads": [
+        {
+          "sessionId": "ship",
+          "readAt": 1799996400000,
+          "storySeenAt": null
+        }
+      ]
+    },
+    "smallRing": 36,
+    "progress": {
+      "count": 4,
+      "index": 1,
+      "fraction": 0.4
+    },
+    "viewer": {
+      "ring": 0,
+      "story": 0,
+      "fraction": 0
+    }
+  }
 }
