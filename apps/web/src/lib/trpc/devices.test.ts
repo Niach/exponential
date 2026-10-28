@@ -531,6 +531,7 @@ describe(`devices.remove`, () => {
       speakReplies: false,
       pushToTalk: false,
       wakeWord: false,
+      meetingStartedAt: null,
     })
   })
 
