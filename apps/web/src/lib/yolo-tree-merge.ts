@@ -68,42 +68,84 @@ export function yoloMergeOrder(
   return order
 }
 
-const inFlight = new Map<string, Promise<YoloResult>>()
+/** EXP-1418: one pass per thread in process; a trigger arriving while it
+ *  runs marks it `dirty` and the pass runs ONCE more at its end (the late
+ *  edge's write may have landed after the running pass read the tree). */
+const inFlight = new Map<string, { run: Promise<YoloResult>; dirty: boolean }>()
+/** EXP-1418: another instance held the thread's lock: one retry later (its
+ *  pass may have read the tree before this edge's write committed). */
+const lockRetries = new Map<string, ReturnType<typeof setTimeout>>()
+export const YOLO_LOCK_RETRY_MS = 5_000
 
 /** Merge the thread's live PRs when its team is in yolo mode and the tree is
  *  complete. Single-flight per thread (in process, and across instances by
  *  the advisory lock); never throws. */
 export function maybeMergeYoloThread(rootId: string): Promise<YoloResult> {
   const running = inFlight.get(rootId)
-  if (running) return running
-  const run = mergeLocked(rootId)
-    .catch((err): YoloResult => {
-      console.error(`[yolo] thread ${rootId} merge failed`, err)
-      return { status: `merged`, outcomes: {} }
-    })
-    .finally(() => inFlight.delete(rootId))
-  inFlight.set(rootId, run)
-  return run
+  if (running) {
+    running.dirty = true
+    return running.run
+  }
+  const entry = { dirty: false, run: Promise.resolve<YoloResult>({ status: `waiting` }) }
+  entry.run = (async (): Promise<YoloResult> => {
+    let result: YoloResult
+    do {
+      entry.dirty = false
+      result = await mergeLocked(rootId).catch((err): YoloResult => {
+        console.error(`[yolo] thread ${rootId} merge failed`, err)
+        return { status: `merged`, outcomes: {} }
+      })
+    } while (entry.dirty)
+    return result
+  })().finally(() => inFlight.delete(rootId))
+  inFlight.set(rootId, entry)
+  return entry.run
+}
+
+function retryAfterLock(rootId: string): void {
+  if (lockRetries.has(rootId)) return
+  const timer = setTimeout(() => {
+    lockRetries.delete(rootId)
+    void maybeMergeYoloThread(rootId)
+  }, YOLO_LOCK_RETRY_MS)
+  timer.unref?.()
+  lockRetries.set(rootId, timer)
 }
 
 /** A SESSION-level advisory lock on one pooled connection (no transaction
- *  held open across GitHub calls). Another instance's pass = `waiting`. */
+ *  held open across GitHub calls). Another instance's pass = `waiting` (and
+ *  one retry). EXP-1418: an unlock that throws DISCARDS the connection
+ *  (`release(err)`): back in the pool it would hold the thread's lock and
+ *  every later pass would read `waiting` until the process restarts. */
 async function mergeLocked(rootId: string): Promise<YoloResult> {
   const client = await pool.connect()
   const key = `yolo_thread:${rootId}`
+  let broken: Error | undefined
   try {
     const { rows } = await client.query<{ locked: boolean }>(
       `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
       [key]
     )
-    if (!rows[0]?.locked) return { status: `waiting` }
+    if (!rows[0]?.locked) {
+      retryAfterLock(rootId)
+      return { status: `waiting` }
+    }
     try {
       return await mergeNow(rootId)
     } finally {
-      await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [key])
+      try {
+        await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [key])
+      } catch (err) {
+        broken = err instanceof Error ? err : new Error(String(err))
+        console.error(`[yolo] thread ${rootId} unlock failed: connection discarded`, err)
+      }
     }
+  } catch (err) {
+    // A failed lock query leaves the lock state unknown: discard it too.
+    broken ??= err instanceof Error ? err : new Error(String(err))
+    throw err
   } finally {
-    client.release()
+    client.release(broken)
   }
 }
 

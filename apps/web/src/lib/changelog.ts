@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-28-sessions-never-stall`,
+    date: `2026-10-28`,
+    title: `Sessions that never stall, and a disk check on every device`,
+    summary: `A new thread always starts its first turn, a killed or restarted run says so and resumes, the model picker works on a session that hit its limit, and devices clean up old worktrees and warn when the disk runs low.`,
+    body: `- **First turns**: a new thread whose first turn failed or never ran starts again by itself instead of waiting for a nudge.
+- **Interrupted runs**: a run killed by its machine (out of memory, a crash, a restart) reads interrupted and resumes; on Linux each run gets its own memory scope, so one heavy run no longer takes the others down.
+- **Model limits**: picking a model on a session that hit its limit switches it at once.
+- **Automerge**: a thread can no longer stay locked, a change arriving mid-merge is picked up, and draft PRs follow GitHub.
+- **Disk**: devices remove build output from finished worktrees, list the worktrees they kept and why, and warn when less than 10 GB is free.
+- **Live view**: a reconnecting run is never replaced by its replay, and a session without a transcript answers at once instead of spinning.`,
+  },
+  {
     id: `2026-10-27-release-train`,
     date: `2026-10-27`,
     title: `Release 2026-10-27: call your agent (beta), with the train's fixes`,

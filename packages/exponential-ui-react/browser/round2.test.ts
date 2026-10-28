@@ -112,9 +112,15 @@ describe(`style keys and §7 boxes`, () => {
     expect(await page.evaluate(() => getComputedStyle(document.querySelector(`[data-xui-id="anim"]`)!).animationDuration)).toBe(`0s`)
     await page.context().close()
   })
-  it(`an overlay in a column is its trigger's box; Video is 16:9; Chart's frame is its height`, async () => {
+  it(`an overlay in a column is the column's flex item, its Button trigger keeps its own size at the start; Video is 16:9; Chart's frame is its height`, async () => {
     const page = await openPage(h, { view: `round2` }, { width: 390, height: 900 })
-    expect(await box(page, `dr`)).toEqual(await box(page, `dr-t`))
+    // VAPP-128 (#1188): the wrapper takes the parent's alignment (a column
+    // stretches it) and a control trigger sits at the wrapper's start at its
+    // own size, as the core's layout_tree/overlays.rs lays it out.
+    const [col, dr, trigger] = [await box(page, `col`), await box(page, `dr`), await box(page, `dr-t`)]
+    expect(dr).toEqual({ x: col.x, y: trigger.y, w: col.w, h: trigger.h })
+    expect(trigger.x).toBe(dr.x)
+    expect(trigger.w).toBeLessThan(dr.w)
     const vid = await box(page, `vid`)
     expect(Math.abs(vid.h - vid.w / 1.7777778)).toBeLessThanOrEqual(1)
     expect((await box(page, `ch`)).h).toBe(180)

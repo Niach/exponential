@@ -318,6 +318,8 @@ export const BUS_COPY = {
     `No sign of life for ${silent} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.`,
   device_offline: `Interrupted: its device went offline. It continues by itself when the device is back.`,
   session_interrupted: `Interrupted: its runner restarted mid-turn. It continues by itself.`,
+  // NEW-17: the device said the run's process was killed (OOM, a crash).
+  session_lost: `Interrupted: its process was killed mid-turn (out of memory or a crash on its device). It continues by itself.`,
   session_unresumed: `Interrupted ${minutes.resumeMinutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.`,
   pr_opened: (number: number, url: string) => `Opened PR #${number}: ${url}`,
 } as const

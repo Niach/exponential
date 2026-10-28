@@ -301,7 +301,7 @@ A step = the scroll, the window's render flushed and the layout read back
 | text props | a bound number shows `412`, a boolean `true`, an object nothing (`displayString`) |
 | strings | `invalidValue`, `message`, `codeBlock`, `dialog`, `table`, `carousel`, `slide`, `resize` |
 | parts | every laid-out part carries `data-xui-id="<id>.<part>[.<i or row key>]"` + `data-xui-part`; inactive carousel pages are `inert` + `data-xui-inactive` |
-| §7 sizes | overlays = their trigger's box (`data-xui-overlay-root`), menu trigger without chevron, Chart `height` = the whole box, AudioPlayer track + controls row, Video / Image 16:9, Table and CodeBlock from recipes only (per-side border widths no longer pick up the UA's 3 px), Browse in the drop zone, TreeGuides columns (round 3: 14 px), Switch label first, Checkbox gap, Radio items at the root gap, Accordion count part |
+| §7 sizes | overlays = layout-transparent wrappers (`data-xui-overlay-root`: the parent's alignment, a Button trigger at its own size at the start, a Link trigger fills), menu trigger without chevron, Chart `height` = the whole box, AudioPlayer track + controls row, Video / Image 16:9, Table and CodeBlock from recipes only (per-side border widths no longer pick up the UA's 3 px), Browse in the drop zone, TreeGuides columns (round 3: 14 px), Switch label first, Checkbox gap, Radio items at the root gap, Accordion count part |
 
 ## Round 3 (VAPP-102: Row, Section, Chip, Segmented, Menu)
 

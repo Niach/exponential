@@ -3121,6 +3121,30 @@ pub fn end_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> 
     result
 }
 
+/// NEW-17: the end of a run whose PROCESS went away without the agent
+/// finishing (`lost`): `sessions.report {status: ended, lost}` — the server
+/// keeps the session (idle; mid-turn = the `restarted` interruption its
+/// device continues) instead of ending it as if a person had. Through the
+/// same [`SessionEndObserver`] as [`end_session`].
+pub fn end_session_lost(
+    trpc: &TrpcClient,
+    session_id: &str,
+    lost: session_device::LostReason,
+    mid_turn: bool,
+) -> Result<(), ApiError> {
+    let report = SessionReport {
+        status: Some(ReportStatus::Ended),
+        lost: Some(lost),
+        mid_turn: Some(mid_turn),
+        ..SessionReport::default()
+    };
+    let result = session_device::report(trpc, session_id, &report);
+    if let Some(observer) = SESSION_END_OBSERVER.get() {
+        observer(session_id, &result);
+    }
+    result
+}
+
 /// Best-effort session end for teardown paths that bypass the engine's own
 /// end (app quit with a live child, a spawn that failed after prepare).
 /// Idempotent server-side; the outcome still reaches the

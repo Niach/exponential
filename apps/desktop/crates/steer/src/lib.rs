@@ -421,8 +421,16 @@ pub(crate) enum DialError {
 /// `wss://` rustls with native roots (cloud). Self-signed relay certs are a
 /// deliberate non-goal for now (§8.7 open question — no
 /// `danger_accept_invalid_certs` escape hatch by default).
+///
+/// NEW-93: `TCP_NODELAY` on (`disable_nagle`). Every steer frame is a small
+/// JSON line written right behind another one (`hello` then
+/// `activity_reset`, a message's text then its `\r`), and Nagle held each
+/// second write until the first was ACKed: on Linux loopback the delayed
+/// ACK parked a publisher's `activity_reset` behind its `hello` long enough
+/// for a viewer to join in between and stage the republish with no marker.
 pub(crate) async fn dial(url: &str) -> Result<WsStream, DialError> {
-    match tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url)).await {
+    let connect = tokio_tungstenite::connect_async_with_config(url, None, true);
+    match tokio::time::timeout(CONNECT_TIMEOUT, connect).await {
         Ok(Ok((stream, _response))) => Ok(stream),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(response)))
             if response.status().as_u16() == 401 =>

@@ -739,9 +739,24 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
         input: { sessionId: viaAgent.sessionId, text: `/model gpt-5` },
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    // A person's `/model` over tRPC stays their message (the run's own switch).
+    // EXP-1401: a PERSON's `/model <alias>` (any client's ModelPicker) is
+    // the same pick, never a turn: on a model-walled session it lifts the
+    // wall at once; the same model refuses, saying what lifts it.
+    await walled(viaAgent.sessionId, `model`)
     const person = await sendSession({ userId: w.owner, input: { sessionId: viaAgent.sessionId, text: `/model haiku` } })
-    expect(person.messageId).not.toBeNull()
+    expect(person.messageId).toBeNull()
+    expect(await row(viaAgent.sessionId)).toMatchObject({ model: `haiku`, blocked: null, needsInput: false })
+    await walled(viaAgent.sessionId, `model`)
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: viaAgent.sessionId, text: `/model haiku` } })
+    ).rejects.toThrow(/haiku usage limit/)
+    await walled(viaAgent.sessionId, `weekly`)
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: viaAgent.sessionId, text: `/model opus` } })
+    ).rejects.toThrow(/a model change does not lift: pass account/)
+    // A person's bare `/model` stays their message (the CLI's own menu).
+    const bare = await sendSession({ userId: w.owner, input: { sessionId: viaAgent.sessionId, text: `/model` } })
+    expect(bare.messageId).not.toBeNull()
 
     // An ended child continues on the message's pickers.
     await endSession({ userId: w.owner, sessionId: child.sessionId, summary: `Done.` })

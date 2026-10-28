@@ -61,6 +61,10 @@ export const helloFrame = z.object({
   // EXP-90: publishers still send the removed public-activity feature's
   // `activityPublic: false` — non-strict parsing ignores it (do NOT add
   // `.strict()` here).
+  // #EXP-1415: a device's one-shot journal REPLAY (`publish_history`), never
+  // the run's live publisher. A replay never replaces a live publisher, nor
+  // one inside its reconnect grace: the live one always wins.
+  replay: z.boolean().optional(),
 })
 
 export const joinFrame = z.object({
@@ -800,6 +804,15 @@ export const historyChunkFrame = z.object({
   done: z.boolean(),
 })
 
+// #EXP-1415, control → relay: the answer to a `history_request` this device
+// CANNOT serve (no journal for the session: pruned, or never written here).
+// Without it the relay waited out its 20s timer while the viewer spun; now it
+// answers at once and backs the session off, so redials stop asking.
+export const historyNoneFrame = z.object({
+  t: z.literal(`history_none`),
+  sessionId: z.string().min(1).max(128),
+})
+
 // Publisher → relay: drop the replay log (EXP-249). The desktop sends this
 // before re-publishing its full history on reconnect, so the log never
 // doubles; the relay mirrors it to the audience as a "clear your feed" signal.
@@ -877,6 +890,7 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   activityResetFrame,
   historyPageFrame,
   historyChunkFrame,
+  historyNoneFrame,
   compactVerdictFrame,
   callMuteFrame,
   callEventFrame,

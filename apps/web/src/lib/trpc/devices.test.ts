@@ -157,7 +157,7 @@ import {
   devicesRouter,
   nextSharedTeamIds,
 } from "@/lib/trpc/devices"
-import { MAX_AGENT_PROFILES } from "@/db/schema"
+import { MAX_AGENT_PROFILES, MAX_DEVICE_DOCTOR_ITEMS } from "@/db/schema"
 
 const caller = devicesRouter.createCaller({
   session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
@@ -1933,7 +1933,7 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
       kind: `desktop`,
       doctor: {
         checkedAt: `2026-10-05T19:00:00.000Z`,
-        items: Array.from({ length: 30 }, (_, i) => ({
+        items: Array.from({ length: 40 }, (_, i) => ({
           key: i === 0 ? `future_thing` : `git`,
           group: i === 0 ? `future_group` : `required`,
           state: i === 0 ? `degraded` : `ok`,
@@ -1945,7 +1945,7 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
     const upsert = h.state.upserts[0] as {
       set: { doctor: { items: Record<string, string>[] } }
     }
-    expect(upsert.set.doctor.items).toHaveLength(24)
+    expect(upsert.set.doctor.items).toHaveLength(MAX_DEVICE_DOCTOR_ITEMS)
     expect(upsert.set.doctor.items[0]).toMatchObject({
       key: `future_thing`,
       group: `future_group`,

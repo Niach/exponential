@@ -101,7 +101,9 @@ import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.domain.MAX_STEER_FILES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
+import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.ui.components.DeviceNotReadyRow
+import com.exponential.app.ui.components.DeviceLowDiskRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
@@ -717,6 +719,11 @@ fun AgentScreen(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                                     modifier = Modifier.testTag("launch-not-ready-note"),
                                 )
+                                // EXP-1375: nothing blocks, but the machine
+                                // is low on disk: its disk row (a warning).
+                                notReadyDevice != null &&
+                                    notReadyDevice.doctor?.let { DeviceReadiness.warningRow(it) } != null ->
+                                    DeviceLowDiskRow(notReadyDevice)
                                 checkedCount > LARGE_BATCH_HINT_THRESHOLD -> Text(
                                     "Large batches are token-expensive.",
                                     style = MaterialTheme.typography.labelSmall,

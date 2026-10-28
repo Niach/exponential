@@ -520,9 +520,11 @@ final class AgentComposerModel {
     /// EXP-1196/1219: when the picked agent cannot start on the picked
     /// machine, that machine's failing doctor ROW — rendered under the
     /// composer with its action. Nil when the machine reports no doctor or
-    /// the report names no failure.
+    /// the report names no failure. EXP-1375: a machine that CAN start but
+    /// is low on disk shows its disk row instead (a warning, never a block).
     var notReadyRow: DeviceReadiness.Row? {
-        guard agentNotReady, let device, let doctor = device.doctor else { return nil }
+        guard let device, let doctor = device.doctor else { return nil }
+        guard agentNotReady else { return DeviceReadiness.warningRow(doctor, remote: true) }
         return DeviceReadiness.failingRow(
             doctor, agent: launch.agent, remote: true
         )

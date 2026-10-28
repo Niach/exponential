@@ -1201,20 +1201,24 @@ export async function applyPullRequestReopened(opts: {
   })
 }
 
-/** GitHub's draft flag flipped (live rows only). */
+/** GitHub's draft flag (live rows only). EXP-1418: written only when it
+ *  differs (every pull_request delivery carries it); returns the flipped
+ *  row's root, or null when nothing changed. */
 export async function applyPullRequestDraft(opts: {
   pullRequestId: string
   draft: boolean
-}): Promise<void> {
-  await db
+}): Promise<{ rootSessionId: string | null } | null> {
+  const [row] = await db
     .update(pullRequests)
     .set({ state: opts.draft ? `draft` : `open`, updatedAt: new Date() })
     .where(
       and(
         eq(pullRequests.id, opts.pullRequestId),
-        inArray(pullRequests.state, [...LIVE_PR_STATES])
+        eq(pullRequests.state, opts.draft ? `open` : `draft`)
       )
     )
+    .returning({ rootSessionId: pullRequests.rootSessionId })
+  return row ?? null
 }
 
 /** Stores `base` and the live PR it sits on; returns that stack parent. */

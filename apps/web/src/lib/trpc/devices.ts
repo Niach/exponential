@@ -227,6 +227,7 @@ export function clampDoctor(
       key: item.key,
       group: item.group,
       ...(item.parent ? { parent: item.parent } : {}),
+      ...(item.label ? { label: item.label } : {}),
       state: item.state,
       ...(item.detail ? { detail: item.detail } : {}),
       ...(item.action ? { action: item.action } : {}),

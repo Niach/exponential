@@ -857,6 +857,8 @@ async fn run_publisher_loop(
             // always send the explicit opt-out, because an ABSENT key means
             // "public" to legacy relays (manual, independent deploys).
             activity_public: Some(false),
+            // #EXP-1415: the live publisher — a replay never evicts it.
+            replay: None,
         }
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {

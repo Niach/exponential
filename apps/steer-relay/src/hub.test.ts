@@ -2664,6 +2664,9 @@ describe(`stats counters (EXP-553)`, () => {
       historyRequests: 0,
       historyDeviceOffline: 0,
       historyTimeouts: 0,
+      historyNone: 0,
+      historyBackoffAnswers: 0,
+      replayRefusals: 0,
       historyPageRequests: 0,
       historyPageTimeouts: 0,
       historyPagesViaDevice: 0,
@@ -3003,9 +3006,18 @@ describe(`session history on demand (EXP-773)`, () => {
     expect(member!.frames().at(-1)).toMatchObject({ t: `bye` })
     expect(member!.closed?.code).toBe(CLOSE_SESSION_ENDED)
     expect(hub.counters().historyTimeouts).toBe(1)
-    // The room is gone: a fresh join asks the device again.
-    const again = joinWithDevice(hub)
-    expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    // The room is gone. #EXP-1415: a silent device is backed off, so a join
+    // inside the window is answered at once; past it, the device is asked.
+    const soon = joinWithDevice(hub)
+    expect(soon.frames().map((f) => f.t)).toEqual([`error`, `bye`])
+    const now = Date.now()
+    const clock = spyOn(Date, `now`).mockReturnValue(now + 31_000)
+    try {
+      const again = joinWithDevice(hub)
+      expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    } finally {
+      clock.mockRestore()
+    }
     hub.destroy()
   })
 
@@ -3086,10 +3098,17 @@ describe(`session history on demand (EXP-773)`, () => {
     expect(() => timer!.fn()).not.toThrow()
     expect(hub.counters().historyTimeouts).toBe(1)
 
-    // And the empty room was closed, not leaked: a fresh join asks the device
-    // again instead of parking on a room that will never be filled.
-    const again = joinWithDevice(hub)
-    expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    // And the empty room was closed, not leaked: a fresh join (past the
+    // #EXP-1415 backoff) asks the device again instead of parking on a room
+    // that will never be filled.
+    const now = Date.now()
+    const clock = spyOn(Date, `now`).mockReturnValue(now + 31_000)
+    try {
+      const again = joinWithDevice(hub)
+      expect(again.frames().map((f) => f.t)).toContain(`history_pending`)
+    } finally {
+      clock.mockRestore()
+    }
     expect(hub.counters().historyRequests).toBe(2)
     hub.destroy()
   })
@@ -3689,6 +3708,174 @@ describe(`live history rooms (#EXP-1405)`, () => {
     timers.find((t) => t.ms === 60_000)!.fn()
     expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `publisher_lost` })
     expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  // ── #EXP-1415 ──────────────────────────────────────────────────────────────
+
+  /** A device's one-shot journal replay (`publish_history`): hello `replay`. */
+  function connectReplay(hub: Hub, sessionId = `sess-idle`) {
+    const sock = new FakeSocket()
+    hub.onOpen(sock, claims({ role: `publisher`, sessionId }))
+    hub.onMessage(sock, JSON.stringify({ t: `hello`, sessionId, replay: true }))
+    return sock
+  }
+
+  function joinEnded(hub: Hub) {
+    const sock = new FakeSocket()
+    hub.onOpen(
+      sock,
+      claims({ role: `viewer`, sub: `user-1`, sessionId: `sess-idle`, deviceId: `dev-1` })
+    )
+    hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+    return sock
+  }
+
+  test(`a replay never replaces the live publisher that took the pending room`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const viewer = joinLive(hub)
+    // The run came back while the device was reading its journal.
+    const run = connectPublisher(hub, `sess-idle`)
+    const replay = connectReplay(hub)
+    expect(replay.closed).toMatchObject({ code: 4002, reason: `live_publisher` })
+    expect(run.closed).toBeNull()
+    // The refused socket's frames and close touch nothing.
+    activity(hub, replay, { kind: `narration`, text: `stale replay` })
+    hub.onClose(replay)
+    activity(hub, run, { kind: `narration`, text: `the next turn` })
+    expect(viewer.events()).toEqual([{ kind: `narration`, text: `the next turn` }])
+    expect(hub.sessionInfo(`sess-idle`)).toMatchObject({ live: true, viewers: 1 })
+    expect(hub.counters().replayRefusals).toBe(1)
+    hub.destroy()
+  })
+
+  test(`nor one inside the live publisher's reconnect grace`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const run = connectPublisher(hub, `sess-idle`)
+    const viewer = joinLive(hub)
+    capturing(() => hub.onClose(run))
+    const replay = connectReplay(hub)
+    expect(replay.closed?.reason).toBe(`live_publisher`)
+    // The run's reconnect takes its room back as always.
+    const back = connectPublisher(hub, `sess-idle`)
+    activity(hub, back, { kind: `narration`, text: `resumed` })
+    expect(viewer.events().at(-1)).toEqual({ kind: `narration`, text: `resumed` })
+    expect(viewer.closed).toBeNull()
+    hub.destroy()
+  })
+
+  test(`a replay into a room nothing live holds is served as before`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const viewer = joinLive(hub)
+    const replay = connectReplay(hub)
+    activity(hub, replay, { kind: `narration`, text: `the last turn` })
+    hub.onMessage(replay, JSON.stringify({ t: `bye`, outcome: `history` }))
+    expect(replay.closed).toBeNull()
+    expect(viewer.events()).toEqual([{ kind: `narration`, text: `the last turn` }])
+    // And the run continuing still takes the served room back.
+    const run = connectPublisher(hub, `sess-idle`)
+    expect(run.closed).toBeNull()
+    expect(hub.sessionInfo(`sess-idle`)).toMatchObject({ live: true })
+    hub.destroy()
+  })
+
+  test(`history_none: a live session's viewer is answered at once, then backed off`, () => {
+    const hub = new Hub()
+    const device = connectDevice(hub)
+    const { value: viewer } = capturing(() => joinLive(hub))
+    expect(viewer.frames().map((f) => f.t)).toContain(`history_pending`)
+    hub.onMessage(device, JSON.stringify({ t: `history_none`, sessionId: `sess-idle` }))
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(viewer.framesOf(`bye`)).toHaveLength(0)
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    expect(hub.counters().historyNone).toBe(1)
+
+    // The redial inside the window never reaches the device.
+    const redial = joinLive(hub)
+    expect(redial.frames().map((f) => f.t)).toEqual([`error`])
+    expect(redial.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(device.framesOf(`history_request`)).toHaveLength(1)
+    expect(hub.counters().historyBackoffAnswers).toBe(1)
+
+    // Past 30s the device is asked again; a second miss doubles the wait.
+    const now = Date.now()
+    const clock = spyOn(Date, `now`).mockReturnValue(now + 31_000)
+    try {
+      capturing(() => joinLive(hub))
+      expect(device.framesOf(`history_request`)).toHaveLength(2)
+      hub.onMessage(device, JSON.stringify({ t: `history_none`, sessionId: `sess-idle` }))
+      clock.mockReturnValue(now + 31_000 + 45_000)
+      joinLive(hub)
+      expect(device.framesOf(`history_request`)).toHaveLength(2)
+      clock.mockReturnValue(now + 31_000 + 61_000)
+      capturing(() => joinLive(hub))
+      expect(device.framesOf(`history_request`)).toHaveLength(3)
+    } finally {
+      clock.mockRestore()
+    }
+    hub.destroy()
+  })
+
+  test(`history_none on an ended session is the terminal history_unavailable`, () => {
+    const hub = new Hub()
+    const device = connectDevice(hub)
+    const { value: viewer } = capturing(() => joinEnded(hub))
+    hub.onMessage(device, JSON.stringify({ t: `history_none`, sessionId: `sess-idle` }))
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `history_unavailable` })
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `history_unavailable` })
+    const again = joinEnded(hub)
+    expect(again.frames().map((f) => f.t)).toEqual([`error`, `bye`])
+    expect(again.lastFrame(`error`)).toMatchObject({ code: `history_unavailable` })
+    expect(device.framesOf(`history_request`)).toHaveLength(1)
+    hub.destroy()
+  })
+
+  test(`history_none from any other device is ignored`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const other = connectDevice(hub, `user-1`, `dev-2`)
+    const { value: viewer } = capturing(() => joinLive(hub))
+    hub.onMessage(other, JSON.stringify({ t: `history_none`, sessionId: `sess-idle` }))
+    expect(viewer.closed).toBeNull()
+    expect(hub.counters().historyNone).toBe(0)
+    hub.destroy()
+  })
+
+  test(`a publisher for the session clears its backoff`, () => {
+    const hub = new Hub()
+    const device = connectDevice(hub)
+    capturing(() => joinLive(hub))
+    hub.onMessage(device, JSON.stringify({ t: `history_none`, sessionId: `sess-idle` }))
+    const run = connectPublisher(hub, `sess-idle`)
+    hub.onMessage(run, JSON.stringify({ t: `bye`, outcome: `done` }))
+    capturing(() => joinLive(hub))
+    expect(device.framesOf(`history_request`)).toHaveLength(2)
+    hub.destroy()
+  })
+
+  test(`the server ending the session ends a watched live room (kill)`, () => {
+    const hub = new Hub()
+    const { viewer } = servedRoom(hub)
+    expect(hub.killSession(`sess-idle`)).toBe(false)
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `history` })
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  test(`a kill while the replay is pending makes its failures terminal`, () => {
+    const hub = new Hub()
+    connectDevice(hub)
+    const { value: viewer, timers } = capturing(() => joinLive(hub))
+    hub.killSession(`sess-idle`)
+    expect(viewer.closed).toBeNull()
+    timers.find((t) => t.ms === 20_000)!.fn()
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `history_unavailable` })
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `history_unavailable` })
     hub.destroy()
   })
 })

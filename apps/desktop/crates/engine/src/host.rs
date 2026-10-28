@@ -113,6 +113,11 @@ pub const PLAN_MODE_OFF_LINE: &str = "Plan mode is off: go ahead.";
 /// together instead of one per finished turn.
 pub const TURN_SLOTS: usize = 2;
 
+/// FEED-153: how long a refused seed prompt waits before its one retry
+/// ([`SessionCtx::seed_retry`]) — several runs starting on one machine at
+/// once contend for the agent's own startup (its config, its login).
+pub const SEED_RETRY_AFTER: Duration = Duration::from_secs(2);
+
 /// How many local feed ROWS a session keeps for a late subscriber. A tab
 /// reopened mid-session replays this much and no more: `Output` chunks are
 /// unbounded by nature, and an engine that kept every one of them would grow
@@ -1161,6 +1166,25 @@ pub(crate) struct SessionCtx {
     /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
     /// snapshots never advance it.
     pub(crate) last_activity: Mutex<Instant>,
+    /// FEED-153: armed for the seed turn (the brief, or a wake's message):
+    /// a `session/prompt` the agent REFUSED outright (an error response,
+    /// not a turn that ran) is sent once more after [`SEED_RETRY_AFTER`]
+    /// instead of idling the run with nothing done. Disarmed by the seed's
+    /// first answer either way.
+    pub(crate) seed_retry: AtomicBool,
+    /// EXP-1418: every turn this run opened ([`start_turn`]), so the
+    /// lifecycle's one-second `busy` mirror reports `busy: true` for a turn
+    /// that opened AND closed between two ticks (the server's yolo turn
+    /// end needs the true edge before the idle one).
+    pub(crate) turns_started: std::sync::atomic::AtomicU64,
+    /// NEW-17: the agent was working when the host shut the run down (the
+    /// `Shutdown` command's moment): a suspend then reads `daemon_restart`
+    /// ([`crate::lifecycle::lost_reason`]).
+    pub(crate) busy_at_shutdown: AtomicBool,
+    /// NEW-17: the run's death as the end sequence judged it
+    /// ([`crate::lifecycle::lost_reason`]); set = the `lost` report is the
+    /// ONLY write of that death (the tickers' teardown writes nothing).
+    pub(crate) lost: OnceLock<api::session_device::LostReason>,
     /// FEED-61: the API-error retry's view of the turn stream, fed by
     /// [`SessionCtx::dispatch`] and ticked by the lifecycle.
     pub(crate) api_retry: Mutex<crate::api_retry::ApiRetry>,
@@ -1590,6 +1614,11 @@ impl SessionCtx {
             }
         }
         if let Some(idle) = out.idle {
+            // EXP-1418: a turn the AGENT opened (EXP-1224's continuation)
+            // counts for the busy mirror like one `start_turn` opened.
+            if !idle {
+                self.turns_started.fetch_add(1, Ordering::SeqCst);
+            }
             self.turn_signal.set_idle(idle);
             // (EXP-1273's computer-use abort is NOT answered here: this
             // edge also fires for a turn the agent opens on its own — see
@@ -2111,6 +2140,8 @@ where
                 // manifest, the feed and journal the original text.
                 let localized =
                     localize_for_agent(prompt, ctx.attachments.as_ref(), &ctx.embeds).await;
+                // FEED-153: a seed the agent refuses outright is retried once.
+                ctx.seed_retry.store(true, Ordering::SeqCst);
                 start_turn(
                     &cx,
                     &ctx,
@@ -2504,6 +2535,10 @@ fn handle_command(
             });
         }
         EngineCommand::Shutdown { outcome } => {
+            // NEW-17: before the cancel below settles the turn.
+            if ctx.outcome.lock().map(|slot| slot.is_none()).unwrap_or(false) {
+                ctx.busy_at_shutdown.store(ctx.agent_busy(), Ordering::SeqCst);
+            }
             ctx.set_outcome(outcome);
             // EXP-861: messages still held at the end are NOT dropped from
             // the slot — the run ends with the last `queue` frame listing
@@ -2928,6 +2963,7 @@ fn start_turn(
         (Some(_), None) => {}
     }
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
+    ctx.turns_started.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
     // EXP-1273: the PERSON's message answers an Esc that aborted the run's
     // computer use. Only here, never on the mapper's idle edge: a turn the
@@ -2976,6 +3012,10 @@ fn start_turn(
             ctx.session_id
         );
     }
+    // FEED-153: what a refused seed re-sends (a ready prompt only; the seed
+    // always is one).
+    let retry_blocks = request.as_ref().map(|request| request.prompt.clone());
+    let retry_session = session_id.clone();
     let sent_cx = cx.clone();
     let ctx = ctx.clone();
     let turns = turns.clone();
@@ -3027,14 +3067,44 @@ fn start_turn(
         }
         let remaining = turns.in_flight.fetch_sub(1, Ordering::SeqCst).saturating_sub(1);
         let mut out = MapOut::default();
+        // FEED-153: the seed's first answer disarms its retry either way.
+        let seed = ctx.seed_retry.swap(false, Ordering::SeqCst);
         match result {
             Ok(response) => {
                 if remaining == 0 {
                     ctx.with_mapper(|mapper| mapper.on_stop(response.stop_reason, &mut out));
                 }
             }
-            Err(err) => {
+            // FEED-153: the seed refused outright — the turn stays open (the
+            // row keeps reading busy) and the same prompt goes again.
+            Err(err) if seed && remaining == 0 && retry_blocks.is_some() && ctx.child_exit.get().is_none() => {
+                log::warn!(
+                    "engine: session {}'s first turn was refused ({err}) — retrying in {}s",
+                    ctx.session_id,
+                    SEED_RETRY_AFTER.as_secs()
+                );
+                ctx.with_mapper(|mapper| {
+                    mapper.on_notice(&format!("Agent error: {err}. Retrying the first turn."), &mut out)
+                });
+                ctx.dispatch(out);
+                tokio::time::sleep(SEED_RETRY_AFTER).await;
+                let blocks = retry_blocks.unwrap_or_default();
+                let retry = LocalizedPrompt { announce: blocks_text(&blocks), blocks, fresh };
+                start_turn(&sent_cx, &ctx, &retry_session, TurnPrompt::Ready(retry), &turns, None);
+                return Ok(());
+            }
+            // NEW-17: the child itself went away — the end sequence's `lost`
+            // report says so; no error reply into the Conversation.
+            Err(err) if ctx.child_exit.get().is_some() => {
                 ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out));
+                if remaining == 0 {
+                    ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
+                }
+            }
+            Err(err) => {
+                // FEED-153: a turn that failed with nothing said says so in
+                // the Conversation — never a silent idle.
+                ctx.with_mapper(|mapper| mapper.on_turn_error(&err.to_string(), &mut out));
                 if remaining == 0 {
                     ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
                 }

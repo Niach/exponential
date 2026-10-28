@@ -116,9 +116,10 @@ pub type CheckInFn = Arc<dyn Fn() + Send + Sync>;
 /// EXP-773: an inbound `history_request` — "a viewer wants the transcript of
 /// session `<id>`, which ran here". Same non-blocking contract as
 /// [`CheckInFn`]: read the journal and republish it on a task, never on the
-/// socket loop. A device that has no journal for the id does nothing (the
-/// relay's own timer answers the viewer).
-pub type HistoryRequestFn = Arc<dyn Fn(String) + Send + Sync>;
+/// socket loop. #EXP-1415: a device that has no journal for the id answers
+/// [`ClientFrame::HistoryNone`] through the reply (down THIS socket), so the
+/// relay answers the viewer at once instead of waiting out its timer.
+pub type HistoryRequestFn = Arc<dyn Fn(String, HistoryPageReply) + Send + Sync>;
 
 /// EXP-796: one inbound `history_page` on the CONTROL socket — a viewer of a
 /// finished run this machine already replayed scrolled past what it holds,
@@ -471,7 +472,11 @@ async fn connect_and_listen(
                         // Non-blocking by contract (see [`HistoryRequestFn`]).
                         Some(ServerFrame::HistoryRequest { session_id }) => {
                             log::info!("steer control: history_request for {session_id}");
-                            on_history_request(session_id);
+                            let reply_tx = out_tx.clone();
+                            let reply: HistoryPageReply = Box::new(move |frame| {
+                                let _ = reply_tx.send(frame.to_json());
+                            });
+                            on_history_request(session_id, reply);
                         }
                         // EXP-796: page a finished run this device already
                         // replayed; the answer goes back down THIS socket.

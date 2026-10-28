@@ -1565,4 +1565,8 @@ export interface SessionsSendResult {
    *  sessions shape (FEED-101: a start is never reported as failed while
    *  its device is still on the way). */
   status: SessionStatus
+  /** EXP-1375: the device the work was queued on is low on disk
+   *  (device-doctor.json storage rule), e.g. `mint is low on disk: 6.2 GB
+   *  free.`; absent otherwise. */
+  warning?: string
 }

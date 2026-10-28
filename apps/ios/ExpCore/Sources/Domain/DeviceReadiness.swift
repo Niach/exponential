@@ -20,6 +20,8 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
         public let key: String
         public let group: String
         public let parent: String?
+        /// EXP-1375: the row's own label (a kept worktree), over `labels`.
+        public let label: String?
         public let state: String
         public let detail: String?
         public let action: String?
@@ -28,17 +30,19 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
         public let importEmail: String?
 
         private enum CodingKeys: String, CodingKey {
-            case key, group, parent, state, detail, action
+            case key, group, parent, label, state, detail, action
             case importEmail = "import"
         }
 
         public init(
-            key: String, group: String, parent: String? = nil, state: String,
-            detail: String? = nil, action: String? = nil, importEmail: String? = nil
+            key: String, group: String, parent: String? = nil, label: String? = nil,
+            state: String, detail: String? = nil, action: String? = nil,
+            importEmail: String? = nil
         ) {
             self.key = key
             self.group = group
             self.parent = parent
+            self.label = label
             self.state = state
             self.detail = detail
             self.action = action
@@ -74,7 +78,7 @@ private struct FailableItem: Decodable {
     let value: DeviceDoctor.Item?
 
     private enum CodingKeys: String, CodingKey {
-        case key, group, parent, state, detail, action
+        case key, group, parent, label, state, detail, action
         case importEmail = "import"
     }
 
@@ -92,6 +96,7 @@ private struct FailableItem: Decodable {
             key: key,
             group: string(.group) ?? "",
             parent: string(.parent),
+            label: string(.label),
             state: string(.state) ?? "",
             detail: string(.detail),
             action: string(.action),
@@ -114,6 +119,7 @@ public enum DeviceReadiness {
         ("agents", "Coding agents", "optional"),
         ("computer_use", "Computer use", "optional"),
         ("voice", "Voice", "optional"),
+        ("storage", "Storage", nil),
     ]
 
     /// Fixture `labels`; an unknown key renders verbatim.
@@ -126,6 +132,7 @@ public enum DeviceReadiness {
         "accessibility": "Accessibility",
         "microphone": "Microphone",
         "speech": "Speech",
+        "disk": "Disk",
     ]
 
     /// Fixture `states`; an unknown state is a muted dash.
@@ -264,6 +271,18 @@ public enum DeviceReadiness {
         return row(item, remote: remote, primary: true, switchOff: false)
     }
 
+    /// EXP-1375: the free-disk row's key.
+    public static let diskKey = "disk"
+
+    /// EXP-1375: the composer's row when NOTHING blocks the start but the
+    /// device is low on disk (its `disk` row is `action`): a warning with no
+    /// pill; the start stays enabled. Nil otherwise.
+    public static func warningRow(_ doctor: DeviceDoctor, remote: Bool) -> Row? {
+        guard let disk = doctor.items.first(where: { $0.key == diskKey }), disk.state == "action"
+        else { return nil }
+        return row(disk, remote: remote, primary: false, switchOff: false)
+    }
+
     /// The rows that need attention (`action`/`error`), in block order, the
     /// switch row excluded — the device setup block's status line.
     public static func attentionRows(_ doctor: DeviceDoctor, remote: Bool) -> [Row] {
@@ -294,7 +313,7 @@ public enum DeviceReadiness {
         let action = isSwitch ? nil : offeredAction(item, remote: remote)
         return Row(
             key: item.key,
-            label: labels[item.key] ?? item.key,
+            label: item.label ?? labels[item.key] ?? item.key,
             state: item.state,
             detail: isSwitch ? nil : item.detail,
             glyph: isSwitch ? nil : presentation.glyph,

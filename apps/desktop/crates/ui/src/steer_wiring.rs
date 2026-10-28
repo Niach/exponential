@@ -254,7 +254,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             // EXP-773: serve a stored transcript back to the relay. Reading
             // and republishing both happen on the steer runtime — the socket
             // loop only hands the id over.
-            let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id| {
+            let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id, reply| {
                 let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
                     trpc: Arc::clone(&history_trpc),
                     session_id: session_id.clone(),
@@ -265,6 +265,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                     history_dir.clone(),
                     session_id,
                     history_in_flight.clone(),
+                    reply,
                 );
             });
             let on_history_page: steer::HistoryPageFn = Arc::new(move |ask, reply| {

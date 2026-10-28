@@ -91,6 +91,13 @@ pub enum ClientFrame<'a> {
         /// deploys are manual, so the explicit `false` must stay on the wire.
         #[serde(skip_serializing_if = "Option::is_none")]
         activity_public: Option<bool>,
+        /// #EXP-1415: `Some(true)` = a device's one-shot journal replay
+        /// ([`crate::history::publish_history`]), never the live publisher.
+        /// The relay refuses a replay into a room the run's live publisher
+        /// holds (or is reconnecting to), so a replay can never evict it.
+        /// The live publisher leaves it absent (old relays ignore the key).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        replay: Option<bool>,
     },
     /// Join the ONE audience the relay has (EXP-696, the viewer role).
     ///
@@ -194,6 +201,13 @@ pub enum ClientFrame<'a> {
         seqs: Vec<u64>,
         done: bool,
     },
+    /// #EXP-1415 (control role): the answer to a
+    /// [`ServerFrame::HistoryRequest`] this device cannot serve — it holds no
+    /// journal for the session (pruned, or the run never wrote one here).
+    /// The relay answers the waiting viewers at once and backs the session
+    /// off instead of waiting out its 20s timer.
+    #[serde(rename_all = "camelCase")]
+    HistoryNone { session_id: String },
     /// PUBLISHER-only (EXP-249): drop the room's replay log + last diff and
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
@@ -2056,6 +2070,7 @@ mod tests {
                 session_id: "sess-1",
                 issue_id: Some("issue-1"),
                 activity_public: None,
+                replay: None,
             }
             .to_json(),
             r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1"}"#
@@ -2065,6 +2080,7 @@ mod tests {
                 session_id: "sess-1",
                 issue_id: None,
                 activity_public: None,
+                replay: None,
             }
             .to_json(),
             r#"{"t":"hello","sessionId":"sess-1"}"#
@@ -2080,6 +2096,7 @@ mod tests {
                 session_id: "sess-1",
                 issue_id: Some("issue-1"),
                 activity_public: Some(false),
+                replay: None,
             }
             .to_json(),
             r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1","activityPublic":false}"#
@@ -2089,6 +2106,7 @@ mod tests {
                 session_id: "sess-1",
                 issue_id: None,
                 activity_public: Some(false),
+                replay: None,
             }
             .to_json(),
             r#"{"t":"hello","sessionId":"sess-1","activityPublic":false}"#
@@ -3289,6 +3307,7 @@ mod tests {
                     session_id: "s",
                     issue_id: None,
                     activity_public: None,
+                    replay: None,
                 },
                 "hello",
             ),
@@ -3377,6 +3396,22 @@ mod tests {
         assert_eq!(
             chunk.to_json(),
             r#"{"t":"history_chunk","requestId":"h7","events":[{"kind":"narration","text":"older"}],"seqs":[39],"done":true}"#
+        );
+        // #EXP-1415: a journal replay says so in its hello.
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: None,
+                activity_public: Some(false),
+                replay: Some(true),
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","activityPublic":false,"replay":true}"#
+        );
+        // #EXP-1415: the control socket's "no journal here" answer.
+        assert_eq!(
+            ClientFrame::HistoryNone { session_id: "sess-1".to_string() }.to_json(),
+            r#"{"t":"history_none","sessionId":"sess-1"}"#
         );
         let chunk = ClientFrame::HistoryChunk {
             session_id: Some("sess-1".to_string()),

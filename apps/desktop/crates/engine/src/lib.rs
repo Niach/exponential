@@ -52,6 +52,8 @@ pub mod lifecycle;
 pub mod local;
 pub mod mapper;
 pub mod outbox;
+/// NEW-17: each agent run in its own systemd scope on Linux.
+pub mod run_scope;
 pub mod session;
 pub mod sink;
 // FEED-61: a turn that died on a transient API error is re-prompted by the

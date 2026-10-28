@@ -258,7 +258,7 @@ fn build_row(
     });
     ReadinessRow {
         key: item.key.clone(),
-        label: device_doctor::label(&item.key).to_string(),
+        label: device_doctor::item_label(item).to_string(),
         state: item.state,
         glyph: (!is_switch).then(|| state_glyph(item.state)),
         detail: if is_switch { None } else { item.detail.clone() },
@@ -339,6 +339,15 @@ pub(crate) fn blocking_row(
         return row_for(doctor, agent.id(), local);
     }
     None
+}
+
+/// EXP-1375: the row the composer shows when nothing blocks the start but
+/// the device is low on disk (its `disk` row is `action`): a warning with no
+/// pill; the start stays enabled.
+pub(crate) fn warning_row(doctor: &DeviceDoctor, local: bool) -> Option<ReadinessRow> {
+    device_doctor::low_disk(doctor)
+        .then(|| row_for(doctor, device_doctor::KEY_DISK, local))
+        .flatten()
 }
 
 /// A row as one tooltip line: `Claude Code · 2.1.222 · needs 2.1.263`.
@@ -1045,11 +1054,12 @@ mod tests {
                 for (row, item) in rows.iter().zip(items) {
                     let state = item["state"].as_str().unwrap();
                     assert_eq!(row.key, item["key"].as_str().unwrap(), "{name}");
-                    assert_eq!(
-                        row.label,
-                        fixture["labels"][row.key.as_str()].as_str().unwrap(),
-                        "{name}"
-                    );
+                    // EXP-1375: a kept worktree row carries its own label.
+                    let label = item["label"]
+                        .as_str()
+                        .or_else(|| fixture["labels"][row.key.as_str()].as_str())
+                        .unwrap();
+                    assert_eq!(row.label, label, "{name}");
                     assert_eq!(row.indent, item.get("parent").is_some(), "{name}: {}", row.key);
                     if row.key == KEY_COMPUTER_USE {
                         // The switch row: no glyph, no detail, no pill.
@@ -1167,6 +1177,25 @@ mod tests {
         assert!(no_agent_row(&doctor(&cases[0]), true).is_none());
         assert_eq!(no_agent_row(&doctor(&cases[1]), true).unwrap().key, "claude");
         assert_eq!(no_agent_row(&doctor(&cases[2]), true).unwrap().key, KEY_GIT);
+    }
+
+    /// EXP-1375: the low-disk row is the composer's warning, never a blocker.
+    #[test]
+    fn the_low_disk_row_is_a_warning_only() {
+        for case in cases() {
+            let name = case["name"].as_str().unwrap();
+            let doctor = doctor(&case);
+            let warning = warning_row(&doctor, false);
+            assert_eq!(
+                warning.as_ref().map(|row| row.key.as_str()),
+                case["composerWarning"].as_str(),
+                "{name}"
+            );
+            if let Some(row) = warning {
+                assert!(row.pill.is_none() && !row.indent, "{name}");
+                assert!(blocking_row(&doctor, CodingAgent::Claude, false).is_none(), "{name}");
+            }
+        }
     }
 
     #[test]

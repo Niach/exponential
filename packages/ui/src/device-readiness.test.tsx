@@ -7,6 +7,7 @@ import {
   deviceReadinessBlocker,
   deviceReadinessModel,
   deviceReadinessRunnable,
+  deviceReadinessWarning,
   type DeviceReadinessDoctor,
 } from "./device-readiness"
 
@@ -21,6 +22,8 @@ interface Case {
   localPrimary: string | null
   remotePills: Record<string, string>
   importPills?: Record<string, string>
+  /** EXP-1375: the composer's non-blocking row (absent = null). */
+  composerWarning?: string | null
 }
 const cases = spec.cases as unknown as Case[]
 
@@ -93,7 +96,7 @@ describe.each(cases)(`device-doctor.json: $name`, (fixtureCase) => {
       const row = container.querySelector(`[data-item=${item.key}]`)
       if (!row) continue
       expect(row.textContent).toContain(
-        (spec.labels as Record<string, string>)[item.key]
+        item.label ?? (spec.labels as Record<string, string>)[item.key]
       )
       if (item.detail) expect(row.textContent).toContain(item.detail)
     }
@@ -162,6 +165,26 @@ describe.each(cases)(`device-doctor.json: $name`, (fixtureCase) => {
       deviceReadinessRunnable(doctor, agent)
     )
     expect(runnable).toEqual(fixtureCase.runnable)
+  })
+
+  it(`the composer's low-disk warning matches the fixture and never blocks`, () => {
+    expect(deviceReadinessWarning(doctor)).toBe(fixtureCase.composerWarning ?? null)
+    if (fixtureCase.composerWarning) {
+      expect(fixtureCase.runnable.length).toBeGreaterThan(0)
+      const { container } = render(
+        <DeviceReadiness
+          doctor={doctor}
+          remote
+          only={[fixtureCase.composerWarning]}
+          onAction={() => {}}
+        />
+      )
+      const rows = [...container.querySelectorAll(`[data-item]`)]
+      expect(rows.map((row) => row.getAttribute(`data-item`))).toEqual([
+        fixtureCase.composerWarning,
+      ])
+      expect(rows[0]!.querySelector(`[data-slot=pill]`)).toBeNull()
+    }
   })
 
   it(`single-row mode renders only the composer's blocker, without bands`, () => {

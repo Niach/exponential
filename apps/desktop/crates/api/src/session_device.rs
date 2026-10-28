@@ -143,6 +143,19 @@ pub enum ReportStatus {
     Ended,
 }
 
+/// NEW-17: why a run's PROCESS went away without the agent finishing
+/// (`sessions.report {lost}`): the server never ends the session on it and,
+/// when it was mid-turn, flags the `restarted` interruption (its device
+/// continues it). An older server strips the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LostReason {
+    /// Killed, OOM-killed or crashed under a live host.
+    ProcessLost,
+    /// The host itself stopped (a daemon restart, an app quit) mid-turn.
+    DaemonRestart,
+}
+
 /// The usage wall a device saw (EXP-804) — the server's
 /// `codingSessionBlockedSchema` wire shape. EXP-1292: owned (it now rides
 /// [`SessionReport`], which hosts keep across ticks).
@@ -202,6 +215,20 @@ pub struct SessionReport {
     /// longer names (a moved session's late write) is a no-op server-side.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
+    /// EXP-1418: on a turn-end report (`status: idle` / `busy: false`),
+    /// whether an interrupt (a person's Stop) cut that turn; `false` = it
+    /// finished by itself, so a Stop that raced it holds nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interrupted: Option<bool>,
+    /// NEW-17: the run's process went away without the agent finishing it
+    /// ([`LostReason`]); sent with the run's last status, and the ONLY
+    /// report of that death (any later report clears the interruption).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lost: Option<LostReason>,
+    /// NEW-17: with `lost`, whether a turn was still open when the process
+    /// went away (the row may already read idle off a late tick).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mid_turn: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -576,6 +603,9 @@ mod tests {
             plan_mode: Some(false),
             model: Some("opus".to_string()),
             device_id: Some("dev-1".to_string()),
+            interrupted: Some(false),
+            lost: Some(LostReason::ProcessLost),
+            mid_turn: Some(true),
         };
         let input = ReportInput {
             session_id: "s1",
@@ -583,7 +613,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","planMode":false,"model":"opus","deviceId":"dev-1"}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","planMode":false,"model":"opus","deviceId":"dev-1","interrupted":false,"lost":"process_lost","midTurn":true}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall

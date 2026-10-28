@@ -19,6 +19,8 @@ data class DeviceDoctorItem(
     val key: String,
     val group: String,
     val parent: String? = null,
+    /** EXP-1375: the row's own label (a kept worktree), over [DeviceReadiness.LABELS]. */
+    val label: String? = null,
     val state: String,
     val detail: String? = null,
     val action: String? = null,
@@ -51,6 +53,7 @@ fun parseDeviceDoctor(raw: String?): DeviceDoctor? {
             key = item.str("key") ?: return@mapNotNull null,
             group = item.str("group") ?: return@mapNotNull null,
             parent = item.str("parent"),
+            label = item.str("label")?.takeIf { it.isNotEmpty() },
             state = item.str("state") ?: return@mapNotNull null,
             detail = item.str("detail"),
             action = item.str("action"),
@@ -107,6 +110,9 @@ object DeviceReadiness {
     const val GROUP_COMPUTER_USE = "computer_use"
     /** NEW-78: the voice device's microphone row. */
     const val GROUP_VOICE = "voice"
+    /** EXP-1375: free disk + the worktrees the cleanup kept. */
+    const val GROUP_STORAGE = "storage"
+    const val KEY_DISK = "disk"
 
     const val KEY_GIT = "git"
     const val KEY_COMPUTER_USE = "computer_use"
@@ -129,6 +135,7 @@ object DeviceReadiness {
         Triple(GROUP_AGENTS, "Coding agents", "optional"),
         Triple(GROUP_COMPUTER_USE, "Computer use", "optional"),
         Triple(GROUP_VOICE, "Voice", "optional"),
+        Triple(GROUP_STORAGE, "Storage", null),
     )
 
     /** Fixture `labels`. */
@@ -141,6 +148,7 @@ object DeviceReadiness {
         "accessibility" to "Accessibility",
         "microphone" to "Microphone",
         "speech" to "Speech",
+        "disk" to "Disk",
     )
 
     /** Fixture `actions`: label + whether ANOTHER device may run it. */
@@ -160,6 +168,9 @@ object DeviceReadiness {
     fun alreadyAdded(email: String): String = AgentAccountsRows.alreadyAddedToast(email)
 
     fun label(key: String): String = LABELS[key] ?: key
+
+    /** A row's label: its own (EXP-1375: a kept worktree), else [label]. */
+    fun label(item: DeviceDoctorItem): String = item.label ?: label(item.key)
 
     /** Fixture `states`; an unknown state reads as the muted dash. */
     fun glyphAndTone(state: String): Pair<DoctorGlyph, DoctorTone> = when (state) {
@@ -241,7 +252,7 @@ object DeviceReadiness {
                     if (primary) primaryTaken = true
                     DoctorRow(
                         key = item.key,
-                        label = label(item.key),
+                        label = label(item),
                         detail = item.detail,
                         state = state,
                         glyph = glyph,
@@ -287,6 +298,17 @@ object DeviceReadiness {
     }
 
     /**
+     * EXP-1375: the composer's row when NOTHING blocks the start but the
+     * device is low on disk (its `disk` row is `action`): a warning with no
+     * pill; the start stays enabled. Null otherwise.
+     */
+    fun warningRow(doctor: DeviceDoctor, remote: Boolean = true): DoctorRow? {
+        val disk = doctor.items.firstOrNull { it.key == KEY_DISK }
+            ?.takeIf { it.state == STATE_ACTION } ?: return null
+        return singleRow(disk, remote)
+    }
+
+    /**
      * The rows that need attention (`action`/`error`), each standalone — the
      * own-device list's caption, in block order. Switch rows never qualify,
      * nor optional `missing`/`off` ones (grey, never a problem).
@@ -300,7 +322,7 @@ object DeviceReadiness {
         val action = offered(item.action, remote)
         return DoctorRow(
             key = item.key,
-            label = label(item.key),
+            label = label(item),
             detail = item.detail,
             state = item.state,
             glyph = glyph,

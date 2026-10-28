@@ -1219,8 +1219,16 @@ export const deviceDoctorKeys = [
   `microphone`,
   // NEW-55: whether the voice device can speak (IDE only, Speak replies on).
   `speech`,
+  // EXP-1375: free disk (the kept worktree rows are `worktree-<n>`, labelled).
+  `disk`,
 ] as const
-export const deviceDoctorGroups = [`required`, `agents`, `computer_use`, `voice`] as const
+export const deviceDoctorGroups = [
+  `required`,
+  `agents`,
+  `computer_use`,
+  `voice`,
+  `storage`,
+] as const
 export const deviceDoctorStates = [
   `ok`,
   `action`,
@@ -1243,6 +1251,8 @@ export interface DeviceDoctorItem {
   key: DeviceDoctorKey | (string & {})
   group: DeviceDoctorGroup | (string & {})
   parent?: string
+  /** EXP-1375: the row's own label (a kept worktree's directory name). */
+  label?: string
   state: DeviceDoctorState | (string & {})
   detail?: string
   action?: DeviceDoctorAction | (string & {})
@@ -1254,11 +1264,16 @@ export interface DeviceDoctor {
   checkedAt: string
   items: DeviceDoctorItem[]
 }
-export const MAX_DEVICE_DOCTOR_ITEMS = 24
+// EXP-1375: room for up to 12 kept worktree rows beside the checks.
+export const MAX_DEVICE_DOCTOR_ITEMS = 32
 export const deviceDoctorItemSchema = z.object({
   key: z.string().min(1).max(32),
   group: z.string().min(1).max(32),
   parent: z.string().max(32).nullish(),
+  label: z
+    .string()
+    .nullish()
+    .transform((v) => (v == null ? v : v.slice(0, 120))),
   state: z.string().min(1).max(32),
   // Truncated, never refused: a long device-written line must not 400.
   detail: z

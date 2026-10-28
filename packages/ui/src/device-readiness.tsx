@@ -22,6 +22,8 @@ export interface DeviceReadinessItem {
   key: string
   group: string
   parent?: string | null
+  /** EXP-1375: the row's own label (a kept worktree), over the labels map. */
+  label?: string | null
   state: string
   detail?: string | null
   action?: string | null
@@ -99,6 +101,13 @@ export interface DeviceReadinessModelOptions {
 
 const isProblem = (state: string) => state === `action` || state === `error`
 
+/** A row's label: its own (EXP-1375: a kept worktree), else the fixture's. */
+const labelOf = (item: DeviceReadinessItem): string | undefined =>
+  item.label || LABELS[item.key]
+
+/** EXP-1375: the free-disk row's key. */
+export const DISK_KEY = `disk`
+
 /** The block as data, fixture-locked by `device-readiness.test.tsx`. */
 export function deviceReadinessModel(
   doctor: DeviceReadinessDoctor,
@@ -106,7 +115,7 @@ export function deviceReadinessModel(
 ): DeviceReadinessGroupModel[] {
   const known = doctor.items.filter(
     (item) =>
-      LABELS[item.key] !== undefined &&
+      labelOf(item) !== undefined &&
       STATES[item.state] !== undefined &&
       GROUPS.some((group) => group.key === item.group)
   )
@@ -155,7 +164,7 @@ export function deviceReadinessModel(
             : null
         return {
           key: item.key,
-          label: LABELS[item.key]!,
+          label: labelOf(item)!,
           state: item.state,
           glyph: state.glyph,
           tone: state.tone,
@@ -185,6 +194,16 @@ export function deviceReadinessBlocker(
   const row = doctor.items.find((item) => item.key === agent)
   if (row && row.state !== `ok` && LABELS[row.key] !== undefined) return row.key
   return null
+}
+
+/** EXP-1375: the row the composer shows when NOTHING blocks the start but
+ *  the device is low on disk (its `disk` row is `action`): a warning, the
+ *  start stays enabled. null = no warning. */
+export function deviceReadinessWarning(
+  doctor: DeviceReadinessDoctor | null | undefined
+): string | null {
+  const disk = doctor?.items.find((item) => item.key === DISK_KEY)
+  return disk?.state === `action` ? DISK_KEY : null
 }
 
 /** Whether the report says `agent` can run there (Git ok + the agent ok). */

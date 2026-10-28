@@ -386,15 +386,14 @@ export function SessionComposer({
   }
 
   const pickModel = async (value: string) => {
-    // One `/model` turn at a time: a pick in flight (until the relay
-    // confirms it, a failure or the confirm window) latches the next.
+    // One pick at a time: a pick in flight (until the relay confirms it, a
+    // failure or the confirm window) latches the next. EXP-1401: the pick
+    // is the row's (`sessions.configure`), never a `/model` turn: a walled
+    // session takes no turn (the server lifts a model wall or refuses).
     if (value === model || options.ended || pickedModel !== null) return
     setPickedModel(value)
     try {
-      await trpc.sessions.send.mutate(
-        { teamId, sessionId, text: `/model ${value}` },
-        SKIP_ERROR_TOAST
-      )
+      await trpc.sessions.configure.mutate({ sessionId, model: value }, SKIP_ERROR_TOAST)
     } catch (error) {
       setPickedModel(null)
       failedAction(`switch`, `the model`, error)

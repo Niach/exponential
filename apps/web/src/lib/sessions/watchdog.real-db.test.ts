@@ -840,4 +840,92 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     await w.host.report({ sessionId: interrupted, status: `running`, busy: true })
     expect(await row(interrupted)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
   })
+
+  it(`NEW-17: a device reporting a run's process LOST mid-turn interrupts it (never an end, never "done"); an older device's end while running reads the same`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const killed = await w.child(rootId, `OOM killed`)
+    const older = await w.child(rootId, `older device`)
+    const refused = await w.child(rootId, `never ran`)
+    const finished = await w.child(rootId, `finished`)
+    for (const id of [rootId, killed, older, refused, finished]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+    await w.host.report({ sessionId: killed, busy: true })
+    await w.host.report({ sessionId: killed, deviceId: w.deviceId, status: `ended`, lost: `process_lost` })
+    expect(await row(killed)).toMatchObject({
+      status: `idle`,
+      busy: false,
+      needsInput: false,
+      endedAt: null,
+      blocked: { kind: `restarted`, resume: true },
+    })
+    // Said once to its parent, not waking: its device continues it.
+    const said = await lines(rootId, `session_interrupted`, killed)
+    expect(said).toMatchObject([{ authorKind: `system`, body: BUS_COPY.session_lost }])
+    expect(said[0]!.consumedAt).not.toBeNull()
+
+    // An older device sends no `lost`: its end report while a turn is open
+    // (running, after a turn ran) is the same interruption.
+    await w.host.report({ sessionId: older, busy: true })
+    await w.host.report({ sessionId: older, busy: false })
+    await w.host.report({ sessionId: older, status: `ended` })
+    expect(await row(older)).toMatchObject({ status: `idle`, blocked: { kind: `restarted` } })
+    // A launch that never reached a turn still ends; so does a finished one.
+    await w.host.report({ sessionId: refused, status: `ended` })
+    expect(await row(refused)).toMatchObject({ status: `ended` })
+    await w.host.report({ sessionId: finished, status: `idle` })
+    await w.host.report({ sessionId: finished, status: `ended` })
+    expect(await row(finished)).toMatchObject({ status: `ended` })
+
+    // A daemon restart under an idle session: nothing was interrupted.
+    await w.host.report({ sessionId: rootId, status: `idle` })
+    await w.host.report({ sessionId: rootId, lost: `daemon_restart` })
+    expect(await row(rootId)).toMatchObject({ status: `idle`, blocked: null })
+    expect(await lines(rootId, `session_interrupted`, rootId)).toHaveLength(0)
+
+    // A late status tick already read the row idle: the device's own
+    // `midTurn` still says a turn was open.
+    const late = await w.child(rootId, `late tick`)
+    await w.host.claim({ sessionId: late, deviceId: w.deviceId })
+    await w.host.report({ sessionId: late, busy: true })
+    await w.host.report({ sessionId: late, status: `idle`, busy: false })
+    await w.host.report({ sessionId: late, status: `ended`, lost: `process_lost`, midTurn: true })
+    expect(await row(late)).toMatchObject({ status: `idle`, endedAt: null, blocked: { kind: `restarted` } })
+
+    // Its device continuing it reports: the flag clears.
+    await w.host.report({ sessionId: killed, status: `running`, busy: true })
+    expect(await row(killed)).toMatchObject({ busy: true, blocked: null })
+  })
+
+  it(`FEED-153: a claimed first message whose turn never ran is pending again (once) and its device nudged`, async () => {
+    const w = await world()
+    const lost = await w.root(`never ran`)
+    const ran = await w.root(`ran`)
+    for (const id of [lost, ran]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+    const brief = async (id: string) =>
+      (await db.select().from(messages).where(and(eq(messages.sessionId, id), eq(messages.authorKind, `user`))))[0]!
+    // The claim delivers the Request with its own stamp.
+    expect((await brief(lost)).consumedAt?.getTime()).toBe((await row(lost)).startedAt?.getTime())
+    await w.host.reply({ sessionId: ran, body: `Done.` })
+    const at = ago((watchdog.nudgeMinutes + 5) * MIN).toISOString()
+    for (const id of [lost, ran]) {
+      await backdate(
+        () => sql`UPDATE sessions SET status = 'idle', busy = false, started_at = ${at}, updated_at = ${at} WHERE id = ${id}`
+      )
+      await backdate(() => sql`UPDATE messages SET consumed_at = ${at} WHERE session_id = ${id} AND author_kind = 'user'`)
+    }
+
+    relay.on = true
+    const run = await runWatchdog(NOW)
+    expect(run.redelivered).toBeGreaterThanOrEqual(1)
+    expect((await brief(lost)).consumedAt).toBeNull()
+    expect(relay.nudges).toContainEqual({ userId: w.owner, deviceId: w.deviceId })
+    // A session whose turn ran keeps its delivery.
+    expect((await brief(ran)).consumedAt).not.toBeNull()
+
+    // The device delivers it this time: never re-delivered again.
+    await w.host.consume({ sessionId: lost, messageIds: [(await brief(lost)).id] })
+    await backdate(() => sql`UPDATE sessions SET updated_at = ${at} WHERE id = ${lost}`)
+    await runWatchdog(NOW)
+    expect((await brief(lost)).consumedAt).not.toBeNull()
+  })
 })

@@ -259,10 +259,14 @@ impl From<CleanupOutcome> for FinishOutcome {
 /// Same shields as [`remove_if_clean`]: the clone's launch gate, live
 /// holders, a missing worktree, malformed branch names.
 pub fn finish_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
-    match crate::launch_gate::try_exclusive(&cleanup.clone, || finish_locked(cleanup, live, session_id8)) {
-        Some(outcome) => outcome,
-        None => FinishOutcome::Skipped(SkipReason::GateHeld),
-    }
+    let outcome =
+        match crate::launch_gate::try_exclusive(&cleanup.clone, || finish_locked(cleanup, live, session_id8)) {
+            Some(outcome) => outcome,
+            None => FinishOutcome::Skipped(SkipReason::GateHeld),
+        };
+    // EXP-1375: a worktree that stays loses its regenerable build output now.
+    crate::worktree_lifecycle::after_finish(&cleanup.worktree, &outcome);
+    outcome
 }
 
 fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {

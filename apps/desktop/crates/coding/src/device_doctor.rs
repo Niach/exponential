@@ -28,6 +28,10 @@ pub const KEY_COMPUTER_USE: &str = "computer_use";
 pub const KEY_MICROPHONE: &str = "microphone";
 /// NEW-55: the voice group's second row (see [`add_speech`]).
 pub const KEY_SPEECH: &str = "speech";
+/// EXP-1375: the storage group's free-disk row (see [`add_storage`]).
+pub const KEY_DISK: &str = "disk";
+/// EXP-1375: a kept worktree row's key prefix (`worktree-1`, `worktree-2`, …).
+pub const KEY_WORKTREE_PREFIX: &str = "worktree-";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -73,6 +77,10 @@ pub struct DoctorItem {
     pub group: DoctorGroup,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// EXP-1375: the row's own label (a kept worktree's directory name),
+    /// replacing the fixture's `labels` entry; only on kept worktree rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub state: DoctorState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -92,14 +100,17 @@ pub enum DoctorGroup {
     ComputerUse,
     /// NEW-78: the microphone row, on the member's voice device only.
     Voice,
+    /// EXP-1375: free disk + the worktrees the cleanup kept.
+    Storage,
 }
 
 impl DoctorGroup {
-    pub const ALL: [DoctorGroup; 4] = [
+    pub const ALL: [DoctorGroup; 5] = [
         DoctorGroup::Required,
         DoctorGroup::Agents,
         DoctorGroup::ComputerUse,
         DoctorGroup::Voice,
+        DoctorGroup::Storage,
     ];
 
     /// The fixture's `groups[].label`.
@@ -109,13 +120,14 @@ impl DoctorGroup {
             DoctorGroup::Agents => "Coding agents",
             DoctorGroup::ComputerUse => "Computer use",
             DoctorGroup::Voice => "Voice",
+            DoctorGroup::Storage => "Storage",
         }
     }
 
     /// The fixture's `groups[].tag`.
     pub fn tag(self) -> Option<&'static str> {
         match self {
-            DoctorGroup::Required => None,
+            DoctorGroup::Required | DoctorGroup::Storage => None,
             DoctorGroup::Agents | DoctorGroup::ComputerUse | DoctorGroup::Voice => {
                 Some("optional")
             }
@@ -174,8 +186,14 @@ pub fn label(key: &str) -> &str {
         "accessibility" => "Accessibility",
         "microphone" => "Microphone",
         "speech" => "Speech",
+        "disk" => "Disk",
         other => other,
     }
+}
+
+/// A row's label: its own (EXP-1375: a kept worktree), else [`label`].
+pub fn item_label(item: &DoctorItem) -> &str {
+    item.label.as_deref().unwrap_or_else(|| label(&item.key))
 }
 
 /// What computer use can do on this machine, as [`crate::computer`] says
@@ -209,6 +227,7 @@ fn item(key: &str, group: DoctorGroup, state: DoctorState) -> DoctorItem {
         key: key.to_string(),
         group,
         parent: None,
+        label: None,
         state,
         detail: None,
         action: None,
@@ -435,7 +454,56 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     } else {
         ComputerState::Unsupported(None)
     };
-    build(&report, settings, computer)
+    let mut doctor = build(&report, settings, computer);
+    add_storage(
+        &mut doctor,
+        crate::worktree_lifecycle::free_bytes(&settings.repos_root_path()),
+        &crate::worktree_lifecycle::kept_rows(data_dir),
+    );
+    doctor
+}
+
+/// EXP-1375: append the storage group (pure): the `disk` row (`{size} free`;
+/// `action` below [`crate::worktree_lifecycle::LOW_DISK_BYTES`], no pill),
+/// then one indented `off` row per kept worktree. `free = None` (unreadable)
+/// adds nothing — the kept rows hang off the disk row.
+pub fn add_storage(
+    doctor: &mut DeviceDoctor,
+    free: Option<u64>,
+    kept: &[crate::worktree_lifecycle::KeptRow],
+) {
+    let Some(free) = free else { return };
+    let state = if free < crate::worktree_lifecycle::LOW_DISK_BYTES {
+        DoctorState::Action
+    } else {
+        DoctorState::Ok
+    };
+    doctor.items.push(
+        item(KEY_DISK, DoctorGroup::Storage, state)
+            .detail(disk_free(&crate::worktree_lifecycle::format_free(free))),
+    );
+    for (index, row) in kept.iter().enumerate() {
+        let key = format!("{KEY_WORKTREE_PREFIX}{}", index + 1);
+        let mut kept = item(&key, DoctorGroup::Storage, DoctorState::Off)
+            .parent(KEY_DISK)
+            .detail(row.reason.detail());
+        kept.label = Some(row.label.clone());
+        doctor.items.push(kept);
+    }
+}
+
+/// The fixture's `diskFree` template.
+pub fn disk_free(size: &str) -> String {
+    format!("{size} free")
+}
+
+/// EXP-1375: whether the doctor says the device is low on disk (its `disk`
+/// row is `action`).
+pub fn low_disk(doctor: &DeviceDoctor) -> bool {
+    doctor
+        .items
+        .iter()
+        .any(|item| item.key == KEY_DISK && item.state == DoctorState::Action)
 }
 
 /// NEW-78: what the IDE's microphone probe found (`talk::microphone`, mapped
@@ -591,6 +659,22 @@ mod tests {
         }
     }
 
+    /// EXP-1375: the storage group a fixture case carries.
+    fn case_storage(index: usize) -> Option<(u64, Vec<crate::worktree_lifecycle::KeptRow>)> {
+        use crate::worktree_lifecycle::{KeptReason, KeptRow};
+        match index {
+            11 => Some((214_300_000_000, Vec::new())),
+            12 => Some((
+                6_240_000_000,
+                vec![
+                    KeptRow { label: "exp-session-9497089a".into(), reason: KeptReason::Uncommitted },
+                    KeptRow { label: "exp-EXP-1375".into(), reason: KeptReason::Unpushed },
+                ],
+            )),
+            _ => None,
+        }
+    }
+
     /// The hand-built input behind each fixture case, by index.
     fn case_input(index: usize) -> (DoctorReport, Settings, ComputerState) {
         match index {
@@ -663,6 +747,8 @@ mod tests {
             ),
             // NEW-78: the first case's machine, plus its microphone row.
             6..=10 => case_input(0),
+            // EXP-1375: the first case's machine, plus its storage group.
+            11 | 12 => case_input(0),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -671,7 +757,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 11, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 13, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -682,6 +768,14 @@ mod tests {
             if let Some(speech) = case_speech(index) {
                 add_speech(&mut doctor, speech);
             }
+            if let Some((free, kept)) = case_storage(index) {
+                add_storage(&mut doctor, Some(free), &kept);
+            }
+            assert_eq!(
+                low_disk(&doctor),
+                case["composerWarning"].as_str() == Some(KEY_DISK),
+                "{name}"
+            );
             let expected: Vec<DoctorItem> =
                 serde_json::from_value(case["doctor"]["items"].clone()).unwrap();
             assert_eq!(doctor.items, expected, "{name}");
@@ -760,10 +854,14 @@ mod tests {
             ("downloading", DOWNLOADING),
             ("downloadFailed", DOWNLOAD_FAILED),
             ("importBody", IMPORT_BODY),
+            ("keptUncommitted", crate::worktree_lifecycle::KeptReason::Uncommitted.detail()),
+            ("keptUnpushed", crate::worktree_lifecycle::KeptReason::Unpushed.detail()),
+            ("keptFailed", crate::worktree_lifecycle::KeptReason::Failed.detail()),
         ] {
             assert_eq!(copy[key].as_str().unwrap(), text, "{key}");
         }
         assert_eq!(import_title("{email}"), copy["importTitle"].as_str().unwrap());
+        assert_eq!(disk_free("{size}"), copy["diskFree"].as_str().unwrap());
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),
             copy["needsVersion"].as_str().unwrap()
