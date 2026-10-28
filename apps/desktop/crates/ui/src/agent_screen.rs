@@ -636,6 +636,7 @@ impl AgentScreenView {
             author,
             author_id,
             body,
+            xref,
             ..
         } = row
         else {
@@ -667,8 +668,9 @@ impl AgentScreenView {
                 return crate::thread_screen::muted_line(registry::UI_INFO, body.clone(), cx);
             }
         };
-        // THE comment card (the run thread's), whole: no clamp, no toggle.
-        crate::comments::thread_comment_card(
+        // THE comment card (the run thread's), whole: no clamp, no toggle;
+        // S-3: another session's message carries its link header above.
+        let card = crate::comments::thread_comment_card(
             crate::comments::ThreadCommentProps {
                 id: SharedString::from(format!("agent-message-{id}")),
                 mark: marker,
@@ -683,7 +685,8 @@ impl AgentScreenView {
                 images: Some(self.images.clone()),
             },
             cx,
-        )
+        );
+        crate::thread_screen::with_xref(id, xref.as_ref(), domain::contract::MESSAGE_AUTHOR_KIND_AGENT, card, cx)
     }
 
     /// Thread 58cb32df (chats.json `agentMenuCases`): the agent chat

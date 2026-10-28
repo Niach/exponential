@@ -1297,7 +1297,9 @@ pub(crate) fn card_row(
             picture_row(id, attachment_id, *width, *height, caption.as_deref(), images, cx)
         }
         SessionThreadRow::Event { text, .. } => muted_line(registry::EVENT_STATUS_CHANGED, text.clone(), cx),
-        SessionThreadRow::Report { id, session_id, text, .. } => report_line(id, session_id, text, root_id, cx),
+        // S-3: a child's end report = THE link header alone (`Report from
+        // <chip> ›`); its summary never repeats.
+        SessionThreadRow::Report { id, xref, .. } => crate::session_xref::session_xref(id, xref, cx),
         SessionThreadRow::Suggestions { id, header, start_all, items, .. } => {
             suggestions_card(id, header, *start_all, items, root_id, team_id, cx)
         }
@@ -1311,32 +1313,50 @@ pub(crate) fn card_row(
 }
 
 // ---------------------------------------------------------------------------
-// EXP-1323: a child's report line + THE suggested tasks card
+// EXP-1323: THE suggested tasks card (a report = `session_xref`)
 // ---------------------------------------------------------------------------
 
-/// A child's end report = ONE event line `↩ Report from <session> ›`
-/// opening that session; its summary is never repeated (the parent's next
-/// message relays it).
-pub(crate) fn report_line(id: &str, session_id: &str, text: &str, root_id: &str, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let hover = cx.theme().foreground;
-    let session_id = session_id.to_string();
-    let root_id = root_id.to_string();
-    h_flex()
-        .id(SharedString::from(format!("{}-{id}", THREAD.test_ids.report)))
-        .max_w_full()
+/// S-3: a message posted by ANOTHER session = its link header right above
+/// the bubble (a person's bubble right-aligned: the header follows it).
+pub(crate) fn with_xref(
+    id: &str,
+    xref: Option<&domain::session_tree::SessionXref>,
+    author: &str,
+    bubble: AnyElement,
+    cx: &App,
+) -> AnyElement {
+    let Some(xref) = xref else {
+        return bubble;
+    };
+    v_flex()
+        .w_full()
         .min_w_0()
-        .gap_1p5()
-        .items_center()
-        .text_xs()
-        .text_color(muted)
-        .cursor_pointer()
-        .hover(move |style| style.text_color(hover))
-        .child(Icon::new(registry::NOTIFICATION_REPORTER_REPLY).xsmall().flex_shrink_0())
-        .child(div().min_w_0().truncate().child(SharedString::from(text.to_string())))
-        .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall().flex_shrink_0())
-        .on_click(move |_, window, cx| open_session_card(&session_id, &root_id, window, cx))
+        .gap_1()
+        .when(author == domain::contract::MESSAGE_AUTHOR_KIND_USER, |this| this.items_end())
+        .child(crate::session_xref::session_xref(id, xref, cx))
+        .child(bubble)
         .into_any_element()
+}
+
+/// S-3: the view's origin (`Started by <chip> ›` / `Reported to <chip> ›`)
+/// at the top of the Conversation and of a session open in place.
+fn origin_line(view: &SessionThreadView, cx: &App) -> Option<AnyElement> {
+    let origin = view.origin.as_ref()?;
+    let key = format!("origin-{}", view.focus_id.as_deref().unwrap_or(&view.root_id));
+    Some(
+        div()
+            .w_full()
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(CONVERSATION_W))
+                    .mx_auto()
+                    .px(px(crate::work_header::WORK_GUTTER))
+                    .pt_3()
+                    .child(crate::session_xref::session_xref(&key, origin, cx)),
+            )
+            .into_any_element(),
+    )
 }
 
 /// The suggestion writes in flight: `<message>:<item>` (Start all =
@@ -3246,6 +3266,7 @@ impl ThreadScreenView {
             author_id,
             body,
             queued,
+            xref,
             ..
         } = row
         {
@@ -3255,7 +3276,7 @@ impl ThreadScreenView {
                 &self.text,
                 &self.images,
             );
-            return match author.as_str() {
+            let bubble = match author.as_str() {
                 domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                     let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
                     let name = member_name(author_id.as_deref(), cx);
@@ -3266,6 +3287,7 @@ impl ThreadScreenView {
                 domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
                 _ => muted_line(registry::UI_INFO, body.clone(), cx),
             };
+            return with_xref(id, xref.as_ref(), author, bubble, cx);
         }
         card_row(row, &self.root_id, &self.text, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
     }
@@ -3489,7 +3511,13 @@ impl ThreadScreenView {
             .children(band)
             .child(self.render_jump_to_bottom(band_height, cx))
             .children(sheet);
-        v_flex().flex_1().min_h_0().w_full().child(scroller).into_any_element()
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .children(origin_line(&model.view, cx))
+            .child(scroller)
+            .into_any_element()
     }
 
     fn render_issue_child(&mut self) -> AnyElement {
@@ -3714,6 +3742,7 @@ impl Render for ThreadScreenView {
                 .min_h_0()
                 .overflow_hidden()
                 .child(header)
+                .children(origin_line(&model.view, cx))
                 .child(crate::work_header::work_body(
                     div().flex_1().min_h_0().child(inner).into_any_element(),
                     false,

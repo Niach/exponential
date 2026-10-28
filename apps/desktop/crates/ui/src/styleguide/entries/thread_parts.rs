@@ -478,9 +478,9 @@ pub(super) fn row(
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
+    if let SessionThreadRow::Message { id, author, body, queued, xref, .. } = row {
         let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, &crate::thread_screen::ThreadText::default(), images);
-        return match author.as_str() {
+        let bubble = match author.as_str() {
             domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                 let at = case
                     .messages
@@ -493,6 +493,8 @@ pub(super) fn row(
             domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
             _ => muted_line(registry::UI_INFO, body.clone(), cx),
         };
+        // S-3: another session's message = its link header above the bubble.
+        return crate::thread_screen::with_xref(id, xref.as_ref(), author, bubble, cx);
     }
     card_row(row, &case.view.root_id, &crate::thread_screen::ThreadText::default(), images, window, cx).unwrap_or_else(|| div().into_any_element())
 }

@@ -140,6 +140,30 @@ pub struct ThreadCopy {
     pub suggestions: SuggestionsCopy,
     /// EXP-1211: the quick replies row above the composer.
     pub replies: RepliesCopy,
+    /// S-3: the inter-session link's lead by kind.
+    pub xref: XrefCopy,
+}
+
+/// S-3: `session-thread.json` `copy.xref` (the [`SessionXref`] lead).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct XrefCopy {
+    pub message: String,
+    pub report: String,
+    pub started: String,
+    pub reported: String,
+}
+
+impl XrefCopy {
+    /// The lead for a [`SessionXref::kind`] (`""` for an unknown kind).
+    pub fn lead(&self, kind: &str) -> &str {
+        match kind {
+            "message" => &self.message,
+            "report" => &self.report,
+            "started" => &self.started,
+            "reported" => &self.reported,
+            _ => "",
+        }
+    }
 }
 
 /// EXP-1211: `session-thread.json` `copy.replies`.
@@ -189,6 +213,8 @@ pub struct ThreadTestIds {
     pub replies: String,
     #[serde(rename = "liveTail")]
     pub live_tail: String,
+    /// S-3: an inter-session link header.
+    pub xref: String,
 }
 
 /// `fixtures/session-thread.json` minus its cases.
@@ -963,6 +989,21 @@ pub fn is_tool_card(message: &MessageRow) -> bool {
     })
 }
 
+/// S-3 inter-session links: a compact header naming ANOTHER session (the
+/// lead `copy.xref[kind]`, the agent's mark, the session's name, `›`); a
+/// click opens that session and pushes the current one on the back stack.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionXref {
+    /// `message` | `report` | `started` | `reported` (`copy.xref` keys).
+    pub kind: String,
+    pub session_id: String,
+    /// That session's card name.
+    pub name: String,
+    /// The agent whose tree the session belongs to (its mark), else `None`.
+    pub agent_id: Option<String>,
+}
+
 /// One row of the thread's Conversation (the TS `ThreadRow`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
@@ -977,6 +1018,8 @@ pub enum SessionThreadRow {
         queued: bool,
         /// EXP-1323: the session that posted it (a child asking its parent).
         author_session_id: Option<String>,
+        /// S-3: posted by ANOTHER (synced) session = its `message` link.
+        xref: Option<SessionXref>,
     },
     /// A session's card (`id` = the message id of the `session` /
     /// `thread_started` card that announced it; EXP-1334: the dispatcher
@@ -989,6 +1032,8 @@ pub enum SessionThreadRow {
         session_id: String,
         text: String,
         summary: String,
+        /// S-3: the row renders AS this header (`Report from <chip> ›`).
+        xref: SessionXref,
     },
     /// EXP-1323: ONE suggestions card (`sessions_suggest`); `session_id` =
     /// the posting session (Do it here messages it).
@@ -1203,6 +1248,10 @@ pub struct SessionThreadView {
     /// shows that session's raw work as the main thing: its id, and the
     /// strip carries no Conversation tab. `None` once a second session exists.
     pub main_session_id: Option<String>,
+    /// S-3: who started the viewed session (the focus, else the root): its
+    /// parent, else the agent conversation that started the root; `reported`
+    /// once the viewed session ended. `None` = a person started it.
+    pub origin: Option<SessionXref>,
 }
 
 /// [`build_session_thread`]'s input: what the caller synced.
@@ -1626,6 +1675,21 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     let name_of = |session: &SessionRow| {
         session_card(session, title_of(&titles, &session.id), now).name
     };
+    // S-3: a link to another session = its name + its agent's mark; an
+    // unsynced session (the viewer may not see it) never links.
+    let non_empty = |id: &Option<String>| id.as_deref().filter(|id| !id.is_empty()).map(str::to_string);
+    let xref = |kind: &str, id: Option<&str>| -> Option<SessionXref> {
+        let target = by_id.get(id?)?;
+        let top = by_id.get(target.root_id_or_self()).copied().unwrap_or(*target);
+        Some(SessionXref {
+            kind: kind.to_string(),
+            session_id: target.id.clone(),
+            name: name_of(target),
+            agent_id: non_empty(&target.agent_id)
+                .or_else(|| non_empty(&top.agent_id))
+                .or_else(|| non_empty(&top.started_by_agent_id)),
+        })
+    };
     let tree_ids: HashSet<&str> = tree.iter().map(|session| session.id.as_str()).collect();
     let children: Vec<&SessionRow> = tree.iter().copied().filter(|session| session.id != root.id).collect();
     let session_tabs: Vec<ThreadTab> = fold_forest(
@@ -1722,6 +1786,11 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 queued: author == MESSAGE_AUTHOR_KIND_USER
                     && message.consumed_at.as_deref().is_none_or(str::is_empty),
                 author_session_id: message.author_session_id.clone(),
+                xref: message
+                    .author_session_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty() && *id != root.id)
+                    .and_then(|id| xref("message", Some(id))),
             });
             continue;
         };
@@ -1766,6 +1835,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     text: THREAD.copy.report.replacen("{session}", &name, 1),
                     summary: card_str(card, "summary")
                         .map_or_else(|| message.body_text().to_string(), str::to_string),
+                    xref: xref("report", Some(target.id.as_str())).expect("a synced report target"),
                 });
             }
             Some(MESSAGE_CARD_KIND_SUGGESTIONS) => {
@@ -1829,6 +1899,22 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     // Conversation tab opens its raw work, `main_session_id`); NEW-46: the
     // tab itself is always in the strip.
     let single = tree.iter().all(|session| session.id == root.id);
+    // S-3: the viewed session's origin (its parent, else the agent
+    // conversation that started the root).
+    let viewed = focus.unwrap_or(root);
+    let starter: Option<String> = non_empty(&viewed.parent_id).or_else(|| {
+        let agent = non_empty(&root.started_by_agent_id).filter(|_| viewed.id == root.id)?;
+        by_id
+            .values()
+            .find(|s| {
+                s.agent_id.as_deref() == Some(agent.as_str())
+                    && s.is_root()
+                    && s.root_id_or_self() == s.id
+                    && s.user_id == root.user_id
+            })
+            .map(|s| s.id.clone())
+    });
+    let origin = xref(if viewed.is_ended() { "reported" } else { "started" }, starter.as_deref());
     let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
@@ -1851,6 +1937,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         busy: live.iter().any(|session| session.busy),
         needs_you: live.iter().any(|session| session.needs_input),
         main_session_id: single.then(|| root.id.clone()),
+        origin,
     }
 }
 

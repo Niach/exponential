@@ -25,6 +25,8 @@ pub(crate) mod menu_submenu;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
 pub(crate) mod strip_chip;
+// S-3: THE inter-session link.
+pub(crate) mod session_xref;
 pub(crate) mod composer_dialog;
 pub(crate) mod issue_context_menu;
 pub(crate) mod session_row;
@@ -121,6 +123,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: strip_chip::ID, owner: strip_chip::OWNER, render: strip_chip::render },
+    Entry { id: session_xref::ID, owner: session_xref::OWNER, render: session_xref::render },
     Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },

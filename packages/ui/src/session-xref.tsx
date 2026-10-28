@@ -65,3 +65,26 @@ export function SessionXref({
     </button>
   )
 }
+
+/** S-3 (DEV-ONLY view `session-xref`, the view catalog's capture): the four
+ *  kinds, two through an agent's avatar, two through the session glyph,
+ *  case for case with the styleguide entry and the natives' specimens. */
+export function SessionXrefSpecimen() {
+  const agent = { icon: `bot`, color: `#8b5cf6` }
+  const row = (kind: SessionXrefModel[`kind`], name: string, withAgent: boolean) => ({
+    xref: { kind, sessionId: `sg-xref-${kind}`, name, agentId: withAgent ? `sg-agent` : null },
+    agent: withAgent ? agent : null,
+  })
+  return (
+    <div data-testid="session-xref-specimen" className="flex w-[22rem] max-w-full flex-col items-start gap-3 rounded-3xl border border-glass-stroke-card bg-background p-4">
+      {[
+        row(`message`, `Triage`, true),
+        row(`report`, `Fix the sign-in redirect`, false),
+        row(`started`, `Triage`, true),
+        row(`reported`, `Ship the login flow`, false),
+      ].map(({ xref, agent }) => (
+        <SessionXref key={xref.kind} xref={xref} agent={agent} onOpen={() => {}} />
+      ))}
+    </div>
+  )
+}
