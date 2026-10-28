@@ -861,7 +861,12 @@ export const devicesRouter = router({
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
       // FEED-159: the first account to register the id is its owner for
-      // pinning; Remove never clears it.
+      // pinning; Remove never clears it (deleting that ACCOUNT does: the FK
+      // cascades, and the next account to register the id takes it).
+      // FEED-165: during a rolling deploy, pods older than 0206 register
+      // without this write; such an id gets its row on its first register
+      // through a new pod (whichever account comes first). A short window;
+      // 0209 recomputes every row that existed when it ran.
       await ctx.db
         .insert(deviceFirstSeen)
         .values({ deviceId: input.deviceId, userId })

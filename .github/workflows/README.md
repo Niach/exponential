@@ -44,6 +44,18 @@ reset with `admin.clearDeviceKey({deviceId})`; the box's next register pins
 again. The operations runbook (credentials, Coolify app uuids, the target
 database URLs) lives outside this repository.
 
+One-off right AFTER the deploy that ships migrations 0206 + 0209 (FEED-165):
+`cd apps/web && DATABASE_URL=<target database> bun run audit:device-first-seen`.
+It is read-only (a READ ONLY transaction) and lists every machine id whose
+first-seen account (the FEED-159 pin owner) is not the account with the
+earliest evidence (first session on the id, eldest `devices` row, the pin),
+and every id whose pin another account holds, with each candidate's evidence
+and the `admin.clearDeviceKey({deviceId, pinTo})` call that settles it. 0209
+recomputes first-seen from that same rule, so a mismatch after it means the
+rule and the migration drifted; review the pin list by hand. During the
+rolling deploy, old pods still register without writing first-seen (a short
+window: the next register on a new pod writes it).
+
 Steer relay order (#EXP-1415): deploy the relay BEFORE web, and roll web
 back with any relay rollback. Web mints `live` viewer tickets for idle
 sessions; a relay that ignores the claim shows those sessions as Ended.
