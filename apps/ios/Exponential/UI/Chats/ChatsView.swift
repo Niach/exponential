@@ -161,6 +161,10 @@ struct ChatsView: View {
         let bubbles = view == .archived ? [] : bubbles
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                // S-3 STORIES: the story rings, above the bubbles (hidden without a ring).
+                if view == .list {
+                    StoryRingRow(teamId: teamState.activeTeamId).padding(.horizontal, -16)
+                }
                 if !bubbles.isEmpty {
                     AgentBubbles(
                         items: bubbles,

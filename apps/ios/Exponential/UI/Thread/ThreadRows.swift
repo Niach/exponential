@@ -13,7 +13,6 @@ enum ThreadPage: Hashable {
     /// EXP-1343: a session chip (or a nested session) as a page — its raw
     /// work + composer under the thread's header.
     case session(String)
-    case guide
 }
 
 /// VAPP-110: what an app EDITOR puts into the thread screen hosting its

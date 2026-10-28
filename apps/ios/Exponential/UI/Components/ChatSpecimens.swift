@@ -520,3 +520,102 @@ struct SessionXrefSpecimens: View {
         }
     }
 }
+
+/// S-3 STORIES (stories.json, styleguide `story-ring` / `story-viewer`):
+/// the ring row over static rings (a waiting plan + an unseen result, a
+/// waiting question, a seen result) and THE viewer opened on the waiting
+/// plan. Capture only: `-uiTestingStyleguide story-ring|story-viewer`
+/// (presented by the navigator beside `ThreadCardsScreen`).
+struct StorySpecimensScreen: View {
+    let kind: String
+
+    static let kinds: Set<String> = ["story-ring", "story-viewer"]
+
+    private static let minute: Double = 60_000
+
+    private static func story(
+        _ id: String, _ session: String, _ kind: Stories.Kind, waiting: Bool = false, seen: Bool = false,
+        age: String, title: String?, pictures: [Stories.Picture] = [], text: String? = nil
+    ) -> Stories.Story {
+        Stories.Story(
+            id: id, sessionId: "s-\(id)", rootId: "r-\(id)", sessionName: session, kind: kind, waiting: waiting,
+            seen: seen, createdAt: 0, meta: "\(Stories.Copy.kind(kind)) · \(age)", title: title,
+            pictures: pictures, surface: false, text: text,
+            footer: kind == .plan ? .plan : kind == .question ? .reply : .none,
+            autoAdvanceMs: kind == .result ? Stories.Constants.autoAdvanceMs : nil
+        )
+    }
+
+    static let rings: [Stories.StoryRing] = [
+        Stories.StoryRing(
+            key: "agent:ag1", agentId: "ag1", rootId: nil, title: "Triage", assistant: false, waiting: 1,
+            unseen: true,
+            stories: [
+                story(
+                    "p1", "Fix the sign-in redirect", .plan, waiting: true, age: "4m",
+                    title: "Move the redirect into the auth callback",
+                    text: """
+                    Move the redirect into the auth callback
+
+                    1. Read the `next` param in `/auth/callback` and validate it against the team's origins.
+                    2. Drop the client-side redirect in `SignInPage`.
+                    3. Cover the iPad split view with a UI test.
+                    """
+                ),
+                story(
+                    "r1", "Fix the sign-in redirect", .result, age: "12m", title: "Sign-in on the iPad",
+                    pictures: [Stories.Picture(
+                        label: "ipad", attachmentId: "specimen-ipad", width: 1180, height: 820,
+                        caption: "The redirect lands on the board"
+                    )]
+                ),
+            ]
+        ),
+        Stories.StoryRing(
+            key: "agent:ag2", agentId: "ag2", rootId: nil, title: "Designer", assistant: false, waiting: 1,
+            unseen: true,
+            stories: [story("q1", "Board header polish", .question, waiting: true, age: "1h", title: "Which accent for the header?")]
+        ),
+        Stories.StoryRing(
+            key: "root:r3", agentId: nil, rootId: "r3", title: "Ship the login flow", assistant: false, waiting: 0,
+            unseen: false,
+            stories: [
+                story("r2", "Ship the login flow", .result, seen: true, age: "3h", title: "Login flow shipped"),
+                story("r3", "Ship the login flow", .result, seen: true, age: "2h", title: "Release notes"),
+            ]
+        ),
+    ]
+
+    static func avatar(_ ring: Stories.StoryRing) -> StoryAvatarMark {
+        switch ring.agentId {
+        case "ag1": StoryAvatarMark(icon: BoardTypeDisplay.iconName(for: "bug") ?? AppIcons.codingAssistant, color: Color(hex: "#a855f7"))
+        case "ag2": StoryAvatarMark(icon: BoardTypeDisplay.iconName(for: "bot") ?? AppIcons.codingAssistant, color: Color(hex: "#6366f1"))
+        default: StoryAvatarMark(icon: AppIcons.codingAssistant, color: nil)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            AppBackground()
+            if kind == "story-viewer" {
+                StoryViewer(rings: Self.rings, startKey: Self.rings[0].key, avatar: Self.avatar, onClose: {})
+            } else {
+                VStack(alignment: .leading, spacing: 20) {
+                    StoryRingStrip(rings: Self.rings, avatar: Self.avatar) { _ in }
+                        .padding(.horizontal, -16)
+                    HStack(spacing: 16) {
+                        ForEach(Self.rings) { ring in
+                            StoryRing(stories: ring.stories, size: 36) { Self.avatar(ring) }
+                        }
+                    }
+                    StoryProgress(count: 4, index: 1, fraction: 0.4)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread-cards-screen")
+    }
+}
