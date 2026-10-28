@@ -83,8 +83,17 @@ describe(`bootstrap-cloud`, () => {
     const promise = mod.bootstrapCloud()
     await vi.advanceTimersByTimeAsync(5_000)
     await promise
-    expect(updateWhere).toHaveBeenCalledTimes(2)
+    // Promotion twice (the failed pass + the clean one), the grant strip once.
+    expect(updateWhere).toHaveBeenCalledTimes(3)
     expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  // FEED-159: a deploy that made an action owner-only strips the stored
+  // grants on boot (the SQL keeps only GRANTABLE_ACTIONS, in order).
+  it(`strips the app grants that are no longer grantable on every pass`, async () => {
+    const mod = await importModule()
+    await mod.runBootstrapPass()
+    expect(updateWhere).toHaveBeenCalledTimes(1)
   })
 
   it(`returns the same in-flight promise on repeat calls`, async () => {

@@ -4026,7 +4026,7 @@ mod tests {
         );
         let requests = requests.lock().unwrap();
         assert!(requests[2].contains(&reason), "{}", requests[2]);
-        assert!(requests[3].ends_with(r#"{"sessionId":"sess-1","status":"ended"}"#), "{}", requests[3]);
+        assert!(requests[3].ends_with(r#"{"sessionId":"sess-1","status":"ended","midTurn":false}"#), "{}", requests[3]);
         drop(requests);
         assert!(host.spawned.lock().unwrap().is_empty());
         assert!(!host.deps.live.contains_live("sess-1"));

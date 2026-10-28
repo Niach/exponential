@@ -402,6 +402,21 @@ impl Field {
         voice_text_input(raw, self.limit())
     }
 
+    /// FEED-160: where the caret lands in `typed` (= `self.typed(raw)`)
+    /// for a caret at byte `cursor` of `raw`: the rule streams left to
+    /// right, so the cleaned text before the caret is a prefix of `typed`.
+    fn typed_cursor(self, raw: &str, cursor: usize, typed: &str) -> usize {
+        let mut cursor = cursor.min(raw.len());
+        while !raw.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
+        let mut at = self.typed(&raw[..cursor]).len().min(typed.len());
+        while !typed.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
+    }
+
     /// The value as sent and shown: the input rule, then trimmed.
     fn normalized(self, raw: &str) -> String {
         self.typed(raw).trim().to_string()
@@ -601,7 +616,13 @@ impl VoicePrefsPane {
                         let raw = input.read(cx).value().to_string();
                         let typed = field.typed(&raw);
                         if typed != raw {
-                            input.update(cx, |state, cx| state.set_value(typed, window, cx));
+                            // FEED-160: `set_value` parks the caret at the end;
+                            // keep it where the user was instead.
+                            let at = field.typed_cursor(&raw, input.read(cx).cursor(), &typed);
+                            input.update(cx, |state, cx| {
+                                state.set_value(typed, window, cx);
+                                state.set_selected_range(at..at, cx);
+                            });
                         }
                         if matches!(field, Field::WakePhrase) && this.wake_phrase_invalid.take().is_some() {
                             cx.notify();
@@ -664,5 +685,34 @@ impl Render for VoicePrefsPane {
             }
         }
         v_flex().child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Field;
+
+    #[test]
+    fn typed_cursor_stays_where_the_user_was() {
+        // A control character pasted mid-text: the caret sits after the
+        // paste, not at the end.
+        let raw = "ab\u{7}cd";
+        let typed = Field::WakePhrase.typed(raw);
+        assert_eq!(typed, "abcd");
+        assert_eq!(Field::WakePhrase.typed_cursor(raw, 3, &typed), 2);
+        // Whatever a whitespace control becomes, the caret follows it.
+        let raw = "ab\tcd";
+        let typed = Field::VoiceFile.typed(raw);
+        let at = Field::VoiceFile.typed_cursor(raw, 3, &typed);
+        assert_eq!(&typed[..at], Field::VoiceFile.typed("ab\t"));
+        assert_eq!(&typed[at..], "cd");
+        // An over-long paste: the caret clamps to the cut value.
+        let raw = "x".repeat(Field::WakePhrase.limit() + 10);
+        let typed = Field::WakePhrase.typed(&raw);
+        assert_eq!(Field::WakePhrase.typed_cursor(&raw, raw.len(), &typed), typed.len());
+        // A caret inside a multi-byte char never splits it.
+        let raw = "é\u{7}";
+        let typed = Field::WakePhrase.typed(raw);
+        assert_eq!(Field::WakePhrase.typed_cursor(raw, 1, &typed), 0);
     }
 }

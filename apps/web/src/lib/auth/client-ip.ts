@@ -10,11 +10,16 @@
 // express a last-hop strategy, so rewrite the header to the one
 // proxy-attested hop before Better Auth sees the request. "Last" honours
 // TRUSTED_PROXY_HOPS (NEW-85, documented at `proxyAttestedClientIp`).
+// FEED-159: the hop is rewritten to its LIMITER address (`rateLimitIpAddress`:
+// IPv6 = its /64's network address, IPv4-mapped = the IPv4 one), so Better
+// Auth buckets one IPv6 subscriber line once whatever its own normalisation
+// does, exactly like the widget limiter.
 
-import { proxyAttestedClientIp } from "@/lib/widget/rate-limit"
+import { proxyAttestedClientIp, rateLimitIpAddress } from "@/lib/widget/rate-limit"
 
 /**
- * Rewrite `x-forwarded-for` to only its last (proxy-attested) hop. A request
+ * Rewrite `x-forwarded-for` to only its last (proxy-attested) hop, as its
+ * limiter address (IPv6 by /64). A request
  * without the header passes through untouched — a proxy-less self-host then
  * keeps Better Auth's fail-open behavior (no limiting), unchanged from
  * before.
@@ -23,8 +28,10 @@ export function withProxyAttestedClientIp(request: Request): Request {
   const forwarded = request.headers.get(`x-forwarded-for`)
   if (!forwarded) return request
   const last = proxyAttestedClientIp(request)
-  if (!last || last === forwarded) return request
+  if (!last) return request
+  const address = rateLimitIpAddress(last)
+  if (address === forwarded) return request
   const headers = new Headers(request.headers)
-  headers.set(`x-forwarded-for`, last)
+  headers.set(`x-forwarded-for`, address)
   return new Request(request, { headers })
 }

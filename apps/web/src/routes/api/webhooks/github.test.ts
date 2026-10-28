@@ -352,7 +352,7 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
     expect(prSyncMock.applyPullRequestDraft).toHaveBeenCalledWith({ pullRequestId: PR_ID, draft })
   })
 
-  it(`a generic delivery's draft flag carries its updated_at (an older one never wins); an explicit flip does not`, async () => {
+  it(`a generic delivery's draft flag carries its updated_at as the guard; an explicit flip records it`, async () => {
     known()
     const at = `2026-10-28T09:00:00Z`
     await postHandler({
@@ -362,7 +362,22 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
     await postHandler({
       request: webhookRequest(`pull_request`, pullRequestPayload({ action: `ready_for_review`, updated_at: at })),
     })
-    expect(prSyncMock.applyPullRequestDraft).toHaveBeenLastCalledWith({ pullRequestId: PR_ID, draft: false })
+    expect(prSyncMock.applyPullRequestDraft).toHaveBeenLastCalledWith({
+      pullRequestId: PR_ID,
+      draft: false,
+      githubUpdatedAt: new Date(at),
+    })
+  })
+
+  it(`a reopen records the delivery's updated_at as the applied PR state's time`, async () => {
+    known()
+    const at = `2026-10-28T10:00:00Z`
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `reopened`, draft: true, updated_at: at })),
+    })
+    expect(prSyncMock.applyPullRequestReopened).toHaveBeenCalledWith(
+      expect.objectContaining({ pullRequestId: PR_ID, draft: true, githubUpdatedAt: new Date(at) })
+    )
   })
 
   it(`a draft readied on GitHub is a yolo edge for its thread; no flip, no edge`, async () => {

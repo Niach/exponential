@@ -332,13 +332,14 @@ export function wakePhraseError(text: string): string | null {
   return letters < fixture.limits.wakePhraseMinLetters ? fixture.copy.wakePhraseTooShort : null
 }
 
-/** #NEW-75: THE rule of the page's one-line inputs, as you type: every
- *  control character (Cc: C0, DEL, C1, tab and line breaks too) is dropped,
+/** #NEW-75: THE rule of the page's one-line inputs, as you type: each run
+ *  of whitespace controls (tab, LF, VT, FF, CR, NEL) becomes one space
+ *  (#FEED-160), every other control character (Cc: C0, DEL, C1) is dropped,
  *  then the value is cut to at most `max` UTF-16 code units (zod's count),
  *  whole code points only. Trimming waits for the save. */
 export function voiceTextInput(value: string, max: number): string {
   let out = ``
-  for (const char of value.replace(/\p{Cc}/gu, ``)) {
+  for (const char of value.replace(/[\t\n\v\f\r\u0085]+/g, ` `).replace(/\p{Cc}/gu, ``)) {
     if (out.length + char.length > max) break
     out += char
   }

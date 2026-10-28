@@ -14,6 +14,7 @@ import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { grantableTools } from "@/lib/app-grants"
 
 // VAPP-110: Settings → Apps → one app (the agent page's layout, fixture
 // apps.json): the identity row (icon + colour + name, the name a deferred
@@ -63,7 +64,8 @@ export function AppSettingsPage({
   // VAPP-120: the typed actions the head package declares, each with its
   // grant (the synced row); a toggle writes the whole list.
   const declared = useMemo(() => declaredActions(((app?.row?.package as { functions?: string[] } | null)?.functions ?? []) as string[]), [app?.row?.package])
-  const granted = (app?.row?.grantedTools ?? []) as string[]
+  // FEED-159: a stored grant that is no longer grantable reads as none.
+  const granted = grantableTools(app?.row?.grantedTools as string[] | null | undefined)
   const [toolBusy, setToolBusy] = useState<string | null>(null)
   const toggleTool = async (name: string, on: boolean) => {
     if (!app || !canGrant || !actionGrantable(name)) return
@@ -71,7 +73,7 @@ export function AppSettingsPage({
     try {
       // VAPP-158: a stored grant that is no longer grantable never rides along
       // (the server refuses it), so the toggle writes grantable names only.
-      const kept = granted.filter((g) => g !== name && actionGrantable(g))
+      const kept = granted.filter((g) => g !== name)
       const next = on ? [...kept, name] : kept
       const result = await trpc.apps.update.mutate({ id: app.id, grantedTools: next }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)

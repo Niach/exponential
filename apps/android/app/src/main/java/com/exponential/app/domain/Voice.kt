@@ -228,13 +228,16 @@ object Voice {
 
     /**
      * #NEW-75: THE rule of the page's one-line inputs, as you type
-     * (`voiceTextInput`): every control character (Cc: C0, DEL, C1, tab and
-     * line breaks too) is dropped, then the value is cut to at most [max]
+     * (`voiceTextInput`): each run of whitespace controls (tab, LF, VT, FF,
+     * CR, NEL) becomes one space (#FEED-160), every other control character
+     * (Cc: C0, DEL, C1) is dropped, then the value is cut to at most [max]
      * UTF-16 code units (the server's zod count), whole code points only (a
      * surrogate pair straddling the cap is dropped whole). Trimming waits for the save.
      */
+    private val SPACE_CONTROLS = Regex("[\\t\\n\\u000B\\f\\r\\u0085]+")
+
     fun textInput(value: String, max: Int): String {
-        val clean = value.filterNot { it.isISOControl() }
+        val clean = value.replace(SPACE_CONTROLS, " ").filterNot { it.isISOControl() }
         if (clean.length <= max) return clean
         val end = if (max > 0 && Character.isHighSurrogate(clean[max - 1])) max - 1 else max
         return clean.substring(0, end)

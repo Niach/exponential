@@ -230,11 +230,12 @@ describe(`Settings → Voice (NEW-67)`, () => {
     expect(update).toHaveBeenCalledWith({ voiceTranscript: `Hello there.` }, expect.anything())
   })
 
-  it(`#NEW-75: THE input rule as you type: control characters drop, the cap counts UTF-16 units`, async () => {
+  it(`#NEW-75/#FEED-160: THE input rule as you type: line breaks and tabs become a space, other controls drop, the cap counts UTF-16 units`, async () => {
     renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
     const transcript = screen.getByTestId(VOICE_TEST_IDS.voiceTranscript) as HTMLInputElement
-    fireEvent.change(transcript, { target: { value: `Hello\tthere\nfriend` } })
-    expect(transcript.value).toBe(`Hellotherefriend`)
+    // A text input's value sanitizer strips CR/LF itself, so the tab and NUL carry the rule here.
+    fireEvent.change(transcript, { target: { value: `Hello\t\tthere\u0000 friend` } })
+    expect(transcript.value).toBe(`Hello there friend`)
     const phrase = screen.getByTestId(VOICE_TEST_IDS.wakePhrase) as HTMLInputElement
     fireEvent.change(phrase, { target: { value: `${`a`.repeat(VOICE_LIMITS.wakePhrase - 1)}\u{1F600}` } })
     expect(phrase.value).toBe(`a`.repeat(VOICE_LIMITS.wakePhrase - 1))

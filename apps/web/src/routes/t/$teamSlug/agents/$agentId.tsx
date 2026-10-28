@@ -5,6 +5,7 @@ import {
   BoardGlyph,
   conceptIcon,
   EmptyState,
+  FloatingComposer,
   JumpToBottomButton,
   JUMP_TO_BOTTOM_GAP,
   SkeletonRows,
@@ -13,7 +14,7 @@ import {
 } from "@exp/ui"
 import type { ReactNode } from "react"
 import type { User } from "@/db/schema"
-import { SessionComposer } from "@/components/session-composer"
+import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
 import { SessionLiveTail, useSessionDock } from "@/components/agent-session"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
@@ -172,6 +173,8 @@ function AgentChannelPage() {
       users={users as User[]}
       busy={conversation.busy}
       canStop
+      opaque={isMobile}
+      hideReplies={isMobile}
       testId="agent-composer"
     />
   ) : (
@@ -180,6 +183,7 @@ function AgentChannelPage() {
       agentId={agent.id}
       placeholder={`Message ${name}`}
       users={users as User[]}
+      opaque={isMobile}
       testId="agent-composer"
     />
   )
@@ -260,7 +264,9 @@ function AgentChannelPage() {
             edge, exactly as in a thread: the tree's waiting plan / question
             cards (caption = the asking session, the root = none), the
             root's Queue, queued messages and banners (the agent hint),
-            then the composer, in ONE column inset on every width. */}
+            then the composer, in ONE column inset on md+. FEED-160: a
+            phone's band carries no composer, only the work bar's clearance
+            (THE floating capsule below), exactly as the thread page. */}
         {permissions.isMember &&
           (conversation ? (
             <AgentConversationDock
@@ -272,7 +278,8 @@ function AgentChannelPage() {
                 const target = teamSessions.find((row) => row.id === id)
                 if (target) openSession(target)
               }}
-              composer={composer}
+              composer={isMobile ? undefined : composer}
+              phoneClearance={isMobile}
               onHeight={setDockHeight}
             />
           ) : (
@@ -282,11 +289,21 @@ function AgentChannelPage() {
               renderText={renderThreadText}
               onAnswer={() => undefined}
               onDecide={() => undefined}
-              composer={composer}
+              composer={isMobile ? undefined : composer}
+              phoneClearance={isMobile}
               onHeight={setDockHeight}
             />
           ))}
       </div>
+      {/* EXP-1316: phones reply through THE floating composer capsule. */}
+      {permissions.isMember && isMobile && (
+        <FloatingComposer
+          placeholder={`Message ${name}`}
+          above={conversation ? <SessionComposerReplies sessionId={conversation.id} /> : undefined}
+        >
+          {composer}
+        </FloatingComposer>
+      )}
     </div>
   )
 }
@@ -301,6 +318,7 @@ function AgentConversationDock({
   answering,
   onOpenSession,
   composer,
+  phoneClearance,
   onHeight,
 }: {
   conversation: SessionRow
@@ -309,6 +327,7 @@ function AgentConversationDock({
   answering: ReturnType<typeof useAnswerMessage>
   onOpenSession: (sessionId: string) => void
   composer?: ReactNode
+  phoneClearance?: boolean
   onHeight: (height: number) => void
 }) {
   const sessionDock = useSessionDock(conversation)
@@ -326,6 +345,7 @@ function AgentConversationDock({
       renderAction={sessionDock.renderAction}
       onOpenSession={onOpenSession}
       composer={composer}
+      phoneClearance={phoneClearance}
       onHeight={onHeight}
       autoOpenReady={rows.length > 0}
     />

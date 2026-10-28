@@ -114,6 +114,9 @@ describe(`sessions allowlist`, () => {
     expect(ISSUE_EVENT_COLUMNS).toContain(`actor_agent_id`)
     expect(ISSUE_EVENT_COLUMNS).not.toContain(`via_mcp`)
   })
+  it(`keeps the FEED-160 PR-state guard server-only`, () => {
+    expect(PULL_REQUEST_COLUMNS).not.toContain(`github_updated_at`)
+  })
   it(`keeps the never-written assignment column the shipped desktop names`, () => {
     expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)
   })

@@ -3144,7 +3144,7 @@ pub fn set_session_end_observer(observer: SessionEndObserver) {
 /// the host's registry sees each outcome exactly where it happens. A team
 /// agent never ends — its host calls [`idle_session`] instead.
 pub fn end_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    let result = report_status(trpc, session_id, ReportStatus::Ended);
+    let result = session_device::report(trpc, session_id, &end_report());
     if let Some(observer) = SESSION_END_OBSERVER.get() {
         observer(session_id, &result);
     }
@@ -3216,12 +3216,15 @@ pub fn idle_report_on(device_id: Option<&str>) -> SessionReport {
     }
 }
 
-fn report_status(trpc: &TrpcClient, session_id: &str, status: ReportStatus) -> Result<(), ApiError> {
-    let report = SessionReport {
-        status: Some(status),
+/// FEED-160: [`end_session`]'s write — ended, and deliberately so:
+/// `midTurn: false` tells the server not to guess the process was lost
+/// (NEW-17's guess runs only when the report carries no `midTurn`).
+pub fn end_report() -> SessionReport {
+    SessionReport {
+        status: Some(ReportStatus::Ended),
+        mid_turn: Some(false),
         ..SessionReport::default()
-    };
-    session_device::report(trpc, session_id, &report)
+    }
 }
 
 #[cfg(test)]
@@ -5466,7 +5469,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
 
     // ---- EXP-1292: the end of a session's process ----
 
-    /// A thread's agent process is gone: `sessions.report{status: ended}`,
+    /// A thread's agent process is gone: `sessions.report{status: ended,
+    /// midTurn: false}` (FEED-160: a deliberate end, never guessed lost),
     /// observed; an agent's: `{status: idle}`.
     #[test]
     fn end_and_idle_report_the_status() {
@@ -5479,7 +5483,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         idle_session(&trpc, "s-agent").expect("idled");
         let requests = captured.lock().unwrap();
         assert!(requests[0].starts_with("POST /api/trpc/sessions.report"));
-        assert!(requests[0].ends_with(r#"{"sessionId":"s-thread","status":"ended"}"#), "{}", requests[0]);
+        assert!(requests[0].ends_with(r#"{"sessionId":"s-thread","status":"ended","midTurn":false}"#), "{}", requests[0]);
         assert!(requests[1].ends_with(r#"{"sessionId":"s-agent","status":"idle","busy":false}"#), "{}", requests[1]);
     }
 

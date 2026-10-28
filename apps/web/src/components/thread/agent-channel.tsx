@@ -366,6 +366,7 @@ export function AgentComposer({
   users = [],
   testId,
   className,
+  opaque = false,
   onSent,
 }: {
   teamId: string
@@ -381,6 +382,8 @@ export function AgentComposer({
   users?: readonly User[]
   testId?: string
   className?: string
+  /** EXP-1316: inside the phones' `FloatingComposer` (as `SessionComposer`). */
+  opaque?: boolean
   /** The conversation session the send opened (or reused). */
   onSent?: (sessionId: string) => void
 }) {
@@ -441,6 +444,7 @@ export function AgentComposer({
   return (
     <ComposerFrame data-testid={testId} className={cn(`w-full`, className)}>
       <Composer
+        opaque={opaque}
         strip={
           files.length > 0 ? (
             <div className="flex flex-wrap gap-2 px-3 pt-3">

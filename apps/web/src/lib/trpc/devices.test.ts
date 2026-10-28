@@ -9,6 +9,7 @@ const h = vi.hoisted(() => {
     // behavior the older tests rely on).
     selectQueue: [] as unknown[][],
     inserted: [] as unknown[],
+    firstSeen: [] as unknown[],
     upserts: [] as unknown[],
     // EXP-481: rows returned by insert(...).returning() /
     // onConflictDoUpdate(...).returning() — queue like updateReturning.
@@ -16,6 +17,8 @@ const h = vi.hoisted(() => {
     updates: [] as { set: unknown; returningRows: unknown[] }[],
     updateReturning: [[{ id: `row-1` }]] as unknown[][],
     deletes: 0,
+    // FEED-159: rows a delete(...).returning() yields (admin key reset).
+    deleteReturning: [] as unknown[][],
   }
   const nextSelect = () =>
     state.selectQueue.length > 0 ? state.selectQueue.shift() : state.selectRows
@@ -42,8 +45,18 @@ const h = vi.hoisted(() => {
       }
     }
     const terminal = {
+      // FEED-159: a select awaited right after `.where(...)` (the admin key
+      // reset's sharing rows) resolves the next queued result too.
+      then: (
+        onFulfilled?: (value: unknown) => unknown,
+        onRejected?: (reason: unknown) => unknown
+      ) => Promise.resolve(nextSelect()).then(onFulfilled, onRejected),
       orderBy: () => lazy(),
-      limit: () => Promise.resolve(nextSelect()),
+      // FEED-159: `.limit(1).for(update)` resolves the same row.
+      limit: () => {
+        const rows = Promise.resolve(nextSelect())
+        return Object.assign(rows, { for: () => rows })
+      },
     }
     const b = {
       from: () => b,
@@ -71,6 +84,13 @@ const h = vi.hoisted(() => {
               returning: insertResult,
             })
           },
+          // FEED-159: `device_first_seen` (insert-or-ignore), kept apart
+          // from `inserted` so the devices row stays inserted[0].
+          onConflictDoNothing: () => {
+            state.inserted.splice(state.inserted.indexOf(values), 1)
+            state.firstSeen.push(values)
+            return Promise.resolve()
+          },
           returning: insertResult,
         }
       },
@@ -89,7 +109,9 @@ const h = vi.hoisted(() => {
     delete: () => ({
       where: () => {
         state.deletes += 1
-        return Promise.resolve()
+        return Object.assign(Promise.resolve(), {
+          returning: () => Promise.resolve(state.deleteReturning.shift() ?? []),
+        })
       },
     }),
     // EXP-481: txid-wrapped mutations run their body against the same mock;
@@ -154,9 +176,11 @@ vi.mock(`@/lib/client-version`, () => ({
 import {
   clampAgentAccounts,
   clampAgentUsage,
+  clearDeviceKey,
   devicesRouter,
   nextSharedTeamIds,
 } from "@/lib/trpc/devices"
+import { notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
 import { MAX_AGENT_PROFILES, MAX_DEVICE_DOCTOR_ITEMS } from "@/db/schema"
 
 const caller = devicesRouter.createCaller({
@@ -179,11 +203,13 @@ beforeEach(() => {
   h.state.selectRows = []
   h.state.selectQueue = []
   h.state.inserted = []
+  h.state.firstSeen = []
   h.state.upserts = []
   h.state.insertReturning = []
   h.state.updates = []
   h.state.updateReturning = [[{ id: `row-1` }]]
   h.state.deletes = 0
+  h.state.deleteReturning = []
   h.getSteerRelayConfig.mockReturnValue({
     url: `ws://relay`,
     secret: `s`,
@@ -476,9 +502,8 @@ describe(`devices.latestVersions`, () => {
 
 describe(`devices.remove`, () => {
   const TEAM_A = `11111111-1111-4111-8111-111111111111`
-  // The probe (shares, outside the tx) then the locked read.
+  // FEED-159: ONE read, locked inside the transaction (no probe before it).
   const removeProbe = (...sharedTeamIds: string[]) => [
-    [{ sharedTeamIds }],
     [{ id: `row-1`, label: `box`, sharedTeamIds }],
   ]
 
@@ -534,6 +559,29 @@ describe(`devices.remove`, () => {
     await caller.remove({ deviceId: `dev-1` })
     expect(h.pauseDeviceTriggers).not.toHaveBeenCalled()
   })
+
+  it(`reads the shares it disarms inside the transaction, never before it (FEED-159)`, async () => {
+    h.state.selectQueue = removeProbe(TEAM_A)
+    const order: string[] = []
+    const realSelect = h.db.select
+    const realTransaction = h.db.transaction
+    h.db.select = (() => {
+      order.push(`select`)
+      return realSelect()
+    }) as typeof h.db.select
+    h.db.transaction = (async (fn: (tx: unknown) => Promise<unknown>) => {
+      order.push(`transaction`)
+      return realTransaction(fn)
+    }) as typeof h.db.transaction
+    try {
+      await caller.remove({ deviceId: `dev-1` })
+    } finally {
+      h.db.select = realSelect
+      h.db.transaction = realTransaction
+    }
+    expect(order[0]).toBe(`transaction`)
+    expect(h.pauseDeviceTriggers).toHaveBeenCalledWith(expect.anything(), [TEAM_A], `dev-1`)
+  })
 })
 
 describe(`devices.register — removal + key (EXP-1417, FEED-154)`, () => {
@@ -555,6 +603,26 @@ describe(`devices.register — removal + key (EXP-1417, FEED-154)`, () => {
     expect(result).toMatchObject({ ok: true, removed: false })
     expect(h.state.deletes).toBe(1)
     expect(h.state.inserted).toHaveLength(1)
+    // FEED-159: every register records the first-seen account (insert-or-ignore).
+    expect(h.state.firstSeen).toEqual([{ deviceId: `dev-1`, userId: `actor` }])
+  })
+
+  it(`logs how far the clock of a device whose proof is out of date is off (FEED-159)`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    try {
+      const ahead = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      const result = await caller.register({
+        doctor: DOCTOR,
+        deviceId: `dev-1`,
+        label: `box`,
+        kind: `server`,
+        key: { publicKey: `ab`.repeat(32), signedAt: ahead, signature: `cd`.repeat(64) },
+      })
+      expect(result).toMatchObject({ ok: true, keyAccepted: false })
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/dev-1: its clock is 3[56]\d{5} ms ahead of the server's/))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it(`stores no key for a proof that does not verify`, async () => {
@@ -2898,5 +2966,63 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
       true,
       undefined,
     ])
+  })
+})
+
+// FEED-159: the instance admin's key reset runs under the pin lock and
+// withdraws every row's share of the machine (no row holds a pinned key any
+// more): the hosted runs end after commit, each owner is told.
+describe(`clearDeviceKey`, () => {
+  const TEAM_A = `11111111-1111-4111-8111-111111111111`
+  const TEAM_B = `22222222-2222-4222-8222-222222222222`
+
+  it(`clears the pin, withdraws every sharing row and ends what they hosted`, async () => {
+    h.state.deleteReturning = [[{ deviceId: `dev-1` }]]
+    h.state.selectQueue = [
+      [
+        { id: `row-a`, userId: `owner-a`, deviceId: `dev-1`, label: `box`, sharedTeamIds: [TEAM_A] },
+        { id: `row-b`, userId: `owner-b`, deviceId: `dev-1`, label: `box`, sharedTeamIds: [TEAM_B] },
+      ],
+    ]
+    h.foreignHostedSessionIds.mockImplementation(async (...args: unknown[]) => (args[2] === TEAM_A ? [`s-a`] : [`s-b`]))
+    h.endHostedSessions.mockImplementation(async (...args: unknown[]) => args[0] as string[])
+    const result = await clearDeviceKey(h.db as never, { deviceId: `dev-1`, actorId: `admin` })
+    expect(result).toMatchObject({ ok: true })
+    expect(h.state.deletes).toBe(1)
+    // One share withdrawal per row (the update mock records every write).
+    expect(h.state.updates.filter((u) => `sharedTeamIds` in (u.set as object))).toHaveLength(2)
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-a`], { actorId: `admin`, deviceLabel: `box`, cause: `dropped` })
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-b`], { actorId: `admin`, deviceLabel: `box`, cause: `dropped` })
+    expect(notifyDeviceShareRemoved).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerId: `owner-a`, actorId: `admin`, teamId: TEAM_A, endedCount: 1, cause: `dropped` })
+    )
+    expect(notifyDeviceShareRemoved).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerId: `owner-b`, actorId: `admin`, teamId: TEAM_B, endedCount: 1, cause: `dropped` })
+    )
+  })
+
+  it(`pinTo makes that account the first-seen one, pinned or not`, async () => {
+    h.state.selectQueue = [[{ id: `row-a` }], []]
+    await clearDeviceKey(h.db as never, { deviceId: `dev-1`, actorId: `admin`, pinTo: `owner-a` })
+    expect(h.state.upserts).toEqual([
+      expect.objectContaining({ target: expect.anything(), set: expect.objectContaining({ userId: `owner-a` }) }),
+    ])
+  })
+
+  it(`pinTo 404s an account without a row for the machine`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(
+      clearDeviceKey(h.db as never, { deviceId: `dev-1`, actorId: `admin`, pinTo: `stranger` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(h.state.upserts).toHaveLength(0)
+    expect(h.state.deletes).toBe(0)
+  })
+
+  it(`404s a machine with no pin and withdraws nothing`, async () => {
+    await expect(clearDeviceKey(h.db as never, { deviceId: `dev-1`, actorId: `admin` })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    expect(h.state.updates).toHaveLength(0)
+    expect(h.endHostedSessions).not.toHaveBeenCalled()
   })
 })

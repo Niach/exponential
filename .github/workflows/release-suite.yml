@@ -12,7 +12,8 @@ name: release-suite
 # service Postgres; a not-ready DB fails them), the feedback-widget
 # Playwright e2e on the compose dev stack (`e2e`), the push-relay
 # image smoke build, marketing + styleguide builds + shots:check, the full
-# desktop cargo test + Rust licence inventory, the desktop fuzz targets (short
+# desktop cargo test + Rust licence inventory (+ the engine's macOS-only
+# confine cases on the Mac), the desktop fuzz targets (short
 # runs, NEW-88), Android unit tests + lint +
 # licence inventory, the iOS compile + suites (test-ios.yml), and every
 # Exponential UI renderer + conformance + bench (exponential-ui.yml).
@@ -324,6 +325,24 @@ jobs:
       - name: Fail if the committed inventory drifted
         run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json
 
+
+  # FEED-160: the macOS-only cases (confine.rs's `/System/Volumes` Data
+  # volume) never run on the Linux `desktop` job; the engine's confine
+  # tests on the Mac.
+  desktop-macos:
+    needs: [dedupe, pick]
+    if: needs.dedupe.outputs.run == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Cargo tests (engine confine, macOS)
+        working-directory: apps/desktop
+        run: cargo test --locked -p engine --lib adapters::confine
 
   desktop-fuzz:
     needs: dedupe
