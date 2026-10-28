@@ -40,6 +40,7 @@ object DomainContract {
     val sessionIssueSourceValues: List<String> = listOf("user", "agent")
     val messageAuthorKindValues: List<String> = listOf("user", "agent", "system")
     val conversationKindValues: List<String> = listOf("dm", "channel", "session")
+    val agentRoleValues: List<String> = listOf("assistant", "agent")
     val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface")
     val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused")
     val codingAgentValues: List<String> = listOf("claude", "codex")
@@ -246,6 +247,8 @@ object DomainContract {
     const val conversationKindDm: String = "dm"
     const val conversationKindChannel: String = "channel"
     const val conversationKindSession: String = "session"
+    const val agentRoleAssistant: String = "assistant"
+    const val agentRoleAgent: String = "agent"
     const val messageCardKindQuestion: String = "question"
     const val messageCardKindPlan: String = "plan"
     const val messageCardKindSubagent: String = "subagent"

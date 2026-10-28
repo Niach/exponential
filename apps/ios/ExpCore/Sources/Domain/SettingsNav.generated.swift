@@ -26,12 +26,12 @@ public enum SettingsNav {
         case issues = "issues"
         case labels = "labels"
         case statuses = "statuses"
-        case billing = "billing"
-        case boards = "boards"
-        case agents = "agents"
         case repositories = "repositories"
         case prompts = "prompts"
         case widget = "widget"
+        case billing = "billing"
+        case boards = "boards"
+        case agents = "agents"
         case mcpServers = "mcp-servers"
         case devices = "devices"
     }
@@ -42,17 +42,17 @@ public enum SettingsNav {
         Row(id: "issues", label: "Issues", icon: "settings-issues", group: "team", visible: .all, phone: false, count: nil),
         Row(id: "labels", label: "Labels", icon: "settings-labels", group: "team", visible: .all, phone: true, count: nil),
         Row(id: "statuses", label: "Statuses", icon: "settings-statuses", group: "team", visible: .all, phone: false, count: nil),
+        Row(id: "repositories", label: "Repositories", icon: "settings-repositories", group: "team", visible: .all, phone: true, count: nil),
+        Row(id: "prompts", label: "Prompts", icon: "nav-actions", group: "team", visible: .all, phone: true, count: nil),
+        Row(id: "widget", label: "Widget", icon: "settings-widget", group: "team", visible: .owner, phone: false, count: nil),
         Row(id: "billing", label: "Plan & Billing", icon: "settings-billing", group: "team", visible: .ownerCloud, phone: false, count: nil),
         Row(id: "boards", label: "Boards", icon: "settings-boards", group: "boards", visible: .all, phone: true, count: .boards),
         Row(id: "agents", label: "Agents", icon: "settings-agents", group: "agents", visible: .all, phone: true, count: .agents),
-        Row(id: "repositories", label: "Repositories", icon: "settings-repositories", group: "agents", visible: .all, phone: true, count: nil),
-        Row(id: "prompts", label: "Prompts", icon: "nav-actions", group: "agents", visible: .all, phone: true, count: nil),
-        Row(id: "widget", label: "Widget", icon: "settings-widget", group: "features", visible: .owner, phone: false, count: nil),
-        Row(id: "mcp-servers", label: "MCP servers", icon: "settings-mcp", group: "features", visible: .all, phone: false, count: nil),
-        Row(id: "devices", label: "Devices", icon: "nav-devices", group: "features", visible: .all, phone: true, count: nil),
+        Row(id: "mcp-servers", label: "MCP servers", icon: "settings-mcp", group: "agents", visible: .all, phone: false, count: nil),
+        Row(id: "devices", label: "Devices", icon: "nav-devices", group: "team", visible: .all, phone: true, count: nil),
     ]
 
-    public static let phoneRows: [Id] = [.general, .members, .labels, .boards, .agents, .repositories, .prompts, .devices]
+    public static let phoneRows: [Id] = [.general, .members, .labels, .repositories, .prompts, .boards, .agents, .devices]
 
     public static func row(_ id: Id) -> Row { rows.first { $0.id == id.rawValue }! }
 

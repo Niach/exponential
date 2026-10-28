@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
@@ -16,6 +17,8 @@ import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import { assertRunnerVocabulary, resolveSessionDeviceInTx } from "@/lib/sessions/send"
+import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
+import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
 // members read the synced `agents` shape). An agent runs as conversation
@@ -33,6 +36,12 @@ export function withTriggerIds(triggers: z.infer<typeof AgentTriggersSchema>): A
 
 async function loadOwnedAgent(userId: string, id: string): Promise<Agent> {
   const agent = await loadAgentForUser(userId, id)
+  // S-3: an Assistant is its member's alone (agent-settings.json
+  // `assistant`); a team agent is the team owners'.
+  if (agent.role === `assistant`) {
+    if (agent.ownerId !== userId) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
+    return agent
+  }
   await assertTeamOwner(userId, agent.teamId)
   return agent
 }
@@ -63,6 +72,7 @@ export const agentsRouter = router({
         account: agents.account,
         model: agents.model,
         ownerId: agents.ownerId,
+        role: agents.role,
         sortOrder: agents.sortOrder,
         instructionsUpdatedAt: agents.instructionsUpdatedAt,
         createdAt: agents.createdAt,
@@ -72,6 +82,15 @@ export const agentsRouter = router({
       .where(eq(agents.teamId, input.teamId))
       .orderBy(asc(agents.sortOrder), asc(agents.name))
     return { agents: rows }
+  }),
+
+  /** S-3: the caller's Assistant in the team, created on first use (null
+   *  while they have no device to run it on). */
+  ensureAssistant: authedProcedure.input(z.object({ teamId: uuid })).mutation(async ({ ctx, input }) => {
+    const agent = await ensureAssistant(ctx.session.user.id, input.teamId)
+    if (!agent) return { agent: null }
+    const { triggerState: _state, ...rest } = agent
+    return { agent: rest }
   }),
 
   /** Member read: the row with its server-only instructions. */
@@ -136,6 +155,7 @@ export const agentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
+      if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
       const cli = input.cli ?? agent.cli ?? undefined
       // The model comes from the CLI's vocabulary like a send's; a blank (an
       // old client's "CLI default") = unset, never stored.
@@ -144,7 +164,7 @@ export const agentsRouter = router({
       // A new device re-stamps every conversation's visibility (its device's
       // share decides it) and hands them over: queued again, the new device
       // boots them, the old one drops rows that no longer name it.
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
         // #EXP-1259: the new device is read under its share lock.
@@ -236,12 +256,18 @@ export const agentsRouter = router({
         const { triggerState: _state, ...rest } = updated!
         return { agent: rest, txid }
       })
+      // S-3: the Assistant's device IS the member's voice device.
+      if (agent.role === `assistant` && result.agent.deviceId !== agent.deviceId) {
+        await syncVoiceMirror(ctx.db, agent.ownerId)
+      }
+      return result
     }),
 
   /** Deletes the definition and, by cascade, every conversation with its tree. */
   delete: authedProcedure.input(z.object({ id: uuid })).mutation(async ({ ctx, input }) => {
     const userId = ctx.session.user.id
     const agent = await loadOwnedAgent(userId, input.id)
+    if (agent.role === `assistant`) throw new TRPCError({ code: `BAD_REQUEST`, message: ASSISTANT_COPY.deleteRefused })
     const result = await ctx.db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
       const roots = await conversationIds(tx, agent.id)

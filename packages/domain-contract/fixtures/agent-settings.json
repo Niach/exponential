@@ -68,7 +68,8 @@
   },
   "testIds": {
     "list": "agents-settings-list",
-    "page": "agent-settings-page"
+    "page": "agent-settings-page",
+    "assistantPage": "assistant-settings-page"
   },
   "summaryCases": [
     {
@@ -490,6 +491,220 @@
         "expected": [
           "unassigned",
           "user:U1"
+        ]
+      }
+    ]
+  },
+  "assistant": {
+    "$comment": "S-3 (owner 2026-10-28): THE ASSISTANT ×4. Every member has ONE Assistant per team (`agents.role = assistant`, contract `agentRole`; unique (team_id, owner_id) where role = assistant), the orchestrator they talk to and the one with the voice. It is created ON FIRST USE (`agents.ensureAssistant {teamId}`: the composer home, the Settings Agents group and the chat list call it; it runs on the member's own newest desktop, else their newest device, else it is not created yet and the page reads `copy.noDevice`); the migration made each member's voice agent (user_voice_settings.agentId, when they own it) their Assistant. OWNED by its member: only they see it in the Settings Agents group, the composer's agent row and the chats list (`visibleAgent`: another member's Assistant is never listed), only they edit it, nobody deletes it (a team owner's `agents.delete` is refused too). AVATAR = the Exponential brand mark in the foreground colour on bg muted, never a stored icon or colour (icon/color stay null). NAME = `copy.name` unless the member renames it. TRIGGERS = exactly one schedule PRESET (`schedules`, picker rows, the `Check in` section; `off` = no trigger) and never an event (`agents.update` refuses anything else: `assistantScheduleOf` must not return null for the stored triggers); team agents keep the trigger list + prompt. Every assistant turn runs on the server brief `brief` before the member's own instructions. THE PAGE (`sections` top to bottom, the agent page's layout and controls): identity (name only, the brand mark instead of the icon picker), `runs-on` (THE device / account / model pickers, the agent page's rows: the Assistant's device IS the member's voice device; the server mirrors it into user_voice_settings.voiceDeviceId/agentId for old clients and the voice runtime), `check-in` (THE Picker over `schedules`), `voice` (the voice.json Settings group MOVED as one block, its rows unchanged minus `copy.voiceDevice` and `copy.agent`: the device is Runs on's, the agent is this Assistant; the meeting rows follow), `instructions` (markdown, the member's own additions). No Delete. A SHARED device (lifecycle SLOP-2): the Assistant runs on the member's OWN login there (`account` = theirs); meeting mode keeps its privacy gate (meeting-access.ts).",
+    "copy": {
+      "title": "Assistant",
+      "name": "Assistant",
+      "runsOn": "Runs on",
+      "checkIn": "Check in",
+      "voice": "Voice",
+      "noDevice": "Connect a desktop to set up your Assistant",
+      "deleteRefused": "The Assistant can't be deleted",
+      "scheduleRefused": "The Assistant checks in on a schedule only"
+    },
+    "sections": [
+      "identity",
+      "runs-on",
+      "check-in",
+      "voice",
+      "instructions"
+    ],
+    "schedules": [
+      {
+        "id": "off",
+        "label": "Off",
+        "cron": null
+      },
+      {
+        "id": "15m",
+        "label": "Every 15 minutes",
+        "cron": "*/15 * * * *"
+      },
+      {
+        "id": "30m",
+        "label": "Every 30 minutes",
+        "cron": "*/30 * * * *"
+      },
+      {
+        "id": "1h",
+        "label": "Every hour",
+        "cron": "0 * * * *"
+      },
+      {
+        "id": "daily",
+        "label": "Every day",
+        "cron": "0 9 * * *"
+      }
+    ],
+    "defaultSchedule": "1h",
+    "brief": "You are this member's Assistant: the one agent they talk to. You orchestrate their other chats and agents. On a scheduled check-in, look at every other chat of theirs: is it progressing, stuck, or waiting on them? Gather their open questions and results into one short update, show it (one text and at most one Exponential UI card, edited in place), and nudge stuck chats. Say nothing when nothing needs them.",
+    "scheduleCases": [
+      {
+        "name": "no trigger = off",
+        "triggers": [],
+        "expected": "off"
+      },
+      {
+        "name": "one preset schedule",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "*/30 * * * *",
+            "enabled": true
+          }
+        ],
+        "expected": "30m"
+      },
+      {
+        "name": "a paused preset = off",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "enabled": false
+          }
+        ],
+        "expected": "off"
+      },
+      {
+        "name": "a preset with a time zone keeps its preset",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "0 9 * * *",
+            "tz": "Europe/Vienna",
+            "enabled": true
+          }
+        ],
+        "expected": "daily"
+      },
+      {
+        "name": "a custom cron is not a preset",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "*/10 * * * *",
+            "enabled": true
+          }
+        ],
+        "expected": null
+      },
+      {
+        "name": "an event trigger is refused",
+        "triggers": [
+          {
+            "kind": "event",
+            "name": "issue.created",
+            "enabled": true
+          }
+        ],
+        "expected": null
+      },
+      {
+        "name": "two schedules are refused",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "*/15 * * * *",
+            "enabled": true
+          },
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "enabled": true
+          }
+        ],
+        "expected": null
+      }
+    ],
+    "visibleCases": [
+      {
+        "name": "my Assistant",
+        "agent": {
+          "role": "assistant",
+          "ownerId": "u-me"
+        },
+        "me": "u-me",
+        "expected": true
+      },
+      {
+        "name": "another member's Assistant",
+        "agent": {
+          "role": "assistant",
+          "ownerId": "u-other"
+        },
+        "me": "u-me",
+        "expected": false
+      },
+      {
+        "name": "a team agent anyone owns",
+        "agent": {
+          "role": "agent",
+          "ownerId": "u-other"
+        },
+        "me": "u-me",
+        "expected": true
+      },
+      {
+        "name": "an old row without a role is a team agent",
+        "agent": {
+          "ownerId": "u-other"
+        },
+        "me": "u-me",
+        "expected": true
+      }
+    ],
+    "orderCases": [
+      {
+        "name": "my Assistant first, then the agents in sortOrder, name",
+        "agents": [
+          {
+            "id": "b",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Triage",
+            "sortOrder": 1
+          },
+          {
+            "id": "a",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Designer",
+            "sortOrder": 1
+          },
+          {
+            "id": "me",
+            "role": "assistant",
+            "ownerId": "u-me",
+            "name": "Assistant",
+            "sortOrder": 5
+          },
+          {
+            "id": "o",
+            "role": "assistant",
+            "ownerId": "u-other",
+            "name": "Assistant",
+            "sortOrder": 0
+          },
+          {
+            "id": "c",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Alpha",
+            "sortOrder": 2
+          }
+        ],
+        "me": "u-me",
+        "expected": [
+          "me",
+          "a",
+          "b",
+          "c"
         ]
       }
     ]

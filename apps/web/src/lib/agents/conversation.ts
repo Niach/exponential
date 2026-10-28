@@ -13,10 +13,12 @@ import type { Tx } from "@/lib/sessions/tx"
 // the same row. The row mirrors the agent's name/icon/color and `kind =
 // agent` for the shipped clients (legacy read shims, NEW-8 drops them).
 
-/** The agent, when the caller is a member of its team. */
+/** The agent, when the caller is a member of its team (an Assistant: its owner). */
 export async function loadAgentForUser(userId: string, agentId: string): Promise<Agent> {
   const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1)
-  if (!agent || !(await getTeamMember(userId, agent.teamId))) {
+  // S-3: another member's Assistant is theirs alone (agent-settings.json
+  // `assistant`): never read, messaged or edited by anyone else.
+  if (!agent || (agent.role === `assistant` && agent.ownerId !== userId) || !(await getTeamMember(userId, agent.teamId))) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
   }
   return agent

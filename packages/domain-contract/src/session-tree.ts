@@ -1330,6 +1330,9 @@ export interface AgentRow {
   color: string
   busy: boolean
   needsYou: boolean
+  /** S-3: the viewer's own Assistant (agents.role assistant): the brand
+   *  mark instead of icon/color, always first. */
+  assistant: boolean
 }
 
 /** NEW-2: an `agents` definition row as the list needs it. */
@@ -1340,6 +1343,10 @@ export interface AgentLike {
   icon: string | null
   color: string | null
   sortOrder: number
+  /** S-3: contract `agentRole` (absent = `agent`). */
+  role?: string | null
+  /** S-3: who owns it (an Assistant shows to its owner only). */
+  ownerId?: string | null
 }
 
 /**
@@ -1359,11 +1366,16 @@ export function listAgents(
   for (const s of sessions) {
     if (s.parentId === null && s.agentId && s.userId === me) mine.set(s.agentId, s)
   }
+  const assistant = (a: AgentLike) => a.role === `assistant`
   return agents
     .filter((a) => teamId === null || a.teamId === teamId)
+    // S-3: another member's Assistant is never listed (agent-settings.json
+    // `assistant.visibleCases`); the viewer's own comes first.
+    .filter((a) => !assistant(a) || a.ownerId === me)
     .slice()
     .sort(
       (a, b) =>
+        Number(!assistant(a)) - Number(!assistant(b)) ||
         a.sortOrder - b.sortOrder ||
         a.name.localeCompare(b.name) ||
         (a.id < b.id ? -1 : 1)
@@ -1378,6 +1390,7 @@ export function listAgents(
         color: a.color ?? listFixture.agentDefaults.color,
         busy: conversation?.busy === true && conversation.status !== `ended`,
         needsYou: conversation?.needsInput === true && conversation.status !== `ended`,
+        assistant: assistant(a),
       }
     })
 }
@@ -1546,4 +1559,11 @@ export function partitionThreadStrip(input: {
   const issueBudget = room - (sessions.length > 0 ? placed.used + sep : 0)
   const issueZone = zone(short, issueBudget, input.activeIssue)
   return { tier: `fold`, issues: issueZone.shown, sessions: placed.shown }
+}
+
+/** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode: an
+ *  agent conversation paints chat bubbles, a thread its transcript. */
+export type ThreadChatMode = `bubbles` | `transcript`
+export function threadChatMode(root: { agentId?: string | null }): ThreadChatMode {
+  return root.agentId ? `bubbles` : `transcript`
 }

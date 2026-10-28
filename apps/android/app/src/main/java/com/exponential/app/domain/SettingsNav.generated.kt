@@ -18,12 +18,12 @@ object SettingsNav {
     const val ISSUES = "issues"
     const val LABELS = "labels"
     const val STATUSES = "statuses"
-    const val BILLING = "billing"
-    const val BOARDS = "boards"
-    const val AGENTS = "agents"
     const val REPOSITORIES = "repositories"
     const val PROMPTS = "prompts"
     const val WIDGET = "widget"
+    const val BILLING = "billing"
+    const val BOARDS = "boards"
+    const val AGENTS = "agents"
     const val MCP_SERVERS = "mcp-servers"
     const val DEVICES = "devices"
 
@@ -33,17 +33,17 @@ object SettingsNav {
         Row("issues", "Issues", "settings-issues", "team", "all", false, null),
         Row("labels", "Labels", "settings-labels", "team", "all", true, null),
         Row("statuses", "Statuses", "settings-statuses", "team", "all", false, null),
+        Row("repositories", "Repositories", "settings-repositories", "team", "all", true, null),
+        Row("prompts", "Prompts", "nav-actions", "team", "all", true, null),
+        Row("widget", "Widget", "settings-widget", "team", "owner", false, null),
         Row("billing", "Plan & Billing", "settings-billing", "team", "ownerCloud", false, null),
         Row("boards", "Boards", "settings-boards", "boards", "all", true, "boards"),
         Row("agents", "Agents", "settings-agents", "agents", "all", true, "agents"),
-        Row("repositories", "Repositories", "settings-repositories", "agents", "all", true, null),
-        Row("prompts", "Prompts", "nav-actions", "agents", "all", true, null),
-        Row("widget", "Widget", "settings-widget", "features", "owner", false, null),
-        Row("mcp-servers", "MCP servers", "settings-mcp", "features", "all", false, null),
-        Row("devices", "Devices", "nav-devices", "features", "all", true, null),
+        Row("mcp-servers", "MCP servers", "settings-mcp", "agents", "all", false, null),
+        Row("devices", "Devices", "nav-devices", "team", "all", true, null),
     )
 
-    val PHONE_ROWS: List<String> = listOf(GENERAL, MEMBERS, LABELS, BOARDS, AGENTS, REPOSITORIES, PROMPTS, DEVICES)
+    val PHONE_ROWS: List<String> = listOf(GENERAL, MEMBERS, LABELS, REPOSITORIES, PROMPTS, BOARDS, AGENTS, DEVICES)
 
     fun row(id: String): Row = ROWS.first { it.id == id }
 

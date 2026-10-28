@@ -9,6 +9,7 @@ import {
   guideMenuEntries,
   guidePullRequest,
   listAgents,
+  threadChatMode,
   partitionThreadStrip,
   partitionThreads,
   questionOption,
@@ -94,6 +95,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(
         treeState(entry.input.tree as never, entry.input.pullRequests as never, entry.input.now)
       ).toBe(entry.expected)
+    })
+  }
+  for (const entry of thread.chatModeCases) {
+    test(`chat mode (S-3): ${entry.name}`, () => {
+      expect(threadChatMode(entry.root)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.agentCases) {

@@ -105,6 +105,7 @@ interface Contract {
   sessionIssueSource: Section
   messageAuthorKind: Section
   conversationKind: Section
+  agentRole: Section
   messageCardKind: Section
   messageEventKind: Section
   codingAgent: Section
@@ -505,6 +506,7 @@ ${swiftStringArray("issueRelationSourceValues", contract.issueRelationSource.val
 ${swiftStringArray("sessionIssueSourceValues", contract.sessionIssueSource.values)}
 ${swiftStringArray("messageAuthorKindValues", contract.messageAuthorKind.values)}
 ${swiftStringArray("conversationKindValues", contract.conversationKind.values)}
+${swiftStringArray("agentRoleValues", contract.agentRole.values)}
 ${swiftStringArray("messageCardKindValues", contract.messageCardKind.values)}
 ${swiftStringArray("messageEventKindValues", contract.messageEventKind.values)}
 ${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
@@ -627,6 +629,7 @@ ${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 ${swiftNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
 ${swiftNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
 ${swiftNamedValues("conversationKind", contract.conversationKind.values)}
+${swiftNamedValues("agentRole", contract.agentRole.values)}
 ${swiftNamedValues("messageCardKind", contract.messageCardKind.values)}
 ${swiftNamedValues("messageEventKind", contract.messageEventKind.values)}
 }
@@ -672,6 +675,7 @@ ${kotlinStringArray("issueRelationSourceValues", contract.issueRelationSource.va
 ${kotlinStringArray("sessionIssueSourceValues", contract.sessionIssueSource.values)}
 ${kotlinStringArray("messageAuthorKindValues", contract.messageAuthorKind.values)}
 ${kotlinStringArray("conversationKindValues", contract.conversationKind.values)}
+${kotlinStringArray("agentRoleValues", contract.agentRole.values)}
 ${kotlinStringArray("messageCardKindValues", contract.messageCardKind.values)}
 ${kotlinStringArray("messageEventKindValues", contract.messageEventKind.values)}
 ${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
@@ -794,6 +798,7 @@ ${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 ${kotlinNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
 ${kotlinNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
 ${kotlinNamedValues("conversationKind", contract.conversationKind.values)}
+${kotlinNamedValues("agentRole", contract.agentRole.values)}
 ${kotlinNamedValues("messageCardKind", contract.messageCardKind.values)}
 ${kotlinNamedValues("messageEventKind", contract.messageEventKind.values)}
 }
@@ -841,6 +846,7 @@ ${rustStrSlice("issueRelationSourceValues", contract.issueRelationSource.values)
 ${rustStrSlice("sessionIssueSourceValues", contract.sessionIssueSource.values)}
 ${rustStrSlice("messageAuthorKindValues", contract.messageAuthorKind.values)}
 ${rustStrSlice("conversationKindValues", contract.conversationKind.values)}
+${rustStrSlice("agentRoleValues", contract.agentRole.values)}
 ${rustStrSlice("messageCardKindValues", contract.messageCardKind.values)}
 ${rustStrSlice("messageEventKindValues", contract.messageEventKind.values)}
 ${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
@@ -968,6 +974,7 @@ ${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 ${rustNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
 ${rustNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
 ${rustNamedValues("conversationKind", contract.conversationKind.values)}
+${rustNamedValues("agentRole", contract.agentRole.values)}
 ${rustNamedValues("messageCardKind", contract.messageCardKind.values)}
 ${rustNamedValues("messageEventKind", contract.messageEventKind.values)}
 `

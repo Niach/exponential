@@ -5,6 +5,7 @@ import { sessionTitle } from "./session-title"
 import { partitionThreads, type TreeMessage } from "./session-tree"
 import {
   agentBubbles,
+  agentChatRows,
   agentInstructionsChanged,
   agentMenuEntries,
   chatDeleteTitle,
@@ -32,6 +33,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.timeCases) test(`time: ${c.name}`, () => expect(chatTimeLabel(c.at, c.now, c.utcOffsetMinutes)).toBe(c.expected))
   for (const c of fixture.listCases) test(`list: ${c.name}`, () => expect(chatList(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.bubbleCases) test(`bubbles: ${c.name}`, () => expect(agentBubbles(c.input as never)).toEqual(c.expected as never))
+  for (const c of fixture.agentRowCases) test(`agent rows: ${c.name}`, () => expect(agentChatRows(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.menuCases) test(`menu: ${c.name}`, () => expect(threadMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.agentMenuCases) test(`agent menu: ${c.name}`, () => expect(agentMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.replyCases) test(`reply: ${c.name}`, () => expect(surfaceReply(c.event)).toEqual(c.expected as never))
@@ -74,6 +76,11 @@ describe(`conversation digest`, () => {
     test(`list: ${c.name}`, () => {
       const input = c.input as unknown as Parameters<typeof chatList>[0]
       expect(chatList({ ...input, messages: viaDigest(input.messages) })).toEqual(c.expected as never)
+    })
+  for (const c of fixture.agentRowCases)
+    test(`agent rows: ${c.name}`, () => {
+      const input = c.input as unknown as Parameters<typeof agentChatRows>[0]
+      expect(agentChatRows({ ...input, messages: viaDigest(input.messages) })).toEqual(c.expected as never)
     })
   for (const c of fixture.bubbleCases)
     test(`bubbles: ${c.name}`, () => {
