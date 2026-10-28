@@ -92,6 +92,7 @@ class ChatSpecimenFixtureTest {
                     put("color", b.agent.color)
                     put("busy", b.agent.busy)
                     put("needsYou", b.agent.needsYou)
+                    put("assistant", b.agent.assistant)
                     put("ring", nullable(b.ring?.wire))
                 }
             },
@@ -99,5 +100,29 @@ class ChatSpecimenFixtureTest {
         assertEquals(expected, actual)
         // The chips read the counts through chatFilterLabel.
         assertEquals("Needs you 1", Chats.chatFilterLabel(Chats.ChatFilter.NeedsYou, ChatListSpecimen.LIST.counts))
+    }
+
+    @Test
+    fun `the pinned agent rows specimen is agentRowCases 0 expected (S-3)`() {
+        val expected = fixture.getValue("agentRowCases").jsonArray[0].jsonObject.getValue("expected")
+        val actual = JsonArray(
+            ChatListSpecimen.AGENT_ROWS.map { row ->
+                buildJsonObject {
+                    put("agentId", row.agentId)
+                    put("sessionId", nullable(row.sessionId))
+                    put("name", row.name)
+                    put("icon", row.icon)
+                    put("color", row.color)
+                    put("assistant", row.assistant)
+                    put("preview", buildJsonObject { put("kind", row.preview.kind); put("text", row.preview.text) })
+                    put("time", row.time)
+                    put("activityAt", nullable(row.activityAt))
+                    put("unreadCount", row.unreadCount)
+                    put("needsYou", row.needsYou)
+                    put("busy", row.busy)
+                }
+            },
+        )
+        assertEquals(expected, actual)
     }
 }

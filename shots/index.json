@@ -22,8 +22,8 @@
         "file": "shots/agent-channel/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 52142,
-        "sha256": "db69066f98588bbe6bc42e1b9a199ec0b135b9bb1940370d7cdd0e6e47f6ce66"
+        "bytes": 50430,
+        "sha256": "086bb1b403b5b3679a0d979817185af271478dceebc00ca1be9e4f8d7cc21d52"
       },
       "desktop": {
         "file": "shots/agent-channel/desktop.webp",
@@ -43,15 +43,15 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 55620,
-        "sha256": "f4bc2e9910a028b516cc2b6559260500da5fb5a87c8d4f169f0504dbfa9d090b"
+        "bytes": 49102,
+        "sha256": "05c3f56ee6835e8b2f2de5e7a893a15c8a03741dd5da15673bf3b98c6d5571ae"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 32460,
-        "sha256": "3ecf795fc65d87ec20d0e8c289795069e457352fa49a2f15cbc82e9dc46071ee"
+        "bytes": 39360,
+        "sha256": "5ff0073aaad6432c4bc715f4cfdcc2fd988b4d1743369e889d00da4f8fb01fd0"
       }
     },
     "agent-home": {
@@ -59,8 +59,8 @@
         "file": "shots/agent-home/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 18030,
-        "sha256": "0d924ea880481953efddf6a54c25f668dae0864e8d129faf59f2c27b0595dfbb"
+        "bytes": 18260,
+        "sha256": "2d9fe0262efd97ca288230bde3372c37a3e4f63142c4a16b0343a884c647ce81"
       },
       "desktop": {
         "file": "shots/agent-home/desktop.webp",
@@ -528,8 +528,8 @@
         "file": "shots/chat-list/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 38402,
-        "sha256": "ec18a3364553208a71ebb181736ed1f928a6cedf107ecba91c28000a2b04baf9"
+        "bytes": 52394,
+        "sha256": "7f987c656a5260cdb3606d94bae485681c496171e5ed38e68136f6eabf9efa6e"
       },
       "desktop": {
         "file": "shots/chat-list/desktop.webp",
@@ -549,15 +549,15 @@
         "file": "shots/chat-list/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 54896,
-        "sha256": "cbc389b1827a54c84223cabffcadfc7aecf707a35ab8d7736a3c5ef362a8509b"
+        "bytes": 55962,
+        "sha256": "e23bbed8e64b10b8ccbd57210396df14e13cbccfeabeb09a1e5d9bda6d913f60"
       },
       "web-mobile": {
         "file": "shots/chat-list/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 57148,
-        "sha256": "fd67ec8893554c5ae6171377d479de2b1cf9d24a4c8141152d5c20bba1cac37f"
+        "bytes": 58276,
+        "sha256": "2c6ed20d748bbe64feb0f3fa95544774c333967251c8e3a46d8150570146056d"
       }
     },
     "chat-menus": {
@@ -759,8 +759,8 @@
         "file": "shots/composer-menu/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 15900,
-        "sha256": "9e345258e4cd399c209b8b2d5a25ee1e181542b2986b8cb092ce9cf32fb6347a"
+        "bytes": 19198,
+        "sha256": "58ddb6c26a8a6dae02911fbdc2c6226d0e3972de9d9675cddd7b4eacfd8a8cea"
       },
       "desktop": {
         "file": "shots/composer-menu/desktop.webp",
@@ -4482,6 +4482,13 @@
       }
     },
     "settings-assistant": {
+      "android": {
+        "file": "shots/settings-assistant/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 35340,
+        "sha256": "9ebeb6499d4ba66dcb5bdb352186237eb7a8d3842afcc5b519da1e4d3121aa7e"
+      },
       "desktop": {
         "file": "shots/settings-assistant/desktop.webp",
         "width": 1800,
@@ -4792,8 +4799,8 @@
         "file": "shots/settings-root/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 26944,
-        "sha256": "10687f32c874e479ce3f51bc21245daed725bdad51003f6ba7e69594ace4e622"
+        "bytes": 25814,
+        "sha256": "73af26865624f2f74de831f582a65f0a6e39e7b4fd7bf307ede5d02b82d4c918"
       },
       "ios": {
         "file": "shots/settings-root/ios.webp",
@@ -4806,8 +4813,8 @@
         "file": "shots/settings-root/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 28516,
-        "sha256": "876a88ffd761f098a2d133ac3ff8727450c7de63aef1f09e876c53c373ee971d"
+        "bytes": 28274,
+        "sha256": "60923608fe7f38d4501c937bac3985668558e43b05b126152d0cb9893bbe4968"
       }
     },
     "settings-statuses": {
