@@ -1121,15 +1121,16 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_threads", settle: 2)
 
         // ── sg_agent-channel: the Triage agent's chat (DEMO_AGENT_ID) off its
-        // header bubble (EXP-1373). Like Android, a scoped run that does not
-        // ask for this shot skips the walk (S-3: a bubble wearing a story
-        // ring opens the viewer, not the channel).
+        // pinned agent row (S-3: its header bubble wears a story ring and
+        // opens the viewer, not the channel; the agent rows sit above every
+        // chat row, so the first `chat-row` named Triage is its own). Like Android, a scoped run that
+        // does not ask for this shot skips the walk.
         if ScreenshotShots.isWanted("sg_agent-channel") {
             let agentRow = app.descendants(matching: .any)
-                .matching(identifier: "agent-bubble")
+                .matching(identifier: "chat-row")
                 .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
                 .firstMatch
-            expect(agentRow, within: Wait.sync, "The Chats header has no \(Self.agentName) bubble")
+            expect(agentRow, within: Wait.sync, "The Chats list has no \(Self.agentName) agent row")
             agentRow.tap()
             expect(
                 anyElement(app, containing: Self.agentRequest),

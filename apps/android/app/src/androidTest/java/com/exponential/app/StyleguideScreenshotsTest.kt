@@ -843,7 +843,9 @@ class StyleguideScreenshotsTest {
         // VAPP-122: a scoped run that does not ask for this shot skips the
         // walk (the apps views alone must not wait on the channel).
         if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
-            composeRule.onAllNodes(agentRow).onFirst().performClick()
+            // S-3: the pinned agent row (its bubble wears a story ring and
+            // opens the viewer, not the channel).
+            composeRule.onAllNodes(hasTestTag("chat-agent-row") and hasText(AGENT_NAME)).onFirst().performClick()
             flow.waitFor(hasText(AGENT_REQUEST_FRAGMENT, substring = true), SYNC_TIMEOUT)
             flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
             flow.settle()
