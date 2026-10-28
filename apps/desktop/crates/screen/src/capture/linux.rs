@@ -21,7 +21,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{self, ConnectionExt as _};
 use x11rb::rust_connection::RustConnection;
 
-use super::{Capturer, Frame};
+use super::{Capturer, Frame, Want};
 
 /// How long a read of the display set is reused (it opens an X connection).
 const DISPLAYS_TTL: Duration = Duration::from_secs(5);
@@ -143,9 +143,10 @@ impl RootReader {
     }
 }
 
+/// Reads live, so STALE's `since` never holds anything back.
 impl Capturer for RootReader {
-    fn grab_all(&mut self) -> Result<Vec<Frame>, String> {
-        let rects = self.rects()?;
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        let rects: Vec<Rect> = self.rects()?.into_iter().filter(|rect| wanted.iter().any(|want| want.display == rect.0)).collect();
         let mut frames = Vec::with_capacity(rects.len());
         let mut failure = None;
         for rect in rects {
@@ -163,8 +164,8 @@ impl Capturer for RootReader {
         }
     }
 
-    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String> {
-        match self.rects()?.into_iter().find(|rect| rect.0 == display) {
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
+        match self.rects()?.into_iter().find(|rect| rect.0 == wanted.display) {
             Some(rect) => self.read(rect).map(Some),
             None => Ok(None),
         }

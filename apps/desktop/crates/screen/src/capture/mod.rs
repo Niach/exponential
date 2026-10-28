@@ -1,4 +1,4 @@
-//! One capturer per OS: every display's pixels now, in the computer crate's
+//! One capturer per OS: the asked displays' pixels, in the computer crate's
 //! display order (1-based numbers), full physical resolution. The ring
 //! (`crate::ring`) decides when to call and what to keep.
 
@@ -10,6 +10,7 @@ mod macos;
 mod windows;
 
 use std::path::Path;
+use std::time::Instant;
 
 /// One display's pixels, 8 bits per channel, physical resolution, as the
 /// OS hands them out: rows `stride` bytes apart, RGBA or BGRA. Only a frame
@@ -24,6 +25,9 @@ pub(crate) struct Frame {
     pub stride: usize,
     /// Blue first (BGRA, macOS) instead of RGBA; alpha is ignored.
     pub bgra: bool,
+    /// STAMP: when the OS captured or delivered it (Unix ms); `None` = a
+    /// live read (the grab's time).
+    pub at: Option<i64>,
     pixels: Box<dyn Pixels>,
 }
 
@@ -42,12 +46,19 @@ impl Frame {
     /// A tightly packed RGBA8 frame.
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub(crate) fn rgba(display: u32, width: u32, height: u32, rgba: Vec<u8>) -> Frame {
-        Frame { display, width, height, stride: width as usize * 4, bgra: false, pixels: Box::new(rgba) }
+        Frame { display, width, height, stride: width as usize * 4, bgra: false, at: None, pixels: Box::new(rgba) }
     }
 
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn lent(display: u32, width: u32, height: u32, stride: usize, bgra: bool, pixels: Box<dyn Pixels>) -> Frame {
-        Frame { display, width, height, stride, bgra, pixels }
+        Frame { display, width, height, stride, bgra, at: None, pixels }
+    }
+
+    /// The same frame stamped `at` (Unix ms).
+    #[allow(dead_code, reason = "the X11 root reader reads live")]
+    pub(crate) fn stamped(mut self, at: i64) -> Frame {
+        self.at = Some(at);
+        self
     }
 
     pub(crate) fn bytes(&self) -> &[u8] {
@@ -61,12 +72,37 @@ impl Frame {
     }
 }
 
+/// One display a grab asks for. STALE: a frame the OS delivered before
+/// `since` is not taken (a capturer that reads live ignores it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Want {
+    pub display: u32,
+    pub since: Option<Instant>,
+}
+
+impl Want {
+    /// Whether a frame delivered at `delivered` may be taken.
+    #[allow(dead_code, reason = "the X11 root reader reads live")]
+    pub(crate) fn takes(&self, delivered: Instant) -> bool {
+        self.since.is_none_or(|since| delivered >= since)
+    }
+}
+
 pub(crate) trait Capturer: Send {
-    /// Every display now. A display that has no new frame yet may be left
-    /// out; an empty Vec is not an error.
-    fn grab_all(&mut self) -> Result<Vec<Frame>, String>;
-    /// One display now (the focus-change capture); `None` = nothing yet.
-    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String>;
+    /// The wanted displays now, each only when it has a frame new since the
+    /// last `grab_all` and delivered no earlier than its `since` (a display
+    /// without one is left out; an empty Vec is not an error).
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String>;
+    /// One display's latest frame delivered no earlier than its `since`
+    /// (the focus-change capture, the retry after a skipped batch); `None` =
+    /// nothing (new enough) yet.
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String>;
+}
+
+/// Unix ms now.
+#[allow(dead_code, reason = "the X11 root reader reads live")]
+pub(crate) fn wall_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_millis() as i64).unwrap_or_default()
 }
 
 /// Open this OS's capturer. `state_dir` = where it may keep state across

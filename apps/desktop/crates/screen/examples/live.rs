@@ -29,11 +29,13 @@ fn main() {
             Some("text") => println!("text: {}", item["text"]),
             Some("image") => {
                 use base64_decode::decode;
-                let bytes = decode(item["data"].as_str().unwrap());
-                let path = dir.join(format!("shot-{images}.png"));
-                std::fs::write(&path, bytes).unwrap();
-                let size = image::load_from_memory(&std::fs::read(&path).unwrap()).map(|i| (i.width(), i.height()));
-                println!("image {images}: {} {:?}", path.display(), size);
+                let data = item["data"].as_str().unwrap();
+                let bytes = decode(data);
+                let path = dir.join(format!("shot-{images}.webp"));
+                std::fs::write(&path, &bytes).unwrap();
+                let webp = &bytes[..bytes.len().min(16)];
+                let riff = webp.starts_with(b"RIFF") && webp.get(8..12) == Some(b"WEBP");
+                println!("image {images}: {} {} ({} base64 chars, RIFF/WEBP {riff})", path.display(), item["mimeType"], data.len());
                 images += 1;
             }
             _ => {}

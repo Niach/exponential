@@ -79,7 +79,12 @@ fn live() -> Result<&'static Live, String> {
     LIVE.get_or_init(|| {
         let call: server::Call = Arc::new(|name, arguments| {
             let store = RUNNING.lock().unwrap().as_ref().map(|memory| memory.store.clone());
-            tool::call(store.as_deref(), name, arguments, engine::now_ms())
+            // Only frames of a display that is a work display NOW go out.
+            let work = match store {
+                Some(_) => computer::screen_view().map(|view| view.work).unwrap_or_default(),
+                None => Vec::new(),
+            };
+            tool::call(store.as_deref(), name, arguments, engine::now_ms(), &work)
         });
         let hub = Arc::new(server::Hub::new(call));
         let url = server::serve(hub.clone())?;
@@ -101,7 +106,7 @@ pub fn start(data_dir: PathBuf) -> Result<(), String> {
     let memory = engine::Memory::start(
         &data_dir,
         capturer,
-        Box::new(computer::focused_window),
+        Box::new(computer::screen_view),
         engine::Timing::from_fixture(),
         HOTKEY.clone(),
         Arc::new(publish),
@@ -132,6 +137,12 @@ pub fn stop(forget: bool) {
 pub fn forget(data_dir: &Path) {
     stop(true);
     store::forget(data_dir);
+}
+
+/// Whether `data_dir` holds a buffer (frames or the index): at start-up
+/// with the switch off one left there is deleted.
+pub fn leftover(data_dir: &Path) -> bool {
+    data_dir.join(store::FRAMES_DIR).exists() || data_dir.join(store::INDEX_FILE).exists()
 }
 
 pub fn status() -> Status {

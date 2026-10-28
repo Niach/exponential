@@ -214,23 +214,52 @@ pub fn pixel_size(display: &Display) -> (u32, u32) {
     backend::pixel_size(display.x, display.y, display.width, display.height)
 }
 
-/// NEW-58: the focused window as screen memory reads it: the owning app,
-/// its title, the 1-based display holding its centre (the [`displays`]
+/// NEW-58: the focused window as screen memory reads it: the owning app
+/// (its name and, where the OS names it cheaply, its id: the macOS bundle
+/// id), its title, the 1-based display holding its centre (the [`displays`]
 /// order) and its rect within that display in PHYSICAL pixels (the frame's
 /// own pixels), clipped to the display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FocusedWindow {
     pub app: String,
+    /// The app's id (macOS bundle id); `None` where the OS has none to hand.
+    pub app_id: Option<String>,
     pub title: String,
     pub display: u32,
     pub rect: ScreenRect,
 }
 
-/// NEW-58: the focused window now; `None` without a display, a window list
-/// or a focused window on any display. One window-list read (a few ms):
-/// screen memory polls it every `capture.focusPollMs`.
+/// NEW-58: the top window of one display (the first of the window list
+/// whose centre lies on it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopWindow {
+    /// 1-based.
+    pub display: u32,
+    pub app: String,
+    pub title: String,
+}
+
+/// NEW-58: what screen memory reads on every poll, from ONE window-list
+/// read: the focused window (`None` = the focus is on no listed window or
+/// off every display), the work displays (1-based,
+/// [`work_screen::work_displays`]) and each display's top window.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScreenView {
+    pub focused: Option<FocusedWindow>,
+    pub work: Vec<u32>,
+    pub tops: Vec<TopWindow>,
+}
+
+/// NEW-58: the screen as screen memory reads it now; `None` without a
+/// display or a window list (Wayland, a refused list). One window-list read
+/// (a few ms, the display set cached): polled every `capture.focusPollMs`.
+pub fn screen_view() -> Option<ScreenView> {
+    work_screen::screen_view()
+}
+
+/// NEW-58: the focused window now ([`screen_view`]'s).
 pub fn focused_window() -> Option<FocusedWindow> {
-    work_screen::focused_window()
+    screen_view()?.focused
 }
 
 /// NEW-59: the displays, their fullscreen windows and the work displays now;

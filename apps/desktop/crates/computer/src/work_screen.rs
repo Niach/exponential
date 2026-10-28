@@ -279,7 +279,7 @@ const DISPLAYS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
 type DisplayCache = (std::time::Instant, Vec<(DisplayInfo, (u32, u32))>);
 static DISPLAY_CACHE: std::sync::Mutex<Option<DisplayCache>> = std::sync::Mutex::new(None);
 
-pub(crate) fn focused_window() -> Option<crate::FocusedWindow> {
+pub(crate) fn screen_view() -> Option<crate::ScreenView> {
     let backend = backend::open().ok()?;
     let displays = {
         let mut cache = DISPLAY_CACHE.lock().unwrap();
@@ -301,16 +301,42 @@ pub(crate) fn focused_window() -> Option<crate::FocusedWindow> {
         }
     };
     let windows = backend.list_windows().ok()?;
-    let window = windows.iter().find(|window| window.active)?;
+    Some(view_of(&displays, &windows, picked(), backend::app_id))
+}
+
+/// [`screen_view`] off one display set (with pixel sizes) and one window
+/// list (top first); `app_id` names a pid's app (asked for the focused
+/// window only).
+pub(crate) fn view_of(
+    displays: &[(DisplayInfo, (u32, u32))],
+    windows: &[WindowInfo],
+    picked: Option<u32>,
+    app_id: impl Fn(u32) -> Option<String>,
+) -> crate::ScreenView {
     let infos: Vec<DisplayInfo> = displays.iter().map(|(display, _)| display.clone()).collect();
-    let index = window_display(&infos, window)?;
-    let (display, pixels) = &displays[index];
-    Some(crate::FocusedWindow {
-        app: window.app.clone(),
-        title: window.title.clone(),
-        display: index as u32 + 1,
-        rect: rect_in_pixels(display, *pixels, window)?,
-    })
+    let work = work_displays(&state_of(&infos, windows, picked)).into_iter().map(|index| index as u32 + 1).collect();
+    let mut tops: Vec<crate::TopWindow> = Vec::new();
+    for window in windows {
+        if let Some(index) = window_display(&infos, window) {
+            let display = index as u32 + 1;
+            if !tops.iter().any(|top| top.display == display) {
+                tops.push(crate::TopWindow { display, app: window.app.clone(), title: window.title.clone() });
+            }
+        }
+    }
+    tops.sort_by_key(|top| top.display);
+    let focused = windows.iter().find(|window| window.active).and_then(|window| {
+        let index = window_display(&infos, window)?;
+        let (display, pixels) = &displays[index];
+        Some(crate::FocusedWindow {
+            app: window.app.clone(),
+            app_id: window.pid.and_then(&app_id),
+            title: window.title.clone(),
+            display: index as u32 + 1,
+            rect: rect_in_pixels(display, *pixels, window)?,
+        })
+    });
+    crate::ScreenView { focused, work, tops }
 }
 
 /// `window`'s rect within `display` (screen units) as `pixels` (the
@@ -456,5 +482,36 @@ mod tests {
         assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true, windows_read: true });
         assert_eq!(work_displays(&state), [0]);
         assert_eq!(state_of(&displays, &[], Some(2)).active, None);
+    }
+
+    /// NEW-58: screen memory's view: the focused window with its app id,
+    /// the work displays 1-based, each display's top window.
+    #[test]
+    fn the_screen_view_reads_focus_work_and_top_windows_in_one_list() {
+        let display = |x, primary| (DisplayInfo { x, y: 0, width: 1000, height: 1000, primary, name: String::new() }, (2000, 2000));
+        let displays = [display(0, true), display(1000, false)];
+        let window = |app: &str, x, active, fullscreen| WindowInfo {
+            id: 1,
+            title: format!("{app} window"),
+            app: app.into(),
+            pid: Some(7),
+            x,
+            y: 0,
+            width: 500,
+            height: 500,
+            active,
+            fullscreen,
+        };
+        let windows = [window("Notes", 1100, false, false), window("Passwords", 100, true, false), window("Zed", 1200, false, false)];
+        let view = view_of(&displays, &windows, None, |pid| Some(format!("app.{pid}")));
+        let focused = view.focused.unwrap();
+        assert_eq!((focused.app.as_str(), focused.app_id.as_deref(), focused.display), ("Passwords", Some("app.7"), 1));
+        assert_eq!(focused.rect, crate::ScreenRect { x: 200, y: 0, width: 1000, height: 1000 });
+        assert_eq!(view.work, [1, 2]);
+        let tops: Vec<(u32, &str)> = view.tops.iter().map(|top| (top.display, top.app.as_str())).collect();
+        assert_eq!(tops, [(1, "Passwords"), (2, "Notes")]);
+        // A picked display that is gone: no work display; no focus = None.
+        let view = view_of(&displays, &windows[..1], Some(3), |_| None);
+        assert_eq!((view.focused, view.work), (None, vec![]));
     }
 }

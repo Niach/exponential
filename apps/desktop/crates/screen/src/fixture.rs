@@ -74,6 +74,16 @@ pub(crate) fn min_crop() -> u32 {
     number(&["tool", "minCrop"]) as u32
 }
 
+/// `tool.maxImageBytes`: one image's base64 length at most.
+pub(crate) fn max_image_bytes() -> usize {
+    number(&["tool", "maxImageBytes"]) as usize
+}
+
+/// `tool.maxTotalBytes`: every image's base64 together at most.
+pub(crate) fn max_total_bytes() -> usize {
+    number(&["tool", "maxTotalBytes"]) as usize
+}
+
 /// `denylist.apps` / `denylist.titles`, lowercased.
 pub(crate) fn denylist(key: &str) -> &'static [String] {
     static APPS: OnceLock<Vec<String>> = OnceLock::new();

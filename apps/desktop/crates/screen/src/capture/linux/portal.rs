@@ -28,7 +28,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ashpd::desktop::screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType};
 use ashpd::desktop::{PersistMode, ResponseError, Session};
@@ -42,7 +42,7 @@ use pw::spa::pod::Pod;
 use pw::stream::{StreamFlags, StreamState};
 
 use super::{DisplayCache, StreamRect};
-use crate::capture::{Capturer, Frame};
+use crate::capture::{Capturer, Frame, Want};
 
 const TOKEN_FILE: &str = "screencast-restore-token";
 /// How long `open` waits for the PipeWire streams to be set up.
@@ -52,9 +52,10 @@ const GRAB_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// To the PipeWire thread.
 enum Message {
-    /// Convert the held buffer of each `(stream index, seq seen)` whose seq
-    /// is newer than the one seen; answer one [`Grabbed`] per entry.
-    Grab { wanted: Vec<(usize, u64)>, reply: mpsc::Sender<Vec<Grabbed>> },
+    /// Convert the held buffer of each `(stream index, seq seen, since)`
+    /// whose seq is newer than the one seen and that arrived no earlier than
+    /// `since` (STALE); answer one [`Grabbed`] per entry.
+    Grab { wanted: Vec<(usize, u64, Option<Instant>)>, reply: mpsc::Sender<Vec<Grabbed>> },
     Quit,
 }
 
@@ -62,6 +63,8 @@ enum Message {
 struct Grabbed {
     ended: bool,
     seq: u64,
+    /// STAMP: when the held buffer arrived (Unix ms).
+    at: i64,
     image: Option<(u32, u32, Vec<u8>)>,
 }
 
@@ -134,7 +137,7 @@ impl Portal {
         }
     }
 
-    fn ask(&self, wanted: Vec<(usize, u64)>) -> Result<Vec<Grabbed>, String> {
+    fn ask(&self, wanted: Vec<(usize, u64, Option<Instant>)>) -> Result<Vec<Grabbed>, String> {
         let (reply, answer) = mpsc::channel();
         if self.sender.send(Message::Grab { wanted, reply }).is_err() {
             return Err("The PipeWire thread is gone.".to_string());
@@ -146,10 +149,17 @@ impl Portal {
 const ENDED: &str = "The screen sharing session ended.";
 
 impl Capturer for Portal {
-    fn grab_all(&mut self) -> Result<Vec<Frame>, String> {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         self.refresh_numbers();
-        let wanted = self.seen.iter().copied().enumerate().collect();
-        let answers = self.ask(wanted)?;
+        // Every stream is asked (an all-ended answer is the session's end);
+        // only the wanted ones are converted.
+        let asks = (0..self.seen.len())
+            .map(|index| match wanted.iter().find(|want| self.numbers.get(index) == Some(&want.display)) {
+                Some(want) => (index, self.seen[index], want.since),
+                None => (index, u64::MAX, None),
+            })
+            .collect();
+        let answers = self.ask(asks)?;
         if answers.iter().all(|answer| answer.ended) {
             return Err(ENDED.to_string());
         }
@@ -157,23 +167,23 @@ impl Capturer for Portal {
         for (index, answer) in answers.into_iter().enumerate() {
             let Some((width, height, rgba)) = answer.image else { continue };
             self.seen[index] = answer.seq;
-            frames.push(Frame::rgba(self.numbers[index], width, height, rgba));
+            frames.push(Frame::rgba(self.numbers[index], width, height, rgba).stamped(answer.at));
         }
         Ok(frames)
     }
 
-    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String> {
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
         self.refresh_numbers();
-        let Some(index) = self.numbers.iter().position(|&number| number == display) else {
+        let Some(index) = self.numbers.iter().position(|&number| number == wanted.display) else {
             return Ok(None);
         };
-        let mut answers = self.ask(vec![(index, 0)])?;
+        let mut answers = self.ask(vec![(index, 0, wanted.since)])?;
         let Some(answer) = answers.pop() else { return Ok(None) };
         let Some((width, height, rgba)) = answer.image else {
             return if answer.ended { Err(ENDED.to_string()) } else { Ok(None) };
         };
         self.seen[index] = answer.seq;
-        Ok(Some(Frame::rgba(display, width, height, rgba)))
+        Ok(Some(Frame::rgba(wanted.display, width, height, rgba).stamped(answer.at)))
     }
 }
 
@@ -285,6 +295,9 @@ struct Slot {
     held: Option<*mut pw::sys::pw_buffer>,
     /// Counts the buffers held: a grab compares it with what it saw.
     seq: u64,
+    /// When `held` arrived (STALE), and as Unix ms (STAMP).
+    delivered: Option<Instant>,
+    at: i64,
     ended: bool,
 }
 
@@ -366,6 +379,8 @@ fn run(
                     unsafe { stream.queue_raw_buffer(old) };
                 }
                 slot.seq += 1;
+                slot.delivered = Some(Instant::now());
+                slot.at = crate::capture::wall_ms();
             })
             .remove_buffer(|_, slot, buffer| {
                 let mut slot = slot.borrow_mut();
@@ -395,9 +410,9 @@ fn run(
         Message::Grab { wanted, reply } => {
             let answers = wanted
                 .into_iter()
-                .map(|(index, seen)| match slots.get(index) {
-                    Some(slot) => grab(&slot.borrow(), seen),
-                    None => Grabbed { ended: true, seq: 0, image: None },
+                .map(|(index, seen, since)| match slots.get(index) {
+                    Some(slot) => grab(&slot.borrow(), seen, since),
+                    None => Grabbed { ended: true, seq: 0, at: 0, image: None },
                 })
                 .collect();
             let _ = reply.send(answers);
@@ -484,10 +499,11 @@ unsafe fn pixels<'a>(buffer: *mut pw::sys::pw_buffer) -> Option<&'a mut spa::buf
     Some(data)
 }
 
-/// A slot's held buffer as RGBA when its seq is newer than `seen`.
-fn grab(slot: &Slot, seen: u64) -> Grabbed {
-    let mut answer = Grabbed { ended: slot.ended, seq: slot.seq, image: None };
-    if slot.seq <= seen {
+/// A slot's held buffer as RGBA when its seq is newer than `seen` and it
+/// arrived no earlier than `since` (STALE).
+fn grab(slot: &Slot, seen: u64, since: Option<Instant>) -> Grabbed {
+    let mut answer = Grabbed { ended: slot.ended, seq: slot.seq, at: slot.at, image: None };
+    if slot.seq <= seen || slot.delivered.is_none_or(|delivered| since.is_some_and(|since| delivered < since)) {
         return answer;
     }
     let (Some(held), Some(format)) = (slot.held, slot.format) else { return answer };

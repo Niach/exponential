@@ -9,10 +9,12 @@
 //! encode worker. ScreenCaptureKit delivers a new buffer only when the
 //! display changed, so a static screen costs nothing between grabs.
 //!
-//! `grab_all` hands out each display's latest frame ONCE: a display without a
-//! new frame since the last grab is left out (the trait allows it; the ring's
-//! dedupe would drop it anyway). `grab(display)` returns that display's latest
-//! frame regardless (the focus-change capture).
+//! `grab_all` hands out each asked display's latest frame ONCE: a display
+//! without a new frame since the last grab is left out (the trait allows it;
+//! the ring's dedupe would drop it anyway). `grab(display)` returns that
+//! display's latest frame regardless (the focus-change capture). Either
+//! refuses a buffer that arrived before the ask's `since` (STALE: the slot may
+//! hold a frame up to a second old, from before a pause ended).
 //!
 //! The display set (`CGGetActiveDisplayList`: the computer crate's order,
 //! with each display's physical pixel size) is read on every grab, a few
@@ -34,7 +36,7 @@ use objc2_core_graphics::{
     CGDirectDisplayID, CGDisplayCopyDisplayMode, CGDisplayMode, CGGetActiveDisplayList,
     CGPreflightScreenCaptureAccess,
 };
-use objc2_core_media::{CMSampleBuffer, CMTime};
+use objc2_core_media::{CMClock, CMSampleBuffer, CMTime, CMTimeFlags};
 use objc2_core_video::{
     kCVPixelFormatType_32BGRA, CVPixelBuffer, CVPixelBufferGetBaseAddress,
     CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight, CVPixelBufferGetPixelFormatType,
@@ -47,7 +49,7 @@ use objc2_screen_capture_kit::{
     SCStreamConfiguration, SCStreamDelegate, SCStreamOutput, SCStreamOutputType,
 };
 
-use super::{Capturer, Frame, Pixels};
+use super::{Capturer, Frame, Pixels, Want};
 
 /// screen-memory.json `capture.intervalMs`.
 const INTERVAL_MS: i64 = 1000;
@@ -94,18 +96,21 @@ struct MacCapturer {
 unsafe impl Send for MacCapturer {}
 
 impl Capturer for MacCapturer {
-    fn grab_all(&mut self) -> Result<Vec<Frame>, String> {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         self.sync()?;
-        Ok(self.streams.iter().filter_map(|s| s.take(true)).collect())
+        Ok(wanted
+            .iter()
+            .filter_map(|want| self.streams.iter().find(|s| s.number == want.display)?.take(true, *want))
+            .collect())
     }
 
-    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String> {
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
         self.sync()?;
         Ok(self
             .streams
             .iter()
-            .find(|s| s.number == display)
-            .and_then(|s| s.take(false)))
+            .find(|s| s.number == wanted.display)
+            .and_then(|s| s.take(false, wanted)))
     }
 }
 
@@ -249,10 +254,32 @@ unsafe impl<T> Send for Unsync<T> {}
 #[derive(Default)]
 struct Slot {
     latest: Option<Unsync<CFRetained<CVPixelBuffer>>>,
+    /// When `latest` arrived (STALE) and when it was captured (Unix ms,
+    /// its presentation time; STAMP).
+    delivered: Option<Instant>,
+    at: i64,
     /// Bumped per delivered frame; `taken` = the seq handed out last.
     seq: u64,
     taken: u64,
     stopped: bool,
+}
+
+/// STAMP: a sample's presentation time (host time) as Unix ms: now minus
+/// how long ago it was on the host clock; the delivery time when the
+/// sample carries none.
+fn captured_at(sample: &CMSampleBuffer) -> i64 {
+    let now = super::wall_ms();
+    let pts = unsafe { sample.presentation_time_stamp() };
+    if !pts.flags.contains(CMTimeFlags::Valid) {
+        return now;
+    }
+    let host = unsafe { CMClock::host_time_clock().time() };
+    let ago = unsafe { host.seconds() - pts.seconds() };
+    if ago.is_finite() && (0.0..10.0).contains(&ago) {
+        now - (ago * 1000.0).round() as i64
+    } else {
+        now
+    }
 }
 
 struct OutputIvars {
@@ -278,8 +305,12 @@ define_class!(
             let Some(buffer) = (unsafe { sample.image_buffer() }) else {
                 return;
             };
+            let delivered = Instant::now();
+            let at = captured_at(sample);
             if let Ok(mut slot) = self.ivars().slot.lock() {
                 slot.latest = Some(Unsync(buffer));
+                slot.delivered = Some(delivered);
+                slot.at = at;
                 slot.seq += 1;
             }
         }
@@ -389,18 +420,22 @@ impl DisplayStream {
         self.slot.lock().map(|slot| slot.stopped).unwrap_or(true)
     }
 
-    /// The latest frame; `fresh_only` = `None` when it was handed out
-    /// already.
-    fn take(&self, fresh_only: bool) -> Option<Frame> {
-        let buffer = {
+    /// The latest frame; `None` when it arrived before `want.since` (STALE:
+    /// left for a later grab, still not taken) or, `fresh_only`, when it
+    /// was handed out already.
+    fn take(&self, fresh_only: bool, want: Want) -> Option<Frame> {
+        let (buffer, at) = {
             let mut slot = self.slot.lock().ok()?;
             if fresh_only && slot.seq == slot.taken {
                 return None;
             }
+            if !want.takes(slot.delivered?) {
+                return None;
+            }
             slot.taken = slot.seq;
-            slot.latest.as_ref()?.0.clone()
+            (slot.latest.as_ref()?.0.clone(), slot.at)
         };
-        to_frame(buffer, self.number)
+        to_frame(buffer, self.number).map(|frame| frame.stamped(at))
     }
 }
 

@@ -50,6 +50,11 @@ pub(crate) fn prepare(frame: &Frame, focus: Option<Rect>) -> Picture {
     picture
 }
 
+/// `picture` scaled down to `width` x `height` (each at most its own).
+pub(crate) fn resize(picture: Picture, width: u32, height: u32) -> Picture {
+    horizontal(vertical(picture, height.max(1)), width.max(1))
+}
+
 const ONE: u32 = 1 << 12;
 
 /// Triangle taps for `dst` samples over `src` (dst <= src): per output, the
@@ -197,10 +202,15 @@ fn halve(picture: &Picture) -> Picture {
 /// Lossy WebP at `store.webpQuality`, `method` 0 of 0-6 (the fastest): at
 /// 1568 px ~15 ms for a real screen, ~30 ms for a page of dense text.
 pub(crate) fn encode(picture: &Picture) -> Vec<u8> {
+    encode_at(picture, fixture::webp_quality())
+}
+
+/// Lossy WebP at `quality` (0-100), method 0.
+pub(crate) fn encode_at(picture: &Picture, quality: f32) -> Vec<u8> {
     let encoder = webp::Encoder::from_rgba(&picture.rgba, picture.width, picture.height);
     let mut config = webp::WebPConfig::new().expect("libwebp config");
     config.lossless = 0;
-    config.quality = fixture::webp_quality();
+    config.quality = quality;
     config.method = 0;
     match encoder.encode_advanced(&config) {
         Ok(memory) => memory.to_vec(),

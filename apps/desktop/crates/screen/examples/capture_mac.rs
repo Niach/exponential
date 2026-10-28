@@ -26,7 +26,8 @@ fn main() {
     };
     println!("opened in {:?}", started.elapsed());
     std::thread::sleep(Duration::from_secs(2));
-    let frames = capturer.grab_all().expect("grab_all");
+    let all: Vec<capture::Want> = (1..=8).map(|display| capture::Want { display, since: None }).collect();
+    let frames = capturer.grab_all(&all).expect("grab_all");
     println!("grab_all: {} frame(s)", frames.len());
     for frame in &frames {
         println!(
@@ -51,9 +52,9 @@ fn main() {
             .expect("png");
         println!("saved {}", path.display());
     }
-    let again = capturer.grab_all().expect("grab_all");
+    let again = capturer.grab_all(&all).expect("grab_all");
     println!("immediate second grab_all: {} fresh frame(s)", again.len());
-    match capturer.grab(1).expect("grab") {
+    match capturer.grab(capture::Want { display: 1, since: None }).expect("grab") {
         Some(frame) => println!("grab(1): {}x{}", frame.width, frame.height),
         None => println!("grab(1): none"),
     }
@@ -69,11 +70,11 @@ fn main() {
         let (mut ticks, mut got) = (0, 0);
         while begin.elapsed() < Duration::from_secs(secs) {
             let tick = Instant::now();
-            got += capturer.grab_all().expect("grab_all").len();
+            got += capturer.grab_all(&all).expect("grab_all").len();
             // `--force`: also lend display 1's latest every tick, the
             // cost of a screen that changes every second.
             if args.iter().any(|a| a == "--force") {
-                got += capturer.grab(1).expect("grab").is_some() as usize;
+                got += capturer.grab(capture::Want { display: 1, since: None }).expect("grab").is_some() as usize;
             }
             ticks += 1;
             std::thread::sleep(Duration::from_secs(1).saturating_sub(tick.elapsed()));

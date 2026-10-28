@@ -24,7 +24,7 @@ use windows_capture::settings::{
     SecondaryWindowSettings, Settings,
 };
 
-use super::{Capturer, Frame};
+use super::{Capturer, Frame, Want};
 
 /// screen-memory.json `capture.intervalMs`.
 const INTERVAL_MS: u64 = 1000;
@@ -39,6 +39,32 @@ struct Latest {
     rgba: Vec<u8>,
     /// Bumped on every delivered frame (1 = the first).
     seq: u64,
+    /// STALE: when it arrived; STAMP: when it was captured (Unix ms).
+    delivered: Option<Instant>,
+    at: i64,
+}
+
+/// STAMP: a frame's SystemRelativeTime (QPC in 100 ns units) as Unix ms:
+/// now minus how long ago it was on the performance counter.
+fn captured_at(timestamp: i64) -> i64 {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn QueryPerformanceCounter(count: *mut i64) -> i32;
+        fn QueryPerformanceFrequency(frequency: *mut i64) -> i32;
+    }
+    let now = super::wall_ms();
+    let (mut count, mut frequency) = (0i64, 0i64);
+    // SAFETY: two out-pointers to live integers.
+    if unsafe { QueryPerformanceCounter(&mut count) } == 0 || unsafe { QueryPerformanceFrequency(&mut frequency) } == 0 || frequency <= 0 {
+        return now;
+    }
+    let counter = (i128::from(count) * 10_000_000 / i128::from(frequency)) as i64;
+    let ago = (counter - timestamp) / 10_000;
+    if (0..10_000).contains(&ago) {
+        now - ago
+    } else {
+        now
+    }
 }
 
 type Slot = Arc<Mutex<Option<Latest>>>;
@@ -60,6 +86,8 @@ impl GraphicsCaptureApiHandler for Handler {
     }
 
     fn on_frame_arrived(&mut self, frame: &mut WgcFrame, _control: InternalCaptureControl) -> Result<(), Self::Error> {
+        let delivered = Instant::now();
+        let at = captured_at(frame.timestamp().Duration);
         let mut buffer = frame.buffer().map_err(|e| format!("frame buffer: {e}"))?;
         let (width, height) = (buffer.width(), buffer.height());
         // Rgba8 is requested from the frame pool, so no BGRA swizzle here.
@@ -71,6 +99,8 @@ impl GraphicsCaptureApiHandler for Handler {
         latest.width = width;
         latest.height = height;
         latest.seq += 1;
+        latest.delivered = Some(delivered);
+        latest.at = at;
         std::mem::swap(&mut latest.rgba, &mut self.spare);
         Ok(())
     }
@@ -165,26 +195,28 @@ impl Session {
         self.spawn(Monitor::from_raw_hmonitor(self.monitor as *mut std::ffi::c_void));
     }
 
-    /// The latest frame, whether or not it was handed out before (`grab`).
-    fn latest(&self, display: u32) -> Option<Frame> {
+    /// The latest frame, whether or not it was handed out before (`grab`);
+    /// `None` when it arrived before `want.since` (STALE).
+    fn latest(&self, want: Want) -> Option<Frame> {
         let slot = self.slot.lock().unwrap_or_else(|p| p.into_inner());
         let latest = slot.as_ref()?;
-        if latest.width == 0 || latest.height == 0 || latest.rgba.is_empty() {
+        if latest.width == 0 || latest.height == 0 || latest.rgba.is_empty() || !want.takes(latest.delivered?) {
             return None;
         }
-        Some(Frame::rgba(display, latest.width, latest.height, latest.rgba.clone()))
+        Some(Frame::rgba(want.display, latest.width, latest.height, latest.rgba.clone()).stamped(latest.at))
     }
 
     /// The latest frame only when it arrived after the one `grab_all` last
-    /// handed out: a static screen (WGC delivers nothing) costs no copy.
-    fn fresh(&mut self, display: u32) -> Option<Frame> {
+    /// handed out (and not before `want.since`): a static screen (WGC
+    /// delivers nothing) costs no copy.
+    fn fresh(&mut self, want: Want) -> Option<Frame> {
         let slot = self.slot.lock().unwrap_or_else(|p| p.into_inner());
         let latest = slot.as_ref()?;
-        if latest.seq == self.handed || latest.width == 0 || latest.height == 0 || latest.rgba.is_empty() {
+        if latest.seq == self.handed || latest.width == 0 || latest.height == 0 || latest.rgba.is_empty() || !want.takes(latest.delivered?) {
             return None;
         }
         self.handed = latest.seq;
-        Some(Frame::rgba(display, latest.width, latest.height, latest.rgba.clone()))
+        Some(Frame::rgba(want.display, latest.width, latest.height, latest.rgba.clone()).stamped(latest.at))
     }
 
     fn stop(&mut self) {
@@ -235,19 +267,23 @@ impl Wgc {
 }
 
 impl Capturer for Wgc {
-    /// Only the displays with a frame new since the last `grab_all`.
-    fn grab_all(&mut self) -> Result<Vec<Frame>, String> {
+    /// Only the wanted displays with a frame new since the last `grab_all`.
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         self.refresh()?;
         self.check()?;
-        Ok(self.sessions.iter_mut().enumerate().filter_map(|(i, s)| s.fresh(i as u32 + 1)).collect())
+        let sessions = &mut self.sessions;
+        Ok(wanted
+            .iter()
+            .filter_map(|want| sessions.get_mut(want.display.checked_sub(1)? as usize)?.fresh(*want))
+            .collect())
     }
 
-    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String> {
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
         self.refresh()?;
-        let Some(session) = display.checked_sub(1).and_then(|i| self.sessions.get(i as usize)) else {
+        let Some(session) = wanted.display.checked_sub(1).and_then(|i| self.sessions.get(i as usize)) else {
             return Ok(None);
         };
-        Ok(session.latest(display))
+        Ok(session.latest(wanted))
     }
 }
 

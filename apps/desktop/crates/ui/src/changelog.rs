@@ -56,7 +56,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_106: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_107: ChangelogEntry = ChangelogEntry {
     id: "2026-10-28-work-screen",
     date: "2026-10-28",
     title: "Work screen",
