@@ -81,8 +81,8 @@ struct StoryArc: Shape {
     }
 }
 
-/// The ring's avatar: an agent's icon in its colour on the muted disc (the
-/// chats header's bubble), else the session glyph muted (a chat's root).
+/// An agent ring's avatar: the agent's icon in its colour on the muted disc
+/// (the chats header's bubble); nil colour = the icon muted.
 public struct StoryAvatarMark: View {
     let icon: String
     let color: Color?
