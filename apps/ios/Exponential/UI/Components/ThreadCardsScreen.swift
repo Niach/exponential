@@ -898,6 +898,7 @@ private struct VoiceMeetingSpecimens: View {
     var body: some View {
         NavigationStack {
             VoiceSettingsPage(accountId: "specimen", specimen: VoiceSettingsPage.Specimen(
+                userId: "u",
                 settings: Voice.Settings(
                     voiceDeviceId: "d-mint",
                     agentId: "a-ops",
