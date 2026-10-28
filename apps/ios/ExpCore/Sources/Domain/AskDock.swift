@@ -173,7 +173,8 @@ public enum AskDock {
     public enum SessionCardKind: String, Equatable, Sendable {
         case plan, question, surface
 
-        /// The display row of the call that posts a card of this kind.
+        /// The display row of the LEGACY call that posted a card of this
+        /// kind (old transcripts; S-3 retired the three ops).
         public var postingCall: String {
             switch self {
             case .plan: "session_self_plan"
@@ -244,10 +245,25 @@ public enum AskDock {
         }
     }
 
+    /// S-3: THE call that posts every kind now (`exponential_show`).
+    public static let showCardCall = "show"
+
+    /// The row a card-posting call resolves to: a contract row (`show`),
+    /// else a retired legacy row by the same prefix rule (`exponential_`
+    /// right in front), else nil (another server's tool).
+    static func cardCallRow(_ name: String?) -> String? {
+        guard let name else { return nil }
+        if let display = ExpToolDisplay.resolve(toolName: name) { return display.row }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [SessionCardKind.plan, .question, .surface].map(\.postingCall)
+            .first { trimmed.hasSuffix(DomainContract.expToolPrefix + $0) }
+    }
+
     /// Where each session card draws: right after the SETTLED, unfailed call
-    /// that posted it, paired newest back PER KIND; a card with no call left =
-    /// `unanchored` (card order, the transcript's head). `anchors` keys = feed
-    /// item ids, each list oldest first.
+    /// that posted it, paired newest back PER KIND over the legacy calls,
+    /// then over the shared `show` calls (S-3: one verb posts every kind); a
+    /// card with no call left = `unanchored` (card order, the transcript's
+    /// head). `anchors` keys = feed item ids, each list oldest first.
     public static func anchorSessionCards(
         _ calls: [FeedCall], cards: [SessionCard]
     ) -> (anchors: [Int: [String]], unanchored: [String]) {
@@ -255,20 +271,23 @@ public enum AskDock {
         guard !cards.isEmpty else { return ([:], []) }
         var byRow: [String: [Int]] = [:]
         for call in calls where call.settled && !call.failed {
-            guard let name = call.name, let display = ExpToolDisplay.resolve(toolName: name) else { continue }
-            byRow[display.row, default: []].append(call.id)
+            guard let row = cardCallRow(call.name) else { continue }
+            byRow[row, default: []].append(call.id)
         }
         var used: [String: Int] = [:]
+        func take(_ row: String) -> Int? {
+            let skip = used[row] ?? 0
+            let ids = byRow[row] ?? []
+            let index = ids.count - 1 - skip
+            guard index >= 0 else { return nil }
+            used[row] = skip + 1
+            return ids[index]
+        }
         var anchors: [Int: [String]] = [:]
         var unanchored: [String] = []
         for card in cards.reversed() {
-            let row = card.kind.postingCall
-            let skip = used[row] ?? 0
-            used[row] = skip + 1
-            let ids = byRow[row] ?? []
-            let index = ids.count - 1 - skip
-            if index >= 0 {
-                anchors[ids[index], default: []].insert(card.id, at: 0)
+            if let call = take(card.kind.postingCall) ?? take(showCardCall) {
+                anchors[call, default: []].insert(card.id, at: 0)
             } else {
                 unanchored.insert(card.id, at: 0)
             }

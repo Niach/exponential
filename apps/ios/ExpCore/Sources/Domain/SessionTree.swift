@@ -100,6 +100,9 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let deviceId: String?
     /// NEW-2: the agent this root is a conversation of (nil = a thread).
     public let agentId: String?
+    /// NEW-2: the agent whose conversation started this root (nil = a
+    /// person); S-3: names the root's `origin`.
+    public let startedByAgentId: String?
     /// VAPP-110: the app this root is a member's editor session of (nil =
     /// none); like an agent's conversation it is no thread.
     public let appId: String?
@@ -124,9 +127,11 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         deviceId: String? = nil,
         agentId: String? = nil,
         appId: String? = nil,
-        background: Bool = false
+        background: Bool = false,
+        startedByAgentId: String? = nil
     ) {
         self.agentId = agentId
+        self.startedByAgentId = startedByAgentId
         self.appId = appId
         self.background = background
         self.deviceId = deviceId
@@ -737,17 +742,44 @@ public enum ThreadTab: Equatable, Sendable {
     case guide(dot: Bool)
 }
 
+/// S-3 inter-session links: a compact header naming ANOTHER session (the
+/// lead `ThreadCopy.xref(kind)`, the agent's mark, the session's name, `›`);
+/// a tap pushes that session on the back stack.
+public struct SessionXref: Equatable, Sendable {
+    public enum Kind: String, Equatable, Sendable, CaseIterable {
+        case message, report, started, reported
+    }
+
+    public let kind: Kind
+    public let sessionId: String
+    public let name: String
+    /// The agent whose tree the session belongs to (its mark), else nil.
+    public let agentId: String?
+
+    public init(kind: Kind, sessionId: String, name: String, agentId: String?) {
+        self.kind = kind
+        self.sessionId = sessionId
+        self.name = name
+        self.agentId = agentId
+    }
+
+    /// `copy.xref[kind]`.
+    public var lead: String { SessionTree.ThreadCopy.xref[kind.rawValue] ?? "" }
+}
+
 /// One Conversation row.
 public enum ThreadRow: Equatable, Sendable {
     /// `author` = user | agent | system; a person's row is `queued` until
     /// the device consumed it.
     /// `authorSessionId` (EXP-1323) = the session that posted it (a child
-    /// asking its parent).
-    case message(id: String, author: String, authorId: String?, body: String, queued: Bool, authorSessionId: String?)
+    /// asking its parent); S-3 `xref` = its `message` link when ANOTHER
+    /// (synced) session posted it.
+    case message(id: String, author: String, authorId: String?, body: String, queued: Bool, authorSessionId: String?, xref: SessionXref? = nil)
     /// `id` = the root's id for its own card, else the card message's id.
     case session(id: String, card: SessionCard)
-    /// EXP-1323: a child's end report — `text` = `Report from <name>`.
-    case report(id: String, sessionId: String, text: String, summary: String)
+    /// EXP-1323: a child's end report — `text` = `Report from <name>`;
+    /// S-3: it renders AS its `xref` header line.
+    case report(id: String, sessionId: String, text: String, summary: String, xref: SessionXref)
     /// EXP-1323: ONE suggested-tasks card; `sessionId` = the posting session
     /// (Do it here messages it).
     case suggestions(id: String, sessionId: String, header: String, startAll: Bool, items: [SuggestionRow])
@@ -814,9 +846,9 @@ public enum ThreadRow: Equatable, Sendable {
         switch self {
         case let .question(row): row.id
         case let .plan(row): row.id
-        case let .message(id, _, _, _, _, _),
+        case let .message(id, _, _, _, _, _, _),
              let .session(id, _),
-             let .report(id, _, _, _),
+             let .report(id, _, _, _, _),
              let .suggestions(id, _, _, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
@@ -1005,6 +1037,10 @@ public struct SessionThreadView: Equatable, Sendable {
     /// session's raw work as the main thing: its id, and no Conversation
     /// tab. Nil once a second session exists.
     public let mainSessionId: String?
+    /// S-3: who started the viewed session (the focus, else the root): its
+    /// parent, else the agent conversation that started the root;
+    /// `reported` once the viewed session ended. Nil = a person started it.
+    public let origin: SessionXref?
 
     public init(
         rootId: String,
@@ -1018,10 +1054,12 @@ public struct SessionThreadView: Equatable, Sendable {
         liveSessionId: String? = nil,
         busy: Bool,
         needsYou: Bool,
-        mainSessionId: String? = nil
+        mainSessionId: String? = nil,
+        origin: SessionXref? = nil
     ) {
         self.liveSessionId = liveSessionId
         self.mainSessionId = mainSessionId
+        self.origin = origin
         self.rootId = rootId
         self.title = title
         self.isPrivate = isPrivate
@@ -1276,6 +1314,14 @@ public enum SessionTree {
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused": "Merge of PR {pr} refused",
         ]
+        /// S-3: the lead of a `SessionXref` header, per kind.
+        public static let xref: [String: String] = [
+            "message": "Message from",
+            "report": "Report from",
+            "started": "Started by",
+            "reported": "Reported to",
+        ]
+        public static let xrefTestId = "thread-xref"
         public static let tabsTestId = "thread-tabs"
         /// EXP-1334: a zone's "+N" chip reads out as web's
         /// `THREAD_STRIP_MORE_COPY` (`2 more issues`, `1 more session`).
@@ -1501,6 +1547,20 @@ public enum SessionTree {
         for session in sessions { byId[session.id] = session }
         byId[root.id] = root
         let titles = SessionTitle.titles(Array(byId.values), sessionIssues: sessionIssues, issues: issues, messages: messages)
+        // S-3: a link to another session = its name + its agent's mark; an
+        // unsynced session (the viewer may not see it) never links.
+        func agentOf(_ session: TreeSession) -> String? {
+            let top = byId[session.rootId] ?? session
+            return session.agentId ?? top.agentId ?? top.startedByAgentId
+        }
+        func xref(_ kind: SessionXref.Kind, _ id: String?) -> SessionXref? {
+            guard let id, !id.isEmpty, let target = byId[id] else { return nil }
+            return SessionXref(
+                kind: kind, sessionId: target.id,
+                name: sessionCard(target, title: titles[target.id] ?? "", now: now).name,
+                agentId: agentOf(target)
+            )
+        }
         let linked = treeIssues(tree, sessionIssues: sessionIssues, issues: issues)
         var issueMap: [String: TreeIssue] = [:]
         for issue in issues { issueMap[issue.id] = issue }
@@ -1591,7 +1651,8 @@ public enum SessionTree {
                     authorId: message.authorId,
                     body: message.body,
                     queued: author == "user" && message.consumedAt == nil,
-                    authorSessionId: message.authorSessionId
+                    authorSessionId: message.authorSessionId,
+                    xref: message.authorSessionId.flatMap { $0.isEmpty || $0 == root.id ? nil : xref(.message, $0) }
                 ))
                 continue
             }
@@ -1616,7 +1677,8 @@ public enum SessionTree {
                     caption: card.caption
                 ))
             case "report":
-                guard let targetId = card.sessionId, let target = byId[targetId] else { break }
+                guard let targetId = card.sessionId, let target = byId[targetId],
+                      let link = xref(.report, target.id) else { break }
                 rows.append(.report(
                     id: message.id,
                     sessionId: target.id,
@@ -1624,7 +1686,8 @@ public enum SessionTree {
                         of: "{session}",
                         with: sessionCard(target, title: titles[target.id] ?? "", now: now).name
                     ),
-                    summary: card.summary ?? message.body
+                    summary: card.summary ?? message.body,
+                    xref: link
                 ))
             case "suggestions":
                 if let row = suggestionsRow(message, card: card, byId: byId, titles: titles, issues: issueMap, now: now) {
@@ -1676,6 +1739,14 @@ public enum SessionTree {
         // Conversation tab opens its raw work, `mainSessionId`); NEW-46: the
         // tab itself is always in the strip.
         let single = tree.allSatisfy { $0.id == root.id }
+        let viewed = focused ?? root
+        let starter: String? = viewed.parentId ?? {
+            guard viewed.id == root.id, let agent = root.startedByAgentId, !agent.isEmpty else { return nil }
+            return (sessions + [root]).first {
+                $0.agentId == agent && $0.id == $0.rootId && $0.userId == root.userId
+            }?.id
+        }()
+        let origin = xref(viewed.status == "ended" ? .reported : .started, starter)
         return SessionThreadView(
             rootId: root.id,
             title: title,
@@ -1688,7 +1759,8 @@ public enum SessionTree {
             liveSessionId: root.status == "ended" ? nil : root.id,
             busy: live.contains { $0.busy },
             needsYou: live.contains { $0.needsInput },
-            mainSessionId: single ? root.id : nil
+            mainSessionId: single ? root.id : nil,
+            origin: origin
         )
     }
 

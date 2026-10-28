@@ -93,6 +93,26 @@ struct ThreadRows: Sendable {
         return copy
     }
 
+    /// S-3: a link's agent mark (its icon in its colour); nil = no agent,
+    /// the session glyph.
+    func xrefMark(_ xref: SessionXref) -> SessionXrefHeader.AgentMark? {
+        guard let agentId = xref.agentId else { return nil }
+        let agent = xrefAgents.first { $0.id == agentId } ?? (agent?.id == agentId ? agent : nil)
+        return SessionXrefHeader.AgentMark(
+            icon: BoardTypeDisplay.iconName(for: agent?.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+            color: Color(hex: agent?.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
+        )
+    }
+
+    /// S-3: a link's tap PUSHES its session (Back returns): a root opens
+    /// as its thread, a child as its raw work.
+    func xrefRoute(_ xref: SessionXref, accountId: String) -> AppRoute {
+        if let target = session(id: xref.sessionId), target.parentId == nil {
+            return .thread(accountId: accountId, threadId: target.id)
+        }
+        return .agentSession(accountId: accountId, sessionId: xref.sessionId)
+    }
+
     func session(id: String) -> SessionEntity? {
         sessionsById[id] ?? sessions.first { $0.id == id }
     }
@@ -157,7 +177,7 @@ struct ThreadRows: Sendable {
     }
 
     /// The thread view (fixture `session-thread.json`).
-    func view(now: Date) -> SessionThreadView {
+    func view(now: Date, focus: String? = nil) -> SessionThreadView {
         SessionTree.buildSessionThread(
             root: TreeSession(sessionRow: root),
             sessions: sessions.map { TreeSession(sessionRow: $0) },
@@ -167,7 +187,8 @@ struct ThreadRows: Sendable {
             } + ancestorIssues,
             messages: messages.map { TreeMessage(messageRow: $0) },
             pullRequests: pullRequests.map { TreePullRequest(pullRequestRow: $0) },
-            now: now
+            now: now,
+            focus: focus
         )
     }
 
@@ -219,6 +240,9 @@ struct ThreadRows: Sendable {
     /// another thread, so `pullRequestIssueIds`/`issues` miss it).
     var stackIssueIds: [String: [String]] = [:]
     var stackIssues: [IssueEntity] = []
+    /// S-3: the agents an inter-session link names (`SessionXref.agentId`),
+    /// for their marks.
+    var xrefAgents: [AgentDefinitionEntity] = []
 
     /// The PR the Guide counts and merges (`SessionTree.guidePullRequest`,
     /// fixture-locked ×4): the newest open one, else the newest merged, else
@@ -285,12 +309,30 @@ struct ThreadRows: Sendable {
         if !origins.isEmpty {
             messages += try SessionQueries.messages(db: db, ids: origins.sorted())
         }
-        let known = Set(sessions.map(\.id))
+        // S-3: the sessions a row links to (cards, other sessions' turns)
+        // and the roots of the foreign ones (their agent's mark).
         let named = Set(messages.compactMap { TreeMessageCard.parse($0.card)?.sessionId })
-            .subtracting(known)
+            .union(messages.compactMap(\.authorSessionId).filter { !$0.isEmpty })
+            .subtracting(sessions.map(\.id))
         if !named.isEmpty {
             sessions += try SessionEntity.filter(Array(named).contains(Column("id"))).fetchAll(db)
         }
+        let foreignRoots = Set(sessions.map(\.rootId).filter { !$0.isEmpty }).subtracting(sessions.map(\.id))
+        if !foreignRoots.isEmpty {
+            sessions += try SessionEntity.filter(Array(foreignRoots).contains(Column("id"))).fetchAll(db)
+        }
+        // S-3: the root's `origin` = the agent conversation that started it.
+        if let agentId = root.startedByAgentId, !agentId.isEmpty,
+           let conversation = try SessionEntity
+               .filter(Column("agent_id") == agentId && Column("user_id") == root.userId && Column("id") == Column("root_id"))
+               .fetchOne(db),
+           !sessions.contains(where: { $0.id == conversation.id }) {
+            sessions.append(conversation)
+        }
+        let xrefAgentIds = Set(sessions.flatMap { [$0.agentId, $0.startedByAgentId] }.compactMap { $0 }.filter { !$0.isEmpty })
+        let xrefAgents = xrefAgentIds.isEmpty
+            ? []
+            : try AgentDefinitionEntity.filter(Array(xrefAgentIds).contains(Column("id"))).fetchAll(db)
         let authorIds = Set(messages.compactMap(\.authorId))
         let users = authorIds.isEmpty
             ? []
@@ -336,7 +378,8 @@ struct ThreadRows: Sendable {
             agent: try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) },
             app: try root.appId.flatMap { try AppEntity.fetchOne(db, key: $0) },
             stackIssueIds: stackIssueIds,
-            stackIssues: stackIssues
+            stackIssues: stackIssues,
+            xrefAgents: xrefAgents
         ).indexed()
     }
 
@@ -358,8 +401,12 @@ struct ThreadRows: Sendable {
             SELECT json_extract("card", '$.sessionId') FROM "messages"
             WHERE "root_id" = ?1 AND "card" IS NOT NULL AND json_valid("card")
             """
+        // S-3: the sessions other sessions' turns link to.
+        let authors = """
+            SELECT "author_session_id" FROM "messages" WHERE "root_id" = ?1 AND "author_session_id" IS NOT NULL
+            """
         var parts: [String] = [
-            try digest(db, table: "sessions", where: "\"root_id\" = ?1 OR \"id\" = ?1 OR \"id\" IN (\(named))", id),
+            try digest(db, table: "sessions", where: "\"root_id\" = ?1 OR \"id\" = ?1 OR \"id\" IN (\(named)) OR \"id\" IN (\(authors))", id),
             try String.fetchOne(db, sql: """
                 SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || ifnull(max("m"."created_at"), '')
                     || ':' || ifnull(sum(length("m"."body")), 0) || ':' || ifnull(sum(length("m"."card")), 0)
@@ -375,6 +422,11 @@ struct ThreadRows: Sendable {
             try stamp(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
             try digest(db, table: "devices", where: "\"device_id\" = ?1", root.deviceId),
         ]
+        if let agentId = root.startedByAgentId, !agentId.isEmpty {
+            parts.append(try stamp(db, table: "sessions", where: "\"agent_id\" = ?1 AND \"id\" = \"root_id\"", agentId))
+        }
+        // S-3: the team's agents (the marks of the links).
+        parts.append(try stamp(db, table: "agents", where: "\"team_id\" = ?1", root.teamId))
         if let agentId = root.agentId { parts.append(try stamp(db, table: "agents", where: "\"id\" = ?1", agentId)) }
         if let appId = root.appId { parts.append(try stamp(db, table: "apps", where: "\"id\" = ?1", appId)) }
         if try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \"pull_requests\" WHERE \"root_session_id\" = ?)", arguments: [id]) == true {
