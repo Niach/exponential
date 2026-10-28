@@ -233,7 +233,8 @@ final class ChatsTests: XCTestCase {
                 [
                     "agentId": bubble.agent.agentId, "teamId": bubble.agent.teamId, "name": bubble.agent.name,
                     "icon": bubble.agent.icon, "color": bubble.agent.color, "busy": bubble.agent.busy,
-                    "needsYou": bubble.agent.needsYou, "ring": json(bubble.ring?.rawValue),
+                    "needsYou": bubble.agent.needsYou, "assistant": bubble.agent.assistant,
+                    "ring": json(bubble.ring?.rawValue),
                 ]
             }
             assertJSON(rendered, testCase["expected"], name)

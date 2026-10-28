@@ -510,6 +510,24 @@ public enum Chats {
         public let busy: Bool
 
         public var id: String { agentId }
+
+        public init(
+            agentId: String, sessionId: String?, name: String, icon: String, color: String, assistant: Bool,
+            preview: ChatPreview, time: String, activityAt: String?, unreadCount: Int, needsYou: Bool, busy: Bool
+        ) {
+            self.agentId = agentId
+            self.sessionId = sessionId
+            self.name = name
+            self.icon = icon
+            self.color = color
+            self.assistant = assistant
+            self.preview = preview
+            self.time = time
+            self.activityAt = activityAt
+            self.unreadCount = unreadCount
+            self.needsYou = needsYou
+            self.busy = busy
+        }
     }
 
     public enum ThreadMenuEntry: String, Equatable, Sendable, CaseIterable {
