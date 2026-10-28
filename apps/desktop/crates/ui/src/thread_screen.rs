@@ -3760,7 +3760,11 @@ impl Render for ThreadScreenView {
         // NEW-6 (N-1): a thread with ONE session = that session's raw work
         // in place of the Conversation (its composer, Stop in the header).
         let on_conversation = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
-        let main = on_conversation.then(|| model.view.main_session_id.clone()).flatten();
+        // S-3 (chats.json CHAT MODE): an agent conversation always paints
+        // its bubbles, never the root's raw work in place.
+        let bubbles = domain::session_tree::thread_chat_mode(model.root.agent_id.as_deref())
+            == domain::session_tree::ThreadChatMode::Bubbles;
+        let main = (on_conversation && !bubbles).then(|| model.view.main_session_id.clone()).flatten();
         self.sync_main(main.as_deref(), window, cx);
         let header = self.render_header(&model, window, cx);
         // EXP-1323: the live tail's viewer rides the Conversation only.

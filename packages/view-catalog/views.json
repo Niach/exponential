@@ -1582,7 +1582,7 @@
       "web": {
         "route": "/t/$teamSlug/settings/assistant",
         "anchor": {
-          "testId": "assistant-check-in",
+          "text": "Speak replies",
           "timeoutMs": 20000
         },
         "settleMs": 800

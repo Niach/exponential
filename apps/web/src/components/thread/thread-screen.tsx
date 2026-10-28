@@ -236,7 +236,10 @@ export function ThreadScreen({
   useMarkRead(root.id, useNewestAgentMessageAt(treeIds))
   // NEW-6 (N-1) / NEW-46: on a single-session thread the Conversation tab
   // IS the root's raw work in place (the default body).
-  const mainSession = view.mainSessionId ? (rowsById.get(view.mainSessionId) ?? null) : null
+  // S-3 (chats.json CHAT MODE): an agent conversation always paints its
+  // bubbles, never the root's raw work in place.
+  const mainSession =
+    view.mainSessionId && threadChatMode(root) !== `bubbles` ? (rowsById.get(view.mainSessionId) ?? null) : null
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
