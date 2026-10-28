@@ -19,8 +19,10 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_filter_label, chat_selection_count, ChatSelectionAction, AgentBubble, AgentRing, ChatCounts, ChatFilter, ChatLead, ChatPreviewKind, ChatRow, CHATS};
 use domain::session_tree::ThreadRowWord;
+use domain::stories::{bubble_rings, BubbleRings, StoryRing};
 
 use crate::icons::registry;
+use crate::story_ring::{story_ring, story_ring_button, RingArc};
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
 use crate::surface::{glass_pill, PillMode, PillSize};
 
@@ -433,9 +435,11 @@ pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Opti
 
 /// One agent bubble: the 66 circle (a 3px ring around a 3px background gap
 /// around the agent's icon on bg muted; the working mark while busy; S-3:
-/// the brand mark for the viewer's Assistant) with the name under it. The
-/// caller hangs the click and the agent menu.
-pub(crate) fn agent_bubble(bubble: &AgentBubble, cx: &App) -> Div {
+/// the brand mark for the viewer's Assistant) with the name under it. S-3
+/// (stories.json STORY RING): a bubble with a `story` ring wears THE story
+/// ring instead (same 66, the 54 muted disc), its name medium while the ring
+/// is unseen. The caller hangs the click and the agent menu.
+pub(crate) fn agent_bubble(bubble: &AgentBubble, story: Option<&StoryRing>, cx: &App) -> Div {
     let theme = cx.theme();
     let shell = &CHATS.shell;
     let ring = match bubble.ring {
@@ -445,20 +449,37 @@ pub(crate) fn agent_bubble(bubble: &AgentBubble, cx: &App) -> Div {
     };
     let agent = &bubble.agent;
     let glyph = agent_avatar_glyph(&agent.icon, &agent.color, agent.assistant, agent.busy, GLYPH_PX, cx);
+    let circle = match story {
+        Some(story) => {
+            let arcs: Vec<RingArc> = story.stories.iter().map(RingArc::from).collect();
+            let disc = div()
+                .size_full()
+                .rounded_full()
+                .bg(theme.muted)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(glyph)
+                .into_any_element();
+            story_ring(&arcs, shell.bubble, disc, cx)
+        }
+        None => agent_circle(shell.bubble, shell.bubble_ring, shell.bubble_ring, ring, glyph, cx),
+    };
+    let strong = bubble.ring.is_some() || story.is_some_and(|story| story.unseen);
     v_flex()
         .w(px(shell.bubble + 6.))
         .flex_shrink_0()
         .items_center()
         .gap_1p5()
-        .child(agent_circle(shell.bubble, shell.bubble_ring, shell.bubble_ring, ring, glyph, cx))
+        .child(circle)
         .child(
             div()
                 .w_full()
                 .truncate()
                 .text_center()
                 .text_xs()
-                .when(bubble.ring.is_some(), |this| this.font_weight(FontWeight::MEDIUM))
-                .text_color(if bubble.ring.is_some() { theme.foreground } else { theme.muted_foreground })
+                .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
+                .text_color(if strong { theme.foreground } else { theme.muted_foreground })
                 .child(SharedString::from(agent.name.clone())),
         )
 }
@@ -612,14 +633,22 @@ pub(crate) fn composer_agent_row(
 }
 
 /// The Chats header's agents row: the bubbles in `list_agents` order,
-/// scrolling sideways. `wrap` hangs each bubble's click + menu (its index
-/// and agent id) — the styleguide passes none.
+/// scrolling sideways. S-3: each bubble wears its agent's story ring, the
+/// rings no bubble wears follow in the same row (`bubble_rings`, painted by
+/// `ring_avatar`). `wrap` hangs each bubble's click + menu (its index, agent
+/// and worn ring), `wrap_ring` each trailing ring's (its index and key) —
+/// the styleguide passes none.
 pub(crate) fn agent_bubbles_row(
     bubbles: &[AgentBubble],
-    wrap: impl Fn(usize, &AgentBubble, Div) -> AnyElement,
+    rings: &[StoryRing],
+    ring_avatar: impl Fn(&StoryRing) -> AnyElement,
+    wrap: impl Fn(usize, &AgentBubble, Option<&StoryRing>, Div) -> AnyElement,
+    wrap_ring: impl Fn(usize, &StoryRing, Div) -> AnyElement,
     cx: &App,
 ) -> Option<AnyElement> {
-    if bubbles.is_empty() {
+    let ids: Vec<&str> = bubbles.iter().map(|bubble| bubble.agent.agent_id.as_str()).collect();
+    let BubbleRings { by_agent, rest } = bubble_rings(&ids, rings);
+    if bubbles.is_empty() && rest.is_empty() {
         return None;
     }
     Some(
@@ -629,7 +658,15 @@ pub(crate) fn agent_bubbles_row(
             .gap_3()
             .pb_1()
             .overflow_x_scroll()
-            .children(bubbles.iter().enumerate().map(|(index, bubble)| wrap(index, bubble, agent_bubble(bubble, cx))))
+            .children(bubbles.iter().enumerate().map(|(index, bubble)| {
+                let story = by_agent.get(&bubble.agent.agent_id);
+                wrap(index, bubble, story, agent_bubble(bubble, story, cx))
+            }))
+            .children(
+                rest.iter()
+                    .enumerate()
+                    .map(|(index, ring)| wrap_ring(index, ring, story_ring_button(ring, ring_avatar(ring), cx))),
+            )
             .into_any_element(),
     )
 }

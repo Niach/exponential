@@ -8,7 +8,7 @@ import {
   type StoryRing,
 } from "@exp/domain-contract/stories"
 import { StoryAvatar, type StoryAnswer, type StoryDecision } from "@exp/ui"
-import { useAnswerMessage } from "@/components/thread/agent-channel"
+import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { agentCollection, messageCollection, sessionReadsCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"

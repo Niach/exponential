@@ -30,6 +30,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_selection_range, AgentBubble, ChatFilter, ChatListView, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
+use domain::stories::{StoryRing, STORIES};
 use domain::session_tree::{
     thread_in_stack, thread_row_mark_state, thread_row_word, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
     THREADS_LIST,
@@ -514,23 +515,47 @@ fn chats_page_row(
 }
 
 /// #EXP-1380: a bubble's click opens the agent's chat, its right-click the
-/// agent menu.
-fn chats_page_bubble(index: usize, bubble: &AgentBubble, element: gpui::Div) -> gpui::AnyElement {
-    use crate::controls::PointerContextMenuExt as _;
-    use gpui::StatefulInteractiveElement as _;
-    let open_id = bubble.agent.agent_id.clone();
-    let menu_id = bubble.agent.agent_id.clone();
-    gpui::div()
-        .id((SharedString::from(CHATS.test_ids.agent_bubble.clone()), index))
-        .cursor_pointer()
-        .child(element)
-        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-            crate::navigation::navigate(window, cx, Screen::Agent { agent_id: open_id.clone() });
-        })
-        .pointer_context_menu(move |menu, _, cx| {
-            crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
-        })
-        .into_any_element()
+/// agent menu. S-3 (stories.json STORY RING): a bubble wearing its agent's
+/// ring opens THE story viewer at that ring instead.
+fn chats_page_bubble(team_id: Option<String>) -> impl Fn(usize, &AgentBubble, Option<&StoryRing>, gpui::Div) -> gpui::AnyElement {
+    move |index, bubble, story, element| {
+        use crate::controls::PointerContextMenuExt as _;
+        use gpui::StatefulInteractiveElement as _;
+        let open_id = bubble.agent.agent_id.clone();
+        let menu_id = bubble.agent.agent_id.clone();
+        let open_story = story.map(|ring| ring.key.clone()).zip(team_id.clone());
+        gpui::div()
+            .id((SharedString::from(CHATS.test_ids.agent_bubble.clone()), index))
+            .cursor_pointer()
+            .child(element)
+            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| match &open_story {
+                Some((key, team)) => crate::story_viewer::open(team, key, window, cx),
+                None => crate::navigation::navigate(window, cx, Screen::Agent { agent_id: open_id.clone() }),
+            })
+            .pointer_context_menu(move |menu, _, cx| {
+                crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
+            })
+            .into_any_element()
+    }
+}
+
+/// S-3: a ring no bubble wears (a chat's, an agent's without a bubble),
+/// after the bubbles; a click opens THE story viewer at it.
+fn chats_page_ring(team_id: Option<String>) -> impl Fn(usize, &StoryRing, gpui::Div) -> gpui::AnyElement {
+    move |index, ring, element| {
+        use gpui::StatefulInteractiveElement as _;
+        let open_story = team_id.clone().map(|team| (team, ring.key.clone()));
+        gpui::div()
+            .id((SharedString::from(STORIES.test_ids.ring.clone()), index))
+            .cursor_pointer()
+            .child(element)
+            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                if let Some((team, key)) = &open_story {
+                    crate::story_viewer::open(team, key, window, cx);
+                }
+            })
+            .into_any_element()
+    }
 }
 
 impl Render for ThreadsView {
@@ -586,8 +611,12 @@ impl Render for ThreadsView {
                 .ok();
             })
         };
-        let stories_row = active_team_id(&self.nav, cx)
-            .and_then(|team_id| crate::story_ring::stories_row(&team_id, cx));
+        // S-3 (stories.json STORY RING): the rings ride the bubbles row.
+        let team_id = active_team_id(&self.nav, cx);
+        let rings = match &team_id {
+            Some(team_id) => crate::story_ring::team_stories(team_id, cx),
+            None => std::rc::Rc::new(Vec::new()),
+        };
         let story_viewer = crate::story_viewer::overlay(_window, cx);
         let column = if !ready {
             // Skeletons, never "Loading…" (feedback-states.json).
@@ -688,10 +717,15 @@ impl Render for ThreadsView {
                 .min_w_0()
                 .gap_4()
                 .children(back)
-                // S-3: THE StoryRingRow, above the agent bubbles.
-                .when(view_kind == ChatListView::List, |this| this.children(stories_row))
                 .when(view_kind == ChatListView::List, |this| {
-                    this.children(crate::chat_list::agent_bubbles_row(&model.bubbles, chats_page_bubble, cx))
+                    this.children(crate::chat_list::agent_bubbles_row(
+                        &model.bubbles,
+                        &rings,
+                        |ring| crate::story_ring::store_ring_avatar(ring, crate::story_ring::RING_GLYPH_PX, cx),
+                        chats_page_bubble(team_id.clone()),
+                        chats_page_ring(team_id.clone()),
+                        cx,
+                    ))
                 })
                 .child(crate::chat_list::chat_filter_chips(
                     match view_kind {

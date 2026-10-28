@@ -302,4 +302,22 @@ object Stories {
             compareBy<StoryRing>({ rank(it) }, { -newest(it) }, { it.key }),
         )
     }
+
+    /** The chats header row (chats.json BUBBLES + STORY RING): each agent
+     *  bubble wears its agent's ring ([BubbleRings.byAgent], first wins);
+     *  [BubbleRings.rest] = the rings no bubble wears (the root rings, an
+     *  agent ring with no bubble), in ring order, painted after the bubbles
+     *  in the same row. */
+    data class BubbleRings(val byAgent: Map<String, StoryRing>, val rest: List<StoryRing>)
+
+    fun bubbleRings(bubbleAgentIds: List<String>, rings: List<StoryRing>): BubbleRings {
+        val ids = bubbleAgentIds.toSet()
+        val byAgent = LinkedHashMap<String, StoryRing>()
+        val rest = mutableListOf<StoryRing>()
+        for (ring in rings) {
+            val agentId = ring.agentId
+            if (agentId != null && agentId in ids && agentId !in byAgent) byAgent[agentId] = ring else rest += ring
+        }
+        return BubbleRings(byAgent, rest)
+    }
 }

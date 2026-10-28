@@ -193,6 +193,10 @@ fun ChatListSpecimenScreen() {
                     ),
                     filter = filter,
                     bubbles = BUBBLES,
+                    // S-3 (stories.json specimen): Triage + Designer wear
+                    // their rings, the two chat rings follow.
+                    rings = STORY_RING_SPECIMEN,
+                    ringAvatar = ::storySpecimenAvatar,
                     // S-3: the pinned Agents section, filtered by the chip like a chat.
                     agentRows = ChatListSpecimen.AGENT_ROWS.filter {
                         when (filter) {

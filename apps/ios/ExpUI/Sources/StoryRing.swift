@@ -56,6 +56,40 @@ public struct StoryRing<Avatar: View>: View {
     }
 }
 
+/// One ring as a button (the bubbles' metrics): the ring around its avatar,
+/// the title under it, waiting / unseen titles in full white; a tap hands
+/// the ring's key up. The Chats header's trailing rings (stories.json STORY
+/// RING: the root rings and an agent ring with no bubble).
+public struct StoryRingButton<Avatar: View>: View {
+    let ring: Stories.StoryRing
+    let onOpen: (String) -> Void
+    let avatar: Avatar
+
+    public init(ring: Stories.StoryRing, onOpen: @escaping (String) -> Void, @ViewBuilder avatar: () -> Avatar) {
+        self.ring = ring
+        self.onOpen = onOpen
+        self.avatar = avatar()
+    }
+
+    public var body: some View {
+        let size = ChatListMetrics.bubble
+        Button { onOpen(ring.key) } label: {
+            VStack(spacing: 6) {
+                StoryRing(stories: ring.stories, size: size) { avatar }
+                Text(ring.title)
+                    .font(.subheadline.weight(ring.unseen ? .medium : .regular))
+                    .foregroundStyle(.white.opacity(ring.unseen ? 1 : TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: size + 12)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(ring.title)
+    }
+}
+
 /// One story's arc of the ring.
 struct StoryArc: Shape {
     let index: Int

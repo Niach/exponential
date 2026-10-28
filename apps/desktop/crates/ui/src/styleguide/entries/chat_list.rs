@@ -7,7 +7,8 @@
 //! `agentRowCases[0]`): the
 //! large title with the search and inbox circles (the sky dot), the agent
 //! bubbles (66px, a 3px ring around a background gap: amber = needs you,
-//! white = unread, a hairline = read), the filter chips (select Pills, a
+//! white = unread, a hairline = read; S-3: Triage + Designer wear the
+//! `story-ring` specimen's rings, its two chat rings follow), the filter chips (select Pills, a
 //! count after a non-zero one), then the pinned agent rows under the
 //! `Agents` header (the avatar disc: the brand mark for the Assistant) and
 //! the `Chats` header over the flat rows: the 52px lead disc, the
@@ -22,6 +23,9 @@ use domain::chats::{AgentBubble, AgentChatRow, ChatFilter, ChatList, CHATS};
 
 use crate::chat_list::{agent_bubbles_row, agent_chat_row, chat_filter_chips, chat_lead_disc, chat_row, chat_section_header};
 use crate::icons::registry;
+use crate::story_ring::RING_GLYPH_PX;
+
+use super::story_ring::{specimen_avatar, specimen_rings};
 
 pub(crate) const ID: &str = "chat-list";
 pub(crate) const OWNER: &str = "EXP-1373";
@@ -106,7 +110,16 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .rounded_xl()
         .bg(cx.theme().background)
         .child(header(cx))
-        .children(agent_bubbles_row(&bubbles, |_, _, bubble| bubble.into_any_element(), cx))
+        // S-3 (stories.json specimen): Triage + Designer wear their rings,
+        // the two chat rings follow.
+        .children(agent_bubbles_row(
+            &bubbles,
+            &specimen_rings(),
+            |ring| specimen_avatar(ring, RING_GLYPH_PX, cx),
+            |_, _, _, bubble| bubble.into_any_element(),
+            |_, _, ring| ring.into_any_element(),
+            cx,
+        ))
         .child(chat_filter_chips(&list.counts, ChatFilter::All, None, cx))
         .child(
             v_flex()
@@ -137,5 +150,19 @@ mod tests {
         assert!(bubbles[1..].iter().all(|bubble| !bubble.agent.assistant));
         assert!(!agent_rows.is_empty());
         assert!(agent_rows[0].assistant, "the Assistant leads the pinned agent rows");
+    }
+
+    /// S-3: the story-ring specimen's Triage + Designer rings ride their
+    /// bubbles, the two chat rings follow.
+    #[test]
+    fn the_bubbles_wear_the_specimen_rings() {
+        let (_, bubbles, _) = model();
+        let ids: Vec<&str> = bubbles.iter().map(|bubble| bubble.agent.agent_id.as_str()).collect();
+        let split = domain::stories::bubble_rings(&ids, &specimen_rings());
+        let mut worn: Vec<&str> = split.by_agent.keys().map(String::as_str).collect();
+        worn.sort();
+        assert_eq!(worn, ["ag1", "ag2"]);
+        let rest: Vec<&str> = split.rest.iter().map(|ring| ring.title.as_str()).collect();
+        assert_eq!(rest, ["Board header polish", "Ship the launch checklist"]);
     }
 }

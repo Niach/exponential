@@ -138,10 +138,20 @@ struct ChatListSpecimens: View {
                 AppBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        AgentBubbles(items: Self.bubbles, onTap: { _ in }, onHold: { _ in })
-                            .padding(.horizontal, -16)
-                            .padding(.top, 4)
-                            .padding(.bottom, 14)
+                        // S-3 (stories.json specimen): Triage + Designer wear
+                        // their rings, the two chat rings follow.
+                        AgentBubbles(
+                            items: Self.bubbles,
+                            rings: StorySpecimensScreen.rings,
+                            onTap: { _ in },
+                            onHold: { _ in },
+                            onOpenStory: { _ in }
+                        ) { ring in
+                            StoryRingAvatarView(avatar: StorySpecimensScreen.avatar(ring))
+                        }
+                        .padding(.horizontal, -16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 14)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(Chats.filters, id: \.self) { option in
@@ -592,13 +602,13 @@ struct StorySpecimensScreen: View {
 
     private static let sessions: [Stories.SessionInput] = [
         Stories.SessionInput(
-            id: "triage", rootId: "triage", name: "Triage", agentId: "a-triage", startedByAgentId: nil
+            id: "triage", rootId: "triage", name: "Triage", agentId: "ag1", startedByAgentId: nil
         ),
         Stories.SessionInput(
             id: "board", rootId: "board", name: "Board header polish", agentId: nil, startedByAgentId: nil
         ),
         Stories.SessionInput(
-            id: "designer", rootId: "designer", name: "Designer", agentId: "a-designer", startedByAgentId: nil
+            id: "designer", rootId: "designer", name: "Designer", agentId: "ag2", startedByAgentId: nil
         ),
         Stories.SessionInput(
             id: "ship", rootId: "ship", name: "Ship the launch checklist", agentId: nil, startedByAgentId: nil
@@ -609,8 +619,8 @@ struct StorySpecimensScreen: View {
     private static let clis: [String: String] = ["board": "claude", "ship": "claude"]
 
     private static let agents: [(Stories.AgentInput, StoryRingAvatar)] = [
-        (Stories.AgentInput(id: "a-triage", name: "Triage", assistant: false), .agent(icon: "bug", color: "#a855f7")),
-        (Stories.AgentInput(id: "a-designer", name: "Designer", assistant: false), .agent(icon: "palette", color: "#ec4899")),
+        (Stories.AgentInput(id: "ag1", name: "Triage", assistant: false), .agent(icon: "bug", color: "#a855f7")),
+        (Stories.AgentInput(id: "ag2", name: "Designer", assistant: false), .agent(icon: "bot", color: "#6366f1")),
     ]
 
     private static let messages: [Stories.MessageInput] = [

@@ -40,7 +40,10 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.AgentBubbles
-import com.exponential.app.ui.stories.StoryRingRow
+import com.exponential.app.ui.stories.ChatStoryViewer
+import com.exponential.app.ui.stories.StoryAvatar
+import com.exponential.app.ui.stories.StoriesViewModel
+import com.exponential.app.domain.Stories
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.BottomBarInset
@@ -111,8 +114,13 @@ fun ThreadsScreen(
     /** #EXP-1388: the Archived page's back control. */
     onBack: () -> Unit = {},
     viewModel: ThreadsViewModel = hiltViewModel(),
+    storiesViewModel: StoriesViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(view) { viewModel.setView(view) }
+    // S-3 (stories.json STORY RING): the rings ride the bubbles row; THE
+    // viewer opens over everything at [openedRing].
+    val stories by storiesViewModel.state.collectAsStateWithLifecycle()
+    var openedRing by remember { mutableStateOf<String?>(null) }
     val list by viewModel.chatList.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
@@ -194,16 +202,25 @@ fun ThreadsScreen(
                 onBack = onBack,
                 selected = selected,
                 onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
-                // S-3 STORIES: a header tap opens the story's session (a
-                // child through its own route, the #1309 back stack).
-                storyRow = if (view == Chats.ChatListView.Archived) null else ({
-                    StoryRingRow(onOpenSession = { story ->
-                        if (story.sessionId == story.rootId) onOpenThread(story.rootId) else onOpenSession(story.sessionId)
-                    })
-                }),
+                // S-3 STORIES: a bubble with a ring opens the viewer at it,
+                // else the agent's chat; the other rings follow.
+                rings = stories.rings,
+                ringAvatar = stories::avatar,
+                onOpenStory = { openedRing = it },
                 modifier = Modifier.padding(padding),
             )
         }
+        // A header tap opens the story's session (a child through its own
+        // route, the #1309 back stack).
+        ChatStoryViewer(
+            state = stories,
+            opened = openedRing,
+            onClose = { openedRing = null },
+            onOpenSession = { story ->
+                if (story.sessionId == story.rootId) onOpenThread(story.rootId) else onOpenSession(story.sessionId)
+            },
+            viewModel = storiesViewModel,
+        )
         if (selecting) {
             // THE issue list's slot (this Box sits outside the Scaffold, so it
             // adds the nav-bar inset the issue list's Scaffold applied).
@@ -278,8 +295,11 @@ fun ChatsContent(
     /** #EXP-1388: the selection (empty = not selecting). */
     selected: List<String> = emptyList(),
     onToggleSelect: (rootSessionId: String) -> Unit = {},
-    /** S-3 STORIES: the story ring row over the agent bubbles (null = none). */
-    storyRow: (@Composable () -> Unit)? = null,
+    /** S-3 STORIES: the story rings the bubbles row carries (a bubble
+     *  wears its agent's, the rest follow); a tap opens the viewer. */
+    rings: List<Stories.StoryRing> = emptyList(),
+    ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
+    onOpenStory: (key: String) -> Unit = {},
     /** S-3: the AGENT rows pinned on top (Assistant first); a tap opens the
      *  agent's chat. */
     agentRows: List<Chats.AgentChatRow> = emptyList(),
@@ -309,12 +329,16 @@ fun ChatsContent(
                 PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
             }
         }
-        if (storyRow != null && !archivedPage) {
-            item(key = "__stories__") { storyRow() }
-        }
-        if (bubbles.isNotEmpty() && !archivedPage) {
+        if ((bubbles.isNotEmpty() || rings.isNotEmpty()) && !archivedPage) {
             item(key = "__bubbles__") {
-                AgentBubbles(bubbles = bubbles, onOpen = onOpenAgent, onLongPress = onLongPressAgent)
+                AgentBubbles(
+                    bubbles = bubbles,
+                    onOpen = onOpenAgent,
+                    onLongPress = onLongPressAgent,
+                    rings = rings,
+                    ringAvatar = ringAvatar,
+                    onOpenStory = onOpenStory,
+                )
             }
         }
         item(key = "__filters__") {

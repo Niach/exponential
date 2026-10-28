@@ -2,13 +2,23 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// S-3 STORIES (stories.json): the Chats list's row of story rings — one
-/// per agent and per root chat with stories (`Stories.rings`, the active
-/// team's), the ring's avatar over its title; a tap opens THE viewer full
-/// screen at that ring. Nothing (no row) while there is no ring. Interim:
-/// it sits above the agent bubbles until the bubbles wear their own rings.
-struct StoryRingRow: View {
+/// What the Chats header's bubbles row reads from `ChatStoriesHost`: the
+/// rings (`Stories.rings`, the active team's, ring order), a ring's avatar
+/// and the viewer's opener (a ring key).
+struct ChatStories {
+    let rings: [Stories.StoryRing]
+    let avatar: (Stories.StoryRing) -> StoryRingAvatar
+    let open: (String) -> Void
+}
+
+/// S-3 STORIES (stories.json STORY RING): the Chats list's story rings and
+/// THE viewer they open (full screen at that ring). The rings ride the agent
+/// bubbles row (chats.json BUBBLES, `AgentBubbles rings`): a bubble wears its
+/// agent's ring, the rest follow it; the host paints no row of its own,
+/// `content` draws the bubbles from `ChatStories`.
+struct ChatStoriesHost<Content: View>: View {
     let teamId: String?
+    @ViewBuilder let content: (ChatStories) -> Content
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -25,13 +35,9 @@ struct StoryRingRow: View {
         let rings = model.rings(now: now, teamId: teamId)
         // A VStack, not a Group: its tasks must run while the row is empty.
         VStack(spacing: 0) {
-            if !rings.isEmpty {
-                StoryRingStrip(rings: rings, avatar: model.avatar) { key in
-                    opened = StoryViewerTarget(key: key)
-                }
-                .padding(.top, 4)
-                .padding(.bottom, 10)
-            }
+            content(ChatStories(rings: rings, avatar: model.avatar) { key in
+                opened = StoryViewerTarget(key: key)
+            })
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: accountId) { model.bind(accountId: accountId, db: deps.db) }
@@ -98,32 +104,18 @@ private struct StoryViewerTarget: Identifiable {
     var id: String { key }
 }
 
-/// The rings side by side (the bubbles' metrics): the ring around its
-/// avatar, the title under it, waiting / unseen titles in full white.
+/// The rings side by side (THE ring button, the bubbles' metrics): the
+/// story-ring specimen's row.
 struct StoryRingStrip: View {
     let rings: [Stories.StoryRing]
     let avatar: (Stories.StoryRing) -> StoryRingAvatar
     let onOpen: (String) -> Void
 
     var body: some View {
-        let size = ChatListMetrics.bubble
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: ChatListMetrics.bubbleSpacing) {
                 ForEach(rings) { ring in
-                    Button { onOpen(ring.key) } label: {
-                        VStack(spacing: 6) {
-                            StoryRing(stories: ring.stories, size: size) { StoryRingAvatarView(avatar: avatar(ring)) }
-                            Text(ring.title)
-                                .font(.subheadline.weight(ring.unseen ? .medium : .regular))
-                                .foregroundStyle(.white.opacity(ring.unseen ? 1 : TextOpacity.secondary))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: size + 12)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(ring.title)
+                    StoryRingButton(ring: ring, onOpen: onOpen) { StoryRingAvatarView(avatar: avatar(ring)) }
                 }
             }
             .padding(.horizontal, 16)

@@ -28,14 +28,14 @@ pub(crate) fn specimen_input() -> Value {
     json!({
         "now": 1_800_000_000_000_i64,
         "sessions": [
-            { "id": "triage", "rootId": "triage", "name": "Triage", "agentId": "a-triage", "startedByAgentId": null },
+            { "id": "triage", "rootId": "triage", "name": "Triage", "agentId": "ag1", "startedByAgentId": null },
             { "id": "board", "rootId": "board", "name": "Board header polish", "agentId": null, "startedByAgentId": null, "cli": "claude" },
-            { "id": "designer", "rootId": "designer", "name": "Designer", "agentId": "a-designer", "startedByAgentId": null },
+            { "id": "designer", "rootId": "designer", "name": "Designer", "agentId": "ag2", "startedByAgentId": null },
             { "id": "ship", "rootId": "ship", "name": "Ship the launch checklist", "agentId": null, "startedByAgentId": null, "cli": "claude" }
         ],
         "agents": [
-            { "id": "a-triage", "name": "Triage", "assistant": false, "icon": "bug", "color": "#a855f7" },
-            { "id": "a-designer", "name": "Designer", "assistant": false, "icon": "palette", "color": "#ec4899" }
+            { "id": "ag1", "name": "Triage", "assistant": false, "icon": "bug", "color": "#a855f7" },
+            { "id": "ag2", "name": "Designer", "assistant": false, "icon": "bot", "color": "#6366f1" }
         ],
         "messages": [
             {

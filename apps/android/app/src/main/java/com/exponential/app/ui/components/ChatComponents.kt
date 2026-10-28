@@ -44,9 +44,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.Stories
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.stories.StoryAvatar
+import com.exponential.app.ui.stories.StoryRingButton
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -578,7 +581,10 @@ fun ChatFilterChips(
  * agent's icon in its colour on bg muted inside a 3px background gap) with
  * the name under it; the ring = amber while the viewer's conversation needs
  * them, foreground while it has unread news, else a hairline. A tap opens the
- * agent's chat, a long-press its agent menu. The row scrolls sideways.
+ * agent's chat, a long-press its agent menu. The row scrolls sideways. S-3
+ * (stories.json STORY RING): a bubble whose agent has a story ring wears
+ * THAT ring instead and a tap opens the viewer at it ([onOpenStory]); the
+ * rings no bubble wears follow in the same row ([Stories.bubbleRings]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -587,8 +593,14 @@ fun AgentBubbles(
     onOpen: (SessionTree.AgentRow) -> Unit,
     onLongPress: ((SessionTree.AgentRow) -> Unit)?,
     modifier: Modifier = Modifier,
+    /** The story rings ([Stories.rings], ring order). */
+    rings: List<Stories.StoryRing> = emptyList(),
+    /** A trailing ring's avatar (a root ring's brand mark). */
+    ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
+    onOpenStory: (key: String) -> Unit = {},
 ) {
-    if (bubbles.isEmpty()) return
+    val split = remember(bubbles, rings) { Stories.bubbleRings(bubbles.map { it.agent.agentId }, rings) }
+    if (bubbles.isEmpty() && split.rest.isEmpty()) return
     val haptics = LocalHapticFeedback.current
     Row(
         modifier = modifier
@@ -599,6 +611,7 @@ fun AgentBubbles(
     ) {
         bubbles.forEach { bubble ->
             val agent = bubble.agent
+            val story = split.byAgent[agent.agentId]
             val ring = when (bubble.ring) {
                 Chats.AgentRing.NeedsYou -> NeedsInputAmber
                 Chats.AgentRing.Unread -> MaterialTheme.colorScheme.onSurface
@@ -611,7 +624,7 @@ fun AgentBubbles(
                     .width(Chats.Shell.BUBBLE.dp + 8.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .combinedClickable(
-                        onClick = { onOpen(agent) },
+                        onClick = { if (story != null) onOpenStory(story.key) else onOpen(agent) },
                         onLongClick = onLongPress?.let { long ->
                             {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -621,23 +634,42 @@ fun AgentBubbles(
                     )
                     .testTag(Chats.TestIds.AGENT_BUBBLE),
             ) {
-                AgentBubbleDisc(
-                    icon = agent.icon,
-                    color = agent.color,
-                    assistant = agent.assistant,
-                    size = Chats.Shell.BUBBLE.dp,
-                    ring = ring,
-                    ringWidth = ringWidth,
-                    ringGap = Chats.Shell.BUBBLE_RING.dp,
-                    glyph = 26.dp,
-                    busy = agent.busy,
-                )
+                if (story != null) {
+                    // THE story ring at the bubble size; its inner muted
+                    // disc carries the bubble's avatar / working mark.
+                    StoryRing(stories = story.stories, size = Chats.Shell.BUBBLE.dp) {
+                        AgentBubbleDisc(
+                            icon = agent.icon,
+                            color = agent.color,
+                            assistant = agent.assistant,
+                            size = Chats.Shell.BUBBLE.dp - (Stories.Ring.WIDTH.dp + Chats.Shell.BUBBLE_RING.dp) * 2,
+                            ring = Color.Transparent,
+                            ringWidth = 0.dp,
+                            ringGap = 0.dp,
+                            glyph = 26.dp,
+                            busy = agent.busy,
+                        )
+                    }
+                } else {
+                    AgentBubbleDisc(
+                        icon = agent.icon,
+                        color = agent.color,
+                        assistant = agent.assistant,
+                        size = Chats.Shell.BUBBLE.dp,
+                        ring = ring,
+                        ringWidth = ringWidth,
+                        ringGap = Chats.Shell.BUBBLE_RING.dp,
+                        glyph = 26.dp,
+                        busy = agent.busy,
+                    )
+                }
+                val strong = bubble.ring != null || story?.unseen == true
                 Spacer(Modifier.height(6.dp))
                 Text(
                     agent.name,
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (bubble.ring != null) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (bubble.ring != null) {
+                    fontWeight = if (strong) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (strong) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -647,6 +679,7 @@ fun AgentBubbles(
                 )
             }
         }
+        split.rest.forEach { ring -> StoryRingButton(ring = ring, avatar = ringAvatar(ring), onOpen = onOpenStory) }
     }
 }
 

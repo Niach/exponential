@@ -26,7 +26,7 @@ export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: read
       id: `triage`,
       rootId: `triage`,
       name: `Triage`,
-      agentId: `a-triage`,
+      agentId: `ag1`,
       startedByAgentId: null,
     },
     {
@@ -41,7 +41,7 @@ export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: read
       id: `designer`,
       rootId: `designer`,
       name: `Designer`,
-      agentId: `a-designer`,
+      agentId: `ag2`,
       startedByAgentId: null,
     },
     {
@@ -55,18 +55,18 @@ export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: read
   ],
   agents: [
     {
-      id: `a-triage`,
+      id: `ag1`,
       name: `Triage`,
       assistant: false,
       icon: `bug`,
       color: `#a855f7`,
     },
     {
-      id: `a-designer`,
+      id: `ag2`,
       name: `Designer`,
       assistant: false,
-      icon: `palette`,
-      color: `#ec4899`,
+      icon: `bot`,
+      color: `#6366f1`,
     },
   ],
   messages: [

@@ -1,27 +1,28 @@
 //! S-3 STORIES (`fixtures/stories.json`; web `packages/ui/src/stories.tsx`
 //! `StoryRing` / `StoryRingRow`, iOS ExpUI Stories, Android ui/stories): THE
-//! story ring of the IDE and the Chats page's ring row.
+//! story ring of the IDE and the Chats page's ring buttons.
 //!
 //! - [`story_ring`]: the avatar inside a ring split into one arc per story,
 //!   `ring.gap` degrees apart, `ring.width` px; a waiting story's arc = the
 //!   ask-dock tint (plan = primary, question = yellow), an unseen one = the
 //!   foreground, a seen one = the glass-stroke hairline (1px).
 //! - [`story_ring_button`]: a ring with its title under it (the chats
-//!   bubble's footprint); [`story_ring_row`] the rings side by side.
+//!   bubble's footprint).
 //! - [`team_stories`]: THE fold (`domain::stories::stories`) over the synced
 //!   sessions, agents, show cards and the viewer's read marks, memoised per
-//!   store change; [`stories_row`] the Chats page's `StoryRingRow` (a tap
-//!   opens THE viewer, [`crate::story_viewer`]).
+//!   store change. The rings ride the Chats page's agent bubbles row
+//!   ([`crate::chat_list::agent_bubbles_row`], chats.json BUBBLES); a tap
+//!   opens THE viewer, [`crate::story_viewer`].
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    canvas, div, point, px, AnyElement, App, Div, FontWeight, Hsla, InteractiveElement as _, IntoElement as _,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    canvas, div, point, px, AnyElement, App, Div, FontWeight, Hsla, IntoElement as _, ParentElement as _, SharedString,
+    Styled as _, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
+use gpui_component::{v_flex, ActiveTheme as _, Sizable as _};
 
 use domain::chats::CHATS;
 use domain::stories::{Story, StoryKind, StoryRing, STORIES};
@@ -218,59 +219,6 @@ pub(crate) fn story_ring_button(ring: &StoryRing, avatar: AnyElement, cx: &App) 
                 .text_color(if ring.unseen { theme.foreground } else { theme.muted_foreground })
                 .child(SharedString::from(ring.title.clone())),
         )
-}
-
-/// The rings side by side, scrolling sideways (web `StoryRingRow`); none =
-/// nothing. `wrap` hangs each ring's tap (its index and key).
-pub(crate) fn story_ring_row(
-    rings: &[StoryRing],
-    avatar_for: impl Fn(&StoryRing) -> AnyElement,
-    wrap: impl Fn(usize, &StoryRing, Div) -> AnyElement,
-    cx: &App,
-) -> Option<AnyElement> {
-    if rings.is_empty() {
-        return None;
-    }
-    Some(
-        h_flex()
-            .id("story-ring-row")
-            .w_full()
-            .gap_3()
-            .pb_1()
-            .overflow_x_scroll()
-            .children(
-                rings
-                    .iter()
-                    .enumerate()
-                    .map(|(index, ring)| wrap(index, ring, story_ring_button(ring, avatar_for(ring), cx))),
-            )
-            .into_any_element(),
-    )
-}
-
-/// THE Chats page's `StoryRingRow`: the team's rings, a tap opening THE
-/// viewer at that ring. S-3: it sits above the agent bubbles until the
-/// bubbles wear their agent's ring (chats.json BUBBLES).
-pub(crate) fn stories_row(team_id: &str, cx: &mut App) -> Option<AnyElement> {
-    let rings = team_stories(team_id, cx);
-    let team = team_id.to_string();
-    story_ring_row(
-        &rings,
-        |ring| store_ring_avatar(ring, RING_GLYPH_PX, cx),
-        |index, ring, element| {
-            let key = ring.key.clone();
-            let team = team.clone();
-            div()
-                .id((SharedString::from(STORIES.test_ids.ring.clone()), index))
-                .cursor_pointer()
-                .child(element)
-                .on_click(move |_, window, cx| {
-                    crate::story_viewer::open(&team, &key, window, cx);
-                })
-                .into_any_element()
-        },
-        cx,
-    )
 }
 
 // ---------------------------------------------------------------------------

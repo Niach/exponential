@@ -236,3 +236,21 @@ export function stories(input: StoriesInput): StoryRing[] {
     (a, b) => rank(a) - rank(b) || newest(b) - newest(a) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
   )
 }
+
+/** The chats header row (chats.json BUBBLES + STORY RING): each agent
+ *  bubble wears its agent's ring (`byAgent`, keyed by agentId); `rest` = the
+ *  rings no bubble wears (the root rings, an agent ring with no bubble), in
+ *  ring order, painted after the bubbles in the same row. */
+export function bubbleRings(
+  bubbleAgentIds: readonly string[],
+  rings: readonly StoryRing[]
+): { byAgent: Map<string, StoryRing>; rest: StoryRing[] } {
+  const ids = new Set(bubbleAgentIds)
+  const byAgent = new Map<string, StoryRing>()
+  const rest: StoryRing[] = []
+  for (const ring of rings) {
+    if (ring.agentId && ids.has(ring.agentId) && !byAgent.has(ring.agentId)) byAgent.set(ring.agentId, ring)
+    else rest.push(ring)
+  }
+  return { byAgent, rest }
+}

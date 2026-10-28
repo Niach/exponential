@@ -430,6 +430,30 @@ pub fn story_previous(rings: &[StoryRing], (ring, story): StoryPosition) -> Stor
         .unwrap_or((ring, story))
 }
 
+/// The chats header row (chats.json BUBBLES + STORY RING): each agent
+/// bubble wears its agent's ring (`by_agent`, keyed by agent id, the first
+/// wins); `rest` = the rings no bubble wears (the root rings, an agent ring
+/// with no bubble), in ring order, painted after the bubbles in the same row.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BubbleRings {
+    pub by_agent: HashMap<String, StoryRing>,
+    pub rest: Vec<StoryRing>,
+}
+
+/// web `bubbleRings`.
+pub fn bubble_rings(bubble_agent_ids: &[&str], rings: &[StoryRing]) -> BubbleRings {
+    let mut out = BubbleRings::default();
+    for ring in rings {
+        match ring.agent_id.as_deref() {
+            Some(agent) if bubble_agent_ids.contains(&agent) && !out.by_agent.contains_key(agent) => {
+                out.by_agent.insert(agent.to_string(), ring.clone());
+            }
+            _ => out.rest.push(ring.clone()),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,5 +492,20 @@ mod tests {
         assert_eq!(story_previous(&rings, (1, 0)), (0, 0));
         assert_eq!(story_previous(&rings, (0, 0)), (0, 0));
         assert_eq!(story_next(&rings, (rings.len() - 1, 0)), None);
+    }
+
+    /// The specimen's agent rings ride the bubbles they match; the chat
+    /// rings and an unmatched agent ring follow in ring order.
+    #[test]
+    fn bubbles_wear_their_agent_rings() {
+        let fixture: Value = serde_json::from_str(STORIES_JSON).unwrap();
+        let input: StoriesInput = serde_json::from_value(fixture["specimen"]["input"].clone()).unwrap();
+        let rings = stories(&input);
+        let split = bubble_rings(&["as", "ag1", "ag3"], &rings);
+        assert_eq!(split.by_agent.len(), 1);
+        assert_eq!(split.by_agent["ag1"].title, "Triage");
+        let rest: Vec<&str> = split.rest.iter().map(|ring| ring.title.as_str()).collect();
+        assert_eq!(rest, ["Board header polish", "Designer", "Ship the launch checklist"]);
+        assert_eq!(bubble_rings(&[], &rings).rest, rings);
     }
 }

@@ -64,21 +64,21 @@ private fun card(json: String): JsonObject = Json.parseToJsonElement(json).jsonO
 private const val NOW = 1_800_000_000_000L
 
 private val SESSIONS = listOf(
-    Stories.SessionInput(id = "triage", rootId = "triage", name = "Triage", agentId = "a-triage", startedByAgentId = null),
+    Stories.SessionInput(id = "triage", rootId = "triage", name = "Triage", agentId = "ag1", startedByAgentId = null),
     Stories.SessionInput(id = "board", rootId = "board", name = "Board header polish", agentId = null, startedByAgentId = null),
-    Stories.SessionInput(id = "designer", rootId = "designer", name = "Designer", agentId = "a-designer", startedByAgentId = null),
+    Stories.SessionInput(id = "designer", rootId = "designer", name = "Designer", agentId = "ag2", startedByAgentId = null),
     Stories.SessionInput(id = "ship", rootId = "ship", name = "Ship the launch checklist", agentId = null, startedByAgentId = null),
 )
 
 private val AGENTS = listOf(
-    Stories.AgentInput("a-triage", "Triage", assistant = false),
-    Stories.AgentInput("a-designer", "Designer", assistant = false),
+    Stories.AgentInput("ag1", "Triage", assistant = false),
+    Stories.AgentInput("ag2", "Designer", assistant = false),
 )
 
 /** The agents' marks (`agents[].icon` / `color`). */
 private val AGENT_MARKS = mapOf(
-    "a-triage" to StoryAvatar("bug", "#a855f7"),
-    "a-designer" to StoryAvatar("palette", "#ec4899"),
+    "ag1" to StoryAvatar("bug", "#a855f7"),
+    "ag2" to StoryAvatar("bot", "#6366f1"),
 )
 
 private fun result(title: String, text: String) =
@@ -120,6 +120,12 @@ private val RINGS: List<Stories.StoryRing> =
 /** Agent ring = its mark; chat ring = the bare claude brand mark (the specimen roots run `cli` claude). */
 private fun avatar(ring: Stories.StoryRing): StoryAvatar =
     ring.agentId?.let { AGENT_MARKS[it] } ?: StoryAvatar(null, null, cli = "claude")
+
+/** The specimen's rings + avatars for the `chat-list` specimen's bubbles row
+ *  (ag1 / ag2 = `bubbleCases[0]`'s Triage / Designer). */
+internal val STORY_RING_SPECIMEN: List<Stories.StoryRing> get() = RINGS
+
+internal fun storySpecimenAvatar(ring: Stories.StoryRing): StoryAvatar = avatar(ring)
 
 /** `story-ring`: the rings with their titles, the same rings small, THE
  *  progress (`specimen.progress`). No state words. */

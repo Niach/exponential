@@ -353,6 +353,27 @@ public enum Stories {
         }
     }
 
+    /// The chats header row (chats.json BUBBLES + STORY RING): each agent
+    /// bubble wears its agent's ring (`byAgent`, keyed by agentId, first
+    /// wins); `rest` = the rings no bubble wears (the root rings, an agent
+    /// ring with no bubble), in ring order, painted after the bubbles in the
+    /// same row.
+    public static func bubbleRings(
+        _ bubbleAgentIds: [String], _ rings: [StoryRing]
+    ) -> (byAgent: [String: StoryRing], rest: [StoryRing]) {
+        let ids = Set(bubbleAgentIds)
+        var byAgent: [String: StoryRing] = [:]
+        var rest: [StoryRing] = []
+        for ring in rings {
+            if let agentId = ring.agentId, ids.contains(agentId), byAgent[agentId] == nil {
+                byAgent[agentId] = ring
+            } else {
+                rest.append(ring)
+            }
+        }
+        return (byAgent, rest)
+    }
+
     /// Epoch ms of a synced wire timestamp (nil = absent or unparseable).
     public static func ms(_ wire: String?) -> Double? {
         wire.flatMap(WireTimestamps.parse).map { $0.timeIntervalSince1970 * 1000 }

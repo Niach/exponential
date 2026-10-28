@@ -86,54 +86,74 @@ final class StoriesTests: XCTestCase {
         ])
     }
 
+    /// `stories(input)` over a fixture input object.
+    private func fold(_ input: [String: Any], _ name: String) throws -> [Stories.StoryRing] {
+        let sessions = try XCTUnwrap(input["sessions"] as? [[String: Any]], name).map { raw in
+            Stories.SessionInput(
+                id: raw["id"] as? String ?? "",
+                rootId: raw["rootId"] as? String ?? "",
+                name: raw["name"] as? String ?? "",
+                agentId: raw["agentId"] as? String,
+                startedByAgentId: raw["startedByAgentId"] as? String
+            )
+        }
+        let agents = try XCTUnwrap(input["agents"] as? [[String: Any]], name).map { raw in
+            Stories.AgentInput(
+                id: raw["id"] as? String ?? "",
+                name: raw["name"] as? String ?? "",
+                assistant: raw["assistant"] as? Bool ?? false
+            )
+        }
+        let messages = try XCTUnwrap(input["messages"] as? [[String: Any]], name).map { raw in
+            Stories.MessageInput(
+                id: raw["id"] as? String ?? "",
+                sessionId: raw["sessionId"] as? String ?? "",
+                authorSessionId: raw["authorSessionId"] as? String,
+                createdAt: num(raw["createdAt"]) ?? 0,
+                answeredAt: num(raw["answeredAt"]),
+                card: (raw["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
+            )
+        }
+        let reads = try XCTUnwrap(input["reads"] as? [[String: Any]], name).map { raw in
+            Stories.ReadInput(
+                sessionId: raw["sessionId"] as? String ?? "",
+                readAt: num(raw["readAt"]),
+                storySeenAt: num(raw["storySeenAt"])
+            )
+        }
+        return Stories.rings(
+            now: try XCTUnwrap(num(input["now"]), name),
+            sessions: sessions, agents: agents, messages: messages, reads: reads
+        )
+    }
+
     func testCases() throws {
         let cases = try XCTUnwrap(try fixture()["cases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
         for entry in cases {
             let name = entry["name"] as? String ?? "?"
             let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
-            let sessions = try XCTUnwrap(input["sessions"] as? [[String: Any]], name).map { raw in
-                Stories.SessionInput(
-                    id: raw["id"] as? String ?? "",
-                    rootId: raw["rootId"] as? String ?? "",
-                    name: raw["name"] as? String ?? "",
-                    agentId: raw["agentId"] as? String,
-                    startedByAgentId: raw["startedByAgentId"] as? String
-                )
-            }
-            let agents = try XCTUnwrap(input["agents"] as? [[String: Any]], name).map { raw in
-                Stories.AgentInput(
-                    id: raw["id"] as? String ?? "",
-                    name: raw["name"] as? String ?? "",
-                    assistant: raw["assistant"] as? Bool ?? false
-                )
-            }
-            let messages = try XCTUnwrap(input["messages"] as? [[String: Any]], name).map { raw in
-                Stories.MessageInput(
-                    id: raw["id"] as? String ?? "",
-                    sessionId: raw["sessionId"] as? String ?? "",
-                    authorSessionId: raw["authorSessionId"] as? String,
-                    createdAt: num(raw["createdAt"]) ?? 0,
-                    answeredAt: num(raw["answeredAt"]),
-                    card: (raw["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
-                )
-            }
-            let reads = try XCTUnwrap(input["reads"] as? [[String: Any]], name).map { raw in
-                Stories.ReadInput(
-                    sessionId: raw["sessionId"] as? String ?? "",
-                    readAt: num(raw["readAt"]),
-                    storySeenAt: num(raw["storySeenAt"])
-                )
-            }
-            let actual = Stories.rings(
-                now: try XCTUnwrap(num(input["now"]), name),
-                sessions: sessions, agents: agents, messages: messages, reads: reads
-            ).map(json)
+            let actual = try fold(input, name).map(json)
             let expected = try XCTUnwrap(entry["expected"] as? [Any], name)
             XCTAssertTrue(
                 NSArray(array: actual).isEqual(to: expected),
                 "\(name)\nactual: \(actual)\nexpected: \(expected)"
             )
         }
+    }
+
+    /// chats.json BUBBLES + STORY RING (TS `bubbleRings`): the specimen's
+    /// agent rings ride bubbleCases[0]'s bubbles, the chat rings follow.
+    func testBubbleRings() throws {
+        let specimen = try XCTUnwrap(try fixture()["specimen"] as? [String: Any])
+        let rings = try fold(try XCTUnwrap(specimen["input"] as? [String: Any]), "specimen")
+        let all = Stories.bubbleRings(["as", "ag1", "ag2", "ag3"], rings)
+        XCTAssertEqual(all.byAgent.keys.sorted(), ["ag1", "ag2"])
+        XCTAssertEqual(all.byAgent["ag1"]?.key, "agent:ag1")
+        XCTAssertEqual(all.rest.map(\.key), rings.filter { $0.agentId == nil }.map(\.key))
+        // An agent ring with no bubble follows in ring order.
+        let one = Stories.bubbleRings(["ag2"], rings)
+        XCTAssertEqual(Array(one.byAgent.keys), ["ag2"])
+        XCTAssertEqual(one.rest.map(\.key), rings.filter { $0.agentId != "ag2" }.map(\.key))
     }
 }

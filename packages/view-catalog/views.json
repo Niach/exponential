@@ -5467,7 +5467,7 @@
       "id": "chat-list",
       "group": "coding",
       "title": "Chat list",
-      "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
+      "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread; S-3: a bubble with stories wears its story ring, the chat rings follow), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
       "order": 32,
       "web": {
         "route": "/t/$teamSlug/agent?dev=chat-list",
@@ -5990,7 +5990,7 @@
       "id": "story-ring",
       "group": "coding",
       "title": "Story ring",
-      "blurb": "THE story ring ×4 (S-3, stories.json): an avatar inside a ring with one arc per story (waiting = the ask tint, unseen = foreground, seen = the hairline), the ring row over the chat list.",
+      "blurb": "THE story ring ×4 (S-3, stories.json): an avatar inside a ring with one arc per story (waiting = the ask tint, unseen = foreground, seen = the hairline), riding the agent bubbles row over the chat list.",
       "order": 47,
       "web": {
         "route": "/t/$teamSlug/agent?dev=story-ring",
