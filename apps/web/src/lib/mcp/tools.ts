@@ -210,6 +210,7 @@ import {
   grantScopeFilter,
   isBoardGranted,
   isTeamVisible,
+  reporterFallbackAllowed,
   GRANT_MATCHES_NOTHING,
   type McpAccess,
 } from "./scope"
@@ -628,6 +629,10 @@ export function registerExponentialTools(
   // account email (lib/reporter/service.ts) opens in the reporter view.
   // Anyone else gets the member gate's own error ("Issue not found", "Not a
   // member of this team"), so a report's existence never leaks.
+  // NEW-85: the fallback reads and writes OUTSIDE the grant's team/board
+  // selection, so it needs the person's own full-access credential and an
+  // attended session (reporterFallbackAllowed); a confined grant, a scoped
+  // key, an agent or an unattended run gets the member error, unlooked-up.
   type IssueTarget =
     | {
         kind: `member`
@@ -645,6 +650,9 @@ export function registerExponentialTools(
       return { kind: `member`, issueId, ctxIssue }
     } catch (e) {
       memberError = e
+    }
+    if (!reporterFallbackAllowed(access, await loadCallerSession())) {
+      throw memberError
     }
     const reporter = await findIssueForReporter(user, idInput)
     if (!reporter) throw memberError
@@ -2002,8 +2010,8 @@ export function registerExponentialTools(
         // SLOP-4: a reporter reply EMAILS an outside address with text the
         // reporter chose, so it needs a person behind it: never a
         // board-confined OAuth grant or scoped key, never an unattended run.
-        // The reporter's OWN reply (the caller IS the report's reporter,
-        // NEW-19) is one too: it reaches the team and reopens the issue.
+        // The reporter's OWN reply (NEW-19) is one too; resolveIssueTarget
+        // already takes that fallback only under the same rule (NEW-85).
         if (audience === `reporter` || target.kind === `reporter`) {
           if (!access.full) {
             throw new Error(

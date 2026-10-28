@@ -758,6 +758,15 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 a proxy in front already sets its own CSP/HSTS: two CSPs
                 don&apos;t merge, browsers enforce the intersection.
               </EnvVar>
+              <EnvVar name="TRUSTED_PROXY_HOPS">
+                How many proxies in front of the web server append to{` `}
+                <code>X-Forwarded-For</code> (default: <code>1</code>, the
+                bundled Caddy). Every per-IP rate limit keys on that hop from
+                the right; IPv6 addresses count per <code>/64</code>. Set{` `}
+                <code>2</code> when a CDN or load balancer that also appends
+                sits in front of the stack; never more than the real chain, or
+                clients pick their own limit.
+              </EnvVar>
               <EnvVar name="SMTP_HOST">
                 SMTP server for all outgoing mail (self-host transport). Unset
                 together with <code>AWS_SES_REGION</code> ⇒ every send is a

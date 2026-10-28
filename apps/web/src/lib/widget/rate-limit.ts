@@ -187,14 +187,106 @@ export function getWidgetConfigIpLimiter(): TokenBucketLimiter {
   return configIpLimiter
 }
 
-// LAST hop of x-forwarded-for: every deploy target (Caddy locally, Traefik
-// on Coolify) fronts the Bun server and APPENDS the real peer address to any
-// client-supplied x-forwarded-for, so the rightmost entry is the only
-// proxy-attested one. The leftmost is attacker-controlled — keying buckets on
-// it let a header-rotating client mint a fresh limit per request.
-export function clientIpFromRequest(request: Request): string {
+// THE proxy assumption every per-IP limiter rests on (NEW-85). Every deploy
+// target fronts the Bun server with a reverse proxy that APPENDS the peer it
+// accepted the connection from to any client-supplied x-forwarded-for:
+// Traefik on Coolify (cloud + staging), Caddy in dev and in the self-host
+// compose. So the rightmost entry is the only proxy-attested one; everything
+// left of it is whatever the client sent (keying buckets on the leftmost let
+// a header-rotating client mint a fresh limit per request).
+//
+// TRUSTED_PROXY_HOPS (default 1) = how many appending proxies sit in front of
+// the server. Behind ONE (the stock deploys) the client is the LAST hop; put
+// a CDN/load balancer that also appends in front of Traefik/Caddy and set it
+// to 2, and the client is the second-to-last. Setting it higher than the real
+// chain hands the leftmost (spoofable) entry back, so never over-count. A
+// request with fewer hops than configured (it skipped a proxy, e.g. a direct
+// hit on the container port) keys on its leftmost entry.
+export function trustedProxyHops(): number {
+  return envInt(`TRUSTED_PROXY_HOPS`, 1)
+}
+
+/** The proxy-attested client address off x-forwarded-for (see above), or
+ * null without the header (a bare dev server). Not normalised. */
+export function proxyAttestedClientIp(
+  request: Request,
+  hops = trustedProxyHops()
+): string | null {
   const forwarded = request.headers.get(`x-forwarded-for`)
-  const hops = forwarded?.split(`,`) ?? []
-  const last = hops[hops.length - 1]?.trim()
-  return last || `unknown`
+  const entries = (forwarded ?? ``)
+    .split(`,`)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  if (entries.length === 0) return null
+  return entries[Math.max(0, entries.length - hops)]!
+}
+
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+function ipv4Octets(text: string): number[] | null {
+  const match = IPV4.exec(text)
+  if (!match) return null
+  const octets = match.slice(1).map(Number)
+  return octets.every((octet) => octet <= 255) ? octets : null
+}
+
+/** Eight 16-bit groups of an IPv6 address (compressed `::` and a dotted IPv4
+ * tail allowed), or null when it is not one. */
+function ipv6Groups(text: string): number[] | null {
+  let body = text
+  const tail: number[] = []
+  const lastColon = body.lastIndexOf(`:`)
+  if (body.includes(`.`)) {
+    const v4 = ipv4Octets(body.slice(lastColon + 1))
+    if (!v4) return null
+    tail.push((v4[0]! << 8) | v4[1]!, (v4[2]! << 8) | v4[3]!)
+    body = body.slice(0, lastColon + 1)
+    // `::1.2.3.4` leaves `::`; `64:ff9b::1.2.3.4` leaves `64:ff9b::`; a plain
+    // `x:...:y:1.2.3.4` leaves a trailing single colon to drop.
+    if (!body.endsWith(`::`)) body = body.slice(0, -1)
+  }
+  const halves = body.split(`::`)
+  if (halves.length > 2) return null
+  const parse = (part: string) =>
+    part === `` ? [] : part.split(`:`).map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN))
+  const head = parse(halves[0]!)
+  const rest = halves.length === 2 ? parse(halves[1]!) : []
+  const explicit = head.length + rest.length + tail.length
+  if ([...head, ...rest].some(Number.isNaN)) return null
+  if (halves.length === 1) return explicit === 8 ? [...head, ...tail] : null
+  if (explicit > 7) return null
+  return [...head, ...Array(8 - explicit).fill(0), ...rest, ...tail]
+}
+
+/**
+ * The per-IP LIMITER key for one client address (NEW-85). IPv4 keys on the
+ * address. IPv6 keys on its /64: one subscriber line (home, phone, VPS) gets
+ * a whole /64 and picks interface ids at will, so a per-address key let one
+ * client rotate through 2^64 fresh buckets. An IPv4-mapped address
+ * (`::ffff:1.2.3.4`, what a dual-stack socket reports) is the IPv4 one.
+ * Brackets, a port and a zone id (`[fe80::1%eth0]:443`) are dropped first;
+ * anything unparseable keys on its own lowercased text.
+ */
+export function rateLimitIpKey(raw: string): string {
+  let text = raw.trim().toLowerCase()
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(text)
+  if (bracketed) text = bracketed[1]!
+  else if (/^[\d.]+:\d+$/.test(text)) text = text.slice(0, text.lastIndexOf(`:`))
+  const zone = text.indexOf(`%`)
+  if (zone !== -1) text = text.slice(0, zone)
+  if (ipv4Octets(text)) return ipv4Octets(text)!.join(`.`)
+  const groups = text.includes(`:`) ? ipv6Groups(text) : null
+  if (!groups) return text || `unknown`
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
+    return [groups[6]! >> 8, groups[6]! & 255, groups[7]! >> 8, groups[7]! & 255].join(`.`)
+  }
+  return `${groups.slice(0, 4).map((g) => g.toString(16)).join(`:`)}::/64`
+}
+
+/** The per-IP limiter key of a request: its proxy-attested client address
+ * (TRUSTED_PROXY_HOPS), IPv6 grouped by /64. `unknown` without the header.
+ * Every caller keys a token bucket on it; none stores it as an address. */
+export function clientIpFromRequest(request: Request): string {
+  const ip = proxyAttestedClientIp(request)
+  return ip ? rateLimitIpKey(ip) : `unknown`
 }

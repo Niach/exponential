@@ -33,7 +33,7 @@ const resolved = {
     updatedAt: new Date(`2026-10-26T11:00:00Z`),
     assigneeId: `vendor-member`,
   },
-  submission: { reporterName: `Emma Fischer` },
+  submission: { reporterName: `Emma Fischer`, reporterEmail: `Emma@X.test` },
   teamName: `Exponential`,
   statusCategory: `started`,
 } as never
@@ -69,6 +69,21 @@ describe(`listReporterComments`, () => {
     ])
   })
 
+  // NEW-85 (reporter-reply.json reporterView): a member's @mention never
+  // names them; the reporter's own address and their own text pass.
+  it(`reads member mentions as "@Support" in team replies only`, async () => {
+    const at = new Date(`2026-10-26T12:00:00Z`)
+    h.rows = [
+      { id: `a`, source: `user`, body: `@ada@vendor.test fixed it, thanks @emma@x.test`, createdAt: at },
+      { id: `b`, source: `reporter`, body: `ping \\@ada\\@vendor\\.test`, createdAt: at },
+    ]
+    const out = await listReporterComments(resolved, { limit: 10 })
+    expect(out.map((c) => c.body)).toEqual([
+      `@Support fixed it, thanks @emma@x.test`,
+      `ping \\@ada\\@vendor\\.test`,
+    ])
+  })
+
   it(`falls back to the anonymous label without a reporter name`, async () => {
     h.rows = [
       { id: `a`, source: `reporter`, body: `x`, createdAt: new Date(), userName: null, agentName: null },
@@ -97,5 +112,21 @@ describe(`reporterIssueView`, () => {
       recentComments: [],
     })
     expect(view).not.toHaveProperty(`assigneeId`)
+  })
+
+  it(`reads member mentions in the title and description as "@Support"`, async () => {
+    const view = await reporterIssueView(
+      {
+        ...(resolved as object),
+        issue: {
+          ...(resolved as { issue: object }).issue,
+          title: `Ask @ada@vendor.test`,
+          description: `@bob@vendor.test owns this`,
+        },
+      } as never,
+      50
+    )
+    expect(view.title).toBe(`Ask @Support`)
+    expect(view.description).toBe(`@Support owns this`)
   })
 })

@@ -20,6 +20,7 @@ import { deliveryStatus, sendReporterReplyEmail } from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
 import { mintReporterToken } from "@/lib/reporter/token"
 import { reporterConversationUrl } from "@/lib/reporter/service"
+import { reporterFacingText } from "@/lib/reporter/report-text"
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
@@ -240,7 +241,8 @@ async function emailReporterReply(
     const sendResult = await sendReporterReplyEmail({
       to: args.reporter.email,
       teamName: args.reporter.teamName,
-      replyText: args.replyText,
+      // NEW-85: member @mentions read "@Support" for the reporter.
+      replyText: reporterFacingText(args.replyText, args.reporter.email),
       conversationUrl: reporterConversationUrl(mintReporterToken(args.issueId)),
     })
     const [ledger] = await db
