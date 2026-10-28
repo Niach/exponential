@@ -208,3 +208,74 @@ export function prBodyFromGuide(
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   })
 }
+
+// S-3 (owner 2026-10-28): stories replace the Guide. A PR body = a short
+// SERVER summary (the PR title, ≤3 bullets: the linked issues first, then
+// the commit subjects) + the session's story pictures grouped by the
+// platform word their label starts with + the `Not run` line + the link to
+// the thread. No LLM; pure + fixture-locked (pr-body.json `storyCases`).
+// GitHub cannot load our member-only pictures, so each is a link.
+
+export const PR_BODY_STORIES_LINK_LABEL = `Stories in Exponential`
+export const PR_BODY_BULLETS_MAX = 3
+const STORY_PLATFORMS = [`web`, `ios`, `android`, `desktop`] as const
+
+export interface StoryBodyInput {
+  title: string
+  issues: readonly { identifier: string; title: string }[]
+  /** Full commit messages, oldest first. */
+  commits: readonly string[]
+  pictures: readonly { label: string; url: string }[]
+  notRun: string | null
+  storiesUrl: string | null
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, ` `).trim()
+
+/** The picture's platform: its label's first word (`web-mobile` = web). */
+export function storyPlatform(label: string): string {
+  const word = (oneLine(label).split(` `)[0] ?? ``).toLowerCase()
+  const platform = STORY_PLATFORMS.find((name) => word === name || word.startsWith(`${name}-`))
+  return platform ?? `other`
+}
+
+export function prBodyFromStories(input: StoryBodyInput, max = PR_BODY_MAX): string {
+  const title = oneLine(input.title)
+  const bullets: string[] = []
+  const seen = new Set<string>([title.toLowerCase()])
+  const add = (text: string) => {
+    const line = oneLine(text)
+    if (!line || seen.has(line.toLowerCase()) || bullets.length >= PR_BODY_BULLETS_MAX) return
+    seen.add(line.toLowerCase())
+    bullets.push(line)
+  }
+  for (const issue of input.issues) add(`#${issue.identifier} ${issue.title}`)
+  for (const commit of input.commits) {
+    const subject = commit.split(`\n`)[0] ?? ``
+    if (/^Merge (branch|pull request|remote-tracking)/i.test(subject)) continue
+    add(subject)
+  }
+  const parts: string[] = [title]
+  if (bullets.length) parts.push(bullets.map((line) => `- ${line}`).join(`\n`))
+  const groups = new Map<string, string[]>()
+  for (const picture of input.pictures) {
+    const platform = storyPlatform(picture.label)
+    const label = oneLine(picture.label).replace(/[[\]]/g, ``) || platform
+    groups.set(platform, [...(groups.get(platform) ?? []), `[${label}](${picture.url})`])
+  }
+  const lines = [...STORY_PLATFORMS, `other`]
+    .filter((platform) => groups.has(platform))
+    .map((platform) => `**${platform}** · ${groups.get(platform)!.join(` · `)}`)
+  if (lines.length) parts.push(lines.join(`\n`))
+  const notRun = input.notRun ? oneLine(input.notRun) : ``
+  if (notRun) parts.push(`**${NOT_RUN_TOPIC}:** ${notRun}`)
+  let main = parts.join(`\n\n`)
+  const footer = input.storiesUrl ? `\n\n---\n\n[${PR_BODY_STORIES_LINK_LABEL}](${input.storiesUrl})` : ``
+  if (main.length + footer.length > max) {
+    const budget = Math.max(0, max - footer.length - 2)
+    const cut = main.slice(0, budget)
+    const lastLine = cut.lastIndexOf(`\n`)
+    main = `${(lastLine > 0 ? cut.slice(0, lastLine) : cut).trimEnd()}\n…`
+  }
+  return `${main}${footer}`
+}

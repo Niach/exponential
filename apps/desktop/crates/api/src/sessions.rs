@@ -309,6 +309,20 @@ pub fn mark_read(trpc: &TrpcClient, session_id: &str) -> Result<serde::de::Ignor
     trpc.mutation("sessions.markRead", &SessionIdInput { session_id })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkStoriesSeenInput<'a> {
+    session_id: &'a str,
+    at: i64,
+}
+
+/// S-3: a story was SHOWN in the viewer: raise the viewer's stories mark of
+/// the root `root_id` to `at` (the story's createdAt, epoch ms; the server
+/// keeps the greatest).
+pub fn mark_stories_seen(trpc: &TrpcClient, root_id: &str, at: i64) -> Result<TxOutput, ApiError> {
+    trpc.mutation("sessions.markStoriesSeen", &MarkStoriesSeenInput { session_id: root_id, at })
+}
+
 /// #EXP-1388 `sessions.setRead` / `sessions.setArchived` input (up to 200
 /// root ids per call).
 #[derive(Serialize)]

@@ -61,6 +61,9 @@ fun ChatHeader(
     tabs: (@Composable () -> Unit)? = null,
     /** NEW-69: the agent chat's telephone (`AgentCallButton`), left of `…`. */
     call: (@Composable () -> Unit)? = null,
+    /** S-3: the action slot left of `…` (the thread's Merge pill; it may
+     *  draw nothing). */
+    action: (@Composable () -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("thread-header")) {
@@ -109,6 +112,8 @@ fun ChatHeader(
                     Spacer(Modifier.width(8.dp))
                     call()
                 }
+                // Draws its own leading gap (nothing while there is no action).
+                action?.invoke()
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
                 if (groups.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))

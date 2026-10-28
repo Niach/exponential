@@ -160,7 +160,6 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_team_config_prompts_get: [`prompt`],
   exponential_team_config_prompts_update: [`prompt`],
   exponential_team_config_prompts_list: [`list`, `prompt`],
-  exponential_guide_write: [],
   exponential_pr_close: [`issue`],
   exponential_pr_files: [`issue`],
   exponential_pr_merge: [`issue`],

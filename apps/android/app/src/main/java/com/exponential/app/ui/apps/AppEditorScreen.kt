@@ -533,8 +533,6 @@ private fun AppEditorConversation(
         }
         return
     }
-    val sessionName = remember(v) { AskDock.threadSessionNames(v.tabs) }
-    val askPending = remember(v, sessionName) { AskDock.threadPendingAsks(v.rows, sessionName) }
     val onAnswer: ThreadAnswer = { id, answer, settled ->
         thread.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
     }
@@ -579,7 +577,6 @@ private fun AppEditorConversation(
             // S-3: a report / another session's line links that session.
             origin = v.origin,
             onOpenXref = { id -> openSession(id) },
-            dockedIds = remember(askPending) { askPending.mapTo(mutableSetOf()) { it.id } },
         )
         FloatingBarEdge(
             bottomInset = bottomInset,
@@ -600,10 +597,6 @@ private fun AppEditorConversation(
                     dock = { sessionDock ->
                         ThreadDock(
                             rows = v.rows,
-                            autoOpenReady = v.rows.isNotEmpty(),
-                            sessionName = sessionName,
-                            onAnswer = onAnswer,
-                            onDecidePlan = onDecidePlan,
                             sources = sessionDock.sources,
                             sessionSheet = sessionDock.sheet,
                             action = sessionDock.action,

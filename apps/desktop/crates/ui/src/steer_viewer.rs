@@ -593,11 +593,6 @@ pub(crate) struct SteerSessionView {
     /// ONE answerable card, lifted out of `rows` into a DockCard
     /// ([`Self::dock_row_spec`], refreshed by [`Self::sync_list`]).
     docked: Option<FeedRowSpec>,
-    /// EXP-1280: this session's waiting TOOL-posted cards
-    /// (`exponential_plan_propose` / `exponential_sessions_ask`), oldest
-    /// first: no engine ask behind them, so they dock from their `messages`
-    /// rows and answer only through `sessions.answer`.
-    tool_cards: Vec<domain::session_tree::SessionThreadRow>,
     /// Thread 58cb32df (chats.json, FEED-140): this session's conversation
     /// cards the relay feed does not paint itself (the TOOL-posted plan /
     /// question cards in every state, the agent's surface cards), in
@@ -824,7 +819,6 @@ impl SteerSessionView {
             row_keys: Vec::new(),
             active: HashSet::new(),
             docked: None,
-            tool_cards: Vec::new(),
             conv_cards: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
@@ -2694,20 +2688,6 @@ impl SteerSessionView {
     /// whenever the reader may message the session.
     fn composer_visible(&self) -> bool {
         self.may_message
-    }
-
-    /// EXP-1280: the unanswered TOOL-posted cards of this session, oldest
-    /// first (never on a root's host: its thread docks the tree's cards).
-    fn refresh_tool_card(&mut self, cx: &App) {
-        self.tool_cards = if !self.tree_scope && self.may_message {
-            crate::session_data::messages_of_session(&self.session_id, cx)
-                .iter()
-                .filter(|message| message.answered_at.is_none() && domain::session_tree::is_tool_card(message))
-                .filter_map(domain::session_tree::ask_card_row)
-                .collect()
-        } else {
-            Vec::new()
-        };
     }
 
     /// Thread 58cb32df (chats.json, FEED-140): the conversation's cards the
@@ -7692,15 +7672,13 @@ impl SteerSessionView {
         out
     }
 
-    /// N-12: THE Dock of the session view: the relay's waiting card, the
-    /// tool-posted ones, the session's own cards, then THE composer; and
-    /// the open card's sheet. Auto-open runs here (the view is in front
-    /// while it renders).
+    /// N-12: THE Dock of the session view: the relay's waiting card (an
+    /// engine ask, never a story), the session's own cards, then THE
+    /// composer; and the open card's sheet. S-3 (dock.json): a TOOL-posted
+    /// plan / question is a story now, never a DockCard; it stays inline.
+    /// Auto-open runs here (the view is in front while it renders).
     fn render_session_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> (Option<AnyElement>, Option<AnyElement>) {
         let mut sources = Vec::new();
-        for (index, row) in self.tool_cards.iter().enumerate() {
-            sources.extend(crate::thread_screen::ask_source(row, None, index as i64));
-        }
         sources.extend(self.relay_source());
         sources.extend(self.session_dock_sources(cx));
         let rows = domain::dock::dock_rows(&sources);
@@ -7721,8 +7699,8 @@ impl SteerSessionView {
         (band, sheet)
     }
 
-    /// The open card's sheet (the relay ask's chromeless card, a tool card's
-    /// plan / question sheet, the Queue, the queued list).
+    /// The open card's sheet (the relay ask's chromeless card, the Queue,
+    /// the queued list).
     fn render_dock_sheet(&mut self, rows: &[domain::dock::DockRow], window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let open = self.dock.read(cx).sheet_id()?.to_string();
         let Some(row) = rows.iter().find(|row| row.id == open).cloned() else {
@@ -7746,9 +7724,6 @@ impl SteerSessionView {
                     body: crate::dock::sheet_body("steer-dock-sheet-relay", card),
                     footer: None,
                 }
-            } else if let Some(tool) = self.tool_cards.iter().find(|tool| tool.id() == open).cloned() {
-                let images = self.images.clone();
-                crate::thread_screen::ask_row_sheet(&tool, &crate::thread_screen::ThreadText::default(), &images, window, cx)?
             } else {
                 self.render_session_dock_sheet(&row, window, cx)?
             })
@@ -8892,7 +8867,6 @@ impl Render for SteerSessionView {
             self.input.update(cx, |state, cx| state.set_value(draft, window, cx));
         }
         self.dev_scroll_to_script_card();
-        self.refresh_tool_card(cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);
@@ -9146,25 +9120,6 @@ mod tests {
         ];
         assert_eq!(card_row_id(&messages, "q-1").as_deref(), Some("m-new"));
         assert_eq!(card_row_id(&messages[..1], "q-1"), None);
-    }
-
-    /// EXP-1280: the session view's Dock lists a tool-posted card as a
-    /// DockCard.
-    #[test]
-    fn a_tool_card_is_a_pending_entry_of_the_dock() {
-        let message = domain::rows::MessageRow {
-            id: "m-1".into(),
-            session_id: "s-1".into(),
-            card: Some(serde_json::json!({"kind": "question", "question": "Ship it?", "options": ["Yes", "No"]})),
-            ..Default::default()
-        };
-        assert!(domain::session_tree::is_tool_card(&message), "no questionId: an agent's card");
-        let question = domain::session_tree::ask_card_row(&message).expect("a question row");
-        let source = crate::thread_screen::ask_source(&question, None, 0).expect("a question card waits");
-        let rows = domain::dock::dock_rows(&[source]);
-        assert_eq!(rows[0].id, "m-1");
-        assert_eq!(rows[0].kind, domain::dock::DockKind::Question);
-        assert_eq!(rows[0].title, "Ship it?");
     }
 
     // ── A session tab that exists at boot dials once an account is active ──

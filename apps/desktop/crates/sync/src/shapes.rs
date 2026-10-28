@@ -722,7 +722,18 @@ pub const SHAPES: [ShapeSpec; 32] = [
         // `pins`. Byte-matches the proxy's allowlist (apps/web
         // routes/api/shapes/session-reads.ts).
         // #EXP-1388: `archived_at` = the viewer's per-chat archive.
-        columns: &["id", "user_id", "session_id", "read_at", "archived_at", "created_at", "updated_at"],
+        // S-3: `story_seen_at` = the viewer's stories mark on the root
+        // (`sessions.markStoriesSeen`).
+        columns: &[
+            "id",
+            "user_id",
+            "session_id",
+            "read_at",
+            "archived_at",
+            "story_seen_at",
+            "created_at",
+            "updated_at",
+        ],
         pk: PkKind::Id,
     },
     ShapeSpec {

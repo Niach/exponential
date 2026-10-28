@@ -934,6 +934,9 @@ data class SessionReadEntity(
     @ColumnInfo(name = "read_at") @SerialName("read_at") @JsonNames("readAt") val readAt: String = "",
     // #EXP-1388: the viewer archived the chat (per viewer, on the root's row).
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
+    // S-3 (stories.json): the greatest story createdAt the viewer was shown
+    // in this root's tree (`sessions.markStoriesSeen`; null = none).
+    @ColumnInfo(name = "story_seen_at") @SerialName("story_seen_at") @JsonNames("storySeenAt") val storySeenAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

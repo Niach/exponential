@@ -127,7 +127,14 @@ object PlanCard {
         Unknown("unknown", Copy.ISSUE_UNKNOWN),
     }
 
-    data class Picture(val label: String, val attachmentId: String?, val width: Int?, val height: Int?)
+    /** S-3: [caption] = a result story's line under the picture (null = none). */
+    data class Picture(
+        val label: String,
+        val attachmentId: String?,
+        val width: Int?,
+        val height: Int?,
+        val caption: String? = null,
+    )
 
     /** The card an answer is checked against. */
     sealed interface Card {
@@ -187,6 +194,7 @@ object PlanCard {
             attachmentId = (picture["attachmentId"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
             width = (picture["width"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.toInt(),
             height = (picture["height"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.toInt(),
+            caption = (picture["caption"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
         )
     }
 

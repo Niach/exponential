@@ -15,8 +15,8 @@ import { backSearch } from "@/lib/session-back"
 // keeping `from`. A session under a team AGENT has no thread page: it keeps
 // its own screen here (back to the agent's channel).
 //
-// EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`; that
-// URL opens the thread's Guide tab.
+// EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`; S-3:
+// the Guide tab is gone, so that URL opens the thread's conversation.
 // S-3: `back` = the inter-session back stack (`lib/session-back.ts`), kept
 // through the redirect.
 type SessionSearch = { view?: `guide`; from?: string; back?: string }
@@ -82,7 +82,7 @@ function SessionPage() {
       <Navigate
         to="/t/$teamSlug/threads/$threadId"
         params={{ teamSlug, threadId: rootId }}
-        search={{ tab: `guide` }}
+        search={{}}
         replace
       />
     )

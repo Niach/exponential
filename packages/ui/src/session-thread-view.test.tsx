@@ -113,7 +113,7 @@ function renderSheet(rows: ThreadRow[], openId: string, over: Record<string, unk
         attachmentSrc={(id) => `/files/${id}`}
         onAnswer={onAnswer}
         onDecide={onDecide}
-        autoOpen={false}
+        asks
         initialOpenId={openId}
         {...over}
       />
@@ -333,7 +333,6 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as never
 
-const GUIDE = { label: `Guide`, active: false, dot: false, onSelect: () => {} }
 const CONVERSATION = { label: `Conversation`, active: false, onSelect: () => {} }
 
 function item(
@@ -406,40 +405,34 @@ function stubWidths(zone: number) {
 }
 
 describe(`ThreadTabs`, () => {
-  it(`draws Conversation and Guide icon-only on the pager, labelled, the dot on the icon`, () => {
+  it(`draws Conversation icon-only on the pager, labelled; no Guide tab (S-3)`, () => {
     render(
       <ThreadTabs
         variant="pager"
         conversation={{ ...CONVERSATION, active: true }}
         issues={[issueItem(`APP-5`)]}
-        guide={{ ...GUIDE, dot: true }}
       />
     )
     const conversation = screen.getByTestId(`thread-tab-conversation`)
-    const guide = screen.getByTestId(`thread-tab-guide`)
     expect(conversation.textContent).toBe(``)
     expect(conversation.getAttribute(`aria-label`)).toBe(`Conversation`)
     expect(conversation.querySelector(`svg`)).not.toBeNull()
-    expect(guide.getAttribute(`aria-label`)).toBe(`Guide`)
-    expect(guide.textContent).toBe(`The Guide has content`)
-    expect(guide.className).toContain(`border-glass-stroke`)
-    expect(screen.getByTestId(`thread-guide-dot`).className).toContain(`absolute`)
+    expect(screen.queryByTestId(`thread-tab-guide`)).toBeNull()
+    expect(screen.queryByTestId(`thread-guide-dot`)).toBeNull()
   })
 
   it(`keeps icon + label from md up`, () => {
-    render(<ThreadTabs conversation={CONVERSATION} issues={[]} guide={GUIDE} />)
+    render(<ThreadTabs conversation={CONVERSATION} issues={[]} />)
     expect(screen.getByTestId(`thread-tab-conversation`).textContent).toBe(`Conversation`)
-    expect(screen.getByTestId(`thread-tab-guide`).textContent).toBe(`Guide`)
   })
 
-  it(`pins + and Conversation left, Guide right, issues then sessions between`, () => {
+  it(`pins + and Conversation left, then issues, then sessions`, () => {
     render(
       <ThreadTabs
         conversation={{ ...CONVERSATION, active: true }}
         issues={[issueItem(`APP-5`)]}
         add={<span data-testid="add">+</span>}
         sessions={[sessionItem(`Profile the launch path`)]}
-        guide={{ ...GUIDE, dot: true }}
       />
     )
     const strip = screen.getByTestId(`thread-tabs`)
@@ -449,14 +442,12 @@ describe(`ThreadTabs`, () => {
       screen.getByTestId(`thread-tab-conversation`),
       screen.getByTestId(`issue-APP-5`),
       screen.getByTestId(`thread-tab-session`),
-      screen.getByTestId(`thread-tab-guide`),
     ]
     for (let index = 1; index < order.length; index++) {
       expect(
         order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
     }
-    expect(screen.getByTestId(`thread-guide-dot`)).toBeTruthy()
   })
 
   it(`goes full → identifiers only → folds each zone into its own "+N"`, () => {
@@ -465,7 +456,7 @@ describe(`ThreadTabs`, () => {
     const draw = (zone: number) => {
       const spy = stubWidths(zone)
       const view = render(
-        <ThreadTabs conversation={CONVERSATION} issues={issues} sessions={sessions} guide={GUIDE} />
+        <ThreadTabs conversation={CONVERSATION} issues={issues} sessions={sessions} />
       )
       spy.mockRestore()
       return view
@@ -495,7 +486,6 @@ describe(`ThreadTabs`, () => {
         conversation={CONVERSATION}
         issues={[issueItem(`APP-1`), issueItem(`APP-2`), issueItem(`APP-3`), issueItem(`APP-4`, true)]}
         sessions={[]}
-        guide={GUIDE}
       />
     )
     spy.mockRestore()
@@ -771,7 +761,6 @@ describe(`ThreadConversation EXP-1323`, () => {
           onAnswer={vi.fn()}
           onDecide={vi.fn()}
           suggestions={actions}
-          autoOpen={false}
           initialOpenId="m4"
         />
       </TooltipProvider>
