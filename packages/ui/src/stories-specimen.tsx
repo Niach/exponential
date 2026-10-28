@@ -35,6 +35,7 @@ export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: read
       name: `Board header polish`,
       agentId: null,
       startedByAgentId: null,
+      cli: `claude`,
     },
     {
       id: `designer`,
@@ -49,6 +50,7 @@ export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: read
       name: `Ship the launch checklist`,
       agentId: null,
       startedByAgentId: null,
+      cli: `claude`,
     },
   ],
   agents: [
@@ -233,11 +235,11 @@ export const STORY_RING_SPECIMEN: StoryRingModel[] = stories(STORY_SPECIMEN_INPU
 
 /** A ring's avatar: an agent ring = its icon in its colour on the muted disc
  *  (the bubble's look); a chat ring = the chat row's BARE brand mark (the
- *  specimen sessions carry no CLI = the default mark). */
+ *  specimen roots run `cli` claude = the claude brand mark). */
 export function storySpecimenAvatar(ring: Pick<StoryRingModel, `agentId`>): ReactNode {
   const agent = ring.agentId ? STORY_SPECIMEN_INPUT.agents.find((row) => row.id === ring.agentId) : undefined
   if (agent) return <StoryAvatar agent={{ icon: agent.icon, color: agent.color }} />
-  return <StoryAvatar cli={null} />
+  return <StoryAvatar cli={`claude`} />
 }
 
 export function StoryRingSpecimen() {

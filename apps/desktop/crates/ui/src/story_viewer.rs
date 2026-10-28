@@ -289,7 +289,7 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     let message = message_of(&story.id, &story.session_id, cx);
     let text = ThreadText::team(Some(&team_id)).answering(true);
     let content = story_content(story, message.as_ref(), picture, &text, &images, window, cx);
-    let avatar = crate::story_ring::store_ring_avatar(ring, 18., cx);
+    let avatar = crate::story_ring::store_ring_avatar(ring, HEADER_GLYPH, cx);
     let session_id = story.session_id.clone();
     let handlers = PanelHandlers {
         open_session: Some(Rc::new(move |window, cx| {
@@ -448,8 +448,13 @@ pub(crate) fn story_progress(count: usize, index: usize, fraction: f32, cx: &App
         }))
 }
 
-/// THE panel: progress, header, body, footer. `avatar` fills the header's
-/// 32px disc.
+/// The header's ring (px): the avatar inside its StoryRing.
+pub(crate) const HEADER_RING: f32 = 36.;
+/// The mark inside the header ring (half its inner disc).
+pub(crate) const HEADER_GLYPH: f32 = 12.;
+
+/// THE panel: progress, header, body, footer. `avatar` sits inside the
+/// ring's StoryRing at the header size (stories.json VIEWER LOOK).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn story_panel(
     ring: &StoryRing,
@@ -462,6 +467,7 @@ pub(crate) fn story_panel(
     cx: &App,
 ) -> gpui::Stateful<Div> {
     let theme = cx.theme();
+    let arcs: Vec<crate::story_ring::RingArc> = ring.stories.iter().map(crate::story_ring::RingArc::from).collect();
     let header_open = handlers.open_session.clone();
     let close_action = handlers.close.clone();
     let header = h_flex()
@@ -484,7 +490,7 @@ pub(crate) fn story_panel(
                         action(window, cx);
                     }
                 })
-                .child(div().size(px(32.)).flex_shrink_0().rounded_full().overflow_hidden().child(avatar))
+                .child(crate::story_ring::story_ring(&arcs, HEADER_RING, avatar, cx))
                 .child(
                     v_flex()
                         .min_w_0()
@@ -635,7 +641,7 @@ pub(crate) fn story_content(
             let facts = crate::thread_screen::question_facts(row).map(|(_, _, facts)| facts);
             if let Some(facts) = facts {
                 let sheet = crate::dock::sheet_host(|| {
-                    crate::plan_card::question_sheet(&facts, lead.into_any_element(), images, window, cx)
+                    crate::plan_card::question_story_sheet(&facts, lead.into_any_element(), images, window, cx)
                 });
                 return StoryContent { body: sheet.body, footer: sheet.footer };
             }

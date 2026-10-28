@@ -104,6 +104,9 @@ export function storyArcs(count: number, gap: number = STORY_RING.gap): [number,
   return Array.from({ length: count }, (_, index) => [index * slot + gap / 2, sweep])
 }
 
+/** The viewer header's ring (px): the avatar inside its StoryRing. */
+const STORY_VIEWER_AVATAR = 36
+
 /** THE story ring: `children` (the avatar) inside the segmented ring. */
 export function StoryRing({
   stories,
@@ -440,7 +443,9 @@ export function StoryViewerPanel({
             className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             onClick={onOpenSession ? () => onOpenSession(story.sessionId) : undefined}
           >
-            <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">{avatar}</span>
+            <StoryRing stories={ring.stories} size={STORY_VIEWER_AVATAR}>
+              {avatar}
+            </StoryRing>
             <span className="flex min-w-0 flex-col">
               <span className="truncate text-sm font-medium">{story.sessionName}</span>
               <span data-slot="story-meta" className="truncate text-xs text-muted-foreground">
@@ -549,7 +554,7 @@ function StoryAskBody({
   return (
     <>
       {surface && (
-        <PlanCardSurface surface={surface} dataRef={surfaceData} disabled={busy} testKey={`story-${story.id}`} />
+        <PlanCardSurface surface={surface} dataRef={surfaceData} disabled={busy} label={false} testKey={`story-${story.id}`} />
       )}
       <div data-slot="story-footer" data-footer={story.footer} className="mt-auto flex flex-col gap-2 pt-2">
         {story.footer === `plan` ? (

@@ -34,7 +34,7 @@ import kotlinx.serialization.json.jsonObject
  * progress mid-story; and THE viewer open on ring 0, story 0 (the waiting
  * question over its Exponential UI surface), the progress frozen at 0.
  * Avatars: an agent ring = its icon in its colour on the muted disc; a chat
- * ring = the chat row's bare brand mark. Capture only
+ * ring = the chat row's bare brand mark (the roots run claude). Capture only
  * (StyleguideScreenshotsTest `captureOnlyScreens`).
  */
 
@@ -117,9 +117,9 @@ private val READS = listOf(Stories.ReadInput("ship", readAt = 1_799_996_400_000L
 private val RINGS: List<Stories.StoryRing> =
     Stories.rings(now = NOW, sessions = SESSIONS, agents = AGENTS, messages = MESSAGES, reads = READS)
 
-/** Agent ring = its mark; chat ring = the bare brand mark (no CLI = the default). */
+/** Agent ring = its mark; chat ring = the bare claude brand mark (the specimen roots run `cli` claude). */
 private fun avatar(ring: Stories.StoryRing): StoryAvatar =
-    ring.agentId?.let { AGENT_MARKS[it] } ?: StoryAvatar(null, null, cli = null)
+    ring.agentId?.let { AGENT_MARKS[it] } ?: StoryAvatar(null, null, cli = "claude")
 
 /** `story-ring`: the rings with their titles, the same rings small, THE
  *  progress (`specimen.progress`). No state words. */
