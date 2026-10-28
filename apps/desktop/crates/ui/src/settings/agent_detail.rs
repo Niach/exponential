@@ -367,10 +367,15 @@ impl AgentDetailPane {
         }
     }
 
-    /// The selected agent id from the shared settings selection.
+    /// The selected agent id from the shared settings selection. S-3: the
+    /// Voice section (tray / meeting links) resolves to the viewer's
+    /// Assistant, as `first_agent_resolved` does for the screen.
     fn selected_agent_id(&self, cx: &App) -> Option<String> {
         match self.shared.read(cx).settings_section() {
             SettingsSection::Agent(id) => Some(id),
+            SettingsSection::Voice => active_team_id(&self.nav, cx)
+                .and_then(|team_id| crate::session_data::my_assistant(&team_id, cx))
+                .map(|assistant| assistant.id),
             _ => None,
         }
     }
