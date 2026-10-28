@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveSessionDevice, sessionIsPaused } from "./session-device"
+import { resolveSessionDevice } from "./session-device"
 
 // Parity suite — iOS SessionDevicePresentationTests.swift, Android
 // SessionDevicePresentationTest.kt and desktop queries.rs assert the same
@@ -55,24 +55,5 @@ describe(`resolveSessionDevice`, () => {
       label: null,
       online: null,
     })
-  })
-})
-
-describe(`sessionIsPaused`, () => {
-  const offline = { label: `macbook`, online: false }
-  const s = (status: string, busy = false, needsInput = false) =>
-    ({ status, busy, needsInput }) as never
-  it(`pauses running, queued, busy and waiting sessions`, () => {
-    expect(sessionIsPaused(s(`running`), offline)).toBe(true)
-    expect(sessionIsPaused(s(`queued`), offline)).toBe(true)
-    expect(sessionIsPaused(s(`idle`, false, true), offline)).toBe(true)
-  })
-  it(`never pauses an ended or a quiet idle session`, () => {
-    expect(sessionIsPaused(s(`ended`), offline)).toBe(false)
-    expect(sessionIsPaused(s(`idle`), offline)).toBe(false)
-  })
-  it(`unknown or online devices never pause`, () => {
-    expect(sessionIsPaused(s(`running`), { label: `x`, online: null })).toBe(false)
-    expect(sessionIsPaused(s(`running`), { label: `x`, online: true })).toBe(false)
   })
 })

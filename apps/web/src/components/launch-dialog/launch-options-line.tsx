@@ -3,10 +3,8 @@ import {
   ComposerOptionsRow,
   DevicePicker,
   FieldError,
-  Label,
   ModelPicker,
   RepositoryPicker,
-  Switch,
   deviceReadinessBlocker,
   deviceReadinessWarning,
 } from "@exp/ui"
@@ -16,13 +14,12 @@ import {
   MAX_ISSUES_PER_RUN,
   type LaunchComposerModel,
 } from "@/hooks/use-launch-composer"
-import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
 
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
-// composer card — Device, Agent, Model as inline pickers, the Plan switch,
-// the Repository
+// composer card — Device, Agent, Model as inline pickers (S-3: no Plan
+// switch), the Repository
 // picker ONLY while no issue is picked (a chat's or a prompt's anchor, EXP-822), and a
 // `⋯` popover with the rest: Effort, Ultracode (claude), MCP servers
 // (EXP-792). The notes the dialog's option pane used to carry (not ready /
@@ -48,7 +45,7 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 // EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
 // servers and the new per-run Computer use live in the composer's ONE "+"
 // menu (`composer-plus-menu.tsx`). The line is Device · Account · Model ·
-// Plan · Repository ×4 (composer-menu.json) and nothing else (EXP-1293:
+// Repository ×4 (composer-menu.json) and nothing else (EXP-1293:
 // Resume is gone; a session resumes by being messaged).
 
 export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
@@ -116,17 +113,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           models={modelOptions}
           onChange={launch.setModel}
         />
-        {agentSupportsPlanMode(agent) && (
-          <Label className="cursor-pointer gap-1.5 font-normal">
-            <span>Plan</span>
-            <Switch
-              size="sm"
-              checked={launch.planMode}
-              onCheckedChange={launch.setPlanMode}
-              aria-label="Plan mode"
-            />
-          </Label>
-        )}
         {subject?.kind !== `issues` && model.repoOptions.length > 1 && (
           /* EXP-993: a choice only when there IS one — several repos. One
              repo is the chat's anchor without a word said, and repo-less is

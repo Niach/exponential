@@ -101,7 +101,7 @@ describe(`device launch defaults`, () => {
     launchDefaults: {
       defaultAgent: `claude`,
       agents: {
-        claude: { model: `opus`, effort: ``, planMode: true },
+        claude: { model: `opus`, effort: `` },
         codex: { model: ``, effort: `high` },
       },
     },
@@ -136,7 +136,7 @@ describe(`device launch defaults`, () => {
 
   it(`agentSeed validates against the contract and capability-clamps`, () => {
     // The advertised values ride through; blank effort stays blank.
-    expect(agentSeed(`claude`, { model: `opus`, effort: ``, planMode: true })).toEqual(
+    expect(agentSeed(`claude`, { model: `opus`, effort: `` })).toEqual(
       {
         model: `opus`,
         // Every model is explicit: the contract subagent + thread defaults.
@@ -144,7 +144,6 @@ describe(`device launch defaults`, () => {
         threadModel: `haiku`,
         effort: ``,
         ultracode: false,
-        planMode: true,
       }
     )
     // No blank model anywhere, codex included: it reads as the default.
@@ -154,7 +153,6 @@ describe(`device launch defaults`, () => {
       threadModel: `gpt-5.6-luna`,
       effort: `high`,
       ultracode: false,
-      planMode: false,
     })
     // A foreign/unknown value falls back to the static default.
     expect(agentSeed(`claude`, { model: ``, effort: `warp9` })).toEqual({
@@ -163,23 +161,17 @@ describe(`device launch defaults`, () => {
       threadModel: `haiku`,
       effort: ``,
       ultracode: false,
-      planMode: false,
     })
-    // Capability masking beats a lying advertisement: claude ultracodes and
-    // plans, codex does neither.
+    // Capability masking beats a lying advertisement: claude ultracodes,
+    // codex does not (S-3: no plan seed at all).
     expect(
-      agentSeed(`claude`, { model: `fable`, planMode: true, ultracode: true })
+      agentSeed(`claude`, { model: `fable`, ultracode: true })
     ).toEqual({
       model: `fable`,
       subagentModel: `opus`,
       threadModel: `haiku`,
       effort: ``,
       ultracode: true,
-      planMode: true,
-    })
-    // Codex never plans.
-    expect(agentSeed(`codex`, { planMode: true })).toMatchObject({
-      planMode: false,
     })
     // `null` = the static fallback for devices that advertise nothing.
     expect(agentSeed(`claude`, null)).toEqual({
@@ -188,7 +180,6 @@ describe(`device launch defaults`, () => {
       threadModel: `haiku`,
       effort: ``,
       ultracode: false,
-      planMode: false,
     })
     // EXP-981: the subagent model is claude's alone, and only a contract
     // model value survives the seed (else the default).

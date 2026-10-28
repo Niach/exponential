@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {
   agentMenuEntries,
@@ -27,7 +27,6 @@ import type { Team } from "@/db/schema"
 import { actionErrorDescription, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection, sessionCollection } from "@/lib/collections"
 import { canSteerSession } from "@/lib/session-account-switch"
-import { stopSessionTurn } from "@/lib/session-stop"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
@@ -38,12 +37,11 @@ import { trpc } from "@/lib/trpc-client"
 // thread header's `…`; the agent row's right-click / long-press (kind
 // `agent`) and the agent chat header's `…`.
 //
-//   Stop             `sessions.end` on the ROOT (the whole tree ends)
-//   Stop and delete  `sessions.delete` (the server ends what is live first)
-//   Delete           `sessions.delete` (an ended chat)
+//   Delete           `sessions.delete` (the server ends what is live first)
 //   Compact / New    SEND `/compact` / `/new` (one path with the typed ones)
-//   Stop (agent)     `sessions.stop`, the TURN interrupt
 //   Agent settings   the agent's settings page (owners)
+//
+// S-3: no Stop / End anywhere (the composer's stop-turn is the only stop).
 //
 // A delete asks first (`copy.confirmDelete`); after it the open chat closes
 // back to the list. Failures toast `copy.toasts.*`.
@@ -56,10 +54,9 @@ const MoreIcon = conceptIcon(`ui-more`)
 const toastFailed = (title: string, error: unknown) =>
   toastActionError(title, { description: actionErrorDescription(error) })
 
-/** Stop / delete a chat (a ROOT session), the delete behind its confirm.
- *  `dialog` = the confirm, mounted by the host (it outlives the menu). */
+/** Delete a chat (a ROOT session) behind its confirm. `dialog` = the
+ *  confirm, mounted by the host (it outlives the menu). */
 export function useChatActions(teamSlug: string | undefined): {
-  stop: (rootId: string) => Promise<void>
   requestDelete: (rootId: string) => void
   dialog: ReactNode
 } {
@@ -67,15 +64,6 @@ export function useChatActions(teamSlug: string | undefined): {
   const router = useRouter()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  const stop = useCallback(async (rootId: string) => {
-    try {
-      const result = await trpc.sessions.end.mutate({ sessionId: rootId }, SKIP_ERROR_TOAST)
-      await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-    } catch (error) {
-      toastFailed(COPY.toasts.stopFailed, error)
-    }
-  }, [])
 
   const remove = async (rootId: string) => {
     setBusy(true)
@@ -119,14 +107,14 @@ export function useChatActions(teamSlug: string | undefined): {
     />
   )
 
-  return { stop, requestDelete: setDeleting, dialog }
+  return { requestDelete: setDeleting, dialog }
 }
 
 /** A chat's menu entries for the viewer (`threadMenuEntries`): the delete
  *  entries only for the chat's starter or a team owner (`sessions.delete`). */
 export function useChatMenuEntries(
   root: Pick<SessionRow, `id` | `teamId` | `status` | `shared` | `userId`> | null,
-  actions: Pick<ReturnType<typeof useChatActions>, `stop` | `requestDelete`>
+  actions: Pick<ReturnType<typeof useChatActions>, `requestDelete`>
 ): MenuEntry[] {
   const { data: auth } = useSession()
   const me = auth?.user?.id ?? null
@@ -135,10 +123,7 @@ export function useChatMenuEntries(
   const isOwner = Boolean(me) && members.some((m) => m.userId === me && m.role === `owner`)
   const canDelete = Boolean(me) && (root.userId === me || isOwner)
   const entries = threadMenuEntries({ rootStatus: root.status, canSteer: canSteerSession(root, me), canDelete })
-  return chatMenuRows(entries, (entry) => {
-    if (entry === `stop`) void actions.stop(root.id)
-    else actions.requestDelete(root.id)
-  })
+  return chatMenuRows(entries, () => actions.requestDelete(root.id))
 }
 
 const SelectIcon = conceptIcon(`ui-selected`)
@@ -274,7 +259,7 @@ export async function sendAgentLine({
 }
 
 /** The agent menu's rows (`agentMenuEntries`): Compact and New conversation
- *  SEND their builtin line; Stop interrupts the turn; settings for owners. */
+ *  SEND their builtin line; settings for owners. */
 export function useAgentMenuEntries({
   team,
   agentId,
@@ -291,18 +276,9 @@ export function useAgentMenuEntries({
 
   const send = (text: string) =>
     sendAgentLine({ teamId: team.id, agentId, conversationId: conversation?.id ?? null, text })
-  const stop = async () => {
-    if (!conversation) return
-    try {
-      await stopSessionTurn(conversation.id, SKIP_ERROR_TOAST)
-    } catch (error) {
-      toastFailed(COPY.toasts.stopFailed, error)
-    }
-  }
   return agentMenuRows(agentMenuEntries({ busy, isOwner: permissions.isOwner }), (entry) => {
     const line = AGENT_MENU_SENDS[entry]
     if (line) void send(line)
-    else if (entry === `stop`) void stop()
     else void navigate({ to: `/t/$teamSlug/settings/agents/$agentId`, params: { teamSlug: team.slug, agentId } })
   })
 }

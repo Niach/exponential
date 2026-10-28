@@ -40,8 +40,9 @@ import { useEnteringRows } from "@/hooks/use-entering-rows"
 // needs you) + the title (it names the issue), NO captions. A click opens
 // the thread with the `running` origin, which creates NO work tab
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). EXP-1323: a live tree nests its
-// children under the root (TreeGuides, 14px a level; a child opens that
-// session in its thread), a bold title = unread; a row that changes band
+// VISIBLE children under the root (TreeGuides, 14px a level; a child opens
+// that session in its thread; S-3: the rest fold into one muted
+// `<root>:earlier` row that opens the thread), a bold title = unread; a row that changes band
 // enters on the motion tokens. Thread 58cb32df: a root row opens THE chat
 // menu (chats.json MENUS) through the team layout's menu host.
 
@@ -189,6 +190,25 @@ export function SidebarRunningSection({
       <SidebarGroupContent>
         <SidebarMenu>
           {rows.map((row, index) => {
+            if (row.earlier !== undefined) {
+              // S-3: the tree's hidden sub-sessions fold into ONE muted row
+              // (`<root>:earlier`); it opens the thread.
+              return (
+                <SidebarMenuItem key={row.sessionId} className={entering(row.sessionId)}>
+                  <SidebarMenuButton
+                    density="compact"
+                    onClick={() => openThread(row.rootId)}
+                    data-testid={`sidebar-running-${row.sessionId}`}
+                    className="relative text-muted-foreground"
+                    style={{ paddingLeft: SIDEBAR_TREE_BASE + row.depth * TREE_INDENT }}
+                  >
+                    <TreeGuides guide={guides[index]} base={SIDEBAR_TREE_BASE} />
+                    <AgentRunMark agent={rootCli(row.rootId)} state="ended" ringClassName="ring-sidebar" />
+                    <SidebarRunningTitle title={row.title} />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            }
             const device = deviceGlyph(row.deviceId)
             const child = row.depth > 0
             return (
@@ -204,8 +224,8 @@ export function SidebarRunningSection({
                     child ? openThread(row.rootId, row.sessionId) : openThread(row.sessionId)
                   }
                   data-testid={`sidebar-running-${row.sessionId}`}
-                  // Thread 58cb32df: a chat row's menu (Stop · Stop and
-                  // delete | Delete) on right-click / long-press.
+                  // Thread 58cb32df: a chat row's menu (S-3: Delete) on
+                  // right-click / long-press.
                   {...(child ? {} : menuProps(CHAT_ROW_MENU_KIND, row.sessionId))}
                   className={cn(child && `relative`)}
                   style={

@@ -1,10 +1,7 @@
-import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import {
   conceptIcon,
   FloatingComposer,
-  Pill,
-  toastActionError,
   useIsMobile,
   WORK_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
@@ -12,10 +9,6 @@ import {
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
 import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
-import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { actionErrorDescription, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { sessionCollection } from "@/lib/collections"
-import { trpc } from "@/lib/trpc-client"
 import {
   useSessionCard,
   useSessionRow,
@@ -32,18 +25,17 @@ import { cn } from "@/lib/utils"
 //
 //   InPlaceSession   the body of the thread page's session chip
 //                    (`?tab=session&session=<id>`) under the thread's own
-//                    header + strip; the header carries its Stop pill
-//                    (EXP-1343: phones too, a page of the thread's pager)
+//                    header + strip (EXP-1343: phones too, a page of the
+//                    thread's pager); S-3: no Stop pill anywhere
 //   SessionScreen    sessions under a team AGENT (`/sessions/$id`): its own header,
 //                    back to the thread (or the agent's channel), the
-//                    session's name (Chats: no Stop pill under an agent)
+//                    session's name
 //
 // The feed always shows the work (no faces, no Show work, no Guide), and the
 // reply box posts to THIS session. Visibility is the shape's. EXP-1323:
 // opening either marks THIS session read (`useOpenedSessionRead`).
 
 const BackIcon = conceptIcon(`ui-back`)
-const StopIcon = conceptIcon(`coding-stop`)
 const REPLY_PLACEHOLDER = `Reply…`
 
 /** The reply box under a session's feed. */
@@ -166,11 +158,6 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
         >
           {name}
         </h1>
-        {/* Chats STOP: an agent's tree has no header pill; a thread's
-            ends its root. */}
-        {!rootAgentId && rootRow && rootRow.status !== `ended` ? (
-          <SessionStopPill rootId={rootId} />
-        ) : null}
       </div>
     </div>
   )
@@ -196,37 +183,3 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
     />
   )
 }
-
-/** Thread 58cb32df (chats.json STOP): the thread header's Stop pill = the
- *  chat menu's Stop, `sessions.end` on the ROOT (the whole tree ends); shown
- *  while the root is not ended. An agent chat has none (only the composer's
- *  turn stop and the agent menu's). A failure toasts `copy.toasts.stopFailed`. */
-export function SessionStopPill({ rootId }: { rootId: string }) {
-  const [stopping, setStopping] = useState(false)
-  return (
-    <Pill
-      mode="action"
-      className="shrink-0 text-destructive"
-      disabled={stopping}
-      onClick={async () => {
-        setStopping(true)
-        try {
-          const result = await trpc.sessions.end.mutate({ sessionId: rootId }, SKIP_ERROR_TOAST)
-          await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-        } catch (error) {
-          toastActionError(CHATS_COPY.toasts.stopFailed, { description: actionErrorDescription(error) })
-        } finally {
-          setStopping(false)
-        }
-      }}
-      aria-label={STOP_LABEL}
-      title={STOP_LABEL}
-      data-testid="session-stop"
-    >
-      <StopIcon className="size-3.5" />
-      {CHATS_COPY.menu.stop}
-    </Pill>
-  )
-}
-
-const STOP_LABEL = `Stop the chat`

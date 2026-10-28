@@ -18,7 +18,6 @@ import {
   parseConfigState,
   planModeChipLabel,
   sessionModel,
-  planModeToggle,
   parseRateLimit,
   parseContextLayout,
   parseSessionUsage,
@@ -1483,45 +1482,6 @@ describe(`config state`, () => {
     expect(planModeChipLabel(null)).toBeNull()
   })
 
-  // EXP-772: the plan + one-other pair draws a Plan SWITCH; anything else
-  // keeps the two-value chip.
-  it(`planModeToggle recognizes the plan + one other pair`, () => {
-    expect(planModeToggle(parseConfigState(state()))).toEqual({
-      planId: `plan`,
-      buildId: `bypassPermissions`,
-      active: false,
-    })
-    expect(
-      planModeToggle(parseConfigState(state({ currentMode: `plan` })))?.active
-    ).toBe(true)
-    // Three modes, or two without a plan, are not the pair.
-    expect(
-      planModeToggle(
-        parseConfigState(
-          state({
-            modes: [
-              { id: `plan`, label: `Plan` },
-              { id: `default`, label: `Default` },
-              { id: `acceptEdits`, label: `Accept edits` },
-            ],
-          })
-        )
-      )
-    ).toBeNull()
-    expect(
-      planModeToggle(
-        parseConfigState(
-          state({
-            modes: [
-              { id: `default`, label: `Default` },
-              { id: `acceptEdits`, label: `Accept edits` },
-            ],
-          })
-        )
-      )
-    ).toBeNull()
-    expect(planModeToggle(null)).toBeNull()
-  })
 })
 
 // EXP-772: the ACP coalescer flushes one assistant message as several

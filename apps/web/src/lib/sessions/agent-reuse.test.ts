@@ -4,7 +4,8 @@ import { agentReuseRefusal } from "./agent-reuse"
 
 const NOW = new Date(`2026-10-28T12:00:00.000Z`)
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 60 * 60 * 1000)
-const root = (over: Partial<Parameters<typeof agentReuseRefusal>[0]> = {}) => ({
+type Root = Parameters<typeof agentReuseRefusal>[0]
+const root = (over: Partial<Root> = {}): Root => ({
   status: `idle`,
   endedAt: null,
   lastTurnAt: hoursAgo(1),

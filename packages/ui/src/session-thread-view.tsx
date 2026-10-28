@@ -429,11 +429,11 @@ export function ThreadTabs({
 }
 
 /** A session chip's mark state ×4 (`sessionTabMarkState`) in the run
- *  marks' words (waiting = the bare mark). */
+ *  marks' words (idle = the bare mark). */
 export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | undefined {
   if (state === `needs_you`) return `needs_input`
   if (state === `working`) return `working`
-  if (state === `ended`) return `ended`
+  if (state === `done`) return `ended`
   return undefined
 }
 

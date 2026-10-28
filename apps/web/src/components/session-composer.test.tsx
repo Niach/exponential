@@ -267,7 +267,7 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     click.mockRestore()
   })
 
-  it(`N-12: the "+" is the only tool; the device glyph, the model pin and Plan sit in the card`, () => {
+  it(`N-12: the "+" is the only tool; the device glyph and the model pin sit in the card (S-3: no Plan)`, () => {
     renderComposer()
     for (const name of [`Add image`, `Attach files`, `Insert issue reference`, `Insert emoji`]) {
       expect(screen.queryByRole(`button`, { name })).toBeNull()
@@ -276,7 +276,7 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     const row = screen.getByTestId(`session-composer-options`)
     expect(card.contains(row)).toBe(true)
     expect(row.querySelector(`[data-testid="session-composer-model"]`)).toBeTruthy()
-    expect(row.querySelector(`[data-testid="session-composer-plan"]`)).toBeTruthy()
+    expect(row.querySelector(`[data-testid="session-composer-plan"]`)).toBeNull()
     expect(document.querySelector(`[data-slot="composer-options"]`)).toBeNull()
   })
 
@@ -313,37 +313,15 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`opus`)
   })
 
-  it(`the Plan switch changes the live session through sessions.configure`, async () => {
+  it(`an Ultracode pick changes the live session through sessions.configure`, async () => {
     mocks.configure.mockResolvedValue({ txid: 7 })
     renderComposer()
-    const plan = screen.getByTestId(`session-composer-plan`)
-    expect(plan.getAttribute(`aria-checked`)).toBe(`false`)
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
     act(() => {
-      fireEvent.click(plan)
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-ultracode`))
     })
     await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
-    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, planMode: true })
-  })
-
-  it(`a Plan pick outlives a slow sync and settles once the row lands`, async () => {
-    // The row never syncs inside the wait: the pick stays (no flip back to
-    // the stale row), then the synced row says the same and the pick goes.
-    mocks.configure.mockResolvedValue({ txid: 7 })
-    mocks.awaitTxId.mockRejectedValue(new Error(`timeout`))
-    const { rerender } = render(<SessionComposer teamId="t1" sessionId="s1" placeholder="Reply…" />)
-    act(() => {
-      fireEvent.click(screen.getByTestId(`session-composer-plan`))
-    })
-    await waitFor(() => expect(mocks.awaitTxId).toHaveBeenCalledTimes(1))
-    // Drain the configure chain (the rejected wait and whatever follows).
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    expect(screen.getByTestId(`session-composer-plan`).getAttribute(`aria-checked`)).toBe(`true`)
-    mocks.row = sessionRow({ planMode: true })
-    rerender(<SessionComposer teamId="t1" sessionId="s1" placeholder="Reply…" />)
-    expect(screen.getByTestId(`session-composer-plan`).getAttribute(`aria-checked`)).toBe(`true`)
-    expect(mocks.toastActionError).not.toHaveBeenCalled()
+    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, ultracode: true })
   })
 
   it(`a second model pick while one is in flight sends nothing`, async () => {
@@ -364,26 +342,24 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
   })
 
-  it(`a failed configure toasts and drops the optimistic pick`, async () => {
+  it(`a failed configure toasts`, async () => {
     mocks.configure.mockRejectedValue(new Error(`nope`))
     renderComposer()
-    const plan = screen.getByTestId(`session-composer-plan`)
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
     act(() => {
-      fireEvent.click(plan)
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-ultracode`))
     })
     await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
     expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't change the session options`)
-    expect(screen.getByTestId(`session-composer-plan`).getAttribute(`aria-checked`)).toBe(`false`)
   })
 
-  it(`an ended session cannot change its model or plan`, () => {
+  it(`an ended session cannot change its model`, () => {
     mocks.row = sessionRow({ status: `ended` })
     renderComposer()
     expect(
       (screen.getByTestId(`session-composer-model`).querySelector(`button`) as HTMLButtonElement)
         .disabled
     ).toBe(true)
-    expect((screen.getByTestId(`session-composer-plan`) as HTMLButtonElement).disabled).toBe(true)
   })
 })
 

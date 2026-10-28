@@ -52,6 +52,15 @@ describe(`ChatList`, () => {
     expect(painted.querySelector(`.text-amber-400`)?.textContent).toBe(`09:10`)
   })
 
+  it(`S-3: dims a done chat as a whole at shell.dimOpacity`, () => {
+    render(<ChatList rows={rows} />)
+    const painted = screen.getAllByTestId(ids.chatRow)
+    // listCases[0]: d's PRs all merged and nothing works.
+    expect(painted.map((row) => row.getAttribute(`data-dim`))).toEqual([null, null, null, `true`])
+    expect(painted[3]!.style.opacity).toBe(String(fixture.shell.dimOpacity))
+    expect(painted[0]!.style.opacity).toBe(``)
+  })
+
   it(`shows the empty state with no rows`, () => {
     render(<ChatList rows={[]} />)
     expect(screen.queryByTestId(ids.chatRow)).toBeNull()
@@ -78,7 +87,7 @@ describe(`ChatFilterChips`, () => {
       <ChatFilterChips value="all" counts={{ needs_you: 1, running: 2, unread: 0 }} onChange={onChange} />
     )
     const chips = screen.getAllByTestId(ids.chatFilter)
-    expect(chips.map((chip) => chip.textContent)).toEqual([`All`, `Needs you 1`, `Running 2`, `Unread`])
+    expect(chips.map((chip) => chip.textContent)).toEqual([`All`, `Needs you 1`, `Working 2`, `Unread`])
     expect(chips[0]!.getAttribute(`data-selected`)).toBe(`true`)
     fireEvent.click(chips[2]!)
     expect(onChange).toHaveBeenCalledWith(`running`)

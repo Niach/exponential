@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react"
-import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
 import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pane"
 import type { ComposerOptionsBinding } from "@/components/launch-dialog/composer-plus-menu"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
@@ -9,14 +8,13 @@ import { sessionCollection } from "@/lib/collections"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
-// EXP-1334: a live session's "+" options + its Plan switch, changeable
+// EXP-1334: a live session's "+" options (S-3: no Plan switch), changeable
 // MID-SESSION through `sessions.configure` (the row moves, the host device
 // applies it). The synced row is the read; a pick shows at once (optimistic)
 // and stays until the row confirms it. The MCP pick is server-only for every
 // session: seeded once from `sessions.mcpPicks`.
 
 interface Overrides {
-  planMode?: boolean
   effort?: string | null
   ultracode?: boolean
   computerUse?: boolean
@@ -90,7 +88,6 @@ export function useSessionComposerOptions({
 
   // A sync past the wait still settles its pick: whenever the row reads what
   // an override says, the override goes.
-  const rowPlanMode = row?.planMode
   const rowEffort = row?.effort
   const rowUltracode = row?.ultracode
   const rowComputerUse = row?.computerUse
@@ -98,21 +95,19 @@ export function useSessionComposerOptions({
     if (!row) return
     setOver((current) =>
       dropSettled(current, {
-        planMode: rowPlanMode ?? false,
         effort: rowEffort ?? null,
         ultracode: rowUltracode ?? false,
         computerUse: rowComputerUse ?? false,
       })
     )
-    // The row's four option fields are the deps (the row object moves on
+    // The row's three option fields are the deps (the row object moves on
     // every sync).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row === null, rowPlanMode, rowEffort, rowUltracode, rowComputerUse])
+  }, [row === null, rowEffort, rowUltracode, rowComputerUse])
 
   const effort = over.effort !== undefined ? over.effort : (row?.effort ?? null)
   const ultracode = over.ultracode ?? row?.ultracode ?? false
   const computerUse = over.computerUse ?? row?.computerUse ?? false
-  const planMode = over.planMode ?? row?.planMode ?? false
 
   const binding: ComposerOptionsBinding = {
     agent,
@@ -138,16 +133,7 @@ export function useSessionComposerOptions({
         : null,
   }
 
-  return {
-    binding,
-    ended,
-    /** The row's own plan mode, the pick over it until the row says so. */
-    planMode,
-    /** True while a Plan pick waits for its row (the read-out leads). */
-    planPending: over.planMode !== undefined,
-    planSupported: agentSupportsPlanMode(agent),
-    setPlanMode: (value: boolean) => void configure({ planMode: value }),
-  }
+  return { binding, ended }
 }
 
 /** Drops the overrides `picks` set, unless a later pick replaced them. */

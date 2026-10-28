@@ -42,16 +42,3 @@ export function resolveSessionDevice(
       : {}),
   }
 }
-
-/** A live session on an offline machine reads as PAUSED — parked, not gone:
- *  it resumes when the device returns. Ended sessions never pause; an idle
- *  one pauses only while something waits on it (a question/plan). Same
- *  rule ×4. */
-export function sessionIsPaused(
-  session: Pick<Session, `status` | `busy` | `needsInput`>,
-  device: SessionDevice
-): boolean {
-  if (device.online !== false) return false
-  if (session.status === `ended`) return false
-  return session.status === `running` || session.status === `queued` || session.busy || session.needsInput
-}

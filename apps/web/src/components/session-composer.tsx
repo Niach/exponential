@@ -9,7 +9,6 @@ import {
   ComposerReplies,
   ComposerSubmit,
   ContextRing,
-  Label,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
@@ -17,7 +16,6 @@ import {
   ModelPicker,
   Prompt,
   Spinner,
-  Switch,
   toast,
   type ValueChoice,
 } from "@exp/ui"
@@ -46,7 +44,7 @@ import { useComposerReplies } from "@/hooks/use-composer-replies"
 import { useSessionRow } from "@/hooks/use-session-tree"
 import { useSteerCommand } from "@/hooks/use-steer-command"
 import { usePrompts } from "@/hooks/use-prompts"
-import { planModeToggle, sessionModel } from "@/lib/agent-feed"
+import { sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
 import { defaultModelFor } from "@/lib/coding-launch-prefs"
 import {
@@ -66,8 +64,7 @@ import { deviceCollection, messageCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
-import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
-import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { onStopRetraction, STOP_TURN_FAILED, stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -86,7 +83,7 @@ import { cn } from "@/lib/utils"
 // the Device pin as its glyph alone (EXP-1252, a pick MOVES the session;
 // `session-device-pin.tsx`) · the model pin (THE ModelPicker; a pick sends
 // `/model <alias>` through `sessions.send`, shown at once until the relay's
-// `config_state` confirms) · the Plan switch … the context ring (its usage
+// `config_state` confirms) … (S-3: no Plan switch) the context ring (its usage
 // popover on click) beside Send ⇄ Stop. Nothing under the card. The live
 // reads (model in force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
@@ -295,12 +292,6 @@ export function SessionComposer({
       ? choices
       : [{ value: model, label: modelLabel(model) }, ...choices]
   }, [agent, model])
-  // The Plan switch: a pick leads, then the run's live mode, then the
-  // synced row.
-  const livePlan = planModeToggle(config)
-  const planOn = options.planPending
-    ? options.planMode
-    : (livePlan?.active ?? options.planMode)
   const percent = contextPercent(usage)
 
   const addFiles = (picked: File[]) => {
@@ -381,7 +372,7 @@ export function SessionComposer({
       // undelivered one toasts inside `stopSessionTurn`.
       await stopSessionTurn(sessionId)
     } catch {
-      toast.error(CHATS_COPY.toasts.stopFailed)
+      toast.error(STOP_TURN_FAILED)
     }
   }
 
@@ -479,19 +470,6 @@ export function SessionComposer({
                     disabled={options.ended || agent !== `claude`}
                   />
                 </span>
-                {options.planSupported && (
-                  <Label className="cursor-pointer gap-1.5 font-normal">
-                    <span>Plan</span>
-                    <Switch
-                      size="sm"
-                      checked={planOn}
-                      onCheckedChange={options.setPlanMode}
-                      disabled={options.ended}
-                      aria-label="Plan mode"
-                      data-testid="session-composer-plan"
-                    />
-                  </Label>
-                )}
               </div>
             )}
           </>

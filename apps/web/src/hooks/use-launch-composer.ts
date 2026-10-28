@@ -20,7 +20,7 @@ import {
   defaultChatRepoId,
   type ChatRepoOption,
 } from "@/lib/chat-repo"
-import { agentSeed, type CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
+import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import {
   ATTACHMENT_REJECTED_TOAST,
@@ -32,7 +32,6 @@ import {
   type PendingAttachment,
 } from "@/lib/pending-images"
 import {
-  deviceAgentLaunchDefaults,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
@@ -55,7 +54,7 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // into the composer (issue chips, or one PROMPT chip off the `/` menu, NEW-2;
 // picking the other kind swaps), the free text is the first message (instructions beside a subject),
 // files ride as attachments, and the options line under the card carries
-// device/account/model/plan with the rest behind the "+".
+// device/account/model with the rest behind the "+" (S-3: no plan switch).
 //
 // EXP-1293 (Threads v2): a start is ONE `sessions.send` in the ACTIVE team: a
 // new root (a thread) on the picked device, with the subject as its facets
@@ -137,7 +136,6 @@ export function buildSendInput(args: {
     ...(options.account ? { account: options.account } : {}),
     ...(options.model ? { model: options.model } : {}),
     ...(options.effort ? { effort: options.effort } : {}),
-    planMode: options.planMode,
     ultracode: options.ultracode,
     ...(options.computerUse !== undefined ? { computerUse: options.computerUse } : {}),
     ...(options.mcpServerIds && options.mcpServerIds.length > 0
@@ -369,18 +367,14 @@ export function useLaunchComposer({
         : null,
     [teamSlug]
   )
-  const hasSubject = subject !== null
-  // EXP-772: a subjectless session starts in build mode; a subject seeds
-  // plan mode from the device's defaults.
   const launch = useLaunchOptions({
     open: true,
     devices: candidateDevices,
     initialDeviceId: seed?.deviceId,
-    planModeOff: !hasSubject,
     teamId,
     mcpServers: mcp.servers,
   })
-  const { device, agent } = launch
+  const { device } = launch
   // EXP-836: a play button can name a machine the composer cannot start on.
   const deviceRequestNote = useMemo(() => {
     const requested = launch.unavailableRequestId
@@ -393,15 +387,6 @@ export function useLaunchComposer({
     if (!deviceHasRunnableAgent(row)) return `No agent is signed in on ${label}.`
     return null
   }, [launch.unavailableRequestId, devices])
-  const hadSubjectRef = useRef(hasSubject)
-  useEffect(() => {
-    if (hadSubjectRef.current === hasSubject) return
-    hadSubjectRef.current = hasSubject
-    launch.setPlanMode(
-      hasSubject ? agentSeed(agent, deviceAgentLaunchDefaults(device, agent)).planMode : false
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSubject])
 
   // ── Seed ──────────────────────────────────────────────────────────────────
 

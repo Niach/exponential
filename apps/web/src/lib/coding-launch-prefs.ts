@@ -24,7 +24,6 @@ export interface CodingLaunchPrefs {
   /** `""` = "CLI default" (omit the effort flag) — a valid value. */
   effort: string
   ultracode: boolean
-  planMode: boolean
   /** EXP-481: resume the issue's existing worktree/agent session — SINGLE
    * issue starts only (the batch arm strips it before the mutation). */
   resume?: boolean
@@ -98,7 +97,6 @@ export interface AgentLaunchDefaults {
   threadModel?: string
   effort?: string
   ultracode?: boolean
-  planMode?: boolean
   /** EXP-1005: claude only; absent = ON. */
   autoRotateAccounts?: boolean
 }
@@ -124,7 +122,9 @@ export function agentEffortValues(agent: string): readonly string[] {
   }
 }
 
-/** Ultracode and plan mode are Claude-only (EXP-849 dropped pi). EXP-690
+/** Ultracode and plan mode are Claude-only (EXP-849 dropped pi; S-3: the
+ * UI has no plan switch, the server still validates a device's default with
+ * this). EXP-690
  * retired the skip-permissions choice: every launch bypasses the agent's
  * permission prompts. */
 export function agentSupportsUltracode(agent: string): boolean {
@@ -209,6 +209,5 @@ export function agentSeed(
     threadModel,
     effort,
     ultracode: (defaults?.ultracode ?? false) && agentSupportsUltracode(agent),
-    planMode: (defaults?.planMode ?? false) && agentSupportsPlanMode(agent),
   }
 }

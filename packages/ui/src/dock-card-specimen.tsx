@@ -44,8 +44,8 @@ const SOURCES: DockSource[] = [
 
 const ROWS = dockRows(SOURCES)
 // EXP-1374: the session's own state cards (session-card.json `bannerCases`):
-// interrupted (its device went offline), background tasks and (#EXP-1405)
-// queued, waiting for its device.
+// background tasks and (#EXP-1405) queued, waiting for its device (S-3: an
+// interruption draws nothing).
 const STATE_ROWS = dockRows(
   cardFixture.bannerCases
     .map((entry) => sessionBanner(entry.session as never))
@@ -75,7 +75,7 @@ export function DockCardSpecimen() {
         <DockCard row={QUESTION} onOpen={noop} />
         <Caption>A banner: never opens; its action word trails</Caption>
         <DockCard row={BANNER} action={action(BANNER)} />
-        <Caption>The session's own state: interrupted, background tasks, queued</Caption>
+        <Caption>The session's own state: background tasks, queued</Caption>
         {STATE_ROWS.map((row) => (
           <DockCard key={row.id} row={row} />
         ))}
