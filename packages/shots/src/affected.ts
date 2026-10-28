@@ -101,6 +101,10 @@ const IGNORED: RegExp[] = [
   /^apps\/desktop\/crates\/ui\/src\/(lib|window_hooks)\.rs$/,
   // The CLI is gpui-free by construction; the styleguide site READS the store.
   /^apps\/desktop\/crates\/cli\//,
+  // Spikes (`spikes/talk`, NEW-52) are scratch crates outside the cargo
+  // workspace: measurement harnesses the app never links, so one must never
+  // widen the desktop lane (NEW-61).
+  /^apps\/desktop\/spikes\//,
   // The scrubbed activity feed and the relay publisher: the PUBLISHING half of
   // steering. The desktop's own `steering` shot is captured as a VIEWER
   // (EXP-732) — it renders what the relay stub publishes, not what these files
