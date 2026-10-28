@@ -50,7 +50,7 @@ import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.relationSortKey
 import com.exponential.app.domain.PreparedMedia
-import com.exponential.app.domain.isFileAttachment
+import com.exponential.app.domain.issueFileRows
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.domain.SessionTree
@@ -339,14 +339,26 @@ class IssueDetailViewModel @AssistedInject constructor(
      * EXP-824: inline media (video / audio) leaves the rail like images do —
      * it is referenced from the description as a plain link and plays there.
      * EXP-1247: an `as_file` row stays here whatever its type.
+     * NEW-83 (`issueFileRows`): an inline image/media row that neither the
+     * description nor any comment body links IS listed, so an upload nobody
+     * embedded stays reachable; the list recomputes when any of them changes.
      */
-    val fileAttachments: StateFlow<List<AttachmentEntity>> = attachmentsFlow
-        .map { rows ->
-            rows.filter {
-                it.commentId == null && isFileAttachment(it.contentType, it.asFile)
-            }
-                .sortedBy { it.createdAt }
-        }
+    val fileAttachments: StateFlow<List<AttachmentEntity>> = combine(
+        attachmentsFlow,
+        issueFlow.map { it?.description }.distinctUntilChanged(),
+        dbFlow.scopedQuery(emptyList()) { it.commentDao().observeByIssue(issueId) }
+            .map { comments -> comments.map { it.body } }
+            .distinctUntilChanged(),
+    ) { rows, description, bodies ->
+        issueFileRows(
+            rows = rows.sortedBy { it.createdAt },
+            texts = listOf(description) + bodies,
+            id = { it.id },
+            contentType = { it.contentType },
+            asFile = { it.asFile },
+            commentId = { it.commentId },
+        )
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _pendingFiles = MutableStateFlow<List<PendingFileUpload>>(emptyList())

@@ -68,6 +68,33 @@ export function isFileAttachment(input: AttachmentClassInput) {
   return !isInlineImageAttachment(input) && !isInlineMediaAttachment(input)
 }
 
+/**
+ * NEW-83 (fixtures/issue-files.json): the issue's Files list ×4. An
+ * issue-level row lists when it is a file row OR an inline image/media row
+ * no text of the issue links (`/api/attachments/<id>` in the description or
+ * any comment body), so an upload nobody embedded never vanishes. Keeps the
+ * caller's order.
+ */
+export function issueFileRows<
+  Row extends {
+    id: string
+    contentType: string
+    asFile?: boolean | null
+    commentId: string | null
+  },
+>(rows: readonly Row[], texts: readonly (string | null | undefined)[]) {
+  const haystack = texts
+    .filter((text): text is string => !!text)
+    .join(`\n`)
+    .toLowerCase()
+  return rows.filter(
+    (row) =>
+      row.commentId === null &&
+      (isFileAttachment(row) ||
+        !haystack.includes(`/api/attachments/${row.id.toLowerCase()}`))
+  )
+}
+
 const archiveTypes = new Set([
   `application/zip`,
   `application/x-zip-compressed`,

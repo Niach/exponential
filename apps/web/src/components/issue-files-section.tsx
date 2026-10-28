@@ -3,7 +3,7 @@ import { deleteFilePrompt, promptActions } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Download, ExternalLink, Eye, Trash2 } from "lucide-react"
 import type { Attachment } from "@/db/schema"
-import { attachmentCollection } from "@/lib/collections"
+import { attachmentCollection, commentCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { uploadIssueAttachment } from "@/lib/storage/issue-image-upload"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -11,8 +11,8 @@ import {
   buildAttachmentDownloadUrl,
   formatAttachmentSize,
   getAttachmentIcon,
-  isFileAttachment,
   isMarkdownAttachment,
+  issueFileRows,
 } from "@/lib/attachment-files"
 import {
   Button,
@@ -27,18 +27,22 @@ import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdow
 
 interface IssueFilesSectionProps {
   issueId: string
+  /** The saved description: an inline row it links is not a Files row. */
+  description: string | null
   readOnly?: boolean
 }
 
 /**
  * EXP-297 Files rail: the issue's attachments that are neither inline images
  * nor inline media (EXP-824), plus every row uploaded through a FILE path
- * (EXP-1247 `asFile`, e.g. a png picked with the paperclip), rendered
- * straight from the synced `attachments` shape. Members can attach any file
+ * (EXP-1247 `asFile`, e.g. a png picked with the paperclip), plus inline
+ * rows no description or comment links (NEW-83, fixtures/issue-files.json),
+ * rendered straight from the synced `attachments` shape. Members can attach any file
  * type, open/download it, or delete the row.
  */
 export function IssueFilesSection({
   issueId,
+  description,
   readOnly = false,
 }: IssueFilesSectionProps) {
   const { data } = useLiveQuery(
@@ -49,17 +53,26 @@ export function IssueFilesSection({
     [issueId]
   )
 
+  const { data: commentRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ comments: commentCollection })
+        .where(({ comments }) => eq(comments.issueId, issueId))
+        .select(({ comments }) => ({ body: comments.body })),
+    [issueId]
+  )
+
   const files = useMemo(() => {
-    const rows = (data ?? []) as Attachment[]
-    return rows
-      .filter((row) => isFileAttachment(row))
-      // Comment attachments (EXP-554) render under their comment, not here.
-      .filter((row) => row.commentId === null)
-      .sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      )
-  }, [data])
+    const rows = [...((data ?? []) as Attachment[])].sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+    // Comment attachments (EXP-554) render under their comment, not here.
+    return issueFileRows(rows, [
+      description,
+      ...(commentRows ?? []).map((comment) => comment.body),
+    ])
+  }, [data, commentRows, description])
 
   const [uploading, setUploading] = useState(false)
 

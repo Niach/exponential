@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
+import issueFilesFixture from "@exp/domain-contract/fixtures/issue-files.json"
 import {
   formatAttachmentSize,
   isFileAttachment,
   isInlineImageAttachment,
   isInlineMediaAttachment,
   isMarkdownAttachment,
+  issueFileRows,
 } from "@/lib/attachment-files"
 
 describe(`isMarkdownAttachment (EXP-955)`, () => {
@@ -63,4 +65,25 @@ describe(`attachment classification (EXP-1247)`, () => {
     expect(isFileAttachment({ contentType: `image/png`, asFile: null })).toBe(false)
     expect(isFileAttachment({ contentType: `application/zip` })).toBe(true)
   })
+})
+
+// NEW-83: the Files list rule, locked ×4 against
+// `domain-contract/fixtures/issue-files.json` — same case names on the
+// desktop (ui::issue_files), iOS (IssueFilesTests) and Android (IssueFilesTest).
+describe(`issue files (contract fixture)`, () => {
+  for (const row of issueFilesFixture.cases) {
+    it(row.name, () => {
+      expect(
+        issueFileRows(
+          row.rows as {
+            id: string
+            contentType: string
+            asFile: boolean
+            commentId: string | null
+          }[],
+          row.texts
+        ).map((attachment) => attachment.id)
+      ).toEqual(row.files)
+    })
+  }
 })

@@ -8,7 +8,8 @@ import Foundation
 /// pipeline accepts — those live in the description/comment markdown as
 /// `![](…)` and are rendered by the editor. EVERY other row (including other
 /// `image/*` types such as tiff) belongs in the issue's Files section, which
-/// renders straight from the synced `attachments` rows.
+/// renders straight from the synced `attachments` rows. NEW-83: an inline row
+/// no text links lists under Files too (`issueFileRows`).
 ///
 /// Mirrors `acceptedImageContentTypes` / `maxFileUploadBytes` in
 /// apps/web/src/lib/storage/issue-attachments.ts, and its Android twin
@@ -71,7 +72,8 @@ public enum AttachmentFiles {
     }
 
     /// The third class beside inline image and file: rows that render as
-    /// inline media. They leave the Files rail exactly like inline images do.
+    /// inline media. Like inline images they leave the Files rail once a text
+    /// links them; an unlinked one still lists there (NEW-83, `issueFileRows`).
     public static func isInlineMedia(contentType: String) -> Bool {
         isInlineVideo(contentType: contentType) || isInlineAudio(contentType: contentType)
     }
@@ -106,6 +108,53 @@ public enum AttachmentFiles {
 
     public static func isFile(_ row: DraftAttachmentDto) -> Bool {
         isFile(contentType: row.contentType, asFile: row.asFile)
+    }
+
+    // MARK: - NEW-83: the issue's Files list (issue-files.json)
+
+    /// NEW-83 — the rows the issue's Files list shows, in the caller's order
+    /// (callers sort oldest first). A row lists iff it is issue-level
+    /// (`commentId` nil; EXP-554) AND either a FILE row (`isFile`) or an inline
+    /// image/video/audio row that NO text links: neither the description nor
+    /// any comment body contains `/api/attachments/<id>` (id compared
+    /// case-insensitively, relative or absolute url). An inline upload nobody
+    /// embedded stays reachable instead of vanishing; once a text links it, it
+    /// leaves Files and renders in place. `texts` = the description plus every
+    /// comment body (nil/empty ignored). Fixture-locked ×4 by
+    /// `domain-contract/fixtures/issue-files.json` (web `issueFileRows`).
+    public static func issueFileRows(_ rows: [AttachmentEntity], texts: [String?]) -> [AttachmentEntity] {
+        issueFileRows(
+            rows,
+            texts: texts,
+            id: \.id,
+            contentType: \.contentType,
+            asFile: \.asFile,
+            commentId: \.commentId
+        )
+    }
+
+    /// The pure core of `issueFileRows`, generic over the row shape so the
+    /// fixture replay drives it with plain values.
+    public static func issueFileRows<Row>(
+        _ rows: [Row],
+        texts: [String?],
+        id: (Row) -> String,
+        contentType: (Row) -> String,
+        asFile: (Row) -> Bool,
+        commentId: (Row) -> String?
+    ) -> [Row] {
+        // One lowercased haystack, a substring test per row: exact parity
+        // with web `issueFileRows` (apps/web/src/lib/attachment-files.ts).
+        let haystack = texts
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            .lowercased()
+        return rows.filter { row in
+            guard commentId(row) == nil else { return false }
+            if isFile(contentType: contentType(row), asFile: asFile(row)) { return true }
+            return !haystack.contains("/api/attachments/\(id(row).lowercased())")
+        }
     }
 
     // MARK: - Markdown preview (EXP-1003)
