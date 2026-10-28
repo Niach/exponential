@@ -4479,8 +4479,8 @@
         "file": "shots/settings-assistant/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 35340,
-        "sha256": "9ebeb6499d4ba66dcb5bdb352186237eb7a8d3842afcc5b519da1e4d3121aa7e"
+        "bytes": 35430,
+        "sha256": "534ae9fe91fe69e45626082e98b68a357602aa5a76d41bb0231d212ca39b2f0e"
       },
       "desktop": {
         "file": "shots/settings-assistant/desktop.webp",
@@ -4500,15 +4500,15 @@
         "file": "shots/settings-assistant/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 47194,
-        "sha256": "1cbc48d14afb54b740a5d5fb738edc9158dab651292f2e1365f2649e19fbe160"
+        "bytes": 47950,
+        "sha256": "d7ab0237f379836bc0bdd3abe1e3933463da22ed016b446c274bae085d1711cd"
       },
       "web-mobile": {
         "file": "shots/settings-assistant/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 39286,
-        "sha256": "d9b96b363c3e6bc3bf2f03163b7ba449e9928afd6b70f96db806d57224637a41"
+        "bytes": 39052,
+        "sha256": "cddeebab7781475c25eb196b3c0c3245f20f18e1b717b7fca4a3073b29181cd0"
       }
     },
     "settings-boards": {
