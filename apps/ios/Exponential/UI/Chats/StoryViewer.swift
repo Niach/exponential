@@ -7,7 +7,7 @@ import UIKit
 /// over everything on the phone. Top: THE StoryProgress over the ring's
 /// stories, then the header (the ring's avatar, the story's session name,
 /// its meta muted, the close ghost glyph; a tap on the avatar or name opens
-/// that session). Body: the one-line title, then the pictures (fitted, a
+/// that session). Body: the one-line title (none over plan text), then the pictures (fitted, a
 /// pager when several, the caption under it) and/or the surface through THE
 /// surface card renderer, else the plan's markdown. Footer per `footer`:
 /// Approve · Change, the question's chips (+ the free text when custom), a
@@ -135,7 +135,8 @@ struct StoryViewer: View {
     /// The title + body: the tap thirds, the swipes and the held press.
     private func navigable(_ story: Stories.Story) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let title = story.title {
+            // stories.json: no title line over the plan text (its first line).
+            if let title = story.title, story.text == nil {
                 Text(title)
                     .font(.headline)
                     .foregroundStyle(.white)

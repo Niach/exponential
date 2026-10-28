@@ -1302,7 +1302,7 @@ struct AgentSessionView: View {
         // EXP-642: the store slide's pop-out rect is measured off the question
         // card (`PopRects`). `contain` keeps its option buttons queryable.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-feed-question")
+        .accessibilityIdentifier("feed-question")
     }
 
     /// A multi-question ask (EXP-249) as ONE stepper card, claude-style: one
@@ -1374,7 +1374,7 @@ struct AgentSessionView: View {
                 // from the recorded answer, never from the current step's.
                 .id("edit-\(editingStep.id)")
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("agent-feed-question")
+                .accessibilityIdentifier("feed-question")
             } else {
                 QuestionCard(
                     question: current,
@@ -1399,7 +1399,7 @@ struct AgentSessionView: View {
                 // never leak from one question into the next.
                 .id(current.id)
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("agent-feed-question")
+                .accessibilityIdentifier("feed-question")
             }
         }
     }

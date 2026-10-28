@@ -1154,19 +1154,18 @@ final class StyleguideScreenshots: XCTestCase {
         // EXP-1343: a session chip of THIS thread opens as its page under
         // the thread's ONE header (the thread title, Stop while live) — no
         // pushed session screen, no back row (Android's `sg_session` is the
-        // same page). N-12: the relay feed's pending question waits as a
-        // DockCard ("Question: …") above the composer once the feed is live
-        // and answerable; the neighbouring Conversation page's cards are
-        // off screen, so gate on a HITTABLE one.
-        let relayCard = app.buttons
-            .matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "dock-card", "Question"))
+        // same page). S-3: the relay feed's pending question stays inline
+        // (`feed-question`, dock.json) once the feed is live and answerable;
+        // the neighbouring Conversation page's cards are off screen, so gate
+        // on a HITTABLE one.
+        let relayCard = app.descendants(matching: .any).matching(identifier: "feed-question")
         let deadline = Date().addingTimeInterval(Wait.firstSync)
         while Date() < deadline, !relayCard.allElementsBoundByIndex.contains(where: \.isHittable) {
             settle(1)
         }
         XCTAssertTrue(
             relayCard.allElementsBoundByIndex.contains(where: \.isHittable),
-            "The session drew no pending question in its Dock — is `bun run screenshots:desktop` publishing its feed?"
+            "The session drew no pending question inline — is `bun run screenshots:desktop` publishing its feed?"
         )
         expect(
             anyElement(app, identified: "thread-tab-session-\(Self.sessionId)"),
