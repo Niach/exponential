@@ -18,6 +18,7 @@ import {
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { ChatSelectionBar } from "@/components/thread/chat-selection-bar"
+import { StoryRingRow } from "@/components/stories/story-ring-row"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useChatList } from "@/hooks/use-chat-list"
@@ -224,6 +225,9 @@ function ThreadsPage() {
               <span className="truncate">{COPY.title}</span>
             </Link>
           ) : null}
+          {/* S-3 (stories.json): the story rings, above the bubbles until
+              they merge into them. */}
+          {!archivedView && <StoryRingRow teamId={team?.id} teamSlug={teamSlug} />}
           {!archivedView && (
             <AgentBubbles
               bubbles={bubbles}
