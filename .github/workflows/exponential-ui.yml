@@ -23,7 +23,9 @@ name: exponential-ui
 # primitives' interactions against React's. VAPP-105: every job also runs its
 # renderer's BENCHMARK runner (packages/exponential-ui-bench: the scenario
 # fixtures × the React, Solid, web-component, core, gpui, SwiftUI macOS +
-# iPhone Simulator, Compose JVM + emulator runners) and uploads the fragment; `bench` ratchets
+# iPhone Simulator, Compose JVM + emulator runners), uploads the fragment and
+# ratchets it in the same job (EXP-1394: a re-run of the failed job measures
+# again); `bench` ratchets
 # every fragment against budgets.json (worse than the budget fails; a count
 # that got better fails until its budget is lowered; a timing far under its
 # budget warns) and uploads the merged results + the budgets the run suggests.
@@ -103,6 +105,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   solid:
     needs: pick
@@ -152,6 +160,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   element:
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
@@ -196,6 +210,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   rust:
     needs: pick
@@ -265,6 +285,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   swift:
     # Same image as test-ios.yml / build-ios.yml.
@@ -321,6 +347,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   swift-ios:
     # The UIKit paths (`#if canImport(UIKit)`) only compile for iOS: build +
@@ -383,6 +415,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
       - name: Shut the simulator down again (self-hosted)
         if: always() && runner.environment == 'self-hosted' && steps.sim.outputs.booted_here == 'true'
         run: xcrun simctl shutdown "${{ steps.sim.outputs.id }}" || true
@@ -465,6 +503,14 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: |
+          ls .bench/*.json >/dev/null 2>&1 || exit 0  # the device runner may have failed (a warning above)
+          bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   compose:
     needs: pick
@@ -524,6 +570,12 @@ jobs:
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
+      - name: This job's benchmarks hold their budget
+        # EXP-1394: each renderer job gates its OWN fresh fragment (after the
+        # upload, so `bench` still gets it), so "Re-run failed jobs" measures
+        # again. A gate only in `bench` re-ratchets the passed jobs' uploaded
+        # fragments and a re-run repeats the same numbers.
+        run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   conformant:
     needs: [react, solid, element, rust, swift, compose]
@@ -547,6 +599,9 @@ jobs:
     # artifacts: after a green run, record them with
     # `bun run --filter @exponential_app/ui-bench ratchet .bench/*.json --write`
     # and commit budgets.json (and results/<machine>.json for the record).
+    # EXP-1394: every renderer job already gated its own fragment; this is the
+    # merged report. It only re-ratchets the uploaded fragments, so re-running
+    # THIS job alone never measures anything again.
     needs: [react, solid, element, rust, swift, swift-ios, compose, compose-emulator]
     runs-on: ubuntu-latest
     steps:

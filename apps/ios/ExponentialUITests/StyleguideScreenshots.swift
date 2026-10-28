@@ -1168,11 +1168,22 @@ final class StyleguideScreenshots: XCTestCase {
                 .matching(identifier: "session-card")
                 .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
                 .firstMatch
-            for _ in 0..<4 where !(sessionCard.exists && sessionCard.isHittable) {
-                app.swipeDown()
-            }
-            expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" chip or card")
-            sessionCard.tap()
+            // NEW-16: scroll the card BELOW the strip, then tap its centre.
+            revealAndTap(
+                app,
+                sessionCard,
+                below: anyElement(app, identified: "thread-tab-conversation"),
+                "The cold-start thread drew no \"\(Self.sessionTitle)\" chip or card"
+            )
+        }
+        // NEW-16: a tap that missed the card lands on the header's back
+        // button and pops to the Threads list; say so instead of waiting a
+        // minute for a Dock that can never draw.
+        settle(1)
+        if !anyElement(app, identified: "thread-tab-conversation").exists,
+           threadRow(app, containing: Self.coldStartThreadTitle).exists {
+            XCTFail("Opening \"\(Self.sessionTitle)\" popped the thread back to the Threads list: the tap missed the chip/card (header or status bar)")
+            return
         }
         // EXP-1343: a session chip of THIS thread opens as its page under
         // the thread's ONE header (the thread title, Stop while live) — no

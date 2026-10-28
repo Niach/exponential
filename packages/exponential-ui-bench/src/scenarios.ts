@@ -59,7 +59,7 @@ export interface ScenarioDef {
 
 const FIRST_PAINT: MetricDef = { id: `firstPaintMs`, kind: `ms`, what: `From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it.` }
 const NODES: MetricDef = { id: `nodes`, kind: `count`, what: `Placed nodes after the first paint (the reduced tree, template instances included).` }
-const MEMORY: MetricDef = { id: `memoryMb`, kind: `mb`, optional: true, what: `The process's resident footprint after the scenario (RSS / phys_footprint; the JS heap in Chromium), in MB.` }
+const MEMORY: MetricDef = { id: `memoryMb`, kind: `mb`, optional: true, what: `The process's resident footprint after the scenario (RSS / phys_footprint; in Chromium the JS heap retained after a forced GC), in MB.` }
 const PASS_MS = (id: string, what: string): MetricDef => ({ id, kind: `ms`, what })
 
 // ---------------------------------------------------------------------------

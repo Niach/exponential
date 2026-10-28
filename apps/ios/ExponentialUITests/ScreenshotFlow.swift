@@ -658,6 +658,62 @@ extension XCTestCase {
         return element.isHittable
     }
 
+    /// NEW-16: scrolls `element` until its centre sits in the window's
+    /// readable band (below `header`'s bottom edge, or the top eighth when
+    /// there is none, and above the bottom quarter, where the composer and
+    /// the Dock float), then taps THAT point. `isHittable` alone lies here: a
+    /// card scrolled under a floating header or the status bar still reads
+    /// hittable, and XCUITest then taps the visible point it finds (the
+    /// header's back button), popping the screen. Fails the run naming
+    /// `message` when the element never lands in the band.
+    @MainActor
+    func revealAndTap(
+        _ app: XCUIApplication,
+        _ element: XCUIElement,
+        below header: XCUIElement? = nil,
+        attempts: Int = 8,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        _ = element.waitForExistence(timeout: Wait.nav)
+        let window = app.windows.firstMatch.frame
+        guard window.height > 0 else {
+            XCTFail("\(message) — no window frame to scroll in", file: file, line: line)
+            return
+        }
+        let headerBottom = header.flatMap { $0.exists && $0.frame.height > 0 ? $0.frame.maxY : nil }
+        let top = max(headerBottom ?? 0, window.minY + window.height / 8) + 8
+        let bottom = window.maxY - window.height / 4
+        // A short, slow drag (a third of the window) per attempt, from the
+        // middle: a full `swipeUp` flings past a card in one go.
+        let middle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // A lazy list drops a row far off screen from the tree; the
+        // conversation opens on its tail, so a missing row is ABOVE.
+        for _ in 0..<attempts {
+            let mid = element.exists ? element.frame.midY : -1
+            if mid >= top, mid <= bottom { break }
+            let dy: CGFloat = mid < top ? 0.33 : -0.33
+            middle.press(
+                forDuration: 0.05,
+                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5 + dy)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.3
+            )
+        }
+        expect(element, within: 1, message, file: file, line: line)
+        let frame = element.exists ? element.frame : .zero
+        guard element.exists, frame.midY >= top, frame.midY <= bottom else {
+            XCTFail(
+                "\(message) — never scrolled into the visible band \(Int(top))…\(Int(bottom)) pt (its frame \(frame)) after \(attempts) drags",
+                file: file,
+                line: line
+            )
+            return
+        }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
     /// First element of ANY type whose label contains `fragment` — markdown
     /// bodies surface as TextViews rather than StaticTexts, so a
     /// `staticTexts[...]` lookup would miss them.
