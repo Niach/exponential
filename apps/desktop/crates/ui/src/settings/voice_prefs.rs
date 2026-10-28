@@ -19,7 +19,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::{InputEvent, InputState},
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -31,7 +30,7 @@ use domain::voice::{
 
 use domain::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudioCapability, MEETING};
 
-use crate::controls::glass_input;
+use crate::controls::{glass_input, PointerMenuButtonExt as _};
 use crate::picker::{Picker, PickerItem};
 use crate::queries;
 use crate::surface::{glass_group_rows, glass_input_row, glass_picker_row, glass_toggle_row, picker_value_label};
@@ -121,7 +120,7 @@ fn picker_row(
         .text_color(value_color)
         .child(picker_value_label(value))
         .child(crate::surface::picker_row_chevron(cx))
-        .dropdown_menu(move |mut menu, _, _| {
+        .pointer_menu(move |mut menu, _, _| {
             menu = crate::pickers::single_select_menu(menu);
             for (entry_id, entry_label) in entries.clone() {
                 let on_pick = on_pick.clone();

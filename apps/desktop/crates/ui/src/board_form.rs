@@ -449,7 +449,6 @@ fn branch_dropdown<V: gpui::Render>(
     on_pick: impl Fn(&mut V, Option<String>, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> gpui::AnyElement {
-    use gpui_component::menu::DropdownMenu as _;
 
     if disabled {
         use gpui_component::Disableable as _;

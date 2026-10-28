@@ -18,7 +18,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    menu::{PopupMenuItem},
+    menu::PopupMenuItem,
     Icon, Sizable as _,
 };
 

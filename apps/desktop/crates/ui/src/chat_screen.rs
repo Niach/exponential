@@ -59,7 +59,7 @@ use gpui::{
     Window,
 };
 use gpui_component::input::{self as input, InputEvent, TextareaState};
-use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_component::menu::PopupMenuItem;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,

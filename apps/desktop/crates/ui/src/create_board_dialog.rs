@@ -34,7 +34,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::DropdownMenu as _,
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };

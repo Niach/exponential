@@ -306,7 +306,6 @@ pub(crate) fn agent_picker(
     cx: &App,
 ) -> gpui::AnyElement {
     use gpui::{IntoElement as _, ParentElement as _};
-    use gpui_component::menu::DropdownMenu as _;
 
     let glyph = crate::surface::PillSize::Sm.glyph();
     let agents: Vec<coding::CodingAgent> = agents.to_vec();
