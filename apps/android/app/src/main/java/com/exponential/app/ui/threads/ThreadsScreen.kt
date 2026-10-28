@@ -40,6 +40,7 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.AgentBubbles
+import com.exponential.app.ui.stories.StoryRingRow
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.BottomBarInset
@@ -187,6 +188,13 @@ fun ThreadsScreen(
                 onBack = onBack,
                 selected = selected,
                 onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
+                // S-3 STORIES: a header tap opens the story's session (a
+                // child through its own route, the #1309 back stack).
+                storyRow = if (view == Chats.ChatListView.Archived) null else ({
+                    StoryRingRow(onOpenSession = { story ->
+                        if (story.sessionId == story.rootId) onOpenThread(story.rootId) else onOpenSession(story.sessionId)
+                    })
+                }),
                 modifier = Modifier.padding(padding),
             )
         }
@@ -267,6 +275,8 @@ fun ChatsContent(
     /** #EXP-1388: the selection (empty = not selecting). */
     selected: List<String> = emptyList(),
     onToggleSelect: (rootSessionId: String) -> Unit = {},
+    /** S-3 STORIES: the story ring row over the agent bubbles (null = none). */
+    storyRow: (@Composable () -> Unit)? = null,
 ) {
     // #EXP-1384: the header's search pushes the phone search; the inbox
     // circle is this list's own (the specimen drives it).
@@ -291,6 +301,9 @@ fun ChatsContent(
             } else {
                 PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
             }
+        }
+        if (storyRow != null && !archivedPage) {
+            item(key = "__stories__") { storyRow() }
         }
         if (bubbles.isNotEmpty() && !archivedPage) {
             item(key = "__bubbles__") {

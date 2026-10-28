@@ -892,3 +892,171 @@ private fun PlanCardTiles(
         },
     )
 }
+
+/**
+ * S-3 STORIES (stories.json `footer`): a story's footer, drawn by THE card's
+ * own controls and answered through THE card-answer path ([onAnswer] /
+ * [onDecidePlan] = `sessions.answer`, the inline card's call): `plan` = the
+ * plan's questions (if any) over THE decision row ([PlanSheetFooter]:
+ * Approve, Change = reject + its feedback field); `choices` = THE question
+ * block (option rows / tiles + `Other…` when custom) and the Answer button;
+ * `reply` = the free-text field ([Stories.Copy.REPLY]) and Answer; `none`
+ * (a result) = nothing. Sent = the busy line until the answered story drops
+ * out of the fold.
+ */
+@Composable
+internal fun StoryAnswerFooter(
+    row: SessionTree.ThreadRow?,
+    footer: com.exponential.app.domain.Stories.Footer,
+    onAnswer: ThreadAnswer,
+    onDecidePlan: ThreadPlanDecision,
+    modifier: Modifier = Modifier,
+) {
+    val plan = row as? SessionTree.ThreadRow.Plan
+    val question = row as? SessionTree.ThreadRow.Question
+    if (footer == com.exponential.app.domain.Stories.Footer.None || (plan == null && question == null)) return
+    var state by remember(row!!.id) { mutableStateOf<AnswerState?>(null) }
+    val settle: (Boolean) -> Unit = { ok -> state = if (ok) AnswerState.Acked else null }
+    val locked = state.locksCard()
+    val blocks: List<ChoiceBlock> = remember(row) {
+        plan?.questions?.map { ChoiceBlock(it.id, it.prompt, it.multi, it.custom, it.options) }
+            ?: listOf(ChoiceBlock(QUESTION_CARD_ID, null, question!!.multi, question.custom, question.options))
+    }
+    val picks = remember(row.id) { mutableStateMapOf<String, Set<String>>() }
+    val customText = remember(row.id) { mutableStateMapOf<String, String>() }
+    var feedback by remember(row.id) { mutableStateOf("") }
+    var rejecting by remember(row.id) { mutableStateOf(false) }
+
+    fun answerOf(block: ChoiceBlock): List<String> {
+        val picked = block.options.map { it.label }.filter { it in picks[block.id].orEmpty() }
+        val typed = customText[block.id]?.trim()?.takeIf { block.custom && it.isNotEmpty() }
+            ?: return picked
+        return if (block.multi) picked + typed else listOf(typed)
+    }
+
+    fun toggle(block: ChoiceBlock, label: String) {
+        val current = picks[block.id].orEmpty()
+        picks[block.id] = when {
+            label in current -> current - label
+            block.multi -> current + label
+            else -> setOf(label)
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalMarkdownBodyStyle provides TranscriptBodyStyle,
+        LocalInlineCodeStyle provides MdStyle.Chat,
+    ) {
+        Column(
+            modifier = modifier.fillMaxWidth().testTag("story-footer"),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (plan != null) {
+                blocks.forEach { block ->
+                    ChoiceBlockView(
+                        block = block,
+                        caption = if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE,
+                        picked = picks[block.id].orEmpty(),
+                        typed = null,
+                        answered = false,
+                        enabled = !locked,
+                        customText = customText[block.id].orEmpty(),
+                        onToggle = { toggle(block, it) },
+                        onCustomText = { customText[block.id] = it },
+                        topPadding = 0.dp,
+                    )
+                }
+                val answers = blocks.associate { it.id to answerOf(it) }
+                val issue = PlanCard.answerIssue(
+                    PlanCard.Card.Plan(plan.questions),
+                    PlanCard.Input(decision = "approved", planAnswers = answers),
+                )
+                PlanSheetFooter(
+                    onBack = null,
+                    onNext = null,
+                    decide = true,
+                    approveIssue = issue,
+                    rejecting = rejecting,
+                    onRejecting = { rejecting = it },
+                    feedback = feedback,
+                    onFeedback = { feedback = it },
+                    busy = locked,
+                    onDecide = { option ->
+                        val approve = option.decision == "approved"
+                        if (!locked && !(approve && issue != null)) {
+                            state = AnswerState.Sending
+                            onDecidePlan(
+                                plan.id,
+                                PlanAnswer(
+                                    approved = approve,
+                                    fresh = approve && option.fresh,
+                                    feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
+                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
+                                ),
+                                settle,
+                            )
+                        }
+                    },
+                )
+            } else if (question != null) {
+                val block = blocks.first()
+                val reply = footer == com.exponential.app.domain.Stories.Footer.Reply
+                val labels = if (reply) {
+                    listOfNotNull(customText[block.id]?.trim()?.takeIf { it.isNotEmpty() })
+                } else {
+                    answerOf(block)
+                }
+                if (reply) {
+                    CardTextField(
+                        value = customText[block.id].orEmpty(),
+                        onValueChange = { customText[block.id] = it },
+                        placeholder = com.exponential.app.domain.Stories.Copy.REPLY,
+                        enabled = !locked,
+                        singleLine = false,
+                        minHeight = PlanCard.Look.ROW_MIN_HEIGHT.dp,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.testTag("story-reply"),
+                    )
+                } else {
+                    ChoiceBlockView(
+                        block = block,
+                        caption = if (block.multi) PlanCard.Copy.CHOOSE_ANY else null,
+                        picked = picks[block.id].orEmpty(),
+                        typed = null,
+                        answered = false,
+                        enabled = !locked,
+                        customText = customText[block.id].orEmpty(),
+                        onToggle = { toggle(block, it) },
+                        onCustomText = { customText[block.id] = it },
+                        topPadding = 0.dp,
+                    )
+                }
+                // A reply = free text (any non-empty line); choices = THE
+                // card's option rule.
+                val issue = PlanCard.answerIssue(
+                    PlanCard.Card.Question(
+                        if (reply) emptyList() else block.options.map { it.label },
+                        block.multi && !reply,
+                        block.custom || reply,
+                    ),
+                    PlanCard.Input(answers = labels),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (locked) {
+                        AnsweringLine()
+                    } else {
+                        CardButton(
+                            label = PlanCard.Copy.ANSWER,
+                            enabled = issue == null,
+                            modifier = Modifier.testTag("story-answer"),
+                            onClick = {
+                                state = AnswerState.Sending
+                                onAnswer(question.id, AskAnswer(PlanCard.joinAnswers(labels), labels), settle)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
