@@ -847,6 +847,16 @@ fn scope_grants(scope: Option<&HostScope>, cx: &App) -> Vec<String> {
 /// VAPP-107: the private hosts the IDE's policy opts back in (the web
 /// host's `ownPrivateHosts`): the instance's OWN host when it is private
 /// (a localhost dev instance), else none; the LAN stays denied either way.
+/// The instance's origin (`scheme://host[:port]`, no path) for the app
+/// media rule; the raw url minus trailing slashes when it does not parse.
+pub(crate) fn instance_origin(instance_url: &str) -> String {
+    url::Url::parse(instance_url)
+        .ok()
+        .map(|u| u.origin().ascii_serialization())
+        .filter(|o| o != "null")
+        .unwrap_or_else(|| instance_url.trim_end_matches('/').to_string())
+}
+
 pub(crate) fn own_private_hosts(instance_url: &str) -> Vec<String> {
     url::Url::parse(instance_url)
         .ok()
@@ -971,8 +981,12 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
 
 /// The rest of the painter callbacks: icons by CONCEPT from the generated
 /// registry (then raw Lucide names, the web host's map), fonts as the
-/// kitchen sink (the painter default).
-pub(crate) struct IdePlugin;
+/// kitchen sink (the painter default). VAPP-157: an APP host's media
+/// narrows to `domain::apps::app_media_allowed` against the instance's
+/// origin (`media_origin`; empty = relative attachments only).
+pub(crate) struct IdePlugin {
+    pub(crate) media_origin: String,
+}
 
 pub(crate) fn icon_path(name: &str) -> Option<SharedString> {
     crate::icons::registry::concept_by_name(name)
@@ -987,6 +1001,12 @@ impl HostPlugin for IdePlugin {
 
     fn on_unknown(&self, node: &PlacedNode) {
         log::warn!("[exponential-ui host] unknown component {} ({})", node.component, node.id);
+    }
+
+    /// VAPP-157: the app hosts' media rule on the RAW src (a `data:` image,
+    /// audio or video, or this instance's own attachment); deny-only.
+    fn media_allowed(&self, src: &str) -> bool {
+        domain::apps::app_media_allowed(src, &self.media_origin)
     }
 }
 
@@ -1154,6 +1174,7 @@ impl IdeHost {
             .and_then(|_| crate::queries::active_account(cx))
             .map(|a| a.instance_url);
         let allow_private = instance.as_deref().map(own_private_hosts);
+        let media_origin = instance.as_deref().map(instance_origin).unwrap_or_default();
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
         functions.insert("harness.toast".into(), toast_fn());
         functions.insert("harness.openIssue".into(), open_issue_fn());
@@ -1206,7 +1227,7 @@ impl IdeHost {
                 .and_then(exponential_ui::themes::builtin_theme)
                 .or_else(|| exponential_ui::themes::builtin_theme(THEME_ID)),
             mode,
-            plugin: Rc::new(IdePlugin),
+            plugin: Rc::new(IdePlugin { media_origin }),
             ..HostOptions::default()
         };
         let host = cx.new(|cx| {
@@ -1615,6 +1636,23 @@ mod tests {
         assert_eq!(own_private_hosts("http://127.0.0.1:3000/"), vec!["127.0.0.1".to_string()]);
         assert!(own_private_hosts("https://app.exponential.at").is_empty());
         assert!(own_private_hosts("not a url").is_empty());
+    }
+
+    /// VAPP-157: the app host narrows media to the instance's own
+    /// attachments and data media, on the raw src.
+    #[test]
+    fn the_app_host_narrows_media_to_its_instance() {
+        assert_eq!(instance_origin("https://app.exponential.at/"), "https://app.exponential.at");
+        assert_eq!(instance_origin("http://localhost:3000/x"), "http://localhost:3000");
+        let plugin = IdePlugin { media_origin: instance_origin("http://localhost:3000") };
+        let id = "0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90";
+        assert!(plugin.media_allowed(&format!("/api/attachments/{id}")));
+        assert!(plugin.media_allowed(&format!("http://localhost:3000/api/attachments/{id}")));
+        assert!(plugin.media_allowed("data:image/png;base64,iVBORw0KGgo="));
+        assert!(!plugin.media_allowed(&format!("https://evil.example/api/attachments/{id}")));
+        assert!(!plugin.media_allowed("https://evil.example/pixel.png?d=secret"));
+        assert!(!plugin.media_allowed("data:image/svg+xml;base64,PHN2Zz4="));
+        assert!(plugin.media_request("https://evil.example/pixel.png").is_none());
     }
 
     #[test]

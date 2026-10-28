@@ -94,13 +94,24 @@ pub trait HostPlugin: 'static {
         MediaOptions::default()
     }
 
+    /// A host's deny-only narrowing of the media policy, asked with the RAW
+    /// `src` before any resolution: `false` = nothing loads (the denied-src
+    /// rendering), `true` = the policy decides as usual. It can never widen
+    /// the policy. Default: `true` (the generic SDK policy is unchanged).
+    fn media_allowed(&self, _src: &str) -> bool {
+        true
+    }
+
     /// Map an `Image`/`Video`/`Avatar`/markdown image `src` to the request
     /// the image loader makes (absolute url + headers, e.g. auth for
     /// `/api/attachments`). `None` = denied: nothing loads. The default:
-    /// `resolve_url(src)` through [`Self::media_options`]. Whatever this
-    /// returns is re-checked against `media_options()`'s schemes, hosts and
-    /// private opt-ins.
+    /// [`Self::media_allowed`], then `resolve_url(src)` through
+    /// [`Self::media_options`]. Whatever this returns is re-checked against
+    /// `media_options()`'s schemes, hosts and private opt-ins.
     fn media_request(&self, src: &str) -> Option<MediaRequest> {
+        if !self.media_allowed(src) {
+            return None;
+        }
         media_request(&self.resolve_url(src), &self.media_options())
     }
 

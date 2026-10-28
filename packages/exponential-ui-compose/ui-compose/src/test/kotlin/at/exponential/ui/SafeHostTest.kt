@@ -112,6 +112,22 @@ class SafeHostTest {
         val hosted = ExponentialHost(HostOptions(policy = HostPolicy(media = MediaOptions(hosts = listOf("*.example.com")))), CoroutineScope(Dispatchers.Unconfined))
         assertNull(hosted.mediaRequest("https://evil.test/a.png"))
         assertNotNull(hosted.mediaRequest("https://cdn.example.com/a.png"))
+        // VAPP-157: `allow` narrows on the RAW src (before resolveUrl), never widens.
+        val seen = mutableListOf<String>()
+        val narrowed = object : HostPlugin {
+            override val mediaOptions = MediaOptions(allow = { src -> seen += src; src.startsWith("https://cdn.example/") })
+            override fun resolveUrl(src: String): String = if (src == "x") "https://cdn.example/x.png" else src
+        }
+        assertNotNull(policedMediaRequest(narrowed, "https://cdn.example/a.png"))
+        assertNull(policedMediaRequest(narrowed, "https://other.example/a.png"))
+        assertNull("the raw src, not the rewrite", policedMediaRequest(narrowed, "x"))
+        assertEquals(listOf("https://cdn.example/a.png", "https://other.example/a.png", "x"), seen)
+        val never = object : HostPlugin {
+            override val mediaOptions = MediaOptions(allow = { true })
+        }
+        assertNull("never widens", policedMediaRequest(never, "file:///etc/passwd"))
+        val hostNarrowed = ExponentialHost(HostOptions(policy = HostPolicy(media = MediaOptions(allow = { false }))), CoroutineScope(Dispatchers.Unconfined))
+        assertNull(hostNarrowed.mediaRequest("https://cdn.example.com/a.png"))
     }
 
     @Test

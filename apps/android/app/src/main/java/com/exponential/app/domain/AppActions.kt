@@ -5,7 +5,7 @@ import at.exponential.ui.json.JsonValue
 // VAPP-120: typed host ACTIONS, the Android mirror of the pure reference
 // `packages/domain-contract/src/app-actions.ts` (fixtures/app-actions.json is
 // the spec; `AppActionsTest` replays its `parseCases`, `grantCases`,
-// `declaredCases` and `consentCases` and locks [ALL], [TOOLS] and [Copy] to
+// `declaredCases`, `consentCases` and `ownerOnlyCases` and locks [ALL], [TOOLS] and [Copy] to
 // the fixture): which `exponential.<noun>.<op>` functions exist, what a name
 // resolves to, what a package declares, what an app's grants allow, and the
 // consent card's words. The display titles come from the generated contract
@@ -132,8 +132,15 @@ object AppActions {
         return words.any { it in DESTRUCTIVE_WORDS }
     }
 
-    /** May [name] be granted at all: an offered, non-destructive action. */
-    fun actionGrantable(name: String): Boolean = parseActionName(name) != null && !actionDestructive(name)
+    /** VAPP-158: an operation the server runs for a team owner only (members,
+     *  invites, MCP servers, prompts, the team's settings). Never grantable;
+     *  always asks (the plain card). */
+    fun actionOwnerOnly(name: String): Boolean = name in OWNER_ACTIONS
+
+    /** May [name] be granted at all: an offered action that is neither
+     *  destructive nor owner-only. */
+    fun actionGrantable(name: String): Boolean =
+        parseActionName(name) != null && !actionDestructive(name) && !actionOwnerOnly(name)
 
     /** `exponential.issues.update_status` → the tool and op it runs; null for
      *  anything that is not an offered action. */
@@ -156,7 +163,7 @@ object AppActions {
 
     /** Does the app's `granted_tools` list let [name] run without asking?
      *  Exact names only (a grant is a person's choice, never a pattern), and
-     *  a destructive action ignores a stored grant: it always asks. */
+     *  a destructive or owner-only action ignores a stored grant: it always asks. */
     fun grantAllows(granted: List<String>, name: String, args: Map<String, JsonValue>): Boolean =
         actionGrantable(name) && !callDestructive(name, args) && name in granted
 
@@ -167,6 +174,17 @@ object AppActions {
 
     /** The fixture's `destructiveWords` (`AppActionsTest` locks the copy). */
     internal val DESTRUCTIVE_WORDS = listOf("delete", "merge", "close", "end", "remove", "trash")
+
+    /** The fixture's `ownerActions` (`AppActionsTest` locks the copy). */
+    internal val OWNER_ACTIONS = listOf(
+        "exponential.people.add",
+        "exponential.people.invites_create",
+        "exponential.people.invites_revoke",
+        "exponential.team_config.mcp_servers_add",
+        "exponential.team_config.prompts_create",
+        "exponential.team_config.prompts_update",
+        "exponential.teams.update",
+    )
 
     /** The fixture's `destructiveArgs`: an arg that makes a grantable
      *  action's call destructive (`sessions.send` + `stop` = stop-run). */

@@ -73,7 +73,10 @@ data class MediaRule(val prefix: String, val headers: Map<String, String>)
  * contract's `media.defaultSchemes`: https, http, data; `file` only when
  * listed); [hosts] = the http(s) hosts media may load from (exact or
  * `*.example.com`; null = any); [allowPrivate] = the private hosts media
- * may load from (VAPP-107; null = none).
+ * may load from (VAPP-107; null = none). [allow] = a host's deny-only
+ * narrowing (VAPP-157): it sees the RAW src (before `resolveUrl`, and each
+ * redirect target), false = nothing loads; it never widens the rules above
+ * (null = no narrowing; not part of the contract's JSON).
  */
 data class MediaOptions(
     val baseUrl: String? = null,
@@ -81,6 +84,7 @@ data class MediaOptions(
     val schemes: List<String>? = null,
     val hosts: List<String>? = null,
     val allowPrivate: List<String>? = null,
+    val allow: ((String) -> Boolean)? = null,
 ) {
     /** The contract's JSON. */
     val json: String
@@ -142,7 +146,13 @@ fun safeHref(host: HostPlugin, url: String): String? {
  * host's [HostPlugin.mediaOptions] (defaults without them). null = denied
  * or unresolvable: nothing loads, the fallback paints.
  */
-fun policedMediaRequest(host: HostPlugin, src: String): MediaRequest? = policedMediaRequest(host.resolveUrl(src), host.mediaOptions)
+fun policedMediaRequest(host: HostPlugin, src: String): MediaRequest? = policedRawMediaRequest(src, host.mediaOptions, host::resolveUrl)
+
+/** [MediaOptions.allow] on the raw [src] first (a deny-only narrowing), then [resolve] and the core's `mediaRequest`. */
+internal fun policedRawMediaRequest(src: String, options: MediaOptions?, resolve: (String) -> String): MediaRequest? {
+    if (options?.allow?.invoke(src) == false) return null
+    return policedMediaRequest(resolve(src), options)
+}
 
 /** [src] through the core's `mediaRequest` with [options] (null = the contract defaults). */
 fun policedMediaRequest(src: String, options: MediaOptions?): MediaRequest? {

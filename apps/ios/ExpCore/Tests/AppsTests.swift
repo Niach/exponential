@@ -151,6 +151,32 @@ final class AppsTests: XCTestCase {
         XCTAssertNil(Apps.firstTemplateId(packageJSON: "not json"))
     }
 
+    // MARK: - VAPP-157 the media rule (`mediaPolicy.cases`)
+
+    func testMediaPolicyConstantsMatchTheFixture() throws {
+        let policy = try XCTUnwrap(try fixture()["mediaPolicy"] as? [String: Any])
+        XCTAssertEqual(policy["dataMimePrefixes"] as? [String], Apps.mediaDataMimePrefixes)
+        XCTAssertEqual(policy["deniedDataMimes"] as? [String], Apps.mediaDeniedDataMimes)
+        XCTAssertEqual(policy["attachmentPath"] as? String, Apps.mediaAttachmentPath)
+    }
+
+    func testMediaPolicyCases() throws {
+        let policy = try XCTUnwrap(try fixture()["mediaPolicy"] as? [String: Any])
+        let origin = try XCTUnwrap(policy["origin"] as? String)
+        let list = try XCTUnwrap(policy["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let src = try XCTUnwrap(item["src"] as? String)
+            XCTAssertEqual(Apps.appMediaAllowed(src, origin: origin), try XCTUnwrap(item["expected"] as? Bool), src)
+        }
+        // A trailing slash on the origin changes nothing; no origin = relative + data only.
+        let uuid = "0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90"
+        XCTAssertTrue(Apps.appMediaAllowed("\(origin)/api/attachments/\(uuid)", origin: origin + "/"))
+        XCTAssertFalse(Apps.appMediaAllowed("\(origin)/api/attachments/\(uuid)", origin: ""))
+        XCTAssertTrue(Apps.appMediaAllowed("/api/attachments/\(uuid)", origin: ""))
+        XCTAssertFalse(Apps.appMediaAllowed("/api/attachments/\(uuid)\n", origin: origin))
+    }
+
     // MARK: - exp: sources (web `devicesValue`; the rest: AppSourcesTests)
 
     func testDevicesValueDerivesLikeTheWebHost() {

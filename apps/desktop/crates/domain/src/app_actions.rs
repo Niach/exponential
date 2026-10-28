@@ -1,7 +1,8 @@
 //! VAPP-120 — typed host ACTIONS, the Rust twin of
 //! `packages/domain-contract/src/app-actions.ts` (iOS `AppActions.swift`,
 //! Android `AppActions.kt`), byte-locked by `fixtures/app-actions.json`
-//! (`parseCases`, `grantCases`, `declaredCases`, `consentCases`): which
+//! (`parseCases`, `grantCases`, `declaredCases`, `consentCases`,
+//! `ownerOnlyCases`): which
 //! `exponential.<noun>.<op>` functions exist, what a name resolves to, what a
 //! package declares, what an app's grants allow, and the consent card's
 //! words. Pure: the app host feeds it names, grants and args.
@@ -24,7 +25,7 @@ pub struct ActionsCopy {
     pub hint: String,
     pub none: String,
     pub granted: String,
-    /// The row of a destructive action, in place of its switch.
+    /// The row of a destructive or owner-only action, in place of its switch.
     pub always: String,
 }
 
@@ -43,6 +44,8 @@ struct ActionsSpec {
     destructive_words: Vec<String>,
     #[serde(rename = "destructiveArgs")]
     destructive_args: BTreeMap<String, Vec<String>>,
+    #[serde(rename = "ownerActions")]
+    owner_actions: Vec<String>,
     functions: Vec<String>,
     tools: BTreeMap<String, ToolRow>,
     copy: ActionsCopy,
@@ -108,9 +111,17 @@ pub fn action_destructive(name: &str) -> bool {
         .any(|w| SPEC.destructive_words.iter().any(|d| d == w))
 }
 
-/// May `name` be granted at all: an offered, non-destructive action.
+/// VAPP-158: an operation the server runs for a team owner only (members,
+/// invites, MCP servers, prompts, the team's settings). Never grantable;
+/// always asks (the plain card).
+pub fn action_owner_only(name: &str) -> bool {
+    SPEC.owner_actions.iter().any(|a| a == name)
+}
+
+/// May `name` be granted at all: an offered action that is neither
+/// destructive nor owner-only.
 pub fn action_grantable(name: &str) -> bool {
-    parse_action_name(name).is_some() && !action_destructive(name)
+    parse_action_name(name).is_some() && !action_destructive(name) && !action_owner_only(name)
 }
 
 /// A destructive CALL: a destructive action, or a grantable one whose args
@@ -258,6 +269,20 @@ mod tests {
         }
         assert_eq!(SPEC.grant_role, GRANT_ROLE);
         assert!(!SPEC.destructive_words.is_empty() && SPEC.destructive_args.contains_key("exponential.sessions.send"));
+    }
+
+    #[test]
+    fn owner_only_cases() {
+        for case in cases("ownerOnlyCases") {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(action_owner_only(name), case["expected"].as_bool().unwrap(), "{name}");
+        }
+        // Every owner action is an offered one, and the card stays plain.
+        for name in &SPEC.owner_actions {
+            assert!(parse_action_name(name).is_some(), "{name}");
+            assert!(!action_grantable(name), "{name}");
+            assert!(!call_destructive(name, &Map::new()), "{name}");
+        }
     }
 
     #[test]

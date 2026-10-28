@@ -107,7 +107,9 @@ export async function writeVersionInTx(
     .for(`update`)
   const number = (locked?.headVersion ?? app.headVersion) + 1
   const declared = packageActions(pkg)
-  const grantedTools = args.byOwner ? (locked?.grantedTools ?? app.grantedTools ?? []).filter((name) => declared.includes(name)) : []
+  // VAPP-158: a stored grant that is no longer grantable (an owner-only or
+  // destructive action) is dropped on the way, never carried to a new head.
+  const grantedTools = args.byOwner ? (locked?.grantedTools ?? app.grantedTools ?? []).filter((name) => declared.includes(name) && actionGrantable(name)) : []
   const [version] = await tx
     .insert(appVersions)
     .values({
@@ -153,8 +155,9 @@ export const appUpdateInputSchema = z.object({
       z
         .string()
         .refine((name) => APP_ACTIONS.includes(name), { message: `not an offered action` })
-        // The ruling: a destructive action can never be granted; it always asks.
-        .refine((name) => actionGrantable(name), { message: `a destructive action always asks and cannot be granted` })
+        // The ruling: a destructive or owner-only action (VAPP-158) can never
+        // be granted; it always asks.
+        .refine((name) => actionGrantable(name), { message: `a destructive or owner-only action always asks and cannot be granted` })
     )
     .max(200)
     .optional(),

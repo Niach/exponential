@@ -903,7 +903,16 @@ impl HostPlugin for HostAdapter {
     /// header); a base that answers `None` defers to the host's policy over
     /// `base.resolve_url(src)` (the default hook only knows the default
     /// schemes).
+    fn media_allowed(&self, src: &str) -> bool {
+        self.base.media_allowed(src)
+    }
+
+    /// The base's deny-only [`HostPlugin::media_allowed`] first (on the raw
+    /// src: a `false` loads nothing, whatever the policy says).
     fn media_request(&self, src: &str) -> Option<MediaRequest> {
+        if !self.base.media_allowed(src) {
+            return None;
+        }
         let media = self.media.borrow();
         match self.base.media_request(src) {
             Some(req) => {
@@ -1032,6 +1041,24 @@ mod tests {
         assert!(plugin.media_request("/evil").is_none(), "the host's hosts list re-checks the override");
         assert_eq!(plugin.media_request("file:///tmp/deny.png").map(|r| r.url), Some("file:///tmp/deny.png".to_string()), "a base None defers to the host's policy");
         assert!(plugin.media_request("https://other.example/deny.png").is_none());
+    }
+
+    /// VAPP-157: a base's deny-only `media_allowed` sees the raw src and
+    /// denies before the base hook or the host's policy run; it never widens.
+    #[test]
+    fn the_base_media_allowed_narrows_only() {
+        use super::*;
+        struct Narrow;
+        impl HostPlugin for Narrow {
+            fn media_allowed(&self, src: &str) -> bool {
+                src.starts_with("/ok")
+            }
+        }
+        let media = MediaOptions { base_url: Some("https://files.example".into()), ..Default::default() };
+        let plugin = host_plugin_with(WeakEntity::new_invalid(), Rc::new(Narrow), Rc::new(RefCell::new(media)), Rc::new(RefCell::new(UrlPolicy::default())));
+        assert_eq!(plugin.media_request("/ok.png").map(|r| r.url), Some("https://files.example/ok.png".to_string()));
+        assert!(plugin.media_request("https://files.example/no.png").is_none());
+        assert!(!plugin.media_allowed("/no.png"));
     }
 
     #[test]

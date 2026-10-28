@@ -69,7 +69,10 @@ export function AppSettingsPage({
     if (!app || !canGrant || !actionGrantable(name)) return
     setToolBusy(name)
     try {
-      const next = on ? [...granted.filter((g) => g !== name), name] : granted.filter((g) => g !== name)
+      // VAPP-158: a stored grant that is no longer grantable never rides along
+      // (the server refuses it), so the toggle writes grantable names only.
+      const kept = granted.filter((g) => g !== name && actionGrantable(g))
+      const next = on ? [...kept, name] : kept
       const result = await trpc.apps.update.mutate({ id: app.id, grantedTools: next }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch (error) {
@@ -219,7 +222,7 @@ export function AppSettingsPage({
                       aria-label={`${APP_ACTIONS_COPY.granted}: ${actionTitle(name)}`}
                     />
                   ) : (
-                    // The ruling: a destructive action is never grantable.
+                    // The ruling: a destructive or owner-only action is never grantable.
                     <span className="shrink-0 text-sm text-muted-foreground">{APP_ACTIONS_COPY.always}</span>
                   )}
                 </div>

@@ -1,7 +1,7 @@
 //! VAPP-110 — Exponential apps, the Rust twin of
 //! `packages/domain-contract/src/apps.ts` (iOS `Apps.swift`, Android
 //! `domain/Apps.kt`), byte-locked by `fixtures/apps.json` (`slugifyCases`,
-//! `versionLabelCases`, `sortAppsCases`). The copy, the
+//! `versionLabelCases`, `sortAppsCases`, `mediaPolicy.cases`). The copy, the
 //! pane ratio and the preview frame come FROM the fixture ([`APPS`]); the
 //! caps from the contract (`apps`).
 
@@ -309,6 +309,65 @@ pub fn sort_apps<T: AppListLike>(apps: &mut [T]) {
     apps.sort_by(|a, b| fold(a.name()).to_lowercase().cmp(&fold(b.name()).to_lowercase()));
 }
 
+/// VAPP-157: the fixture's `mediaPolicy` (the app hosts' media rule).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppMediaPolicy {
+    pub data_mime_prefixes: Vec<String>,
+    pub denied_data_mimes: Vec<String>,
+    pub attachment_path: String,
+}
+
+pub static APP_MEDIA_POLICY: LazyLock<AppMediaPolicy> = LazyLock::new(|| {
+    let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).expect("apps.json parses");
+    serde_json::from_value(fixture["mediaPolicy"].clone()).expect("apps.json mediaPolicy parses")
+});
+
+/// JS `String.prototype.trim`'s whitespace (Rust's plus the BOM; Rust's
+/// extra NEL only rejects more).
+fn js_space(c: char) -> bool {
+    c.is_whitespace() || c == '\u{feff}'
+}
+
+/// `8-4-4-4-12` ASCII hex digits, any case (the TS reference's `/i` regex).
+fn is_uuid(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 36
+        && b.iter().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => *c == b'-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
+/// VAPP-157: the app hosts' media rule ×4 (`appMediaAllowed(src, origin)`,
+/// a plain string rule): a `data:` image, audio or video (never svg), or
+/// the instance's own `/api/attachments/<uuid>` (relative, or on `origin`
+/// exactly) with nothing after the id. Applied to the RAW src, before any
+/// resolution; a host narrows its media policy with it, never widens.
+pub fn app_media_allowed(src: &str, origin: &str) -> bool {
+    let policy = &*APP_MEDIA_POLICY;
+    if src.is_empty() || src.trim_matches(js_space) != src {
+        return false;
+    }
+    let lower = src.to_ascii_lowercase();
+    if lower.starts_with("data:") {
+        let Some(comma) = lower.find(',') else { return false };
+        let mime = lower[5..comma].split(';').next().unwrap_or("");
+        return policy.data_mime_prefixes.iter().any(|p| mime.starts_with(p.as_str()) && mime.len() > p.len())
+            && !policy.denied_data_mimes.iter().any(|d| d == mime);
+    }
+    let path = if src.starts_with('/') && !src.starts_with("//") {
+        src
+    } else {
+        let base = origin.trim_end_matches('/').to_lowercase();
+        if base.is_empty() || !lower.starts_with(&format!("{base}/")) {
+            return false;
+        }
+        &src[base.len()..]
+    };
+    path.strip_prefix(policy.attachment_path.as_str()).is_some_and(is_uuid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +456,24 @@ mod tests {
             let want: Vec<&str> = case["order"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
             assert_eq!(order, want);
         }
+    }
+
+    #[test]
+    fn app_media_allowed_replays_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let policy = &fixture["mediaPolicy"];
+        let origin = policy["origin"].as_str().unwrap();
+        let cases = policy["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let src = case["src"].as_str().unwrap();
+            assert_eq!(app_media_allowed(src, origin), case["expected"].as_bool().unwrap(), "{src:?}");
+        }
+        // A trailing slash on the origin changes nothing; no origin = relative only.
+        let id = "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90";
+        assert!(app_media_allowed(&format!("{origin}{id}"), &format!("{origin}/")));
+        assert!(app_media_allowed(id, ""));
+        assert!(!app_media_allowed(&format!("{origin}{id}"), ""));
+        assert!(!app_media_allowed(&format!("{id}\u{feff}"), origin));
     }
 }

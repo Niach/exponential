@@ -71,9 +71,25 @@ public enum AppActions {
         return words.contains { destructiveWords.contains(String($0)) }
     }
 
-    /// May `name` be granted at all: an offered, non-destructive action.
+    /// VAPP-158: the fixture's `ownerActions` (`AppActionsTests` locks the
+    /// list): the non-destructive operations the server runs for a team
+    /// owner only (members, invites, MCP servers, prompts, team settings).
+    static let ownerActions: Set<String> = [
+        "exponential.people.add", "exponential.people.invites_create", "exponential.people.invites_revoke",
+        "exponential.team_config.mcp_servers_add", "exponential.team_config.prompts_create", "exponential.team_config.prompts_update",
+        "exponential.teams.update",
+    ]
+
+    /// An owner-only operation: never grantable; always asks (the plain
+    /// card, `callDestructive` is unchanged).
+    public static func actionOwnerOnly(_ name: String) -> Bool {
+        ownerActions.contains(name)
+    }
+
+    /// May `name` be granted at all: an offered action that is neither
+    /// destructive nor owner-only.
     public static func actionGrantable(_ name: String) -> Bool {
-        parseActionName(name) != nil && !actionDestructive(name)
+        parseActionName(name) != nil && !actionDestructive(name) && !actionOwnerOnly(name)
     }
 
     /// The verb tools: a function that maps to a whole tool, no op.

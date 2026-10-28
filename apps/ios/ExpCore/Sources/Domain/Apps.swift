@@ -122,6 +122,65 @@ public enum Apps {
     public static let recordMaxBytes = 16_384
     public static let recordKindsMax = 16
 
+    // MARK: - VAPP-157 the app hosts' media rule (fixture `mediaPolicy`)
+
+    /// The fixture's `dataMimePrefixes`, `deniedDataMimes` and
+    /// `attachmentPath` (`AppsTests` locks them).
+    public static let mediaDataMimePrefixes = ["image/", "audio/", "video/"]
+    public static let mediaDeniedDataMimes = ["image/svg+xml"]
+    public static let mediaAttachmentPath = "/api/attachments/"
+
+    /// The TS `appMediaAllowed` byte for byte (a plain string rule over
+    /// UTF-16 units, like the JS): a `data:` image, audio or video (never
+    /// svg), or the instance's own `/api/attachments/<uuid>` (relative or on
+    /// `origin` exactly) with nothing after the id. Applied to the RAW src.
+    public static func appMediaAllowed(_ src: String, origin: String) -> Bool {
+        if src.isEmpty || jsTrim(src) != src { return false }
+        let lower = src.lowercased()
+        if lower.hasPrefix("data:") {
+            guard let comma = lower.firstIndex(of: ",") else { return false }
+            let header = lower[lower.index(lower.startIndex, offsetBy: 5)..<comma]
+            let mime = String(header.split(separator: ";", omittingEmptySubsequences: false).first ?? "")
+            return mediaDataMimePrefixes.contains { mime.hasPrefix($0) && mime.utf16.count > $0.utf16.count }
+                && !mediaDeniedDataMimes.contains(mime)
+        }
+        let path: [UInt16]
+        if src.hasPrefix("/"), !src.hasPrefix("//") {
+            path = Array(src.utf16)
+        } else {
+            var trimmed = origin
+            while trimmed.hasSuffix("/") { trimmed.removeLast() }
+            let base = trimmed.lowercased()
+            if base.isEmpty || !lower.hasPrefix(base + "/") { return false }
+            path = Array(src.utf16.dropFirst(base.utf16.count))
+        }
+        return attachmentPathMatches(path)
+    }
+
+    /// `^<attachmentPath><uuid>$`, ASCII case-insensitive (the JS `i` flag
+    /// never folds a non-ASCII unit onto ASCII).
+    private static func attachmentPathMatches(_ path: [UInt16]) -> Bool {
+        let prefix = Array(mediaAttachmentPath.utf16)
+        guard path.count == prefix.count + 36 else { return false }
+        func fold(_ u: UInt16) -> UInt16 { (0x41...0x5A).contains(u) ? u + 0x20 : u }
+        for (i, u) in prefix.enumerated() where fold(path[i]) != fold(u) { return false }
+        for (i, u) in path.dropFirst(prefix.count).enumerated() {
+            if [8, 13, 18, 23].contains(i) {
+                if u != 0x2D { return false }
+            } else {
+                let f = fold(u)
+                if !((0x30...0x39).contains(f) || (0x61...0x66).contains(f)) { return false }
+            }
+        }
+        return true
+    }
+
+    /// JS `String.prototype.trim`'s set: whitespace, line terminators and
+    /// the BOM.
+    private static func jsTrim(_ value: String) -> String {
+        value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
+    }
+
     // MARK: - The model
 
     /// `v{n}`, or the "no version" copy while an app has no head.
