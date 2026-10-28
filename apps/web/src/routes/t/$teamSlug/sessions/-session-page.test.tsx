@@ -188,13 +188,13 @@ describe(`the session page`, () => {
   })
 
   // EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`.
-  it(`opens the thread's Guide for ?view=guide`, () => {
+  it(`S-3: ?view=guide (old PR footers) opens the thread's conversation`, () => {
     mocks.search.current = { view: `guide` }
     render(<Page />)
     const target = screen.getByTestId(`navigate`)
     expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/threads/$threadId`)
     expect(target.getAttribute(`data-thread`)).toBe(`s1`)
-    expect(target.getAttribute(`data-tab`)).toBe(`guide`)
+    expect(target.getAttribute(`data-tab`)).toBeNull()
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
   })
 })

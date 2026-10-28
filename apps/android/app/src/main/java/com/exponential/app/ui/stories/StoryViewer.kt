@@ -106,7 +106,7 @@ fun StoryViewer(
     modifier: Modifier = Modifier,
     onSeen: (Stories.Story) -> Unit = {},
     onOpenSession: (Stories.Story) -> Unit = {},
-    /** The styleguide's still: the timer never runs. */
+    /** The styleguide's still: the timer never runs, the progress stays at 0. */
     frozen: Boolean = false,
 ) {
     data class Entry(val ringKey: String, val storyId: String)
@@ -182,7 +182,8 @@ fun StoryViewer(
             StoryProgress(
                 count = segments.size,
                 index = segments.indexOf(position).coerceAtLeast(0),
-                fraction = story.autoAdvanceMs?.let { elapsed / it } ?: 1f,
+                // The styleguide's still freezes it at 0 (stories.json `specimen.viewer`).
+                fraction = if (frozen) 0f else story.autoAdvanceMs?.let { elapsed / it } ?: 1f,
             )
             StoryHeader(ring, story, avatar(ring), onOpen = { onOpenSession(story) }, onClose = onClose)
             StoryNavigable(
@@ -220,7 +221,7 @@ private fun StoryHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            StoryRing(stories = ring.stories, size = AVATAR) { StoryAvatarMark(avatar.icon, avatar.color) }
+            StoryRing(stories = ring.stories, size = AVATAR) { StoryAvatarMark(avatar.icon, avatar.color, cli = avatar.cli) }
             Column(Modifier.weight(1f)) {
                 Text(
                     story.sessionName,

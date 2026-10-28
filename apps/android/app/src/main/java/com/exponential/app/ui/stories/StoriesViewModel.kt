@@ -31,9 +31,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** A ring's avatar: an agent's icon in its colour, else (a chat's root) the
- *  session glyph muted ([color] null). */
-data class StoryAvatar(val icon: String?, val color: String?)
+/** A ring's avatar (stories.json AVATARS): an agent's icon in its colour,
+ *  else ([color] null, a chat's root) the chat row's bare brand mark of the
+ *  root's [cli]. */
+data class StoryAvatar(val icon: String?, val color: String?, val cli: String? = null)
 
 /** What the ring row + the viewer draw: the active team's rings, each
  *  story's card as THE thread row (the viewer's body + footer read it) and
@@ -66,8 +67,12 @@ class StoriesViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val sessions = dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }
-        .map { rows -> rows.map(SessionTree::session) }
+    private val sessionRows = dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }
+
+    private val sessions = sessionRows.map { rows -> rows.map(SessionTree::session) }
+
+    /** Session id → its CLI (a root chat ring's brand mark). */
+    private val clis: Flow<Map<String, String?>> = sessionRows.map { rows -> rows.associate { it.id to it.cli } }
 
     /** Session id → its title (THE session title over the digests). */
     private val titles: Flow<Map<String, String>> = combine(
@@ -103,12 +108,12 @@ class StoriesViewModel @Inject constructor(
     }
 
     val state: StateFlow<StoriesState> = combine(
-        combine(sessions, titles) { s, t -> s to t },
+        combine(sessions, titles, clis) { s, t, c -> Triple(s, t, c) },
         cards,
         combine(agents, reads) { a, r -> a to r },
         selection.selectedId,
         minuteClock,
-    ) { (s, names), messages, (defs, readRows), team, now ->
+    ) { (s, names, cliOf), messages, (defs, readRows), team, now ->
         val inTeam = s.filter { team == null || it.teamId == team }
         val ids = inTeam.mapTo(HashSet()) { it.id }
         val rings = Stories.rings(
@@ -155,7 +160,7 @@ class StoriesViewModel @Inject constructor(
                     agent?.color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR,
                 )
             } else {
-                StoryAvatar(null, null)
+                StoryAvatar(null, null, ring.rootId?.let { cliOf[it] })
             }
         }
         StoriesState(rings, rows, avatars)

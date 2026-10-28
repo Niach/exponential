@@ -40,6 +40,15 @@ fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
     }
 }
 
+/// The lead's BARE brand mark (the root's CLI, Claude when none): what a
+/// waiting row's disc holds, and what a chat's story ring wears
+/// (stories.json AVATARS: no badge, no PR glyph).
+pub(crate) fn chat_brand_mark(agent: Option<coding::CodingAgent>, glyph: f32) -> AnyElement {
+    crate::coding_selects::agent_mark(agent.unwrap_or_default())
+        .with_size(px(glyph))
+        .into_any_element()
+}
+
 /// The 52 lead DISC (bg muted) and what it holds: the brand mark with the
 /// amber badge, the working mark, the root's PR glyph, else the bare brand
 /// mark. `agent` = the root's CLI. #EXP-1388: a `selected` row's disc steps
@@ -52,11 +61,7 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
     } else {
         theme.muted
     };
-    let brand = || {
-        crate::coding_selects::agent_mark(agent.unwrap_or_default())
-            .with_size(px(GLYPH_PX))
-            .into_any_element()
-    };
+    let brand = || chat_brand_mark(agent, GLYPH_PX);
     let body = match lead {
         ChatLead::Working => crate::coding_selects::agent_working_mark(agent.or(Some(Default::default())), GLYPH_PX)
             .into_any_element(),

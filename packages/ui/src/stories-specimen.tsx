@@ -1,172 +1,278 @@
 import type { ReactNode } from "react"
 import {
-  STORIES_COPY,
+  stories,
   STORY_VIEWER,
-  type Story,
+  type StoriesInput,
+  type StoryAgentInput,
   type StoryRing as StoryRingModel,
 } from "@exp/domain-contract/stories"
-import { planCardStandIn } from "./plan-card-specimen"
-import { StoryAvatar, StoryRingRow, StoryViewerPanel, storyCardDetail } from "./stories"
+import { StoryAvatar, StoryProgress, StoryRing, StoryRingRow, StoryViewerPanel, storyCardDetail } from "./stories"
 
-// S-3 STORIES: the story ring + viewer specimens (fixtures/stories.json),
-// drawn by the styleguide entries `story-ring` / `story-viewer` and the
-// app's DEV-ONLY `?dev=story-ring` / `?dev=story-viewer` captures; the
-// natives' specimens draw the same rings and story.
+// S-3 STORIES: THE styleguide specimens (fixtures/stories.json `specimen`,
+// its `$comment` is the spec), drawn by the styleguide entries `story-ring` /
+// `story-viewer` and the app's DEV-ONLY `?dev=story-ring` / `?dev=story-viewer`
+// captures. The input is hardcoded identically on every platform (desktop
+// styleguide entries, iOS, Android StorySpecimens) and `cases` replays it.
 
-const ASSISTANT = { icon: `bot`, color: `#8b5cf6` }
-const OPS = { icon: `rocket`, color: `#f59e0b` }
+/** An agent of the specimen: the fold's input plus its mark (the bubble's
+ *  icon + colour). */
+type SpecimenAgent = StoryAgentInput & { icon: string; color: string }
 
-const story = (over: Partial<Story> & Pick<Story, `id` | `kind`>): Story => ({
-  sessionId: `sg-${over.id}`,
-  rootId: `sg-${over.id}`,
-  sessionName: `Fix the nav`,
-  waiting: false,
-  seen: false,
-  createdAt: 0,
-  meta: `${STORIES_COPY[over.kind]} · 5m`,
-  title: null,
-  pictures: [],
-  surface: false,
-  text: null,
-  footer: over.kind === `plan` ? `plan` : over.kind === `question` ? `choices` : `none`,
-  autoAdvanceMs: null,
-  ...over,
-})
+/** stories.json `specimen.input`. */
+export const STORY_SPECIMEN_INPUT: Omit<StoriesInput, `agents`> & { agents: readonly SpecimenAgent[] } = {
+  now: 1800000000000,
+  sessions: [
+    {
+      id: `triage`,
+      rootId: `triage`,
+      name: `Triage`,
+      agentId: `a-triage`,
+      startedByAgentId: null,
+    },
+    {
+      id: `board`,
+      rootId: `board`,
+      name: `Board header polish`,
+      agentId: null,
+      startedByAgentId: null,
+    },
+    {
+      id: `designer`,
+      rootId: `designer`,
+      name: `Designer`,
+      agentId: `a-designer`,
+      startedByAgentId: null,
+    },
+    {
+      id: `ship`,
+      rootId: `ship`,
+      name: `Ship the launch checklist`,
+      agentId: null,
+      startedByAgentId: null,
+    },
+  ],
+  agents: [
+    {
+      id: `a-triage`,
+      name: `Triage`,
+      assistant: false,
+      icon: `bug`,
+      color: `#a855f7`,
+    },
+    {
+      id: `a-designer`,
+      name: `Designer`,
+      assistant: false,
+      icon: `palette`,
+      color: `#ec4899`,
+    },
+  ],
+  messages: [
+    {
+      id: `triage-plan`,
+      sessionId: `triage`,
+      authorSessionId: `triage`,
+      createdAt: 1799999460000,
+      answeredAt: null,
+      card: {
+        kind: `plan`,
+        plan: `## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.`,
+        decision: null,
+      },
+    },
+    {
+      id: `triage-result`,
+      sessionId: `triage`,
+      authorSessionId: `triage`,
+      createdAt: 1799998200000,
+      answeredAt: null,
+      card: {
+        kind: `surface`,
+        story: true,
+        title: `Today's triage`,
+        surface: {
+          root: {
+            id: `r`,
+            component: `Text`,
+            props: {
+              text: `3 labelled`,
+            },
+          },
+        },
+      },
+    },
+    {
+      id: `board-question`,
+      sessionId: `board`,
+      authorSessionId: `board`,
+      createdAt: 1799999760000,
+      answeredAt: null,
+      card: {
+        kind: `question`,
+        question: `Which accent for the board header?`,
+        options: [`Indigo`, `Emerald`],
+        optionDescriptions: [`The brand accent`, `Matches the merged state`],
+        custom: false,
+        surface: {
+          root: {
+            id: `root`,
+            component: `Stack`,
+            props: {
+              gap: `md`,
+            },
+            children: [
+              {
+                id: `title`,
+                component: `Text`,
+                props: {
+                  text: `Board header`,
+                },
+                children: [],
+              },
+              {
+                id: `accent`,
+                component: `ChoiceTiles`,
+                props: {
+                  name: `accent`,
+                  options: [
+                    {
+                      label: `Indigo`,
+                      value: `indigo`,
+                    },
+                    {
+                      label: `Emerald`,
+                      value: `emerald`,
+                    },
+                  ],
+                  value: {
+                    path: `/accent`,
+                  },
+                },
+                children: [],
+              },
+              {
+                id: `stat`,
+                component: `StatTile`,
+                props: {
+                  label: `Header height`,
+                  value: `48 px`,
+                  delta: `−8 px`,
+                  tone: `success`,
+                },
+                children: [],
+              },
+            ],
+          },
+          data: {
+            accent: `indigo`,
+          },
+        },
+      },
+    },
+    {
+      id: `designer-result`,
+      sessionId: `designer`,
+      authorSessionId: `designer`,
+      createdAt: 1799996400000,
+      answeredAt: null,
+      card: {
+        kind: `surface`,
+        story: true,
+        title: `Spacing review`,
+        surface: {
+          root: {
+            id: `r`,
+            component: `Text`,
+            props: {
+              text: `No drift`,
+            },
+          },
+        },
+      },
+    },
+    {
+      id: `ship-result`,
+      sessionId: `ship`,
+      authorSessionId: `ship`,
+      createdAt: 1799992800000,
+      answeredAt: null,
+      card: {
+        kind: `surface`,
+        story: true,
+        title: `Checklist done`,
+        surface: {
+          root: {
+            id: `r`,
+            component: `Text`,
+            props: {
+              text: `12 of 12`,
+            },
+          },
+        },
+      },
+    },
+  ],
+  reads: [
+    {
+      sessionId: `ship`,
+      readAt: 1799996400000,
+      storySeenAt: null,
+    },
+  ],
+}
 
-/** The four rings of the specimen: the Assistant's (first whatever its
- *  state), a chat with a waiting question, an unseen result, a seen one. */
-export const STORY_RING_SPECIMEN: StoryRingModel[] = [
-  {
-    key: `agent:sg-assistant`,
-    agentId: `sg-assistant`,
-    rootId: null,
-    title: `Assistant`,
-    assistant: true,
-    waiting: 0,
-    unseen: true,
-    stories: [
-      story({ id: `a1`, kind: `result`, sessionName: `Assistant`, title: `Inbox triaged`, autoAdvanceMs: 6000 }),
-      story({ id: `a2`, kind: `result`, sessionName: `Assistant`, seen: true, title: `Standup notes` }),
-    ],
-  },
-  {
-    key: `root:sg-nav`,
-    agentId: null,
-    rootId: `sg-nav`,
-    title: `Fix the nav`,
-    assistant: false,
-    waiting: 1,
-    unseen: true,
-    stories: [story({ id: `q1`, kind: `question`, waiting: true, title: `Which colour?` })],
-  },
-  {
-    key: `agent:sg-ops`,
-    agentId: `sg-ops`,
-    rootId: null,
-    title: `Ops`,
-    assistant: false,
-    waiting: 0,
-    unseen: true,
-    stories: [
-      story({ id: `r1`, kind: `result`, sessionName: `Nightly deploy`, title: `Deploy green`, autoAdvanceMs: 6000 }),
-      story({ id: `r2`, kind: `result`, sessionName: `Smoke tests`, title: `Smoke tests pass`, autoAdvanceMs: 6000 }),
-      story({ id: `r3`, kind: `result`, sessionName: `Smoke tests`, seen: true, title: `Lighthouse 98` }),
-    ],
-  },
-  {
-    key: `root:sg-login`,
-    agentId: null,
-    rootId: `sg-login`,
-    title: `Ship the login`,
-    assistant: false,
-    waiting: 0,
-    unseen: false,
-    stories: [story({ id: `s1`, kind: `result`, sessionName: `Ship the login`, seen: true, title: `Login shipped` })],
-  },
-]
+/** stories.json `specimen.smallRing`: the rings again, without titles. */
+export const STORY_SPECIMEN_SMALL_RING = 36
 
-/** The specimen rings' avatars (the agent's mark / the session's CLI). */
-export function storySpecimenAvatar(ring: Pick<StoryRingModel, `agentId` | `assistant`>): ReactNode {
-  if (ring.assistant) return <StoryAvatar agent={ASSISTANT} />
-  if (ring.agentId) return <StoryAvatar agent={OPS} />
-  return <StoryAvatar cli="claude" />
+/** stories.json `specimen.progress`. */
+export const STORY_SPECIMEN_PROGRESS = { count: 4, index: 1, fraction: 0.4 } as const
+
+/** The specimen's rings = the fold of its input (Board header polish,
+ *  Triage, Designer, Ship the launch checklist). */
+export const STORY_RING_SPECIMEN: StoryRingModel[] = stories(STORY_SPECIMEN_INPUT)
+
+/** A ring's avatar: an agent ring = its icon in its colour on the muted disc
+ *  (the bubble's look); a chat ring = the chat row's BARE brand mark (the
+ *  specimen sessions carry no CLI = the default mark). */
+export function storySpecimenAvatar(ring: Pick<StoryRingModel, `agentId`>): ReactNode {
+  const agent = ring.agentId ? STORY_SPECIMEN_INPUT.agents.find((row) => row.id === ring.agentId) : undefined
+  if (agent) return <StoryAvatar agent={{ icon: agent.icon, color: agent.color }} />
+  return <StoryAvatar cli={null} />
 }
 
 export function StoryRingSpecimen() {
   return (
     <div
       data-testid="story-ring-specimen"
-      className="flex w-[24rem] max-w-full flex-col gap-3 rounded-3xl border border-glass-stroke-card bg-background p-4"
+      className="flex w-[24rem] max-w-full flex-col gap-4 rounded-3xl border border-glass-stroke-card bg-background p-4"
     >
       <StoryRingRow rings={STORY_RING_SPECIMEN} avatarFor={storySpecimenAvatar} onOpen={() => {}} />
+      <div data-slot="story-ring-specimen-small" className="flex gap-3">
+        {STORY_RING_SPECIMEN.map((ring) => (
+          <StoryRing key={ring.key} stories={ring.stories} size={STORY_SPECIMEN_SMALL_RING}>
+            {storySpecimenAvatar(ring)}
+          </StoryRing>
+        ))}
+      </div>
+      <StoryProgress
+        count={STORY_SPECIMEN_PROGRESS.count}
+        index={STORY_SPECIMEN_PROGRESS.index}
+        fraction={STORY_SPECIMEN_PROGRESS.fraction}
+      />
     </div>
   )
 }
 
-/** The viewer's specimen card: a draft question over an eUI surface with
- *  two choices. */
-export const STORY_VIEWER_SPECIMEN_CARD = {
-  kind: `question`,
-  story: true,
-  question: `Which header ships?`,
-  options: [`Compact`, `Spacious`],
-  custom: false,
-  surface: {
-    root: {
-      id: `s`,
-      component: `Stack`,
-      props: { direction: `vertical`, gap: `sm` },
-      children: [
-        { id: `t`, component: `Text`, props: { text: `Two header variants for the board page` } },
-        {
-          id: `c`,
-          component: `ChoiceTiles`,
-          props: {
-            name: `variant`,
-            options: [
-              { label: `Compact`, value: `compact` },
-              { label: `Spacious`, value: `spacious` },
-            ],
-            value: { path: `/variant` },
-          },
-        },
-      ],
-    },
-    data: { variant: `compact` },
-  },
-} as const
+/** The viewer's ring (`specimen.viewer.ring` = 0) and its first story. */
+export const STORY_VIEWER_SPECIMEN_RING: StoryRingModel = STORY_RING_SPECIMEN[0]!
 
-export const STORY_VIEWER_SPECIMEN_RING: StoryRingModel = {
-  key: `root:sg-header`,
-  agentId: null,
-  rootId: `sg-header`,
-  title: `Redesign the header`,
-  assistant: false,
-  waiting: 1,
-  unseen: true,
-  stories: [
-    story({
-      id: `sv-q`,
-      kind: `question`,
-      sessionName: `Redesign the header`,
-      waiting: true,
-      title: STORY_VIEWER_SPECIMEN_CARD.question,
-      surface: true,
-      meta: `${STORIES_COPY.question} · 2m`,
-    }),
-    story({
-      id: `sv-r`,
-      kind: `result`,
-      sessionName: `Redesign the header`,
-      title: `Header shipped`,
-      pictures: [{ label: `header`, attachmentId: `att-2`, width: 800, height: 500, caption: null }],
-      autoAdvanceMs: 6000,
-    }),
-  ],
-}
+/** The raw card of the viewer's story (the waiting board question). */
+export const STORY_VIEWER_SPECIMEN_CARD = STORY_SPECIMEN_INPUT.messages.find(
+  (message) => message.id === STORY_VIEWER_SPECIMEN_RING.stories[0]!.id
+)!.card
 
-/** THE viewer frame, open on its first story (the modal's size, drawn in
- *  place so a capture needs no portal). */
+/** THE viewer frame, open on ring 0, story 0, the progress frozen at 0 (the
+ *  modal's size, drawn in place so a capture needs no portal). */
 export function StoryViewerSpecimen({ frame = true }: { frame?: boolean }) {
   const ring = STORY_VIEWER_SPECIMEN_RING
   const first = ring.stories[0]!
@@ -185,10 +291,9 @@ export function StoryViewerSpecimen({ frame = true }: { frame?: boolean }) {
         ring={ring}
         story={first}
         index={0}
-        fraction={1}
-        avatar={<StoryAvatar cli="claude" />}
+        fraction={0}
+        avatar={storySpecimenAvatar(ring)}
         detail={storyCardDetail(STORY_VIEWER_SPECIMEN_CARD)}
-        attachmentSrc={planCardStandIn}
         onPrev={() => {}}
         onNext={() => {}}
         onClose={() => {}}
