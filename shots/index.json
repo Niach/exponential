@@ -445,8 +445,8 @@
         "file": "shots/call-controls/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 45504,
-        "sha256": "d580c88a28e93bfe069da11dce49c403164f43fbaca45de25e62f83becbfb948"
+        "bytes": 45374,
+        "sha256": "aecbe817c443fee06043cb835a1511f2b870e4624e6eade255622ac387b4bb76"
       },
       "ios": {
         "file": "shots/call-controls/ios.webp",
@@ -4937,8 +4937,8 @@
         "file": "shots/settings-voice/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 34816,
-        "sha256": "2e1333ef4a888a63dd9246ae496f675e259d89c4d2858022cc886ad8c1ee5e15"
+        "bytes": 34876,
+        "sha256": "6f1a420e9c3bfd5abc3bbb14f6b927166fa7f51a35f15d9d2a9d70a4ac9843e8"
       },
       "ios": {
         "file": "shots/settings-voice/ios.webp",
@@ -5264,8 +5264,8 @@
         "file": "shots/voice-call/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 57152,
-        "sha256": "9c79900b87186c5812991eaa815c201a7a7bb2cb583efb16b31464612eecd0b7"
+        "bytes": 58304,
+        "sha256": "fe23f3a5626fc628b88d08d1ec0e962198f5f7e9e26b114a729da262b3b63b51"
       },
       "ios": {
         "file": "shots/voice-call/ios.webp",
