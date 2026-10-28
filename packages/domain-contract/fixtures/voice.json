@@ -331,12 +331,17 @@
     {"in": "", "max": 8, "out": ""},
     {"in": "Hey Studio", "max": 64, "out": "Hey Studio"},
     {"in": "  spaced  ", "max": 64, "out": "  spaced  "},
-    {"in": "Hello\tthere", "max": 64, "out": "Hellothere"},
-    {"in": "line one\nline two", "max": 64, "out": "line oneline two"},
-    {"in": "a\r\nb", "max": 64, "out": "ab"},
-    {"in": "\u0000a\u001fb\u007fc\u0085d\u009fe", "max": 64, "out": "abcde"},
+    {"in": "Hello\tthere", "max": 64, "out": "Hello there"},
+    {"in": "line one\nline two", "max": 64, "out": "line one line two"},
+    {"in": "a\r\nb", "max": 64, "out": "a b"},
+    {"in": "a\n\n\t\u000b\u000cb", "max": 64, "out": "a b"},
+    {"in": "a \n b", "max": 64, "out": "a   b"},
+    {"in": "a\u0085b", "max": 64, "out": "a b"},
+    {"in": "a\u0000b", "max": 64, "out": "ab"},
+    {"in": "a\n\u0000\nb", "max": 64, "out": "a  b"},
+    {"in": "\u0000a\u001fb\u007fc\u0084d\u009fe", "max": 64, "out": "abcde"},
     {"in": "abcdef", "max": 4, "out": "abcd"},
-    {"in": "ab\tcd", "max": 4, "out": "abcd"},
+    {"in": "ab\tcd", "max": 4, "out": "ab c"},
     {"in": "Jürgen", "max": 6, "out": "Jürgen"},
     {"in": "ab😀", "max": 4, "out": "ab😀"},
     {"in": "abc😀", "max": 4, "out": "abc"},
@@ -344,7 +349,8 @@
     {"in": "👩‍💻", "max": 5, "out": "👩‍💻"},
     {"in": "👩‍💻", "max": 4, "out": "👩‍"},
     {"in": "éé", "max": 3, "out": "ée"},
-    {"in": "/home/me/voice.wav\n", "max": 512, "out": "/home/me/voice.wav"}
+    {"in": "/home/me/voice.wav\n", "max": 512, "out": "/home/me/voice.wav "},
+    {"in": "\r\nHey Studio", "max": 64, "out": " Hey Studio"}
   ],
   "languageNoteCases": [
     {
