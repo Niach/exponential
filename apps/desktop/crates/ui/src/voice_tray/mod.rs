@@ -22,11 +22,19 @@
 //! #NEW-97: while no tray host shows the item (GNOME without AppIndicator)
 //! the rail's footer carries the same rows ([`rail`], `domain::voice::rail_voice`),
 //! clicked through [`click`] = the tray's own handlers.
+//! NEW-58: the Screen memory switch (`fixtures/screen-memory.json`): device-
+//! local and kept like Mute, default off; while on and this IDE is the voice
+//! device the `screen` crate captures ([`coding::screen::start`]); a sign-out,
+//! another account or another voice device turns it off and deletes the
+//! buffer; a failed start toasts and flips it back off.
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
 
 use api::voice::VoiceUpdate;
-use domain::voice::{rail_voice, tray_icon, tray_menu, RailVoice, TrayContext, TrayIcon, TrayItem, TrayItemId, VoiceSettings};
+use coding::screen;
+use domain::voice::{
+    rail_voice, tray_icon, tray_menu, RailVoice, ScreenMemoryState, TrayContext, TrayIcon, TrayItem, TrayItemId, VoiceSettings,
+};
 
 /// The app icon (the one `desktop_integration` installs on Linux).
 const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/logo-white.svg");
@@ -113,6 +121,8 @@ pub(crate) enum TrayEvent {
     /// #NEW-97: whether a host shows the item now (Linux; every answer).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Hosted(bool),
+    /// NEW-58: screen memory went off, active or paused.
+    Screen(screen::Status),
 }
 
 /// #NEW-76: two activations closer than this are one (a Windows double-click
@@ -138,6 +148,7 @@ fn item_key(id: TrayItemId) -> &'static str {
         TrayItemId::SpeakReplies => "voice-tray:speak-replies",
         TrayItemId::PushToTalk => "voice-tray:push-to-talk",
         TrayItemId::WakeWord => "voice-tray:wake-word",
+        TrayItemId::ScreenMemory => "voice-tray:screen-memory",
         TrayItemId::Mute => "voice-tray:mute",
         TrayItemId::Settings => "voice-tray:settings",
         TrayItemId::Quit => "voice-tray:quit",
@@ -152,6 +163,7 @@ fn item_of(key: &str) -> Option<TrayItemId> {
         TrayItemId::SpeakReplies,
         TrayItemId::PushToTalk,
         TrayItemId::WakeWord,
+        TrayItemId::ScreenMemory,
         TrayItemId::Mute,
         TrayItemId::Settings,
         TrayItemId::Quit,
@@ -160,38 +172,70 @@ fn item_of(key: &str) -> Option<TrayItemId> {
     .find(|id| item_key(*id) == key)
 }
 
-/// #NEW-86: the device-local file Mute microphone persists in.
+/// #NEW-86: the device-local file Mute microphone (and NEW-58's Screen
+/// memory) persists in.
 const STATE_FILE: &str = "voice-tray.json";
 
 /// #NEW-86: what the tray keeps on this device across restarts.
-#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct TrayState {
     #[serde(default)]
     muted: bool,
+    /// NEW-58: the Screen memory switch.
+    #[serde(default)]
+    screen_memory: bool,
+    /// NEW-58: the account that turned it on (another one turns it off).
+    #[serde(default)]
+    screen_account: Option<String>,
 }
 
-/// #NEW-86: Mute as this device last left it (a missing or unreadable file
-/// = not muted).
-fn load_muted(data_dir: &std::path::Path) -> bool {
+/// #NEW-86: the tray as this device last left it (a missing or unreadable
+/// file = not muted, screen memory off).
+fn load_state(data_dir: &std::path::Path) -> TrayState {
     std::fs::read(data_dir.join(STATE_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<TrayState>(&bytes).ok())
-        .is_some_and(|state| state.muted)
+        .unwrap_or_default()
 }
 
-/// #NEW-86: keep Mute for the next start.
-fn save_muted(data_dir: &std::path::Path, muted: bool) {
-    let written = serde_json::to_vec(&TrayState { muted })
+/// #NEW-86: keep Mute (and Screen memory) for the next start.
+fn save_state(data_dir: &std::path::Path, state: &TrayState) {
+    let written = serde_json::to_vec(state)
         .map_err(std::io::Error::other)
         .and_then(|bytes| std::fs::write(data_dir.join(STATE_FILE), bytes));
     if let Err(err) = written {
-        log::warn!("[ui] voice tray: cannot keep Mute: {err}");
+        log::warn!("[ui] voice tray: cannot keep its switches: {err}");
     }
+}
+
+/// NEW-58: this OS captures (ScreenCaptureKit, the ScreenCast portal or X11,
+/// Windows Graphics Capture): the Screen memory row shows.
+const SCREEN_AVAILABLE: bool = cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows"));
+
+/// NEW-58: the Screen memory switch and the capture it drives.
+#[derive(Debug)]
+struct ScreenMemory {
+    /// The switch (device-local, kept).
+    on: bool,
+    /// The account that turned it on.
+    account: Option<String>,
+    /// What the screen crate last reported (the Paused label).
+    status: screen::Status,
+    /// `screen::start` was asked for (and not stopped since).
+    running: bool,
+    /// Bumped on every start and stop: a slow start that lost the race
+    /// stops again.
+    generation: u64,
+    /// An account was signed in during this process (a later None is a
+    /// sign-out, not the start-up before the first sync).
+    seen_account: bool,
 }
 
 pub(crate) struct VoiceTray {
     /// Mute microphone: device-local, kept across restarts (#NEW-86).
     muted: bool,
+    /// NEW-58: the Screen memory switch, kept like Mute.
+    screen: ScreenMemory,
     /// Where Mute is kept.
     data_dir: std::path::PathBuf,
     /// The optimistic settings while a toggle's write is in flight.
@@ -224,11 +268,25 @@ pub fn install(cx: &mut App) {
     let device_id = steer::persistent_device_id(&data_dir);
     // #NEW-86: Mute as this device left it; push to talk and the wake word
     // hear it before they first open the microphone.
-    let muted = load_muted(&data_dir);
+    let state = load_state(&data_dir);
+    let muted = state.muted;
+    let screen = ScreenMemory {
+        on: state.screen_memory,
+        account: state.screen_account,
+        status: screen::Status::Off,
+        running: false,
+        generation: 0,
+        seen_account: false,
+    };
     if muted {
         crate::push_to_talk::mute_changed(true, cx);
     }
     let (tx, rx) = flume::unbounded::<TrayEvent>();
+    // NEW-58: the Paused label follows the capture.
+    let screen_tx = tx.clone();
+    screen::set_status_observer(move |status| {
+        let _ = screen_tx.send(TrayEvent::Screen(status));
+    });
     let entity = cx.new(|cx: &mut Context<VoiceTray>| {
         cx.observe(&speaker, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         // The agent's name labels Call and the wake phrase's placeholder.
@@ -243,7 +301,7 @@ pub fn install(cx: &mut App) {
         if let Some(call) = crate::voice_call::entity(cx) {
             cx.observe(&call, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
-        VoiceTray { muted, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, hosted: None, rail: None, backend: backend::Backend::new(tx) }
+        VoiceTray { muted, screen, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, hosted: None, rail: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
     let weak = entity.downgrade();
@@ -259,6 +317,12 @@ pub fn install(cx: &mut App) {
                     }
                 }
                 TrayEvent::Hosted(hosted) => entity.update(cx, |this, cx| this.set_hosted(Some(hosted), cx)),
+                TrayEvent::Screen(status) => entity.update(cx, |this, cx| {
+                    if status != this.screen.status {
+                        this.screen.status = status;
+                        this.sync(cx);
+                    }
+                }),
             });
         }
     })
@@ -335,11 +399,93 @@ impl VoiceTray {
     fn set_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
         if muted != self.muted {
             self.muted = muted;
-            save_muted(&self.data_dir, muted);
+            self.save();
             cx.notify();
         }
         crate::push_to_talk::mute_changed(muted, cx);
         self.sync(cx);
+    }
+
+    /// #NEW-86 / NEW-58: keep the device-local switches.
+    fn save(&self) {
+        let state = TrayState { muted: self.muted, screen_memory: self.screen.on, screen_account: self.screen.account.clone() };
+        save_state(&self.data_dir, &state);
+    }
+
+    /// NEW-58: the Screen memory item.
+    fn set_screen_memory(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on == self.screen.on {
+            return;
+        }
+        self.screen.on = on;
+        self.screen.account = if on { crate::speak_replies::session_account(cx) } else { None };
+        self.save();
+        cx.notify();
+        self.sync(cx);
+    }
+
+    /// NEW-58: capture while the switch is on here; a sign-out, another
+    /// account or another voice device turns it off and deletes the buffer.
+    fn sync_screen(&mut self, device_is_voice_device: bool, cx: &mut Context<Self>) {
+        let account = crate::speak_replies::session_account(cx);
+        self.screen.seen_account |= account.is_some();
+        if self.screen.on {
+            let left = match (&account, &self.screen.account) {
+                (Some(now), owner) => owner.as_ref() != Some(now),
+                (None, _) => self.screen.seen_account,
+            };
+            let elsewhere = crate::speak_replies::settings_known(cx) && !device_is_voice_device;
+            if left || elsewhere {
+                self.screen.on = false;
+                self.screen.account = None;
+                self.screen.running = false;
+                self.screen.generation += 1;
+                // `forget`, not `stop(true)`: also a buffer an earlier run
+                // of the IDE left behind.
+                screen::forget(&self.data_dir);
+                self.save();
+                cx.notify();
+                return;
+            }
+        }
+        let wanted = SCREEN_AVAILABLE
+            && self.screen.on
+            && device_is_voice_device
+            && account.is_some()
+            && account == self.screen.account;
+        if wanted == self.screen.running {
+            return;
+        }
+        self.screen.running = wanted;
+        self.screen.generation += 1;
+        if !wanted {
+            screen::stop(false);
+            return;
+        }
+        // Off the main thread: macOS may ask for Screen Recording first.
+        let generation = self.screen.generation;
+        let data_dir = self.data_dir.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { screen::start(data_dir) }).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.screen.generation != generation {
+                    // A stop came first: this start must not keep capturing.
+                    if result.is_ok() && !this.screen.running {
+                        screen::stop(!this.screen.on);
+                    }
+                    return;
+                }
+                if let Err(reason) = result {
+                    this.screen.on = false;
+                    this.screen.account = None;
+                    this.screen.running = false;
+                    this.save();
+                    crate::action_error::failed_action("start", "screen memory", Some(reason), cx);
+                    this.sync(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// #NEW-97: a host's answer (Linux), or the native tray's existence.
@@ -361,6 +507,7 @@ impl VoiceTray {
         let device_is_voice_device = settings.voice_device_id.as_deref() == Some(self.device_id.as_str());
         let wake_listening = crate::push_to_talk::wake_listening(cx);
         let icon = tray_icon(device_is_voice_device, wake_listening, self.muted);
+        self.sync_screen(device_is_voice_device, cx);
         let context = TrayContext {
             agent: agent.as_deref(),
             muted: self.muted,
@@ -370,6 +517,10 @@ impl VoiceTray {
             device_is_voice_device,
             shortcut_unavailable: status.reason().is_some(),
             shortcut_label: status.trigger(),
+            screen_memory: SCREEN_AVAILABLE.then_some(ScreenMemoryState {
+                on: self.screen.on,
+                paused: self.screen.status == screen::Status::Paused,
+            }),
         };
         let menu = tray_menu(&settings, &context);
         // #NEW-97: no answer yet = no button.
@@ -413,6 +564,7 @@ impl VoiceTray {
         match id {
             TrayItemId::SpeakReplies | TrayItemId::PushToTalk | TrayItemId::WakeWord => self.toggle(id, cx),
             TrayItemId::Mute => self.set_muted(!self.muted, cx),
+            TrayItemId::ScreenMemory => self.set_screen_memory(!self.screen.on, cx),
             TrayItemId::Open => open_ide(cx),
             TrayItemId::Settings => crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx),
             TrayItemId::Quit => cx.quit(),
@@ -693,6 +845,7 @@ mod tests {
             TrayItemId::SpeakReplies,
             TrayItemId::PushToTalk,
             TrayItemId::WakeWord,
+            TrayItemId::ScreenMemory,
             TrayItemId::Mute,
             TrayItemId::Settings,
             TrayItemId::Quit,
@@ -758,13 +911,20 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("exp-voice-tray-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let _ = std::fs::remove_file(dir.join(STATE_FILE));
-        assert!(!load_muted(&dir), "no file");
-        save_muted(&dir, true);
-        assert!(load_muted(&dir), "kept");
-        save_muted(&dir, false);
-        assert!(!load_muted(&dir), "unmuted");
+        assert_eq!(load_state(&dir), TrayState::default(), "no file");
+        save_state(&dir, &TrayState { muted: true, ..TrayState::default() });
+        assert!(load_state(&dir).muted, "kept");
+        save_state(&dir, &TrayState::default());
+        assert!(!load_state(&dir).muted, "unmuted");
+        // NEW-58: Screen memory rides the same file, its account with it;
+        // a file from before it reads as off.
+        let on = TrayState { muted: false, screen_memory: true, screen_account: Some("acct".into()) };
+        save_state(&dir, &on);
+        assert_eq!(load_state(&dir), on, "screen memory kept");
+        std::fs::write(dir.join(STATE_FILE), br#"{"muted":true}"#).unwrap();
+        assert_eq!(load_state(&dir), TrayState { muted: true, ..TrayState::default() }, "an older file");
         std::fs::write(dir.join(STATE_FILE), b"{not json").unwrap();
-        assert!(!load_muted(&dir), "unreadable");
+        assert_eq!(load_state(&dir), TrayState::default(), "unreadable");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -22,3 +22,49 @@ rusqlite = { workspace = true }
 # The focused window (app, title, rect) and the display order: the computer
 # crate's backend, so frame numbers match `doctor.displays`.
 computer = { path = "../computer" }
+# Lossy WebP for the stored frames (`store.webpQuality`): `image`'s encoder
+# is lossless only. libwebp-sys builds libwebp (BSD-3-Clause) from bundled C
+# through cc on every OS, no system library; `img` off (its own image pin).
+webp = { version = "0.3", default-features = false }
+# RFC 3339 for the tool's `from` / `to` and the frame lines; the same pin as
+# the domain, coding and cli crates.
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Windows Graphics Capture, one session per monitor (border + cursor off
+# where the OS allows); already in the lock through gpui.
+windows-capture = "1.5.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# CAPTURE on macOS = ScreenCaptureKit: one SCStream per display at
+# minimumFrameInterval = intervalMs, the IDE's own app excluded, BGRA
+# CVPixelBuffers read under a read-only lock. objc2's framework bindings (the
+# objc2 0.6 family already in the tree via the computer crate and gpui) over
+# the `screencapturekit` 0.2 wrapper, whose callbacks can panic across FFI.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSString"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation", "libc", "SCShareableContent", "SCStream"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-core-video", "CMBase", "CMSampleBuffer", "CMTime"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGError", "CGWindow"] }
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "alloc", "objc2"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# CAPTURE on Linux = the xdg ScreenCast portal + PipeWire. ashpd 0.13 on
+# async-io as the ui crate runs it (blocked on with async_io::block_on);
+# this adds its `screencast` module. pipewire 0.9 = ashpd's own pipewire pin
+# (MIT); it links libpipewire-0.3 (CI installs libpipewire-0.3-dev). x11rb
+# (pure Rust, already in the tree) reads the X root without a portal.
+# Behind the `portal` feature: libpipewire is a LOAD-time dependency, so only
+# the IDE (which links it through gpui anyway) turns it on; the CLI daemon
+# links `screen` through `coding` and must start on a server without it.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "screencast"], optional = true }
+async-io = { version = "2", optional = true }
+pipewire = { version = "0.9", optional = true }
+x11rb = "0.13"
+
+[features]
+# The Linux ScreenCast portal + PipeWire capturer (the IDE's build).
+portal = ["dep:ashpd", "dep:async-io", "dep:pipewire"]

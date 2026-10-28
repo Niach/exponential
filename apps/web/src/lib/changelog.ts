@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-28-screen-memory`,
+    date: `2026-10-28`,
+    title: `Screen memory`,
+    summary: `Your voice agent can look at the last 10 minutes of your screen.`,
+    body: `- **Screen memory**: on your voice device, the tray's Screen memory switch keeps the last 10 minutes of your screen (deduplicated, on this device only). Your voice agent can look at up to 4 screenshots from a moment you talk about.
+- **Paused for private windows**: password managers, private browser windows and online banking are never captured; the tray says Paused while one is focused.`,
+  },
+  {
     id: `2026-10-28-work-screen`,
     date: `2026-10-28`,
     title: `Work screen`,

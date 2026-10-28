@@ -959,7 +959,7 @@ pub fn claude_flag_settings(
 /// policy allows the read-only ones at once. The named rules stay in case a
 /// CLI stops honouring `*`. Every team server of the launch is added by
 /// [`voice_ask_tools`].
-pub const VOICE_ASK_TOOLS: [&str; 12] = [
+pub const VOICE_ASK_TOOLS: [&str; 13] = [
     "*",
     "Bash",
     "Edit",
@@ -972,6 +972,8 @@ pub const VOICE_ASK_TOOLS: [&str; 12] = [
     "Task",
     "mcp__exponential",
     "mcp__codemode",
+    // NEW-58: the voice device's screen memory (the policy tiers it `auto`).
+    "mcp__screen",
 ];
 
 /// #NEW-79: [`VOICE_ASK_TOOLS`] plus `mcp__<name>` for every server of the
@@ -1399,6 +1401,27 @@ fn attach_computer_use(
         }
         Err(reason) => {
             log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
+            false
+        }
+    }
+}
+
+/// NEW-58: give the member's voice conversation (`voice_policy`) this
+/// device's screen memory while the IDE captures here; [`screen::grant`]
+/// refuses while it is off (another device, the CLI daemon), so such a run
+/// launches without. Wired AFTER code mode so a script never reaches the
+/// screenshots. The engine revokes the grant when the run ends.
+fn attach_screen_memory(voice_policy: bool, team_mcp: &mut ResolvedMcp, session_id: &str) -> bool {
+    if !voice_policy {
+        return false;
+    }
+    match screen::grant(session_id) {
+        Ok(grant) => {
+            crate::mcp_servers::attach_screen(team_mcp, &grant);
+            true
+        }
+        Err(reason) => {
+            log::info!("coding: the voice conversation launches without screen memory: {reason}");
             false
         }
     }
@@ -1898,6 +1921,7 @@ fn prepare_session(
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
+    attach_screen_memory(req.brief.voice_policy, &mut team_mcp, &session_id);
 
     // EXP-210: stamp THIS agent into the workspace's recorded-agent marker
     // (after every can-still-fail step) — a later resume reads it to decide
@@ -2560,6 +2584,9 @@ fn prepare_resume(
         !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
     let code_mode =
         !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
+    if !aside {
+        attach_screen_memory(req.brief.voice_policy, &mut team_mcp, &session_id);
+    }
 
     // Step 5 — the spawn spec, exactly like a fresh launch's.
     if agent == CodingAgent::Codex {

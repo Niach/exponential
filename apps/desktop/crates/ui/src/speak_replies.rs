@@ -179,6 +179,9 @@ pub(crate) struct SpeakReplies {
     pub worker_ready: bool,
     /// #NEW-63: when the machine's speech data goes.
     cleanup: Cleanup,
+    /// NEW-58: the signed-in account's settings arrived since it signed in
+    /// (the tray's Screen memory tells "no voice device" from "not yet").
+    settings_known: bool,
 }
 
 /// #NEW-63 / #1278 review: `{data_dir}/talk` belongs to the MACHINE, shared
@@ -277,6 +280,7 @@ pub fn install(cx: &mut App) {
             download: Download::Idle,
             worker_ready: false,
             cleanup,
+            settings_known: false,
         }
     });
     cx.set_global(SpeakRepliesGlobal(entity.clone()));
@@ -328,6 +332,12 @@ pub(crate) fn entity(cx: &App) -> Option<Entity<SpeakReplies>> {
 /// device's own save) delivered them.
 pub(crate) fn settings(cx: &App) -> domain::voice::VoiceSettings {
     global(cx).map(|entity| entity.read(cx).settings.clone()).unwrap_or_default()
+}
+
+/// NEW-58: [`settings`] came from the signed-in account (not the defaults
+/// before its first beat).
+pub(crate) fn settings_known(cx: &App) -> bool {
+    global(cx).is_some_and(|entity| entity.read(cx).settings_known)
 }
 
 /// The reply being spoken, if any.
@@ -405,6 +415,10 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
     let signed_in: Vec<String> = auth.auth.signed_in_accounts().into_iter().map(|account| account.id).collect();
     let account = crate::queries::active_account(cx).map(|account| account.id);
     entity.update(cx, |this, cx| {
+        if !this.settings_known {
+            this.settings_known = true;
+            cx.notify();
+        }
         if this.settings == settings {
             return;
         }
@@ -444,7 +458,7 @@ fn settings_name_this_device(settings: &domain::voice::VoiceSettings, own_device
     settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
-fn session_account(cx: &App) -> Option<String> {
+pub(crate) fn session_account(cx: &App) -> Option<String> {
     match Store::try_global(cx)?.session(cx) {
         sync::SessionPhase::Synced { account_id } => Some(account_id),
         _ => None,
@@ -496,6 +510,7 @@ impl SpeakReplies {
         self.prepared = DeviceVoice::default();
         // The settings are the member's: the new account's beat brings its own.
         self.settings = domain::voice::VoiceSettings::default();
+        self.settings_known = false;
         self.crashes = 0;
         self.voices.clear();
         self.voices_known = false;

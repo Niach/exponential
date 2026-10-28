@@ -214,6 +214,25 @@ pub fn pixel_size(display: &Display) -> (u32, u32) {
     backend::pixel_size(display.x, display.y, display.width, display.height)
 }
 
+/// NEW-58: the focused window as screen memory reads it: the owning app,
+/// its title, the 1-based display holding its centre (the [`displays`]
+/// order) and its rect within that display in PHYSICAL pixels (the frame's
+/// own pixels), clipped to the display.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FocusedWindow {
+    pub app: String,
+    pub title: String,
+    pub display: u32,
+    pub rect: ScreenRect,
+}
+
+/// NEW-58: the focused window now; `None` without a display, a window list
+/// or a focused window on any display. One window-list read (a few ms):
+/// screen memory polls it every `capture.focusPollMs`.
+pub fn focused_window() -> Option<FocusedWindow> {
+    work_screen::focused_window()
+}
+
 /// NEW-59: the displays, their fullscreen windows and the work displays now;
 /// `None` without a display. Reads the OS (a few ms): call it when the
 /// overlay opens, not per frame.

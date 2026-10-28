@@ -24,6 +24,9 @@ computer = { path = "../computer" }
 # EXP-1236: the device's code-mode MCP server (scripts over the run's other
 # MCP servers), wired into every run beside the team servers.
 codemode = { path = "../codemode" }
+# NEW-58: the voice device's screen memory (`get_screenshots`): the
+# launcher mints the voice conversation's grant while the IDE captures.
+screen = { path = "../screen" }
 # EXP-1232: the managed Codex download reuses the self-updater's streaming
 # `download` (no whole-request deadline, `.part` + rename).
 updater = { path = "../updater" }

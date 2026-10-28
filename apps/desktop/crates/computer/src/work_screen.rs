@@ -271,6 +271,65 @@ pub(crate) fn screen_state() -> Option<ScreenState> {
     })
 }
 
+/// The displays with their pixel sizes, re-read at most every
+/// `DISPLAYS_TTL`: screen memory's 4 Hz focus poll would otherwise pay
+/// two display enumerations per look (~1.5 ms on a Mac) for a layout that
+/// changes when a monitor is plugged.
+const DISPLAYS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
+type DisplayCache = (std::time::Instant, Vec<(DisplayInfo, (u32, u32))>);
+static DISPLAY_CACHE: std::sync::Mutex<Option<DisplayCache>> = std::sync::Mutex::new(None);
+
+pub(crate) fn focused_window() -> Option<crate::FocusedWindow> {
+    let backend = backend::open().ok()?;
+    let displays = {
+        let mut cache = DISPLAY_CACHE.lock().unwrap();
+        match cache.as_ref().filter(|(at, _)| at.elapsed() < DISPLAYS_TTL) {
+            Some((_, displays)) => displays.clone(),
+            None => {
+                let displays: Vec<(DisplayInfo, (u32, u32))> = backend
+                    .displays()
+                    .ok()?
+                    .into_iter()
+                    .map(|display| {
+                        let pixels = backend::pixel_size(display.x, display.y, display.width, display.height);
+                        (display, pixels)
+                    })
+                    .collect();
+                *cache = Some((std::time::Instant::now(), displays.clone()));
+                displays
+            }
+        }
+    };
+    let windows = backend.list_windows().ok()?;
+    let window = windows.iter().find(|window| window.active)?;
+    let infos: Vec<DisplayInfo> = displays.iter().map(|(display, _)| display.clone()).collect();
+    let index = window_display(&infos, window)?;
+    let (display, pixels) = &displays[index];
+    Some(crate::FocusedWindow {
+        app: window.app.clone(),
+        title: window.title.clone(),
+        display: index as u32 + 1,
+        rect: rect_in_pixels(display, *pixels, window)?,
+    })
+}
+
+/// `window`'s rect within `display` (screen units) as `pixels` (the
+/// display's physical size) counts it, clipped to the display; `None` when
+/// nothing of it is left.
+pub(crate) fn rect_in_pixels(display: &DisplayInfo, pixels: (u32, u32), window: &WindowInfo) -> Option<crate::ScreenRect> {
+    if display.width == 0 || display.height == 0 {
+        return None;
+    }
+    let scale = |value: i64, units: u32, pixels: u32| (value * i64::from(pixels) + i64::from(units) / 2) / i64::from(units);
+    let left = i64::from(window.x - display.x).clamp(0, i64::from(display.width));
+    let top = i64::from(window.y - display.y).clamp(0, i64::from(display.height));
+    let right = (i64::from(window.x - display.x) + i64::from(window.width)).clamp(0, i64::from(display.width));
+    let bottom = (i64::from(window.y - display.y) + i64::from(window.height)).clamp(0, i64::from(display.height));
+    let (x0, x1) = (scale(left, display.width, pixels.0), scale(right, display.width, pixels.0));
+    let (y0, y1) = (scale(top, display.height, pixels.1), scale(bottom, display.height, pixels.1));
+    (x1 > x0 && y1 > y0).then(|| crate::ScreenRect { x: x0 as i32, y: y0 as i32, width: (x1 - x0) as u32, height: (y1 - y0) as u32 })
+}
+
 pub(crate) fn banner_display() -> Option<Display> {
     let index = BANNER.load(Ordering::Acquire);
     if index == NO_BANNER {
@@ -349,6 +408,30 @@ mod tests {
             );
             assert_eq!(got, index(&case["expect"]), "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn the_focused_rect_is_in_the_displays_pixels_and_clipped_to_it() {
+        // A Retina panel: 1512x982 points, 3024x1964 pixels, right of a 1920 one.
+        let display = DisplayInfo { x: 1920, y: 0, width: 1512, height: 982, primary: false, name: String::new() };
+        let window = |x, y, width, height| WindowInfo {
+            id: 1,
+            title: String::new(),
+            app: String::new(),
+            pid: None,
+            x,
+            y,
+            width,
+            height,
+            active: true,
+            fullscreen: false,
+        };
+        let rect = rect_in_pixels(&display, (3024, 1964), &window(1970, 25, 600, 400)).unwrap();
+        assert_eq!(rect, crate::ScreenRect { x: 100, y: 50, width: 1200, height: 800 });
+        // Hanging off the left edge onto the other display: clipped.
+        let rect = rect_in_pixels(&display, (3024, 1964), &window(1820, 0, 300, 982)).unwrap();
+        assert_eq!(rect, crate::ScreenRect { x: 0, y: 0, width: 400, height: 1964 });
+        assert_eq!(rect_in_pixels(&display, (3024, 1964), &window(0, 0, 100, 100)), None);
     }
 
     #[test]
