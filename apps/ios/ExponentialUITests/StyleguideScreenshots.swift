@@ -1089,16 +1089,10 @@ final class StyleguideScreenshots: XCTestCase {
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
         coldStart.tap()
-        // N-12: THE Dock: the seeded question + the child's plan wait on the
-        // viewer as DockCards piled above the composer.
-        expect(
-            anyElement(app, identified: "dock-card"),
-            within: Wait.sync,
-            "The cold-start thread drew no DockCard"
-        )
         // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
-        // left, Guide pinned right, the chips folded between them.
-        for id in ["thread-strip-add", "thread-tab-conversation", "thread-tab-guide"] {
+        // left, the chips folded beside them (S-3: no Guide tab; the seeded
+        // question + the child's plan stay inline, not in the Dock).
+        for id in ["thread-strip-add", "thread-tab-conversation"] {
             let pinned = anyElement(app, identified: id)
             expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")

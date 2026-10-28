@@ -38,8 +38,7 @@ enum PopRects {
     /// `agent-composer-headline` (EXP-1038: the run's subject moved out of the
     /// card, so the pop-out has to take it in) + `agent-composer` +
     /// `agent-options-row`, `dock-card` (N-12: the waiting question's card),
-    /// `thread-guide-merge` (EXP-1154: the white Merge capsule; EXP-1295: on
-    /// the thread Guide; EXP-1307: the fixture's `testIds.guideMerge`), `notification-row`, plus the pre-existing `issue-row-*`,
+    /// `notification-row`, plus the pre-existing `issue-row-*`,
     /// `action-row`) and are mirrored 1:1 as Android
     /// testTags — see `PopRects.kt`.
     static let identifiers: [String: [String]] = [
@@ -47,7 +46,6 @@ enum PopRects {
         "02_issue-detail": ["issue-description"],
         "03_start-coding": ["agent-composer-headline", "agent-composer", "agent-options-row"],
         "04_steering": ["dock-card"],
-        "05_review": ["thread-guide-merge"],
         "07_inbox": ["notification-row"],
     ]
 
