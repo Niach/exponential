@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, ne, or, sql, type SQL } from "drizzle-orm"
+import { and, desc, eq, gt, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm"
 import type { MessageAuthorKind, MessageCard } from "@exp/db-schema/domain"
 import { conversations, messages, sessions, type Session } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
@@ -52,6 +52,8 @@ export async function insertMessage(
     card?: MessageCard | null
     /** Pre-consumed: an agent's row that must never wake anything. */
     consumedAt?: Date | null
+    /** S-3: the row this one is a bus copy of (patched on its edit). */
+    originMessageId?: string | null
   }
 ): Promise<string> {
   const mirror = await sessionMirror(tx, session)
@@ -70,6 +72,7 @@ export async function insertMessage(
       body: message.body ?? ``,
       card: message.card ?? null,
       consumedAt: message.consumedAt ?? null,
+      originMessageId: message.originMessageId ?? null,
     })
     .returning({ id: messages.id })
   return row!.id
@@ -102,6 +105,55 @@ export function postAgentMessage(
   card?: MessageCard | null
 ): Promise<string> {
   return insertMessage(tx, sessionId, { authorKind: `agent`, body, card: card ?? null })
+}
+
+/**
+ * S-3 "one text + one card between two person messages": in an AGENT
+ * conversation a turn's reply text EDITS the agent's text already posted
+ * since the last person message (the trigger tick and a person's line are
+ * both person-authored) instead of landing as another bubble. → the edited
+ * row and its previous body, or null (nothing to edit: insert). Its bus
+ * copies follow (`patchBusCopies`).
+ */
+export async function editAgentTurnText(
+  tx: Tx,
+  sessionId: string,
+  body: string
+): Promise<{ id: string; before: string } | null> {
+  const [person] = await tx
+    .select({ at: messages.createdAt })
+    .from(messages)
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.authorKind, `user`)))
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+  const [text] = await tx
+    .select({ id: messages.id, body: messages.body })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.sessionId, sessionId),
+        eq(messages.authorKind, `agent`),
+        isNull(messages.card),
+        isNull(messages.authorSessionId),
+        ...(person ? [gt(messages.createdAt, person.at)] : [])
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .for(`update`)
+  if (!text) return null
+  await tx.update(messages).set({ body, updatedAt: new Date() }).where(eq(messages.id, text.id))
+  return { id: text.id, before: text.body }
+}
+
+/** S-3: an edited row's bus copies take its new text. Only a copy still
+ *  carrying the old text: a neutral private line (#EXP-1408, a reader who
+ *  may not see the origin) never gains the text. */
+export async function patchBusCopies(tx: Tx, originId: string, before: string, after: string): Promise<void> {
+  await tx
+    .update(messages)
+    .set({ body: after, updatedAt: new Date() })
+    .where(and(eq(messages.originMessageId, originId), eq(messages.body, before.trim())))
 }
 
 /** A person's message: the bus (consumed_at NULL until the device delivers it).

@@ -281,9 +281,8 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     const after = await inConversation()
     expect(JSON.stringify(after)).not.toContain(`xyz-123`)
     const from = after.filter((m) => m.authorSessionId === thread)
-    expect(from.find((m) => m.card === null && m.authorKind === `agent`)!.body).toBe(
-      privateText({ id: thread }, PRIVATE_REPLY_LEAD)
-    )
+    // S-3: an agent conversation watching a thread hears no turn relay.
+    expect(from.find((m) => m.card === null && m.authorKind === `agent`)).toBeUndefined()
     expect(from.find((m) => (m.card as { kind?: string } | null)?.kind === `report`)!.body).toBe(
       privateText({ id: thread }, PRIVATE_REPORT_LEAD)
     )
