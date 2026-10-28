@@ -205,6 +205,8 @@ fun ThreadScreen(
     // NEW-2: the agent's DEFINITION row names the header (its coloured icon +
     // name); NEW-8: the only source (the session's legacy facets are gone).
     val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()
+    // S-3: the agents' marks the inter-session links draw.
+    val agentMarks by viewModel.agentMarks.collectAsStateWithLifecycle()
     val agent = if (isAgent && rootRow != null) {
         val def = agentDefinition
         ThreadAgent(
@@ -337,6 +339,7 @@ fun ThreadScreen(
             LocalTitleCollapse provides titleCollapse,
             LocalIssueRefs provides issueRefHandler,
             LocalMentions provides mentionResolver,
+            com.exponential.app.ui.components.LocalAgentMarks provides agentMarks,
         ) {
             ThreadContent(
                 view = view,
@@ -408,6 +411,7 @@ fun ThreadScreen(
                         sessionId = sessionId,
                         padding = padding,
                         onOpenIssue = openIssueHere,
+                        onOpenOrigin = { id, isRoot -> if (isRoot) onOpenThread(id) else onOpenSession(id) },
                     )
                 },
                 headerLead = headerLead,
@@ -436,6 +440,9 @@ fun ThreadScreen(
                     )
                 },
                 onOpenSession = openThreadSession,
+                // S-3: an inter-session link PUSHES that session (another
+                // root as its thread, any other session as its view).
+                onOpenXref = openThreadSession,
                 suggestions = suggestionActions,
                 tail = liveActivity?.let { activity -> { SessionLiveTail(activity, root) } },
             )
@@ -626,6 +633,8 @@ fun ThreadContent(
     dockedIds: Set<String> = emptySet(),
     /** NEW-69: the agent chat's telephone in the header (null = none). */
     headerCall: (@Composable () -> Unit)? = null,
+    /** S-3: an inter-session link pushes that session (null = inert). */
+    onOpenXref: ((sessionId: String) -> Unit)? = null,
 ) {
     // An agent channel is the conversation only. EXP-1334: a folded
     // sub-issue is a page too (right after its chip's). EXP-1343: phones
@@ -764,6 +773,8 @@ fun ThreadContent(
                             tail = tail,
                             dockedIds = dockedIds,
                             onSurfaceReply = onSurfaceReply,
+                            origin = view.origin,
+                            onOpenXref = onOpenXref,
                         )
                         FloatingBarEdge(
                             bottomInset = bottomInset,
