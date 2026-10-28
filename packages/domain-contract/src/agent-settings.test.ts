@@ -3,6 +3,7 @@ import { describe, expect, it, test } from "bun:test"
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
 import {
+  assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
   assigneeOptions,
@@ -55,6 +56,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.scheduleCases) {
     it(`scheduleCases: ${c.name}`, () => {
       expect(assistantScheduleOf(c.triggers as AgentTriggerLike[])).toBe(c.expected as never)
+    })
+  }
+  for (const c of fixture.assistant.modelValueCases) {
+    it(`modelValueCases: ${c.name}`, () => {
+      expect(assistantModelValue(c.input)).toBe(c.expected)
     })
   }
   for (const c of fixture.assistant.visibleCases) {

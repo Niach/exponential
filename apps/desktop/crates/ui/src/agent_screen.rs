@@ -155,9 +155,6 @@ pub struct AgentScreenView {
     conversation: Option<SessionRow>,
     /// #EXP-1380: shared, never deep-cloned per frame.
     rows: std::rc::Rc<Vec<SessionThreadRow>>,
-    /// #EXP-1407: the tree's tabs, whose session names
-    /// (`thread_session_names`) caption the Dock's asking session.
-    tabs: Vec<domain::session_tree::ThreadTab>,
     /// Bumped on every [`Self::refresh`]: what the list sync diffs on.
     rows_gen: u64,
     messages: std::collections::HashMap<String, MessageRow>,
@@ -259,7 +256,6 @@ impl AgentScreenView {
             device_id: None,
             conversation: None,
             rows: Default::default(),
-            tabs: Default::default(),
             rows_gen: 0,
             messages: std::collections::HashMap::new(),
             images,
@@ -398,19 +394,18 @@ impl AgentScreenView {
         // already names the agent.
         let editor = matches!(self.subject, ChannelSubject::App(_));
         // #EXP-1380: the rows and the messages off ONE scan.
-        let (rows, messages, tabs) = conversation_id
+        let (rows, messages) = conversation_id
             .as_deref()
             .and_then(|id| {
                 let now = crate::session_data::now_ms();
                 // VAPP-110: an editor's chat is its whole tree (a
                 // revived root keeps its rows, FEED-134).
                 crate::session_data::thread_view_and_messages(id, None, now, editor, cx).map(|(view, messages)| {
-                    (view.rows.into_iter().filter(|row| row.id() != id).collect(), messages, view.tabs)
+                    (view.rows.into_iter().filter(|row| row.id() != id).collect(), messages)
                 })
             })
             .unwrap_or_default();
         self.rows = std::rc::Rc::new(rows);
-        self.tabs = tabs;
         self.conv.waiting = crate::chat_transcript::waiting_indexes(self.rows.iter());
         self.rows_gen = self.rows_gen.wrapping_add(1);
         // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack on
@@ -1004,22 +999,16 @@ impl Render for AgentScreenView {
         let rows_snapshot = self.rows.clone();
         let (band, sheet, docked) = match composer_view.filter(|composer| composer.read(cx).may_message()) {
             Some(composer) => {
-                let pending = domain::ask_dock::thread_pending_asks(
-                    &rows_snapshot,
-                    domain::ask_dock::thread_session_names(&self.tabs),
-                );
-                // FEED-140: a waiting plan / question stays inline (with
-                // its actions) besides THE Dock.
+                // S-3: a waiting plan / question is a story, inline in
+                // the conversation (with its actions), never docked.
                 let docked: HashSet<String> = HashSet::new();
                 let (band, sheet) = crate::thread_screen::root_dock(
                     "agent",
                     &rows_snapshot,
-                    &pending,
                     None,
                     &self.dock,
                     &composer,
                     &text,
-                    &self.images,
                     window,
                     cx,
                 );

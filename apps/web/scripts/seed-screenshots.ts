@@ -1195,6 +1195,8 @@ async function seedSessionTree(ctx: {
     shared?: boolean
     /** A child session's message: its thread's root. */
     rootId?: string
+    /** S-3: the session that posted it (its own card = a story). */
+    authorSessionId?: string
   }
   const message = (spec: MessageSpec): typeof messages.$inferInsert => ({
     conversationId: conversationOf(spec.sessionId),
@@ -1205,6 +1207,7 @@ async function seedSessionTree(ctx: {
     ownerId: demoId,
     authorKind: spec.author,
     authorId: spec.author === `user` ? demoId : null,
+    authorSessionId: spec.authorSessionId ?? null,
     body: spec.body ?? ``,
     card: spec.card ?? null,
     // A person's message the device already delivered (none sits queued).
@@ -1243,9 +1246,11 @@ async function seedSessionTree(ctx: {
         body: `### Board snapshot cache\n\nThe last rendered board is written to disk on every sync and painted on launch, then replaced in place once the shape catches up.\n\nDeferred the shape subscribe until after the first frame and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, under the 800 ms target. Filed #${fb3} for the editor's highlighting bundle.`,
         at: minutesAgo(11),
       },
+      // S-3 stories.json: the session's own card = a waiting story.
       {
         sessionId: ids.coldStart,
         author: `agent`,
+        authorSessionId: ids.coldStart,
         card: {
           kind: `question`,
           question: DEMO_FEED_QUESTION,
@@ -1264,6 +1269,7 @@ async function seedSessionTree(ctx: {
         sessionId: DEMO_SESSION_ID,
         rootId: ids.coldStart,
         author: `agent`,
+        authorSessionId: DEMO_SESSION_ID,
         card: { kind: `plan`, plan: DEMO_THREAD_PLAN, decision: null },
         at: minutesAgo(1),
       },
@@ -1273,6 +1279,34 @@ async function seedSessionTree(ctx: {
         author: `user`,
         body: `Add an assignee grouping mode next to the status grouping. Remember the last choice per board.`,
         at: minutesAgo(25),
+      },
+      // S-3 stories.json: a DRAFT story waiting on a choice (the chat
+      // list's second ring; the story-viewer's draft).
+      {
+        sessionId: ids.groupByAssignee,
+        author: `agent`,
+        authorSessionId: ids.groupByAssignee,
+        card: {
+          kind: `question`,
+          question: `Use this grouping menu?`,
+          options: [`Ship it`, `Try a segmented control`],
+          custom: true,
+          surface: {
+            root: {
+              id: `menu`,
+              component: `Card`,
+              children: [
+                { id: `menu-title`, component: `Heading`, props: { text: `Group by` } },
+                { id: `menu-status`, component: `Row`, props: { title: `Status`, value: `` } },
+                { id: `menu-assignee`, component: `Row`, props: { title: `Assignee`, value: `✓` } },
+                { id: `menu-label`, component: `Row`, props: { title: `Label`, value: `` } },
+              ],
+            },
+            data: {},
+          },
+          answer: null,
+        },
+        at: minutesAgo(6),
       },
       {
         sessionId: ids.sortReports,
@@ -1345,6 +1379,32 @@ async function seedSessionTree(ctx: {
         author: `agent`,
         body: `Done, 3 issues labelled android.`,
         at: DEMO_AGENT_CHANNEL_TIMES.reply,
+      },
+      // S-3: the Triage agent's result story (its ring on the chat list).
+      {
+        sessionId: DEMO_AGENT_CONVERSATION_ID,
+        author: `agent`,
+        authorSessionId: DEMO_AGENT_CONVERSATION_ID,
+        card: {
+          kind: `surface`,
+          story: true,
+          title: `Today's triage`,
+          surface: {
+            root: {
+              id: `triage`,
+              component: `Box`,
+              style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm` },
+              children: [
+                { id: `triage-new`, component: `Row`, props: { title: `New reports`, value: `2` } },
+                { id: `triage-dup`, component: `Row`, props: { title: `Merged as duplicate`, value: `1` } },
+                { id: `triage-label`, component: `Row`, props: { title: `Labelled android`, value: `3` } },
+              ],
+            },
+            data: {},
+          },
+        },
+        // Fresh: a result story drops after stories.json `unseenHours`.
+        at: minutesAgo(40),
       },
       // VAPP-110 + VAPP-122: the demo user's editor session with the Working
       // hours app (the `app` view's chat), one exchange per version.
@@ -1508,8 +1568,11 @@ async function seedSessionTree(ctx: {
     // S-3 / Chats `surfaceCard`: the agent's inline show card.
     thread({
       at: minutesAgo(9),
+      // S-3: a result story (stories.json) in the thread's ring.
+      authorSessionId: ids.coldStart,
       card: {
         kind: `surface`,
+        story: true,
         title: `Launch timings`,
         surface: {
           root: {

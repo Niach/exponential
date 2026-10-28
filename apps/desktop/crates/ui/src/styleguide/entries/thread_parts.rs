@@ -121,7 +121,7 @@ const EXTRA_ISSUES: [(&str, &str, &str); 2] = [("i-5", "EXP-25", "Context ring")
 /// The fold case's tabs with the extra issues after its own, before the
 /// sessions (web `FOLDED_TABS`).
 fn folded_tabs(view: &SessionThreadView) -> Vec<ThreadTab> {
-    let trailing = |tab: &ThreadTab| matches!(tab, ThreadTab::Session { .. } | ThreadTab::Guide { .. });
+    let trailing = |tab: &ThreadTab| matches!(tab, ThreadTab::Session { .. });
     let mut tabs: Vec<ThreadTab> = view.tabs.iter().filter(|tab| !trailing(tab)).cloned().collect();
     tabs.extend(EXTRA_ISSUES.iter().map(|(id, identifier, _)| ThreadTab::Issue {
         issue_id: id.to_string(),
@@ -724,7 +724,7 @@ mod tests {
         let last_issue = tabs.iter().rposition(|tab| matches!(tab, ThreadTab::Issue { .. })).unwrap();
         let first_session = tabs.iter().position(|tab| matches!(tab, ThreadTab::Session { .. })).unwrap();
         assert!(last_issue < first_session);
-        assert!(matches!(tabs.last(), Some(ThreadTab::Guide { .. })));
+        assert!(matches!(tabs.last(), Some(ThreadTab::Session { .. })));
         let issues = strip_issues(&fold, &tabs);
         assert_eq!(issues["i-5"].title, "Context ring");
         assert_eq!(issues["i-6"].title, "Model picker");

@@ -151,6 +151,7 @@ export function PlanCardSurface({
   data,
   disabled = false,
   dataRef,
+  label = true,
   testKey,
 }: {
   surface: CardSurface
@@ -158,6 +159,8 @@ export function PlanCardSurface({
   data?: Record<string, unknown> | null
   disabled?: boolean
   dataRef?: { current: Record<string, unknown> | null }
+  /** The "Preview" caption over the frame (the story viewer draws none). */
+  label?: boolean
   testKey: string
 }) {
   const state = useSurface({
@@ -174,7 +177,7 @@ export function PlanCardSurface({
       data-disabled={disabled || undefined}
       className="mt-3 flex flex-col gap-1.5"
     >
-      <div className="text-[0.6875rem] font-medium text-muted-foreground">{PLAN_CARD_COPY.surface}</div>
+      {label && <div className="text-[0.6875rem] font-medium text-muted-foreground">{PLAN_CARD_COPY.surface}</div>}
       <div
         // `inert`: an answered card's surface takes no input at all.
         inert={disabled || undefined}

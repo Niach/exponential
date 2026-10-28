@@ -487,6 +487,7 @@ fun AgentSettingsScreen(
             },
             model = agent?.model,
             modelOptions = com.exponential.app.ui.components.modelOptionsFor(agent?.cli?.takeIf { it.isNotBlank() } ?: "claude"),
+            modelCli = agent?.cli?.takeIf { it.isNotBlank() },
             onModelChange = { patch(UpdateAgentPatch(model = it)) },
             voice = if (assistant && editable) {
                 { AssistantVoiceBlock() }
@@ -596,6 +597,8 @@ internal fun AgentSettingsContent(
     onCheckIn: (String) -> Unit = {},
     model: String? = null,
     modelOptions: List<String> = emptyList(),
+    /** The login's CLI the unpinned Model row defaults for (null = claude). */
+    modelCli: String? = null,
     onModelChange: (String) -> Unit = {},
     voice: (@Composable () -> Unit)? = null,
 ) {
@@ -704,14 +707,17 @@ internal fun AgentSettingsContent(
             )
             if (assistant) {
                 GroupDivider()
+                // agent-settings.json `modelValueCases`: unpinned = the
+                // dispatcher root's default for the login's CLI.
+                val shownModel = AgentSettings.Assistant.modelValue(model, modelCli)
                 com.exponential.app.ui.components.picker.ModelPicker(
                     options = modelOptions.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, com.exponential.app.ui.components.modelLabel(it)) },
-                    value = model,
+                    value = shownModel,
                     onChange = onModelChange,
                     trigger = { open ->
                         PickerValueRow(
                             label = "Model",
-                            value = model?.let { com.exponential.app.ui.components.modelLabel(it) } ?: AgentSettings.Copy.ACCOUNT_LAST_USED,
+                            value = com.exponential.app.ui.components.modelLabel(shownModel),
                             onClick = open,
                             enabled = editable && modelOptions.isNotEmpty(),
                             modifier = Modifier.testTag("agent-settings-model"),

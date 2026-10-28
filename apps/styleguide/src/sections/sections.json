@@ -22,7 +22,8 @@
       "team-agents-settings", "voice-call-overlay", "voice-call", "computer-use-banner", "voice-settings", "meeting-consent",
       "agent-home", "work-tabs-strip",
       "getting-started",
-      "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "chat-selection"
+      "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "chat-selection",
+      "story-ring", "story-viewer"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -90,6 +91,8 @@
     "phone-page-header": "EXP-1384",
     "chat-transcript": "EXP-1373",
     "chat-menus": "EXP-1373",
-    "chat-selection": "EXP-1388"
+    "chat-selection": "EXP-1388",
+    "story-ring": "S-3",
+    "story-viewer": "S-3"
   }
 }

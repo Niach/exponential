@@ -79,6 +79,7 @@ import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.j
 import {
   ASSISTANT_COPY,
   ASSISTANT_SCHEDULES,
+  assistantModelValue,
   assistantScheduleOf,
   assistantScheduleTriggers,
   type AssistantScheduleId,
@@ -696,7 +697,9 @@ export function AgentSettingsPage({
             <ModelPicker
               triggerVariant="row"
               width="md"
-              value={model}
+              // agent-settings.json `modelValueCases`: unpinned = the
+              // dispatcher root's default for the login's CLI.
+              value={assistantModelValue({ model, cli: modelCli })}
               onChange={pickModel}
               models={modelOptions}
               data-testid="assistant-model"

@@ -15,6 +15,8 @@ import {
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
   SessionXrefSpecimen,
+  StoryRingSpecimen,
+  StoryViewerSpecimen,
   PhoneTabBarSpecimen,
   PhoneBoardMenuSpecimen,
   PhonePageHeaderSpecimen,
@@ -81,7 +83,8 @@ const str = (value: unknown): string | undefined =>
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
-// buttons; S-3 `session-xref` THE session link) (identical ×4) for theirs.
+// buttons; S-3 `session-xref` THE session link, `story-ring` / `story-viewer`
+// THE story ring + viewer) (identical ×4) for theirs.
 // Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -102,6 +105,8 @@ const DEV_VIEWS = [
   `voice-call-overlay`,
   `call-controls`,
   `session-xref`,
+  `story-ring`,
+  `story-viewer`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -158,6 +163,10 @@ function AgentRoute() {
           <ChatTranscriptSpecimen />
         ) : dev === `session-xref` ? (
           <SessionXrefSpecimen />
+        ) : dev === `story-ring` ? (
+          <StoryRingSpecimen />
+        ) : dev === `story-viewer` ? (
+          <StoryViewerSpecimen />
         ) : dev === `phone-tab-bar` ? (
           <PhoneTabBarSpecimen />
         ) : dev === `phone-board-menu` ? (

@@ -292,12 +292,17 @@ public struct PlanCardPicture: Equatable, Sendable {
     public let attachmentId: String?
     public let width: Double?
     public let height: Double?
+    /// S-3: a result story's caption under the picture (nil = none).
+    public let caption: String?
 
-    public init(label: String, attachmentId: String?, width: Double? = nil, height: Double? = nil) {
+    public init(
+        label: String, attachmentId: String?, width: Double? = nil, height: Double? = nil, caption: String? = nil
+    ) {
         self.label = label
         self.attachmentId = attachmentId
         self.width = width
         self.height = height
+        self.caption = caption
     }
 
     /// A card's `pictures` in a tolerant read (no string label = dropped).
@@ -309,7 +314,8 @@ public struct PlanCardPicture: Equatable, Sendable {
                 label: label,
                 attachmentId: object["attachmentId"] as? String,
                 width: CardJSON.number(object["width"]),
-                height: CardJSON.number(object["height"])
+                height: CardJSON.number(object["height"]),
+                caption: object["caption"] as? String
             )
         }
     }

@@ -79,6 +79,9 @@ pub(crate) mod chat_menus;
 pub(crate) mod chat_selection;
 // Thread e4a04d22: mention pills in chats.
 pub(crate) mod mention_pill;
+// S-3: stories.
+pub(crate) mod story_ring;
+pub(crate) mod story_viewer;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is left since NEW-77 filled `voice-call-overlay`.
@@ -171,4 +174,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
     Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
     Entry { id: chat_selection::ID, owner: chat_selection::OWNER, render: chat_selection::render },
+    Entry { id: story_ring::ID, owner: story_ring::OWNER, render: story_ring::render },
+    Entry { id: story_viewer::ID, owner: story_viewer::OWNER, render: story_viewer::render },
 ];

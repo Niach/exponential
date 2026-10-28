@@ -414,7 +414,6 @@ mod tests {
                     })
                     .collect(),
             },
-            Some("guide") => ThreadTab::Guide { dot: tab["dot"].as_bool().unwrap_or(false) },
             Some("add") => ThreadTab::Add,
             _ => ThreadTab::Conversation,
         }

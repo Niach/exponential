@@ -276,6 +276,20 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `assistant modelValueCases`() {
+        val cases = assistant.getValue("modelValueCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                AgentSettings.Assistant.modelValue(input.str("model"), input.str("cli")),
+            )
+        }
+    }
+
+    @Test
     fun `assistant scheduleCases`() {
         val cases = assistant.getValue("scheduleCases").jsonArray.map { it.jsonObject }
         assertTrue(cases.isNotEmpty())

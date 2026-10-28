@@ -589,15 +589,6 @@ pub(crate) struct SteerSessionView {
     orphan_workflows: Vec<String>,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
-    /// THE Dock's relay card (dock.json ×4): the main-transcript row of the
-    /// ONE answerable card, lifted out of `rows` into a DockCard
-    /// ([`Self::dock_row_spec`], refreshed by [`Self::sync_list`]).
-    docked: Option<FeedRowSpec>,
-    /// EXP-1280: this session's waiting TOOL-posted cards
-    /// (`exponential_plan_propose` / `exponential_sessions_ask`), oldest
-    /// first: no engine ask behind them, so they dock from their `messages`
-    /// rows and answer only through `sessions.answer`.
-    tool_cards: Vec<domain::session_tree::SessionThreadRow>,
     /// Thread 58cb32df (chats.json, FEED-140): this session's conversation
     /// cards the relay feed does not paint itself (the TOOL-posted plan /
     /// question cards in every state, the agent's surface cards), in
@@ -823,8 +814,6 @@ impl SteerSessionView {
             orphan_workflows: Vec::new(),
             row_keys: Vec::new(),
             active: HashSet::new(),
-            docked: None,
-            tool_cards: Vec::new(),
             conv_cards: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
@@ -1404,12 +1393,8 @@ impl SteerSessionView {
         } else {
             self.orphan_workflows.clear();
         }
-        // THE ask dock: the waiting card's row leaves the transcript (it
-        // returns, closed, once answered).
-        self.docked = self.dock_row_spec();
-        if let Some(docked) = self.docked.as_ref().map(FeedRowSpec::id) {
-            self.rows.retain(|spec| spec.id() != docked);
-        }
+        // S-3 (dock.json): the relay's waiting card stays inline, answerable
+        // in place; it is never a DockCard any more.
         // EXP-850 §12: the per-turn file cards are derived state now
         // (EXP-884, [`Self::refresh_derived`] above).
         self.prune_dropped_rows();
@@ -2335,7 +2320,7 @@ impl SteerSessionView {
     /// ([`keyboard_drives_card`]).
     fn keyboard_answers(&self, cx: &App) -> bool {
         keyboard_drives_card(
-            self.pending_card_id().is_some() && self.relay_sheet_open(cx),
+            self.pending_card_id().is_some(),
             self.inline.is_some(),
             self.composer_visible(),
             self.input.read(cx).value().trim().is_empty(),
@@ -2689,20 +2674,6 @@ impl SteerSessionView {
         self.may_message
     }
 
-    /// EXP-1280: the unanswered TOOL-posted cards of this session, oldest
-    /// first (never on a root's host: its thread docks the tree's cards).
-    fn refresh_tool_card(&mut self, cx: &App) {
-        self.tool_cards = if !self.tree_scope && self.may_message {
-            crate::session_data::messages_of_session(&self.session_id, cx)
-                .iter()
-                .filter(|message| message.answered_at.is_none() && domain::session_tree::is_tool_card(message))
-                .filter_map(domain::session_tree::ask_card_row)
-                .collect()
-        } else {
-            Vec::new()
-        };
-    }
-
     /// Thread 58cb32df (chats.json, FEED-140): the conversation's cards the
     /// relay feed does not paint (web `AgentSessionView`'s tool cards + its
     /// surface cards): every TOOL-posted plan / question card (waiting ones
@@ -2820,57 +2791,6 @@ impl SteerSessionView {
             .nth(from_end)
             .map(|message| crate::thread_screen::clock(message.created_at.as_deref()))
             .unwrap_or_default()
-    }
-
-    /// N-12: the relay's own waiting card (claude's AskUserQuestion or its
-    /// plan) as THE Dock's front-most source (`relay:<row id>`).
-    fn relay_source(&self) -> Option<domain::dock::DockSource> {
-        let spec = self.docked.as_ref()?;
-        let id = self.dock_card_id()?;
-        let item = self.feed.items().iter().find(|item| item.id == id)?;
-        let card = item.question()?;
-        let id = format!("{RELAY_PREFIX}{}", spec.id());
-        Some(if card.plan_mode {
-            domain::dock::DockSource::Plan { id, text: card.text.clone(), session_name: None, questions: 0, created_at: i64::MAX }
-        } else {
-            domain::dock::DockSource::Question { id, text: card.text.clone(), session_name: None, created_at: i64::MAX }
-        })
-    }
-
-    /// Whether the relay card's sheet is open (the card keyboard drives it
-    /// only then).
-    fn relay_sheet_open(&self, cx: &App) -> bool {
-        self.dock.read(cx).open_id().is_some_and(|id| id.starts_with(RELAY_PREFIX))
-    }
-
-    /// The card THE ask dock holds: the newest unresolved card on a live,
-    /// connected, answerable run (an answer in flight keeps it docked,
-    /// "Answering…"). Never on a root's host ([`Self::composer_visible`]).
-    fn dock_card_id(&self) -> Option<FeedItemId> {
-        if self.tree_scope || !self.answerable_run() {
-            return None;
-        }
-        if let Some(editing) = self.editing_card_id() {
-            return Some(editing);
-        }
-        self.feed
-            .items()
-            .iter()
-            .rev()
-            .find(|item| self.active.contains(&item.id))
-            .map(|item| item.id)
-    }
-
-    /// The main-transcript row holding [`Self::dock_card_id`] (a lone card,
-    /// or its ask's stepper), lifted out of the transcript into the dock.
-    fn dock_row_spec(&self) -> Option<FeedRowSpec> {
-        let id = self.dock_card_id()?;
-        let items = self.feed.items();
-        let index = items.iter().position(|item| item.id == id)?;
-        self.feed
-            .row_specs()
-            .into_iter()
-            .find(|spec| spec.item_indices().contains(&index))
     }
 
     /// EXP-820: focus follows the composer's visibility EDGES, once per
@@ -4251,8 +4171,6 @@ const CONFIG_MODEL_ID: &str = "model";
 /// send and the footer's model pick report the same failure.
 const NOT_CONNECTED: &str = "The session is no longer connected";
 
-/// N-12: the relay's own waiting card's DockCard id prefix.
-const RELAY_PREFIX: &str = "relay:";
 
 /// EXP-877 — a model VALUE as the footer prints it: the picker's own label
 /// for an alias this build knows (`opus` → `Opus`, byte-identical with
@@ -4892,7 +4810,7 @@ impl SteerSessionView {
             // EXP-948: a run of the SAME Exponential tool is its own captioned
             // row — our work is never folded away as "N other tools".
             FeedRow::ExpRun { id, items } => self.render_exp_tool_run(*id, items, live_tail, window, cx),
-            FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, false, window, cx),
+            FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => self.render_subagent(*id, items, window, cx),
         }
     }
@@ -5043,7 +4961,7 @@ impl SteerSessionView {
                     .into_any_element()
             }
             FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], window, cx),
-            FeedKind::Question(_) => self.render_question(item, active, false, window, cx),
+            FeedKind::Question(_) => self.render_question(item, active, window, cx),
             // EXP-724: the quiet divider a finished compaction leaves behind
             // — everything above it is context the agent no longer holds.
             FeedKind::Compaction => tool_text(h_flex())
@@ -5546,7 +5464,6 @@ impl SteerSessionView {
                     *settled,
                     preview.as_ref(),
                     picture,
-                    &self.session_id,
                     window,
                     cx,
                 )
@@ -6515,7 +6432,6 @@ impl SteerSessionView {
         _id: FeedItemId,
         items: &[&FeedItem],
         active: &HashSet<FeedItemId>,
-        docked: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
@@ -6587,7 +6503,7 @@ impl SteerSessionView {
                         .w_full()
                         .min_w_0()
                         .mt_1p5()
-                        .child(self.render_card_body(item.id, &text, false, docked, window, cx))
+                        .child(self.render_card_body(item.id, &text, false, window, cx))
                         .child(self.render_prompt(item, active, submit_step, false, window, cx)),
                 );
             }
@@ -6609,10 +6525,6 @@ impl SteerSessionView {
                 );
             }
             None => {}
-        }
-        // N-12: inside THE Dock's sheet: no AskCard around it.
-        if docked {
-            return card.into_any_element();
         }
         ask_card(false, Some(SharedString::from(header)), counter, card, cx)
     }
@@ -6747,33 +6659,25 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// A card's body: in the transcript the folding chat body (a plan never
-    /// folds there: a read-only reader sees it whole, EXP-738); in THE ask
-    /// dock (`docked`) the whole body, inline (NEW-6: no scroll of its own;
-    /// no "Show more").
+    /// A card's body: the folding chat body (a plan never folds: a
+    /// read-only reader sees it whole, EXP-738).
     fn render_card_body(
         &self,
         id: FeedItemId,
         text: &str,
         plan: bool,
-        docked: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let _ = window;
-        if docked {
-            return ask_body_text(cx).child(self.render_body_folding(id, text, false, cx)).into_any_element();
-        }
         ask_body_text(cx).child(self.render_body_folding(id, text, !plan, cx)).into_any_element()
     }
 
-    /// A standalone question / plan-approval card (`docked` = THE ask
-    /// dock's big card).
+    /// A standalone question / plan-approval card.
     fn render_question(
         &self,
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
-        docked: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
@@ -6791,12 +6695,8 @@ impl SteerSessionView {
         let body = v_flex()
             .w_full()
             .min_w_0()
-            .child(self.render_card_body(item.id, &card.text, card.plan_mode, docked, window, cx))
+            .child(self.render_card_body(item.id, &card.text, card.plan_mode, window, cx))
             .child(self.render_prompt(item, active, false, false, window, cx));
-        // N-12: inside THE Dock's sheet (its header is the card's chrome).
-        if docked {
-            return body.into_any_element();
-        }
         ask_card(card.plan_mode, heading, None, body, cx)
     }
 
@@ -7658,17 +7558,12 @@ impl SteerSessionView {
         out
     }
 
-    /// N-12: THE Dock of the session view: the relay's waiting card, the
-    /// tool-posted ones, the session's own cards, then THE composer; and
-    /// the open card's sheet. Auto-open runs here (the view is in front
-    /// while it renders).
+    /// N-12: THE Dock of the session view: the session's own cards, then
+    /// THE composer; and the open card's sheet. S-3 (dock.json): a waiting
+    /// plan / question (the relay's own ask or a tool-posted card, the
+    /// latter a story) is never a DockCard; it stays inline, answerable.
     fn render_session_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> (Option<AnyElement>, Option<AnyElement>) {
-        let mut sources = Vec::new();
-        for (index, row) in self.tool_cards.iter().enumerate() {
-            sources.extend(crate::thread_screen::ask_source(row, None, index as i64));
-        }
-        sources.extend(self.relay_source());
-        sources.extend(self.session_dock_sources(cx));
+        let sources = self.session_dock_sources(cx);
         let rows = domain::dock::dock_rows(&sources);
         let dock = self.dock.clone();
         // The relay replays its history after the first frame: cards in it
@@ -7687,8 +7582,7 @@ impl SteerSessionView {
         (band, sheet)
     }
 
-    /// The open card's sheet (the relay ask's chromeless card, a tool card's
-    /// plan / question sheet, the Queue, the queued list).
+    /// The open card's sheet (the Queue, the queued list).
     fn render_dock_sheet(&mut self, rows: &[domain::dock::DockRow], window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let open = self.dock.read(cx).sheet_id()?.to_string();
         let Some(row) = rows.iter().find(|row| row.id == open).cloned() else {
@@ -7696,29 +7590,7 @@ impl SteerSessionView {
             return None;
         };
         // THE sheet is a sheet host: its pickers open inline.
-        let content = crate::dock::sheet_host(|| -> Option<crate::dock::SheetContent> {
-            Some(if open.starts_with(RELAY_PREFIX) {
-                let spec = self.docked.clone()?;
-                let resolved = spec.resolve(self.feed.items());
-                let active = self.active.clone();
-                let card = match &resolved {
-                    FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
-                    FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
-                    _ => return None,
-                };
-                crate::dock::SheetContent {
-                    meta: None,
-                    action: None,
-                    body: crate::dock::sheet_body("steer-dock-sheet-relay", card),
-                    footer: None,
-                }
-            } else if let Some(tool) = self.tool_cards.iter().find(|tool| tool.id() == open).cloned() {
-                let images = self.images.clone();
-                crate::thread_screen::ask_row_sheet(&tool, &crate::thread_screen::ThreadText::default(), &images, window, cx)?
-            } else {
-                self.render_session_dock_sheet(&row, window, cx)?
-            })
-        })?;
+        let content = crate::dock::sheet_host(|| self.render_session_dock_sheet(&row, window, cx))?;
         Some(crate::dock::sheet(&self.dock.clone(), &row, content, window, cx))
     }
 
@@ -8412,10 +8284,6 @@ fn script_card_input(item: &FeedItem) -> (steer::script_card::ScriptCardInput, b
 /// Every part is optional: the mark plus the caption is a complete row, and a
 /// tool that answers `none` never gets more. Mirrored ×4.
 ///
-/// EXP-933: a SETTLED, successful `results` call (`sessions_results`) carries
-/// an `Open Guide` button that opens the Guide tab of the root of `run_id`
-/// (the session this transcript is).
-///
 /// EXP-1172: a `picture` call (`sessions_show`) hangs its `picture` tile (the
 /// caller resolved it off the synced results) under the row instead of a
 /// preview; none yet = the bare row.
@@ -8428,7 +8296,6 @@ fn exp_tool_call_row(
     settled: bool,
     preview: Option<&steer::frames::ToolPreview>,
     picture: Option<AnyElement>,
-    run_id: &str,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -8452,10 +8319,7 @@ fn exp_tool_call_row(
         window,
         cx,
     );
-    let body = if display.result == steer::exp_tool::result::RESULTS {
-        (settled && !failed && !run_id.is_empty())
-            .then(|| exp_open_results_button(id, run_id, cx))
-    } else if display.result == steer::exp_tool::result::PICTURE {
+    let body = if display.result == steer::exp_tool::result::PICTURE {
         picture
     } else {
         (!failed)
@@ -8473,38 +8337,6 @@ fn exp_tool_call_row(
     }
 }
 
-/// The label of the button under a settled `sessions_guide` (or legacy
-/// `sessions_results`) row — ×4 (EXP-1251: web `OPEN_RESULTS_LABEL`).
-pub(crate) const OPEN_RESULTS_LABEL: &str = "Open Guide";
-
-/// EXP-933 — `Open Guide` under a settled `sessions_guide` call. EXP-1294:
-/// THE Guide is the tree root's, so it opens the session's thread (its
-/// root's screen), whose strip carries the Guide tab.
-fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement {
-    let run_id = run_id.to_string();
-    h_flex()
-        .child(
-            Button::new(("steer-exp-open-results", id as usize))
-                .ghost()
-                .cursor_pointer()
-                .xsmall()
-                .icon(Icon::new(registry::WORK_RESULTS))
-                .text_color(cx.theme().muted_foreground)
-                .label(OPEN_RESULTS_LABEL)
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    let root_id = crate::session_data::root_of(&run_id, cx)
-                        .map_or_else(|| run_id.clone(), |root| root.id);
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::Thread { session_id: root_id },
-                    );
-                }),
-        )
-        .into_any_element()
-}
-
 /// EXP-846 — the settled preview under an Exponential tool row, by contract
 /// result kind:
 ///
@@ -8514,7 +8346,6 @@ fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement
 ///   degrades to the identifier and title the tool itself reported;
 /// * `pr` — a link row opening the pull request in the browser;
 /// * `list` — "N results";
-/// * `results` — never reaches here: its row carries `Open Guide` instead;
 /// * `session` / `board` / `action` / `comment` — a name chip;
 /// * `none` — nothing: the caption said it all.
 ///
@@ -8705,7 +8536,6 @@ impl Render for SteerSessionView {
             self.input.update(cx, |state, cx| state.set_value(draft, window, cx));
         }
         self.dev_scroll_to_script_card();
-        self.refresh_tool_card(cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);
@@ -8959,25 +8789,6 @@ mod tests {
         ];
         assert_eq!(card_row_id(&messages, "q-1").as_deref(), Some("m-new"));
         assert_eq!(card_row_id(&messages[..1], "q-1"), None);
-    }
-
-    /// EXP-1280: the session view's Dock lists a tool-posted card as a
-    /// DockCard.
-    #[test]
-    fn a_tool_card_is_a_pending_entry_of_the_dock() {
-        let message = domain::rows::MessageRow {
-            id: "m-1".into(),
-            session_id: "s-1".into(),
-            card: Some(serde_json::json!({"kind": "question", "question": "Ship it?", "options": ["Yes", "No"]})),
-            ..Default::default()
-        };
-        assert!(domain::session_tree::is_tool_card(&message), "no questionId: an agent's card");
-        let question = domain::session_tree::ask_card_row(&message).expect("a question row");
-        let source = crate::thread_screen::ask_source(&question, None, 0).expect("a question card waits");
-        let rows = domain::dock::dock_rows(&[source]);
-        assert_eq!(rows[0].id, "m-1");
-        assert_eq!(rows[0].kind, domain::dock::DockKind::Question);
-        assert_eq!(rows[0].title, "Ship it?");
     }
 
     // ── A session tab that exists at boot dials once an account is active ──

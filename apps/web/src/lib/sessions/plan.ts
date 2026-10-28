@@ -250,6 +250,8 @@ export const SURFACE_CARD_TITLE_MAX = 200
 export function buildSurfaceCard(input: {
   surface: CardSurfaceInput
   title?: string
+  pictures?: CardPictureInput[]
+  story?: boolean
 }): Extract<MessageCard, { kind: `surface` }> {
   const surface = validateCardSurface(input.surface)
   if (!surface) throw bad(`surface is required: an Exponential UI core tree {root, data?}`)
@@ -257,7 +259,16 @@ export function buildSurfaceCard(input: {
   if (title && title.length > SURFACE_CARD_TITLE_MAX) {
     throw bad(`title is ${title.length} characters; the cap is ${SURFACE_CARD_TITLE_MAX}`)
   }
-  return { kind: `surface`, surface, title }
+  // S-3 stories.json: a surface may carry a result story's screenshots;
+  // a plain surface is a story only when asked (or once a picture lands).
+  const pictures = cardPictures(input.pictures)
+  return {
+    kind: `surface`,
+    surface,
+    title,
+    ...(pictures.length ? { pictures } : {}),
+    ...(input.story !== undefined ? { story: input.story } : {}),
+  }
 }
 
 /** Posts a surface card as an AGENT message in the caller's own session
@@ -388,16 +399,12 @@ export async function postShowCard(args: {
     return {
       messageId: replaced,
       replaced: true,
-      uploads: isAsk(args.card)
-        ? mintCardUploads({
-            userId: args.userId,
-            sessionId: args.sessionId,
-            messageId: replaced,
-            labels: ((args.card as Extract<MessageCard, { kind: `plan` | `question` }>).pictures ?? []).map(
-              (picture) => picture.label
-            ),
-          })
-        : [],
+      uploads: mintCardUploads({
+        userId: args.userId,
+        sessionId: args.sessionId,
+        messageId: replaced,
+        labels: (args.card.pictures ?? []).map((picture) => picture.label),
+      }),
       ...(isAsk(args.card) ? { next: PLAN_CARD_COPY.proposeNext } : {}),
     }
   }
@@ -413,7 +420,16 @@ export async function postShowCard(args: {
     sessionId: args.sessionId,
     card: args.card as Extract<MessageCard, { kind: `surface` }>,
   })
-  return { ...posted, replaced: false, uploads: [] }
+  return {
+    ...posted,
+    replaced: false,
+    uploads: mintCardUploads({
+      userId: args.userId,
+      sessionId: args.sessionId,
+      messageId: posted.messageId,
+      labels: (args.card.pictures ?? []).map((picture) => picture.label),
+    }),
+  }
 }
 
 /** One signed upload per picture label of the card. */
@@ -534,6 +550,10 @@ const alreadyUploaded = () =>
 
 /** Refuses before any storage work: the token's card is gone, has no such
  *  label, or that picture already landed. */
+/** S-3: a card that takes uploaded pictures (an ask, a plan, a surface). */
+const hasCardPictures = (card: MessageCard): card is Extract<MessageCard, { kind: `plan` | `question` | `surface` }> =>
+  card.kind === `plan` || card.kind === `question` || card.kind === `surface`
+
 export async function assertCardPictureOpen(messageId: string, sessionId: string, label: string) {
   const [row] = await db
     .select({ card: messages.card, sessionId: messages.sessionId })
@@ -541,7 +561,7 @@ export async function assertCardPictureOpen(messageId: string, sessionId: string
     .where(eq(messages.id, messageId))
     .limit(1)
   const card = (row?.card ?? null) as MessageCard | null
-  if (!row || row.sessionId !== sessionId || !card || (card.kind !== `plan` && card.kind !== `question`)) {
+  if (!row || row.sessionId !== sessionId || !card || !hasCardPictures(card)) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Card not found` })
   }
   const picture = (card.pictures ?? []).find((entry) => entry.label === label)
@@ -561,17 +581,18 @@ export async function publishCardPicture(
   input: { messageId: string; sessionId: string; teamId: string; label: string; uploaderId: string },
   prepared: PreparedSessionImage
 ): Promise<{ label: string; card: MessageCard }> {
+  let published: { label: string; card: MessageCard; rootId: string }
   try {
-    return await db.transaction(async (tx) => {
+    published = await db.transaction(async (tx) => {
       await generateTxId(tx)
       const [row] = await tx
-        .select({ card: messages.card, sessionId: messages.sessionId })
+        .select({ card: messages.card, sessionId: messages.sessionId, rootId: messages.rootId })
         .from(messages)
         .where(eq(messages.id, input.messageId))
         .limit(1)
         .for(`update`)
       const card = (row?.card ?? null) as MessageCard | null
-      if (!row || row.sessionId !== input.sessionId || !card || (card.kind !== `plan` && card.kind !== `question`)) {
+      if (!row || row.sessionId !== input.sessionId || !card || !hasCardPictures(card)) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `Card not found` })
       }
       const picture = (card.pictures ?? []).find((entry) => entry.label === input.label)
@@ -591,10 +612,16 @@ export async function publishCardPicture(
         .update(messages)
         .set({ card: next, updatedAt: new Date() })
         .where(eq(messages.id, input.messageId))
-      return { label: input.label, card: next }
+      return { label: input.label, card: next, rootId: row.rootId }
     })
   } catch (error) {
     await rollbackSessionImage(prepared.storageKey)
     throw error
   }
+  // S-3: a story picture is a PR picture: the thread's live PR bodies
+  // re-render (lib/pull-requests.ts, lazily: it imports this module's peers).
+  void import(`@/lib/pull-requests`)
+    .then(({ syncPullRequestBodies }) => syncPullRequestBodies(published.rootId))
+    .catch((error: unknown) => console.error(`[stories] PR body sync failed`, error))
+  return { label: published.label, card: published.card }
 }

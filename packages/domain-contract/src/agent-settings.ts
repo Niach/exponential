@@ -157,6 +157,16 @@ export function assistantScheduleTriggers(
   return [{ kind: `schedule`, cron, enabled: true, ...(tz ? { tz } : {}) }]
 }
 
+/** The Assistant's Model row value (`modelValueCases`): the pinned model,
+ *  else the dispatcher root's default for the login's CLI (never `Last
+ *  used`). */
+export function assistantModelValue(input: { model?: string | null; cli?: string | null }): string {
+  const pinned = input.model?.trim()
+  if (pinned) return input.model!
+  const defaults = contractJson.deviceAgentDefaults
+  return input.cli === `codex` ? defaults.codexThreadModel : defaults.threadModel
+}
+
 export interface AgentRoleLike {
   role?: string | null
   ownerId: string

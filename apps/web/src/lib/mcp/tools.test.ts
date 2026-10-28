@@ -314,7 +314,7 @@ vi.mock(`@/lib/sessions/plan`, async (importOriginal) => ({
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { getSteerRelayConfig, relayPostCompact } from "@/lib/steer"
-import { registerExponentialTools, GUIDE_PICTURE_NEXT_STEP } from "@/lib/mcp/tools"
+import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import { displayRowNames, legacyNameOfRow } from "@/lib/mcp/nouns"
@@ -2574,69 +2574,6 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     expect(payload.id).toBe(UUID)
     expect(payload.sessionId).toBeNull()
     expect(payload.warning).toContain(`exponential_sessions_link`)
-  })
-})
-
-describe(`exponential_guide_write`, () => {
-  it(`writes the caller's session's Guide and hands back the upload step`, async () => {
-    dbRows.current = [callerRow()]
-    sessionsCore.writeGuide.mockResolvedValue({
-      topic: `Summary`,
-      uploadUrl: `https://x.test/u`,
-      curl: `curl -T shot.png https://x.test/u`,
-      results: [{ topic: `Summary`, text: 120 }],
-    })
-    const result = await collectTools(USER, SESSION).get(`exponential_guide_write`)!({
-      topic: `Summary`,
-      text: `Fixed it.`,
-      files: [`src/a.ts`],
-      label: `Before`,
-    })
-    expect(parseOk(result)).toMatchObject({
-      topic: `Summary`,
-      curl: `curl -T shot.png https://x.test/u`,
-      next: GUIDE_PICTURE_NEXT_STEP,
-    })
-    expect(sessionsCore.writeGuide).toHaveBeenCalledWith({
-      userId: USER.id,
-      sessionId: SESSION,
-      topic: `Summary`,
-      text: `Fixed it.`,
-      files: [`src/a.ts`],
-      remove: false,
-      label: `Before`,
-    })
-  })
-
-  // EXP-1397: an omitted files/prUrl is KEPT (a prUrl-only tag never wipes
-  // the topic's files; a rewrite never drops its PR).
-  it(`passes omitted files and prUrl through as omitted`, async () => {
-    dbRows.current = [callerRow()]
-    sessionsCore.writeGuide.mockResolvedValue({ topic: `Summary`, results: [] })
-    await collectTools(USER, SESSION).get(`exponential_guide_write`)!({
-      topic: `Summary`,
-      prUrl: `https://github.com/acme/app/pull/7`,
-    })
-    const args = sessionsCore.writeGuide.mock.calls.at(-1)![0]
-    expect(args).toMatchObject({ prUrl: `https://github.com/acme/app/pull/7`, text: null })
-    expect(`files` in args).toBe(false)
-  })
-
-  it(`registers only inside a session`, () => {
-    const headerless = collectToolDefs({ inSession: false, unattended: false, agent: false })
-    expect(headerless.has(`exponential_guide_write`)).toBe(false)
-    expect(headerless.has(`exponential_sessions_compact`)).toBe(false)
-    expect(collectToolDefs().has(`exponential_guide_write`)).toBe(true)
-  })
-
-  it(`refuses a header that is not the caller's own session`, async () => {
-    dbRows.current = []
-    const result = await collectTools(USER, SESSION).get(`exponential_guide_write`)!({
-      topic: `Summary`,
-      text: `x`,
-    })
-    expect(result.isError).toBe(true)
-    expect(sessionsCore.writeGuide).not.toHaveBeenCalled()
   })
 })
 

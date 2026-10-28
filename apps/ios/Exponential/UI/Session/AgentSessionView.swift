@@ -267,10 +267,6 @@ struct AgentSessionView: View {
             }
             bottomBar(model)
         }
-        // AUTO-OPEN: a plan or question that arrives while the session is in
-        // front opens its sheet; what already waited (the relay's history
-        // replay, the synced cards) stays collapsed.
-        .dockAutoOpen(rows, ready: model.phase == .live) { dockOpenId = $0 }
         // EXP-1162: the bottom edge strip behind the band — not behind an
         // open composer card, which is opaque and rides the keyboard.
         // EXP-1256 (D15): in the page's own ground — no tint, no blur.
@@ -706,16 +702,14 @@ struct AgentSessionView: View {
                             if model.canLoadEarlier {
                                 TranscriptLoadEarlierButton { model.loadEarlier() }
                             }
-                            // THE Dock: the card waiting on this steerer
-                            // leaves the transcript for a DockCard
-                            // (`bottomBand`).
-                            let docked = dockedRow(model)?.id
-                            let rows = model.rows.filter { $0.id != docked }
+                            // S-3 (dock.json): a waiting plan or question
+                            // stays inline, answerable; it is a story now,
+                            // never a DockCard.
+                            let rows = model.rows
                             // EXP-1398 (ask-dock.json `anchorCases`): EVERY
                             // session card draws inline after the call that
                             // posted it (paired per kind), the ones older than
-                            // the window up top; a waiting one ALSO sits in
-                            // the Dock (FEED-140; web `renderToolCards`).
+                            // the window up top (web `renderToolCards`).
                             let toolCardAnchors = AskDock.anchorSessionCards(
                                 AskDock.feedCalls(model.feed), cards: sessionCards
                             )
@@ -1076,30 +1070,6 @@ struct AgentSessionView: View {
         return deps.auth.userName
     }
 
-    /// THE ask dock (fixtures/ask-dock.json): the ONE card waiting on this
-    /// steerer (the NEWEST still-active question / ask, as web, desktop and
-    /// Android dock it) — what leaves the transcript for the composer's
-    /// slot. nil while nothing waits or this client may not answer (a
-    /// read-only viewer keeps it inline).
-    private func dockedRow(_ model: AgentSessionModel) -> AgentFeedRow? {
-        guard model.cardPending, canAnswer else { return nil }
-        let active = model.activeQuestionIds
-        return model.rows.last { row in
-            switch row {
-            case let .ask(group): group.questions.contains { active.contains($0.id) }
-            case let .single(item): item.question.map { active.contains($0.id) } ?? false
-            default: false
-            }
-        }
-    }
-
-    /// EXP-1280: the tool-posted cards still waiting on this viewer (one who
-    /// may post), oldest first.
-    private func pendingToolAsks(_ model: AgentSessionModel) -> [AskDock.Pending] {
-        guard model.mayPost, !model.sessionEnded else { return [] }
-        return AskDock.threadPendingAsks(toolAsks) { _ in nil }
-    }
-
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
     /// tool-posted card anchors.
     private static func rowItemIds(_ row: AgentFeedRow) -> [Int] {
@@ -1112,7 +1082,7 @@ struct AgentSessionView: View {
 
     /// EXP-1280: the session cards with these message ids, inline as THE
     /// thread card (`ThreadAskCard`): a waiting one answerable by a viewer
-    /// who may post (FEED-140: it also sits in the Dock), an answered one
+    /// who may post, an answered one
     /// closed with its picks; a `surface` card = THE thread's
     /// `SurfaceCardRow`.
     @ViewBuilder
@@ -1239,59 +1209,16 @@ struct AgentSessionView: View {
         }
     }
 
-    /// N-12: the relay's own waiting card (claude's AskUserQuestion or its
-    /// plan) is the front-most ask (web `RELAY_ASK_ORDER`).
-    private static let relayAskOrder = Double(Int64.max)
-
-    /// N-12: THE Dock's rows: the relay's own ask, the tool-posted ones, then
-    /// THE Queue, the queued messages and the banners (`SessionDock`).
+    /// N-12: THE Dock's rows: THE Queue, the queued messages and the
+    /// banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
+    /// is a story, never a DockCard; it stays inline in the transcript.
     private func dockRows(_ model: AgentSessionModel) -> [Dock.Row] {
-        var sources: [Dock.Source] = []
-        if let row = dockedRow(model), let question = relayQuestion(row) {
-            let id = "relay:\(row.id)"
-            sources.append(question.planMode
-                ? .plan(id: id, text: question.text, sessionName: nil, questions: 0, createdAt: Self.relayAskOrder)
-                : .question(id: id, text: question.text, sessionName: nil, createdAt: Self.relayAskOrder))
-        }
-        sources += pendingToolAsks(model).map(\.dockSource)
-        sources += SessionDock.sources(model, session: session)
-        return Dock.rows(sources)
+        Dock.rows(SessionDock.sources(model, session: session))
     }
 
-    private func relayQuestion(_ row: AgentFeedRow) -> AgentQuestion? {
-        switch row {
-        case let .ask(group):
-            let active = model?.activeQuestionIds ?? []
-            return group.questions.first { active.contains($0.id) } ?? group.questions.first
-        case let .single(item): return item.question
-        default: return nil
-        }
-    }
-
-    /// A DockCard's sheet: the relay's ask = its card (chromeless), a
-    /// tool-posted one = THE thread sheet, THE Queue / the queued messages
-    /// their lists.
+    /// A DockCard's sheet: THE Queue / the queued messages their lists.
     private func dockSheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
-        if row.id.hasPrefix("relay:"), let docked = dockedRow(model) {
-            return AnyView(DockSheetChrome(row: row, onClose: close) {
-                switch docked {
-                case let .ask(group): askCard(group, chromeless: true)
-                case let .single(item): item.question.map { questionCard($0, chromeless: true) }
-                default: EmptyView()
-                }
-            })
-        }
-        if let card = toolAsks.first(where: { $0.id == row.id }) {
-            return card.dockSheet(
-                row,
-                canAnswer: model.mayPost && !model.sessionEnded,
-                busy: toolAnsweringId == card.id,
-                markdownContext: markdownContext,
-                onSubmit: submitToolAnswer,
-                onClose: close
-            )
-        }
-        return SessionDock.sheet(row, model: model, close: close)
+        SessionDock.sheet(row, model: model, close: close)
     }
 
     /// A banner's one button: Reconnect, the usage wall's account switch.
@@ -1325,7 +1252,7 @@ struct AgentSessionView: View {
         // EXP-642: the store slide's pop-out rect is measured off the question
         // card (`PopRects`). `contain` keeps its option buttons queryable.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-feed-question")
+        .accessibilityIdentifier("feed-question")
     }
 
     /// A multi-question ask (EXP-249) as ONE stepper card, claude-style: one
@@ -1397,7 +1324,7 @@ struct AgentSessionView: View {
                 // from the recorded answer, never from the current step's.
                 .id("edit-\(editingStep.id)")
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("agent-feed-question")
+                .accessibilityIdentifier("feed-question")
             } else {
                 QuestionCard(
                     question: current,
@@ -1422,7 +1349,7 @@ struct AgentSessionView: View {
                 // never leak from one question into the next.
                 .id(current.id)
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("agent-feed-question")
+                .accessibilityIdentifier("feed-question")
             }
         }
     }

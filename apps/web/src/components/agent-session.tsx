@@ -235,8 +235,6 @@ const TRANSCRIPT_STALL_MS = 8_000
 /** N-12: the transcript's last row clears THE Dock's band by this much. */
 const DOCK_GAP = 16
 /** N-12: the jump circle sits this far above the band (EXP-1191: 12px). */
-/** N-12: the relay's own waiting card is the newest ask in the Dock. */
-const RELAY_ASK_ORDER = Number.MAX_SAFE_INTEGER
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
  *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
@@ -372,17 +370,6 @@ export function AgentSessionView({
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
   )
-  /** THE ask dock (ask-dock.json ×4): the newest card still waiting on the
-   *  viewer leaves the transcript and takes the composer's slot. */
-  const dockedRow = useMemo(() => {
-    if (!canAnswer) return null
-    for (let i = rows.length - 1; i >= 0; i--) {
-      const row = rows[i]!
-      const items = row.kind === `ask` ? row.items : row.kind === `single` ? [row.item] : []
-      if (items.some((item) => item.kind === `question` && questionIds.has(item.id))) return row
-    }
-    return null
-  }, [rows, questionIds, canAnswer])
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
    *  open ask for them, so they render as THE thread card and answer via
@@ -391,61 +378,12 @@ export function AgentSessionView({
   const sessionMessages = useSessionMessages(session.id)
   const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
   const canAnswerCards = !sessionEnded
-  const dockedToolCards = useMemo(
-    () => (canAnswerCards ? toolCards.filter(cardWaiting) : []),
-    [toolCards, canAnswerCards]
-  )
-  /** N-12: the relay's own waiting card (claude's AskUserQuestion or its
-   *  plan) as a Dock source, in front of the tool-posted ones. */
-  const relaySource = useMemo<DockSource | null>(() => {
-    if (dockedRow === null) return null
-    const items = dockedRow.kind === `ask` ? (dockedRow.items as QuestionItem[]) : dockedRow.kind === `single` ? [dockedRow.item as QuestionItem] : []
-    const item = items.find((entry) => questionIds.has(entry.id)) ?? items[0]
-    if (!item) return null
-    const id = `relay:${dockedRow.kind === `single` ? dockedRow.item.id : dockedRow.id}`
-    return item.planMode
-      ? { kind: `plan`, id, text: item.text, sessionName: null, questions: 0, createdAt: RELAY_ASK_ORDER }
-      : { kind: `question`, id, text: item.text, sessionName: null, createdAt: RELAY_ASK_ORDER }
-  }, [dockedRow, questionIds])
+  // S-3 (stories.json, dock.json): a waiting plan or question (the relay's
+  // own ask or a tool-posted card) is never a Dock source; it stays inline,
+  // answerable, and a tool-posted one is a story.
   /** N-12: THE Dock's band height = the transcript's bottom padding. */
   const [dockHeight, setDockHeight] = useState(0)
   const sessionDock = useSessionDock(session)
-  const dockSources = useMemo(
-    () => (relaySource ? [relaySource, ...sessionDock.sources] : sessionDock.sources),
-    [relaySource, sessionDock.sources]
-  )
-  const renderDockSheet = (row: DockRow, close: () => void): ReactNode => {
-    if (relaySource && `id` in relaySource && row.id === relaySource.id && dockedRow !== null) {
-      return (
-        <DockSheetBody>
-          {dockedRow.kind === `ask` ? (
-            <AskStepperCard
-              items={dockedRow.items as QuestionItem[]}
-              activeIds={questionIds}
-              canAnswer={canAnswer}
-              answerStates={answerStates}
-              onAnswer={answerQuestion}
-              pendingId={pendingCard?.id ?? null}
-              onSend={sendMessage}
-              chromeless
-            />
-          ) : dockedRow.kind === `single` ? (
-            <QuestionCard
-              item={dockedRow.item as QuestionItem}
-              active={questionIds.has(dockedRow.item.id)}
-              canAnswer={canAnswer}
-              answerState={answerStates[answerKey(dockedRow.item as QuestionItem)]}
-              onAnswer={answerQuestion}
-              hotkeys={pendingCard?.id === dockedRow.item.id}
-              onSend={sendMessage}
-              chromeless
-            />
-          ) : null}
-        </DockSheetBody>
-      )
-    }
-    return sessionDock.renderSheet(row, close)
-  }
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
   // Thread 58cb32df (chats.json SURFACE CARD): an agent's inline preview
   // (`session_self_show`) sits right after the call that posted it, like a
@@ -632,9 +570,6 @@ export function AgentSessionView({
     index: number,
     list: readonly (typeof rows)[number][]
   ): ReactNode => {
-    // FEED-140 (chats.json): the docked card STAYS inline at its place with
-    // its actions (the dock holds it too); only the keyboard is the dock's.
-    const docked = row === dockedRow
     // EXP-787: each row carries the space ABOVE it, from the row before it.
     const gap = transcriptGapClass(
       index === 0 ? null : rowClass(list[index - 1]),
@@ -704,7 +639,7 @@ export function AgentSessionView({
           canAnswer={canAnswer}
           answerStates={answerStates}
           onAnswer={answerQuestion}
-          pendingId={docked ? null : (pendingCard?.id ?? null)}
+          pendingId={pendingCard?.id ?? null}
           onSend={sendMessage}
         />
       )
@@ -808,7 +743,7 @@ export function AgentSessionView({
             canAnswer={canAnswer}
             answerState={answerStates[answerKey(item)]}
             onAnswer={answerQuestion}
-            hotkeys={!docked && pendingCard?.id === item.id}
+            hotkeys={pendingCard?.id === item.id}
             onSend={sendMessage}
           />
         )
@@ -1010,20 +945,19 @@ export function AgentSessionView({
               queued messages and the status banners, then the composer (a
               phone's floats in the work bar instead). */}
           <ThreadDock
-            rows={dockedToolCards}
+            rows={NO_ROWS}
             sessionName={noSessionName}
             renderText={renderThreadText}
             attachmentSrc={attachmentUrl}
             pending={cardsPending}
             onAnswer={(rowId, input) => void answerCard(rowId, input)}
             onDecide={(rowId, input) => void answerCard(rowId, input)}
-            sources={dockSources}
-            renderSheet={renderDockSheet}
+            sources={sessionDock.sources}
+            renderSheet={sessionDock.renderSheet}
             renderAction={sessionDock.renderAction}
             composer={composerFloats ? undefined : composer}
             onHeight={setDockHeight}
             phoneClearance={composerFloats}
-            autoOpenReady={live}
           />
         </div>
 
@@ -1039,13 +973,7 @@ export function AgentSessionView({
 /** EXP-1280: a tool-posted card's pictures resolve against the app. */
 const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
 const noSessionName = () => null
-
-/** A card still waiting on a person. */
-function cardWaiting(row: ThreadRow): boolean {
-  // FEED-140: a `superseded` plan is decided (never in the dock).
-  if (row.type === `plan`) return row.decision === null
-  return row.type === `question` && !row.answered
-}
+const NO_ROWS: ThreadRow[] = []
 
 /** EXP-1280: this session's TOOL-posted cards (ask-dock.json
  *  `sessionCards`) in THE thread row form, oldest first. */

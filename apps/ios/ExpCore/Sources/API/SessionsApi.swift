@@ -250,6 +250,11 @@ private struct SetReadInput: Encodable {
     let read: Bool
 }
 
+private struct MarkStoriesSeenInput: Encodable {
+    let sessionId: String
+    let at: Int64
+}
+
 private struct SetArchivedInput: Encodable {
     let sessionIds: [String]
     let archived: Bool
@@ -443,6 +448,16 @@ public final class SessionsApi: Sendable {
     public func markRead(accountId: String, sessionId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "sessions.markRead", input: SessionIdInput(sessionId: sessionId)
+        )
+    }
+
+    /// S-3 (stories.json): a story of this ROOT's tree was SHOWN in the
+    /// viewer; the server keeps the greatest `at` (epoch ms, the story's
+    /// createdAt) in `session_reads.story_seen_at`.
+    public func markStoriesSeen(accountId: String, sessionId: String, at: Double) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.markStoriesSeen",
+            input: MarkStoriesSeenInput(sessionId: sessionId, at: Int64(max(0, at)))
         )
     }
 

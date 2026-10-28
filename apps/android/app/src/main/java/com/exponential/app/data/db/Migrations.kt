@@ -814,3 +814,18 @@ private val SESSION_TREE_V87 = listOf(
     "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_issue_id` ON `pull_request_issues` (`issue_id`)",
     "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_team_id` ON `pull_request_issues` (`team_id`)",
 )
+
+/**
+ * v104 (S-3 stories): `session_reads.story_seen_at`, the greatest story
+ * createdAt the viewer was shown in the root's tree (stories.json SEEN).
+ * Only the session_reads shape refetches so synced rows re-arrive with it.
+ */
+val MIGRATION_103_104: Migration = object : Migration(103, 104) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `session_reads` ADD COLUMN `story_seen_at` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'session_reads'",
+        )
+    }
+}

@@ -170,6 +170,7 @@ pub mod session_tree;
 // N-12: THE stack geometry (the toasts and the Dock pile), fixture-locked ×4.
 pub mod stack;
 pub mod statuses;
+pub mod stories;
 pub mod tree_guides;
 // NEW-59: the Work screen picker's options + copy, fixture-locked ×4.
 pub mod work_screen;

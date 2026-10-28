@@ -280,6 +280,15 @@ object AgentSettings {
             Schedule("daily", "Every day", "0 9 * * *"),
         )
 
+        /** The Model row's value (`modelValueCases`): the pinned model, else
+         *  the dispatcher root's default for the login's CLI (never `Last
+         *  used`). */
+        fun modelValue(model: String?, cli: String?): String = when {
+            !model.isNullOrBlank() -> model
+            cli == "codex" -> DomainContract.deviceAgentDefaultsCodexThreadModel
+            else -> DomainContract.deviceAgentDefaultsThreadModel
+        }
+
         /** The preset stored triggers stand for; null = not an Assistant's
          *  (an event, a custom cron, more than one). */
         fun scheduleOf(triggers: List<TriggerLike>): String? {

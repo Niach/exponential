@@ -23,7 +23,6 @@ import {
   PLAN_CARD_QUESTIONS_MAX,
   pictureLabelSchema,
   QUESTION_CARD_OPTIONS_MAX,
-  SESSION_RESULT_REPORT_MAX,
   SESSIONS_SEND_TEXT_MAX,
   sessionsSendInputSchema,
   REPLIES_MAX,
@@ -158,7 +157,6 @@ import {
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
-import { writeGuide } from "@/lib/sessions/guide"
 import { escalateCard } from "@/lib/sessions/escalate"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
 import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postShowCard, SURFACE_CARD_TITLE_MAX } from "@/lib/sessions/plan"
@@ -389,15 +387,10 @@ const cardSurfaceInput = z
   })
   .optional()
 
-// EXP-1251 → EXP-1291: the Guide tool's description (always-loaded bytes).
-const GUIDE_TOOL_DESCRIPTION = `Your thread's GUIDE = the body of every PR in it. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes. prUrl = the topic's PR (default: your open PR; a parent may tag its children's). label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
 // S-3: the show tool's description (always-loaded bytes; its own per-tool
 // cap in context-budget.test.ts): the nested node syntax, one example, the
 // reply rule and the component names; props come from the apps catalog.
-const SHOW_TOOL_DESCRIPTION = `ONE card in your chat per turn (result, status, draft, choice); replace: true edits this turn's card. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event sends text as the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[...]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (option picture, ![a](upload:label) in plan.text); run each returned curl. After ask/plan end your turn: the answer is your next message.`
-// EXP-1262: the call only mints the upload grant; nothing renders until the
-// curl runs.
-export const GUIDE_PICTURE_NEXT_STEP = `Run the curl line now: the picture shows only once it uploads.`
+const SHOW_TOOL_DESCRIPTION = `ONE card in your chat per turn (result, status, draft, choice); replace: true edits this turn's card. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event sends text as the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[...]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures); story: false = chat only. After ask/plan end your turn: the answer is your next message.`
 
 // FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
 // plan mode (and any "ask before side effects" posture) raises a permission
@@ -2702,9 +2695,10 @@ export function registerExponentialTools(
             })
             .optional(),
           pictures: cardPicturesInput,
+          story: z.boolean().optional(),
         }),
       },
-      async ({ surface, title, replace, ask, plan, pictures }) => {
+      async ({ surface, title, replace, ask, plan, pictures, story }) => {
         try {
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_show`))
@@ -2715,7 +2709,9 @@ export function registerExponentialTools(
             ? buildPlanCard({ plan: plan.text, questions: plan.questions, pictures, surface })
             : ask
               ? buildQuestionCard({ ...ask, pictures, surface })
-              : buildSurfaceCard({ surface: surface!, title })
+              : buildSurfaceCard({ surface: surface!, title, pictures, ...(story !== undefined ? { story } : {}) })
+          // S-3 stories.json: an explicit flag rides every kind.
+          if (story !== undefined) card.story = story
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))
         } catch (e) {
           return err(e)
@@ -2815,47 +2811,6 @@ export function registerExponentialTools(
       }
     }
   )
-
-  // The thread's ONE Guide = the PR body of every PR in it. Writes on the
-  // caller's own session (its root's Guide), so it needs one.
-  if (gates.inSession) {
-    server.registerTool(
-      `exponential_guide_write`,
-      {
-        description: GUIDE_TOOL_DESCRIPTION,
-        _meta: ALWAYS_LOAD_META,
-        inputSchema: strictInput({
-          topic: z.string().trim().min(1).max(80),
-          text: z.string().max(SESSION_RESULT_REPORT_MAX).optional(),
-          files: z.array(z.string().min(1).max(512)).max(200).optional(),
-          prUrl: z.string().url().max(512).optional(),
-          remove: z.boolean().optional(),
-          label: z.string().trim().min(1).max(80).optional(),
-        }),
-      },
-      async ({ topic, text, files, prUrl, remove, label }) => {
-        try {
-          const own = await loadCallerSession()
-          if (!own) throw new Error(noSessionMessage(`exponential_guide_write`))
-          const result = await writeGuide({
-            userId: user.id,
-            sessionId: own.id,
-            topic,
-            text: text ?? null,
-            // EXP-1397: omitted = kept (a prUrl-only write never clears the
-            // topic's files, a rewrite never drops its PR).
-            ...(files !== undefined ? { files } : {}),
-            ...(prUrl !== undefined ? { prUrl } : {}),
-            remove: remove ?? false,
-            label: label ?? null,
-          })
-          return ok(result.curl ? { ...result, next: GUIDE_PICTURE_NEXT_STEP } : result)
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-  }
 
   // -----------------------------------------------------------------------
   // Pull requests (EXP-1291: `pull_requests` rows; lib/pull-requests.ts)

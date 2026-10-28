@@ -1,5 +1,5 @@
 {
-  "id": "82e1287f-4de4-4e47-8e73-70e5f7779beb",
+  "id": "da5ffcf1-5c0e-4efa-94c0-e5635b825341",
   "prevId": "ffc0c057-8989-4e6e-8d6c-ca67d48a7239",
   "version": "7",
   "dialect": "postgresql",
@@ -7747,6 +7747,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "not_run": {
+          "name": "not_run",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -8429,6 +8435,12 @@
         },
         "archived_at": {
           "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "story_seen_at": {
+          "name": "story_seen_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -9822,7 +9834,7 @@
           "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
-          "default": "''"
+          "default": "'ctrl+space'"
         },
         "wake_word": {
           "name": "wake_word",

@@ -313,6 +313,17 @@ pub static ASSISTANT: LazyLock<AssistantSpec> = LazyLock::new(|| {
     serde_json::from_value(fixture["assistant"].clone()).expect("agent-settings.json assistant parses")
 });
 
+/// TS `assistantModelValue` (`modelValueCases`): the Assistant's Model row
+/// value = the pinned model, else the dispatcher root's default for the
+/// login's CLI (never `Last used`).
+pub fn assistant_model_value(model: Option<&str>, cli: Option<&str>) -> String {
+    match model.filter(|model| !model.trim().is_empty()) {
+        Some(model) => model.to_string(),
+        None if cli == Some("codex") => crate::contract::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL.to_string(),
+        None => crate::contract::DEVICE_AGENT_DEFAULTS_THREAD_MODEL.to_string(),
+    }
+}
+
 /// TS `assistantScheduleOf`: the preset id stored triggers stand for
 /// (`off` = none or a paused preset); None = not an Assistant's (an event,
 /// a custom cron, more than one) and `agents.update` refuses it.
@@ -526,6 +537,22 @@ mod tests {
             assert_eq!(
                 agent_account_value(&options, input["account"].as_str(), input["cli"].as_str()),
                 expected,
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn assistant_model_value_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["modelValueCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            assert_eq!(
+                assistant_model_value(input["model"].as_str(), input["cli"].as_str()),
+                case["expected"].as_str().unwrap(),
                 "{}",
                 case["name"]
             );

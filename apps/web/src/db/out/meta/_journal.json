@@ -1475,8 +1475,15 @@
     {
       "idx": 210,
       "version": "7",
-      "when": 1793226003476,
-      "tag": "0210_s3_ptt_key_binding",
+      "when": 1793224565720,
+      "tag": "0210_s3_story_seen",
+      "breakpoints": true
+    },
+    {
+      "idx": 211,
+      "version": "7",
+      "when": 1793229902648,
+      "tag": "0211_s3_ptt_key_binding",
       "breakpoints": true
     }
   ]

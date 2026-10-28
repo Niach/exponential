@@ -347,10 +347,11 @@ struct AssistantSettingsForm: View {
     }
 
     /// THE model picker over the login's agent; unpinned reads the
-    /// dispatcher root's default for that agent.
+    /// dispatcher root's default for that agent (agent-settings.json
+    /// `modelValueCases`).
     private var modelRow: some View {
         let agent = draft.cli ?? "claude"
-        let value = (draft.model?.isEmpty ?? true) ? LaunchVocabulary.defaultThreadModel(for: agent) : draft.model!
+        let value = AgentSettings.assistantModelValue(model: draft.model, cli: agent)
         return ModelPickerRow(
             "Model",
             selection: Binding(get: { value }, set: { draft.model = $0 }),

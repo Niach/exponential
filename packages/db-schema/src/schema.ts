@@ -2570,6 +2570,10 @@ export const sessionReads = pgTable(
     // #EXP-1388: the viewer archived the chat (on the ROOT's row; NULL = in
     // the list). Per viewer, like the read; `sessions.setArchived`.
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
+    // S-3: the newest story (stories.json) the viewer saw in this ROOT's
+    // tree (`sessions.markStoriesSeen`, kept monotonic). A story is seen
+    // when createdAt <= max(read_at, story_seen_at). NULL = none.
+    storySeenAt: timestamp(`story_seen_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
@@ -2614,6 +2618,10 @@ export const pullRequests = pgTable(
     // applied; a generic delivery older than it never flips the draft flag.
     // `updated_at` moves on any write, so it cannot guard. Server-only.
     githubUpdatedAt: timestamp(`github_updated_at`, { withTimezone: true }),
+    // S-3: `pr_open`'s notRun (the UI screens the agent could not run,
+    // `<platform>: <screen>`): the body renders it, a later open keeps it.
+    // Server-only (never in the shape's columns).
+    notRun: text(`not_run`),
     ...timestamps,
   },
   (table) => [

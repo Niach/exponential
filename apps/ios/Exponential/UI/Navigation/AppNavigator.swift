@@ -234,6 +234,12 @@ struct AppNavigator: View {
         )) {
             ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
         }
+        // S-3 STORIES: the `story-ring` / `story-viewer` specimens (capture only).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(StorySpecimensScreen.kinds.contains) == true
+        )) {
+            StorySpecimensScreen(kind: UITestingStyleguide.requested ?? "story-ring")
+        }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
 
@@ -306,14 +312,14 @@ struct AppNavigator: View {
                 return
             }
             deps.deepLinkBus.navigateToThread(threadId, accountId: holder.id)
-        case .session(let teamSlug, let sessionId, let guide):
-            // EXP-1291: a root → its thread (the Guide with `?view=guide`),
-            // a child → its raw session.
+        case .session(let teamSlug, let sessionId, _):
+            // EXP-1291: a root → its thread (S-3: on its Conversation,
+            // `?view=guide` included), a child → its raw session.
             guard let holder = sessionLinkAccount(url: url, teamSlug: teamSlug, sessionId: sessionId) else {
                 deps.deepLinkBus.openExternal(url)
                 return
             }
-            deps.deepLinkBus.navigateToSessionLink(sessionId, account: holder, guide: guide, db: deps.db)
+            deps.deepLinkBus.navigateToSessionLink(sessionId, account: holder, db: deps.db)
         case nil:
             // Shouldn't happen (the AASA claims only the parsed shapes), but
             // never swallow a link the user tapped.

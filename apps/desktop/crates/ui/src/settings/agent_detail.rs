@@ -873,16 +873,9 @@ impl AgentDetailPane {
         } else {
             &crate::coding_selects::MODEL_CHOICES
         };
-        let model_picked = agent.model.clone().filter(|model| !model.is_empty()).or_else(|| {
-            Some(
-                if cli == "codex" {
-                    domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL
-                } else {
-                    domain::contract::DEVICE_AGENT_DEFAULTS_MODEL
-                }
-                .to_string(),
-            )
-        });
+        // agent-settings.json `modelValueCases`: unpinned = the dispatcher
+        // root's default for the login's CLI.
+        let model_picked = Some(domain::agent_settings::assistant_model_value(agent.model.as_deref(), Some(&cli)));
         let model_agent = agent.id.clone();
         let model_row = choice_row(
             "assistant-model",

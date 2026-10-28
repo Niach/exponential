@@ -308,7 +308,6 @@ private struct ThreadStripSpecimens: View {
         .add, .conversation,
         .issue(issueId: "i14", identifier: "APP-14", nested: []),
         .session(sessionId: "s1", name: "Web lane", markState: .working, nested: []),
-        .guide(dot: true),
     ]
 
     /// NEW-6 (N-1): a ONE-session thread — no Conversation tab; the
@@ -316,7 +315,6 @@ private struct ThreadStripSpecimens: View {
     private static let single: [ThreadTab] = [
         .add,
         .issue(issueId: "i14", identifier: "APP-14", nested: []),
-        .guide(dot: true),
     ]
 
     private static let folded: [ThreadTab] = [
@@ -334,7 +332,6 @@ private struct ThreadStripSpecimens: View {
         ]),
         .session(sessionId: "s5", name: "Docs", markState: .idle, nested: []),
         .session(sessionId: "s6", name: "Review", markState: .done, nested: []),
-        .guide(dot: false),
     ]
 
     var body: some View {

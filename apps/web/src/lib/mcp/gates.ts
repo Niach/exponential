@@ -8,7 +8,7 @@
 // EXP-1291: ONE header gate, `inSession` — the X-Exp-Session-Id row exists
 // and is the caller's own (its starter or the device owner hosting it). It
 // registers the tools that act on the caller's OWN session
-// (`exponential_guide_write`, `exponential_sessions_compact`). `unattended`
+// (`exponential_show`, `exponential_sessions_compact`). `unattended`
 // and `agent` only pick the instructions' wording: an unattended session (a
 // child, or a root another live session watches: its spawner) closes out with
 // `exponential_sessions_end` LAST, an attended one only when asked, and a

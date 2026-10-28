@@ -38,6 +38,7 @@ import { IssueContextMenuProvider } from "@/components/issue-context-menu/provid
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
+import { useStoryBackgroundSync } from "@/hooks/use-stories"
 import {
   useTeamBySlug,
   useTeamBoards,
@@ -125,6 +126,9 @@ function TeamLayout() {
   // work-tab surface is mounted on phones, so none of them can own the
   // sockets.
   useSteerSessionReaper(team?.id, user?.id)
+  // S-3 stories: the agent conversations' and recent roots' messages sync
+  // in the background (`useStoryBackgroundSync`), every breakpoint.
+  useStoryBackgroundSync(team?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (EXP-870: the app's one navigation chord).

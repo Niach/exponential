@@ -106,16 +106,12 @@ export const entry: StyleguideEntry = {
       note: `rules in crates/domain/src/session_results.rs; section page = GuidePageView over the shared diff pane`,
     },
     ios: {
-      state: `ok`,
-      symbol: `GuideFace / GuideSectionDiffView`,
-      file: `apps/ios/Exponential/UI/Work/GuideFace.swift`,
-      note: `rules in ExpCore/Sources/Domain/SessionResults.swift; tiles in SessionResultTiles.swift`,
+      state: `n/a`,
+      note: `S-3 retired the Guide face (results are stories now)`,
     },
     android: {
-      state: `ok`,
-      symbol: `GuideFace`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
-      note: `rules in domain/SessionResults.kt; section page = GuideSectionDiff.kt`,
+      state: `n/a`,
+      note: `S-3 retired the Guide face (results are stories now)`,
     },
   },
   island: () => (

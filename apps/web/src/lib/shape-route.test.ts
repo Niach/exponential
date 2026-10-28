@@ -858,6 +858,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `session_id`,
       `read_at`,
       `archived_at`,
+      `story_seen_at`,
       `created_at`,
       `updated_at`,
     ])

@@ -307,21 +307,32 @@ public struct AgentBubbleCircle: View {
             Circle()
                 .fill(DesignTokens.Palette.muted)
                 .frame(width: inner, height: inner)
-            switch glyph {
-            case let .icon(name, color):
-                AppIcon(name, size: glyphSize, weight: .medium)
-                    .foregroundStyle(color)
-            case .brand:
-                // The static logo (FeedbackMark's still frame) without the
-                // feedback mark's test id.
-                MarkCanvas(color: .white, spans: FeedbackStates.Mark.staticSpans)
-                    .frame(width: glyphSize, height: glyphSize)
-            case let .temporary(name):
-                AppIcon(name, size: glyphSize, weight: .medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
+            AgentBubbleGlyph(glyph: glyph, size: glyphSize)
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// The bubble's glyph alone (`AgentBubbleCircle.Glyph` at `size`): the
+/// circle's centre, and S-3's story-ring bubble inside THE StoryRing.
+struct AgentBubbleGlyph: View {
+    let glyph: AgentBubbleCircle.Glyph
+    let size: CGFloat
+
+    var body: some View {
+        switch glyph {
+        case let .icon(name, color):
+            AppIcon(name, size: size, weight: .medium)
+                .foregroundStyle(color)
+        case .brand:
+            // The static logo (FeedbackMark's still frame) without the
+            // feedback mark's test id.
+            MarkCanvas(color: .white, spans: FeedbackStates.Mark.staticSpans)
+                .frame(width: size, height: size)
+        case let .temporary(name):
+            AppIcon(name, size: size, weight: .medium)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
     }
 }
 
@@ -329,26 +340,45 @@ public struct AgentBubbleCircle: View {
 /// icon in its colour on muted inside a 3pt background gap, the ring amber
 /// (needs you), foreground (unread) or a hairline — the name under it. The
 /// row scrolls sideways; a tap opens the agent's chat, a hold its menu.
-/// S-3: the viewer's Assistant first, with the brand mark.
-public struct AgentBubbles: View {
+/// S-3: the viewer's Assistant first, with the brand mark. S-3 (stories.json
+/// STORY RING): a bubble whose agent has a story ring wears THE StoryRing
+/// instead and a tap opens the story viewer at it (`onOpenStory`); the rings
+/// no bubble wears follow in the same row (`Stories.bubbleRings`).
+public struct AgentBubbles<RingAvatar: View>: View {
     let items: [AgentBubbleItem]
+    /// The story rings (`Stories.rings`, ring order).
+    let rings: [Stories.StoryRing]
     let onTap: (String) -> Void
     let onHold: (String) -> Void
+    let onOpenStory: (String) -> Void
+    /// A trailing ring's avatar (a root ring's brand mark), by the host.
+    let ringAvatar: (Stories.StoryRing) -> RingAvatar
 
-    public init(items: [AgentBubbleItem], onTap: @escaping (String) -> Void, onHold: @escaping (String) -> Void) {
+    public init(
+        items: [AgentBubbleItem],
+        rings: [Stories.StoryRing],
+        onTap: @escaping (String) -> Void,
+        onHold: @escaping (String) -> Void,
+        onOpenStory: @escaping (String) -> Void,
+        @ViewBuilder ringAvatar: @escaping (Stories.StoryRing) -> RingAvatar
+    ) {
         self.items = items
+        self.rings = rings
         self.onTap = onTap
         self.onHold = onHold
+        self.onOpenStory = onOpenStory
+        self.ringAvatar = ringAvatar
     }
 
     public var body: some View {
+        let split = Stories.bubbleRings(items.map(\.id), rings)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: ChatListMetrics.bubbleSpacing) {
                 ForEach(items) { item in
-                    bubble(item)
-                        .glassLongPress(onTap: { onTap(item.id) }, onHold: { onHold(item.id) })
-                        .accessibilityLabel(item.name)
-                        .accessibilityIdentifier(Chats.TestIds.agentBubble)
+                    bubbleButton(item, story: split.byAgent[item.id])
+                }
+                ForEach(split.rest) { ring in
+                    StoryRingButton(ring: ring, onOpen: onOpenStory) { ringAvatar(ring) }
                 }
             }
             .padding(.horizontal, 16)
@@ -356,23 +386,53 @@ public struct AgentBubbles: View {
         }
     }
 
-    private func bubble(_ item: AgentBubbleItem) -> some View {
+    private func bubbleButton(_ item: AgentBubbleItem, story: Stories.StoryRing?) -> some View {
+        bubble(item, story: story)
+            .glassLongPress(
+                onTap: {
+                    if let story { onOpenStory(story.key) } else { onTap(item.id) }
+                },
+                onHold: { onHold(item.id) }
+            )
+            .accessibilityLabel(item.name)
+            .accessibilityIdentifier(Chats.TestIds.agentBubble)
+    }
+
+    private func bubble(_ item: AgentBubbleItem, story: Stories.StoryRing?) -> some View {
         let size = ChatListMetrics.bubble
         let ring: (Color, CGFloat) = switch item.ring {
         case .needsYou: (DesignTokens.Semantic.yellow, 2.5)
         case .unread: (Color.white, 2.5)
         case .none: (GlassTokens.strokeCard, GlassTokens.hairline * 2)
         }
+        let lit = item.ring != .none || story?.unseen == true
         return VStack(spacing: 6) {
-            AgentBubbleCircle(glyph: item.glyph, ringColor: ring.0, ringWidth: ring.1)
+            if let story {
+                // The ring's 54pt inner disc, the bubble's glyph at its 26pt.
+                StoryRing(stories: story.stories, size: size) {
+                    ZStack {
+                        Circle().fill(DesignTokens.Palette.muted)
+                        AgentBubbleGlyph(glyph: item.glyph, size: 26)
+                    }
+                }
+            } else {
+                AgentBubbleCircle(glyph: item.glyph, ringColor: ring.0, ringWidth: ring.1)
+            }
             Text(item.name)
-                .font(.subheadline.weight(item.ring == .none ? .regular : .medium))
-                .foregroundStyle(.white.opacity(item.ring == .none ? TextOpacity.secondary : 1))
+                .font(.subheadline.weight(lit ? .medium : .regular))
+                .foregroundStyle(.white.opacity(lit ? 1 : TextOpacity.secondary))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: size + 12)
         }
         .contentShape(Rectangle())
+    }
+}
+
+public extension AgentBubbles where RingAvatar == EmptyView {
+    /// No story rings: every bubble wears its own ring and opens its chat.
+    init(items: [AgentBubbleItem], onTap: @escaping (String) -> Void, onHold: @escaping (String) -> Void) {
+        self.init(items: items, rings: [], onTap: onTap, onHold: onHold, onOpenStory: { _ in }) { _ in EmptyView() }
     }
 }
 
