@@ -38,6 +38,7 @@
 //! [`Event::SpeechAudio`] instead of playing here. [`SpeechClient::hangup`]
 //! ends it without an answer.
 
+pub mod apps;
 pub mod microphone;
 
 use std::io::{BufRead, BufReader, Write};

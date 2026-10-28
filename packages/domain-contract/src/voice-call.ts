@@ -27,6 +27,8 @@ export interface CallAvailabilityInput {
   speech: CallSpeech | null
   /** A call already runs on the voice device. */
   busy: boolean
+  /** #NEW-57: a meeting runs on the voice device. */
+  meeting?: boolean
 }
 
 export interface CallAvailability {
@@ -44,6 +46,7 @@ export function callAvailability(input: CallAvailabilityInput): CallAvailability
   if (input.device === null) return off(reasons.noVoiceDevice)
   if (!input.speakReplies) return off(reasons.speakOff)
   if (!input.online) return off(reasons.offline)
+  if (input.meeting) return off(reasons.meeting)
   if (input.platform === `desktop` && !input.here) return off(reasons.notHere)
   if (input.speech === null || input.speech === `preparing`) return off(reasons.preparing)
   if (input.speech === `noGpu`) return off(reasons.noGpu)
