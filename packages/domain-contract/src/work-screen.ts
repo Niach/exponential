@@ -10,6 +10,8 @@ import fixture from "../fixtures/work-screen.json" with { type: "json" }
 export const WORK_SCREEN_COPY = fixture.copy
 export const WORK_SCREEN_TEST_IDS = fixture.testIds
 export const WORK_SCREEN_INPUT_TOOLS: readonly string[] = fixture.inputTools
+/** #FEED-164: a string-keyed picker's keys (web, the IDE, Android). */
+export const WORK_SCREEN_PICKER_KEYS = fixture.pickerKeys
 
 /** One display as the device reports it in `doctor.displays`. */
 export interface WorkScreenDisplay {
@@ -50,6 +52,20 @@ export function workScreenOptions(
     out.push({ value: stored, label: WORK_SCREEN_COPY.notConnected })
   }
   return out
+}
+
+/** #FEED-164: the picker key of an option value (null = Auto): Auto's key,
+ * else the display prefix + the id, so no id can read as Auto. */
+export function workScreenPickerKey(value: string | null): string {
+  return value == null ? WORK_SCREEN_PICKER_KEYS.auto : `${WORK_SCREEN_PICKER_KEYS.display}${value}`
+}
+
+/** #FEED-164: the stored value (the bare display id, null = Auto) of a
+ * picker key. */
+export function workScreenPickedId(key: string): string | null {
+  return key.startsWith(WORK_SCREEN_PICKER_KEYS.display)
+    ? key.slice(WORK_SCREEN_PICKER_KEYS.display.length)
+    : null
 }
 
 export interface WorkScreenState {

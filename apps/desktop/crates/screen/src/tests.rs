@@ -1,7 +1,7 @@
 //! End to end: a fake capturer into a running [`engine::Memory`], read back
 //! through the `screen` endpoint's `get_screenshots`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -92,6 +92,8 @@ type Shared<T> = Arc<Mutex<T>>;
 struct Rig {
     memory: Memory,
     view: Shared<Option<ScreenView>>,
+    /// Every window of the window list (the looks' `windows`).
+    windows: Shared<Vec<VisibleWindow>>,
     hotkey: Arc<AtomicBool>,
     statuses: Shared<Vec<Status>>,
     grabs: Shared<Vec<&'static str>>,
@@ -120,23 +122,33 @@ fn start(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, 
 /// [`start`] with `listed` as every window of the window list from the
 /// first look on.
 fn start_listing(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, listed: Vec<VisibleWindow>, interval_ms: u64) -> Rig {
+    start_rig(dir, capturer, first, Arc::new(Mutex::new(listed)), Arc::new(AtomicU64::new(0)), interval_ms)
+}
+
+/// [`start_listing`] over a window list and a display epoch the capturer
+/// may share.
+fn start_rig(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, windows: Shared<Vec<VisibleWindow>>, epoch: Arc<AtomicU64>, interval_ms: u64) -> Rig {
     let view = Arc::new(Mutex::new(first));
-    let windows: Shared<Vec<VisibleWindow>> = Arc::new(Mutex::new(listed));
     let hotkey = Arc::new(AtomicBool::new(false));
     let statuses = Arc::new(Mutex::new(Vec::new()));
     let source = view.clone();
     let listed = windows.clone();
     let heard = statuses.clone();
+    let (read_epoch, now_epoch) = (epoch.clone(), epoch.clone());
     let memory = Memory::start(
         &dir.0,
         capturer,
-        Box::new(move || source.lock().unwrap().clone().map(|view| ScreenLook { view, windows: listed.lock().unwrap().clone() })),
+        Box::new(move || {
+            let epoch = read_epoch.load(Ordering::Acquire);
+            source.lock().unwrap().clone().map(|view| ScreenLook { view, windows: listed.lock().unwrap().clone(), epoch })
+        }),
+        Box::new(move || now_epoch.load(Ordering::Acquire)),
         timing(interval_ms),
         hotkey.clone(),
         Arc::new(move |status| heard.lock().unwrap().push(status)),
     )
     .unwrap();
-    Rig { memory, view, hotkey, statuses, grabs: Default::default() }
+    Rig { memory, view, windows, hotkey, statuses, grabs: Default::default() }
 }
 
 fn rig(dir: &TempDir, interval_ms: u64) -> Rig {
@@ -654,8 +666,9 @@ fn cpu_budget() {
                 Box::new(ChangingCapturer { width, height, variants: variants.clone(), next: 0 }),
                 Box::new(move || {
                     std::hint::black_box(computer::visible::screen_look());
-                    view(Some(focus.clone()), &[1, 2]).map(|view| ScreenLook { view, windows: Vec::new() })
+                    view(Some(focus.clone()), &[1, 2]).map(|view| ScreenLook { view, windows: Vec::new(), epoch: 0 })
                 }),
+                Box::new(|| 0),
                 Timing { encode_percent: percent, ..Timing::from_fixture() },
                 Arc::new(AtomicBool::new(false)),
                 Arc::new(|_| {}),
@@ -898,6 +911,7 @@ fn a_stop_cancels_a_start_still_waiting_on_its_capturer() {
                 Ok(Box::new(Dropped(closed)) as Box<dyn Capturer>)
             },
             Box::new(|| None),
+            Box::new(|| 0),
         )
     });
     std::thread::sleep(Duration::from_millis(50));
@@ -909,4 +923,180 @@ fn a_stop_cancels_a_start_still_waiting_on_its_capturer() {
     assert!(dropped.load(Ordering::Acquire), "the late capturer is closed");
     assert!(!crate::leftover(&dir.0), "nothing was stored");
     assert!(crate::grant("cancelled").is_err(), "screen memory stays off");
+}
+
+/// The same frame on every grab, captured `lag_ms` before it.
+struct LaggingStill {
+    bits: u64,
+    lag_ms: i64,
+}
+
+impl Capturer for LaggingStill {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        Ok(wanted.iter().map(|want| blocks(want.display, self.bits).stamped(engine::now_ms() - self.lag_ms)).collect())
+    }
+
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
+        Ok(Some(blocks(wanted.display, self.bits).stamped(engine::now_ms() - self.lag_ms)))
+    }
+}
+
+/// The hash of an all-white frame with the top-left 160 x 160 quadrant
+/// black (a masked vault there).
+fn masked_quadrant(bits: u64) -> String {
+    let masked = (0..64).fold(bits, |bits, k| if k / 8 < 4 && k % 8 < 4 { bits & !(1 << (63 - k)) } else { bits });
+    hash_of(&blocks(1, masked))
+}
+
+const QUADRANT: computer::ScreenRect = computer::ScreenRect { x: 0, y: 0, width: 160, height: 160 };
+
+/// #FEED-164 MASK: a vault that is only in the NEWEST reading (it opened
+/// after the frame's capture time, whose nearest reading lacks it) is
+/// masked all the same.
+#[test]
+fn a_denylisted_window_only_in_the_newest_reading_is_masked() {
+    let dir = TempDir::new();
+    let editor = vec![listed(1, "Zed", "main.rs", SIDE, window("Zed", "main.rs").rect)];
+    let rig = start_listing(&dir, Box::new(LaggingStill { bits: u64::MAX, lag_ms: 400 }), view(Some(window("Zed", "main.rs")), &[1]), editor, 40);
+    wait_until(|| count(&rig.memory) == 1);
+    // Long enough for the readings to cover the lag.
+    std::thread::sleep(Duration::from_millis(600));
+    let opened = engine::now_ms();
+    rig.windows.lock().unwrap().push(listed(1, "Bitwarden", "Vault", SIDE, QUADRANT));
+    wait_until(|| count(&rig.memory) == 2);
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    assert_eq!(rows[0].hash, hash_of(&blocks(1, u64::MAX)), "before the vault: unmasked");
+    assert!(rows[1].at < opened, "captured before the vault opened ({} vs {opened})", rows[1].at);
+    assert_eq!(rows[1].hash, masked_quadrant(u64::MAX), "masked by the newest reading");
+}
+
+/// #FEED-164 PAUSE per frame: a frame captured while a vault held the focus
+/// is dropped although the focus left it by the time it is handed out.
+#[test]
+fn a_frame_captured_while_a_vault_was_focused_is_dropped() {
+    let dir = TempDir::new();
+    let stamps: Shared<Vec<i64>> = Default::default();
+    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 4, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() };
+    let rig = start(&dir, Box::new(capturer), view(Some(window("1Password", "Vault")), &[1]), 40);
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(count(&rig.memory), 0, "paused");
+    let left = engine::now_ms();
+    rig.focus(Some(window("Zed", "main.rs")));
+    wait_until(|| rig.rows().iter().filter(|row| row.at > left + 100).count() >= 2);
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    assert!(stamps.lock().unwrap().iter().any(|at| *at < left - 50), "frames captured while the vault was focused");
+    assert!(rows.iter().all(|row| row.at >= left - 30), "none of them stored: {:?}", rows.iter().map(|row| row.at - left).collect::<Vec<_>>());
+}
+
+/// #FEED-164 work display per frame: a frame of a display that was not a
+/// work display when it was captured is dropped, although it is one now.
+#[test]
+fn a_frame_captured_before_its_display_turned_work_is_dropped() {
+    let dir = TempDir::new();
+    let stamps: Shared<Vec<i64>> = Default::default();
+    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 6, grabs: Default::default() }, lag_ms: 400, stamps };
+    let rig = start(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), 40);
+    std::thread::sleep(Duration::from_millis(600));
+    let widened = engine::now_ms();
+    *rig.view.lock().unwrap() = view(Some(window("Zed", "main.rs")), &[1, 2]);
+    wait_until(|| rig.rows().iter().filter(|row| row.display == 2 && row.at > widened + 100).count() >= 2);
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    assert!(rows.iter().any(|row| row.display == 1 && row.at < widened), "display 1 went on");
+    assert!(rows.iter().filter(|row| row.display == 2).all(|row| row.at >= widened - 30), "display 2 only from when it is a work display");
+}
+
+/// A still white screen; once `open` is set, its next grab opens a vault in
+/// the window list (after the poll's read, before the pixels) and hands out
+/// one `bits` frame, then nothing.
+struct OpeningCapturer {
+    open: Arc<AtomicBool>,
+    windows: Shared<Vec<VisibleWindow>>,
+    bits: u64,
+    done: bool,
+}
+
+impl Capturer for OpeningCapturer {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        if self.done {
+            return Ok(Vec::new());
+        }
+        if !self.open.load(Ordering::Acquire) {
+            return Ok(wanted.iter().map(|want| blocks(want.display, u64::MAX)).collect());
+        }
+        self.done = true;
+        self.windows.lock().unwrap().push(listed(1, "Bitwarden", "Vault", SIDE, QUADRANT));
+        Ok(wanted.iter().map(|want| blocks(want.display, self.bits)).collect())
+    }
+
+    fn grab(&mut self, _: Want) -> Result<Option<Frame>, String> {
+        Ok(None)
+    }
+}
+
+/// #FEED-164 RACE: a vault that opens between the window-list read and the
+/// grab of the same iteration is masked in that grab's frame.
+#[test]
+fn a_vault_opening_between_the_read_and_the_grab_is_masked() {
+    let dir = TempDir::new();
+    let open = Arc::new(AtomicBool::new(false));
+    let windows: Shared<Vec<VisibleWindow>> = Arc::new(Mutex::new(vec![listed(1, "Zed", "main.rs", SIDE, window("Zed", "main.rs").rect)]));
+    let bits = 0xff00_ff00_ff00_ff00;
+    let capturer = OpeningCapturer { open: open.clone(), windows: windows.clone(), bits, done: false };
+    let rig = start_rig(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), windows, Arc::new(AtomicU64::new(0)), 40);
+    wait_until(|| count(&rig.memory) == 1);
+    open.store(true, Ordering::Release);
+    wait_until(|| count(&rig.memory) == 2);
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    assert_eq!(rows[1].hash, masked_quadrant(bits));
+}
+
+/// [`LaggingCapturer`] that bumps the display epoch on its first grab once
+/// `bump` is set (it saw the monitor set change).
+struct HotPlugCapturer {
+    inner: LaggingCapturer,
+    bump: Arc<AtomicBool>,
+    epoch: Arc<AtomicU64>,
+}
+
+impl Capturer for HotPlugCapturer {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        if self.bump.swap(false, Ordering::AcqRel) {
+            self.epoch.fetch_add(1, Ordering::AcqRel);
+        }
+        self.inner.grab_all(wanted)
+    }
+
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
+        self.inner.grab(wanted)
+    }
+}
+
+/// #FEED-164 DISPLAY SET: after the capturer sees a hot-plug, a frame whose
+/// nearest reading predates it (another display numbering) is dropped; the
+/// frames captured after it are stored.
+#[test]
+fn a_frame_read_against_the_display_set_before_a_hot_plug_is_dropped() {
+    let dir = TempDir::new();
+    let stamps: Shared<Vec<i64>> = Default::default();
+    let (bump, epoch) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)));
+    let capturer = HotPlugCapturer {
+        inner: LaggingCapturer { inner: FakeCapturer { seed: 8, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() },
+        bump: bump.clone(),
+        epoch: epoch.clone(),
+    };
+    let rig = start_rig(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), Default::default(), epoch, 40);
+    std::thread::sleep(Duration::from_millis(600));
+    let plugged = engine::now_ms();
+    bump.store(true, Ordering::Release);
+    wait_until(|| rig.rows().iter().filter(|row| row.at > plugged + 100).count() >= 2);
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    let stale = |at: i64| at > plugged - 350 && at < plugged - 50;
+    assert!(rows.iter().any(|row| row.at < plugged - 450), "frames before the hot-plug were stored");
+    assert!(stamps.lock().unwrap().iter().any(|at| stale(*at)), "frames captured before it were handed out after it");
+    assert!(!rows.iter().any(|row| stale(row.at)), "none of them stored");
 }

@@ -135,6 +135,11 @@ impl MacCapturer {
     fn sync(&mut self) -> Result<(), String> {
         let layout = active_layout()?;
         let changed = layout != self.layout;
+        if changed && !self.layout.is_empty() {
+            // #FEED-164: a hot-plug: the window list's cached display set
+            // (and every reading of it) numbers the displays the old way.
+            computer::visible::displays_changed();
+        }
         let healthy = self.streams.len() == layout.len()
             && self.streams.iter().all(|s| !s.stopped());
         if !changed && (healthy || Instant::now() < self.next_retry) {

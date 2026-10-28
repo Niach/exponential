@@ -62,18 +62,27 @@ fn wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE").is_ok_and(|kind| kind == "wayland")
 }
 
-/// `computer::displays()`, re-read at most every [`DISPLAYS_TTL`].
+/// `computer::displays()`, re-read at most every [`DISPLAYS_TTL`] and
+/// whenever the display epoch moved (#FEED-164: the window list saw a
+/// hot-plug first); a re-read that finds another set bumps the epoch.
 #[derive(Default)]
 struct DisplayCache {
     read_at: Option<Instant>,
+    epoch: u64,
     displays: Vec<computer::Display>,
 }
 
 impl DisplayCache {
     fn get(&mut self) -> &[computer::Display] {
-        if self.read_at.is_none_or(|at| at.elapsed() >= DISPLAYS_TTL) {
-            self.displays = computer::displays();
+        let epoch = computer::visible::display_epoch();
+        if self.read_at.is_none_or(|at| at.elapsed() >= DISPLAYS_TTL) || epoch != self.epoch {
+            let displays = computer::displays();
+            if self.read_at.is_some() && epoch == self.epoch && displays != self.displays {
+                computer::visible::displays_changed();
+            }
+            self.displays = displays;
             self.read_at = Some(Instant::now());
+            self.epoch = computer::visible::display_epoch();
         }
         &self.displays
     }

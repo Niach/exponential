@@ -373,8 +373,9 @@ pub fn choice_select(
 }
 
 /// NEW-59: the Work screen choices (`domain::work_screen::work_screen_options`
-/// over the device's reported displays + the stored pick) as select items:
-/// value `""` = Auto, else the display's stable id (#FEED-161).
+/// over the device's reported displays + the stored pick) as select items,
+/// valued by the contract's picker keys (#FEED-164: Auto's key, else `id:` +
+/// the display's stable id).
 pub fn work_screen_items(
     displays: &[domain::work_screen::WorkScreenDisplay],
     stored: Option<&str>,
@@ -388,9 +389,9 @@ pub fn work_screen_items(
         .collect()
 }
 
-/// A Work screen pick as the select's value (`""` = Auto).
+/// A Work screen pick (`None` = Auto) as the select's value, its picker key.
 pub fn work_screen_value(id: Option<&str>) -> SharedString {
-    id.map(|id| SharedString::from(id.to_string())).unwrap_or_default()
+    SharedString::from(domain::work_screen::work_screen_picker_key(id))
 }
 
 /// THE Work screen select: the device-settings picker row under the
@@ -409,7 +410,7 @@ pub fn work_screen_select(
 
 /// The Work screen select's pick, a display id (`None` = Auto).
 pub fn selected_work_screen(state: &ChoiceSelect, cx: &App) -> Option<String> {
-    Some(selected(state, cx)).filter(|id| !id.is_empty())
+    domain::work_screen::work_screen_picked_id(&selected(state, cx))
 }
 
 /// The currently selected VALUE (`""` when nothing is selected — only

@@ -437,7 +437,10 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
         displays[0].1.primary = true;
     }
     let mut infos: Vec<DisplayInfo> = displays.iter().map(|(_, info)| info.clone()).collect();
-    crate::backend::finish_ids(&mut infos);
+    // #FEED-164: twins are told apart by their unit number (the framebuffer
+    // they hang off), never by the OS's order.
+    let connectors: Vec<Option<String>> = displays.iter().map(|(id, _)| Some(CGDisplay::new(*id).unit_number().to_string())).collect();
+    crate::backend::finish_ids(&mut infos, &connectors);
     for ((_, info), finished) in displays.iter_mut().zip(infos) {
         info.id = finished.id;
     }

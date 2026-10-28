@@ -1,6 +1,7 @@
 //! NEW-59: THE work screen's picker, the twin of
-//! `packages/domain-contract/src/work-screen.ts` (`copy` + `options`), locked
-//! by `fixtures/work-screen.json` (`optionCases` replay below). The gate and
+//! `packages/domain-contract/src/work-screen.ts` (`copy` + `options` + the
+//! picker keys), locked by `fixtures/work-screen.json` (`optionCases`,
+//! `pickerKeyCases` replay below). The gate and
 //! the overlay rule live in the desktop `computer` crate.
 
 use std::sync::LazyLock;
@@ -26,11 +27,20 @@ pub struct WorkScreenTestIds {
     pub row: String,
 }
 
+/// #FEED-164: a string-keyed picker's keys (`pickerKeys`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkScreenPickerKeys {
+    pub auto: String,
+    pub display: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkScreenSpec {
     pub copy: WorkScreenCopy,
     #[serde(rename = "testIds")]
     pub test_ids: WorkScreenTestIds,
+    #[serde(rename = "pickerKeys")]
+    pub picker_keys: WorkScreenPickerKeys,
 }
 
 /// `fixtures/work-screen.json` minus its cases.
@@ -85,6 +95,22 @@ pub fn work_screen_options(displays: &[WorkScreenDisplay], stored: Option<&str>)
     out
 }
 
+/// #FEED-164: the picker key of an option value (`None` = Auto): Auto's
+/// key, else the display prefix + the id, so no id can read as Auto.
+pub fn work_screen_picker_key(value: Option<&str>) -> String {
+    let keys = &WORK_SCREEN.picker_keys;
+    match value {
+        None => keys.auto.clone(),
+        Some(id) => format!("{}{id}", keys.display),
+    }
+}
+
+/// #FEED-164: the stored value (the bare display id, `None` = Auto) of a
+/// picker key.
+pub fn work_screen_picked_id(key: &str) -> Option<String> {
+    key.strip_prefix(WORK_SCREEN.picker_keys.display.as_str()).map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,6 +134,17 @@ mod tests {
                 })
                 .collect();
             assert_eq!(work_screen_options(&displays, stored), expect, "{name}");
+        }
+    }
+
+    #[test]
+    fn picker_keys_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(WORK_SCREEN_JSON).unwrap();
+        for case in fixture["pickerKeyCases"].as_array().unwrap() {
+            let value = case["value"].as_str();
+            let key = case["key"].as_str().unwrap();
+            assert_eq!(work_screen_picker_key(value), key);
+            assert_eq!(work_screen_picked_id(key).as_deref(), value);
         }
     }
 

@@ -334,10 +334,17 @@ impl X11 {
 
     /// #FEED-161: a monitor's stable id off its first RandR output:
     /// `edid:` + 16 hex of the EDID's hash (the panel itself, whatever
-    /// port), else `output:` + the output's name, else the monitor's.
-    fn display_id(&self, outputs: &[x11rb::protocol::randr::Output], edid: xproto::Atom, monitor: &str) -> String {
+    /// port), else `output:` + the output's name, else the monitor's; with
+    /// its connector (#FEED-164: the output's name, else the monitor's),
+    /// which tells twins apart.
+    fn display_id(&self, outputs: &[x11rb::protocol::randr::Output], edid: xproto::Atom, monitor: &str) -> (String, Option<String>) {
+        let fallback = Some(monitor.to_string()).filter(|monitor| !monitor.is_empty());
         let Some(&output) = outputs.first() else {
-            return format!("output:{monitor}");
+            return (format!("output:{monitor}"), fallback);
+        };
+        let connector = match reply("output info", self.conn.randr_get_output_info(output, x11rb::CURRENT_TIME)) {
+            Ok(info) if !info.name.is_empty() => Some(String::from_utf8_lossy(&info.name).into_owned()),
+            _ => fallback,
         };
         if edid != x11rb::NONE {
             let property = reply(
@@ -345,13 +352,10 @@ impl X11 {
                 self.conn.randr_get_output_property(output, edid, xproto::AtomEnum::ANY, 0, 256, false, false),
             );
             if let Some(data) = property.ok().map(|property| property.data).filter(|data| !data.is_empty()) {
-                return format!("edid:{:016x}", super::stable_hash(&data));
+                return (format!("edid:{:016x}", super::stable_hash(&data)), connector);
             }
         }
-        match reply("output info", self.conn.randr_get_output_info(output, x11rb::CURRENT_TIME)) {
-            Ok(info) if !info.name.is_empty() => format!("output:{}", String::from_utf8_lossy(&info.name)),
-            _ => format!("output:{monitor}"),
-        }
+        (format!("output:{}", connector.as_deref().unwrap_or(monitor)), connector)
     }
 }
 
@@ -365,6 +369,7 @@ impl Backend for X11 {
             }
         };
         let edid = reply("EDID atom", self.conn.intern_atom(true, b"EDID")).map(|atom| atom.atom).unwrap_or(x11rb::NONE);
+        let mut connectors: Vec<Option<String>> = Vec::with_capacity(monitors.len());
         let mut displays: Vec<DisplayInfo> = monitors
             .iter()
             .filter(|monitor| monitor.width > 0 && monitor.height > 0)
@@ -372,8 +377,10 @@ impl Backend for X11 {
                 let name = reply("atom name", self.conn.get_atom_name(monitor.name))
                     .map(|name| String::from_utf8_lossy(&name.name).into_owned())
                     .unwrap_or_default();
+                let (id, connector) = self.display_id(&monitor.outputs, edid, &name);
+                connectors.push(connector);
                 DisplayInfo {
-                    id: self.display_id(&monitor.outputs, edid, &name),
+                    id,
                     x: i32::from(monitor.x),
                     y: i32::from(monitor.y),
                     width: u32::from(monitor.width),
@@ -389,7 +396,7 @@ impl Backend for X11 {
         if !displays.iter().any(|display| display.primary) {
             displays[0].primary = true;
         }
-        super::finish_ids(&mut displays);
+        super::finish_ids(&mut displays, &connectors);
         Ok(displays)
     }
 

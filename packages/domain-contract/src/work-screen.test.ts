@@ -7,6 +7,8 @@ import {
   workScreenCurrent,
   workScreenGate,
   workScreenOptions,
+  workScreenPickedId,
+  workScreenPickerKey,
   type WorkScreenCall,
   type WorkScreenState,
 } from "./work-screen.ts"
@@ -15,6 +17,12 @@ describe(`work-screen.json`, () => {
   for (const c of fixture.optionCases) {
     it(`options: ${c.name}`, () => {
       expect(workScreenOptions(c.displays, c.stored)).toEqual(c.expect)
+    })
+  }
+  for (const c of fixture.pickerKeyCases) {
+    it(`picker key: ${c.value ?? `Auto`}`, () => {
+      expect(workScreenPickerKey(c.value)).toBe(c.key)
+      expect(workScreenPickedId(c.key)).toBe(c.value)
     })
   }
   for (const c of fixture.gateCases) {

@@ -12,7 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** NEW-59: [WorkScreen] replays `work-screen.json` (copy, testIds, optionCases). */
+/** NEW-59: [WorkScreen] replays `work-screen.json` (copy, testIds, optionCases, pickerKeyCases). */
 class WorkScreenTest {
 
     private val fixture: JsonObject =
@@ -57,6 +57,20 @@ class WorkScreenTest {
                 WorkScreenOption(strOrNull(o["value"]), o.getValue("label").jsonPrimitive.content)
             }
             assertEquals(name, expect, workScreenOptions(displays, strOrNull(case["stored"])))
+        }
+    }
+
+    @Test
+    fun pickerKeysMatchTheFixture() {
+        val keys = fixture.getValue("pickerKeys").jsonObject
+        assertEquals(keys.getValue("auto").jsonPrimitive.content, WorkScreen.PickerKeys.AUTO)
+        assertEquals(keys.getValue("display").jsonPrimitive.content, WorkScreen.PickerKeys.DISPLAY)
+        for (element in fixture.getValue("pickerKeyCases").jsonArray) {
+            val case = element.jsonObject
+            val value = strOrNull(case["value"])
+            val key = case.getValue("key").jsonPrimitive.content
+            assertEquals(key, WorkScreen.pickerKey(value))
+            assertEquals(value, WorkScreen.pickedId(key))
         }
     }
 

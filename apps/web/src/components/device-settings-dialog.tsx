@@ -25,6 +25,8 @@ import {
   WORK_SCREEN_COPY,
   WORK_SCREEN_TEST_IDS,
   workScreenOptions,
+  workScreenPickedId,
+  workScreenPickerKey,
 } from "@exp/domain-contract/work-screen"
 import type { DeviceIcon } from "@exp/db-schema/domain"
 import type { Device } from "@/db/schema"
@@ -97,7 +99,6 @@ export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the dev
 const NAME_DEBOUNCE_MS = 800
 const DEFAULTS_DEBOUNCE_MS = 1_000
 /** NEW-59: the Work screen picker's value for Auto (stored as null). */
-const WORK_SCREEN_AUTO = `auto`
 
 interface AgentDraft {
   model: string
@@ -667,17 +668,18 @@ export function DeviceSettingsDialog({
     setComputerUseModel(clampComputerUseModel(value))
     scheduleDefaults()
   }
-  // NEW-59: the work screen rides the same save. Picker values are strings:
-  // `auto` stands for null, a display for its stable id (#FEED-161).
+  // NEW-59: the work screen rides the same save. Picker values are the
+  // contract's keys (#FEED-164: Auto's key, else `id:` + the display's
+  // stable id); the stored value stays the bare id (#FEED-161).
   const workScreenItems = workScreenOptions(
     row?.doctor?.displays,
     computerUseDisplayId
   ).map((option) => ({
-    value: option.value ?? WORK_SCREEN_AUTO,
+    value: workScreenPickerKey(option.value),
     label: option.label,
   }))
   const pickWorkScreen = (value: string) => {
-    setComputerUseDisplayId(value === WORK_SCREEN_AUTO ? null : value)
+    setComputerUseDisplayId(workScreenPickedId(value))
     scheduleDefaults()
   }
 
@@ -925,9 +927,7 @@ export function DeviceSettingsDialog({
                   width="md"
                   mobileTitle={WORK_SCREEN_COPY.row}
                   data-testid={WORK_SCREEN_TEST_IDS.row}
-                  value={
-                    computerUseDisplayId ?? WORK_SCREEN_AUTO
-                  }
+                  value={workScreenPickerKey(computerUseDisplayId)}
                   items={workScreenItems}
                   onChange={pickWorkScreen}
                 />

@@ -1,6 +1,7 @@
 import {
   WORK_SCREEN_COPY,
   workScreenOptions,
+  workScreenPickerKey,
 } from "@exp/domain-contract/work-screen"
 import { GlassGroup, GlassToggleRow, ModelPicker, Picker, SubShellHost } from "@exp/ui"
 
@@ -28,7 +29,7 @@ const DISPLAYS = [
 ]
 
 const ITEMS = workScreenOptions(DISPLAYS, null).map((option) => ({
-  value: option.value ?? `auto`,
+  value: workScreenPickerKey(option.value),
   label: option.label,
 }))
 
@@ -85,7 +86,7 @@ export const entry: StyleguideEntry = {
           open
           onOpenChange={noop}
           mobileTitle={WORK_SCREEN_COPY.row}
-          value="auto"
+          value={workScreenPickerKey(null)}
           items={ITEMS}
           onChange={noop}
         />

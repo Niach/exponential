@@ -7,6 +7,7 @@
 //! fresh capture after a resume where the OS stream only delivers changes).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -36,6 +37,9 @@ pub struct ScreenLook {
     pub view: ScreenView,
     /// Top first; a window on two displays is listed once per display.
     pub windows: Vec<VisibleWindow>,
+    /// #FEED-164: the [`display_epoch`] of the display set this reading
+    /// numbered its displays by.
+    pub epoch: u64,
 }
 
 /// Whether this machine lists windows (cheap, no connection): `false` on
@@ -46,17 +50,34 @@ pub fn window_list_supported() -> bool {
 
 const DISPLAYS_TTL: Duration = Duration::from_secs(3);
 type Displays = Vec<(DisplayInfo, (u32, u32))>;
-static DISPLAYS: Mutex<Option<(Instant, Displays)>> = Mutex::new(None);
+/// The display set, when it was read and under which epoch.
+static DISPLAYS: Mutex<Option<(Instant, u64, Displays)>> = Mutex::new(None);
 /// pid → app id, cleared with the display cache (a reused pid lives 3 s).
 static APP_IDS: Mutex<Option<HashMap<u32, Option<String>>>> = Mutex::new(None);
+static EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// #FEED-164 (`screen-memory.json` DISPLAY SET): bumped whenever someone
+/// sees the monitor set change; a reading and a frame of different epochs
+/// may number their displays differently.
+pub fn display_epoch() -> u64 {
+    EPOCH.load(Ordering::Acquire)
+}
+
+/// #FEED-164: the monitor set changed (a capturer saw a hot-plug): the
+/// next [`screen_look`] re-reads the displays instead of waiting out the
+/// cache, under a new [`display_epoch`].
+pub fn displays_changed() {
+    EPOCH.fetch_add(1, Ordering::AcqRel);
+}
 
 /// The screen now; `None` without a display or a window list.
 pub fn screen_look() -> Option<ScreenLook> {
     let backend = backend::open().ok()?;
-    let displays = {
+    let (displays, epoch) = {
         let mut cache = DISPLAYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        match cache.as_ref().filter(|(at, _)| at.elapsed() < DISPLAYS_TTL) {
-            Some((_, displays)) => displays.clone(),
+        let epoch = display_epoch();
+        match cache.as_ref().filter(|(at, read_in, _)| *read_in == epoch && at.elapsed() < DISPLAYS_TTL) {
+            Some((_, _, displays)) => (displays.clone(), epoch),
             None => {
                 let displays: Displays = backend
                     .displays()
@@ -67,9 +88,18 @@ pub fn screen_look() -> Option<ScreenLook> {
                         (display, pixels)
                     })
                     .collect();
-                *cache = Some((Instant::now(), displays.clone()));
+                // Our own re-read saw the change first: the capturer's
+                // numbering is stale too.
+                let epoch = match cache.as_ref() {
+                    Some((_, read_in, before)) if *read_in == epoch && *before != displays => {
+                        displays_changed();
+                        display_epoch()
+                    }
+                    _ => epoch,
+                };
+                *cache = Some((Instant::now(), epoch, displays.clone()));
                 *APP_IDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-                displays
+                (displays, epoch)
             }
         }
     };
@@ -78,7 +108,7 @@ pub fn screen_look() -> Option<ScreenLook> {
         let mut ids = APP_IDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         ids.get_or_insert_with(HashMap::new).entry(pid).or_insert_with(|| backend::app_id(pid)).clone()
     };
-    Some(look_of(&displays, &windows, work_screen::picked().as_deref(), app_id))
+    Some(ScreenLook { epoch, ..look_of(&displays, &windows, work_screen::picked().as_deref(), app_id) })
 }
 
 /// [`screen_look`] off one display set and one window list (top first).
@@ -99,7 +129,7 @@ pub(crate) fn look_of(displays: &[(DisplayInfo, (u32, u32))], windows: &[WindowI
             }
         }
     }
-    ScreenLook { view, windows: visible }
+    ScreenLook { view, windows: visible, epoch: 0 }
 }
 
 /// Display `number`'s pixels now (RGBA8, width, height), the OS's live

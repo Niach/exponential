@@ -135,7 +135,7 @@ function clampLaunchDefaults(
     out.computerUseModel = input.computerUseModel
   }
   // NEW-59 / #FEED-161: the work screen's stable display id (the schema
-  // bounds it 1..128 chars); null (= Auto) is dropped like every cleared field.
+  // bounds it 1..128 code points, #FEED-164); null (= Auto) is dropped like every cleared field.
   if (typeof input.computerUseDisplayId === `string` && input.computerUseDisplayId.length > 0) {
     out.computerUseDisplayId = input.computerUseDisplayId
   }

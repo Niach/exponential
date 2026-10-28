@@ -55,19 +55,31 @@ impl DisplayInfo {
 /// The longest display id (`work-screen.json` DISPLAYS).
 pub(crate) const ID_MAX: usize = 128;
 
-/// #FEED-161: every id at most [`ID_MAX`] chars, and twins (two monitors
-/// without a serial) told apart by `#2`, `#3`, … in the OS's order.
-pub(crate) fn finish_ids(displays: &mut [DisplayInfo]) {
+/// #FEED-161: every id at most [`ID_MAX`] chars (code points). #FEED-164
+/// TWINS (`work-screen.json` `idCases`): displays sharing one id (monitors
+/// without a serial) get `@` + their `connectors[i]` (macOS the unit
+/// number, Windows the GDI device name, X11 the RandR output name), so a
+/// reorder never swaps them; only when a twin's connector is unknown or
+/// shared do that id's twins fall back to `#2`, `#3`, … in the OS's order.
+/// A display without a twin keeps its bare id.
+pub(crate) fn finish_ids(displays: &mut [DisplayInfo], connectors: &[Option<String>]) {
     let clip = |id: &str, room: usize| id.chars().take(room).collect::<String>();
+    let suffixed = |base: &str, suffix: &str| format!("{}{suffix}", clip(base, ID_MAX.saturating_sub(suffix.chars().count())));
+    let bases: Vec<String> = displays.iter().map(|display| clip(&display.id, ID_MAX)).collect();
+    let connector = |index: usize| connectors.get(index).cloned().flatten().filter(|connector| !connector.is_empty());
     let mut seen: Vec<String> = Vec::with_capacity(displays.len());
-    for display in displays.iter_mut() {
-        let base = clip(&display.id, ID_MAX);
-        let mut id = base.clone();
+    for (index, display) in displays.iter_mut().enumerate() {
+        let base = &bases[index];
+        let twins: Vec<usize> = (0..bases.len()).filter(|other| bases[*other] == *base).collect();
+        let by_connector = twins.len() > 1
+            && twins.iter().all(|twin| connector(*twin).is_some())
+            && twins.iter().all(|twin| twins.iter().filter(|other| connector(**other) == connector(*twin)).count() == 1);
+        let mut id = if by_connector { suffixed(base, &format!("@{}", connector(index).unwrap_or_default())) } else { base.clone() };
+        // OS order: the fallback, and the last guard against a collision.
         let mut n = 1;
         while seen.contains(&id) {
             n += 1;
-            let suffix = format!("#{n}");
-            id = format!("{}{suffix}", clip(&base, ID_MAX - suffix.len()));
+            id = suffixed(base, &format!("#{n}"));
         }
         seen.push(id.clone());
         display.id = id;
@@ -224,16 +236,44 @@ mod tests {
         DisplayInfo { id: id.into(), x: 0, y: 0, width: 100, height: 100, primary: false, name: String::new() }
     }
 
-    /// #FEED-161: twins get `#2`, `#3` in the OS's order; every id fits 128.
+    /// #FEED-161: without connectors twins get `#2`, `#3` in the OS's
+    /// order; every id fits 128 chars.
     #[test]
     fn display_ids_are_unique_and_at_most_128_chars() {
         let long = "x".repeat(200);
         let mut displays = [display("edid:a"), display("edid:a"), display("output:DP-1"), display("edid:a"), display(&long), display(&long)];
-        finish_ids(&mut displays);
+        finish_ids(&mut displays, &[]);
         let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
         assert_eq!(&ids[..4], ["edid:a", "edid:a#2", "output:DP-1", "edid:a#3"]);
         assert_eq!(ids[4], "x".repeat(128));
         assert_eq!(ids[5], format!("{}#2", "x".repeat(126)));
+
+        let mut displays = [display(&long), display(&long)];
+        finish_ids(&mut displays, &[Some("HDMI-1".into()), Some("DP-1".into())]);
+        assert_eq!(displays[0].id, format!("{}@HDMI-1", "x".repeat(121)));
+        assert_eq!(displays[1].id, format!("{}@DP-1", "x".repeat(123)));
+        assert!(displays.iter().all(|display| display.id.chars().count() == 128));
+    }
+
+    /// #FEED-164: `work-screen.json` `idCases`, and a reorder of twins keeps
+    /// each one's id.
+    #[test]
+    fn twins_are_told_apart_by_connector() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../../packages/domain-contract/fixtures/work-screen.json")).unwrap();
+        for case in fixture["idCases"].as_array().unwrap() {
+            let rows = case["displays"].as_array().unwrap();
+            let mut displays: Vec<DisplayInfo> = rows.iter().map(|row| display(row["id"].as_str().unwrap())).collect();
+            let connectors: Vec<Option<String>> = rows.iter().map(|row| row["connector"].as_str().map(str::to_string)).collect();
+            finish_ids(&mut displays, &connectors);
+            let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
+            let expect: Vec<&str> = case["expect"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expect, "{}", case["name"]);
+        }
+        let mut before = [display("uuid"), display("uuid")];
+        finish_ids(&mut before, &[Some("1".into()), Some("2".into())]);
+        let mut after = [display("uuid"), display("uuid")];
+        finish_ids(&mut after, &[Some("2".into()), Some("1".into())]);
+        assert_eq!((before[0].id.as_str(), before[1].id.as_str()), (after[1].id.as_str(), after[0].id.as_str()));
     }
 
     #[test]
