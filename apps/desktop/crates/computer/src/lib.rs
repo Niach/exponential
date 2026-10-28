@@ -19,6 +19,7 @@ mod host;
 mod keys;
 mod server;
 mod tools;
+pub mod work_screen;
 
 use std::sync::{Arc, OnceLock};
 
@@ -169,6 +170,54 @@ fn live() -> Result<&'static Live, String> {
 
 /// The IDE's banner, registered before the endpoint exists.
 static PRESENCE: OnceLock<host::Presence> = OnceLock::new();
+
+/// NEW-59: one display as the device reports it (`doctor.displays`) and as
+/// the overlay and the banner place by: 1-based `number` in the OS's order
+/// (list_windows' index + 1), the rect in the OS's screen units.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Display {
+    pub number: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+
+/// NEW-59: the screen as the work-screen rules read it now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreenState {
+    pub displays: Vec<Display>,
+    /// 0-based indexes of the displays holding a fullscreen window.
+    pub fullscreen: Vec<usize>,
+    /// 0-based indexes agents may drive ([`work_screen::work_displays`]).
+    pub work: Vec<usize>,
+}
+
+/// NEW-59: the device's Work screen setting (`launch_defaults.computerUseDisplay`,
+/// 1-based; `None` = Auto). The hub reads it on every call.
+pub fn set_work_display(number: Option<u32>) {
+    work_screen::set_picked(number);
+}
+
+/// NEW-59: the displays for the doctor (`doctor.displays`). Empty without a
+/// display (a server, Wayland) or when the backend does not open.
+pub fn displays() -> Vec<Display> {
+    work_screen::displays()
+}
+
+/// NEW-59: the displays, their fullscreen windows and the work displays now;
+/// `None` without a display. Reads the OS (a few ms): call it when the
+/// overlay opens, not per frame.
+pub fn screen_state() -> Option<ScreenState> {
+    work_screen::screen_state()
+}
+
+/// NEW-59: the display the computer-use banner floats on: the engaged run's
+/// current display (the work screen), else `None` (the primary).
+pub fn banner_display() -> Option<Display> {
+    work_screen::banner_display()
+}
 
 /// Admit the run `session_id`; a grant it held before stops working.
 /// `label` is what the banner shows for the run (the issue's identifier,
