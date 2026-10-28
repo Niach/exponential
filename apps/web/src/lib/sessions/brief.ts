@@ -60,8 +60,6 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   const input: BriefInput = { text: await firstPersonMessage(session.id) }
 
   input.issues = await sessionIssueRows(session)
-  // EXP-1280: plan mode is Exponential's (a brief section + the pr_open gate).
-  input.planMode = session.planMode === true
 
   let parentBranch: string | null = null
   if (session.parentId) {

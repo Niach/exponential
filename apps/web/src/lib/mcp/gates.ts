@@ -29,9 +29,6 @@ export interface McpToolGates {
   /** That session's root is a team agent's conversation (it never ends).
    * Wording only. */
   agent: boolean
-  /** EXP-1280: that session is still planning (`sessions.plan_mode`), so the
-   * instructions carry the plan-mode gate. Wording only. */
-  planMode?: boolean
 }
 
 /** The worst-case surface — the default `registerExponentialTools` takes, so
@@ -41,7 +38,6 @@ export const ALL_MCP_TOOL_GATES: McpToolGates = {
   inSession: true,
   unattended: true,
   agent: false,
-  planMode: true,
 }
 
 const CLOSED: McpToolGates = { inSession: false, unattended: false, agent: false }
@@ -64,7 +60,6 @@ export async function resolveMcpToolGates(
       deviceId: sessions.deviceId,
       parentId: sessions.parentId,
       rootAgentId: root.agentId,
-      planMode: sessions.planMode,
       // NEW-1: a live session watches this one (its spawner): nobody is
       // watching in person.
       watched: sql<boolean>`EXISTS (SELECT 1 FROM sessions w WHERE w.status <> 'ended' AND w.wake_on @> jsonb_build_array(${sessions.id}::text))`,
@@ -79,6 +74,5 @@ export async function resolveMcpToolGates(
     inSession: true,
     unattended: row.parentId !== null || row.watched === true,
     agent: row.rootAgentId !== null,
-    planMode: row.planMode === true,
   }
 }

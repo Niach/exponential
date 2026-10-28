@@ -2755,7 +2755,7 @@ impl SteerSessionView {
             .filter(|item| shown.contains(&item.id))
             .filter_map(|item| match &item.kind {
                 FeedKind::Tool { name, settled: true, failed: false, .. } => {
-                    steer::exp_tool_row(name).map(|row| (item.id, row))
+                    domain::ask_dock::card_call_row(name).map(|row| (item.id, row))
                 }
                 _ => None,
             })

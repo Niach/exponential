@@ -6,7 +6,7 @@ import {
   type AppPackage,
   type ExtensionDef,
 } from "@exponential_app/ui"
-import { catalogPrompt } from "@exponential_app/ui/prompt"
+import { catalogPrompt, componentPrompt } from "@exponential_app/ui/prompt"
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS } from "@exp/domain-contract/apps"
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
@@ -129,6 +129,15 @@ export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: 
   { name: `harness.records.upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
   { name: `harness.records.delete`, args: `{id}`, effect: `deletes one record of the app` },
 ]
+
+/** S-3 MCP `apps catalog {only}`: just the named components' props (what
+ *  an `exponential_show` surface author asks for; the same props in the
+ *  nested node form {id, component, props, children}). */
+export function componentCatalogText(names: readonly string[]): string {
+  return names
+    .map((name) => componentPrompt(name, { extensions: [appExtension] }) || `${name}: no such component`)
+    .join(`\n`)
+}
 
 /** MCP `apps catalog`: everything an agent needs to write a package. */
 export function appCatalogText(): string {

@@ -636,9 +636,8 @@ export const sessionsRouter = router({
         // rotation may move it off the row's), so the row says it and a
         // person's later pick of the old one is a real switch.
         account: z.string().min(1).max(64).optional(),
-        // EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
-        // once a plan is approved, or entering it): the row follows the
-        // run, so every client's toggle says the mode it is really in.
+        // S-3: plan mode is gone; an older device still reports it
+        // (accepted, never stored).
         planMode: z.boolean().optional(),
         // EXP-1334: the agent's model as the run reports it (a `/model`
         // switch mid-session), so a resume launches on it. Outside the
@@ -819,7 +818,6 @@ export const sessionsRouter = router({
             ...(nextBlocked !== session.blocked ? { blocked: nextBlocked } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
             ...(input.account ? { account: input.account } : {}),
-            ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
             ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).

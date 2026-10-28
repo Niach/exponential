@@ -20,6 +20,8 @@ export const ALWAYS_LOAD_TOOLS = [
   `exponential_sessions_send`,
   `exponential_guide_write`,
   `exponential_pr`,
+  // S-3: show / ask / plan, the card every turn may end with.
+  `exponential_show`,
 ] as const
 
 export const GATED_ALWAYS_LOAD_TOOLS = [] as const
