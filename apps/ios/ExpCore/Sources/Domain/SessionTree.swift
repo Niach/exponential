@@ -1160,22 +1160,35 @@ public struct AgentLike: Equatable, Sendable, Identifiable {
     public let icon: String?
     public let color: String?
     public let sortOrder: Double
+    /// S-3: contract `agentRole` (nil/absent = `agent`).
+    public let role: String?
+    /// S-3: who owns it (an Assistant shows to its owner only).
+    public let ownerId: String?
 
-    public init(id: String, teamId: String, name: String, icon: String?, color: String?, sortOrder: Double) {
+    public init(
+        id: String, teamId: String, name: String, icon: String?, color: String?, sortOrder: Double,
+        role: String? = nil, ownerId: String? = nil
+    ) {
         self.id = id
         self.teamId = teamId
         self.name = name
         self.icon = icon
         self.color = color
         self.sortOrder = sortOrder
+        self.role = role
+        self.ownerId = ownerId
     }
 
     public init(_ agent: AgentDefinitionEntity) {
         self.init(
             id: agent.id, teamId: agent.teamId, name: agent.name,
-            icon: agent.icon, color: agent.color, sortOrder: agent.sortOrder
+            icon: agent.icon, color: agent.color, sortOrder: agent.sortOrder,
+            role: agent.role, ownerId: agent.ownerId
         )
     }
+
+    /// S-3: `agents.role = assistant`.
+    public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
 }
 
 /// One row of the Agents band (icon + color like a board row): an agent
@@ -1190,6 +1203,9 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
     public let color: String
     public let busy: Bool
     public let needsYou: Bool
+    /// S-3: the viewer's own Assistant (agents.role assistant): the brand
+    /// mark instead of icon/color, always first.
+    public let assistant: Bool
 
     public var id: String { agentId }
 
@@ -1200,7 +1216,8 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
         icon: String,
         color: String,
         busy: Bool,
-        needsYou: Bool
+        needsYou: Bool,
+        assistant: Bool = false
     ) {
         self.agentId = agentId
         self.teamId = teamId
@@ -1209,6 +1226,7 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
         self.color = color
         self.busy = busy
         self.needsYou = needsYou
+        self.assistant = assistant
     }
 }
 
@@ -2073,7 +2091,12 @@ public enum SessionTree {
         }
         return agents
             .filter { teamId == nil || $0.teamId == teamId }
+            // S-3: another member's Assistant is never listed
+            // (agent-settings.json `assistant.visibleCases`); the viewer's
+            // own comes first.
+            .filter { !$0.isAssistant || $0.ownerId == me }
             .sorted { a, b in
+                if a.isAssistant != b.isAssistant { return a.isAssistant }
                 if a.sortOrder != b.sortOrder { return a.sortOrder < b.sortOrder }
                 let byName = a.name.localizedCompare(b.name)
                 if byName != .orderedSame { return byName == .orderedAscending }
@@ -2089,9 +2112,21 @@ public enum SessionTree {
                     icon: agent.icon ?? ListCopy.agentDefaultIcon,
                     color: agent.color ?? ListCopy.agentDefaultColor,
                     busy: live && conversation?.busy == true,
-                    needsYou: live && conversation?.needsInput == true
+                    needsYou: live && conversation?.needsInput == true,
+                    assistant: agent.isAssistant
                 )
             }
+    }
+
+    /// S-3 (session-thread.json `chatModeCases`): THE thread screen's mode:
+    /// an agent conversation paints chat bubbles, a thread its transcript.
+    public enum ThreadChatMode: String, Equatable, Sendable {
+        case bubbles
+        case transcript
+    }
+
+    public static func threadChatMode(agentId: String?) -> ThreadChatMode {
+        (agentId ?? "").isEmpty ? .transcript : .bubbles
     }
 
     /// The caller's own working sessions counted per team — the board

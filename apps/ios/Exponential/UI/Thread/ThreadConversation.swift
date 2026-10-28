@@ -142,6 +142,9 @@ struct ThreadConversationView: View {
                 // clock tick or an answer elsewhere re-renders only the
                 // rows whose inputs moved.
                 rowView(row).equatable()
+                    // S-3 CHAT MODE `bubbles`: cards sit in the agent's
+                    // column (the agent bubble's ~94%).
+                    .padding(.trailing, bubbles && Self.isCard(row) ? ChatBubbleMetrics.agentTrailingGap : 0)
             }
             if let liveTail {
                 liveTail
@@ -174,6 +177,16 @@ struct ThreadConversationView: View {
         )
     }
 
+    private var bubbles: Bool { rows.chatMode == .bubbles }
+
+    /// A card (not a bubble, an event line or a divider pill).
+    private static func isCard(_ row: ThreadRow) -> Bool {
+        switch row {
+        case .message, .event, .divider: false
+        default: true
+        }
+    }
+
     private static func isSurface(_ row: ThreadRow) -> Bool {
         if case .surface = row { return true }
         return false
@@ -184,9 +197,10 @@ struct ThreadConversationView: View {
         WireTimestamps.parse(at).map { GlassTimeRow.formatted($0) }
     }
 
-    /// An agent channel's own card (row 0) stays off it.
+    /// `bubbles` (an agent conversation): the root's own card (row 0)
+    /// stays off it — the conversation IS that session.
     private var shownRows: [ThreadRow] {
-        guard rows.isAgent else { return view.rows }
+        guard rows.chatMode == .bubbles else { return view.rows }
         return view.rows.filter { row in
             if case let .session(_, card) = row { return card.sessionId != rows.root.id }
             return true
@@ -368,7 +382,8 @@ struct ThreadConversationRow: View, Equatable {
                     text: body,
                     context: markdownContext,
                     caption: caption,
-                    onRemove: removable ? { onUnqueue(id) } : nil
+                    onRemove: removable ? { onUnqueue(id) } : nil,
+                    leadingGap: ChatBubbleMetrics.personLeadingGap
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")

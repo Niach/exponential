@@ -2,43 +2,51 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// N-12 (THE composer row ×4): the expanded steer composer's ONE tool row,
-/// web's order: `+` (the only tool; wave D: Photo | File, a thread's opens
-/// its composer-menu.json sheet) · the Device pin as its GLYPH alone (the
-/// name in the picker and its label) · the model pin … the context ring
-/// beside Send ⇄ Stop; nothing under the card (S-3: no plan switch).
-/// EXP-893: · the model pill (the session's `model`
-/// config option; picking one SENDS `/model <alias>` as a plain message,
-/// EXP-877; codex and an ENDED row get a plain label; before the relay
-/// reports one it falls back to the row/device model) · spacer · the usage
-/// ring (hidden until context data lands; opens the Usage sheet, EXP-1150).
-/// Rides `GlassComposer`'s `tools:` slot, so the send button stays the card's
-/// own. A thread's box carries the same controls for its ROOT session.
+/// N-12 / S-3 (composer-menu.json): the expanded steer composer's ONE tool
+/// row: the `+` — the composer's ONLY tool — then the context ring beside
+/// Send ⇄ Stop. No options line, no inline device / model pins, no
+/// image/file/#/emoji/mention buttons: the model is the "+" Model row
+/// (surface session | agent), a running session never moves device or
+/// login here. With `controls` the `+` opens THE "+" sheet
+/// (`ThreadComposerPlusMenu`, presented by `SessionComposerCard`); a bare
+/// box (no controls) opens the Photo | File sub-choice directly. The ring
+/// hides until context data lands and opens the Usage sheet (EXP-1150).
+/// Rides `GlassComposer`'s `tools:` slot, so the send button stays the
+/// card's own.
 struct SessionComposerFooter: View {
-    /// The session view's own controls: the model pill and the usage ring.
+    /// The session's own controls: what the "+" sheet's Model row reads and
+    /// picks, and the usage ring.
     struct Controls {
         /// `AgentSessionModel.composerModelValue` (live, else the row, else
-        /// the device/contract defaults) — nil hides the pill.
+        /// the device/contract defaults) — nil = no Model row value.
         let modelValue: String?
-        /// The run's agent — claude gets the picker, anything else a label.
+        /// The run's agent (its models).
         let agent: String
+        /// EXP-877: a pick is a plain `/model <alias>` message.
         let onPickModel: (String) -> Void
         let usageFraction: Double?
         let usageSeverity: AgentUsageSeverity
         let onUsage: () -> Void
-        /// The session's row ENDED: the model pin is a read-only label (web
-        /// disables the picker on `status === 'ended'`).
+        /// The session's row ENDED: no model switch (web disables the
+        /// picker on `status === 'ended'`).
         var ended: Bool = false
-        /// EXP-1252: the Device pin before Model (`AgentSessionModel.devicePin`);
-        /// nil = hidden (agents).
-        var devicePin: SessionDevicePin? = nil
+        /// composer-menu.json `surface`: a session's composer or an agent
+        /// chat's.
+        var surface: ComposerMenu.Surface = .session
+        /// The team whose issues the "+" Issue page searches.
+        var teamId: String?
 
-        /// Codex has no mid-run model prompt and an ended row takes no
-        /// `/model`: both draw the chevron-less label.
-        var canPickModel: Bool { !ended && agent == "claude" }
+        /// composer-menu.json `model`: a session or an agent chat whose
+        /// agent switches models (always for claude and codex), never ended.
+        var canPickModel: Bool { !ended && (agent == "claude" || agent == "codex") }
+
+        /// The "+" conditions of this composer.
+        var menuConditions: ComposerMenu.Conditions {
+            ComposerMenu.Conditions(model: canPickModel)
+        }
     }
 
-    /// nil = the bare box (the `+` alone).
+    /// nil = the bare box (the `+` = Photo | File).
     let controls: Controls?
     let attachEnabled: Bool
     /// Wave D: the `+` opens the Photo | File sub-choice (iOS only, see
@@ -48,97 +56,56 @@ struct SessionComposerFooter: View {
     /// Owned by the host so an open menu (its cover resigns the field's
     /// focus) never reads as an idle composer and folds it away.
     @Binding var attachMenuOpen: Bool
-    /// EXP-1334: the `+` opens the host's composer-menu.json sheet instead
-    /// of the bare Photo | File choice (the thread composer).
+    /// S-3: the `+` opens THE "+" sheet (with controls).
     var onPlus: (() -> Void)?
 
     @State private var attachAnchor: CGRect = .zero
 
     var body: some View {
-        // ONE row that claims the tools slot's width (`layoutPriority`), so
-        // `GlassComposer`'s own spacer collapses and the ring sits beside Send.
-        // N-14: a ROW host — a pin opened inline (inside a sheet host)
-        // discloses its rows under the whole row, as wide as it; the
-        // collapsed pins never change (the device pin stays its glyph).
-        InlinePickerRow {
-            HStack(spacing: GlassComposerTokens.toolSpacing) {
-                // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
-                // concept ×4; `editor-image` stays the comment/description glyph.
-                GlassComposerToolButton(
-                    AppIcons.uiAdd,
-                    accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
-                    enabled: onPlus != nil || attachEnabled
-                ) {
-                    if let onPlus {
-                        onPlus()
-                        return
-                    }
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { attachMenuOpen = true }
+        HStack(spacing: GlassComposerTokens.toolSpacing) {
+            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
+            // concept ×4; `editor-image` stays the comment/description glyph.
+            GlassComposerToolButton(
+                AppIcons.uiAdd,
+                accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
+                enabled: onPlus != nil || attachEnabled
+            ) {
+                if let onPlus {
+                    onPlus()
+                    return
                 }
-                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
-                    attachAnchor = frame
-                }
-                .steerAttachChoiceMenu(
-                    isPresented: $attachMenuOpen,
-                    anchor: attachAnchor,
-                    onPhoto: onPhoto,
-                    onFile: onFile
-                )
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { attachMenuOpen = true }
+            }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                attachAnchor = frame
+            }
+            .steerAttachChoiceMenu(
+                isPresented: $attachMenuOpen,
+                anchor: attachAnchor,
+                onPhoto: onPhoto,
+                onFile: onFile
+            )
 
-                if let controls {
-                    if let devicePin = controls.devicePin {
-                        SessionDevicePinView(pin: devicePin, iconOnly: true)
-                    }
-                    SessionModelPill(controls: controls)
-                }
+            Spacer(minLength: 0)
 
-                Spacer(minLength: 0)
-
-                // No context data yet = no ring (web/Android draw nothing then).
-                if let controls, controls.usageFraction != nil {
-                    Button(action: controls.onUsage) {
-                        ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
-                            .frame(
-                                width: GlassComposerTokens.toolHitSize,
-                                height: GlassComposerTokens.toolHitSize
-                            )
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Usage")
-                    .accessibilityIdentifier("session-context-ring")
+            // No context data yet = no ring (web/Android draw nothing then).
+            if let controls, controls.usageFraction != nil {
+                Button(action: controls.onUsage) {
+                    ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
+                        .frame(
+                            width: GlassComposerTokens.toolHitSize,
+                            height: GlassComposerTokens.toolHitSize
+                        )
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Usage")
+                .accessibilityIdentifier("session-context-ring")
             }
         }
         .layoutPriority(1)
-    }
-}
-
-/// The model pill (`/model <alias>` on claude; a plain label otherwise).
-struct SessionModelPill: View {
-    let controls: SessionComposerFooter.Controls
-
-    var body: some View {
-        let agent = controls.agent
-        if let modelValue = controls.modelValue {
-            if controls.canPickModel {
-                // EXP-1345: THE Picker (bottom sheet, trailing check).
-                ModelPicker(
-                    agent: agent,
-                    value: modelValue,
-                    onChange: { controls.onPickModel($0) },
-                    trigger: { ModelLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: true) }
-                )
-                .accessibilityLabel("Model")
-                .accessibilityIdentifier("session-model-pill")
-            } else {
-                ModelLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: false)
-                    .accessibilityLabel("Model")
-                    .accessibilityIdentifier("session-model-pill")
-            }
-        }
     }
 }
 
@@ -173,73 +140,5 @@ extension DevicePickerDevice {
             description: row.blockedReason ?? base.description,
             disabled: row.blockedReason != nil
         )
-    }
-}
-
-/// EXP-1252: the Device pin, built EXACTLY like the launch line's
-/// (`AgentOptionsRow.devicePill`): the shared `DevicePicker` with the
-/// `OptionPillLabel` trigger, titled "Move to device", the note as its hint.
-struct SessionDevicePinView: View {
-    let pin: SessionDevicePin
-    /// The full name (the options line scrolls); false = it may truncate.
-    var fullWidth: Bool = true
-    /// N-12: inside the composer card, the glyph alone (the name in the
-    /// picker and the accessibility label; a pending move names the target).
-    var iconOnly: Bool = false
-
-    @Environment(\.toaster) private var toaster
-
-    var body: some View {
-        if pin.blockedReason == nil, !pin.sending {
-            DevicePicker(
-                devices: pin.rows,
-                value: pin.currentDeviceId,
-                onChange: pin.onPick,
-                title: SessionDeviceMove.pickerTitle,
-                trigger: {
-                    OptionPillLabel(icon: pin.icon ?? AppIcons.uiDevice, text: iconOnly ? "" : pin.label, chevron: !iconOnly)
-                        .fixedSize(horizontal: fullWidth || iconOnly, vertical: false)
-                }
-            )
-            .accessibilityLabel(iconOnly ? "Device: \(pin.label)" : "Device")
-            // The move's note rides the pin as its hint, like the account
-            // switch's cost note (web `title=`, desktop tooltip).
-            .accessibilityHint(SessionDeviceMove.note)
-            .accessibilityIdentifier("session-device-pin")
-        } else {
-            OptionPillLabel(icon: pin.icon ?? AppIcons.uiDevice, text: iconOnly ? "" : pin.label, chevron: false)
-                .fixedSize(horizontal: fullWidth || iconOnly, vertical: false)
-                .opacity(pin.sending ? 1 : 0.6)
-                .onTapGesture {
-                    guard let reason = pin.blockedReason else { return }
-                    toaster.info(reason)
-                }
-                .accessibilityLabel(iconOnly ? "Device: \(pin.label)" : "Device")
-                .accessibilityHint(pin.blockedReason ?? "")
-                .accessibilityIdentifier("session-device-pin")
-        }
-    }
-}
-
-/// The model read-out: plain muted text + chevron, no capsule (web/desktop
-/// draw no pill background in the composer row).
-private struct ModelLabel: View {
-    let text: String
-    let chevron: Bool
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .lineLimit(1)
-            if chevron {
-                AppIcon(AppIcons.uiChevronDown, size: 10)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        }
-        .frame(minHeight: GlassComposerTokens.toolHitSize)
-        .padding(.horizontal, 4)
-        .contentShape(Rectangle())
     }
 }

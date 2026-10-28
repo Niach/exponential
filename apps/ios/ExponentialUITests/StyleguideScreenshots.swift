@@ -19,7 +19,7 @@ import XCTest
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_composer-menu · sg_chat-issues ·
-///   sg_machine-settings · sg_settings-team-agent · sg_threads ·
+///   sg_machine-settings · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
 ///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
@@ -510,13 +510,25 @@ final class StyleguideScreenshots: XCTestCase {
         chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
         expect(composer, within: Wait.nav, "Agent page did not open")
+        // S-3: the agent row stands over the card, the viewer's Assistant
+        // preselected (composer-home.json `agentRow`): that is `sg_chat`.
+        let assistantLabel = anyElement(app, identified: "composer-agent-label")
+        expect(assistantLabel, within: Wait.sync, "The composer's agent row never appeared")
+        expect(
+            app.staticTexts["To Assistant"].firstMatch,
+            within: Wait.sync,
+            "The agent row never preselected the Assistant — does the demo user have a desktop?"
+        )
+        snapshot("sg_chat", settle: 2)
+        // The dotted circle = Temporary session: today's launch, whose "+"
+        // carries the runner and work rows.
+        anyElement(app, identified: "composer-agent-temporary").tap()
         // The submit label proves the composer resolved its subject (a chat).
         expect(
             app.buttons["Start chat"].firstMatch,
             within: Wait.sync,
             "The composer never settled on the chat subject"
         )
-        snapshot("sg_chat", settle: 2)
 
         // EXP-1249: the "+" is the composer's ONLY tool — its sheet of the
         // `composer-menu.json` rows is `sg_composer-menu`. SLOP-28: Implement
@@ -773,6 +785,34 @@ final class StyleguideScreenshots: XCTestCase {
             snapshot("sg_settings-team-agent", settle: 2)
             goBack(app)
             expect(agentRow, within: Wait.nav, "Did not return to the Agents page")
+            goBack(app)
+        }
+
+        // ── sg_settings-assistant: Settings → Agents → Assistant (S-3) ─────
+        // The viewer's OWN Assistant (the `@assistant` row, brand mark; the
+        // Agents page mounting ensures it): identity, Runs on, Check in, the
+        // Voice block and the server-only instructions (gate on them). A
+        // detour: nothing is edited.
+        if ScreenshotShots.isWanted("sg_settings-assistant") {
+            let agentsRow = teamSettingsRow(app, "Agents")
+            scrollUntilVisible(app, agentsRow, attempts: 4)
+            agentsRow.tap()
+            let assistantRow = app.buttons["assistant-settings-row"]
+            expect(assistantRow, within: Wait.sync, "The Agents page has no Assistant row")
+            assistantRow.tap()
+            expect(
+                anyElement(app, identified: "assistant-check-in-row"),
+                within: Wait.network,
+                "The Assistant page drew no Check in row (no Assistant synced: does the demo member own a device?)"
+            )
+            expect(
+                anyElement(app, identified: "agent-instructions"),
+                within: Wait.network,
+                "The Assistant's instructions never loaded (agents.get)"
+            )
+            snapshot("sg_settings-assistant", settle: 2)
+            goBack(app)
+            expect(assistantRow, within: Wait.nav, "Did not return to the Agents page")
             goBack(app)
         }
 

@@ -8,7 +8,7 @@ import SwiftUI
 /// `AgentComposerHeadline`: the contract verb plus the issue chips, or the
 /// prompt / agent chip); the composer card (`AgentComposerCard`, placeholder "What do you
 /// want to build?", the starting row after Start); the `@`/`:` candidate
-/// menu under it; the options line (`AgentOptionsRow`). EXP-1316
+/// menu under it (S-3: no options line, the "+" holds the runner). EXP-1316
 /// (composer-home.json `phone`): the column is pinned to the BOTTOM (above
 /// the tab bar, riding the keyboard), the dawn standing on the card; Getting
 /// started (no board yet) sits above the dawn; no Running list — the Threads
@@ -48,6 +48,11 @@ struct AgentPageView: View {
     @State private var updatingAgent: String?
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
+    /// S-3 THE AGENT ROW's pick (composer-home.json `agentRow`): nil = the
+    /// default (the viewer's Assistant, else Temporary session). A play
+    /// button's seed (issues, a prompt, a machine) starts on Temporary
+    /// session: it is a launch.
+    @State private var agentPick: String?
 
     private var reservesTabBar: Bool { isTabRoot && !keyboardVisible }
 
@@ -75,15 +80,21 @@ struct AgentPageView: View {
                         // The pair's own spacing: the headline keeps the
                         // column's 12pt, the dawn stands on the card
                         // (`HomeDawn.gap`).
+                        // S-3: an agent pick is the agent row's, never a
+                        // headline: the dawn stands on the row + card.
                         let headlined = composer.subject != AgentComposerPrompt.Subject.none
+                            && composer.subject != AgentComposerPrompt.Subject.agent
                         VStack(alignment: .leading, spacing: headlined ? 12 : HomeDawn.gap) {
                             if headlined {
                                 AgentComposerHeadline(model: composer)
                             } else {
                                 HomeDawn()
                             }
-                            AgentComposerCard(model: composer) { issueId in
-                                deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                            VStack(alignment: .leading, spacing: CGFloat(ComposerAgentRow.rowToCard)) {
+                                agentRow(composer)
+                                AgentComposerCard(model: composer) { issueId in
+                                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                                }
                             }
                         }
                         // EXP-802: the same `@`/`#`/`:` menu the comment
@@ -106,11 +117,6 @@ struct AgentPageView: View {
                                 }
                             }
                             .accessibilityIdentifier("agent-composer-slash-menu")
-                        }
-                        // NEW-3: a message to an agent runs on ITS device and
-                        // login: the options line hides.
-                        if composer.subject != AgentComposerPrompt.Subject.agent {
-                            AgentOptionsRow(model: composer)
                         }
                         captions(composer)
                     }
@@ -195,11 +201,38 @@ struct AgentPageView: View {
         // A send that was in flight through a team change no longer holds
         // the composer once it answers: it follows the team now.
         .onChange(of: composer?.isStartInFlight) { _, inFlight in
-            if inFlight == false { rebindComposer(to: composerTeamId) }
+            if inFlight == false {
+                rebindComposer(to: composerTeamId)
+                // The send cleared the model's agent; the row keeps its pick.
+                syncAgentPick()
+            }
         }
         .onDisappear {
             visible = false
             devicesModel?.stopObserving()
+        }
+        // S-3: the viewer's Assistant exists once the page mounts (once per
+        // team per app run).
+        .task(id: "\(accountId)/\(composerTeamId ?? "")") {
+            if let teamId = composerTeamId {
+                await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)
+            }
+        }
+        // S-3: the agent row's pick drives the composer's agent; the agents
+        // pool arriving (the Assistant created) re-resolves the default.
+        .onChange(of: agentPick) { _, _ in syncAgentPick() }
+        .onChange(of: composer?.agents.map(\.id)) { _, _ in syncAgentPick() }
+        .onChange(of: composer.map(ObjectIdentifier.init)) { _, _ in syncAgentPick() }
+        // A send (or a rebuilt composer) clears the model's agent: the row
+        // keeps its pick, so put it back; an issue or prompt subject picked
+        // in the + menu is a launch: the row follows to Temporary session.
+        .onChange(of: composer?.subject) { _, subject in
+            switch subject {
+            case .issues?, .prompt?:
+                if agentPick != ComposerAgentRow.temporaryPick { agentPick = ComposerAgentRow.temporaryPick }
+            default:
+                syncAgentPick()
+            }
         }
         // The resolved machine can change underneath the options (a
         // heartbeat dropping it, the pool arriving): reseed off the new one.
@@ -220,6 +253,45 @@ struct AgentPageView: View {
                 composer?.landedAgentId = nil
                 openAgent(agentId)
             }
+        }
+    }
+
+    // MARK: - Agent row (S-3)
+
+    private func agentRowState(_ composer: AgentComposerModel) -> ComposerAgentRow.State<AgentDefinitionEntity> {
+        ComposerAgentRow.composerAgentRow(agents: composer.agents, me: deps.auth.userId, picked: agentPick)
+    }
+
+    /// THE agent row over the card: the Assistant (brand mark) first, the
+    /// team agents (icon in colour), the dotted Temporary session circle.
+    private func agentRow(_ composer: AgentComposerModel) -> some View {
+        let state = agentRowState(composer)
+        let items = state.agents.map { agent in
+            ComposerAgentRowView.Item(
+                id: agent.id,
+                name: agent.name,
+                glyph: agent.isAssistant ? .brand : .icon(
+                    BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+                    Color(hex: agent.color) ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
+                )
+            )
+        } + [.temporary]
+        return ComposerAgentRowView(label: state.label, items: items, selected: state.selected) { id in
+            agentPick = id
+        }
+    }
+
+    /// The picked agent = the composer's agent subject (the + menu hides its
+    /// runner and work rows, the send goes into that agent's conversation);
+    /// Temporary session = today's launch.
+    private func syncAgentPick() {
+        guard let composer, !composer.isStartInFlight else { return }
+        let want = agentRowState(composer).agent?.id
+        guard composer.agentId != want else { return }
+        if let want {
+            composer.pickAgent(want)
+        } else if composer.subject == AgentComposerPrompt.Subject.agent {
+            composer.clearAgent()
         }
     }
 
@@ -247,6 +319,10 @@ struct AgentPageView: View {
         }
         if composer == nil, let devicesModel {
             composer = makeComposer(devicesModel: devicesModel, seed: seed)
+            // A play button's subject is a launch: Temporary session.
+            if agentPick == nil, seed.promptId != nil || !seed.effectiveIssueIds.isEmpty || seed.deviceId != nil {
+                agentPick = ComposerAgentRow.temporaryPick
+            }
         }
     }
 

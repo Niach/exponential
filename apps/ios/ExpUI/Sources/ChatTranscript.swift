@@ -41,6 +41,9 @@ public enum ChatBubbleMetrics {
     /// The free trailing gap that caps the agent bubble at ~94% of a phone
     /// column (a layout-stable spacer rather than a measured fraction).
     public static let agentTrailingGap: CGFloat = 24
+    /// The free leading gap that caps the person's bubble at ~80% of a
+    /// phone column (chats.json CHAT MODE: `UserMessageBubble` max 80%).
+    public static let personLeadingGap: CGFloat = 72
     public static let radius: CGFloat = 18
     /// The top-left corner the bubble hangs from.
     public static let tailRadius: CGFloat = 6

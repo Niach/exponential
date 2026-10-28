@@ -1707,7 +1707,7 @@ struct AgentSessionView: View {
     // MARK: - Composer card
 
     /// EXP-1295: THE session composer box (`SessionComposerCard`) with the
-    /// session's own controls: the model pill, the usage ring
+    /// session's own controls: the "+" Model row (S-3), the usage ring
     /// (EXP-893), the `/` keys (EXP-724) and Stop in the send slot.
     private func composerCard(_ model: AgentSessionModel) -> some View {
         // EXP-790: an EMPTY field while the agent works offers Stop (the
@@ -1726,10 +1726,10 @@ struct AgentSessionView: View {
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
                 onUsage: { showUsageSheet = true },
-                // An ended row takes no `/model`: the pin is a label.
+                // An ended row takes no `/model` (no Model row in the "+").
                 ended: model.session?.isLive == false,
-                // EXP-1252: the Device pin before Model.
-                devicePin: model.devicePin
+                // S-3: the "+" Issue page searches the session's team.
+                teamId: model.session?.teamId
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits
@@ -1945,6 +1945,9 @@ struct UserMessageBubble: View {
     /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
     /// at the END of the caption line (`sessions.unqueue`); nil = no X.
     var onRemove: (() -> Void)? = nil
+    /// The free leading gap (a chat's bubbles: `ChatBubbleMetrics
+    /// .personLeadingGap`, max 80% of the column).
+    var leadingGap: CGFloat = 32
 
     @State private var expanded = false
 
@@ -1977,7 +1980,7 @@ struct UserMessageBubble: View {
         // the fold — which then hid the images the fold was measuring.
         let clampable = isClampable(hasImages ? parsed.text : text)
         return HStack {
-            Spacer(minLength: 32)
+            Spacer(minLength: leadingGap)
             VStack(alignment: .leading, spacing: 4) {
                 Group {
                     if !hasImages {
