@@ -510,13 +510,25 @@ final class StyleguideScreenshots: XCTestCase {
         chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
         expect(composer, within: Wait.nav, "Agent page did not open")
+        // S-3: the agent row stands over the card, the viewer's Assistant
+        // preselected (composer-home.json `agentRow`): that is `sg_chat`.
+        let assistantLabel = anyElement(app, identified: "composer-agent-label")
+        expect(assistantLabel, within: Wait.sync, "The composer's agent row never appeared")
+        expect(
+            app.staticTexts["To Assistant"].firstMatch,
+            within: Wait.sync,
+            "The agent row never preselected the Assistant — does the demo user have a desktop?"
+        )
+        snapshot("sg_chat", settle: 2)
+        // The dotted circle = Temporary session: today's launch, whose "+"
+        // carries the runner and work rows.
+        anyElement(app, identified: "composer-agent-temporary").tap()
         // The submit label proves the composer resolved its subject (a chat).
         expect(
             app.buttons["Start chat"].firstMatch,
             within: Wait.sync,
             "The composer never settled on the chat subject"
         )
-        snapshot("sg_chat", settle: 2)
 
         // EXP-1249: the "+" is the composer's ONLY tool — its sheet of the
         // `composer-menu.json` rows is `sg_composer-menu`. SLOP-28: Implement

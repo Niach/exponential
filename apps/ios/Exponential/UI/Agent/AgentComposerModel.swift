@@ -419,7 +419,11 @@ final class AgentComposerModel {
     /// (composer-home.json `placeholder`); any subject asks for what is
     /// optional next to it.
     var placeholder: String {
-        if subject == AgentComposerPrompt.Subject.none { return HomeGreeting.placeholder }
+        // S-3: an agent picked on the agent row is no subject chip: the card
+        // keeps the home placeholder (composer-home.json `placeholder`).
+        if subject == AgentComposerPrompt.Subject.none || subject == AgentComposerPrompt.Subject.agent {
+            return HomeGreeting.placeholder
+        }
         return AgentComposerPrompt.placeholder(for: subject)
     }
 
