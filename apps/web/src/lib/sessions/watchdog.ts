@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -41,6 +41,8 @@ export interface WatchdogRun {
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
   fired: number
   pruned: number
+  /** NEW-57: expired meeting transcript batches deleted this tick. */
+  meetingPruned: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -527,7 +529,31 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // caught up here) and sweeps the event stream.
     fired: await fireScheduledTriggers(now),
     pruned: await pruneEvents(now),
+    meetingPruned: await pruneExpiredMessages(now),
   }
+}
+
+/** NEW-57: one tick deletes at most this many expired messages (the rest
+ *  go on the next ticks). */
+export const EXPIRED_MESSAGES_BATCH = 500
+
+/** NEW-57 (meeting.json RESIDENCY): delete the messages whose `expires_at`
+ *  passed (meeting transcript batches, `contract.meeting.retentionDays`),
+ *  oldest first, one bounded batch per tick over `idx_messages_expires`.
+ *  The statement-level `refresh_conversation_digests_delete` trigger
+ *  recomputes each touched conversation's digest; attachments cascade. */
+export async function pruneExpiredMessages(now: Date = new Date()): Promise<number> {
+  const expired = db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(isNotNull(messages.expiresAt), lt(messages.expiresAt, now)))
+    .orderBy(asc(messages.expiresAt))
+    .limit(EXPIRED_MESSAGES_BATCH)
+  const gone = await db
+    .delete(messages)
+    .where(inArray(messages.id, expired))
+    .returning({ id: messages.id })
+  return gone.length
 }
 
 let started = false
@@ -542,7 +568,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned`,
         })
       )
       .catch((error: unknown) => {

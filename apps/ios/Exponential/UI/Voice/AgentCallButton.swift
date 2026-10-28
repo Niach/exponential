@@ -72,7 +72,9 @@ final class AgentCallAvailability {
             online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: now),
             here: false,
             speech: VoiceCall.callSpeech(ofJSON: device?.doctor),
-            busy: false
+            busy: false,
+            // #NEW-57: a meeting on the voice device disables the telephone.
+            meeting: settings?.meetingOn ?? false
         ))
     }
 

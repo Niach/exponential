@@ -61,7 +61,11 @@ const stored = {
   language: `en`,
   voiceFile: ``,
   voiceTranscript: ``,
+  desktopAudio: `off`,
+  desktopAudioApps: [] as { id: string; name: string }[],
+  meetingStartedAt: null as string | null,
 }
+const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null }
 
 beforeEach(() => {
   h.state.selectQueue = []
@@ -71,7 +75,7 @@ beforeEach(() => {
 
 describe(`voice.get`, () => {
   it(`a member without a row gets the fixture's defaults`, async () => {
-    expect(await caller.get()).toEqual(fixture.defaults)
+    expect(await caller.get()).toEqual({ ...fixture.defaults, ...MEETING_DEFAULTS })
   })
 
   it(`returns the stored row`, async () => {
@@ -159,6 +163,100 @@ describe(`#NEW-73 language and custom voice`, () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored }], [{ userId: `me`, ...stored }]]
     await expect(caller.update({ language: `fr` as never })).rejects.toThrow()
     await expect(caller.update({ voiceTranscript: `one\ntwo` })).rejects.toThrow()
+  })
+})
+
+// NEW-57: meeting mode (fixtures/meeting.json).
+describe(`#NEW-57 meeting mode`, () => {
+  const STARTED = new Date(`2026-10-28T10:00:00.000Z`)
+
+  it(`reads the stored desktop audio, apps and the running meeting`, async () => {
+    const apps = [{ id: `us.zoom.xos`, name: `zoom.us` }]
+    h.state.selectQueue = [[{ userId: `me`, ...stored, desktopAudio: `include`, desktopAudioApps: apps, meetingStartedAt: STARTED }]]
+    expect(await caller.get()).toMatchObject({ desktopAudio: `include`, desktopAudioApps: apps, meetingStartedAt: STARTED.toISOString() })
+  })
+
+  it(`update stores desktop audio and de-duplicated, trimmed apps, never the meeting`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    const next = await caller.update({
+      desktopAudio: `include`,
+      desktopAudioApps: [
+        { id: `z`, name: ` Zoom ` },
+        { id: `z`, name: `Zoom again` },
+        { id: `s`, name: `Slack` },
+      ],
+      meetingStartedAt: STARTED.toISOString(),
+    } as never)
+    expect(next).toMatchObject({
+      desktopAudio: `include`,
+      desktopAudioApps: [{ id: `z`, name: `Zoom` }, { id: `s`, name: `Slack` }],
+      meetingStartedAt: null,
+    })
+    expect(h.state.upserts[0]?.set).toMatchObject({ desktopAudio: `include`, meetingStartedAt: null })
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+  })
+
+  it(`update refuses an unknown value, too many apps and a long name`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }], [{ userId: `me`, ...stored }], [{ userId: `me`, ...stored }]]
+    await expect(caller.update({ desktopAudio: `mix` as never })).rejects.toThrow()
+    const many = Array.from({ length: 33 }, (_, i) => ({ id: `a${i}`, name: `App ${i}` }))
+    await expect(caller.update({ desktopAudioApps: many })).rejects.toThrow()
+    await expect(caller.update({ desktopAudioApps: [{ id: `x`, name: `x`.repeat(65) }] })).rejects.toThrow()
+    expect(h.state.upserts).toHaveLength(0)
+  })
+
+  it(`startMeeting needs consent: true`, async () => {
+    await expect(caller.startMeeting({} as never)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(caller.startMeeting({ consent: false } as never)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.upserts).toHaveLength(0)
+  })
+
+  it(`startMeeting needs a voice device and an agent`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }]]
+    await expect(caller.startMeeting({ consent: true })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.selectQueue = [[]]
+    await expect(caller.startMeeting({ consent: true })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.upserts).toHaveLength(0)
+  })
+
+  it(`startMeeting stamps now and nudges the voice device; a running one keeps its start`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    const next = await caller.startMeeting({ consent: true })
+    expect(next.meetingStartedAt).not.toBeNull()
+    const set = h.state.upserts[0]?.set as { meetingStartedAt: Date }
+    expect(set.meetingStartedAt).toBeInstanceOf(Date)
+    expect(Math.abs(set.meetingStartedAt.getTime() - Date.now())).toBeLessThan(5000)
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+
+    h.state.upserts = []
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
+    expect((await caller.startMeeting({ consent: true })).meetingStartedAt).toBe(STARTED.toISOString())
+    expect(h.state.upserts).toHaveLength(0)
+  })
+
+  it(`stopMeeting clears it and nudges the voice device`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
+    expect((await caller.stopMeeting()).meetingStartedAt).toBeNull()
+    expect(h.state.upserts[0]?.set).toMatchObject({ meetingStartedAt: null })
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+  })
+
+  it(`choosing None for the device or the agent stops the meeting (clearOnNone grows meeting)`, async () => {
+    for (const change of [{ voiceDeviceId: null }, { agentId: null }]) {
+      h.state.upserts = []
+      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
+      const next = await caller.update(change)
+      expect(next.meetingStartedAt).toBeNull()
+      expect(h.state.upserts[0]?.set).toMatchObject({ meetingStartedAt: null })
+    }
+  })
+
+  it(`switching the voice device or the agent keeps the meeting`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }], [{ kind: `desktop` }]]
+    const next = await caller.update({ voiceDeviceId: `d-other` })
+    expect(next.meetingStartedAt).toBe(STARTED.toISOString())
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-other`)
   })
 })
 

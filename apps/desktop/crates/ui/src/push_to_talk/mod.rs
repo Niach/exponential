@@ -24,7 +24,7 @@
 //! same send. The worker ends that turn itself; the tray draws the open
 //! microphone from `WakeListening`.
 
-mod hotkey;
+pub(crate) mod hotkey;
 pub(crate) mod overlay;
 
 use std::collections::HashMap;
@@ -480,6 +480,11 @@ impl PushToTalk {
         if crate::voice_call::active(cx) {
             return;
         }
+        // NEW-57: a meeting holds it too: the key flushes its queue (`ptt`).
+        if crate::meeting::state(cx).running {
+            crate::meeting::flush_now(cx);
+            return;
+        }
         self.held = true;
         self.woken = false;
         self.generation += 1;
@@ -820,7 +825,9 @@ fn listen_failure(reason: talk::ListenFailure) -> domain::voice::ListenFailure {
         talk::ListenFailure::NotGranted => Domain::NotGranted,
         talk::ListenFailure::Downloading => Domain::Downloading,
         talk::ListenFailure::Unavailable => Domain::Unavailable,
-        talk::ListenFailure::Failed => Domain::Failed,
+        // NEW-57: only a Call is refused for a meeting (a Listen mid-meeting
+        // is a flush trigger answered Empty); never reaches push to talk.
+        talk::ListenFailure::Failed | talk::ListenFailure::Meeting => Domain::Failed,
     }
 }
 

@@ -32,6 +32,8 @@ pub const KEY_SPEECH: &str = "speech";
 pub const KEY_DISK: &str = "disk";
 /// EXP-1375: a kept worktree row's key prefix (`worktree-1`, `worktree-2`, …).
 pub const KEY_WORKTREE_PREFIX: &str = "worktree-";
+/// NEW-57: the voice group's desktop audio row (see [`add_desktop_audio`]).
+pub const KEY_DESKTOP_AUDIO: &str = "desktop_audio";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -74,6 +76,18 @@ pub struct DeviceDoctor {
     /// options come from here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub displays: Vec<DoctorDisplay>,
+    /// NEW-57: what desktop audio the voice device can capture and the apps
+    /// playing audio right now (`meeting.json`); only on the voice device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_audio: Option<DoctorDesktopAudio>,
+}
+
+/// NEW-57: `doctor.desktopAudio` (absent = `none` and `[]`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DoctorDesktopAudio {
+    pub capability: domain::meeting::DesktopAudioCapability,
+    #[serde(default)]
+    pub apps: Vec<domain::meeting::AudioApp>,
 }
 
 /// NEW-59: one entry of `doctor.displays`.
@@ -223,6 +237,7 @@ pub fn label(key: &str) -> &str {
         "microphone" => "Microphone",
         "speech" => "Speech",
         "disk" => "Disk",
+        KEY_DESKTOP_AUDIO => &domain::meeting::MEETING.copy.doctor_label,
         other => other,
     }
 }
@@ -456,6 +471,7 @@ pub fn build(report: &DoctorReport, settings: &Settings, computer: ComputerState
         checked_at: crate::agent_accounts::now_iso(),
         items,
         displays: Vec::new(),
+        desktop_audio: None,
     }
 }
 
@@ -600,6 +616,34 @@ pub fn add_speech(doctor: &mut DeviceDoctor, state: SpeechState) {
     });
 }
 
+/// NEW-57: what this machine's desktop audio capture can do (mapped by the
+/// IDE from `talk::apps`: coding never depends on talk).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesktopAudioState {
+    /// One channel per app.
+    PerApp,
+    /// Only the whole system's output.
+    System,
+    /// Nothing to capture here.
+    None,
+    /// macOS: the Audio Recording permission process taps need is missing.
+    NotGranted,
+}
+
+/// NEW-57: append the voice group's `desktop_audio` row (pure;
+/// `meeting.json` DOCTOR). The IDE calls it only on the member's voice
+/// device with Desktop audio not off.
+pub fn add_desktop_audio(doctor: &mut DeviceDoctor, state: DesktopAudioState) {
+    let copy = &domain::meeting::MEETING.copy;
+    let row = |state| item(KEY_DESKTOP_AUDIO, DoctorGroup::Voice, state);
+    doctor.items.push(match state {
+        DesktopAudioState::PerApp => row(DoctorState::Ok).detail(&copy.doctor_per_app),
+        DesktopAudioState::System => row(DoctorState::Ok).detail(&copy.doctor_system),
+        DesktopAudioState::None => row(DoctorState::Missing).detail(&copy.doctor_none),
+        DesktopAudioState::NotGranted => row(DoctorState::Action).detail(NOT_GRANTED).action(DoctorAction::Grant),
+    });
+}
+
 /// The agents whose row is `ok`, and only while git is (the fixture's
 /// `runnable`).
 pub fn runnable_agents(doctor: &DeviceDoctor) -> Vec<&str> {
@@ -630,7 +674,12 @@ pub fn first_action(doctor: &DeviceDoctor) -> Option<&DoctorItem> {
 /// The identity of a block for change detection: its items, never
 /// `checkedAt` (the heartbeat sends the block only when this moved).
 pub fn items_key(doctor: &DeviceDoctor) -> String {
-    serde_json::to_string(&doctor.items).unwrap_or_default()
+    let items = serde_json::to_string(&doctor.items).unwrap_or_default();
+    // NEW-57: the live apps ride the beat once they change.
+    match &doctor.desktop_audio {
+        Some(audio) => format!("{items}{}", serde_json::to_string(audio).unwrap_or_default()),
+        None => items,
+    }
 }
 
 #[cfg(test)]
@@ -977,5 +1026,37 @@ mod tests {
         );
         assert_eq!(doctor.items.len(), 4);
         assert_eq!(doctor.items[3].state, DoctorState::Ok);
+    }
+
+    /// NEW-57: the desktop audio row's four states (`meeting.json` DOCTOR),
+    /// and the doctor object riding the change key.
+    #[test]
+    fn desktop_audio_row_and_object() {
+        let empty = || DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        let cases = [
+            (DesktopAudioState::PerApp, DoctorState::Ok, "Per app", None),
+            (DesktopAudioState::System, DoctorState::Ok, "Everything only", None),
+            (DesktopAudioState::None, DoctorState::Missing, "Not available here", None),
+            (DesktopAudioState::NotGranted, DoctorState::Action, "Not granted", Some(DoctorAction::Grant)),
+        ];
+        for (state, expect, detail, action) in cases {
+            let mut doctor = empty();
+            add_desktop_audio(&mut doctor, state);
+            let row = &doctor.items[0];
+            assert_eq!((row.key.as_str(), row.group, row.state), (KEY_DESKTOP_AUDIO, DoctorGroup::Voice, expect));
+            assert_eq!((row.detail.as_deref(), row.action), (Some(detail), action));
+        }
+        assert_eq!(label(KEY_DESKTOP_AUDIO), "Desktop audio");
+        let mut doctor = empty();
+        let bare = items_key(&doctor);
+        assert!(!serde_json::to_string(&doctor).unwrap().contains("desktopAudio"));
+        doctor.desktop_audio = Some(DoctorDesktopAudio {
+            capability: domain::meeting::DesktopAudioCapability::PerApp,
+            apps: vec![domain::meeting::AudioApp { id: "us.zoom.xos".into(), name: "zoom.us".into() }],
+        });
+        assert_ne!(items_key(&doctor), bare, "a new live app rides the beat");
+        let value = serde_json::to_value(&doctor).unwrap();
+        assert_eq!(value["desktopAudio"]["capability"], "per_app");
+        assert_eq!(value["desktopAudio"]["apps"][0]["name"], "zoom.us");
     }
 }

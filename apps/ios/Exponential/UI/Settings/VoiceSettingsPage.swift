@@ -14,6 +14,12 @@ import SwiftUI
 // (optimistic; a refusal reverts and toasts, feedback-states.json). #NEW-56:
 // a wake phrase failing `wakePhraseError` is never sent; leaving or
 // submitting the field shows the line inline under it until the next edit.
+// #NEW-57 (meeting.json): after Wake phrase, Meeting mode (ON opens THE
+// consent prompt, Start = `voice.startMeeting`; OFF = `voice.stopMeeting` at
+// once; while on its detail reads `who`), Desktop audio over the voice
+// device's capability, and while it picks or leaves out apps on a per-app
+// device the Apps multi-pick over `appOptions(live, stored)`: their own
+// headerless group under the tray group.
 struct VoiceSettingsPage: View {
     let accountId: String
     /// Styleguide capture only (`sg_settings-voice`): the page over fixture
@@ -48,6 +54,31 @@ struct VoiceSettingsPage: View {
     @State private var devices: [DeviceEntity] = []
     @State private var agents: [AgentDefinitionEntity] = []
     @State private var teams: [TeamEntity] = []
+    /// #NEW-57: THE consent prompt is open (Meeting mode turned on).
+    @State private var meetingConsent = false
+    /// Capture only (`ThreadCardsScreen`): a fixed page, no load, no sync.
+    private let specimen: Specimen?
+
+    /// The styleguide capture's fixed inputs.
+    struct Specimen {
+        let settings: Voice.Settings
+        let devices: [DeviceEntity]
+        let agents: [AgentDefinitionEntity]
+        let teams: [TeamEntity]
+        let consentOpen: Bool
+    }
+
+    init(accountId: String, specimen: Specimen? = nil) {
+        self.accountId = accountId
+        self.specimen = specimen
+        if let specimen {
+            _settings = State(initialValue: specimen.settings)
+            _devices = State(initialValue: specimen.devices)
+            _agents = State(initialValue: specimen.agents)
+            _teams = State(initialValue: specimen.teams)
+            _meetingConsent = State(initialValue: specimen.consentOpen)
+        }
+    }
 
     private var userId: String? {
         if let specimen { return specimen.userId }
@@ -61,8 +92,23 @@ struct VoiceSettingsPage: View {
         }
         .navigationTitle(Voice.Copy.group)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .task(id: accountId) { await load() }
-        .task(id: accountId) { await observe() }
+        .task(id: accountId) { if specimen == nil { await load() } }
+        .task(id: accountId) { if specimen == nil { await observe() } }
+        // #NEW-57: THE consent prompt (the doctor Import's GlassAlert);
+        // Cancel leaves Meeting mode off.
+        .glassAlert(
+            isPresented: $meetingConsent,
+            title: Meeting.Copy.consentTitle,
+            message: Meeting.consentBody(
+                who: meetingWho, agent: agentName, days: Meeting.retentionDays
+            ),
+            actions: [
+                GlassAlertAction(Meeting.Copy.cancel, role: .outline, isCancel: true, id: "cancel") {},
+                GlassAlertAction(Meeting.Copy.start, role: .primary, id: Meeting.TestIds.consentStart) {
+                    startMeeting()
+                },
+            ]
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Voice.TestIds.page)
     }
@@ -166,6 +212,12 @@ struct VoiceSettingsPage: View {
                     }
                 }
                 .listRowBackground(glassFormRowFill)
+                // #NEW-57: the meeting rows, their OWN group without a header,
+                // right under the tray group (Wake phrase stays its last row).
+                Section {
+                    meetingRows(settings, armed: armed)
+                }
+                .listRowBackground(glassFormRowFill)
             }
         }
         // EXP-603: the page's own background shows through the grouped list.
@@ -197,6 +249,116 @@ struct VoiceSettingsPage: View {
     private func toggle(_ field: Switch, on: Bool, enabled: Bool) -> some View {
         GlassToggleRow(field.title, isOn: Binding(get: { on }, set: { save(field.change($0)) })) { EmptyView() }
             .disabled(!enabled)
+    }
+
+    // MARK: - Meeting mode (#NEW-57)
+
+    /// The voice device's `doctor.desktopAudio`; absent = none and no apps.
+    private var doctorAudio: Meeting.DoctorAudio {
+        guard let id = settings?.voiceDeviceId,
+              let device = devices.first(where: { $0.deviceId == id })
+        else { return .absent }
+        return DeviceDoctor.decode(json: device.doctor)?.desktopAudio ?? .absent
+    }
+
+    private var meetingWho: String {
+        guard let settings else { return Meeting.Copy.you }
+        return Meeting.who(settings.desktopAudio, apps: settings.desktopAudioApps, capability: doctorAudio.capability)
+    }
+
+    @ViewBuilder
+    private func meetingRows(_ settings: Voice.Settings, armed: Bool) -> some View {
+        let on = armed && settings.meetingOn
+        GlassToggleRow(
+            Meeting.Copy.meeting,
+            description: on ? meetingWho : nil,
+            isOn: Binding(
+                get: { on },
+                set: { next in
+                    // ON never writes by itself: THE consent prompt does.
+                    if next { meetingConsent = true } else { stopMeeting() }
+                }
+            )
+        ) { EmptyView() }
+        .disabled(!armed)
+        .accessibilityIdentifier(Meeting.TestIds.meeting)
+        let capability = doctorAudio.capability
+        GlassPickerRow(
+            Meeting.Copy.desktopAudio,
+            selection: Binding(
+                get: { settings.desktopAudio },
+                set: { save(Voice.Change(desktopAudio: $0)) }
+            ),
+            options: Meeting.desktopAudioOptions(capability),
+            label: \.label
+        )
+        .accessibilityIdentifier(Meeting.TestIds.desktopAudio)
+        // Only while the device picks per app and the stored value is one
+        // of its options (include / exclude).
+        if capability == .perApp, settings.desktopAudio.picksApps,
+           Meeting.desktopAudioOptions(capability).contains(settings.desktopAudio) {
+            appsRow(settings)
+        }
+    }
+
+    /// THE multi-pick over `appOptions(live, stored)`; the picked apps keep
+    /// the options' order, at most `limits.apps`.
+    private func appsRow(_ settings: Voice.Settings) -> some View {
+        let stored = settings.desktopAudioApps
+        let options = Meeting.appOptions(live: doctorAudio.apps, stored: stored)
+        return GlassPicker(
+            items: options.map { PickerItem(value: $0.value, label: $0.label) },
+            mode: .multi,
+            value: Set(stored.map(\.id)),
+            onChange: { picked in
+                let apps = options
+                    .filter { picked.contains($0.value) }
+                    .prefix(Meeting.Limits.apps)
+                    .map { Meeting.AudioApp(id: $0.value, name: String($0.label.prefix(Meeting.Limits.appName))) }
+                save(Voice.Change(desktopAudioApps: Array(apps)))
+            },
+            emptyText: Meeting.Copy.appsNone,
+            title: Meeting.Copy.apps
+        ) {
+            GlassPickerRowLabel(Meeting.Copy.apps, value: Meeting.appsValue(stored))
+        }
+        .accessibilityIdentifier(Meeting.TestIds.apps)
+    }
+
+    /// Start: optimistic on, `voice.startMeeting {consent: true}`; a refusal
+    /// reverts and toasts.
+    private func startMeeting() {
+        guard settings != nil, settings?.meetingOn == false else { return }
+        let startedAt = ISO8601DateFormatter().string(from: Date())
+        settings?.meetingStartedAt = startedAt
+        Task {
+            do {
+                try await deps.voiceApi.startMeeting(accountId: accountId)
+            } catch {
+                if settings?.meetingStartedAt == startedAt { settings?.meetingStartedAt = nil }
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "start", thing: "meeting mode"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    /// Off: `voice.stopMeeting` at once (no prompt); a refusal reverts and toasts.
+    private func stopMeeting() {
+        guard let previous = settings?.meetingStartedAt else { return }
+        settings?.meetingStartedAt = nil
+        Task {
+            do {
+                try await deps.voiceApi.stopMeeting(accountId: accountId)
+            } catch {
+                if settings?.meetingStartedAt == nil { settings?.meetingStartedAt = previous }
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "stop", thing: "meeting mode"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
     }
 
     /// #NEW-73: picker over `languages`; every language carries its GPU note

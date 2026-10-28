@@ -37,6 +37,18 @@
 //! Speak is allowed during a call; a remote call's replies stream back as
 //! [`Event::SpeechAudio`] instead of playing here. [`SpeechClient::hangup`]
 //! ends it without an answer.
+//!
+//! NEW-57 (protocol 6) meets (`packages/domain-contract/fixtures/meeting.json`):
+//! [`SpeechClient::meeting`] owns the microphone (channel `you`) and, per
+//! [`MeetingApps`], the desktop audio ([`apps`]) until
+//! [`SpeechClient::meeting_stop`]; every channel runs the push-to-talk
+//! segment rules on its own (never a mix) and every closed segment comes
+//! back as [`Event::MeetingSegment`]. The wake phrase opening a `you`
+//! segment adds [`Event::MeetingWake`]; a push-to-talk Listen during a
+//! meeting is answered [`Event::MeetingFlushNow`] then `Empty` (a flush
+//! trigger, the microphone stays the meeting's); a Call is refused
+//! (`ListenFailed { reason: meeting }`). [`SpeechClient::meeting_pause`]
+//! drops every channel's audio until resumed.
 
 pub mod apps;
 pub mod microphone;
@@ -58,7 +70,11 @@ pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// construction; nothing here replaces a worker on a mismatch, the host
 /// only reads the number.
 /// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
-pub const PROTOCOL: u32 = 5;
+/// NEW-57: 6 = meetings.
+pub const PROTOCOL: u32 = 6;
+
+/// NEW-57: the microphone's meeting channel (`meeting.json` `you`).
+pub const YOU_CHANNEL: &str = "you";
 
 /// NEW-55: a call closes an utterance after this much silence (push to talk
 /// keeps talk-listen.json's 300 ms); `voice-call.json` `minSilenceMs`.
@@ -76,7 +92,7 @@ pub const LEVEL_BANDS: usize = 8;
 
 /// Host → worker, one JSON object per line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "t", rename_all = "camelCase")]
+#[serde(tag = "t", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Request {
     /// Download and load the voice now (the switch just turned on, or the
     /// language or voice file changed). Repeating it is cheap.
@@ -109,11 +125,74 @@ pub enum Request {
     /// #NEW-56: listen for `phrase` (already resolved: `Hey {agent}` when
     /// the member left it empty) in `language`; an empty phrase = off.
     Wake { phrase: String, language: String },
+    /// NEW-57: meeting `id`: the microphone (channel [`YOU_CHANNEL`],
+    /// labelled `you_label`) and `selection`'s desktop audio, each channel
+    /// segmented and transcribed in `language` until MeetingStop. `phrase`
+    /// = the wake phrase a `you` segment may open with (empty = none);
+    /// `capability` = what the voice device's doctor reported (`none` =
+    /// the microphone only, `system` = one `desktop` channel whatever the
+    /// selection). Waits for a running Listen or Call to end; replaces a
+    /// running meeting.
+    Meeting {
+        id: String,
+        language: String,
+        phrase: String,
+        you_label: String,
+        selection: MeetingApps,
+        capability: apps::Capability,
+    },
+    /// NEW-57: end meeting `id`. `drain` (a stop, never a sign-out): every
+    /// channel's open segment is closed and transcribed first, then
+    /// [`Event::MeetingStopped`]; else open segments are dropped and nothing
+    /// more is emitted for it.
+    MeetingStop {
+        id: String,
+        #[serde(default)]
+        drain: bool,
+    },
+    /// NEW-57: hold every channel of meeting `id` (its audio is dropped,
+    /// open segments with it) or resume it.
+    MeetingPause { id: String, paused: bool },
+}
+
+/// NEW-57: which desktop audio a meeting hears beside the microphone
+/// (`desktopAudio` with its `desktopAudioApps` ids).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", content = "apps", rename_all = "camelCase")]
+pub enum MeetingApps {
+    /// The microphone only.
+    #[default]
+    Off,
+    All,
+    Include(Vec<String>),
+    Exclude(Vec<String>),
+}
+
+impl MeetingApps {
+    /// What [`apps::open`] is asked for (None = no desktop audio): with
+    /// `system` capability `include`/`exclude` behave as `all`.
+    pub fn selection(&self, capability: apps::Capability) -> Option<apps::Selection> {
+        match (self, capability) {
+            (MeetingApps::Off, _) | (_, apps::Capability::None) => None,
+            (_, apps::Capability::System) | (MeetingApps::All, _) => Some(apps::Selection::All),
+            (MeetingApps::Include(ids), _) => Some(apps::Selection::Include(ids.clone())),
+            (MeetingApps::Exclude(ids), _) => Some(apps::Selection::Exclude(ids.clone())),
+        }
+    }
+}
+
+/// NEW-57: one word of a meeting segment (epoch ms).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingWord {
+    pub text: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
 }
 
 /// Worker → host, one JSON object per line.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "t", rename_all = "camelCase")]
+#[serde(tag = "t", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     /// The worker is up and speaks this protocol.
     Ready { protocol: u32 },
@@ -162,6 +241,33 @@ pub enum Event {
     /// #NEW-56: the microphone is open for the wake word (`false`: off,
     /// muted, or it could not open; `reason` says why when it failed).
     WakeListening { listening: bool, reason: Option<ListenFailure> },
+    /// NEW-57: meeting `id` finalized a segment of `channel` (`you`, an
+    /// app's id or `desktop`), labelled `label`: normalised text (never
+    /// empty), from `start_ms` (epoch ms, the first word) to `end_ms`.
+    /// `words` = per-word timestamps where the runtime gives them (empty:
+    /// the segment's own start and end stand for them).
+    MeetingSegment {
+        id: String,
+        channel: String,
+        label: String,
+        text: String,
+        start_ms: i64,
+        end_ms: i64,
+        words: Vec<MeetingWord>,
+    },
+    /// NEW-57: the wake phrase opened the `you` segment that just came
+    /// (a flush trigger, `wake`).
+    MeetingWake { id: String },
+    /// NEW-57: push to talk was pressed during meeting `id` (a flush
+    /// trigger, `ptt`); the Listen itself is answered Empty.
+    MeetingFlushNow { id: String },
+    /// NEW-57: meeting `id` listens (`true`, the microphone is open) or
+    /// stopped listening (`false`: stopped, or it could not open; `reason`
+    /// says why, and the worker retries on its own while it is wanted).
+    MeetingListening { id: String, listening: bool, reason: Option<ListenFailure> },
+    /// NEW-57: a draining MeetingStop of `id` is done: every segment it had
+    /// has been emitted (the host sends its final batch now).
+    MeetingStopped { id: String },
     /// Host-side: the worker process ended on its own (a crash, a failed
     /// write). Never sent by the worker itself, nor (#NEW-66) after
     /// [`SpeechClient::shutdown`].
@@ -182,6 +288,9 @@ pub enum ListenFailure {
     Unavailable,
     /// Transcribing failed.
     Failed,
+    /// NEW-57: a meeting owns the microphone (a Call is refused,
+    /// voice-call.json `failed.meeting`).
+    Meeting,
 }
 
 /// NEW-55: i16 samples as the wire's base64 of little-endian bytes.
@@ -485,6 +594,37 @@ impl SpeechClient {
         } else {
             self.send(&request);
         }
+    }
+
+    /// NEW-57: start (or re-hand) meeting `id`; see [`Request::Meeting`].
+    pub fn meeting(
+        &self,
+        id: impl Into<String>,
+        language: impl Into<String>,
+        phrase: impl Into<String>,
+        you_label: impl Into<String>,
+        selection: MeetingApps,
+        capability: apps::Capability,
+    ) {
+        self.send(&Request::Meeting {
+            id: id.into(),
+            language: language.into(),
+            phrase: phrase.into(),
+            you_label: you_label.into(),
+            selection,
+            capability,
+        });
+    }
+
+    /// NEW-57: end meeting `id`; `drain` = emit its open segments first,
+    /// then [`Event::MeetingStopped`].
+    pub fn meeting_stop(&self, id: impl Into<String>, drain: bool) {
+        self.send_if_running(&Request::MeetingStop { id: id.into(), drain });
+    }
+
+    /// NEW-57: pause or resume meeting `id`.
+    pub fn meeting_pause(&self, id: impl Into<String>, paused: bool) {
+        self.send_if_running(&Request::MeetingPause { id: id.into(), paused });
     }
 
     /// #NEW-54: bring the worker up without a request (push to talk wants
@@ -810,8 +950,65 @@ mod tests {
     }
 
     #[test]
+    fn protocol_6_meets() {
+        assert_eq!(PROTOCOL, 6);
+        let start = Request::Meeting {
+            id: "m1".into(),
+            language: "en".into(),
+            phrase: "Hey Studio".into(),
+            you_label: "You".into(),
+            selection: MeetingApps::Include(vec!["us.zoom.xos".into()]),
+            capability: apps::Capability::PerApp,
+        };
+        let json = r#"{"t":"meeting","id":"m1","language":"en","phrase":"Hey Studio","youLabel":"You","selection":{"mode":"include","apps":["us.zoom.xos"]},"capability":"per_app"}"#;
+        assert_eq!(serde_json::to_string(&start).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Request>(json).unwrap(), start);
+        assert_eq!(serde_json::to_string(&MeetingApps::Off).unwrap(), r#"{"mode":"off"}"#);
+        assert_eq!(serde_json::from_str::<MeetingApps>(r#"{"mode":"all"}"#).unwrap(), MeetingApps::All);
+        for (request, json) in [
+            (Request::MeetingStop { id: "m1".into(), drain: true }, r#"{"t":"meetingStop","id":"m1","drain":true}"#),
+            (Request::MeetingPause { id: "m1".into(), paused: true }, r#"{"t":"meetingPause","id":"m1","paused":true}"#),
+        ] {
+            assert_eq!(serde_json::to_string(&request).unwrap(), json);
+            assert_eq!(serde_json::from_str::<Request>(json).unwrap(), request);
+        }
+        let segment = Event::MeetingSegment {
+            id: "m1".into(),
+            channel: "you".into(),
+            label: "You".into(),
+            text: "Ship it.".into(),
+            start_ms: 1_000,
+            end_ms: 2_000,
+            words: vec![MeetingWord { text: "Ship".into(), start_ms: 1_000, end_ms: 1_400 }],
+        };
+        let json = r#"{"t":"meetingSegment","id":"m1","channel":"you","label":"You","text":"Ship it.","startMs":1000,"endMs":2000,"words":[{"text":"Ship","startMs":1000,"endMs":1400}]}"#;
+        assert_eq!(serde_json::to_string(&segment).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Event>(json).unwrap(), segment);
+        assert_eq!(serde_json::to_string(&Event::MeetingWake { id: "m1".into() }).unwrap(), r#"{"t":"meetingWake","id":"m1"}"#);
+        assert_eq!(serde_json::to_string(&Event::MeetingFlushNow { id: "m1".into() }).unwrap(), r#"{"t":"meetingFlushNow","id":"m1"}"#);
+        assert_eq!(
+            serde_json::to_string(&Event::MeetingListening { id: "m1".into(), listening: false, reason: Some(ListenFailure::Downloading) }).unwrap(),
+            r#"{"t":"meetingListening","id":"m1","listening":false,"reason":"downloading"}"#
+        );
+        assert_eq!(serde_json::to_string(&ListenFailure::Meeting).unwrap(), r#""meeting""#);
+        assert_eq!(serde_json::to_string(&Event::MeetingStopped { id: "m1".into() }).unwrap(), r#"{"t":"meetingStopped","id":"m1"}"#);
+        let bare: Request = serde_json::from_str(r#"{"t":"meetingStop","id":"m1"}"#).unwrap();
+        assert_eq!(bare, Request::MeetingStop { id: "m1".into(), drain: false }, "no drain = drop");
+    }
+
+    #[test]
+    fn a_meetings_desktop_audio_follows_the_capability() {
+        use apps::{Capability, Selection};
+        let include = MeetingApps::Include(vec!["a".into()]);
+        assert_eq!(MeetingApps::Off.selection(Capability::PerApp), None);
+        assert_eq!(MeetingApps::All.selection(Capability::None), None, "nothing to capture: the microphone only");
+        assert_eq!(include.selection(Capability::PerApp), Some(Selection::Include(vec!["a".into()])));
+        assert_eq!(include.selection(Capability::System), Some(Selection::All), "system: one desktop channel");
+        assert_eq!(MeetingApps::Exclude(vec!["b".into()]).selection(Capability::PerApp), Some(Selection::Exclude(vec!["b".into()])));
+    }
+
+    #[test]
     fn protocol_5_calls() {
-        assert_eq!(PROTOCOL, 5);
         let requests = [
             (Request::Call { id: "c1".into(), language: "de".into(), remote: true }, r#"{"t":"call","id":"c1","language":"de","remote":true}"#),
             (Request::CallAudio { id: "c1".into(), pcm: encode_pcm(&[1, -2, i16::MAX, i16::MIN]) }, r#"{"t":"callAudio","id":"c1","pcm":"AQD+//9/AIA="}"#),
@@ -918,6 +1115,8 @@ mod tests {
         client.call_mute("c1", true);
         client.hangup("c1");
         client.wake("", "en");
+        client.meeting_stop("m1", true);
+        client.meeting_pause("m1", true);
         client.shutdown();
     }
 

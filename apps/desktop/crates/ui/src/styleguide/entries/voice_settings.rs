@@ -18,6 +18,11 @@
 //! on and its worker up), then
 //! Voice settings… (opens this page) and Quit.
 //!
+//! #NEW-57 (`fixtures/meeting.json`): after the wake phrase the tray group
+//! gains Meeting mode (on here, "You, Zoom and Slack" on its second line),
+//! Desktop audio (Pick apps) and Apps ("Zoom, Slack"), as the web entry;
+//! turning Meeting mode on opens THE consent dialog (`meeting-consent`).
+//!
 //! #NEW-97: while no tray host shows that item (GNOME without AppIndicator)
 //! and the wake word is on, the rail's footer carries a voice button beside
 //! Computer instead (`domain::voice::rail_voice`): the same ghost square
@@ -45,7 +50,7 @@ use super::composer_dialog::OpenMenu;
 use crate::icons::registry;
 
 use crate::controls::glass_input;
-use crate::settings::voice_prefs::{voice_rows, VoiceInputs};
+use crate::settings::voice_prefs::{apps_control, voice_rows, MeetingRows, VoiceInputs};
 use crate::surface;
 
 pub(crate) const ID: &str = "voice-settings";
@@ -72,6 +77,13 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         language: "en".into(),
         voice_file: String::new(),
         voice_transcript: String::new(),
+        // #NEW-57: a meeting runs for Zoom and Slack.
+        desktop_audio: domain::meeting::DesktopAudio::Include,
+        desktop_audio_apps: vec![
+            domain::meeting::AudioApp { id: "us.zoom.xos".into(), name: "Zoom".into() },
+            domain::meeting::AudioApp { id: "com.tinyspeck.slackmacgap".into(), name: "Slack".into() },
+        ],
+        meeting_started_at: Some("2026-10-28T10:00:00.000Z".into()),
     };
     let mut field = |key: &'static str, placeholder: String, value: &'static str| {
         let input = window.use_keyed_state(key, cx, |window, cx| {
@@ -87,7 +99,12 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         voice_transcript: field("sg-voice-settings-transcript", VOICE.copy.voice_transcript_placeholder.clone(), ""),
     };
     let mut body = v_flex().w_full().gap_2();
-    for row in voice_rows(&settings, &devices, &agents, inputs, None, cx) {
+    let meeting = MeetingRows {
+        capability: domain::meeting::DesktopAudioCapability::PerApp,
+        apps: apps_control(&settings, &[], None, window, cx),
+        on_meeting: None,
+    };
+    for row in voice_rows(&settings, &devices, &agents, inputs, meeting, None, cx) {
         body = body.child(row);
     }
     div().w_full().max_w(px(560.)).child(body).child(div().mt_8().child(rail_voice_specimen(window, cx)))
@@ -109,6 +126,7 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
         language: "en".into(),
         voice_file: String::new(),
         voice_transcript: String::new(),
+        ..Default::default()
     };
     let context = TrayContext {
         agent: Some("Studio"),
@@ -119,6 +137,8 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
         shortcut_unavailable: false,
         shortcut_label: None,
         screen_memory: Some(ScreenMemoryState { on: true, paused: true }),
+        meeting: None,
+        pause: None,
     };
     let Some(rail) = rail_voice(&settings, &context, true, false) else { return div() };
     let rows = rail.menu.clone();

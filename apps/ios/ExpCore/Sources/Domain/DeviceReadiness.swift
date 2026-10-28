@@ -19,6 +19,11 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
     /// `work-screen.json`) in the OS's order; nil = not reported (an older
     /// build, a daemon without a display). One malformed entry drops alone.
     public let displays: [WorkScreen.Display]?
+    /// NEW-57: what the machine can capture of its desktop audio and the apps
+    /// playing right now (`doctor.desktopAudio`, fixture `meeting.json`);
+    /// nil = not reported (read as `Meeting.DoctorAudio.absent`). Lenient: an
+    /// unknown capability reads `none`, a malformed app drops alone.
+    public let desktopAudio: Meeting.DoctorAudio?
 
     public struct Item: Decodable, Sendable, Equatable {
         public let key: String
@@ -54,13 +59,17 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
         }
     }
 
-    public init(checkedAt: String? = nil, items: [Item], displays: [WorkScreen.Display]? = nil) {
+    public init(
+        checkedAt: String? = nil, items: [Item], displays: [WorkScreen.Display]? = nil,
+        desktopAudio: Meeting.DoctorAudio? = nil
+    ) {
         self.checkedAt = checkedAt
         self.items = items
         self.displays = displays
+        self.desktopAudio = desktopAudio
     }
 
-    private enum CodingKeys: String, CodingKey { case checkedAt, items, displays }
+    private enum CodingKeys: String, CodingKey { case checkedAt, items, displays, desktopAudio }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -69,6 +78,7 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
             .compactMap(\.value) ?? []
         displays = ((try? c.decodeIfPresent([FailableDisplay].self, forKey: .displays)) ?? nil)?
             .compactMap(\.value)
+        desktopAudio = ((try? c.decodeIfPresent(FailableDesktopAudio.self, forKey: .desktopAudio)) ?? nil)?.value
     }
 
     /// The stored column (stringified JSON) as a report; nil for NULL and
@@ -86,6 +96,33 @@ private struct FailableDisplay: Decodable {
 
     init(from decoder: Decoder) throws {
         value = try? WorkScreen.Display(from: decoder)
+    }
+}
+
+/// NEW-57: `doctor.desktopAudio` that never throws.
+private struct FailableDesktopAudio: Decodable {
+    let value: Meeting.DoctorAudio?
+
+    private enum CodingKeys: String, CodingKey { case capability, apps }
+
+    private struct FailableApp: Decodable {
+        let value: Meeting.AudioApp?
+
+        init(from decoder: Decoder) throws {
+            value = try? Meeting.AudioApp(from: decoder)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else {
+            value = nil
+            return
+        }
+        let capability = ((try? c.decodeIfPresent(String.self, forKey: .capability)) ?? nil)
+            .flatMap(Meeting.Capability.init(rawValue:)) ?? Meeting.Capability.none
+        let apps = ((try? c.decodeIfPresent([FailableApp].self, forKey: .apps)) ?? nil)?
+            .compactMap(\.value) ?? []
+        value = Meeting.DoctorAudio(capability: capability, apps: apps)
     }
 }
 

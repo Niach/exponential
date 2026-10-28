@@ -37,6 +37,8 @@ object VoiceCall {
             const val PREPARING = "{device} is getting its voice ready"
             const val NO_GPU = "{device} can't speak: no usable GPU"
             const val BUSY = "{device} is in another call"
+            /** #NEW-57: a meeting runs on the voice device. */
+            const val MEETING = "{device} is transcribing a meeting"
         }
 
         /** A failure's toast by its code; an unknown code reads [Failed.DROPPED]. */
@@ -48,6 +50,7 @@ object VoiceCall {
             const val DROPPED = "The call dropped"
             const val BUSY = "{device} is in another call"
             const val UNSUPPORTED = "This browser can't make calls"
+            const val MEETING = "{device} is transcribing a meeting"
 
             val byCode: Map<String, String> = linkedMapOf(
                 "no_answer" to NO_ANSWER,
@@ -57,6 +60,7 @@ object VoiceCall {
                 "dropped" to DROPPED,
                 "busy" to BUSY,
                 "unsupported" to UNSUPPORTED,
+            "meeting" to MEETING,
             )
         }
 
@@ -151,6 +155,8 @@ object VoiceCall {
         val speech: Speech?,
         /** A call already runs on the voice device. */
         val busy: Boolean,
+        /** #NEW-57: a meeting runs on the voice device (`meetingStartedAt` set). */
+        val meeting: Boolean = false,
     )
 
     data class Availability(val enabled: Boolean, val reason: String?)
@@ -163,6 +169,7 @@ object VoiceCall {
             input.device == null -> off(r.NO_VOICE_DEVICE)
             !input.speakReplies -> off(r.SPEAK_OFF)
             !input.online -> off(r.OFFLINE)
+            input.meeting -> off(r.MEETING)
             input.platform == Platform.Desktop && !input.here -> off(r.NOT_HERE)
             input.speech == null || input.speech == Speech.Preparing -> off(r.PREPARING)
             input.speech == Speech.NoGpu -> off(r.NO_GPU)

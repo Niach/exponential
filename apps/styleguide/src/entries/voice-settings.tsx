@@ -14,6 +14,14 @@ import {
   wakePhrasePlaceholder,
 } from "@exp/domain-contract/voice"
 import {
+  appOptions,
+  DESKTOP_AUDIO_VALUES,
+  desktopAudioOptions,
+  MEETING_COPY,
+  MEETING_TEST_IDS,
+  who,
+} from "@exp/domain-contract/meeting"
+import {
   Button,
   conceptIcon,
   devicePickerItems,
@@ -25,6 +33,7 @@ import {
   type MenuEntry,
   MenuPanel,
   Picker,
+  PickerTrigger,
   SubShellHost,
 } from "@exp/ui"
 
@@ -90,6 +99,19 @@ const RAIL_VOICE_ENTRIES: MenuEntry[] = (RAIL_VOICE?.menu ?? []).flatMap((item):
   return [{ kind: `item`, id: item.id, label: item.label, disabled: !item.enabled, onSelect: noop }]
 })
 
+// #NEW-57: a meeting runs with Desktop audio = Pick apps, Zoom and Slack
+// picked, on a per-app capable voice device (Spotify plays too).
+const MEETING_APPS = [
+  { id: `us.zoom.xos`, name: `Zoom` },
+  { id: `com.tinyspeck.slackmacgap`, name: `Slack` },
+]
+const LIVE_APPS = [...MEETING_APPS, { id: `com.spotify.client`, name: `Spotify` }]
+const DESKTOP_AUDIO_ITEMS = desktopAudioOptions(`per_app`).map((value) => ({
+  value,
+  label: DESKTOP_AUDIO_VALUES.find((option) => option.value === value)?.label ?? value,
+}))
+const APP_ITEMS = appOptions(LIVE_APPS, MEETING_APPS)
+
 const VoiceIcon = conceptIcon(`settings-voice`)
 
 function Caption({ children }: { children: ReactNode }) {
@@ -121,7 +143,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `NEW-67`,
   title: `Voice settings`,
-  blurb: `Settings → Personal → ${VOICE_COPY.group}, after Notifications, on all four clients (NEW-67, voice.json). ONE group: ${VOICE_COPY.voiceDevice} (THE device picker's rows, None first, the member's desktops by name; phones and servers are never a voice device), ${VOICE_COPY.agent} (None first, the member's agents by label, "{name} · {team}" on a shared name) and ${VOICE_COPY.speakReplies}. While a voice device is picked the tray group follows under "${VOICE_COPY.trayHeader}": ${VOICE_COPY.pushToTalk}, ${VOICE_COPY.shortcut}, ${VOICE_COPY.wakeWord} and ${VOICE_COPY.wakePhrase} (placeholder "${VOICE_COPY.wakePhrasePlaceholder}"). Every switch reads off and is disabled while the device or the agent is None, and choosing None clears them (clearOnNone). Device settings no longer has a Voice group. #NEW-73: ${VOICE_COPY.language} (English / Deutsch, its trailing detail "${VOICE_COPY.languageNote}" for every language on a voice device: #NEW-74 speaks both on its GPU only) follows ${VOICE_COPY.speakReplies}, and while a voice device is picked ${VOICE_COPY.voiceFile} (empty = "${VOICE_COPY.voiceFilePlaceholder}") and ${VOICE_COPY.voiceTranscript} follow in the same group. #NEW-68: the voice device's IDE also shows a system-tray item whose menu is OS-native (no styleguide component): ${VOICE_COPY.trayOpen} first (${VOICE_COPY.trayCall} after it once calls land, V4), then ${VOICE_COPY.speakReplies}, ${VOICE_COPY.pushToTalk} · {shortcut} and ${VOICE_COPY.wakeWord} · {phrase} as check items (disabled while the device or the agent is None, as on this page; #NEW-58: Screen memory ("Screen memory · Paused" while a private window is focused; device-local, always enabled) and ${VOICE_COPY.trayMute} follow them, Mute while the microphone listens: Push to talk on and its worker up), then ${VOICE_COPY.traySettings} (opens this page) and ${VOICE_COPY.trayQuit}. #NEW-97: while no tray host shows that item (GNOME without AppIndicator) and the wake word is on, the IDE rail's footer carries a voice button instead, beside Computer: the same ghost square with the settings-voice glyph, the rail's destructive dot while the wake word holds the microphone open, the tooltip "Listening for “{phrase}”" (or "Microphone muted"), and a pointer menu with the tray's rows minus ${VOICE_COPY.trayOpen} and ${VOICE_COPY.trayQuit} (railVoice). The specimen under the page shows that button listening with its menu open, Screen memory paused by a private window.`,
+  blurb: `Settings → Personal → ${VOICE_COPY.group}, after Notifications, on all four clients (NEW-67, voice.json). ONE group: ${VOICE_COPY.voiceDevice} (THE device picker's rows, None first, the member's desktops by name; phones and servers are never a voice device), ${VOICE_COPY.agent} (None first, the member's agents by label, "{name} · {team}" on a shared name) and ${VOICE_COPY.speakReplies}. While a voice device is picked the tray group follows under "${VOICE_COPY.trayHeader}": ${VOICE_COPY.pushToTalk}, ${VOICE_COPY.shortcut}, ${VOICE_COPY.wakeWord} and ${VOICE_COPY.wakePhrase} (placeholder "${VOICE_COPY.wakePhrasePlaceholder}"). Every switch reads off and is disabled while the device or the agent is None, and choosing None clears them (clearOnNone). Device settings no longer has a Voice group. #NEW-73: ${VOICE_COPY.language} (English / Deutsch, its trailing detail "${VOICE_COPY.languageNote}" for every language on a voice device: #NEW-74 speaks both on its GPU only) follows ${VOICE_COPY.speakReplies}, and while a voice device is picked ${VOICE_COPY.voiceFile} (empty = "${VOICE_COPY.voiceFilePlaceholder}") and ${VOICE_COPY.voiceTranscript} follow in the same group. #NEW-68: the voice device's IDE also shows a system-tray item whose menu is OS-native (no styleguide component): ${VOICE_COPY.trayOpen} first (${VOICE_COPY.trayCall} after it once calls land, V4), then ${VOICE_COPY.speakReplies}, ${VOICE_COPY.pushToTalk} · {shortcut} and ${VOICE_COPY.wakeWord} · {phrase} as check items (disabled while the device or the agent is None, as on this page; #NEW-58: Screen memory ("Screen memory · Paused" while a private window is focused; device-local, always enabled) and ${VOICE_COPY.trayMute} follow them, Mute while the microphone listens: Push to talk on and its worker up), then ${VOICE_COPY.traySettings} (opens this page) and ${VOICE_COPY.trayQuit}. #NEW-97: while no tray host shows that item (GNOME without AppIndicator) and the wake word is on, the IDE rail's footer carries a voice button instead, beside Computer: the same ghost square with the settings-voice glyph, the rail's destructive dot while the wake word holds the microphone open, the tooltip "Listening for “{phrase}”" (or "Microphone muted"), and a pointer menu with the tray's rows minus ${VOICE_COPY.trayOpen} and ${VOICE_COPY.trayQuit} (railVoice). The specimen under the page shows that button listening with its menu open, Screen memory paused by a private window. #NEW-57 (meeting.json): directly under the tray group, in a group of their own with no header (so ${VOICE_COPY.wakePhrase} and its inline error close the tray group), come ${MEETING_COPY.meeting} (turning it on opens THE consent prompt, entry meeting-consent; while on its caption under the label reads who is transcribed), ${MEETING_COPY.desktopAudio} (Off / Everything / Pick apps / Everything except, as far as the voice device can capture) and, while it picks or leaves out apps and the voice device can capture per app, ${MEETING_COPY.apps} (a multi-picker over the apps playing audio, then the stored ones; its value the picked names or "${MEETING_COPY.appsNone}"). Shown: a meeting running for "You, Zoom and Slack".`,
   status: {
     web: {
       state: `ok`,
@@ -231,6 +253,39 @@ export const entry: StyleguideEntry = {
           maxLength={64}
           value=""
           onChange={noop}
+        />
+      </GlassGroup>
+      <GlassGroup className="mt-3">
+        <GlassToggleRow
+          id={`demo-${MEETING_TEST_IDS.meeting}`}
+          label={MEETING_COPY.meeting}
+          description={who(`include`, MEETING_APPS, `per_app`)}
+          checked
+          onCheckedChange={noop}
+        />
+        <Picker
+          mode="single"
+          triggerVariant="row"
+          width="md"
+          mobileTitle={MEETING_COPY.desktopAudio}
+          value="include"
+          items={DESKTOP_AUDIO_ITEMS}
+          onChange={noop}
+        />
+        <Picker
+          mode="multi"
+          width="md"
+          mobileTitle={MEETING_COPY.apps}
+          value={MEETING_APPS.map((app) => app.id)}
+          items={APP_ITEMS}
+          onChange={noop}
+          trigger={
+            <PickerTrigger
+              variant="row"
+              label={MEETING_COPY.apps}
+              value={MEETING_APPS.map((app) => app.name).join(`, `)}
+            />
+          }
         />
       </GlassGroup>
       <div className="mt-8">

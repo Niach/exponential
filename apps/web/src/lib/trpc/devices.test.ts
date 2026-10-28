@@ -2127,6 +2127,48 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
     expect(upsert.set.doctor.displays).toEqual([kept])
   })
 
+  it(`stores the desktop audio report leniently and drops a null one (NEW-57)`, async () => {
+    const apps = Array.from({ length: 40 }, (_, i) => ({ id: `app.${i}`, name: `App ${i}` }))
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `b`,
+      kind: `desktop`,
+      doctor: {
+        ...doctor,
+        items: [{ key: `desktop_audio`, group: `voice`, state: `ok`, detail: `Per app` }],
+        desktopAudio: { capability: `per_app`, apps: [{ id: `us.zoom.xos`, name: `z`.repeat(80) }, ...apps] },
+      },
+    })
+    let upsert = h.state.upserts[0] as {
+      set: { doctor: { items: unknown[]; desktopAudio: { capability: string; apps: { id: string; name: string }[] } } }
+    }
+    expect(upsert.set.doctor.items[0]).toMatchObject({ key: `desktop_audio`, group: `voice` })
+    expect(upsert.set.doctor.desktopAudio.capability).toBe(`per_app`)
+    expect(upsert.set.doctor.desktopAudio.apps).toHaveLength(32)
+    expect(upsert.set.doctor.desktopAudio.apps[0]).toEqual({ id: `us.zoom.xos`, name: `z`.repeat(64) })
+
+    // An unknown capability survives as a string (clients read it as none).
+    h.state.upserts = []
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `b`,
+      kind: `desktop`,
+      doctor: { ...doctor, desktopAudio: { capability: `future`, apps: [] } },
+    })
+    upsert = h.state.upserts[0] as typeof upsert
+    expect(upsert.set.doctor.desktopAudio).toEqual({ capability: `future`, apps: [] })
+
+    h.state.upserts = []
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `b`,
+      kind: `desktop`,
+      doctor: { ...doctor, desktopAudio: null },
+    })
+    upsert = h.state.upserts[0] as typeof upsert
+    expect(upsert.set.doctor).not.toHaveProperty(`desktopAudio`)
+  })
+
   it(`heartbeat writes the report only when present`, async () => {
     h.state.updateReturning = heartbeatRow()
     await caller.heartbeat({

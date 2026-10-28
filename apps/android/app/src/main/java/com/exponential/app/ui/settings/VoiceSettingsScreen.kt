@@ -42,7 +42,13 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.AudioApp
+import com.exponential.app.domain.DesktopAudioDoctor
+import com.exponential.app.domain.Meeting
 import com.exponential.app.domain.Voice
+import com.exponential.app.domain.parseDeviceDoctor
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.FieldError
@@ -155,6 +161,8 @@ class VoiceSettingsViewModel @Inject constructor(
         val agentOptions: List<Voice.Option> = Voice.agentOptions(emptyList()),
         val deviceNames: Map<String, String> = emptyMap(),
         val agentNames: Map<String, String> = emptyMap(),
+        /** NEW-57: each own device's `doctor.desktopAudio` (capability + live apps). */
+        val desktopAudio: Map<String, DesktopAudioDoctor> = emptyMap(),
     )
 
     val vocabulary: StateFlow<Vocabulary> = combine(devices, agents, teams) { devices, agents, teams ->
@@ -178,6 +186,7 @@ class VoiceSettingsViewModel @Inject constructor(
             ),
             deviceNames = devices.associate { it.deviceId to it.label },
             agentNames = agents.associate { it.id to it.name },
+            desktopAudio = own.associate { it.deviceId to (parseDeviceDoctor(it.doctor)?.desktopAudio ?: DesktopAudioDoctor()) },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Vocabulary())
 
@@ -219,6 +228,28 @@ class VoiceSettingsViewModel @Inject constructor(
             } catch (e: Exception) {
                 if (seq == saveSeq) settings = keepText(previous)
                 failure = FailedAction("save", "the voice settings", trpcErrorMessage(e, ""))
+            }
+        }
+    }
+
+    /**
+     * NEW-57: THE consent dialog's Start ([on]) or the toggle turned off:
+     * optimistic like [save] (the row reads the meeting at once, a refusal
+     * reverts and toasts); only `voice.startMeeting` / `voice.stopMeeting`
+     * write it, never `voice.update`.
+     */
+    fun setMeeting(on: Boolean) {
+        val previous = settings ?: return
+        if ((previous.meetingStartedAt != null) == on) return
+        settings = previous.copy(meetingStartedAt = if (on) java.time.Instant.now().toString() else null)
+        val seq = ++saveSeq
+        viewModelScope.launch {
+            try {
+                val stored = if (on) voiceApi.startMeeting(accountId) else voiceApi.stopMeeting(accountId)
+                if (seq == saveSeq) settings = keepText(stored)
+            } catch (e: Exception) {
+                if (seq == saveSeq) settings = keepText(previous)
+                failure = FailedAction(if (on) "start" else "stop", "meeting mode", trpcErrorMessage(e, ""))
             }
         }
     }
@@ -378,6 +409,7 @@ fun VoiceSettingsScreen(
                 wakePhrase = viewModel.wakePhrase,
                 wakePhraseError = viewModel.wakePhraseError,
                 onChange = viewModel::save,
+                onMeeting = viewModel::setMeeting,
                 onWakePhraseChange = viewModel::onWakePhraseChange,
                 onWakePhraseDone = viewModel::saveWakePhrase,
                 voiceFile = viewModel.voiceFile,
@@ -442,6 +474,7 @@ internal fun VoiceSettingsForm(
     wakePhrase: String,
     wakePhraseError: String?,
     onChange: (Voice.Change) -> Unit,
+    onMeeting: (Boolean) -> Unit,
     onWakePhraseChange: (String) -> Unit,
     onWakePhraseDone: () -> Unit,
     voiceFile: String,
@@ -578,7 +611,109 @@ internal fun VoiceSettingsForm(
             }
             // #NEW-56: invalid input, inline under the field (never a toast).
             FieldError(wakePhraseError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
+            // NEW-57: the meeting rows, their own group with no header, right under the tray group.
+            Spacer(Modifier.height(12.dp))
+            MeetingRows(
+                settings = settings,
+                armed = armed,
+                doctor = vocabulary.desktopAudio[deviceId] ?: DesktopAudioDoctor(),
+                agentName = vocabulary.agentNames[settings.agentId] ?: Voice.Copy.AGENT,
+                onChange = onChange,
+                onMeeting = onMeeting,
+            )
         }
+    }
+}
+
+/**
+ * NEW-57 (`meeting.json`): Meeting mode, Desktop audio and (while it picks
+ * or leaves out apps, and the device can pick apps) Apps: their own group,
+ * no header, directly under the tray group. Turning
+ * Meeting mode on only opens THE consent prompt (the doctor's Import
+ * confirm, [GlassAlert]); Start = `voice.startMeeting`, off = `voice.stopMeeting`.
+ */
+@Composable
+private fun MeetingRows(
+    settings: Voice.Settings,
+    armed: Boolean,
+    doctor: DesktopAudioDoctor,
+    agentName: String,
+    onChange: (Voice.Change) -> Unit,
+    onMeeting: (Boolean) -> Unit,
+) {
+    var consent by remember { mutableStateOf(false) }
+    val desktopAudio = Meeting.DesktopAudio.of(settings.desktopAudio)
+    val who = Meeting.who(desktopAudio, settings.desktopAudioApps, doctor.capability)
+    val meetingOn = armed && settings.meetingStartedAt != null
+    val audioOptions = Meeting.desktopAudioOptions(doctor.capability)
+    // Apps only while the stored value is one the device offers AND picks apps.
+    val showApps = desktopAudio in audioOptions &&
+        (desktopAudio == Meeting.DesktopAudio.Include || desktopAudio == Meeting.DesktopAudio.Exclude)
+    OptionGroup {
+        SwitchRow(
+            title = Meeting.Copy.MEETING,
+            checked = meetingOn,
+            onCheckedChange = { on -> if (on) consent = true else onMeeting(false) },
+            enabled = armed,
+            description = if (meetingOn) who else null,
+            modifier = Modifier.testTag(Meeting.TestIds.MEETING),
+        )
+        GroupDivider()
+        OptionPickerRow(
+            label = Meeting.Copy.DESKTOP_AUDIO,
+            options = audioOptions.map { Voice.Option(id = it.wire, label = it.label) },
+            selected = settings.desktopAudio,
+            noneLabel = desktopAudio.label,
+            onSelect = { picked -> picked?.let { onChange(Voice.Change(desktopAudio = it)) } },
+            testTag = Meeting.TestIds.DESKTOP_AUDIO,
+        )
+        if (showApps) {
+            GroupDivider()
+            val stored = settings.desktopAudioApps
+            val options = remember(doctor.apps, stored) { Meeting.appOptions(doctor.apps, stored) }
+            Picker(
+                items = options.map { PickerItem(value = it.value, label = it.label) },
+                mode = PickerMode.Multi,
+                value = stored.map { it.id }.toSet(),
+                onChange = { picked ->
+                    // The stored order stays; newly picked apps follow in the options' order.
+                    val kept = stored.filter { it.id in picked }
+                    val added = options
+                        .filter { it.value in picked && kept.none { app -> app.id == it.value } }
+                        .map { AudioApp(id = it.value, name = it.label.take(Meeting.Limits.APP_NAME)) }
+                    onChange(Voice.Change(desktopAudioApps = (kept + added).take(Meeting.Limits.APPS)))
+                },
+                title = Meeting.Copy.APPS,
+            ) { open ->
+                PickerValueRow(
+                    label = Meeting.Copy.APPS,
+                    value = stored.joinToString(", ") { it.name }.ifEmpty { Meeting.Copy.APPS_NONE },
+                    onClick = open,
+                    modifier = Modifier.testTag(Meeting.TestIds.APPS),
+                )
+            }
+        }
+    }
+    if (consent) {
+        val dismiss = { consent = false }
+        GlassAlert(
+            title = Meeting.Copy.CONSENT_TITLE,
+            body = Meeting.consentBody(who, agentName),
+            onDismiss = dismiss,
+            trailing = listOf(
+                GlassAlertAction(Meeting.Copy.CANCEL, onClick = dismiss),
+                GlassAlertAction(
+                    Meeting.Copy.START,
+                    primary = true,
+                    testTag = Meeting.TestIds.CONSENT_START,
+                    onClick = {
+                        consent = false
+                        onMeeting(true)
+                    },
+                ),
+            ),
+            defaultAction = 0,
+        )
     }
 }
 

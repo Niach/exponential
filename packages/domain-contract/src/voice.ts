@@ -302,16 +302,20 @@ export interface VoiceSwitches {
   speakReplies: boolean
   pushToTalk: boolean
   wakeWord: boolean
+  /** #NEW-57 (meeting.json): the running meeting, null = none. */
+  meetingStartedAt?: string | null
 }
 
 /** Apply a change; choosing None for the device or the agent clears every
- *  switch, so picking again never turns listening or speaking on. */
+ *  switch, so picking again never turns listening or speaking on; #NEW-57:
+ *  and stops a running meeting. */
 export function clearOnNone<T extends VoiceSwitches>(before: T, change: Partial<T>): T {
   const after = { ...before, ...change }
   if (after.voiceDeviceId === null || after.agentId === null) {
     after.speakReplies = false
     after.pushToTalk = false
     after.wakeWord = false
+    if (`meetingStartedAt` in after) after.meetingStartedAt = null
   }
   return after
 }

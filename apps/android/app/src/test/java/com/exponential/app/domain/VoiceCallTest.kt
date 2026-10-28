@@ -70,6 +70,7 @@ class VoiceCallTest {
             "preparing" to VoiceCall.Copy.Reasons.PREPARING,
             "noGpu" to VoiceCall.Copy.Reasons.NO_GPU,
             "busy" to VoiceCall.Copy.Reasons.BUSY,
+            "meeting" to VoiceCall.Copy.Reasons.MEETING,
         )
         assertEquals(copy.getValue("reasons").jsonObject.strings(), reasons)
         assertEquals(copy.getValue("failed").jsonObject.strings(), VoiceCall.Copy.Failed.byCode)
@@ -145,6 +146,7 @@ class VoiceCallTest {
                     here = input.getValue("here").jsonPrimitive.boolean,
                     speech = input.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
                     busy = input.getValue("busy").jsonPrimitive.boolean,
+                    meeting = input["meeting"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
             val expected = case.getValue("expected").jsonObject

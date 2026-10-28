@@ -1229,6 +1229,8 @@ export const deviceDoctorKeys = [
   `speech`,
   // EXP-1375: free disk (the kept worktree rows are `worktree-<n>`, labelled).
   `disk`,
+  // NEW-57: the voice device's desktop audio (IDE only, desktopAudio not off).
+  `desktop_audio`,
 ] as const
 export const deviceDoctorGroups = [
   `required`,
@@ -1285,7 +1287,17 @@ export interface DeviceDoctor {
   /** NEW-59: the device's displays (the Work screen picker's options);
    * absent = not reported (an older build, a daemon without a display). */
   displays?: DeviceDisplay[]
+  /** NEW-57: what desktop audio the voice device can capture and the apps
+   * playing audio right now (meeting.json); absent = `none` and `[]`. */
+  desktopAudio?: DeviceDesktopAudio
 }
+/** NEW-57: `capability` stays a lenient string (clients read an unknown one
+ * as `none`). */
+export interface DeviceDesktopAudio {
+  capability: `none` | `system` | `per_app` | (string & {})
+  apps: { id: string; name: string }[]
+}
+export const MAX_DESKTOP_AUDIO_APPS = 32
 // EXP-1375: room for up to 12 kept worktree rows beside the checks.
 export const MAX_DEVICE_DOCTOR_ITEMS = 32
 export const deviceDoctorItemSchema = z.object({
@@ -1338,6 +1350,25 @@ export const deviceDoctorSchema = z.object({
       )
       .max(16)
     )
+    .nullish(),
+  // NEW-57: see DeviceDoctor.desktopAudio. Lenient: extra apps are dropped,
+  // long names truncated, never refused.
+  desktopAudio: z
+    .object({
+      capability: z.string().min(1).max(32),
+      apps: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(256),
+            name: z
+              .string()
+              .max(512)
+              .transform((v) => v.slice(0, 64)),
+          })
+        )
+        .max(256)
+        .transform((apps) => apps.slice(0, MAX_DESKTOP_AUDIO_APPS)),
+    })
     .nullish(),
 })
 
@@ -2469,9 +2500,15 @@ export const messages = pgTable(
     // A person's message: when the device delivered it into the agent.
     // NULL = queued (the queue bar ×4).
     consumedAt: timestamp(`consumed_at`, { withTimezone: true }),
+    // #NEW-57: a meeting transcript batch (`sessions.send {meeting: true}`)
+    // expires `contract.meeting.retentionDays` after it lands; the watchdog
+    // deletes it then. NULL = kept. SERVER-ONLY: never in the shape's columns.
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
+    // #NEW-57: the watchdog's prune.
+    index(`idx_messages_expires`).on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
     index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
     index(`idx_messages_conversation_created`).on(table.conversationId, table.createdAt),
     index(`idx_messages_root`).on(table.rootId),
@@ -3017,9 +3054,20 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   // clip says; empty = the built-in voice.
   voiceFile: varchar(`voice_file`, { length: 512 }).notNull().default(``),
   voiceTranscript: varchar(`voice_transcript`, { length: 500 }).notNull().default(``),
+  // #NEW-57 (meeting.json): which desktop audio a meeting transcribes beside
+  // the microphone (`desktopAudioValues`), the apps `include` picks /
+  // `exclude` leaves out (<= `limits.apps` {id, name}), and the running
+  // meeting (null = none; written only by voice.startMeeting / stopMeeting).
+  desktopAudio: varchar(`desktop_audio`, { length: 16 }).notNull().default(`off`),
+  desktopAudioApps: jsonb(`desktop_audio_apps`).$type<{ id: string; name: string }[]>().notNull().default(sql`'[]'::jsonb`),
+  meetingStartedAt: timestamp(`meeting_started_at`, { withTimezone: true }),
   ...timestamps,
 }, (table) => [
   check(`user_voice_settings_language_check`, sql`${table.language} IN ('en', 'de')`),
+  check(
+    `user_voice_settings_desktop_audio_check`,
+    sql`${table.desktopAudio} IN ('off', 'all', 'include', 'exclude')`
+  ),
 ])
 
 // Email audit ledger (SERVER-ONLY). One row per outbound app email — hourly
@@ -3561,6 +3609,8 @@ export const selectMessageSchema = createSelectSchema(messages, {
 export const selectSyncedMessageSchema = selectMessageSchema.omit({
   shared: true,
   ownerId: true,
+  // #NEW-57: server-only (the meeting prune), never synced.
+  expiresAt: true,
 })
 export const selectSessionReadSchema = createSelectSchema(sessionReads)
 // FEED-160: `github_updated_at` is server-only (outside the shape allowlist).

@@ -117,6 +117,9 @@ describe(`sessions allowlist`, () => {
   it(`keeps the FEED-160 PR-state guard server-only`, () => {
     expect(PULL_REQUEST_COLUMNS).not.toContain(`github_updated_at`)
   })
+  it(`keeps a meeting message's expiry server-only (NEW-57)`, () => {
+    expect(MESSAGE_COLUMNS).not.toContain(`expires_at`)
+  })
   it(`keeps the never-written assignment column the shipped desktop names`, () => {
     expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)
   })

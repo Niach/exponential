@@ -120,6 +120,16 @@ public enum Voice {
         public var voiceFile: String
         /// What that clip says.
         public var voiceTranscript: String
+        /// #NEW-57 (meeting.json): the desktop audio a meeting transcribes.
+        public var desktopAudio: Meeting.DesktopAudio
+        /// The apps `include` picks or `exclude` leaves out.
+        public var desktopAudioApps: [Meeting.AudioApp]
+        /// ISO time the meeting started; nil = no meeting. Written only by
+        /// `voice.startMeeting`, cleared by `voice.stopMeeting`.
+        public var meetingStartedAt: String?
+
+        /// A meeting runs on the voice device.
+        public var meetingOn: Bool { meetingStartedAt != nil }
 
         public init(
             voiceDeviceId: String? = nil,
@@ -131,7 +141,10 @@ public enum Voice {
             wakePhrase: String = "",
             language: String = "en",
             voiceFile: String = "",
-            voiceTranscript: String = ""
+            voiceTranscript: String = "",
+            desktopAudio: Meeting.DesktopAudio = .off,
+            desktopAudioApps: [Meeting.AudioApp] = [],
+            meetingStartedAt: String? = nil
         ) {
             self.voiceDeviceId = voiceDeviceId
             self.agentId = agentId
@@ -143,11 +156,14 @@ public enum Voice {
             self.language = language
             self.voiceFile = voiceFile
             self.voiceTranscript = voiceTranscript
+            self.desktopAudio = desktopAudio
+            self.desktopAudioApps = desktopAudioApps
+            self.meetingStartedAt = meetingStartedAt
         }
 
         private enum CodingKeys: String, CodingKey {
             case voiceDeviceId, agentId, speakReplies, pushToTalk, pttShortcut, wakeWord, wakePhrase
-            case language, voiceFile, voiceTranscript
+            case language, voiceFile, voiceTranscript, desktopAudio, desktopAudioApps, meetingStartedAt
         }
 
         /// A key the server does not send yet (an older server) reads its default.
@@ -164,6 +180,11 @@ public enum Voice {
             language = try c.decodeIfPresent(String.self, forKey: .language) ?? d.language
             voiceFile = try c.decodeIfPresent(String.self, forKey: .voiceFile) ?? d.voiceFile
             voiceTranscript = try c.decodeIfPresent(String.self, forKey: .voiceTranscript) ?? d.voiceTranscript
+            // An unknown value (a newer server) reads Off.
+            desktopAudio = ((try? c.decodeIfPresent(String.self, forKey: .desktopAudio)) ?? nil)
+                .flatMap(Meeting.DesktopAudio.init(rawValue:)) ?? d.desktopAudio
+            desktopAudioApps = try c.decodeIfPresent([Meeting.AudioApp].self, forKey: .desktopAudioApps) ?? d.desktopAudioApps
+            meetingStartedAt = try c.decodeIfPresent(String.self, forKey: .meetingStartedAt)
         }
     }
 
@@ -183,6 +204,10 @@ public enum Voice {
         public var language: String?
         public var voiceFile: String?
         public var voiceTranscript: String?
+        /// #NEW-57: the Desktop audio row.
+        public var desktopAudio: Meeting.DesktopAudio?
+        /// #NEW-57: the Apps row.
+        public var desktopAudioApps: [Meeting.AudioApp]?
 
         public init(
             voiceDeviceId: String?? = nil,
@@ -194,7 +219,9 @@ public enum Voice {
             wakePhrase: String? = nil,
             language: String? = nil,
             voiceFile: String? = nil,
-            voiceTranscript: String? = nil
+            voiceTranscript: String? = nil,
+            desktopAudio: Meeting.DesktopAudio? = nil,
+            desktopAudioApps: [Meeting.AudioApp]? = nil
         ) {
             self.voiceDeviceId = voiceDeviceId
             self.agentId = agentId
@@ -206,11 +233,13 @@ public enum Voice {
             self.language = language
             self.voiceFile = voiceFile
             self.voiceTranscript = voiceTranscript
+            self.desktopAudio = desktopAudio
+            self.desktopAudioApps = desktopAudioApps
         }
 
         private enum CodingKeys: String, CodingKey {
             case voiceDeviceId, agentId, speakReplies, pushToTalk, pttShortcut, wakeWord, wakePhrase
-            case language, voiceFile, voiceTranscript
+            case language, voiceFile, voiceTranscript, desktopAudio, desktopAudioApps
         }
 
         /// None travels as an explicit `null`; an untouched field writes no key.
@@ -230,6 +259,8 @@ public enum Voice {
             try c.encodeIfPresent(language, forKey: .language)
             try c.encodeIfPresent(voiceFile, forKey: .voiceFile)
             try c.encodeIfPresent(voiceTranscript, forKey: .voiceTranscript)
+            try c.encodeIfPresent(desktopAudio, forKey: .desktopAudio)
+            try c.encodeIfPresent(desktopAudioApps, forKey: .desktopAudioApps)
         }
     }
 
@@ -247,10 +278,14 @@ public enum Voice {
         if let language = change.language { after.language = language }
         if let voiceFile = change.voiceFile { after.voiceFile = voiceFile }
         if let voiceTranscript = change.voiceTranscript { after.voiceTranscript = voiceTranscript }
+        if let desktopAudio = change.desktopAudio { after.desktopAudio = desktopAudio }
+        if let desktopAudioApps = change.desktopAudioApps { after.desktopAudioApps = desktopAudioApps }
         if after.voiceDeviceId == nil || after.agentId == nil {
             after.speakReplies = false
             after.pushToTalk = false
             after.wakeWord = false
+            // #NEW-57: None for the device or the agent stops the meeting.
+            after.meetingStartedAt = nil
         }
         return after
     }

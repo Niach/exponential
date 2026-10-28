@@ -20,6 +20,7 @@ import {
   prompts,
   repositories,
   sessions,
+  userVoiceSettings,
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -572,6 +573,10 @@ export async function sendSession(args: {
    *  the caller session merely stamps `author_session_id` on a person row. */
   viaMcp?: boolean
   extras?: SendExtras
+  /** NEW-57: a meeting transcript batch from the voice device (tRPC only,
+   *  never on the MCP tool): its message expires after
+   *  `contract.meeting.retentionDays` (`messages.expires_at`). */
+  meeting?: boolean
 }): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
   const starter = effectiveStarter(args.userId, caller)
@@ -579,8 +584,9 @@ export async function sendSession(args: {
   const { input } = args
   if (!input.sessionId && !input.agentId) assertRunnerVocabulary(input)
   await assertAgentTreeTeam(input, caller)
+  if (args.meeting) await assertMeetingSend(args.userId, input, args.viaMcp === true)
 
-  const extras = args.extras ?? {}
+  const extras = args.meeting ? withMeetingExpiry(args.extras ?? {}) : (args.extras ?? {})
   let outcome: SendOutcome
   if (input.sessionId) {
     outcome = await messageSession(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
@@ -610,6 +616,55 @@ export async function sendSession(args: {
     status: outcome.status,
     txid: outcome.txid,
     ...(warning ? { warning } : {}),
+  }
+}
+
+export const MEETING_SEND_REFUSED = `A meeting transcript goes to your voice agent's conversation only`
+
+/** NEW-57 (meeting.json RESIDENCY): `meeting: true` = a transcript batch
+ *  into the CALLER's own conversation with THEIR voice agent
+ *  (`user_voice_settings.agent_id`): `agentId` = that agent, or `sessionId`
+ *  = that conversation session. Text only (nothing else rides a batch);
+ *  never over MCP. */
+async function assertMeetingSend(userId: string, input: SessionsSendInput, viaMcp: boolean): Promise<void> {
+  const refuse = (): never => {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: MEETING_SEND_REFUSED })
+  }
+  if (viaMcp || !input.text?.trim()) refuse()
+  const allowed = new Set([`teamId`, `sessionId`, `agentId`, `text`])
+  if (Object.entries(input).some(([key, value]) => value !== undefined && !allowed.has(key))) refuse()
+  const [settings] = await db
+    .select({ agentId: userVoiceSettings.agentId })
+    .from(userVoiceSettings)
+    .where(eq(userVoiceSettings.userId, userId))
+    .limit(1)
+  const voiceAgentId = settings?.agentId ?? null
+  if (!voiceAgentId) refuse()
+  if (input.agentId) {
+    if (input.agentId !== voiceAgentId) refuse()
+    return
+  }
+  if (!input.sessionId) refuse()
+  const [target] = await db
+    .select({ agentId: sessions.agentId, userId: sessions.userId, parentId: sessions.parentId })
+    .from(sessions)
+    .where(eq(sessions.id, input.sessionId!))
+    .limit(1)
+  if (!target || target.agentId !== voiceAgentId || target.userId !== userId || target.parentId !== null) refuse()
+}
+
+/** NEW-57: stamp the send's message to expire with the meeting retention. */
+function withMeetingExpiry(extras: SendExtras): SendExtras {
+  return {
+    ...extras,
+    within: async (tx, result) => {
+      await extras.within?.(tx, result)
+      if (!result.messageId) return
+      await tx.execute(sql`
+        UPDATE messages
+        SET expires_at = now() + make_interval(days => ${contract.meeting.retentionDays}::int)
+        WHERE id = ${result.messageId}`)
+    },
   }
 }
 

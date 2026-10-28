@@ -251,6 +251,16 @@ export function clampDoctor(
           })),
         }
       : {}),
+    // NEW-57: what desktop audio the voice device can capture, and the apps
+    // playing audio now; absent / null = not reported (`none`, `[]`).
+    ...(input.desktopAudio
+      ? {
+          desktopAudio: {
+            capability: input.desktopAudio.capability,
+            apps: input.desktopAudio.apps.map((app) => ({ id: app.id, name: app.name })),
+          },
+        }
+      : {}),
   }
 }
 
@@ -1906,7 +1916,15 @@ export const devicesRouter = router({
         // as None (`clearOnNone`), so a re-registration never speaks again.
         await tx
           .update(userVoiceSettings)
-          .set({ voiceDeviceId: null, speakReplies: false, pushToTalk: false, wakeWord: false, updatedAt: new Date() })
+          // NEW-57: and stops a running meeting.
+          .set({
+            voiceDeviceId: null,
+            speakReplies: false,
+            pushToTalk: false,
+            wakeWord: false,
+            meetingStartedAt: null,
+            updatedAt: new Date(),
+          })
           .where(
             and(
               eq(userVoiceSettings.userId, userId),

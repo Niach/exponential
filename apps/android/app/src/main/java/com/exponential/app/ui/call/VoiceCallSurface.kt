@@ -321,6 +321,7 @@ class AgentCallViewModel @Inject constructor(
                     here = false,
                     speech = VoiceCall.callSpeech(parseDeviceDoctor(row?.doctor)),
                     busy = false,
+                    meeting = s?.meetingStartedAt != null,
                 ),
             ),
             device = device,

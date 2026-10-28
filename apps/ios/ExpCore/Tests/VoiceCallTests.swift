@@ -52,6 +52,7 @@ final class VoiceCallTests: XCTestCase {
             "preparing": VoiceCall.Copy.Reasons.preparing,
             "noGpu": VoiceCall.Copy.Reasons.noGpu,
             "busy": VoiceCall.Copy.Reasons.busy,
+            "meeting": VoiceCall.Copy.Reasons.meeting,
         ])
         XCTAssertEqual(failed, VoiceCall.Copy.failed)
         XCTAssertEqual(VoiceCall.Copy.call(agent: "Ada"), "Call Ada")
@@ -126,7 +127,8 @@ final class VoiceCallTests: XCTestCase {
                 online: input["online"] as? Bool ?? false,
                 here: input["here"] as? Bool ?? false,
                 speech: try speech.map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) },
-                busy: input["busy"] as? Bool ?? false
+                busy: input["busy"] as? Bool ?? false,
+                meeting: input["meeting"] as? Bool ?? false
             ))
             XCTAssertEqual(availability, VoiceCall.Availability(
                 enabled: expected["enabled"] as? Bool ?? false,

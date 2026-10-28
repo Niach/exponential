@@ -8,6 +8,11 @@
 // (`fixtures/voice-call.json` `callAvailability`) and mints the CALLER's relay
 // ticket; `callHostTicket` mints the voice device's answer. The relay pairs
 // them (apps/steer-relay hub.ts, call rooms) and checks the host's account.
+//
+// NEW-57 (meeting mode, `fixtures/meeting.json`): the row also carries the
+// Desktop audio choice and the running meeting; `startMeeting {consent: true}`
+// is the ONLY writer of `meeting_started_at`, `stopMeeting` and choosing None
+// for the device or the agent clear it.
 
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
@@ -16,6 +21,7 @@ import { and, eq, inArray } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS, wakePhraseError } from "@exp/domain-contract/voice"
 import { callAvailability } from "@exp/domain-contract/voice-call"
+import { DESKTOP_AUDIO_VALUES, MEETING_LIMITS, type AudioApp, type DesktopAudio } from "@exp/domain-contract/meeting"
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
@@ -37,7 +43,23 @@ export interface VoiceSettings {
   language: string
   voiceFile: string
   voiceTranscript: string
+  /** NEW-57: meeting.json `desktopAudioValues`. */
+  desktopAudio: DesktopAudio
+  /** NEW-57: the apps `include` picks / `exclude` leaves out. */
+  desktopAudioApps: AudioApp[]
+  /** NEW-57: ISO; null = no meeting runs. */
+  meetingStartedAt: string | null
 }
+
+/** voice.json `defaults` plus the meeting.json settings' defaults. */
+export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
+  ...VOICE_DEFAULTS,
+  desktopAudio: `off`,
+  desktopAudioApps: [],
+  meetingStartedAt: null,
+}
+
+const DESKTOP_AUDIO = DESKTOP_AUDIO_VALUES.map((option) => option.value) as [DesktopAudio, ...DesktopAudio[]]
 
 const SHORTCUT_VALUES = VOICE_SHORTCUTS.map((shortcut) => shortcut.value) as [string, ...string[]]
 const LANGUAGE_VALUES = VOICE_LANGUAGES.map((language) => language.value) as [string, ...string[]]
@@ -49,6 +71,15 @@ const oneLine = (max: number, what: string) =>
     .max(max)
     .refine((value) => !/\p{Cc}/u.test(value), `The ${what} can't contain control characters`)
 
+// NEW-57: a stored apps list is trusted only as far as its shape.
+function storedApps(value: unknown): AudioApp[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((app): app is AudioApp => typeof app?.id === `string` && typeof app?.name === `string`)
+    .slice(0, MEETING_LIMITS.apps)
+    .map((app) => ({ id: app.id, name: app.name }))
+}
+
 /** The member's settings, the fixture's defaults when no row exists. */
 export async function voiceSettingsOf(database: Db, userId: string): Promise<VoiceSettings> {
   const [row] = await database
@@ -56,7 +87,7 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
     .from(userVoiceSettings)
     .where(eq(userVoiceSettings.userId, userId))
     .limit(1)
-  if (!row) return { ...VOICE_DEFAULTS }
+  if (!row) return { ...VOICE_SETTINGS_DEFAULTS }
   // #NEW-71: a deleted agent nulls `agent_id` (FK set null) but leaves the
   // switches stored as they were; read them through clearOnNone so they never
   // come back on silently when a new agent is picked.
@@ -71,14 +102,37 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
     language: row.language,
     voiceFile: row.voiceFile,
     voiceTranscript: row.voiceTranscript,
+    desktopAudio: (DESKTOP_AUDIO as string[]).includes(row.desktopAudio)
+      ? (row.desktopAudio as DesktopAudio)
+      : `off`,
+    desktopAudioApps: storedApps(row.desktopAudioApps),
+    meetingStartedAt: row.meetingStartedAt ? new Date(row.meetingStartedAt).toISOString() : null,
   })
 }
 
+/** The row's columns for a settings object (the meeting stamp as a Date). */
+function rowOf(settings: VoiceSettings) {
+  return {
+    ...settings,
+    meetingStartedAt: settings.meetingStartedAt ? new Date(settings.meetingStartedAt) : null,
+  }
+}
+
+/** Write the member's row (upsert: a member without one gets it now). */
+async function writeSettings(database: Db, userId: string, next: VoiceSettings): Promise<void> {
+  const now = new Date()
+  const row = rowOf(next)
+  await database
+    .insert(userVoiceSettings)
+    .values({ userId, ...row, updatedAt: now })
+    .onConflictDoUpdate({ target: userVoiceSettings.userId, set: { ...row, updatedAt: now } })
+}
+
 /** voice.json `clearOnNone`: with no voice device or no agent, nothing
- *  listens and nothing speaks. */
+ *  listens and nothing speaks; NEW-57: and no meeting runs. */
 export function withClearOnNone(settings: VoiceSettings): VoiceSettings {
   if (settings.voiceDeviceId === null || settings.agentId === null) {
-    return { ...settings, speakReplies: false, pushToTalk: false, wakeWord: false }
+    return { ...settings, speakReplies: false, pushToTalk: false, wakeWord: false, meetingStartedAt: null }
   }
   return settings
 }
@@ -127,6 +181,17 @@ export const voiceRouter = router({
         language: z.enum(LANGUAGE_VALUES).optional(),
         voiceFile: oneLine(VOICE_LIMITS.voiceFile, `voice file`).optional(),
         voiceTranscript: oneLine(VOICE_LIMITS.voiceTranscript, `transcript`).optional(),
+        // NEW-57: never `meetingStartedAt` (startMeeting / stopMeeting only).
+        desktopAudio: z.enum(DESKTOP_AUDIO).optional(),
+        desktopAudioApps: z
+          .array(
+            z.object({
+              id: oneLine(256, `app id`).pipe(z.string().trim().min(1)),
+              name: oneLine(MEETING_LIMITS.appName, `app name`).pipe(z.string().trim().min(1)),
+            })
+          )
+          .max(MEETING_LIMITS.apps)
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -158,18 +223,50 @@ export const voiceRouter = router({
         wakePhrase: input.wakePhrase === undefined ? before.wakePhrase : input.wakePhrase.trim(),
         voiceFile: input.voiceFile === undefined ? before.voiceFile : input.voiceFile.trim(),
         voiceTranscript: input.voiceTranscript === undefined ? before.voiceTranscript : input.voiceTranscript.trim(),
+        // NEW-57: one entry per app id, the first wins.
+        desktopAudioApps:
+          input.desktopAudioApps === undefined
+            ? before.desktopAudioApps
+            : input.desktopAudioApps.filter(
+                (app, index, apps) => apps.findIndex((other) => other.id === app.id) === index
+              ),
       } as VoiceSettings)
-      const now = new Date()
-      await db
-        .insert(userVoiceSettings)
-        .values({ userId, ...next, updatedAt: now })
-        .onConflictDoUpdate({ target: userVoiceSettings.userId, set: { ...next, updatedAt: now } })
+      await writeSettings(db, userId, next)
       // The old and the new voice device pick the change up at once.
       for (const deviceId of new Set([before.voiceDeviceId, next.voiceDeviceId])) {
         if (deviceId) nudge(userId, deviceId)
       }
       return next
     }),
+
+  // NEW-57: THE consent dialog's Start. Refused without `consent: true` (the
+  // zod literal) and without a voice device and an agent; a running meeting
+  // keeps its start (a second Start from another client is a no-op).
+  startMeeting: authedProcedure
+    .input(z.object({ consent: z.literal(true) }))
+    .mutation(async ({ ctx }) => {
+      const userId = ctx.session.user.id
+      const before = await voiceSettingsOf(ctx.db, userId)
+      if (!before.voiceDeviceId || !before.agentId) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a voice device and an agent first` })
+      }
+      if (before.meetingStartedAt) return before
+      const next: VoiceSettings = { ...before, meetingStartedAt: new Date().toISOString() }
+      await writeSettings(ctx.db, userId, next)
+      nudge(userId, before.voiceDeviceId)
+      return next
+    }),
+
+  // NEW-57: Meeting mode off (the row's toggle, the tray): at once, no dialog.
+  stopMeeting: authedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    const before = await voiceSettingsOf(ctx.db, userId)
+    if (!before.meetingStartedAt) return before
+    const next: VoiceSettings = { ...before, meetingStartedAt: null }
+    await writeSettings(ctx.db, userId, next)
+    if (before.voiceDeviceId) nudge(userId, before.voiceDeviceId)
+    return next
+  }),
 
   // NEW-55: start a STREAMED call with one agent (phones V5, web V6). Refused
   // with the availability reason (voice-call.json `copy.reasons`) unless the

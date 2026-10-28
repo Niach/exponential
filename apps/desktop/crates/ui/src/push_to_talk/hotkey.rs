@@ -71,6 +71,8 @@ pub(crate) enum Key {
     /// A side button: 4 = back, 5 = forward (X11 buttons 8 and 9, Windows
     /// XBUTTON1 and XBUTTON2).
     Mouse(u8),
+    /// #NEW-57: a letter key, lowercase ASCII (the pause hotkey's `p`).
+    Letter(u8),
 }
 
 /// One `shortcuts` value, parsed.
@@ -96,6 +98,9 @@ impl Shortcut {
                 "f13" => key = Some(Key::F13),
                 "mouse4" => key = Some(Key::Mouse(4)),
                 "mouse5" => key = Some(Key::Mouse(5)),
+                letter if letter.len() == 1 && letter.as_bytes()[0].is_ascii_lowercase() => {
+                    key = Some(Key::Letter(letter.as_bytes()[0]))
+                }
                 _ => return None,
             }
         }
@@ -116,10 +121,15 @@ impl Shortcut {
         if self.shift {
             parts.push("SHIFT");
         }
+        let letter;
         parts.push(match self.key {
             Key::Space => "space",
             Key::F13 => "F13",
             Key::Mouse(_) => "",
+            Key::Letter(byte) => {
+                letter = (byte as char).to_string();
+                letter.as_str()
+            }
         });
         parts.join("+")
     }
@@ -141,6 +151,7 @@ impl Shortcut {
             Key::Space => key == "space",
             Key::F13 => key == "f13",
             Key::Mouse(_) => false,
+            Key::Letter(byte) => key.len() == 1 && key.as_bytes()[0].eq_ignore_ascii_case(&byte),
         }
     }
 }
@@ -183,6 +194,15 @@ impl Drop for Grab {
 
 /// Hold `value` and report on `tx` (on any thread).
 pub(crate) fn grab(value: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
+    grab_as(value, PUSH_TO_TALK_ID, &domain::voice::VOICE.copy.push_to_talk, tx)
+}
+
+/// The portal shortcut id push to talk binds.
+const PUSH_TO_TALK_ID: &str = "push-to-talk";
+
+/// [`grab`] under another portal shortcut `id` and description (#NEW-57:
+/// the pause hotkey beside push to talk).
+pub(crate) fn grab_as(value: &str, id: &'static str, description: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
     let stop = Arc::new(AtomicBool::new(false));
     #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(unused_mut))]
     let mut grab = Grab {
@@ -201,9 +221,9 @@ pub(crate) fn grab(value: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
         }
         ShortcutSupport::Portal | ShortcutSupport::FocusedOnly => {
             #[cfg(target_os = "linux")]
-            portal::grab(shortcut, tx, stop);
+            portal::grab(shortcut, id, description.to_string(), tx, stop);
             #[cfg(not(target_os = "linux"))]
-            let _ = (shortcut, tx, stop);
+            let _ = (shortcut, id, description, tx, stop);
         }
         ShortcutSupport::Global => {
             #[cfg(target_os = "linux")]
@@ -214,6 +234,7 @@ pub(crate) fn grab(value: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
             }
             #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
             let _ = (shortcut, tx, stop);
+            let _ = (id, description);
         }
     }
     grab
@@ -279,6 +300,8 @@ mod x11 {
             Key::Mouse(n) => Target::Button(if n == 4 { 8 } else { 9 }),
             Key::Space => Target::Key(keycode(&conn, XK_SPACE)?),
             Key::F13 => Target::Key(keycode(&conn, XK_F13)?),
+            // Latin-1 letters: the keysym is the lowercase ASCII code.
+            Key::Letter(byte) => Target::Key(keycode(&conn, u32::from(byte))?),
         };
         let grabbed = match target {
             Target::Key(code) => variants.iter().try_for_each(|mods| {
@@ -392,18 +415,16 @@ mod portal {
 
     use super::{HotkeyEvent, Shortcut, Status};
 
-    const ID: &str = "push-to-talk";
-
-    pub(super) fn grab(shortcut: Shortcut, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) {
+    pub(super) fn grab(shortcut: Shortcut, id: &'static str, description: String, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) {
         let spawned = std::thread::Builder::new().name("voice-ptt-portal".into()).spawn(move || {
-            futures_lite_block_on(run(shortcut, tx, stop));
+            futures_lite_block_on(run(shortcut, id, description, tx, stop));
         });
         if let Err(err) = spawned {
             log::warn!("[voice] push to talk: no portal thread: {err}");
         }
     }
 
-    async fn run(shortcut: Shortcut, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) {
+    async fn run(shortcut: Shortcut, id: &'static str, description: String, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) {
         let focused = |reason| {
             let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(reason)));
         };
@@ -419,7 +440,7 @@ mod portal {
             }
         };
         let trigger = shortcut.portal_trigger();
-        let wanted = [NewShortcut::new(ID, domain::voice::VOICE.copy.push_to_talk.clone()).preferred_trigger(Some(trigger.as_str()))];
+        let wanted = [NewShortcut::new(id, description).preferred_trigger(Some(trigger.as_str()))];
         let bound = match portal.bind_shortcuts(&session, &wanted, None, BindShortcutsOptions::default()).await {
             Ok(request) => request.response().ok(),
             Err(err) => {
@@ -431,14 +452,14 @@ mod portal {
             let _ = session.close().await;
             return focused(ShortcutReason::Declined);
         };
-        let description = bound.shortcuts().iter().find(|shortcut| shortcut.id() == ID).map(|shortcut| shortcut.trigger_description().to_string());
+        let description = bound.shortcuts().iter().find(|shortcut| shortcut.id() == id).map(|shortcut| shortcut.trigger_description().to_string());
         let (Ok(activated), Ok(deactivated)) = (portal.receive_activated().await, portal.receive_deactivated().await) else {
             let _ = session.close().await;
             return focused(ShortcutReason::NoPortal);
         };
         let _ = tx.send(HotkeyEvent::Status(Status::Portal { trigger: description }));
-        let mut activated = activated.filter(|event| std::future::ready(event.shortcut_id() == ID)).map(|_| HotkeyEvent::Down);
-        let mut deactivated = deactivated.filter(|event| std::future::ready(event.shortcut_id() == ID)).map(|_| HotkeyEvent::Up);
+        let mut activated = activated.filter(|event| std::future::ready(event.shortcut_id() == id)).map(|_| HotkeyEvent::Down);
+        let mut deactivated = deactivated.filter(|event| std::future::ready(event.shortcut_id() == id)).map(|_| HotkeyEvent::Up);
         // Both streams and the stop flag, a poll at a time.
         let mut held = false;
         while !stop.load(Ordering::SeqCst) {
@@ -486,7 +507,8 @@ mod native {
 
     /// Where the process-wide hot-key callback sends: the live hot key's id
     /// and its channel.
-    static ROUTE: Mutex<Option<(u32, flume::Sender<HotkeyEvent>)>> = Mutex::new(None);
+    /// #NEW-57: one per live hot key (push to talk and the pause hotkey).
+    static ROUTE: Mutex<Vec<(u32, flume::Sender<HotkeyEvent>)>> = Mutex::new(Vec::new());
 
     /// Holds the registration; dropping it unregisters.
     pub(crate) struct Native {
@@ -501,10 +523,8 @@ mod native {
             if let (Some(manager), Some(hotkey)) = (self.manager.as_ref(), self.hotkey) {
                 let _ = manager.unregister(hotkey);
             }
-            if let Ok(mut route) = ROUTE.lock() {
-                if route.as_ref().is_some_and(|(id, _)| Some(*id) == self.hotkey.map(|hotkey| hotkey.id())) {
-                    *route = None;
-                }
+            if let (Ok(mut route), Some(hotkey)) = (ROUTE.lock(), self.hotkey) {
+                route.retain(|(id, _)| *id != hotkey.id());
             }
         }
     }
@@ -544,12 +564,21 @@ mod native {
         if shortcut.shift {
             modifiers |= Modifiers::SHIFT;
         }
-        let code = if shortcut.key == Key::F13 { Code::F13 } else { Code::Space };
+        let code = match shortcut.key {
+            Key::F13 => Code::F13,
+            Key::Letter(byte) => match letter_code(byte) {
+                Some(code) => code,
+                None => {
+                    let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(ShortcutReason::Taken)));
+                    return None;
+                }
+            },
+            _ => Code::Space,
+        };
         let hotkey = HotKey::new(Some(modifiers).filter(|modifiers| !modifiers.is_empty()), code);
         GlobalHotKeyEvent::set_event_handler(Some(|event: GlobalHotKeyEvent| {
             let Ok(route) = ROUTE.lock() else { return };
-            if let Some((id, tx)) = route.as_ref().filter(|(id, _)| *id == event.id()) {
-                let _ = id;
+            if let Some((_, tx)) = route.iter().find(|(id, _)| *id == event.id()) {
                 let _ = tx.send(match event.state() {
                     HotKeyState::Pressed => HotkeyEvent::Down,
                     HotKeyState::Released => HotkeyEvent::Up,
@@ -567,7 +596,8 @@ mod native {
             });
         }
         if let Ok(mut route) = ROUTE.lock() {
-            *route = Some((hotkey.id(), tx.clone()));
+            route.retain(|(id, _)| *id != hotkey.id());
+            route.push((hotkey.id(), tx.clone()));
         }
         let _ = tx.send(HotkeyEvent::Status(Status::Global));
         Some(Native {
@@ -575,6 +605,39 @@ mod native {
             hotkey: Some(hotkey),
             #[cfg(target_os = "windows")]
             _mouse: None,
+        })
+    }
+
+    /// #NEW-57: a letter's key code (the pause hotkey's `p`).
+    fn letter_code(byte: u8) -> Option<Code> {
+        Some(match byte {
+            b'a' => Code::KeyA,
+            b'b' => Code::KeyB,
+            b'c' => Code::KeyC,
+            b'd' => Code::KeyD,
+            b'e' => Code::KeyE,
+            b'f' => Code::KeyF,
+            b'g' => Code::KeyG,
+            b'h' => Code::KeyH,
+            b'i' => Code::KeyI,
+            b'j' => Code::KeyJ,
+            b'k' => Code::KeyK,
+            b'l' => Code::KeyL,
+            b'm' => Code::KeyM,
+            b'n' => Code::KeyN,
+            b'o' => Code::KeyO,
+            b'p' => Code::KeyP,
+            b'q' => Code::KeyQ,
+            b'r' => Code::KeyR,
+            b's' => Code::KeyS,
+            b't' => Code::KeyT,
+            b'u' => Code::KeyU,
+            b'v' => Code::KeyV,
+            b'w' => Code::KeyW,
+            b'x' => Code::KeyX,
+            b'y' => Code::KeyY,
+            b'z' => Code::KeyZ,
+            _ => return None,
         })
     }
 
@@ -679,7 +742,12 @@ mod tests {
             Some(Shortcut { ctrl: true, alt: false, shift: true, key: Key::Space })
         );
         assert_eq!(Shortcut::parse("mouse5").map(|shortcut| shortcut.key), Some(Key::Mouse(5)));
-        assert_eq!(Shortcut::parse("ctrl+q"), None);
+        assert_eq!(Shortcut::parse("ctrl+enter"), None);
+        // #NEW-57: the pause hotkey.
+        let pause = Shortcut::parse(&domain::meeting::MEETING.pause.shortcut).unwrap();
+        assert_eq!(pause, Shortcut { ctrl: true, alt: true, shift: false, key: Key::Letter(b'p') });
+        assert_eq!(pause.portal_trigger(), "CTRL+ALT+p");
+        assert!(pause.key_matches("p"));
         assert_eq!(Shortcut::parse("ctrl"), None, "a key is required");
     }
 

@@ -12,6 +12,7 @@ import {
   VOICE_TEST_IDS,
   wakePhrasePlaceholder,
 } from "@exp/domain-contract/voice"
+import { consentBody, MEETING_COPY, MEETING_TEST_IDS } from "@exp/domain-contract/meeting"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // NEW-67 (`voice.json`): Settings → Voice. The device + agent pickers (None
@@ -29,13 +30,21 @@ vi.mock(`@/lib/collections`, () => ({
 }))
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
 const update = vi.fn()
+const startMeeting = vi.fn()
+const stopMeeting = vi.fn()
 const toastActionError = vi.fn()
 vi.mock(`@/lib/action-error`, () => ({
   SKIP_ERROR_TOAST: { context: { skipErrorToast: true } },
   failedAction: (...args: unknown[]) => toastActionError(...args),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({
-  trpc: { voice: { update: { mutate: (...args: unknown[]) => update(...args) } } },
+  trpc: {
+    voice: {
+      update: { mutate: (...args: unknown[]) => update(...args) },
+      startMeeting: { mutate: (...args: unknown[]) => startMeeting(...args) },
+      stopMeeting: { mutate: (...args: unknown[]) => stopMeeting(...args) },
+    },
+  },
 }))
 
 import { VoiceSettingsCard, type VoiceSettings } from "@/components/account/voice-settings-card"
@@ -48,7 +57,18 @@ class ResizeObserverStub {
 
 const AGENT = `11111111-1111-4111-8111-111111111111`
 const DEVICES = [
-  { deviceId: `d-mint`, name: `mint`, kind: `desktop` },
+  {
+    deviceId: `d-mint`,
+    name: `mint`,
+    kind: `desktop`,
+    desktopAudio: {
+      capability: `per_app`,
+      apps: [
+        { id: `us.zoom.xos`, name: `Zoom` },
+        { id: `com.tinyspeck.slackmacgap`, name: `Slack` },
+      ],
+    },
+  },
   { deviceId: `d-phone`, name: `iPhone`, kind: `phone` },
 ]
 const AGENTS = [{ id: AGENT, name: `Studio`, team: `Acme` }]
@@ -56,9 +76,10 @@ const AGENTS = [{ id: AGENT, name: `Studio`, team: `Acme` }]
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 // What the server holds: the rendered settings, each update merged in the
 // way `voice.update` stores it (`clearOnNone`).
-let stored: VoiceSettings = { ...VOICE_DEFAULTS }
+const DEFAULTS: VoiceSettings = { ...VOICE_DEFAULTS, desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null }
+let stored: VoiceSettings = { ...DEFAULTS }
 const renderCard = (settings: Partial<VoiceSettings> = {}) => {
-  stored = { ...VOICE_DEFAULTS, ...settings }
+  stored = { ...DEFAULTS, ...settings }
   return render(
     <VoiceSettingsCard
       settings={stored}
@@ -81,6 +102,16 @@ beforeEach(() => {
   update.mockReset()
   update.mockImplementation(async (change: Partial<VoiceSettings>) => {
     stored = clearOnNone(stored, change)
+    return stored
+  })
+  startMeeting.mockReset()
+  startMeeting.mockImplementation(async () => {
+    stored = { ...stored, meetingStartedAt: `2026-10-28T10:00:00.000Z` }
+    return stored
+  })
+  stopMeeting.mockReset()
+  stopMeeting.mockImplementation(async () => {
+    stored = { ...stored, meetingStartedAt: null }
     return stored
   })
   toastActionError.mockReset()
@@ -253,5 +284,109 @@ describe(`Settings → Voice (NEW-67)`, () => {
     await flush()
     expect(file.value).toBe(``)
     expect(toastActionError).toHaveBeenCalledWith(`save`, `the voice file`, expect.any(Error))
+  })
+})
+
+describe(`Settings → Voice: meeting mode (NEW-57)`, () => {
+  const live = { voiceDeviceId: `d-mint`, agentId: AGENT }
+
+  it(`disabled while the agent is None; off without a voice device's tray group`, () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: null, meetingStartedAt: `2026-10-28T10:00:00.000Z` })
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
+    expect(switchOf(MEETING_TEST_IDS.meeting).disabled).toBe(true)
+  })
+
+  it(`ON opens THE consent prompt and writes nothing; Cancel leaves it off`, async () => {
+    renderCard({ ...live, desktopAudio: `include`, desktopAudioApps: [{ id: `us.zoom.xos`, name: `Zoom` }] })
+    fireEvent.click(switchOf(MEETING_TEST_IDS.meeting))
+    await flush()
+    expect(screen.getByText(MEETING_COPY.consentTitle)).toBeTruthy()
+    expect(screen.getByText(consentBody(`You and Zoom`, `Studio`, 7))).toBeTruthy()
+    expect(startMeeting).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText(MEETING_COPY.cancel))
+    await flush()
+    expect(screen.queryByText(MEETING_COPY.consentTitle)).toBeNull()
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
+  })
+
+  it(`Start = voice.startMeeting {consent: true}; the row reads who while on`, async () => {
+    renderCard(live)
+    fireEvent.click(switchOf(MEETING_TEST_IDS.meeting))
+    await flush()
+    fireEvent.click(screen.getByTestId(MEETING_TEST_IDS.consentStart))
+    await flush()
+    expect(startMeeting).toHaveBeenCalledWith({ consent: true }, expect.anything())
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(true)
+    expect(screen.getByText(`You`)).toBeTruthy()
+  })
+
+  it(`OFF stops at once, no dialog; a refusal reverts with the toast`, async () => {
+    renderCard({ ...live, meetingStartedAt: `2026-10-28T10:00:00.000Z` })
+    fireEvent.click(switchOf(MEETING_TEST_IDS.meeting))
+    await flush()
+    expect(stopMeeting).toHaveBeenCalled()
+    expect(screen.queryByText(MEETING_COPY.consentTitle)).toBeNull()
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
+
+    startMeeting.mockRejectedValueOnce(new Error(`nope`))
+    fireEvent.click(switchOf(MEETING_TEST_IDS.meeting))
+    await flush()
+    fireEvent.click(screen.getByTestId(MEETING_TEST_IDS.consentStart))
+    await flush()
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
+    expect(toastActionError).toHaveBeenCalledWith(`start`, `meeting mode`, expect.any(Error))
+  })
+
+  it(`choosing None for the agent stops the meeting (clearOnNone)`, async () => {
+    renderCard({ ...live, meetingStartedAt: `2026-10-28T10:00:00.000Z` })
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(true)
+    fireEvent.click(trigger(VOICE_COPY.agent))
+    fireEvent.click(await screen.findByText(VOICE_COPY.agentNone))
+    await flush()
+    expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
+  })
+
+  it(`Desktop audio over the device's capability; Pick apps shows the Apps row`, async () => {
+    renderCard(live)
+    expect(screen.queryByText(MEETING_COPY.apps)).toBeNull()
+    fireEvent.click(trigger(MEETING_COPY.desktopAudio))
+    expect(await screen.findByTestId(MEETING_TEST_IDS.desktopAudio)).toBeTruthy()
+    fireEvent.click(await screen.findByText(`Pick apps`))
+    await flush()
+    expect(update).toHaveBeenCalledWith({ desktopAudio: `include` }, expect.anything())
+    expect(trigger(MEETING_COPY.apps).textContent).toContain(MEETING_COPY.appsNone)
+    fireEvent.click(trigger(MEETING_COPY.apps))
+    fireEvent.click(await screen.findByText(`Zoom`))
+    await flush()
+    expect(update).toHaveBeenLastCalledWith(
+      { desktopAudioApps: [{ id: `us.zoom.xos`, name: `Zoom` }] },
+      expect.anything()
+    )
+  })
+
+  it(`a stored Pick apps hides the Apps row on a device that can't capture per app`, () => {
+    render(
+      <VoiceSettingsCard
+        settings={{ ...DEFAULTS, ...live, desktopAudio: `include`, desktopAudioApps: [{ id: `z`, name: `Zoom` }] }}
+        devices={[{ deviceId: `d-mint`, name: `mint`, kind: `desktop`, desktopAudio: { capability: `system`, apps: [] } }]}
+        agents={AGENTS}
+      />
+    )
+    expect(screen.queryByText(MEETING_COPY.apps)).toBeNull()
+  })
+
+  it(`a device without the capability offers Off only`, async () => {
+    render(
+      <VoiceSettingsCard
+        settings={{ ...DEFAULTS, ...live }}
+        devices={[{ deviceId: `d-mint`, name: `mint`, kind: `desktop` }]}
+        agents={AGENTS}
+      />
+    )
+    fireEvent.click(trigger(MEETING_COPY.desktopAudio))
+    await screen.findByTestId(MEETING_TEST_IDS.desktopAudio)
+    expect(screen.queryByText(`Everything`)).toBeNull()
+    expect(screen.queryByText(`Pick apps`)).toBeNull()
   })
 })

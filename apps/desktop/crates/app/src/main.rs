@@ -217,6 +217,9 @@ fn main() {
         // NEW-55: caller mode (observes Speak replies; before the tray,
         // whose Call item it answers).
         ui::voice_call::install(cx);
+        // NEW-57: meeting mode's host (shares the speech worker and follows
+        // the settings Speak replies holds; before the tray, which reads it).
+        ui::meeting::init(cx);
         // NEW-68: the voice tray (follows the settings speak replies holds).
         ui::voice_tray::install(cx);
 

@@ -42,6 +42,12 @@ pub struct VoiceUpdate {
     pub voice_file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice_transcript: Option<String>,
+    /// #NEW-57: `meeting.json` `desktopAudioValues` (never the meeting
+    /// itself: [`voice_start_meeting`] / [`voice_stop_meeting`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desktop_audio: Option<domain::meeting::DesktopAudio>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desktop_audio_apps: Option<Vec<domain::meeting::AudioApp>>,
 }
 
 /// `voice.get` — query.
@@ -52,6 +58,22 @@ pub fn voice_get(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError> {
 /// `voice.update` — mutation; returns what is stored now.
 pub fn voice_update(trpc: &TrpcClient, update: &VoiceUpdate) -> Result<VoiceSettings, ApiError> {
     trpc.mutation("voice.update", update)
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StartMeetingInput {
+    consent: bool,
+}
+
+/// #NEW-57: `voice.startMeeting {consent: true}` — mutation, sent only from
+/// the consent dialog's Start; returns what is stored now.
+pub fn voice_start_meeting(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError> {
+    trpc.mutation("voice.startMeeting", &StartMeetingInput { consent: true })
+}
+
+/// #NEW-57: `voice.stopMeeting` — mutation; returns what is stored now.
+pub fn voice_stop_meeting(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError> {
+    trpc.mutation("voice.stopMeeting", &())
 }
 
 /// NEW-55: a call ticket (voice-call.json TRANSPORT): `url` is the relay
@@ -82,6 +104,12 @@ mod tests {
     fn an_update_sends_only_what_changed_and_explicit_nulls() {
         let update = VoiceUpdate { agent_id: Some(None), speak_replies: Some(true), ..Default::default() };
         assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"agentId":null,"speakReplies":true}"#);
+        let update = VoiceUpdate {
+            desktop_audio: Some(domain::meeting::DesktopAudio::Include),
+            desktop_audio_apps: Some(vec![domain::meeting::AudioApp { id: "z".into(), name: "Zoom".into() }]),
+            ..Default::default()
+        };
+        assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"desktopAudio":"include","desktopAudioApps":[{"id":"z","name":"Zoom"}]}"#);
     }
 
     #[test]

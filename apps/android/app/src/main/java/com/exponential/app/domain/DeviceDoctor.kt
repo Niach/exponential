@@ -36,6 +36,8 @@ data class DeviceDoctor(
      * null = not reported (an older build, the CLI daemon without a display).
      */
     val displays: List<WorkScreenDisplay>? = null,
+    /** NEW-57: `doctor.desktopAudio` (`meeting.json`); absent = capability none, no apps. */
+    val desktopAudio: DesktopAudioDoctor = DesktopAudioDoctor(),
 )
 
 private val doctorJson = Json { ignoreUnknownKeys = true }
@@ -65,7 +67,17 @@ fun parseDeviceDoctor(raw: String?): DeviceDoctor? {
             import = item.str("import")?.trim()?.takeIf { it.isNotEmpty() },
         )
     }
-    return DeviceDoctor(checkedAt = obj.str("checkedAt"), items = items, displays = parseDisplays(obj))
+    return DeviceDoctor(checkedAt = obj.str("checkedAt"), items = items, displays = parseDisplays(obj), desktopAudio = parseDesktopAudio(obj))
+}
+
+/** `doctor.desktopAudio`, leniently: absent/bad = none + no apps, a malformed app drops alone. */
+private fun parseDesktopAudio(obj: JsonObject): DesktopAudioDoctor {
+    val block = obj["desktopAudio"] as? JsonObject ?: return DesktopAudioDoctor()
+    val apps = runCatching { block["apps"]?.jsonArray }.getOrNull().orEmpty().mapNotNull { el ->
+        val app = el as? JsonObject ?: return@mapNotNull null
+        AudioApp(id = app.str("id") ?: return@mapNotNull null, name = app.str("name") ?: return@mapNotNull null)
+    }
+    return DesktopAudioDoctor(capability = Meeting.Capability.of(block.str("capability")), apps = apps)
 }
 
 private fun JsonObject.int(name: String): Int? =

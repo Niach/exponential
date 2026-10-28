@@ -27,13 +27,20 @@
 //! device the `screen` crate captures ([`coding::screen::start`]); a sign-out,
 //! another account or another voice device turns it off and deletes the
 //! buffer; a failed start toasts and flips it back off.
+//! NEW-57 (`fixtures/meeting.json` TRAY): Meeting mode after Wake word
+//! (checked while a meeting runs, its who after the label); checking it
+//! opens an IDE window with THE consent dialog, unchecking stops at once.
+//! Pause listening · Ctrl + Alt + P shows while a meeting runs or screen
+//! memory is on, and the same keys are grabbed then
+//! (`meeting_mode::sync_pause_hotkey`).
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
 
 use api::voice::VoiceUpdate;
 use coding::screen;
 use domain::voice::{
-    rail_voice, tray_icon, tray_menu, RailVoice, ScreenMemoryState, TrayContext, TrayIcon, TrayItem, TrayItemId, VoiceSettings,
+    rail_voice, tray_icon, tray_menu, MeetingTrayState, RailVoice, ScreenMemoryState, TrayContext, TrayIcon, TrayItem, TrayItemId,
+    VoiceSettings,
 };
 
 /// The app icon (the one `desktop_integration` installs on Linux).
@@ -148,6 +155,8 @@ fn item_key(id: TrayItemId) -> &'static str {
         TrayItemId::SpeakReplies => "voice-tray:speak-replies",
         TrayItemId::PushToTalk => "voice-tray:push-to-talk",
         TrayItemId::WakeWord => "voice-tray:wake-word",
+        TrayItemId::Meeting => "voice-tray:meeting",
+        TrayItemId::Pause => "voice-tray:pause",
         TrayItemId::ScreenMemory => "voice-tray:screen-memory",
         TrayItemId::Mute => "voice-tray:mute",
         TrayItemId::Settings => "voice-tray:settings",
@@ -163,7 +172,9 @@ fn item_of(key: &str) -> Option<TrayItemId> {
         TrayItemId::SpeakReplies,
         TrayItemId::PushToTalk,
         TrayItemId::WakeWord,
+        TrayItemId::Meeting,
         TrayItemId::ScreenMemory,
+        TrayItemId::Pause,
         TrayItemId::Mute,
         TrayItemId::Settings,
         TrayItemId::Quit,
@@ -417,6 +428,8 @@ pub fn install(cx: &mut App) {
         if let Some(call) = crate::voice_call::entity(cx) {
             cx.observe(&call, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
+        // NEW-57: the meeting host's state (its who, the pause).
+        cx.observe_global::<crate::meeting::MeetingState>(|this: &mut VoiceTray, cx| this.sync(cx)).detach();
         VoiceTray { muted, screen, screen_ops, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, hosted: None, rail: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
@@ -603,6 +616,17 @@ impl VoiceTray {
         let wake_listening = crate::push_to_talk::wake_listening(cx);
         let icon = tray_icon(device_is_voice_device, wake_listening, self.muted);
         self.sync_screen(device_is_voice_device, cx);
+        // NEW-57: the meeting's item, and the pause while a meeting runs or
+        // screen memory is on (its keys grabbed exactly then).
+        let meeting_state = crate::meeting::state(cx);
+        let meeting_on = settings.meeting();
+        let who = if meeting_state.running && !meeting_state.who.is_empty() {
+            meeting_state.who.clone()
+        } else {
+            crate::meeting_mode::who_of(&settings, cx)
+        };
+        let pausable = device_is_voice_device && (meeting_on || self.screen.on);
+        crate::meeting_mode::sync_pause_hotkey(pausable, cx);
         let context = TrayContext {
             agent: agent.as_deref(),
             muted: self.muted,
@@ -616,6 +640,8 @@ impl VoiceTray {
                 on: self.screen.on,
                 paused: self.screen.status == screen::Status::Paused,
             }),
+            meeting: Some(MeetingTrayState { on: meeting_on, who: &who }),
+            pause: pausable.then_some(meeting_state.paused),
         };
         let menu = tray_menu(&settings, &context);
         // #NEW-97: no answer yet = no button.
@@ -660,6 +686,42 @@ impl VoiceTray {
             TrayItemId::SpeakReplies | TrayItemId::PushToTalk | TrayItemId::WakeWord => self.toggle(id, cx),
             TrayItemId::Mute => self.set_muted(!self.muted, cx),
             TrayItemId::ScreenMemory => self.set_screen_memory(!self.screen.on, cx),
+            // NEW-57: on = THE consent dialog in an IDE window (the native
+            // check flipped itself: draw the menu as it is again); off = stop.
+            TrayItemId::Meeting => {
+                let settings = self.settings(cx);
+                if settings.voice_device_id.is_none() || settings.agent_id.is_none() {
+                    return;
+                }
+                if settings.meeting() {
+                    let mut next = settings;
+                    next.meeting_started_at = None;
+                    self.pending = Some(next);
+                    self.generation += 1;
+                    let generation = self.generation;
+                    self.sync(cx);
+                    crate::meeting_mode::stop(cx);
+                    // The speaker adopts the stored settings; drop the
+                    // optimistic copy once it has had the time to.
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(std::time::Duration::from_secs(5)).await;
+                        let _ = this.update(cx, |this, cx| {
+                            if this.generation == generation {
+                                this.pending = None;
+                                this.sync(cx);
+                            }
+                        });
+                    })
+                    .detach();
+                } else {
+                    self.backend.set(self.menu.clone());
+                    cx.defer(crate::meeting_mode::request_consent);
+                }
+            }
+            TrayItemId::Pause => {
+                let paused = crate::meeting::state(cx).paused;
+                crate::meeting::set_paused(!paused, cx);
+            }
             TrayItemId::Open => open_ide(cx),
             TrayItemId::Settings => crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx),
             TrayItemId::Quit => cx.quit(),
