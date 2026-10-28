@@ -60,6 +60,7 @@ import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -175,7 +176,7 @@ fun PromptsSettingsScreen(
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(PROMPTS_TITLE) },
+                title = { TopBarTitle(PROMPTS_TITLE) },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
@@ -269,7 +270,7 @@ fun PromptSettingsScreen(
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { TopBarTitle(title) },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )

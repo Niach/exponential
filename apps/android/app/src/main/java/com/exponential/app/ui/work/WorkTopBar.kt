@@ -16,6 +16,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -34,6 +35,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitleStyle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -103,7 +105,9 @@ fun WorkTopBar(
             .onGloballyPositioned { onHeaderBottom(it.positionInRoot().y + it.size.height) },
     ) {
     CenterAlignedTopAppBar(
-        title = {
+        // The title slot's type = [TopBarTitleStyle] (web `MobileDetailHeader`),
+        // never M3's titleLarge; a [titleContent] inherits it too.
+        title = { ProvideTextStyle(TopBarTitleStyle) {
             val showCollapsed = collapsed && collapsedTitle != null
             // Starts `collapseRise` low and rises into place.
             val riseOffset = with(LocalDensity.current) { DetailChrome.COLLAPSE_RISE.dp.roundToPx() }
@@ -151,7 +155,7 @@ fun WorkTopBar(
                     )
                 }
             }
-        },
+        } },
         navigationIcon = { TopBarBackButton(onClick = onBack) },
         actions = {
             // EXP-1097: the related-work badge sits beside the `…` on every face.

@@ -4,6 +4,7 @@
 // platform.ts). Listeners are removed when the owner is disposed.
 
 import { createEffect, createSignal, getOwner, onCleanup, type Accessor } from "solid-js"
+import { layoutSize } from "@exponential_app/ui/web"
 
 /** `matchMedia(query).matches`, live; `fallback` without `matchMedia`
  *  (SSR, jsdom). */
@@ -24,14 +25,15 @@ export interface BoxSize {
   measured: boolean
 }
 
-/** An element's border box, live (ResizeObserver, disconnected on cleanup). */
+/** An element's border box in layout px (NEW-82: unzoomed, untransformed;
+ *  `layoutSize`), live (ResizeObserver, disconnected on cleanup). */
 export function createElementSize(el: Accessor<HTMLElement | null | undefined>, initialWidth = 0): Accessor<BoxSize> {
   const [size, setSize] = createSignal<BoxSize>({ width: initialWidth, height: 0, measured: false })
   createEffect(() => {
     const node = el()
     if (!node) return
-    const read = () => {
-      const r = node.getBoundingClientRect()
+    const read = (entries?: ResizeObserverEntry[]) => {
+      const r = layoutSize(node, entries?.find((e) => e.target === node))
       const cur = size()
       // No layout yet (SSR, jsdom, display:none): keep the initial guess.
       if (!cur.measured && r.width === 0 && r.height === 0) return
@@ -40,7 +42,7 @@ export function createElementSize(el: Accessor<HTMLElement | null | undefined>, 
     }
     read()
     if (typeof ResizeObserver === `undefined`) return
-    const ro = new ResizeObserver(read)
+    const ro = new ResizeObserver((entries) => read(entries))
     ro.observe(node)
     onCleanup(() => ro.disconnect())
   })

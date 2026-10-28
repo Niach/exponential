@@ -21,9 +21,15 @@ struct IssueRelationsSection: View {
     var body: some View {
         let view = vm.relationsView
         VStack(alignment: .leading, spacing: 8) {
-            // A plain section heading under the property rows, the entry
-            // point on its trailing edge.
-            GlassSectionHeader(IssueRelationsView.Copy.relations) {
+            // A PLAIN heading under the property rows (web
+            // `MobileRelationBands`, Android `RelationsSection`), not the
+            // filled `GlassSectionHeader` band: the bands are the sides below.
+            // The entry point sits on its trailing edge.
+            HStack(spacing: 6) {
+                Text(IssueRelationsView.Copy.relations)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Spacer(minLength: 0)
                 GlassPill(
                     IssueRelationsView.Copy.add,
                     icon: AppIcons.uiAdd,
@@ -31,7 +37,8 @@ struct IssueRelationsSection: View {
                 )
                 .accessibilityIdentifier("relations-add")
             }
-            .padding(.bottom, -8)
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
 
             ForEach(view.bands) { band in
                 bandView(band)

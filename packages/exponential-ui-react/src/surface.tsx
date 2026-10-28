@@ -39,6 +39,7 @@ import { NodeView } from "./node-view"
 import { useMediaQuery } from "./platform"
 import { openAllowed } from "@exponential_app/ui/web"
 import { compiledTheme } from "@exponential_app/ui/web"
+import { layoutSize } from "@exponential_app/ui/web"
 import type { SurfaceState } from "./use-surface"
 
 export type ThemeInput = ResolvedTheme | ThemeSource | string
@@ -444,8 +445,9 @@ export function ExponentialSurface({
   const [, setLayoutKey] = useState(``)
   useIsoLayoutEffect(() => {
     if (!rootEl) return
-    const read = () => {
-      const r = rootEl.getBoundingClientRect()
+    // NEW-82: layout px, so a zoomed/scaled host frame keeps its breakpoints.
+    const read = (entries?: ResizeObserverEntry[]) => {
+      const r = layoutSize(rootEl, entries?.find((e) => e.target === rootEl))
       // No layout yet (SSR, jsdom, display:none): keep the initial guess.
       if (!box.current.measured && r.width === 0 && r.height === 0) return
       // Only an EXPLICIT height is a viewport; a content-sized root is not.
@@ -456,7 +458,7 @@ export function ExponentialSurface({
     }
     read()
     if (typeof ResizeObserver === `undefined`) return
-    const ro = new ResizeObserver(read)
+    const ro = new ResizeObserver((entries) => read(entries))
     ro.observe(rootEl)
     return () => ro.disconnect()
   }, [rootEl])

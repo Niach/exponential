@@ -198,3 +198,57 @@ describe(`ChoiceTiles`, () => {
       expect(out.solid).toEqual(out.react)
     })
 })
+
+// NEW-82: a host frame scaled with CSS `zoom` or a transform (the phone
+// frames run at `zoom: 0.76`) must not shrink the Chart: the renderers
+// measure LAYOUT px (unzoomed CSS px), never the rect's visual px. The plot
+// keeps the exact width it has unscaled, the surface its `data-xq`, and a
+// pointer near the plot's far edge still lands on the LAST category.
+describe(`Chart inside a scaled host container (NEW-82)`, () => {
+  for (const [name, css] of [
+    [`zoom: 0.5`, { zoom: `0.5` }],
+    [`zoom: 0.76`, { zoom: `0.76` }],
+    [`transform: scale(0.5)`, { transform: `scale(0.5)`, transformOrigin: `0 0` }],
+  ] as const)
+    it(name, async () => {
+      const out = await both(treeView(bars), async (page) => {
+        const read = () =>
+          page.evaluate(() => {
+            const plot = document.querySelector<HTMLElement>(`[data-xui-id="c"] .xui-chart-plot`)!
+            const surface = document.querySelector<HTMLElement>(`.xui-surface`)!
+            return { svg: Number(plot.querySelector(`svg`)!.getAttribute(`width`)), layout: plot.offsetWidth, visual: plot.getBoundingClientRect().width, xq: surface.dataset.xq ?? null }
+          })
+        // A resize UNDER the scale re-measures (zoom alone fires no
+        // ResizeObserver: the layout box did not change). `before` = the
+        // same 600 px surface unscaled.
+        const resize = async (w: number) => {
+          await page.evaluate((w) => {
+            const style = document.getElementById(`new82`) ?? document.head.appendChild(Object.assign(document.createElement(`style`), { id: `new82` }))
+            style.textContent = `.xui-surface { width: ${w}px !important }`
+          }, w)
+          await settle(page)
+        }
+        await resize(600)
+        const before = await read()
+        await resize(700)
+        await page.evaluate((css) => Object.assign(document.querySelector<HTMLElement>(`.xui-surface`)!.parentElement!.style, css), css as Record<string, string>)
+        await resize(600)
+        const after = await read()
+        const box = (await page.locator(`[data-xui-id="c"] svg`).boundingBox())!
+        await page.mouse.move(box.x + box.width * 0.97, box.y + box.height / 2)
+        await settle(page, 50)
+        const hovered = await page.evaluate(() => document.querySelector(`[data-xui-id="c"] div[data-category]`)?.getAttribute(`data-category`) ?? null)
+        return { before, after, hovered }
+      })
+      for (const r of [out.react, out.solid]) {
+        // The zoom/transform really applied: the rect shrank.
+        expect(r.after.visual).toBeLessThan(r.before.visual * 0.8)
+        // The plot did not: byte-identical to the unscaled measurement.
+        expect(r.after.svg).toBe(r.before.svg)
+        expect(Math.abs(r.after.svg - r.after.layout)).toBeLessThan(1)
+        expect(r.after.xq).toBe(r.before.xq)
+        expect(r.hovered).toBe(`2`)
+      }
+      expect(out.solid).toEqual(out.react)
+    })
+})

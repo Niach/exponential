@@ -4,6 +4,7 @@ import {
   TOAST_CLASSES,
   TOAST_TOUCH_QUERY,
   createToastStore,
+  layoutSize,
   toastPlacement,
   toastStackGeometry,
   type ToastKind,
@@ -61,7 +62,7 @@ export function Toaster(props: ToasterProps) {
     const next: Record<string, number> = {}
     for (const t of list()) {
       const el = items.get(t.id)
-      if (t.height === undefined && el) next[t.id] = el.getBoundingClientRect().height
+      if (t.height === undefined && el) next[t.id] = layoutSize(el).height
     }
     const prev = measured()
     if (!(Object.keys(next).length === Object.keys(prev).length && Object.entries(next).every(([k, v]) => prev[k] === v))) setMeasured(next)

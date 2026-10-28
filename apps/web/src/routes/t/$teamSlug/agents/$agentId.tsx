@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { threadSessionNames } from "@exp/domain-contract/ask-dock"
 import {
   BoardGlyph,
   conceptIcon,
-  DockCard,
   EmptyState,
   JumpToBottomButton,
   JUMP_TO_BOTTOM_GAP,
   SkeletonRows,
+  ThreadDock,
   useIsMobile,
 } from "@exp/ui"
+import type { ReactNode } from "react"
 import type { User } from "@/db/schema"
-import { dockRows } from "@exp/domain-contract/dock"
-import { useAgentHintDock } from "@/components/agent-session"
 import { SessionComposer } from "@/components/session-composer"
-import { SessionLiveTail } from "@/components/agent-session"
+import { SessionLiveTail, useSessionDock } from "@/components/agent-session"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
-import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
+import {
+  AgentChannel,
+  AgentComposer,
+  useAgentChannelRows,
+  useAnswerMessage,
+} from "@/components/thread/agent-channel"
+import { renderThreadText } from "@/components/thread/thread-markdown"
 import { AgentHeaderMenu } from "@/components/thread/chat-menu"
 import { AgentHeaderTitle } from "@/components/thread/chat-header"
 import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } from "@/components/voice-call"
@@ -82,16 +88,20 @@ function AgentChannelPage() {
   // The conversation's whole tree: a child's question / plan card surfaces
   // here and answers in place (`sessions.answer`, straight to that child).
   const messages = useTreeMessages(conversation?.id)
+  const { rows, tabs } = useAgentChannelRows({ conversation, messages, teamSessions })
+  // #EXP-1407 (ask-dock.json, dock.json): one in-flight set for a card
+  // answered inline or in its Dock sheet.
+  const answering = useAnswerMessage()
+  const sessionName = useMemo(() => threadSessionNames(tabs), [tabs])
   const follow = useFollowScroll([messages, conversation?.id])
+  const [dockHeight, setDockHeight] = useState(0)
+  const { atBottom, jumpToBottom } = follow
+  // FEED-140 (the thread's rule): a pinned reader stays pinned as the band grows.
+  useEffect(() => {
+    if (atBottom) jumpToBottom()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dockHeight])
   const { users } = useTeamUsers(team?.id)
-  // #EXP-1383 (chats.json `agentHint`): the conversation still runs on the
-  // agent's previous instructions → THE Dock's banner card over the
-  // composer, its action = the agent menu's New conversation.
-  const agentHint = useAgentHintDock(conversation)
-  const hintRow = useMemo(
-    () => (agentHint.source ? (dockRows([agentHint.source])[0] ?? null) : null),
-    [agentHint.source]
-  )
   // NEW-70 (voice-call.json): THE telephone left of `…`, the call card over the chat.
   const callAvailability = useVoiceCallAvailability()
   const voiceCall = useVoiceCall(agentId)
@@ -154,6 +164,25 @@ function AgentChannelPage() {
       : trpc.sessions.send.mutate({ agentId: agent.id, text }, SKIP_ERROR_TOAST)
     call.catch((error) => failedAction(`send`, `the message`, error))
   }
+  const composer = conversation ? (
+    <SessionComposer
+      teamId={team.id}
+      sessionId={conversation.id}
+      placeholder={`Message ${name}`}
+      users={users as User[]}
+      busy={conversation.busy}
+      canStop
+      testId="agent-composer"
+    />
+  ) : (
+    <AgentComposer
+      teamId={team.id}
+      agentId={agent.id}
+      placeholder={`Message ${name}`}
+      users={users as User[]}
+      testId="agent-composer"
+    />
+  )
   const glyph = (
     <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-6" />
   )
@@ -196,6 +225,8 @@ function AgentChannelPage() {
               key={agentId}
               agent={agent}
               conversation={conversation}
+              allRows={rows}
+              answering={answering}
               messages={messages}
               teamSessions={teamSessions}
               users={users as User[]}
@@ -212,49 +243,91 @@ function AgentChannelPage() {
                 ) : undefined
               }
             />
+            {/* #EXP-1407: the Dock's band height as a spacer (the follow
+                scroll's content observer re-pins on it, padding would not). */}
+            <div aria-hidden className="shrink-0" style={{ height: dockHeight }} />
           </div>
         </div>
         {/* #EXP-1383 (owner: "exactly as in sessions"): the run view's
-            circle, placement and layer; the composer sits right below. */}
+            circle, placement and layer; the Dock sits right below. */}
         <JumpToBottomButton
           visible={!follow.atBottom && messages.length > 0}
           className="absolute left-1/2 z-30 -translate-x-1/2"
-          style={{ bottom: JUMP_TO_BOTTOM_GAP }}
+          style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
           onClick={follow.jumpToBottom}
         />
-      </div>
-      {permissions.isMember && (
-        <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">
-          {hintRow && (
-            <DockCard
-              row={hintRow}
-              action={agentHint.renderAction(hintRow)}
-              className="mx-auto mb-1.5 max-w-4xl"
-            />
-          )}
-          {conversation ? (
-            <SessionComposer
-              teamId={team.id}
-              sessionId={conversation.id}
-              placeholder={`Message ${name}`}
-              users={users as User[]}
-              busy={conversation.busy}
-              canStop
-              testId="agent-composer"
-              className="mx-auto max-w-4xl"
+        {/* #EXP-1407 (dock.json): THE Dock over the conversation's bottom
+            edge, exactly as in a thread: the tree's waiting plan / question
+            cards (caption = the asking session, the root = none), the
+            root's Queue, queued messages and banners (the agent hint),
+            then the composer, in ONE column inset on every width. */}
+        {permissions.isMember &&
+          (conversation ? (
+            <AgentConversationDock
+              conversation={conversation}
+              rows={rows}
+              sessionName={sessionName}
+              answering={answering}
+              onOpenSession={(id) => {
+                const target = teamSessions.find((row) => row.id === id)
+                if (target) openSession(target)
+              }}
+              composer={composer}
+              onHeight={setDockHeight}
             />
           ) : (
-            <AgentComposer
-              teamId={team.id}
-              agentId={agent.id}
-              placeholder={`Message ${name}`}
-              users={users as User[]}
-              testId="agent-composer"
-              className="mx-auto max-w-4xl"
+            <ThreadDock
+              rows={[]}
+              sessionName={sessionName}
+              renderText={renderThreadText}
+              onAnswer={() => undefined}
+              onDecide={() => undefined}
+              composer={composer}
+              onHeight={setDockHeight}
             />
-          )}
-        </div>
-      )}
+          ))}
+      </div>
     </div>
+  )
+}
+
+/** #EXP-1407: the conversation's Dock = THE thread Dock (`ThreadDock`) over
+ *  its rows, with the root's own sources (`useSessionDock`: the Queue,
+ *  queued messages, banners incl. the agent hint). */
+function AgentConversationDock({
+  conversation,
+  rows,
+  sessionName,
+  answering,
+  onOpenSession,
+  composer,
+  onHeight,
+}: {
+  conversation: SessionRow
+  rows: Parameters<typeof ThreadDock>[0][`rows`]
+  sessionName: (sessionId: string) => string | null
+  answering: ReturnType<typeof useAnswerMessage>
+  onOpenSession: (sessionId: string) => void
+  composer?: ReactNode
+  onHeight: (height: number) => void
+}) {
+  const sessionDock = useSessionDock(conversation)
+  const { answer, pending } = answering
+  return (
+    <ThreadDock
+      rows={rows}
+      sessionName={sessionName}
+      renderText={renderThreadText}
+      pending={pending}
+      onAnswer={(id, input) => void answer(id, input)}
+      onDecide={(id, input) => void answer(id, input)}
+      sources={sessionDock.sources}
+      renderSheet={sessionDock.renderSheet}
+      renderAction={sessionDock.renderAction}
+      onOpenSession={onOpenSession}
+      composer={composer}
+      onHeight={onHeight}
+      autoOpenReady={rows.length > 0}
+    />
   )
 }

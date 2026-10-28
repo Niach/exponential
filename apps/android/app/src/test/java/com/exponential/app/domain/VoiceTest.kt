@@ -106,7 +106,8 @@ class VoiceTest {
         }
         assertEquals(languages, Voice.languages)
         val limits = fixture.getValue("limits").jsonObject
-        assertEquals(setOf("voiceFile", "voiceTranscript", "wakePhraseMinLetters"), limits.keys)
+        assertEquals(setOf("voiceFile", "voiceTranscript", "wakePhrase", "wakePhraseMinLetters"), limits.keys)
+        assertEquals(limits.getValue("wakePhrase").jsonPrimitive.int, Voice.Limits.WAKE_PHRASE)
         assertEquals(limits.getValue("voiceFile").jsonPrimitive.int, Voice.Limits.VOICE_FILE)
         assertEquals(limits.getValue("voiceTranscript").jsonPrimitive.int, Voice.Limits.VOICE_TRANSCRIPT)
         assertEquals(limits.getValue("wakePhraseMinLetters").jsonPrimitive.int, Voice.Limits.WAKE_PHRASE_MIN_LETTERS)
@@ -192,6 +193,15 @@ class VoiceTest {
     fun `every wakePhraseError case matches the fixture`() {
         for (case in cases("wakePhraseErrorCases")) {
             assertEquals(case.str("in"), case.str("error"), Voice.wakePhraseError(case.str("in")!!))
+        }
+    }
+
+    /** #NEW-75: THE input rule (UTF-16 units, never a split surrogate pair). */
+    @Test
+    fun `every voiceTextInput case matches the fixture`() {
+        for (case in cases("voiceTextInputCases")) {
+            val max = case.getValue("max").jsonPrimitive.int
+            assertEquals(case.str("in"), case.str("out"), Voice.textInput(case.str("in")!!, max))
         }
     }
 

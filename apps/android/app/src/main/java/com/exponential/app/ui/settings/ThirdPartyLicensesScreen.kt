@@ -28,6 +28,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.domain.ThirdPartyNotices
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -88,7 +89,7 @@ fun ThirdPartyLicensesScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Third-party licenses") },
+                    title = { TopBarTitle("Third-party licenses") },
                     navigationIcon = {
                         TopBarBackButton(onClick = onBack)
                     },

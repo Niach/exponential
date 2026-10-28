@@ -21,11 +21,11 @@ public let glassFormRowFill = GlassTokens.fillRow
 /// trailing summary and each sheet row, so a call site names its vocabulary
 /// once. Disabled dims the whole row and drops the tap.
 ///
-/// EXP-827: `icon` gives an option its own registry glyph, leading the value in
-/// the row AND every row of the sheet — what an action pick needs so an action
-/// is recognised by its curated icon, exactly as web draws it (`getActionIcon`
-/// inline with the name). Returning
-/// nil for an option simply draws no glyph.
+/// EXP-827: `icon` gives an option its own registry glyph in every row of the
+/// SHEET (the device picker's machine glyphs). The row's value stays the
+/// picked option's bare label, like web's `row` trigger and Android's
+/// `PickerValueRow` (Settings → Voice's Voice device reads its name only).
+/// Returning nil for an option simply draws no glyph.
 public struct GlassPickerRow<SelectionValue: Hashable>: View {
     let title: String
     @Binding var selection: SelectionValue
@@ -70,7 +70,6 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
             GlassPickerRowLabel(
                 title,
                 value: label(selection),
-                icon: icon?(selection),
                 enabled: enabled
             )
         }

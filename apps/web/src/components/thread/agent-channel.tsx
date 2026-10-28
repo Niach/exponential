@@ -119,40 +119,18 @@ export function useUnqueueMessage(): (messageId: string) => Promise<void> {
   }, [])
 }
 
-export function AgentChannel({
-  agent,
+/** The agent conversation's rows: `buildSessionThread` over the caller's
+ *  conversation root (EXP-1334: no root card, every row is a channel row)
+ *  and its `tabs` (#EXP-1407: the Dock's asking-session names). */
+export function useAgentChannelRows({
   conversation,
   messages,
   teamSessions,
-  users,
-  canAnswer,
-  onOpenSession,
-  layout = `transcript`,
-  onSurfaceReply,
-  scrollRef,
-  tail,
 }: {
-  /** Thread 58cb32df (chats.json TRANSCRIPT): `bubbles` = the phones' chat
-   *  bubbles (the person right, the agent left in bg-card). */
-  layout?: `transcript` | `bubbles`
-  /** A surface card's `reply` press (absent = read-only). */
-  onSurfaceReply?: (text: string) => void
-  /** The `agents` definition (name, icon, color). */
-  agent: Pick<SyncedAgent, `name` | `icon` | `color`>
-  /** The caller's conversation session with it; null = none yet. */
   conversation: SessionRow | null
   messages: readonly MessageRow[]
-  /** Every synced session of the team (the cards' targets). */
   teamSessions: readonly SessionRow[]
-  users: readonly User[]
-  canAnswer: boolean
-  /** A card was tapped: its session row (a root opens its thread). */
-  onOpenSession: (session: SessionRow) => void
-  /** #EXP-1380: the transcript's scroller (Load earlier keeps its place). */
-  scrollRef?: RefObject<HTMLElement | null>
-  /** #EXP-1380 (chats.json WORKING): the status line after the last row. */
-  tail?: ReactNode
-}) {
+}): { rows: readonly ThreadRow[]; tabs: ReturnType<typeof buildSessionThread>[`tabs`] } {
   // #EXP-1380 (chats.json PERF): the clock only drives the session cards'
   // elapsed time, so it ticks only while a card's session is live.
   const liveCard = useMemo(() => {
@@ -167,9 +145,7 @@ export function AgentChannel({
     return teamSessions.some((row) => targets.has(row.id) && row.status !== `ended`)
   }, [messages, teamSessions])
   const now = useNow(liveCard ? 1_000 : 3_600_000)
-  // EXP-1334: the thread has no root card any more, so every row is a
-  // channel row (the first one is the agent's first message).
-  const allRows = useMemo(
+  const view = useMemo(
     () =>
       conversation
         ? buildSessionThread({
@@ -180,10 +156,55 @@ export function AgentChannel({
             messages: messages.map(toTreeMessage),
             pullRequests: [],
             now: now.toISOString(),
-          }).rows
-        : [],
+          })
+        : null,
     [conversation, teamSessions, messages, now]
   )
+  return useMemo(() => ({ rows: view?.rows ?? [], tabs: view?.tabs ?? [] }), [view])
+}
+
+export function AgentChannel({
+  agent,
+  conversation,
+  allRows,
+  messages,
+  teamSessions,
+  users,
+  canAnswer,
+  onOpenSession,
+  layout = `transcript`,
+  onSurfaceReply,
+  scrollRef,
+  tail,
+  answering,
+}: {
+  /** #EXP-1407: the host's `useAnswerMessage` (its Dock answers the same
+   *  cards, one in-flight set); absent = the channel's own. */
+  answering?: ReturnType<typeof useAnswerMessage>
+  /** Thread 58cb32df (chats.json TRANSCRIPT): `bubbles` = the phones' chat
+   *  bubbles (the person right, the agent left in bg-card). */
+  layout?: `transcript` | `bubbles`
+  /** A surface card's `reply` press (absent = read-only). */
+  onSurfaceReply?: (text: string) => void
+  /** The `agents` definition (name, icon, color). */
+  agent: Pick<SyncedAgent, `name` | `icon` | `color`>
+  /** The caller's conversation session with it; null = none yet. */
+  conversation: SessionRow | null
+  /** The conversation's rows (`useAgentChannelRows`; the page's Dock reads
+   *  the same ones). */
+  allRows: readonly ThreadRow[]
+  messages: readonly MessageRow[]
+  /** Every synced session of the team (the cards' targets). */
+  teamSessions: readonly SessionRow[]
+  users: readonly User[]
+  canAnswer: boolean
+  /** A card was tapped: its session row (a root opens its thread). */
+  onOpenSession: (session: SessionRow) => void
+  /** #EXP-1380: the transcript's scroller (Load earlier keeps its place). */
+  scrollRef?: RefObject<HTMLElement | null>
+  /** #EXP-1380 (chats.json WORKING): the status line after the last row. */
+  tail?: ReactNode
+}) {
   const ownScrollRef = useRef<HTMLElement | null>(null)
   // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
   // #EXP-1380: `useTreeMessages` loads the newest messages (its `page`),
@@ -200,7 +221,8 @@ export function AgentChannel({
     () => new Map(teamSessions.map((row) => [row.id, row])),
     [teamSessions]
   )
-  const { answer, pending } = useAnswerMessage()
+  const own = useAnswerMessage()
+  const { answer, pending } = answering ?? own
   // The callbacks a skipped (memoized) row holds read the latest ones.
   const latest = useRef({ onOpenSession, onSurfaceReply, sessionsById })
   latest.current = { onOpenSession, onSurfaceReply, sessionsById }

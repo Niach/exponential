@@ -65,4 +65,18 @@ describe(`useFollowScroll`, () => {
     expect(scroller.scrollTop).toBe(1400)
     expect(screen.getByTestId(`jump-to-bottom`).getAttribute(`data-visible`)).toBe(`false`)
   })
+  it(`a late scroll event after the content grew keeps following (#EXP-1407)`, () => {
+    height = 1000
+    render(<Feed rows={[`a`]} />)
+    const scroller = screen.getByTestId(`scroller`)
+    expect(scroller.scrollTop).toBe(1000)
+    // The Dock band measures in: the content grows with no row change, then
+    // the pin's own scroll event lands short of the new tail.
+    height = 1300
+    act(() => {
+      fireEvent.scroll(scroller)
+    })
+    expect(screen.getByTestId(`jump-to-bottom`).getAttribute(`data-visible`)).toBe(`false`)
+    expect(scroller.scrollTop).toBe(1300)
+  })
 })

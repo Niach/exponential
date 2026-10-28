@@ -8,6 +8,7 @@ import {
   trayHeader,
   VOICE_COPY,
   VOICE_DEFAULTS,
+  VOICE_LIMITS,
   VOICE_TEST_IDS,
   wakePhrasePlaceholder,
 } from "@exp/domain-contract/voice"
@@ -227,6 +228,19 @@ describe(`Settings → Voice (NEW-67)`, () => {
     expect(update).toHaveBeenCalledTimes(2)
     expect(update).toHaveBeenCalledWith({ voiceFile: `/home/me/voice.wav` }, expect.anything())
     expect(update).toHaveBeenCalledWith({ voiceTranscript: `Hello there.` }, expect.anything())
+  })
+
+  it(`#NEW-75: THE input rule as you type: control characters drop, the cap counts UTF-16 units`, async () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    const transcript = screen.getByTestId(VOICE_TEST_IDS.voiceTranscript) as HTMLInputElement
+    fireEvent.change(transcript, { target: { value: `Hello\tthere\nfriend` } })
+    expect(transcript.value).toBe(`Hellotherefriend`)
+    const phrase = screen.getByTestId(VOICE_TEST_IDS.wakePhrase) as HTMLInputElement
+    fireEvent.change(phrase, { target: { value: `${`a`.repeat(VOICE_LIMITS.wakePhrase - 1)}\u{1F600}` } })
+    expect(phrase.value).toBe(`a`.repeat(VOICE_LIMITS.wakePhrase - 1))
+    fireEvent.blur(phrase)
+    await flush()
+    expect(update).toHaveBeenCalledWith({ wakePhrase: `a`.repeat(VOICE_LIMITS.wakePhrase - 1) }, expect.anything())
   })
 
   it(`#NEW-73: a refused voice file reverts and raises the failed-action toast`, async () => {

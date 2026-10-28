@@ -36,6 +36,7 @@ import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.OwnDevices
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.onboarding.OnboardingDevicesStep
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -135,7 +136,7 @@ fun InviteAcceptScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Team invite") },
+                title = { TopBarTitle("Team invite") },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },

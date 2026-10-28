@@ -54,6 +54,7 @@ import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.TextFieldRow
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -286,7 +287,9 @@ class VoiceSettingsViewModel @Inject constructor(
     }
 
     private fun editText(field: TextField, text: String, limit: Int) {
-        setTyped(field, text.filterNot { it.isISOControl() }.take(limit))
+        // #NEW-75: THE input rule ×4 (control characters dropped, cut to the
+        // server's UTF-16 limit without splitting a surrogate pair).
+        setTyped(field, Voice.textInput(text, limit))
         textTimers[field]?.cancel()
         textTimers[field] = viewModelScope.launch {
             delay(TEXT_DEBOUNCE_MS)
@@ -369,7 +372,7 @@ fun VoiceSettingsScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(Voice.Copy.GROUP) },
+                title = { TopBarTitle(Voice.Copy.GROUP) },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
@@ -482,12 +485,12 @@ private fun VoiceSettingsForm(
             GroupDivider()
             // Every language carries its GPU note (#NEW-74), in the row and in the menu.
             val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: Voice.Copy.ELLIPSIS }
-            OptionPickerRow(
+            ChoicePickerRow(
                 label = Voice.Copy.LANGUAGE,
-                options = Voice.languages.map { Voice.Option(id = it.value, label = Voice.languageLabel(it.value, languageDevice)) },
+                choices = Voice.languages.map { it.value },
                 selected = settings.language,
-                noneLabel = settings.language,
-                onSelect = { picked -> picked?.let { onChange(Voice.Change(language = it)) } },
+                choiceLabel = { Voice.languageLabel(it, languageDevice) },
+                onSelect = { onChange(Voice.Change(language = it)) },
                 testTag = Voice.TestIds.LANGUAGE,
             )
             if (settings.voiceDeviceId != null) {
@@ -532,12 +535,12 @@ private fun VoiceSettingsForm(
                     modifier = Modifier.testTag(Voice.TestIds.PUSH_TO_TALK),
                 )
                 GroupDivider()
-                OptionPickerRow(
+                ChoicePickerRow(
                     label = Voice.Copy.SHORTCUT,
-                    options = Voice.shortcuts.map { Voice.Option(id = it.value, label = it.label) },
+                    choices = Voice.shortcuts.map { it.value },
                     selected = settings.pttShortcut,
-                    noneLabel = settings.pttShortcut,
-                    onSelect = { picked -> picked?.let { onChange(Voice.Change(pttShortcut = it)) } },
+                    choiceLabel = { value -> Voice.shortcuts.firstOrNull { it.value == value }?.label ?: value },
+                    onSelect = { onChange(Voice.Change(pttShortcut = it)) },
                     testTag = Voice.TestIds.SHORTCUT,
                 )
                 GroupDivider()
@@ -594,6 +597,37 @@ private fun OptionPickerRow(
         PickerValueRow(
             label = label,
             value = value,
+            onClick = open,
+            modifier = Modifier.testTag(testTag),
+        )
+    }
+}
+
+/**
+ * #NEW-75: THE picker row over a choice that is never None (Language,
+ * Shortcut): the same picker row + `Picker` sheet as [OptionPickerRow], the
+ * row's value = the picked choice's label, read through [choiceLabel] in the
+ * row and in the sheet alike.
+ */
+@Composable
+private fun ChoicePickerRow(
+    label: String,
+    choices: List<String>,
+    selected: String,
+    choiceLabel: (String) -> String,
+    onSelect: (String) -> Unit,
+    testTag: String,
+) {
+    Picker(
+        items = choices.map { PickerItem(value = it, label = choiceLabel(it)) },
+        mode = PickerMode.Single,
+        value = setOf(selected),
+        onChange = { picked -> picked.firstOrNull()?.let(onSelect) },
+        title = label,
+    ) { open ->
+        PickerValueRow(
+            label = label,
+            value = choiceLabel(selected),
             onClick = open,
             modifier = Modifier.testTag(testTag),
         )

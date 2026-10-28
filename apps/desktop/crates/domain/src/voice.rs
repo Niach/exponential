@@ -131,6 +131,8 @@ pub struct SpokenWords {
 pub struct VoiceLimits {
     pub voice_file: usize,
     pub voice_transcript: usize,
+    /// The wake phrase's cap (`voice.update`'s `oneLine`).
+    pub wake_phrase: usize,
     /// #NEW-56: the letters a stored wake phrase needs at least.
     pub wake_phrase_min_letters: usize,
 }
@@ -265,6 +267,24 @@ pub fn download_progress(received: u64, total: u64) -> String {
 /// The wake phrase's placeholder (and its value when empty).
 pub fn wake_phrase_placeholder(agent_name: &str) -> String {
     VOICE.copy.wake_phrase_placeholder.replace("{agent}", agent_name)
+}
+
+/// #NEW-75: THE rule of the page's one-line inputs, as you type
+/// (`voiceTextInput`): every control character (Cc: C0, DEL, C1, tab and
+/// line breaks too) is dropped, then the value is cut to at most `max`
+/// UTF-16 code units (the server's zod count), whole code points only.
+/// Trimming waits for the save.
+pub fn voice_text_input(value: &str, max: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in value.chars().filter(|ch| !ch.is_control()) {
+        used += ch.len_utf16();
+        if used > max {
+            break;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// #NEW-56: a stored wake phrase needs `limits.wakePhraseMinLetters`
@@ -1331,6 +1351,15 @@ mod tests {
         for case in fixture["wakePhrasePlaceholderCases"].as_array().unwrap() {
             assert_eq!(wake_phrase_placeholder(case["agent"].as_str().unwrap()), case["placeholder"].as_str().unwrap());
         }
+    }
+
+    #[test]
+    fn voice_text_input_matches_the_fixture() {
+        for case in fixture()["voiceTextInputCases"].as_array().unwrap() {
+            let max = case["max"].as_u64().unwrap() as usize;
+            assert_eq!(voice_text_input(case["in"].as_str().unwrap(), max), case["out"].as_str().unwrap(), "{case}");
+        }
+        assert_eq!(VOICE.limits.wake_phrase, fixture()["limits"]["wakePhrase"].as_u64().unwrap() as usize);
     }
 
     #[test]

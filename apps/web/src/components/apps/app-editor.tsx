@@ -39,7 +39,7 @@ import { AppPreview } from "@/components/apps/app-preview"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
-import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
+import { AgentChannel, AgentComposer, useAgentChannelRows } from "@/components/thread/agent-channel"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
 import { useTreeMessages } from "@/hooks/use-session-tree"
@@ -306,11 +306,13 @@ export function AppEditor({
   // VAPP-129: md+: the chat floats in THE Dock.
   const floating = !isMobile && layout === `floating`
 
+  const { rows: channelRows } = useAgentChannelRows({ conversation: root, messages, teamSessions })
   const channel =
     root && messages.length > 0 ? (
       <AgentChannel
         agent={{ name: app.name, icon: app.icon, color: app.color }}
         conversation={root}
+        allRows={channelRows}
         messages={messages}
         teamSessions={teamSessions}
         users={users as User[]}

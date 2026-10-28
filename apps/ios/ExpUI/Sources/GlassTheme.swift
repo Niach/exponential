@@ -154,10 +154,16 @@ public struct GlassDivider: View {
 // MARK: - Section header
 
 /// The ONE section header on iOS (EXP-698): sentence-case title, an optional
-/// count, and a trailing slot pushed to the right edge. It replaces the five
-/// hand-rolled `sectionHeader` / `sectionLabel` / `sectionStack` idioms that
-/// each picked their own font, opacity and padding, and it is what the `Form`
-/// sections hand to `header:` instead of the uppercased system label.
+/// loading spinner, and a trailing slot pushed to the right edge. It is what
+/// the `Form` sections hand to `header:` instead of the uppercased system label.
+///
+/// It paints THE filled group band (`GlassSectionBand`, EXP-818): web's
+/// `GlassSectionHeader` and Android's `SectionHeader` are that band too —
+/// `bg-glass-section` / `fillSection`, `px-3 py-1.5`, `rounded-md`, the 85%
+/// `text-sm font-medium` label and the 4pt gap under it — so one header reads
+/// the same ×4. In a `Form` header the band drops the list's header insets so
+/// its edges line up with the group under it (Android insets it to
+/// `OptionGroup`'s edge the same way).
 ///
 /// Deliberate exception: the emoji picker's category headers stay uppercase —
 /// they are a shared cross-client convention, not this app's section language.
@@ -176,18 +182,8 @@ public struct GlassSectionHeader<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer(minLength: 0)
-            if loading { SectionLoadingGlyph() }
-            trailing
-        }
-        .textCase(nil)
-        .padding(.horizontal, 4)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
+        GlassSectionBand(title, loading: loading) { trailing }
+            .listRowInsets(EdgeInsets())
     }
 }
 
@@ -213,9 +209,9 @@ struct SectionLoadingGlyph: View {
 /// under a highlighted header rather than as a stack of cards.
 ///
 /// Web `GlassSectionHeader` / desktop `surface::glass_section_band` twin —
-/// same fill, radius, padding and 85% label. `GlassSectionHeader` above stays
-/// the PLAIN-TEXT heading for free content (a settings section's title over a
-/// card); a list takes this one. Labels are SENTENCE CASE, never uppercase.
+/// same fill, radius, padding and 85% label. `GlassSectionHeader` above is
+/// this band as a `Form` section's header. Labels are SENTENCE CASE, never
+/// uppercase.
 ///
 /// EXP-1248: list bands carry NO count (Running, Recent, Reviews boards,
 /// Stack, Not linked) — the `count` slot exists for the ONE band that keeps

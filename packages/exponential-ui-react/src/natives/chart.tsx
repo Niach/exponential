@@ -18,7 +18,7 @@ import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useElementSize } from "../platform"
-import { tokenVar } from "@exponential_app/ui/web"
+import { tokenVar, visualScale } from "@exponential_app/ui/web"
 import { arr, bool, num, str, useParts, objects } from "./shared"
 
 interface Series {
@@ -202,7 +202,8 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
     if (round || n === 0) return
     const r = plotRef.current?.getBoundingClientRect()
     if (!r) return
-    const x = (rtl ? r.right - e.clientX : e.clientX - r.left) - pad.l
+    // NEW-82: the pointer offset is in visual px (zoom, transforms); the plot in layout px.
+    const x = (rtl ? r.right - e.clientX : e.clientX - r.left) / visualScale(r.width, width) - pad.l
     const i = sparkline ? Math.round((x / innerW) * (n - 1)) : Math.floor(x / slot)
     setActive(i >= 0 && i < n ? i : null)
   }

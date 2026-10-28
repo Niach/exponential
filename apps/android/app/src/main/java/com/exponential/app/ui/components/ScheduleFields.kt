@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -193,7 +193,7 @@ internal fun ScheduleFields(
             value = draft.cron,
             onValueChange = { onChange(draft.copy(cron = it.take(DomainContract.agentTriggerCronMax))) },
             placeholder = ScheduleCopy.CRON_PLACEHOLDER,
-            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace),
             modifier = Modifier.testTag(SchedulePicker.TEST_ID_CRON),
         )
     }

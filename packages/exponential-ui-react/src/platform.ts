@@ -5,6 +5,7 @@
 // SURFACE, never the window).
 
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react"
+import { layoutSize } from "@exponential_app/ui/web"
 
 const useIsoLayoutEffect = typeof window === `undefined` ? useEffect : useLayoutEffect
 
@@ -31,13 +32,14 @@ export interface BoxSize {
   measured: boolean
 }
 
-/** An element's border box, live (ResizeObserver, disconnected on unmount). */
+/** An element's border box in layout px (NEW-82: unzoomed, untransformed;
+ *  `layoutSize`), live (ResizeObserver, disconnected on unmount). */
 export function useElementSize(el: HTMLElement | null, initialWidth = 0): BoxSize {
   const [size, setSize] = useState<BoxSize>({ width: initialWidth, height: 0, measured: false })
   useIsoLayoutEffect(() => {
     if (!el) return
-    const read = () => {
-      const r = el.getBoundingClientRect()
+    const read = (entries?: ResizeObserverEntry[]) => {
+      const r = layoutSize(el, entries?.find((e) => e.target === el))
       setSize((cur) => {
         // No layout yet (SSR, jsdom, display:none): keep the initial guess.
         if (!cur.measured && r.width === 0 && r.height === 0) return cur
@@ -46,7 +48,7 @@ export function useElementSize(el: HTMLElement | null, initialWidth = 0): BoxSiz
     }
     read()
     if (typeof ResizeObserver === `undefined`) return
-    const ro = new ResizeObserver(read)
+    const ro = new ResizeObserver((entries) => read(entries))
     ro.observe(el)
     return () => ro.disconnect()
   }, [el])

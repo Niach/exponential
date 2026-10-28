@@ -100,6 +100,8 @@ public enum Voice {
     public enum Limits {
         public static let voiceFile = 512
         public static let voiceTranscript = 500
+        /// The wake phrase's cap (`voice.update`'s `oneLine`).
+        public static let wakePhrase = 64
         public static let wakePhraseMinLetters = 6
     }
 
@@ -330,6 +332,22 @@ public enum Voice {
     /// The wake phrase's placeholder (and its value when empty).
     public static func wakePhrasePlaceholder(_ agentName: String) -> String {
         Copy.wakePhrasePlaceholder.replacingOccurrences(of: "{agent}", with: agentName)
+    }
+
+    /// #NEW-75: THE rule of the page's one-line inputs, as you type
+    /// (`voiceTextInput`): every control character (Cc: C0, DEL, C1, tab and
+    /// line breaks too) is dropped, then the value is cut to at most `max`
+    /// UTF-16 code units (the server's zod count, not Characters), whole
+    /// code points only. Trimming waits for the save.
+    public static func textInput(_ value: String, max: Int) -> String {
+        var out = String.UnicodeScalarView()
+        var used = 0
+        for scalar in value.unicodeScalars where scalar.properties.generalCategory != .control {
+            used += UTF16.width(scalar)
+            if used > max { break }
+            out.append(scalar)
+        }
+        return String(out)
     }
 
     /// #NEW-56: a non-empty wake phrase needs `Limits.wakePhraseMinLetters`
