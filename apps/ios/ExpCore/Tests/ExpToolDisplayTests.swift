@@ -52,12 +52,9 @@ final class ExpToolDisplayTests: XCTestCase {
         XCTAssertEqual(list?.result, .list)
 
         XCTAssertEqual(ExpToolDisplay.resolve(toolName: "exponential_pr_open")?.result, .pr)
-        // EXP-933: the run's report (the Guide tool) offers `Open Results`.
-        let guide = ExpToolDisplay.resolve(toolName: "mcp__exponential__exponential_guide_write")
-        XCTAssertEqual(guide?.result, .results)
-        XCTAssertEqual(guide?.subjectKey, "topic")
-        XCTAssertEqual(guide?.caption(settled: false), "Writing the Guide")
-        XCTAssertEqual(guide?.caption(settled: true), "Wrote the Guide")
+        // S-3: guide_write is no MCP tool any more; an old transcript's call
+        // has no contract row and falls back to the generic tool row.
+        XCTAssertNil(ExpToolDisplay.resolve(toolName: "mcp__exponential__exponential_guide_write"))
         XCTAssertEqual(
             ExpToolDisplay.resolve(toolName: "exponential_teams_update")?.result,
             ExpToolResultKind.none
