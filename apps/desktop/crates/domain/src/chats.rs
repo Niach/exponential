@@ -175,6 +175,16 @@ pub struct ChatsCopy {
     pub working: String,
     pub selection: ChatsSelectionCopy,
     pub archived: ChatsArchivedCopy,
+    /// S-3: the section headers while an agent row exists (`Agents`,
+    /// `Chats`).
+    pub sections: ChatsSectionsCopy,
+}
+
+/// S-3: `copy.sections`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatsSectionsCopy {
+    pub agents: String,
+    pub chats: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -289,6 +299,9 @@ pub struct ChatsShell {
     pub bubble_ring: f32,
     /// S-3: a DONE chat's row opacity ([`ChatRow::dim`]).
     pub dim_opacity: f32,
+    /// S-3: the chat row's lead glyph concept (`action-chat`; needs you =
+    /// that glyph + the amber badge). Never the brand mark.
+    pub chat_lead: String,
 }
 
 /// `shell.bar.drag`: the selection lens.
@@ -1002,6 +1015,106 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
     ChatList { rows: all.into_iter().filter(|row| keeps(row, input.filter)).collect(), counts, archived }
 }
 
+/// S-3: an agent row pinned on top of the Chats list (`agentRowCases`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentChatRow {
+    pub agent_id: String,
+    /// The viewer's conversation with the agent; None = none yet.
+    pub session_id: Option<String>,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+    /// The viewer's Assistant: the brand mark instead of icon/color.
+    pub assistant: bool,
+    pub preview: ChatPreview,
+    /// [`chat_time_label`] of `activity_at`; empty without a conversation.
+    pub time: String,
+    /// The newest person/agent message of the conversation, else its
+    /// creation; None without one.
+    pub activity_at: Option<String>,
+    pub unread_count: usize,
+    pub needs_you: bool,
+    pub busy: bool,
+}
+
+/// [`agent_chat_rows`]' input.
+#[derive(Debug, Clone, Copy)]
+pub struct AgentChatRowsInput<'a> {
+    /// `list_agents` rows, in that order.
+    pub agents: &'a [AgentRow],
+    pub sessions: &'a [&'a SessionRow],
+    pub messages: &'a [&'a MessageRow],
+    pub reads: &'a [&'a SessionReadRow],
+    pub me: Option<&'a str>,
+    pub filter: ChatFilter,
+    pub view: ChatListView,
+    pub now: &'a str,
+    pub utc_offset_minutes: i32,
+}
+
+/// S-3 (TS `agentChatRows`): the Chats list's pinned AGENTS section: one row
+/// per `list_agents` row (that order), filtered by the chip like a chat;
+/// none on the Archived page.
+pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
+    if input.view == ChatListView::Archived {
+        return Vec::new();
+    }
+    input
+        .agents
+        .iter()
+        .map(|agent| {
+            let conversation = input.sessions.iter().find(|session| {
+                session.parent_id.as_deref().is_none_or(str::is_empty)
+                    && session.agent_id.as_deref() == Some(agent.agent_id.as_str())
+                    && input.me.is_some()
+                    && session.user_id.as_deref() == input.me
+            });
+            let id = conversation.map(|session| session.id.clone());
+            let newest = id.as_deref().and_then(|id| {
+                input
+                    .messages
+                    .iter()
+                    .filter(|m| m.session_id == id && (is_author(m, "user") || is_author(m, "agent")))
+                    .filter_map(|m| m.created_at.as_deref().map(|at| (ms(Some(at)).unwrap_or(0), at)))
+                    .fold(None::<(i64, &str)>, |best, (at_ms, at)| match best {
+                        Some((best_ms, _)) if best_ms >= at_ms => best,
+                        _ => Some((at_ms, at)),
+                    })
+                    .map(|(_, at)| at.to_string())
+            });
+            let activity_at = newest.or_else(|| conversation.and_then(|session| session.created_at.clone()));
+            let preview = match id.as_deref() {
+                Some(id) => chat_preview(id, input.messages, agent.needs_you, agent.busy, None),
+                None => ChatPreview { kind: ChatPreviewKind::Empty, text: CHATS.copy.preview.empty.clone() },
+            };
+            AgentChatRow {
+                agent_id: agent.agent_id.clone(),
+                session_id: id.clone(),
+                name: agent.name.clone(),
+                icon: agent.icon.clone(),
+                color: agent.color.clone(),
+                assistant: agent.assistant,
+                preview,
+                time: activity_at
+                    .as_deref()
+                    .map(|at| chat_time_label(at, input.now, input.utc_offset_minutes))
+                    .unwrap_or_default(),
+                activity_at,
+                unread_count: id.as_deref().map_or(0, |id| unread_count(id, input.messages, input.reads)),
+                needs_you: agent.needs_you,
+                busy: agent.busy,
+            }
+        })
+        .filter(|row| match input.filter {
+            ChatFilter::All => true,
+            ChatFilter::NeedsYou => row.needs_you,
+            ChatFilter::Running => row.busy,
+            ChatFilter::Unread => row.unread_count > 0,
+        })
+        .collect()
+}
+
 /// The roots the viewer archived (a read with `archived_at`).
 fn archived_ids<'a>(reads: &[&'a SessionReadRow]) -> std::collections::HashSet<&'a str> {
     reads
@@ -1678,6 +1791,10 @@ mod tests {
         for case in cases {
             let input = &case["input"];
             let agents: Vec<AgentRow> = serde_json::from_value(input["agents"].clone()).unwrap();
+            // S-3: `assistant` decodes from each input agent (absent = false).
+            for (agent, raw) in agents.iter().zip(input["agents"].as_array().unwrap()) {
+                assert_eq!(agent.assistant, raw["assistant"].as_bool().unwrap_or(false), "{}", case["name"]);
+            }
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let session_refs: Vec<&SessionRow> = sessions.iter().collect();
             let all = messages(&input["messages"]);
@@ -1685,8 +1802,19 @@ mod tests {
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
             let got = agent_bubbles(&agents, &session_refs, &refs, &read_refs, input["me"].as_str());
-            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+            let mut got = serde_json::to_value(&got).unwrap();
+            // TS spreads the input row: an older case's agents carry no
+            // S-3 `assistant` key, so neither do its bubbles.
+            for (bubble, agent) in got.as_array_mut().unwrap().iter_mut().zip(input["agents"].as_array().unwrap()) {
+                if agent.get("assistant").is_none() {
+                    bubble.as_object_mut().unwrap().remove("assistant");
+                }
+            }
+            assert_eq!(got, case["expected"], "{}", case["name"]);
         }
+        // S-3: the first case leads with the viewer's Assistant.
+        let first: Vec<AgentRow> = serde_json::from_value(cases[0]["input"]["agents"].clone()).unwrap();
+        assert!(first[0].assistant && first[1..].iter().all(|agent| !agent.assistant));
     }
 
     #[test]
@@ -1747,4 +1875,40 @@ mod tests {
         // A cell that is not a digest object = no digest.
         assert!(ConversationDigest::decode(Some(&Value::Bool(true))).is_none());
     }
+
+    /// S-3: `agentRowCases` (TS `agentChatRows`), whole rows.
+    #[test]
+    fn agent_row_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["agentRowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let agents: Vec<AgentRow> = serde_json::from_value(input["agents"].clone()).unwrap();
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let session_refs: Vec<&SessionRow> = sessions.iter().collect();
+            let all = messages(&input["messages"]);
+            let refs: Vec<&MessageRow> = all.iter().collect();
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
+            let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
+            let got = agent_chat_rows(AgentChatRowsInput {
+                agents: &agents,
+                sessions: &session_refs,
+                messages: &refs,
+                reads: &read_refs,
+                me: input["me"].as_str(),
+                filter: ChatFilter::parse(input["filter"].as_str().unwrap()).unwrap(),
+                view: match input["view"].as_str() {
+                    Some("archived") => ChatListView::Archived,
+                    _ => ChatListView::List,
+                },
+                now: input["now"].as_str().unwrap(),
+                utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
+            });
+            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+        assert_eq!(CHATS.copy.sections.agents, "Agents");
+        assert_eq!(CHATS.shell.chat_lead, "action-chat");
+    }
+
 }

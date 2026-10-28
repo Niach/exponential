@@ -3,15 +3,20 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
+  SETTINGS_NAV_GROUPS,
   SETTINGS_NAV_PHONE_ROWS,
   SETTINGS_NAV_ROWS,
+  settingsNavPage,
 } from "@exp/domain-contract/settings-nav"
+import settingsNavFixture from "@exp/domain-contract/fixtures/settings-nav.json"
+import { conceptIcon } from "@exp/ui"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import {
+  ASSISTANT_LABEL,
   flattenSettingsNav,
   NEW_AGENT_LABEL,
-  SETTINGS_AGENTS_GROUP,
   SETTINGS_NAV,
+  settingsNavListVisible,
   settingsRouteOf,
   settingsSectionLabel,
   type SettingsNavContext,
@@ -40,6 +45,7 @@ const permissionsFor = (role: `owner` | `member`): TeamPermissions => {
 }
 
 const items = SETTINGS_NAV.flatMap((group) => flattenSettingsNav(group.items))
+const SETTINGS_NAV_CASES = settingsNavFixture.nav.navCases
 const general = items.find((item) => item.label === `General`)!
 
 // Mirrors settings/index.tsx: bare /settings lands on the first visible item.
@@ -82,72 +88,84 @@ describe(`SETTINGS_NAV Issues entry`, () => {
   })
 })
 
-// SLOP-5: the admin-ish, owner-only sections (Storage, Import, Archived
-// boards) close the nav as one Advanced group — after Personal, so the index
-// redirect keeps landing on a team section.
-describe(`SETTINGS_NAV Advanced group (SLOP-5)`, () => {
-  const team: SettingsNavContext = { isCloud: false }
-  const advanced = SETTINGS_NAV.find((group) => group.group === `Advanced`)!
+// S-3 (settings-nav.json `nav`): the web nav IS the fixture's groups for
+// platform `web`, in order, every page with the fixture's label + icon; the
+// Features and Advanced groups and Personal > Voice are gone.
+describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
+  it(`has the fixture's web groups in order`, () => {
+    expect(SETTINGS_NAV.map((group) => [group.id, group.group])).toEqual(
+      SETTINGS_NAV_GROUPS.filter((group) => !group.platforms || group.platforms.includes(`web`)).map(
+        (group) => [group.id, group.label]
+      )
+    )
+    expect(SETTINGS_NAV.map((group) => group.group)).toEqual([`Team`, `Boards`, `Agents`, `Apps`, `Personal`])
+  })
 
-  it(`is the last group with Storage, Import and Archived boards`, () => {
-    expect(SETTINGS_NAV[SETTINGS_NAV.length - 1]).toBe(advanced)
-    expect(advanced.items.map((item) => [item.label, item.to])).toEqual([
-      [`Storage`, `/t/$teamSlug/settings/storage`],
-      [`Import`, `/t/$teamSlug/settings/import`],
-      [`Archived boards`, `/t/$teamSlug/settings/boards/archived`],
-    ])
-    // None of them is a Team or Boards entry any more.
-    for (const group of SETTINGS_NAV.filter((g) => g !== advanced)) {
-      expect(
-        group.items.some((item) =>
-          [`Storage`, `Import`, `Archived boards`].includes(item.label)
+  it(`orders every group's entries like the fixture, injected lists in place`, () => {
+    const entries = Object.fromEntries(
+      SETTINGS_NAV.map((group) => [
+        group.id,
+        group.entries.map((entry) => (entry.kind === `list` ? entry.list : entry.item.id)),
+      ])
+    )
+    expect(entries).toEqual({
+      team: [`general`, `members`, `issues`, `repositories`, `prompts`, `widget`, `storage`, `billing`, `import`],
+      boards: [`@boards`, `@new-board`, `archived-boards`],
+      agents: [`@assistant`, `@agents`, `@new-agent`, `mcp-servers`],
+      apps: [`@apps`, `@new-app`],
+      personal: [`account`, `notifications`, `security`],
+    })
+  })
+
+  it(`labels and draws every page like the fixture`, () => {
+    for (const item of items) {
+      const page = settingsNavPage(item.id)!
+      expect(item.label, item.id).toBe(page.label)
+      expect(item.icon, item.id).toBe(conceptIcon(page.icon as Parameters<typeof conceptIcon>[0]))
+    }
+  })
+
+  it.each(
+    SETTINGS_NAV_CASES.filter((navCase) => navCase.platform === `web`).map((navCase) => [navCase.name, navCase] as const)
+  )(`replays navCase %s`, (_name, navCase) => {
+    const permissions = permissionsFor(navCase.role as `owner` | `member`)
+    const context: SettingsNavContext = { isCloud: navCase.cloud }
+    const visible = Object.fromEntries(
+      SETTINGS_NAV.map((group) => [
+        group.id,
+        group.entries.flatMap((entry) =>
+          entry.kind === `list`
+            ? settingsNavListVisible(entry.list, permissions)
+              ? [entry.list]
+              : []
+            : entry.item.visible(permissions, context)
+              ? [entry.item.id]
+              : []
         ),
-        group.group
-      ).toBe(false)
-    }
+      ] as const).filter(([, ids]) => ids.length > 0)
+    )
+    expect(visible).toEqual(navCase.expected)
   })
 
-  it(`is owner-only`, () => {
-    for (const entry of advanced.items) {
-      expect(entry.visible(permissionsFor(`owner`), team)).toBe(true)
-      expect(entry.visible(permissionsFor(`member`), team)).toBe(false)
+  it(`keeps the owner-only pages and New entries from members`, () => {
+    const team: SettingsNavContext = { isCloud: true }
+    for (const id of [`general`, `widget`, `storage`, `import`, `archived-boards`, `billing`]) {
+      const item = items.find((entry) => entry.id === id)!
+      expect(item.visible(permissionsFor(`owner`), team), id).toBe(true)
+      expect(item.visible(permissionsFor(`member`), team), id).toBe(false)
     }
-  })
-})
-
-// EXP-238: the Personal group merges account settings into the one settings
-// surface. Always visible, and after every team group — the index redirect
-// must keep landing on a team section, never a personal one (SLOP-5: only the
-// owner-only Advanced group follows it).
-describe(`SETTINGS_NAV Personal group`, () => {
-  const team: SettingsNavContext = { isCloud: false }
-  const personal = SETTINGS_NAV.find((group) => group.group === `Personal`)!
-
-  // EXP-862: "API keys" became "Security" (keys + passkeys).
-  it(`follows every team group with Account, Notifications, Voice, and Security`, () => {
-    expect(SETTINGS_NAV[SETTINGS_NAV.length - 2]).toBe(personal)
-    expect(
-      SETTINGS_NAV.slice(0, SETTINGS_NAV.indexOf(personal)).map((g) => g.group)
-    ).toEqual([`Team`, `Boards`, `Agents`, `Apps`, `Features`])
-    expect(personal.items.map((item) => item.label)).toEqual([
-      `Account`,
-      `Notifications`,
-      `Voice`,
-      `Security`,
-    ])
-    expect(personal.items.map((item) => item.to)).toEqual([
-      `/t/$teamSlug/settings/account`,
-      `/t/$teamSlug/settings/notifications`,
-      `/t/$teamSlug/settings/voice`,
-      `/t/$teamSlug/settings/security`,
-    ])
+    for (const list of [`@new-board`, `@new-agent`, `@new-app`]) {
+      expect(settingsNavListVisible(list, permissionsFor(`member`)), list).toBe(false)
+      expect(settingsNavListVisible(list, permissionsFor(`owner`)), list).toBe(true)
+    }
+    expect(settingsNavListVisible(`@assistant`, permissionsFor(`member`))).toBe(true)
   })
 
-  it(`is visible to owners and plain members alike`, () => {
-    for (const item of personal.items) {
-      expect(item.visible(permissionsFor(`owner`), team)).toBe(true)
-      expect(item.visible(permissionsFor(`member`), team)).toBe(true)
-    }
+  it(`has no Voice page and titles the Assistant page`, () => {
+    expect(items.some((item) => item.label === `Voice`)).toBe(false)
+    expect(settingsSectionLabel(`assistant`)).toBe(ASSISTANT_LABEL)
+    expect(ASSISTANT_LABEL).toBe(`Assistant`)
+    expect(NEW_AGENT_LABEL).toBe(`New agent`)
   })
 })
 
@@ -172,48 +190,6 @@ describe(`SETTINGS_NAV General visibility`, () => {
   })
 })
 
-// SLOP-4: the helpdesk is gone — the Features group carries the ONE widget
-// page (owner-only) and MCP servers (EXP-792: member-VISIBLE, because every
-// member picks servers for a run; only the write controls inside the page
-// are owner-only).
-describe(`SETTINGS_NAV Features group (SLOP-4, EXP-792)`, () => {
-  const team: SettingsNavContext = { isCloud: false }
-  const features = SETTINGS_NAV.find((group) => group.group === `Features`)!
-
-  it(`lists Widget and MCP servers`, () => {
-    expect(features.items.map((item) => item.label)).toEqual([
-      `Widget`,
-      `MCP servers`,
-    ])
-    expect(features.items.map((item) => item.to)).toEqual([
-      `/t/$teamSlug/settings/widget`,
-      `/t/$teamSlug/settings/mcp-servers`,
-    ])
-  })
-
-  it(`keeps the widget page owner-only`, () => {
-    for (const item of features.items) {
-      expect(item.visible(permissionsFor(`owner`), team)).toBe(true)
-      expect(item.visible(permissionsFor(`member`), team)).toBe(
-        item.label === `MCP servers`
-      )
-    }
-  })
-})
-
-// EXP-862: the Boards group FLATTENS like the desktop nav — the per-board
-// rows and "New board" are injected at render, so nothing is static (SLOP-5
-// moved "Archived boards" to Advanced, EXP-1293 Repositories to Agents).
-describe(`SETTINGS_NAV Boards group (EXP-862)`, () => {
-  const boardsGroup = SETTINGS_NAV.find(
-    (group) => group.group === `Boards`
-  )!
-
-  it(`has no static entries, and no Boards list page`, () => {
-    expect(boardsGroup.items).toEqual([])
-  })
-})
-
 // EXP-557 per-user sharing: every member manages their own GitHub connection
 // in the Repositories section, so it is member-visible like Members/Labels.
 describe(`SETTINGS_NAV Repositories visibility (EXP-557)`, () => {
@@ -223,36 +199,6 @@ describe(`SETTINGS_NAV Repositories visibility (EXP-557)`, () => {
   it(`is visible to owners and plain members alike`, () => {
     expect(repositories.visible(permissionsFor(`owner`), team)).toBe(true)
     expect(repositories.visible(permissionsFor(`member`), team)).toBe(true)
-  })
-})
-
-// EXP-1293: team agents are managed like boards — the Agents group follows
-// Boards; one row per agent plus the owner-only "New agent" are injected at
-// render off the synced sessions shape, then Repositories closes the group.
-describe(`SETTINGS_NAV Agents group (EXP-1293)`, () => {
-  const agentsGroup = SETTINGS_NAV.find(
-    (group) => group.group === SETTINGS_AGENTS_GROUP
-  )!
-
-  it(`sits right after Boards with Repositories and Prompts as its static entries`, () => {
-    const names = SETTINGS_NAV.map((group) => group.group)
-    expect(names.indexOf(`Agents`)).toBe(names.indexOf(`Boards`) + 1)
-    expect(agentsGroup.items.map((item) => item.label)).toEqual([`Repositories`, `Prompts`])
-    expect(agentsGroup.items[0].to).toBe(`/t/$teamSlug/settings/repositories`)
-    expect(agentsGroup.items[1].to).toBe(`/t/$teamSlug/settings/prompts`)
-  })
-
-  // NEW-2: every member reads the team's prompts; writes are owner-only
-  // inside the section.
-  it(`shows Prompts to owners and plain members alike`, () => {
-    const team: SettingsNavContext = { isCloud: false }
-    const prompts = agentsGroup.items.find((item) => item.label === `Prompts`)!
-    expect(prompts.visible(permissionsFor(`owner`), team)).toBe(true)
-    expect(prompts.visible(permissionsFor(`member`), team)).toBe(true)
-  })
-
-  it(`labels the create entry with the fixture copy`, () => {
-    expect(NEW_AGENT_LABEL).toBe(`New agent`)
   })
 })
 
@@ -282,14 +228,11 @@ describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
     expect(settingsSectionLabel(id)).toBe(row.label)
   })
 
-  it(`lists every SETTINGS_NAV team/agents/features page, in order`, () => {
-    const derived = SETTINGS_NAV.filter((group) =>
-      [`Team`, `Boards`, `Agents`, `Features`].includes(group.group)
-    ).flatMap((group) => [
-      ...(group.items.length === 0 || group.group === `Agents` ? [group.group.toLowerCase()] : []),
-      ...flattenSettingsNav(group.items).map((entry) => entry.to.split(`/settings/`)[1]),
-    ])
-    expect(SETTINGS_NAV_ROWS.map((row) => row.id).filter((id) => id !== `devices`)).toEqual(derived)
+  it(`every row's page is in the web nav (or an injected list's group)`, () => {
+    for (const row of SETTINGS_NAV_ROWS) {
+      if (row.id === `devices` || row.id === `boards` || row.id === `agents`) continue
+      expect(items.some((item) => item.id === row.id), row.id).toBe(true)
+    }
   })
 
   it(`phoneRows are rows flagged phone, in order`, () => {

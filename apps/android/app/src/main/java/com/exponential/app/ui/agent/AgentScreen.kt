@@ -80,6 +80,17 @@ import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuConditions
+import com.exponential.app.domain.ComposerMenuSurface
+import com.exponential.app.domain.ComposerAgentRow
+import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.DevicePicker
+import com.exponential.app.ui.components.picker.DevicePickerDevice
+import com.exponential.app.ui.components.picker.ModelPicker
+import com.exponential.app.ui.components.picker.ModelPickerOption
+import com.exponential.app.ui.components.toPickerAccount
+import com.exponential.app.ui.components.deviceOptionLabel
+import com.exponential.app.ui.components.modelLabel
+import com.exponential.app.ui.components.modelOptionsFor
 import com.exponential.app.domain.ComposerMenuRowId
 import androidx.compose.foundation.lazy.LazyListScope
 import com.exponential.app.domain.mcpPickValue
@@ -148,8 +159,9 @@ import kotlinx.coroutines.launch
 /**
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
  * composer card ([AgentComposer]: subject chips, the message, images, the
- * labelled submit), the `@`/`#`/`:` candidate menu under it, the options line
- * ([AgentOptionsRow]) and the start captions, under the dawn
+ * labelled submit), the `@`/`#`/`:` candidate menu under it, S-3: the agent
+ * row over the card ([ComposerAgentRowView]; no options line, the runner
+ * picks are + rows) and the start captions, under the dawn
  * ([AgentPageFrame], FEED-100). The "+" opens THE composer menu
  * ([ComposerPlusMenuSheet], composer-menu.json). EXP-1291: a send is ONE
  * `sessions.send` new root in the current team; the page lands on it.
@@ -214,8 +226,21 @@ fun AgentScreen(
     val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
     val deviceWorktrees by dataViewModel.deviceWorktrees.collectAsStateWithLifecycle()
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
-    // NEW-3: the team's agents (Message an agent ›).
+    // S-3: the team's agents (the agent row over the card), the viewer's
+    // Assistant first.
     val agents by dataViewModel.agents.collectAsStateWithLifecycle()
+    val me by viewModel.me.collectAsStateWithLifecycle()
+    val chatRepoId by viewModel.chatRepoId.collectAsStateWithLifecycle()
+    // S-3 (composer-home.json `agentRow`): the last tap; a page mount starts
+    // on the default (the Assistant, else Temporary session) again.
+    var agentPick by remember { mutableStateOf<String?>(null) }
+    val agentRow = remember(agents, me, agentPick) { composerAgentRowState(agents, me, agentPick) }
+    val pickedAgentId = agentRow.agent?.agentId
+    LaunchedEffect(pickedAgentId) {
+        if (pickedAgentId != null) viewModel.pickAgent(pickedAgentId) else viewModel.clearAgent()
+    }
+    // S-3: the composer home makes sure the viewer has an Assistant.
+    LaunchedEffect(teamId) { viewModel.ensureAssistant() }
 
     // EXP-1291: an accepted send answers with its session — a NEW ROOT, i.e.
     // the thread itself — and the page lands there ONCE.
@@ -507,11 +532,11 @@ fun AgentScreen(
     var effortPickerOpen by remember { mutableStateOf(false) }
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
-    var agentPickerOpen by remember { mutableStateOf(false) }
 
     AgentPageFrame(
         onBack = onBack,
-        dawn = promptSubject == AgentComposerPrompt.Subject.None,
+        // S-3: an agent picked in the agent row is no subject headline.
+        dawn = promptSubject == AgentComposerPrompt.Subject.None || agentSubject != null,
         // EXP-1316 (1f): a board-less team's Getting started block sits
         // ABOVE the dawn (the column stands on the bottom).
         lead = {
@@ -561,7 +586,7 @@ fun AgentScreen(
                     // (web `LaunchHeadline` returns null, ×4): the field's
                     // placeholder already says "Ask the agent…", and the same
                     // sentence twice is not a heading.
-                    if (promptSubject != AgentComposerPrompt.Subject.None) {
+                    if (promptSubject != AgentComposerPrompt.Subject.None && agentSubject == null) {
                         item(key = "__composer_headline__") {
                             AgentComposerHeadline(
                                 headline = headline,
@@ -569,10 +594,16 @@ fun AgentScreen(
                                 onRemoveIssue = viewModel::toggleIssue,
                                 actionChip = selectedAction,
                                 onClearAction = viewModel::clearPrompt,
-                                agentChip = selectedAgent,
-                                onClearAgent = viewModel::clearAgent,
                             )
                         }
+                    }
+                    // S-3: THE agent row, `rowToCard` over the card.
+                    item(key = "__agent_row__") {
+                        ComposerAgentRowView(
+                            state = agentRow,
+                            onPick = { id -> agentPick = id },
+                            modifier = Modifier.padding(bottom = (ComposerAgentRow.ROW_TO_CARD - 6).dp.coerceAtLeast(0.dp)),
+                        )
                     }
                     item(key = "__composer__") {
                         AgentComposer(
@@ -664,27 +695,6 @@ fun AgentScreen(
                             )
                         }
                     }
-                    // NEW-3: a DM runs on the agent's device and login: the
-                    // options line hides.
-                    if (agentSubject == null) item(key = "__options__") {
-                        AgentOptionsRow(
-                            devices = candidateDevices.orEmpty(),
-                            device = device,
-                            onDeviceChange = viewModel::setDevice,
-                            launch = launch,
-                            // EXP-872: the settled machine's logins — picking
-                            // one sets the account AND its agent.
-                            accountOptions = accountOptionsFor(
-                                device,
-                                availableAgentsFor(device),
-                            ),
-                            onAccountChange = viewModel::selectAccount,
-                            onModelChange = viewModel::setModel,
-                            resumeCandidate = resumeCandidate,
-                            resume = resume,
-                            onResumeChange = viewModel::setResume,
-                        )
-                    }
                     item(key = "__captions__") {
                         Column(modifier = Modifier.padding(horizontal = 4.dp)) {
                             // EXP-836: the machine a play button named is not
@@ -740,9 +750,20 @@ fun AgentScreen(
 
     if (plusMenuOpen) {
         val claude = launch.agent == DEFAULT_AGENT
+        // S-3: Temporary session = today's launch (runner + work rows); an
+        // agent picked runs on its definition (add-file and Issue only).
+        val temporary = agentSubject == null
+        val accountOptions = accountOptionsFor(device, availableAgentsFor(device))
+        val account = accountOptions.firstOrNull { it.key == launch.accountKey } ?: accountOptions.firstOrNull()
         ComposerPlusMenuSheet(
             layout = ComposerMenu.composerMenuLayout(
+                ComposerMenuSurface.Launch,
                 ComposerMenuConditions(
+                    temporary = temporary,
+                    device = temporary,
+                    account = temporary,
+                    model = temporary,
+                    repositories = teamRepos.size > 1,
                     // NEW-39 / web composer-plus-menu.tsx: `sessions.send`
                     // carries no subagent model, the row hides; the picker
                     // stays as the shim.
@@ -752,7 +773,6 @@ fun AgentScreen(
                     // no subject owns it — the team's servers alone decide.
                     mcp = mcpServers.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
-                    agents = agents.isNotEmpty(),
                 ),
             ),
             codex = launch.agent == "codex",
@@ -767,28 +787,90 @@ fun AgentScreen(
             onRow = { row ->
                 plusMenuOpen = false
                 when (row) {
-                    // SLOP-28: these two push their search-list page inside
-                    // the menu ([ComposerPlusMenuSheet]) and never land here.
-                    ComposerMenuRowId.ImplementIssue -> Unit
                     ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.Subagents -> subagentPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true
-                    ComposerMenuRowId.MessageAgent -> agentPickerOpen = true
-                    ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
+                    // The submenus push their page inside the menu.
+                    else -> Unit
                 }
             },
             onUltracodeChange = viewModel::setUltracode,
             onComputerUseChange = viewModel::setComputerUse,
             onDismiss = { plusMenuOpen = false },
             issuePage = { close ->
-                AgentIssuePickerPage(
-                    issues = pool,
-                    checkedIds = issueSubject?.ids?.toSet().orEmpty(),
-                    onToggle = viewModel::toggleIssue,
-                    onDone = close,
-                )
+                if (temporary) {
+                    AgentIssuePickerPage(
+                        issues = pool,
+                        checkedIds = issueSubject?.ids?.toSet().orEmpty(),
+                        onToggle = viewModel::toggleIssue,
+                        onDone = close,
+                    )
+                } else {
+                    // A message to an agent: the pick inserts `#IDENT`.
+                    AgentIssueInsertPage(
+                        issues = pool,
+                        onPick = { option ->
+                            commitToken(insertIssueRef(composerField, option.identifier))
+                            close()
+                        },
+                    )
+                }
             },
+            values = mapOf(
+                ComposerMenuRowId.Device to device?.let(::deviceOptionLabel),
+                ComposerMenuRowId.Account to account?.toPickerAccount()?.email,
+                ComposerMenuRowId.Model to modelLabel(launch.model),
+                ComposerMenuRowId.Repository to teamRepos.firstOrNull { it.id == chatRepoId }?.fullName,
+            ),
+            // S-3: THE existing pickers' rows, inline in the pushed page.
+            pages = mapOf(
+                ComposerMenuRowId.Device to { close ->
+                    DevicePicker(
+                        devices = candidateDevices.orEmpty().map { row ->
+                            DevicePickerDevice(
+                                id = row.deviceId,
+                                name = deviceOptionLabel(row),
+                                icon = row.icon,
+                                isServer = row.isServer,
+                            )
+                        },
+                        value = device?.deviceId,
+                        onChange = viewModel::setDevice,
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+                ComposerMenuRowId.Account to { close ->
+                    AccountPicker(
+                        options = accountOptions.map { it.toPickerAccount() },
+                        value = account?.key,
+                        onChange = { key -> accountOptions.firstOrNull { it.key == key }?.let(viewModel::selectAccount) },
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+                ComposerMenuRowId.Model to { close ->
+                    ModelPicker(
+                        options = modelOptionsFor(launch.agent).map { ModelPickerOption(it, modelLabel(it)) },
+                        value = launch.model,
+                        onChange = viewModel::setModel,
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+                ComposerMenuRowId.Repository to { close ->
+                    Picker(
+                        items = teamRepos.map { PickerItem(it.id, it.fullName, icon = ExpIcons.settingsRepositories) },
+                        mode = PickerMode.Single,
+                        value = setOfNotNull(chatRepoId.takeIf { it.isNotEmpty() }),
+                        onChange = { picked -> picked.firstOrNull()?.let(viewModel::setChatRepo) },
+                        title = "Repository",
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+            ),
         )
     }
     if (effortPickerOpen) {
@@ -813,26 +895,6 @@ fun AgentScreen(
             title = SUBAGENT_MODEL_LABEL,
             open = true,
             onOpenChange = { open -> if (!open) subagentPickerOpen = false },
-        )
-    }
-    if (agentPickerOpen) {
-        // NEW-3 (composer-menu.json `message-agent`): THE Picker rows of the
-        // team's agents (icon + colour + name, single pick).
-        Picker(
-            items = agents.map { agent ->
-                PickerItem(
-                    agent.agentId,
-                    agent.name,
-                    icon = ExpIcons.byName(agent.icon) ?: ExpIcons.settingsAgents,
-                    color = com.exponential.app.ui.parseColor(agent.color),
-                )
-            },
-            mode = PickerMode.Single,
-            value = setOfNotNull(agentSubject?.id),
-            onChange = { picked -> picked.firstOrNull()?.let(viewModel::pickAgent) },
-            title = MESSAGE_AGENT_TITLE,
-            open = true,
-            onOpenChange = { open -> if (!open) agentPickerOpen = false },
         )
     }
     if (mcpPickerOpen) {
@@ -960,8 +1022,6 @@ internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
     }
 }
 
-/** NEW-3: the Message an agent › picker's title (composer-menu.json row label). */
-private const val MESSAGE_AGENT_TITLE = "Message an agent"
 
 /** NEW-2: the launch composer's `/` rows — the team's prompts (icon + name),
  *  under the card like the `@` / `:` rows. */

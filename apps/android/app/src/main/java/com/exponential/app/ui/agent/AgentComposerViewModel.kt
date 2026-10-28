@@ -98,6 +98,8 @@ internal fun composerPlaceholder(
     home: Boolean = false,
 ): String {
     if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
+    // S-3: an agent picked in the agent row keeps the home's question.
+    if (home && subject is ComposerSubject.Agent) return AgentHome.PLACEHOLDER
     return DomainContract.composerUiInstructionsPlaceholder
 }
 
@@ -173,7 +175,20 @@ class AgentComposerViewModel @Inject constructor(
     private val imagesApi: IssueImagesApi,
     private val issuesApi: IssuesApi,
     private val mcpServersApi: McpServersApi,
+    private val agentsApi: com.exponential.app.data.api.AgentsApi,
 ) : ViewModel() {
+
+    /** S-3: the viewer (the agent row's `me`). */
+    val me: StateFlow<String?> get() = auth.userId
+
+    /** S-3: the composer home calls `agents.ensureAssistant` on mount. */
+    fun ensureAssistant() {
+        val team = teamId.value
+        viewModelScope.launch {
+            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
+        }
+    }
+
 
     /** The route's one-shot preselection — applied once in `init`. */
     val seed: AgentComposerSeed = AgentComposerSeed.fromArgs(savedStateHandle)
@@ -316,6 +331,12 @@ class AgentComposerViewModel @Inject constructor(
      * shown.
      */
     private val _chatRepoId = MutableStateFlow("")
+    /** S-3: the + menu's Repository › (a team with more than one). */
+    val chatRepoId: StateFlow<String> = _chatRepoId
+
+    fun setChatRepo(repoId: String) {
+        _chatRepoId.value = repoId
+    }
 
     /** EXP-481: "Resume previous session" — ON whenever it is offerable; a
      * manual flip sticks for the page's lifetime. */

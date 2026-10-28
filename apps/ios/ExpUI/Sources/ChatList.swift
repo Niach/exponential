@@ -238,13 +238,90 @@ public struct AgentBubbleItem: Identifiable, Equatable {
     public let icon: String
     public let color: Color
     public let ring: Ring
+    /// S-3: the viewer's Assistant wears the brand mark, never its stored
+    /// icon/colour.
+    public let assistant: Bool
 
-    public init(id: String, name: String, icon: String, color: Color, ring: Ring) {
+    public init(id: String, name: String, icon: String, color: Color, ring: Ring, assistant: Bool = false) {
         self.id = id
         self.name = name
         self.icon = icon
         self.color = color
         self.ring = ring
+        self.assistant = assistant
+    }
+
+    public var glyph: AgentBubbleCircle.Glyph {
+        assistant ? .brand : .icon(icon, color)
+    }
+}
+
+/// THE agent bubble's circle (chats.json `shell.bubble`), shared by the Chats
+/// header's bubbles (66pt) and S-3's composer agent row (composer-home.json
+/// `agentRow`, 40pt): the glyph on a bg-muted disc inside a `ringGap`
+/// background gap, then the ring.
+public struct AgentBubbleCircle: View {
+    public enum Glyph: Equatable {
+        /// A registry glyph in its colour.
+        case icon(String, Color)
+        /// S-3: the Assistant's avatar = the Exponential brand mark in the
+        /// foreground colour.
+        case brand
+        /// S-3: the composer row's Temporary session = the concept glyph
+        /// (`ui-icon-placeholder`) in the muted foreground.
+        case temporary(String)
+    }
+
+    let glyph: Glyph
+    let size: CGFloat
+    let ringGap: CGFloat
+    let ringColor: Color
+    let ringWidth: CGFloat
+    /// The ring's slot outside the gap (the widest ring the circle wears),
+    /// so a ring change never resizes the disc.
+    let ringSlot: CGFloat
+
+    public init(
+        glyph: Glyph,
+        size: CGFloat = ChatListMetrics.bubble,
+        ringGap: CGFloat = ChatListMetrics.bubbleRing,
+        ringColor: Color,
+        ringWidth: CGFloat,
+        ringSlot: CGFloat = 2
+    ) {
+        self.glyph = glyph
+        self.size = size
+        self.ringGap = ringGap
+        self.ringColor = ringColor
+        self.ringWidth = ringWidth
+        self.ringSlot = ringSlot
+    }
+
+    private var inner: CGFloat { size - 2 * ringGap - 2 * ringSlot }
+    /// 26pt in the 66pt bubble, the same share at any size.
+    private var glyphSize: CGFloat { (inner * 26 / 56).rounded() }
+
+    public var body: some View {
+        ZStack {
+            Circle().stroke(ringColor, lineWidth: ringWidth)
+            Circle()
+                .fill(DesignTokens.Palette.muted)
+                .frame(width: inner, height: inner)
+            switch glyph {
+            case let .icon(name, color):
+                AppIcon(name, size: glyphSize, weight: .medium)
+                    .foregroundStyle(color)
+            case .brand:
+                // The static logo (FeedbackMark's still frame) without the
+                // feedback mark's test id.
+                MarkCanvas(color: .white, spans: FeedbackStates.Mark.staticSpans)
+                    .frame(width: glyphSize, height: glyphSize)
+            case let .temporary(name):
+                AppIcon(name, size: glyphSize, weight: .medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
 
@@ -252,6 +329,7 @@ public struct AgentBubbleItem: Identifiable, Equatable {
 /// icon in its colour on muted inside a 3pt background gap, the ring amber
 /// (needs you), foreground (unread) or a hairline — the name under it. The
 /// row scrolls sideways; a tap opens the agent's chat, a hold its menu.
+/// S-3: the viewer's Assistant first, with the brand mark.
 public struct AgentBubbles: View {
     let items: [AgentBubbleItem]
     let onTap: (String) -> Void
@@ -280,24 +358,13 @@ public struct AgentBubbles: View {
 
     private func bubble(_ item: AgentBubbleItem) -> some View {
         let size = ChatListMetrics.bubble
-        let inner = size - 2 * ChatListMetrics.bubbleRing - 4
+        let ring: (Color, CGFloat) = switch item.ring {
+        case .needsYou: (DesignTokens.Semantic.yellow, 2.5)
+        case .unread: (Color.white, 2.5)
+        case .none: (GlassTokens.strokeCard, GlassTokens.hairline * 2)
+        }
         return VStack(spacing: 6) {
-            ZStack {
-                switch item.ring {
-                case .needsYou:
-                    Circle().stroke(DesignTokens.Semantic.yellow, lineWidth: 2.5)
-                case .unread:
-                    Circle().stroke(Color.white, lineWidth: 2.5)
-                case .none:
-                    Circle().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline * 2)
-                }
-                Circle()
-                    .fill(DesignTokens.Palette.muted)
-                    .frame(width: inner, height: inner)
-                AppIcon(item.icon, size: 26, weight: .medium)
-                    .foregroundStyle(item.color)
-            }
-            .frame(width: size, height: size)
+            AgentBubbleCircle(glyph: item.glyph, ringColor: ring.0, ringWidth: ring.1)
             Text(item.name)
                 .font(.subheadline.weight(item.ring == .none ? .regular : .medium))
                 .foregroundStyle(.white.opacity(item.ring == .none ? TextOpacity.secondary : 1))

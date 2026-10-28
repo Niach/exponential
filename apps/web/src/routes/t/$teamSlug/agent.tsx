@@ -25,6 +25,7 @@ import { useSteerConfig } from "@/hooks/use-steer-config"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
+import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -51,8 +52,8 @@ const str = (value: unknown): string | undefined =>
 // EXP-1253: the team's AGENT page is HOME (composer-home.json): the team
 // index lands here. EXP-1293 (Threads v2, draft 1): top to bottom, centred,
 // the DAWN (FEED-100: the big Exponential mark's top half above the
-// composer), the composer ("What do you want to build?") and its options
-// line, then, while the team has no board, Getting started. No greeting, no
+// composer), S-3 the agent row over the composer ("What do you want to
+// build?"; composer-home.json `agentRow`), then, while the team has no board, Getting started. No greeting, no
 // history button, no recent list: Threads (the rail) is where past work
 // lives. EXP-1316 phones: the column stands at the BOTTOM (the dawn on the
 // card, the options row under it, keyboard-aware), Getting started above the
@@ -341,7 +342,19 @@ function ComposerPane({
   seed: LaunchSeed | null
   onSeedConsumed: () => void
 }) {
-  const model = useLaunchComposer({ teamId, devices, seed, onSeedConsumed })
+  const { data: authSession } = useSession()
+  // S-3: the viewer's Assistant exists before the agent row lists it.
+  useEnsureAssistant(teamId)
+  const model = useLaunchComposer({
+    teamId,
+    devices,
+    seed,
+    onSeedConsumed,
+    // S-3 (composer-home.json `agentRow`): the New-chat composer picks its
+    // recipient, the viewer's Assistant preselected.
+    agentRow: true,
+    me: authSession?.user?.id ?? null,
+  })
   return <LaunchComposer model={model} users={users} variant="home" />
 }
 

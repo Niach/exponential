@@ -1,6 +1,8 @@
-// FEED-160: a team agent's page replies EXACTLY like a thread — on a phone
-// THE floating composer capsule (`FloatingComposer`) over a Dock that carries
-// only the work bar's clearance; md+ keeps the composer inside the Dock.
+// S-3 (chats.json CHAT MODE): a team agent's chat IS the thread screen over
+// the viewer's conversation, with the agent's header parts; with no
+// conversation yet, the empty screen's composer (THE session composer)
+// opens one with `sessions.send({agentId})` — md+ inside the Dock, a phone
+// in THE floating composer capsule (FEED-160).
 // Lives under a `-` prefix so the route generator ignores it.
 import type { ComponentType, ReactNode } from "react"
 import { render, screen } from "@testing-library/react"
@@ -10,12 +12,14 @@ const mocks = vi.hoisted(() => ({
   isMobile: { current: false },
   conversation: { current: null as Record<string, unknown> | null },
   isMember: { current: true },
+  screen: { current: null as Record<string, unknown> | null },
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   createFileRoute: () => (options: Record<string, unknown>) => ({
     ...options,
     useParams: () => ({ teamSlug: `acme`, agentId: `agent-1` }),
+    useSearch: () => ({}),
   }),
   useNavigate: () => vi.fn(),
   redirect: vi.fn(),
@@ -61,7 +65,24 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useTeamSessions: () => ({ rows: mocks.conversation.current ? [mocks.conversation.current] : [] }),
-  useTreeMessages: () => [],
+  useSessionThread: (rootId: string | null) =>
+    rootId && mocks.conversation.current
+      ? {
+          view: { title: `x` },
+          root: mocks.conversation.current,
+          rows: [],
+          titles: new Map(),
+          pullRequests: [],
+          messagePage: {},
+        }
+      : { view: null, root: null, rows: [], titles: new Map(), pullRequests: [], messagePage: {} },
+}))
+vi.mock(`@/components/thread/thread-screen`, () => ({
+  validateThreadSearch: () => ({}),
+  ThreadScreen: (props: Record<string, unknown>) => {
+    mocks.screen.current = props
+    return <div data-testid="thread-screen" />
+  },
 }))
 vi.mock(`@/hooks/use-follow-scroll`, () => ({
   useFollowScroll: () => ({
@@ -82,24 +103,17 @@ vi.mock(`@/components/agent-session`, () => ({
   useSessionDock: () => ({ sources: {}, renderSheet: () => null, renderAction: () => null }),
 }))
 vi.mock(`@/components/session-composer`, () => ({
-  SessionComposer: ({ opaque, hideReplies }: { opaque?: boolean; hideReplies?: boolean }) => (
-    <div data-testid="session-composer" data-opaque={String(!!opaque)} data-hide-replies={String(!!hideReplies)} />
+  SessionComposer: ({ opaque, sessionId, agentId }: { opaque?: boolean; sessionId: string | null; agentId?: string }) => (
+    <div
+      data-testid="session-composer"
+      data-opaque={String(!!opaque)}
+      data-session={String(sessionId)}
+      data-agent={agentId}
+    />
   ),
-  SessionComposerReplies: ({ sessionId }: { sessionId: string }) => (
-    <div data-testid="composer-replies" data-session={sessionId} />
-  ),
-}))
-vi.mock(`@/components/thread/agent-channel`, () => ({
-  AgentChannel: () => <div data-testid="agent-channel" />,
-  AgentComposer: ({ opaque }: { opaque?: boolean }) => (
-    <div data-testid="agent-composer" data-opaque={String(!!opaque)} />
-  ),
-  useAgentChannelRows: () => ({ rows: [], tabs: [] }),
-  useAnswerMessage: () => ({ answer: vi.fn(), pending: new Set() }),
 }))
 vi.mock(`@/components/thread/thread-markdown`, () => ({ renderThreadText: (text: string) => text }))
 vi.mock(`@/components/thread/chat-menu`, () => ({ AgentHeaderMenu: () => null }))
-vi.mock(`@/components/thread/chat-header`, () => ({ AgentHeaderTitle: () => null }))
 vi.mock(`@/components/team/mobile-detail-header`, () => ({
   MobileDetailHeader: () => <div data-testid="mobile-header" />,
   HEADER_BUTTON_CLASS: ``,
@@ -130,38 +144,40 @@ beforeEach(() => {
   mocks.isMember.current = true
 })
 
-describe(`the agent page's composer`, () => {
-  it(`md+: the composer sits inside the Dock, no floating capsule`, () => {
+beforeEach(() => {
+  mocks.screen.current = null
+})
+
+describe(`the agent chat = THE thread screen`, () => {
+  it(`renders the thread screen over the conversation with the agent's header`, () => {
     mocks.conversation.current = conversationRow
     render(<Page />)
+    expect(screen.getByTestId(`thread-screen`)).toBeTruthy()
+    const props = mocks.screen.current!
+    expect((props.root as { id: string }).id).toBe(`c1`)
+    expect((props.agent as { name: string }).name).toBe(`Triage`)
+    expect(screen.queryByTestId(`session-composer`)).toBeNull()
+  })
+})
+
+describe(`the agent chat with no conversation yet`, () => {
+  it(`md+: the opening composer sits inside the Dock, no floating capsule`, () => {
+    render(<Page />)
     const dock = screen.getByTestId(`dock`)
-    expect(dock.getAttribute(`data-clearance`)).toBe(`false`)
-    expect(dock.querySelector(`[data-testid="session-composer"]`)).not.toBeNull()
+    const composer = dock.querySelector(`[data-testid="session-composer"]`)
+    expect(composer?.getAttribute(`data-session`)).toBe(`null`)
+    expect(composer?.getAttribute(`data-agent`)).toBe(`agent-1`)
     expect(screen.queryByTestId(`floating-composer`)).toBeNull()
   })
 
-  it(`phone: THE floating composer (as the thread page) over a clearance-only Dock`, () => {
+  it(`phone: the opening composer floats in THE capsule`, () => {
     mocks.isMobile.current = true
-    mocks.conversation.current = conversationRow
     render(<Page />)
-    const dock = screen.getByTestId(`dock`)
-    expect(dock.getAttribute(`data-clearance`)).toBe(`true`)
-    expect(dock.querySelector(`[data-testid="session-composer"]`)).toBeNull()
     const floating = screen.getByTestId(`floating-composer`)
     expect(floating.getAttribute(`data-placeholder`)).toBe(`Message Triage`)
-    const composer = floating.querySelector(`[data-testid="session-composer"]`)
-    expect(composer?.getAttribute(`data-opaque`)).toBe(`true`)
-    expect(composer?.getAttribute(`data-hide-replies`)).toBe(`true`)
-    expect(floating.querySelector(`[data-testid="composer-replies"]`)?.getAttribute(`data-session`)).toBe(`c1`)
-  })
-
-  it(`phone, no conversation yet: the opening composer floats the same way`, () => {
-    mocks.isMobile.current = true
-    render(<Page />)
-    expect(screen.getByTestId(`dock`).getAttribute(`data-clearance`)).toBe(`true`)
-    const floating = screen.getByTestId(`floating-composer`)
-    expect(floating.querySelector(`[data-testid="agent-composer"]`)?.getAttribute(`data-opaque`)).toBe(`true`)
-    expect(floating.querySelector(`[data-testid="composer-replies"]`)).toBeNull()
+    expect(
+      floating.querySelector(`[data-testid="session-composer"]`)?.getAttribute(`data-opaque`)
+    ).toBe(`true`)
   })
 
   it(`a non-member gets no composer on a phone`, () => {

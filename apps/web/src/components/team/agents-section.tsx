@@ -21,6 +21,8 @@ import {
   GlassSectionHeader,
   ListRow,
   Menu,
+  ModelPicker,
+  Picker,
   Pill,
   Prompt,
   SETTINGS_LIST_CLASS,
@@ -74,6 +76,16 @@ import {
 } from "@/components/trigger-fields"
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.json"
+import {
+  ASSISTANT_COPY,
+  ASSISTANT_SCHEDULES,
+  assistantScheduleOf,
+  assistantScheduleTriggers,
+  type AssistantScheduleId,
+} from "@exp/domain-contract/agent-settings"
+import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
+import { VoiceSettingsSection, type VoiceSettings } from "@/components/account/voice-settings-card"
+import { AssistantMark } from "@/components/team/assistant-mark"
 
 // EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
 // ×4) over the `agents` DEFINITION rows. Agents are managed exactly like
@@ -232,7 +244,14 @@ export function AgentSettingsPage({
 }) {
   const navigate = useNavigate()
   const creating = agent === null
-  const readOnly = !isOwner
+  // S-3 (agent-settings.json `assistant`): the member's Assistant renders
+  // `assistant.sections`: identity (name only, the brand mark), Runs on
+  // (device, account, model), Check in (THE Picker over the presets), Voice
+  // (the voice settings block), Instructions; no Delete. Only its owner
+  // reaches it (the server answers NOT_FOUND to anyone else), so it is never
+  // read-only.
+  const assistant = agent?.role === `assistant`
+  const readOnly = assistant ? false : !isOwner
   const devices = useAgentDevices(team.id)
 
   // ── identity ──
@@ -243,6 +262,7 @@ export function AgentSettingsPage({
   const [color, setColor] = useState(DEFAULT_AGENT_COLOR)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [pin, setPin] = useState<TriggerAccountPin>(EMPTY_PIN)
+  const [model, setModel] = useState<string | null>(null)
   const [triggers, setTriggers] = useState<AgentTrigger[]>([])
   const [instructions, setInstructions] = useState(``)
   const [savedInstructions, setSavedInstructions] = useState(``)
@@ -267,6 +287,7 @@ export function AgentSettingsPage({
     setColor(agent?.color ?? DEFAULT_AGENT_COLOR)
     setDeviceId(agent?.deviceId ?? null)
     setPin({ agent: agent?.cli ?? ``, account: agent?.account ?? `` })
+    setModel(agent?.model ?? null)
     setTriggers(readTriggers(agent?.triggers))
     setErrors([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -384,6 +405,28 @@ export function AgentSettingsPage({
     if (!creating) {
       quietly(update({ account: next.account || null }, () => setPin(previous)))
     }
+  }
+
+  // ── Model (the Assistant's Runs on) ──
+  const modelCli = pin.agent || lockedCli || `claude`
+  const modelOptions = useMemo(() => modelChoices(modelCli), [modelCli])
+  const pickModel = (next: string) => {
+    const previous = model
+    setModel(next)
+    quietly(update({ model: next }, () => setModel(previous)))
+  }
+
+  // ── Check in (the Assistant's ONE schedule preset) ──
+  const schedule = assistantScheduleOf(triggers)
+  const scheduleItems = ASSISTANT_SCHEDULES.map((preset) => ({ value: preset.id, label: preset.label }))
+  const pickSchedule = (id: AssistantScheduleId) => {
+    // A preset keeps the stored time zone (`scheduleCases`).
+    const tz = triggers.find((trigger) => trigger.kind === `schedule` && `tz` in trigger)
+    const zone = tz && `tz` in tz ? (tz.tz as string | undefined) : undefined
+    const next = assistantScheduleTriggers(id, zone).map(
+      (trigger) => ({ ...trigger, id: crypto.randomUUID() }) as AgentTrigger
+    )
+    quietly(writeTriggers(next))
   }
 
   // ── identity writes ──
@@ -589,6 +632,38 @@ export function AgentSettingsPage({
     limits: option.limits,
   }))
 
+  const deviceRow = (
+    <DevicePicker
+      triggerVariant="row"
+      mobileTitle="Device"
+      value={deviceId}
+      onChange={pickDevice}
+      devices={deviceRows(devices ?? [], deviceId)}
+      disabled={readOnly}
+      emptyText="No devices online"
+      data-testid="agent-device"
+    />
+  )
+  const accountRow =
+    accountPickerOptions.length > 0 ? (
+      <AccountPicker
+        variant="row"
+        mobileTitle="Account"
+        value={pickedAccount ? accountOptionKey(pickedAccount) : null}
+        options={accountPickerOptions}
+        onChange={pickAccount}
+        disabled={readOnly}
+        data-testid="agent-account"
+      />
+    ) : (
+      <div className="flex items-center gap-3 px-4 py-3 text-sm">
+        <span className="shrink-0 text-foreground">Account</span>
+        <span className="ml-auto truncate text-foreground/50">
+          {COPY.accountLastUsed}
+        </span>
+      </div>
+    )
+
   return (
     <div className="space-y-4" data-testid={AGENT_SETTINGS_TEST_IDS.page}>
       <div className="space-y-2">
@@ -597,7 +672,7 @@ export function AgentSettingsPage({
             name={name}
             onNameChange={changeName}
             onNameBlur={creating ? undefined : saveName}
-            placeholder={COPY.namePlaceholder}
+            placeholder={assistant ? ASSISTANT_COPY.name : COPY.namePlaceholder}
             icon={icon}
             onIconChange={pickIcon}
             color={color}
@@ -605,77 +680,94 @@ export function AgentSettingsPage({
             disabled={readOnly}
             invalid={Boolean(identityError)}
             autoFocus={creating}
+            lead={assistant ? <AssistantMark className="size-9" /> : undefined}
           />
-          <DevicePicker
-            triggerVariant="row"
-            mobileTitle="Device"
-            value={deviceId}
-            onChange={pickDevice}
-            devices={deviceRows(devices ?? [], deviceId)}
-            disabled={readOnly}
-            emptyText="No devices online"
-            data-testid="agent-device"
-          />
+          {!assistant && deviceRow}
         </GlassGroup>
-        <FieldError className="px-1">{identityError ?? deviceError}</FieldError>
+        <FieldError className="px-1">{identityError ?? (assistant ? null : deviceError)}</FieldError>
       </div>
 
-      <GlassGroup>
-        {accountPickerOptions.length > 0 ? (
-          <AccountPicker
-            variant="row"
-            mobileTitle="Account"
-            value={pickedAccount ? accountOptionKey(pickedAccount) : null}
-            options={accountPickerOptions}
-            onChange={pickAccount}
-            disabled={readOnly}
-            data-testid="agent-account"
-          />
-        ) : (
+      {assistant && (
+        <div className="space-y-2">
+          <GlassSectionHeader label={ASSISTANT_COPY.runsOn} />
+          <GlassGroup>
+            {deviceRow}
+            {accountRow}
+            <ModelPicker
+              triggerVariant="row"
+              width="md"
+              value={model}
+              onChange={pickModel}
+              models={modelOptions}
+              data-testid="assistant-model"
+            />
+          </GlassGroup>
+          <FieldError className="px-1">{deviceError}</FieldError>
+        </div>
+      )}
+
+      {assistant && (
+        <div>
+          <GlassSectionHeader label={ASSISTANT_COPY.checkIn} />
+          <GlassGroup>
+            <Picker
+              mode="single"
+              triggerVariant="row"
+              width="md"
+              mobileTitle={ASSISTANT_COPY.checkIn}
+              triggerLabel={ASSISTANT_COPY.checkIn}
+              value={schedule}
+              items={scheduleItems}
+              onChange={pickSchedule}
+              data-testid="assistant-check-in"
+            />
+          </GlassGroup>
+        </div>
+      )}
+
+      {assistant && agentId && <AssistantVoiceSection assistantId={agentId} />}
+
+      {!assistant && (
+        <GlassGroup>
+          {accountRow}
           <div className="flex items-center gap-3 px-4 py-3 text-sm">
-            <span className="shrink-0 text-foreground">Account</span>
-            <span className="ml-auto truncate text-foreground/50">
-              {COPY.accountLastUsed}
+            <span className="shrink-0 text-foreground">Triggers</span>
+            <span className="ml-auto flex min-w-0 items-center gap-2">
+              {triggers.length === 0 && (
+                <span className="truncate text-foreground/50">{COPY.noSchedule}</span>
+              )}
+              {!readOnly && (
+                <Pill
+                  mode="action"
+                  onClick={() => setTriggerDialog({ open: true, editing: null })}
+                  data-testid="agent-add-trigger"
+                >
+                  <UiAddIcon className="size-3" />
+                  {COPY.addTrigger}
+                </Pill>
+              )}
             </span>
           </div>
-        )}
-        <div className="flex items-center gap-3 px-4 py-3 text-sm">
-          <span className="shrink-0 text-foreground">Triggers</span>
-          <span className="ml-auto flex min-w-0 items-center gap-2">
-            {triggers.length === 0 && (
-              <span className="truncate text-foreground/50">{COPY.noSchedule}</span>
-            )}
-            {!readOnly && (
-              <Pill
-                mode="action"
-                onClick={() => setTriggerDialog({ open: true, editing: null })}
-                data-testid="agent-add-trigger"
-              >
-                <UiAddIcon className="size-3" />
-                {COPY.addTrigger}
-              </Pill>
-            )}
-          </span>
-        </div>
-        {triggers.map((trigger) => (
-          <AgentTriggerRow
-            key={trigger.id}
-            trigger={trigger}
-            readOnly={readOnly}
-            onToggle={(enabled) =>
-              quietly(
-                writeTriggers(
-                  triggers.map((existing) =>
-                    existing.id === trigger.id ? { ...existing, enabled } : existing
+          {triggers.map((trigger) => (
+            <AgentTriggerRow
+              key={trigger.id}
+              trigger={trigger}
+              readOnly={readOnly}
+              onToggle={(enabled) =>
+                quietly(
+                  writeTriggers(
+                    triggers.map((existing) =>
+                      existing.id === trigger.id ? { ...existing, enabled } : existing
+                    )
                   )
                 )
-              )
-            }
-            onEdit={() => setTriggerDialog({ open: true, editing: trigger })}
-            onDelete={() => setDeleteTrigger(trigger)}
-          />
-        ))}
-      </GlassGroup>
+              }
+              onEdit={() => setTriggerDialog({ open: true, editing: trigger })}
+              onDelete={() => setDeleteTrigger(trigger)}
+            />
+          ))}
+        </GlassGroup>
+      )}
 
       <div className="space-y-1">
         <GlassGroup>
@@ -726,7 +818,7 @@ export function AgentSettingsPage({
               </Button>
             </div>
           )
-        : isOwner && (
+        : isOwner && !assistant && (
             <div className="flex flex-wrap gap-2 pt-2">
               <Button
                 variant="destructive"
@@ -795,6 +887,45 @@ export function AgentSettingsPage({
           },
         ]}
       />
+    </div>
+  )
+}
+
+/** S-3: the Assistant page's Voice section, the voice settings block MOVED
+ *  here (agent-settings.json `assistant.sections`), minus its Voice device
+ *  and Agent rows. Loads the member's voice settings on open; a failed load
+ *  offers Retry (feedback-states.json). */
+function AssistantVoiceSection({ assistantId }: { assistantId: string }) {
+  const [settings, setSettings] = useState<VoiceSettings | null>(null)
+  const [failed, setFailed] = useState(false)
+  const load = useCallback((retried = false) => {
+    setFailed(false)
+    trpc.voice.get
+      .query()
+      .then(setSettings)
+      .catch((err: unknown) => {
+        setFailed(true)
+        if (retried) failedAction(`load`, `the voice settings`, err, { retry: () => load(true) })
+      })
+  }, [])
+  useEffect(() => load(), [load])
+  return (
+    <div data-testid="assistant-voice">
+      <GlassSectionHeader label={ASSISTANT_COPY.voice} />
+      {settings ? (
+        <VoiceSettingsSection settings={settings} assistantId={assistantId} />
+      ) : failed ? (
+        <GlassGroup>
+          <div className="flex items-center gap-3 px-4 py-3 text-sm text-muted-foreground">
+            <span className="min-w-0 flex-1">Voice settings unavailable</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => load(true)}>
+              {FEEDBACK_ERRORS.retry}
+            </Button>
+          </div>
+        </GlassGroup>
+      ) : (
+        <SkeletonRows dot={false} className="py-1" />
+      )}
     </div>
   )
 }
@@ -910,15 +1041,22 @@ export function AgentsListBand({
               key={agent.agentId}
               interactive
               onClick={() =>
-                void navigate({
-                  to: `/t/$teamSlug/settings/agents/$agentId`,
-                  params: { teamSlug: team.slug, agentId: agent.agentId },
-                })
+                // S-3: the viewer's Assistant (first) opens the Assistant page.
+                void (agent.assistant
+                  ? navigate({ to: `/t/$teamSlug/settings/assistant`, params: { teamSlug: team.slug } })
+                  : navigate({
+                      to: `/t/$teamSlug/settings/agents/$agentId`,
+                      params: { teamSlug: team.slug, agentId: agent.agentId },
+                    }))
               }
               className="gap-3 px-3 py-2 text-sm"
               data-testid={`agents-list-row-${agent.agentId}`}
             >
-              <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+              {agent.assistant ? (
+                <AssistantMark />
+              ) : (
+                <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+              )}
               <span className="min-w-0 flex-1 truncate font-medium">{agent.name}</span>
             </ListRow>
           ))}

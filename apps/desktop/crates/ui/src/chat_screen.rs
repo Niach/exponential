@@ -45,7 +45,6 @@
 //! becomes the STARTING row (the mark, "Starting on <device>", elapsed)
 //! until the send answers, or the 30 s timeout toast offers Retry.
 
-use crate::controls::PointerMenuButtonExt as _;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -75,7 +74,7 @@ use crate::composer_images::{self, PendingImages};
 use crate::device_readiness;
 use crate::icons::registry;
 use crate::picker::issue_picker::{self, IssueRow};
-use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
+use crate::launch_options::{self, LaunchOptionsSection};
 use crate::mention_input::MentionInput;
 use crate::navigation::{self, ChatSeed, Navigation, Screen};
 use crate::queries;
@@ -104,9 +103,12 @@ const PAGE_MARK_FADE_STEPS: usize = 12;
 /// EXP-1249: the composer "+" menu's words (web `launch-composer.tsx`'s
 /// menu, the styleguide `menu` entry's composer specimen).
 pub(crate) const PLUS_TOOLTIP: &str = "Add";
-pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Implement issue";
-pub(crate) const MENU_MESSAGE_AGENT: &str = "Message an agent";
-pub(crate) const MENU_ADD_FILE: &str = "Add file or image";
+pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Issue";
+pub(crate) const MENU_ADD_FILE: &str = "Photo or file";
+pub(crate) const MENU_DEVICE: &str = "Device";
+pub(crate) const MENU_ACCOUNT: &str = "Account";
+pub(crate) const MENU_MODEL: &str = "Model";
+pub(crate) const MENU_REPOSITORY: &str = "Repository";
 pub(crate) const MENU_SUBAGENTS: &str = "Subagents";
 pub(crate) const MENU_ULTRACODE: &str = "Ultracode";
 pub(crate) const MENU_MCP_SERVERS: &str = "MCP servers";
@@ -167,20 +169,6 @@ fn device_agent_status(
     )
 }
 
-/// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
-/// owner's PICK when the row carries one, and otherwise the kind default the
-/// Devices list and Getting started wear (the headless CLI daemon is a SERVER,
-/// everything else a desktop). An unsynced row reads as a plain desktop, which
-/// is what this IDE is.
-fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
-    // EXP-1030: through the ONE resolver the device picker's rows go through,
-    // so the pin's glyph and its menu's glyphs cannot come apart.
-    crate::icons::device_icon(
-        Some(crate::launch_options::device_glyph_name(device_id, cx)),
-        false,
-    )
-}
-
 /// The checked issues and everything their launch needs.
 struct IssueSubject {
     /// The picker's pool (open team issues + the seeded ones).
@@ -193,12 +181,6 @@ struct IssueSubject {
 /// The picked saved prompt (NEW-2: prompts replaced actions; no inputs).
 struct ActionSubject {
     action_id: String,
-}
-
-/// NEW-3: the picked team agent — the message goes into the caller's DM
-/// with it (`sessions.send({agentId})`).
-struct AgentSubject {
-    agent_id: String,
 }
 
 /// EXP-868: what [`ChatScreenView::team_pool`] is valid for.
@@ -215,8 +197,6 @@ enum Subject {
     None,
     Issues(IssueSubject),
     Action(ActionSubject),
-    /// NEW-3: a message to a team agent.
-    Agent(AgentSubject),
 }
 
 /// EXP-696: the machine the run starts on.
@@ -286,6 +266,9 @@ pub(crate) struct ChatScreenView {
     /// composer card draws the chrome, so the widget draws none of its own.
     mention: Entity<MentionInput>,
     subject: Subject,
+    /// S-3: the agent row's last tap (`None` = the default: the Assistant,
+    /// else Temporary session; a page mount starts on it again).
+    agent_pick: Option<String>,
     /// Stale-probe guard (old results must not land after a subject swap).
     probe_generation: u64,
     /// The team's saved prompts — live off the synced `prompts` shape;
@@ -456,6 +439,7 @@ impl ChatScreenView {
             placeholder: CHAT_PLACEHOLDER.into(),
             mention,
             subject: Subject::None,
+            agent_pick: None,
             probe_generation: 0,
             actions: Vec::new(),
             actions_ready: false,
@@ -528,10 +512,10 @@ impl ChatScreenView {
     /// The device a start goes to, by its picker label (NEW-3: a message
     /// to an agent names the agent).
     fn start_device_label(&self, cx: &App) -> String {
-        if let Subject::Agent(_) = &self.subject {
+        if self.to_agent(cx) {
             return self
                 .selected_agent(cx)
-                .map(|agent| agent.name)
+                .and_then(|agent| agent.name)
                 .unwrap_or_else(|| "the agent".to_string());
         }
         self.selected_device()
@@ -682,6 +666,12 @@ impl ChatScreenView {
         }
         self.team_id = team_id.clone();
         self.subject = Subject::None;
+        self.agent_pick = None;
+        // S-3: the viewer's Assistant is created on first use (once per team
+        // per app run).
+        if let Some(team_id) = team_id.as_deref() {
+            crate::session_data::ensure_assistant(team_id, cx);
+        }
         self.probe_generation += 1;
         self.mention.update(cx, |mention, _| {
             mention.set_source(team_id.clone().map(crate::markdown::store_completion_source));
@@ -1008,34 +998,39 @@ impl ChatScreenView {
 
     // ── subject: agent (NEW-3) ────────────────────────────────────────────
 
-    /// The team's agents as the rail lists them (the synced `agents` rows).
-    fn team_agents(&self, cx: &App) -> Vec<domain::session_tree::AgentRow> {
-        self.team_id
-            .as_deref()
-            .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
-            .unwrap_or_default()
-    }
-
-    /// The subject agent's row (`None` while it is not synced, or no agent).
-    fn selected_agent(&self, cx: &App) -> Option<domain::session_tree::AgentRow> {
-        let Subject::Agent(subject) = &self.subject else {
-            return None;
+    /// S-3: the agent row above the card (composer-home.json `agentRow`):
+    /// the viewer's Assistant first, the team agents they see, then the
+    /// dotted Temporary session; `agent_pick` = the last tap.
+    fn team_agent_defs(&self, cx: &App) -> Vec<domain::rows::AgentDefRow> {
+        let Some(team_id) = self.team_id.as_deref() else {
+            return Vec::new();
         };
-        self.team_agents(cx)
-            .into_iter()
-            .find(|agent| agent.agent_id == subject.agent_id)
+        Store::global(cx)
+            .collections()
+            .agents
+            .read(cx)
+            .iter()
+            .filter(|agent| agent.team_id.as_deref() == Some(team_id))
+            .cloned()
+            .collect()
     }
 
-    /// Whether the composer is messaging an agent (no device, no options).
-    fn to_agent(&self) -> bool {
-        matches!(self.subject, Subject::Agent(_))
+    /// The agent the row picks (`None` = Temporary session).
+    fn selected_agent(&self, cx: &App) -> Option<domain::rows::AgentDefRow> {
+        let defs = self.team_agent_defs(cx);
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let state = domain::composer_agent_row::composer_agent_row(&defs, me.as_deref(), self.agent_pick.as_deref());
+        state.agent.cloned()
     }
 
-    /// "+" → Message an agent ›'s pick: the agent becomes the ONE subject
-    /// (issues or a prompt, if any, are swapped out).
-    fn pick_agent(&mut self, agent_id: String, cx: &mut gpui::Context<Self>) {
-        self.probe_generation += 1;
-        self.subject = Subject::Agent(AgentSubject { agent_id });
+    /// Whether the send goes to an agent (no device, no runner rows).
+    fn to_agent(&self, cx: &App) -> bool {
+        self.selected_agent(cx).is_some()
+    }
+
+    /// A tap on the agent row (tapping the selected circle keeps it).
+    pub(crate) fn pick_agent(&mut self, pick: String, cx: &mut gpui::Context<Self>) {
+        self.agent_pick = Some(pick);
         cx.notify();
     }
 
@@ -1369,7 +1364,6 @@ impl ChatScreenView {
                 count: issues.checked.len(),
             },
             Subject::Action(_) => SubjectKind::Action,
-            Subject::Agent(_) => SubjectKind::Agent,
         }
     }
 
@@ -1385,10 +1379,7 @@ impl ChatScreenView {
         }
         // NEW-3: a DM runs on the agent's own device and login: the
         // composer's machine and its readiness never gate it.
-        if self.to_agent() {
-            if self.selected_agent(cx).is_none() {
-                return Some("Select an agent.".into());
-            }
+        if self.to_agent(cx) {
             let text = self.input.read(cx).value().to_string();
             return chat_launch::text_blocker(&SubjectKind::Agent, &text, self.images.len())
                 .map(Into::into);
@@ -1456,7 +1447,6 @@ impl ChatScreenView {
                 }
                 chat_launch::repo_blocker(&issues.rows, &issues.checked, &issues.repos).map(Into::into)
             }
-            Subject::Agent(_) => None,
         }
     }
 
@@ -1571,9 +1561,26 @@ impl ChatScreenView {
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
-        if let Subject::Agent(subject) = &self.subject {
-            let agent_id = subject.agent_id.clone();
-            self.send_to_agent(team_id, agent_id, text, attachment_ids, window, cx);
+        // S-3: an agent picked in the row = ONE sessions.send({agentId})
+        // into the viewer's conversation with it; picked issues ride as
+        // `#IDENT` references.
+        if let Some(agent) = self.selected_agent(cx) {
+            let mut text = text;
+            if let Subject::Issues(issues) = &self.subject {
+                let refs: Vec<String> = issues
+                    .rows
+                    .iter()
+                    .filter(|row| issues.checked.contains(&row.issue_id))
+                    .map(|row| format!("#{}", row.identifier))
+                    .collect();
+                if !refs.is_empty() {
+                    if !text.trim().is_empty() {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(&refs.join(" "));
+                }
+            }
+            self.send_to_agent(team_id, agent.id, text, attachment_ids, window, cx);
             return;
         }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
@@ -1605,8 +1612,6 @@ impl ChatScreenView {
                     ..Default::default()
                 }
             }
-            // Sent by `send_to_agent` above.
-            Subject::Agent(_) => return,
         };
         let Some(trpc) = queries::trpc_client(cx) else {
             self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
@@ -1887,16 +1892,6 @@ impl ChatScreenView {
                         .into_any_element(),
                 );
             }
-            Subject::Agent(_) => {
-                chips.push(
-                    agent_chip(
-                        self.selected_agent(cx).as_ref(),
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.clear_subject(cx)),
-                        cx,
-                    )
-                    .into_any_element(),
-                );
-            }
         }
         // EXP-1155: 30 issue chips wrap into many rows; past the cap
         // they scroll in their own band beside the verb, never the dialog.
@@ -2096,13 +2091,8 @@ impl ChatScreenView {
         let picker_fit =
             issue_picker::popover_fit(bounds, viewport, issue_picker::POPOVER_WANTED_HEIGHT);
         let options = self.launch.as_ref().map(|launch| launch.composer_menu(cx));
-        // NEW-3: Message an agent › lists the team's agents, the subject's
-        // one checked.
-        let agents = self.team_agents(cx);
-        let picked_agent = match &self.subject {
-            Subject::Agent(subject) => Some(subject.agent_id.clone()),
-            _ => None,
-        };
+        let temporary = !self.to_agent(cx);
+        let runner = self.runner_menu(cx);
         // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`): the
         // home page opens its "+" menu once, on the first render that has
         // the full menu (the launch cluster), synced issues, a measured +
@@ -2122,7 +2112,7 @@ impl ChatScreenView {
             .disabled(self.sending);
         let menu = crate::controls::PointerMenu::new("chat-tool-plus-menu", trigger, {
             move |menu, window, cx| {
-                plus_menu(menu, &view, options.as_ref(), &agents, picked_agent.as_deref(), window, cx)
+                plus_menu(menu, &view, options.as_ref(), &runner, temporary, window, cx)
             }
         })
         .anchor(menu_fit.0)
@@ -2160,165 +2150,50 @@ impl ChatScreenView {
             .into_any_element()
     }
 
-    /// The Device pin: this machine first, then the online remote ones. A
-    /// single candidate reads as a label; an offline sticky pick keeps the
-    /// menu so the run can be re-pointed.
-    fn device_pin(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let offline = self.offline_pick();
-        let label = match offline {
-            Some(label) => format!("{label} — offline"),
-            None => self
-                .selected_device()
-                .map(|device| device.label.clone())
-                .unwrap_or_else(|| "This device".to_string()),
-        };
-        let candidates = self.device.devices.clone();
-        if candidates.len() < 2 && offline.is_none() {
-            // EXP-862: no menu with one device, but the kind glyph still
-            // leads the value (web `InlinePicker`'s one-option arm).
-            let kind = self
-                .device
-                .device_id
-                .as_deref()
-                .map(|id| device_kind_icon(id, cx))
-                .unwrap_or(registry::UI_DEVICE);
-            return h_flex()
-                .px_1()
-                .gap_1()
-                .items_center()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(Icon::new(kind).size(gpui::px(12.)))
-                .child(SharedString::from(label))
-                .into_any_element();
-        }
-        let bound = self.device.device_id.clone();
-        // EXP-862: the machine's KIND leads the trigger AND every row — a
-        // picker whose value wears an icon offers that icon on its items.
-        // EXP-1030: the rows and their glyphs are THE device picker's now
-        // ([`crate::picker::device_picker`]); only the inline pin trigger is
-        // the composer's own.
-        let selected_kind = self
-            .device
-            .device_id
-            .as_deref()
-            .map(|id| device_kind_icon(id, cx))
-            .unwrap_or(registry::UI_DEVICE);
-        let rows = crate::launch_options::launch_device_rows(&candidates, cx);
+    /// S-3 — THE agent row (composer-home.json `agentRow`): the label line,
+    /// then the single-select circles (the chats agent bubble at the row's
+    /// size), the dotted Temporary-session circle last.
+    fn render_agent_row(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let defs = self.team_agent_defs(cx);
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let state = domain::composer_agent_row::composer_agent_row(&defs, me.as_deref(), self.agent_pick.as_deref());
         let view = cx.entity().downgrade();
-        let trigger = crate::launch_options::inline_pin_trigger_with(
-            "chat-pin-device".into(),
-            Some(selected_kind),
-            label,
+        crate::chat_list::composer_agent_row(
+            &state,
+            std::rc::Rc::new(move |pick: String, _: &mut Window, cx: &mut App| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| this.pick_agent(pick, cx));
+                }
+            }),
             cx,
         )
-        .into_any_element();
-        crate::picker::deferred(move |window, cx| {
-            crate::picker::device_picker::device_picker(
-                &rows,
-                bound.clone(),
-                trigger,
-                Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
-                    let Some(device_id) = values.into_iter().next() else {
-                        return;
-                    };
-                    if let Some(view) = view.upgrade() {
-                        view.update(cx, |this, cx| {
-                            this.set_device(device_id, window, cx);
-                            cx.notify();
-                        });
-                    }
-                }),
-            )
-            .id("chat-pin-device-picker")
-            .render(window, cx)
-        })
-        .into_any_element()
     }
 
-    /// EXP-993: the Repository pin (no subject only), offered ONLY
-    /// while the team has more than one repo. One repo is not a choice (it is
-    /// already pre-picked), and there is no "No repository" entry any more: a
-    /// session runs somewhere the person can name, never in an unexplained
-    /// scratch dir picked by default.
-    fn repo_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if self.team_repos.len() < 2 {
-            return None;
-        }
-        let repos = self.team_repos.clone();
-        let label = match &self.chat_repo {
-            Some(repo) => repo.full_name.clone(),
-            None => repos[0].full_name.clone(),
+    /// S-3: the Device / Account / Model / Repository submenus' state (the
+    /// options line's pins moved into the "+").
+    fn runner_menu(&self, cx: &mut gpui::Context<Self>) -> RunnerMenu {
+        let mut runner = RunnerMenu {
+            devices: self
+                .device
+                .devices
+                .iter()
+                .map(|device| (device.device_id.clone(), device.label.clone()))
+                .collect(),
+            device_picked: self.device.device_id.clone(),
+            repos: self.team_repos.clone(),
+            repo_picked: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
+            ..RunnerMenu::default()
         };
-        let picked = self.chat_repo.as_ref().map(|repo| repo.id.clone());
-        let view = cx.entity().downgrade();
-        Some(
-            inline_pin_trigger("chat-pin-repo".into(), label, cx)
-                .pointer_menu(move |mut menu, _window, _cx| {
-                    menu = crate::pickers::single_select_menu(menu);
-                    for repo in &repos {
-                        let view = view.clone();
-                        let repo = repo.clone();
-                        let checked = picked.as_deref() == Some(repo.id.as_str());
-                        menu = menu.item(
-                            crate::controls::pointer_label_item(repo.full_name.clone(), false)
-                                .checked(checked)
-                                .on_click(move |_, _, cx| {
-                                    let repo = repo.clone();
-                                    if let Some(view) = view.upgrade() {
-                                        view.update(cx, |view, cx| {
-                                            view.chat_repo = Some(repo);
-                                            cx.notify();
-                                        });
-                                    }
-                                }),
-                        );
-                    }
-                    menu
-                })
-                .into_any_element(),
-        )
+        if let Some(launch) = self.launch.as_ref() {
+            runner.accounts = launch.account_options(cx);
+            runner.account_picked = launch.account_key();
+            let (models, picked) = launch.model_menu(cx);
+            runner.models = models;
+            runner.model_picked = picked;
+        }
+        runner
     }
 
-    /// EXP-991 — options row B    /// EXP-991 — options row B: Device · Account · Model · Plan (·
-    /// Repository).
-    ///
-    /// EXP-872 dropped the Agent pin: the ACCOUNT pin carries its agent, so
-    /// the row names the login a run spends rather than the brand twice.
-    /// EXP-1249 dropped the `⋯`: Effort, Subagents, Ultracode, MCP servers
-    /// and Computer use live in the "+" menu ([`plus_menu`]).
-    fn render_options_row(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let has_launch = self.launch.is_some();
-        let mut row = h_flex()
-            .w_full()
-            .min_w_0()
-            .flex_wrap()
-            .gap_1()
-            .items_center()
-            .px_1()
-            .text_xs()
-            .text_color(muted)
-            .child(self.device_pin(cx));
-        if has_launch {
-            row = row
-                // EXP-872: WHICH LOGIN a run spends is the first decision on
-                // the line, and it is also the agent pick.
-                .children(self.launch_ref().account_pin("chat", Self::launch_access, cx))
-                .child(self.launch_ref().model_pin("chat", Self::launch_access, cx));
-        }
-        if matches!(self.subject, Subject::None) {
-            row = row.children(self.repo_pin(cx));
-        }
-        // N-14: THE options row is a row host — an inline pin (a dialog's
-        // Device or Account) opens its rows UNDER the row, the pins stay.
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_1()
-            .child(crate::picker::InlinePickerRow::new("chat-options-row", row))
-            .into_any_element()
-    }
 }
 
 impl Focusable for ChatScreenView {
@@ -2376,7 +2251,7 @@ impl ChatScreenView {
         // EXP-1196: a device/agent failure renders as THE failing readiness
         // row (with its action) instead of a sentence.
         // NEW-3: a DM runs on the agent's own device: no machine notes.
-        let to_agent = self.to_agent();
+        let to_agent = self.to_agent(cx);
         // EXP-1375: else the low-disk warning row (the start stays enabled).
         let readiness = self
             .readiness_blocker(cx)
@@ -2451,8 +2326,10 @@ impl ChatScreenView {
         // NEW-3: an agent subject HIDES the options line (Device · Account ·
         // Model · Plan · Repository): the DM runs on the agent's own device
         // and login.
+        // S-3: NO options line under the card (Device, Account, Model and
+        // Repository are "+" rows now): only the STARTING row while a start
+        // is out.
         let options = match &self.starting {
-            _ if to_agent => None,
             Some(starting) => Some(div()
                 .w_full()
                 .min_w_0()
@@ -2465,7 +2342,7 @@ impl ChatScreenView {
                     cx,
                 ))
                 .into_any_element()),
-            None => Some(self.render_options_row(cx)),
+            None => None,
         };
         let muted = cx.theme().muted_foreground;
         let mut notes = v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs();
@@ -2508,6 +2385,9 @@ impl ChatScreenView {
             // verb plus the subject's chips, with the card (and its muted
             // placeholder) reading as the secondary one under it.
             .children(headline)
+            // S-3: the agent row stands directly above the card (the page
+            // only: a play button's dialog always starts a session).
+            .children((!self.in_dialog()).then(|| self.render_agent_row(cx)))
             .child(
                 crate::composer::glass_composer(composer)
                     .capture_action(cx.listener(Self::on_paste)),
@@ -2696,15 +2576,18 @@ struct OpenComposerDialog(gpui::WeakEntity<ChatScreenView>);
 impl gpui::Global for OpenComposerDialog {}
 
 /// EXP-1249 — one row of the "+" menu, in `fixtures/composer-menu.json`
-/// `rows` order ([`composer_menu_rows`] decides which render).
+/// `rows` order ([`composer_menu_rows`] decides which render). S-3: the
+/// runner submenus (Device, Account, Model, Repository) are rows now; the
+/// `message-agent` row is gone (the agent row above the card picks).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ComposerMenuRow {
-    ImplementIssue,
-    /// NEW-3: Message an agent › (`when: agents`): THE Picker rows of the
-    /// team's agents, single pick.
-    MessageAgent,
     AddFile,
+    ImplementIssue,
     Separator,
+    Device,
+    Account,
+    Model,
+    Repository,
     Effort,
     Subagents,
     Ultracode,
@@ -2716,10 +2599,13 @@ impl ComposerMenuRow {
     /// The row's CONCEPT icon (the fixture's `icon`); a separator has none.
     pub(crate) fn icon(self) -> Option<crate::icons::ExpIcon> {
         Some(match self {
-            Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
-            Self::MessageAgent => registry::SETTINGS_AGENTS,
             Self::AddFile => registry::UI_ATTACH,
+            Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
             Self::Separator => return None,
+            Self::Device => registry::NAV_DEVICES,
+            Self::Account => registry::SETTINGS_ACCOUNT,
+            Self::Model => registry::CODING_ASSISTANT,
+            Self::Repository => registry::SETTINGS_REPOSITORIES,
             Self::Effort => registry::UI_ESTIMATE,
             Self::Subagents => registry::CODING_SUBAGENT,
             Self::Ultracode => registry::ACTION_DEFAULT,
@@ -2728,66 +2614,129 @@ impl ComposerMenuRow {
         })
     }
 
-    fn menu_icon(self) -> Icon {
+    pub(crate) fn menu_icon(self) -> Icon {
         Icon::new(self.icon().unwrap_or(registry::UI_ADD))
     }
+
+    /// The fixture's `label` (Effort: the claude word; codex reads
+    /// `codexLabel`, [`coding::CodingAgent::effort_label`]).
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::AddFile => MENU_ADD_FILE,
+            Self::ImplementIssue => MENU_IMPLEMENT_ISSUE,
+            Self::Separator => "",
+            Self::Device => MENU_DEVICE,
+            Self::Account => MENU_ACCOUNT,
+            Self::Model => MENU_MODEL,
+            Self::Repository => MENU_REPOSITORY,
+            Self::Effort => "Effort",
+            Self::Subagents => MENU_SUBAGENTS,
+            Self::Ultracode => MENU_ULTRACODE,
+            Self::McpServers => MENU_MCP_SERVERS,
+            Self::ComputerUse => MENU_COMPUTER_USE,
+        }
+    }
+
+    /// The fixture's `surfaces`.
+    fn surfaces(self) -> &'static [ComposerSurface] {
+        use ComposerSurface::*;
+        match self {
+            Self::AddFile | Self::ImplementIssue | Self::Separator | Self::Device | Self::Account | Self::Model => {
+                &[Launch, Session, Agent]
+            }
+            _ => &[Launch],
+        }
+    }
+
+    /// The fixture's `when` (all must hold).
+    fn when(self, c: &ComposerMenuConditions) -> bool {
+        match self {
+            Self::AddFile | Self::ImplementIssue | Self::Separator => true,
+            Self::Device => c.device,
+            Self::Account => c.account,
+            Self::Model => c.model,
+            Self::Repository => c.temporary && c.repositories,
+            Self::Effort => c.temporary,
+            Self::Subagents => c.temporary && c.subagent_model,
+            Self::Ultracode => c.temporary && c.ultracode,
+            Self::McpServers => c.temporary && c.mcp,
+            Self::ComputerUse => c.temporary && c.computer_use,
+        }
+    }
+}
+
+/// S-3: which composer the "+" sits on (a row's `surfaces`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComposerSurface {
+    Launch,
+    Session,
+    Agent,
 }
 
 /// The fixture's `conditions`: which `when` rows hold.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ComposerMenuConditions {
+    /// Launch: the agent row picks Temporary session.
+    pub(crate) temporary: bool,
+    pub(crate) device: bool,
+    pub(crate) account: bool,
+    pub(crate) model: bool,
+    /// The team has more than one repository.
+    pub(crate) repositories: bool,
     pub(crate) subagent_model: bool,
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
     pub(crate) computer_use: bool,
-    /// NEW-3: the team has at least one agent (`agents` rows).
-    pub(crate) agents: bool,
 }
 
 impl ComposerMenuConditions {
-    /// The conditions off the launch cluster's menu state and the team's
-    /// agents (the rail's rows, [`crate::session_data::agents_in_team`]).
-    pub(crate) fn of(
-        options: &launch_options::ComposerMenu,
-        agents: &[domain::session_tree::AgentRow],
-    ) -> Self {
+    /// The LAUNCH composer's conditions off the cluster's menu state, the
+    /// agent row's pick and the team's repositories.
+    pub(crate) fn launch(options: &launch_options::ComposerMenu, temporary: bool, repositories: usize) -> Self {
         Self {
+            temporary,
+            device: temporary,
+            account: temporary,
+            model: temporary,
+            repositories: repositories > 1,
             // NEW-39: like web's composer-plus-menu (EXP-1293), `sessions.send`
             // carries no subagent model, so the Subagents row hides.
             subagent_model: false,
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             computer_use: options.computer_use.is_some(),
-            agents: !agents.is_empty(),
         }
     }
 }
 
-/// EXP-1249 — the "+" menu's rows (fixtures/composer-menu.json, ×4): the
-/// subject pickers and the attach, then the run's options, then its tools;
-/// a `when` row only while its condition holds, then the separators TIDIED
-/// (never leading, trailing or doubled). `None` = the launch cluster does
-/// not exist yet: the first group only. Pure.
-pub(crate) fn composer_menu_rows(conditions: Option<ComposerMenuConditions>) -> Vec<ComposerMenuRow> {
+/// EXP-1249 — the "+" menu's rows (fixtures/composer-menu.json, ×4) on
+/// `surface`: a row only where it exists and while its `when` holds, then
+/// the separators TIDIED (never leading, trailing or doubled). Pure.
+pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerMenuConditions) -> Vec<ComposerMenuRow> {
     use ComposerMenuRow::*;
-    let Some(when) = conditions else {
-        return vec![ImplementIssue, AddFile];
-    };
-    let all = [
-        (ImplementIssue, true),
-        (MessageAgent, when.agents),
-        (AddFile, true),
-        (Separator, true),
-        (Effort, true),
-        (Subagents, when.subagent_model),
-        (Ultracode, when.ultracode),
-        (Separator, true),
-        (McpServers, when.mcp),
-        (ComputerUse, when.computer_use),
+    const ALL: [ComposerMenuRow; 15] = [
+        AddFile,
+        ImplementIssue,
+        Separator,
+        Device,
+        Account,
+        Model,
+        Repository,
+        Separator,
+        Effort,
+        Subagents,
+        Ultracode,
+        Separator,
+        McpServers,
+        ComputerUse,
+        Separator,
     ];
     let mut rows: Vec<ComposerMenuRow> = Vec::new();
-    for (row, shown) in all {
-        if !shown || (row == Separator && rows.last().is_none_or(|last| *last == Separator)) {
+    for row in ALL {
+        if !row.surfaces().contains(&surface) || !row.when(&conditions) {
+            continue;
+        }
+        if row == Separator && rows.last().is_none_or(|last| *last == Separator) {
             continue;
         }
         rows.push(row);
@@ -2798,17 +2747,74 @@ pub(crate) fn composer_menu_rows(conditions: Option<ComposerMenuConditions>) -> 
     rows
 }
 
-/// EXP-1249 — the "+" menu (web `launch-composer.tsx`'s menu, the
-/// styleguide `menu` entry's composer specimen), row by row off
-/// [`composer_menu_rows`]. `options` is `None` until the launch cluster
-/// exists (then only the first group shows). `agents` = the team's agents
-/// (Message an agent › while any), `picked_agent` the subject's.
+/// S-3: the launch composer's runner submenus' state (Device, Account,
+/// Model, Repository), read off the host view in ONE pass for the menu.
+#[derive(Clone, Default)]
+pub(crate) struct RunnerMenu {
+    /// `(device_id, label)` candidates; the picked id.
+    pub(crate) devices: Vec<(String, String)>,
+    pub(crate) device_picked: Option<String>,
+    pub(crate) accounts: Vec<coding::AccountOption>,
+    pub(crate) account_picked: String,
+    pub(crate) models: &'static [(&'static str, &'static str)],
+    pub(crate) model_picked: String,
+    pub(crate) repos: Vec<ActionRepoRow>,
+    pub(crate) repo_picked: Option<String>,
+}
+
+impl RunnerMenu {
+    fn device_value(&self) -> Option<String> {
+        let picked = self.device_picked.as_deref()?;
+        self.devices.iter().find(|(id, _)| id == picked).map(|(_, label)| label.clone())
+    }
+
+    fn account_value(&self) -> Option<String> {
+        self.accounts
+            .iter()
+            .find(|option| option.account_option_key() == self.account_picked)
+            .or_else(|| self.accounts.first())
+            .map(|option| option.email.clone())
+    }
+
+    fn model_value(&self) -> Option<String> {
+        self.models
+            .iter()
+            .find(|(_, value)| *value == self.model_picked)
+            .map(|(label, _)| (*label).to_string())
+    }
+
+    fn repo_value(&self) -> Option<String> {
+        self.repo_picked
+            .as_deref()
+            .and_then(|id| self.repos.iter().find(|repo| repo.id == id))
+            .or_else(|| self.repos.first())
+            .map(|repo| repo.full_name.clone())
+    }
+}
+
+/// A runner submenu's title: the row's word, then ` · value` when one is
+/// picked (the fixture: value = the picked label).
+pub(crate) fn titled_row(row: ComposerMenuRow, value: Option<String>) -> String {
+    match value {
+        Some(value) if !value.is_empty() => format!("{} · {value}", row.label()),
+        _ => row.label().to_string(),
+    }
+}
+
+/// EXP-1249 — the LAUNCH composer's "+" menu (web `launch-composer.tsx`'s
+/// menu, the styleguide `menu` entry's composer specimen), row by row off
+/// [`composer_menu_rows`] on the launch surface. `options` is `None` until
+/// the launch cluster exists (then only the first group shows). S-3:
+/// `temporary` = the agent row picks Temporary session (an agent picked
+/// hides the runner and work rows); `runner` feeds the Device / Account /
+/// Model / Repository submenus (THE pickers' rows, the pick checked).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plus_menu(
     mut menu: gpui_component::menu::PopupMenu,
     view: &gpui::WeakEntity<ChatScreenView>,
     options: Option<&launch_options::ComposerMenu>,
-    agents: &[domain::session_tree::AgentRow],
-    picked_agent: Option<&str>,
+    runner: &RunnerMenu,
+    temporary: bool,
     window: &mut Window,
     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
 ) -> gpui_component::menu::PopupMenu {
@@ -2825,7 +2831,14 @@ pub(crate) fn plus_menu(
     };
     let root = cx.entity().downgrade();
     menu = search_list::search_submenu_parent(menu.min_w(px(260.)));
-    for row in composer_menu_rows(options.map(|options| ComposerMenuConditions::of(options, agents))) {
+    let rows = match options {
+        Some(options) => composer_menu_rows(
+            ComposerSurface::Launch,
+            ComposerMenuConditions::launch(options, temporary, runner.repos.len()),
+        ),
+        None => vec![ComposerMenuRow::AddFile, ComposerMenuRow::ImplementIssue],
+    };
+    for row in rows {
         menu = match (row, options) {
             (ComposerMenuRow::Separator, _) => menu.separator(),
             // SLOP-28 (EXP-1259 D5): THE search list as a submenu — hover
@@ -2850,24 +2863,6 @@ pub(crate) fn plus_menu(
                     },
                 )
             }
-            // NEW-3: THE Picker rows of the team's agents (the glyph in its
-            // colour, the name, the trailing check on the subject's); a
-            // pick makes the agent the subject and closes the menu.
-            (ComposerMenuRow::MessageAgent, _) => {
-                let title = match agents
-                    .iter()
-                    .find(|agent| Some(agent.agent_id.as_str()) == picked_agent)
-                {
-                    Some(agent) => format!("{MENU_MESSAGE_AGENT} · {}", agent.name),
-                    None => MENU_MESSAGE_AGENT.to_string(),
-                };
-                let agents = agents.to_vec();
-                let picked_agent = picked_agent.map(str::to_string);
-                let view = view.clone();
-                menu.submenu_with_icon(Some(row.menu_icon()), title, window, cx, move |sub, _, _| {
-                    agent_submenu(sub, &agents, picked_agent.as_deref(), &view)
-                })
-            }
             (ComposerMenuRow::AddFile, _) => menu.item({
                 let view = view.clone();
                 pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
@@ -2881,6 +2876,131 @@ pub(crate) fn plus_menu(
                 })
                 .icon(row.menu_icon())
             }),
+            // S-3: THE device picker's rows as a submenu (the options
+            // line's Device pin moved here).
+            (ComposerMenuRow::Device, _) => {
+                let devices = runner.devices.clone();
+                let picked = runner.device_picked.clone();
+                let view = view.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    titled_row(row, runner.device_value()),
+                    window,
+                    cx,
+                    move |mut sub, _, _| {
+                        for (id, label) in &devices {
+                            let view = view.clone();
+                            let id = id.clone();
+                            let checked = picked.as_deref() == Some(id.as_str());
+                            sub = sub.item(pointer_check_item(label.clone(), checked, move |window, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |this, cx| {
+                                        this.set_device(id.clone(), window, cx);
+                                        cx.notify();
+                                    });
+                                }
+                            }));
+                        }
+                        sub
+                    },
+                )
+            }
+            // S-3: THE account picker's rows (every login the target machine
+            // reports, across agents: picking a login picks its agent).
+            (ComposerMenuRow::Account, _) => {
+                if runner.accounts.is_empty() {
+                    continue;
+                }
+                let accounts = runner.accounts.clone();
+                let picked = runner.account_picked.clone();
+                let view = view.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    titled_row(row, runner.account_value()),
+                    window,
+                    cx,
+                    move |mut sub, _, _| {
+                        for option in &accounts {
+                            let view = view.clone();
+                            let checked = option.account_option_key() == picked;
+                            let agent = option.agent;
+                            let label = SharedString::from(option.email.clone());
+                            let option = option.clone();
+                            sub = sub.item(crate::controls::pointer_check_item_with_icon(
+                                move || crate::coding_selects::agent_mark(agent),
+                                label,
+                                checked,
+                                move |window, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        let option = option.clone();
+                                        view.update(cx, |this, cx| {
+                                            ChatScreenView::launch_access(this).set_account(&option, window, cx);
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ));
+                        }
+                        sub
+                    },
+                )
+            }
+            // S-3: THE model list of the picked agent.
+            (ComposerMenuRow::Model, _) => {
+                let models = runner.models;
+                let picked = runner.model_picked.clone();
+                let view = view.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    titled_row(row, runner.model_value()),
+                    window,
+                    cx,
+                    move |mut sub, _, _| {
+                        for (label, value) in models {
+                            let view = view.clone();
+                            let value = (*value).to_string();
+                            sub = sub.item(pointer_check_item(*label, picked == value, move |window, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |this, cx| {
+                                        ChatScreenView::launch_access(this).pick_model(&value, window, cx);
+                                        cx.notify();
+                                    });
+                                }
+                            }));
+                        }
+                        sub
+                    },
+                )
+            }
+            // S-3: THE repository rows (only while the team has > 1).
+            (ComposerMenuRow::Repository, _) => {
+                let repos = runner.repos.clone();
+                let picked = runner.repo_picked.clone().or_else(|| repos.first().map(|repo| repo.id.clone()));
+                let view = view.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    titled_row(row, runner.repo_value()),
+                    window,
+                    cx,
+                    move |mut sub, _, _| {
+                        for repo in &repos {
+                            let view = view.clone();
+                            let checked = picked.as_deref() == Some(repo.id.as_str());
+                            let repo = repo.clone();
+                            sub = sub.item(pointer_check_item(repo.full_name.clone(), checked, move |_, cx| {
+                                let repo = repo.clone();
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |this, cx| {
+                                        this.chat_repo = Some(repo);
+                                        cx.notify();
+                                    });
+                                }
+                            }));
+                        }
+                        sub
+                    },
+                )
+            }
             (_, None) => menu,
             (ComposerMenuRow::Effort, Some(options)) => {
                 let effort_title = format!("{} · {}", options.effort_label, options.effort_value());
@@ -3005,66 +3125,6 @@ pub(crate) fn plus_menu(
     }
     menu
 }
-
-/// NEW-3 — "+" → Message an agent ›: one Picker row per agent (its glyph in
-/// its colour + its name, single pick, the trailing check on the picked
-/// one). Shared with the styleguide's open menu.
-pub(crate) fn agent_submenu(
-    mut sub: gpui_component::menu::PopupMenu,
-    agents: &[domain::session_tree::AgentRow],
-    picked: Option<&str>,
-    view: &gpui::WeakEntity<ChatScreenView>,
-) -> gpui_component::menu::PopupMenu {
-    sub = sub.min_w(px(220.));
-    for agent in agents {
-        let glyph = agent.clone();
-        let agent_id = agent.agent_id.clone();
-        let view = view.clone();
-        sub = sub.item(crate::controls::pointer_check_item_with_icon(
-            move || crate::icons::agent_row_icon(&glyph),
-            agent.name.clone(),
-            picked == Some(agent.agent_id.as_str()),
-            move |window, cx| {
-                if let Some(view) = view.upgrade() {
-                    view.update(cx, |this, cx| {
-                        this.pick_agent(agent_id.clone(), cx);
-                        this.refocus_input(window, cx);
-                    });
-                }
-            },
-        ));
-    }
-    sub
-}
-
-/// NEW-3 — THE agent chip (`agent-composer-chip-agent` + `-remove`): the
-/// prompt chip's capsule with the agent's glyph in its colour, its name and
-/// the ✕ that drops the subject. `None` = the row has not synced (`Agent…`).
-pub(crate) fn agent_chip(
-    agent: Option<&domain::session_tree::AgentRow>,
-    on_remove: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> gpui::Stateful<gpui::Div> {
-    let name = agent
-        .map(|agent| agent.name.clone())
-        .unwrap_or_else(|| "Agent…".to_string());
-    let icon = match agent {
-        Some(agent) => crate::icons::agent_row_icon(agent),
-        None => Icon::new(registry::SETTINGS_AGENTS).text_color(cx.theme().muted_foreground),
-    };
-    glass_pill(AGENT_CHIP_ID, PillSize::Sm, PillMode::Readonly, cx)
-        .child(icon.xsmall())
-        .child(div().text_xs().child(SharedString::from(name)))
-        .child(
-            crate::composer::composer_tool(AGENT_CHIP_REMOVE_ID, registry::UI_CLOSE, cx)
-                .tooltip("Remove")
-                .on_click(on_remove),
-        )
-}
-
-/// NEW-3: the agent chip's test ids (`subject-chips.tsx`).
-pub(crate) const AGENT_CHIP_ID: &str = "agent-composer-chip-agent";
-pub(crate) const AGENT_CHIP_REMOVE_ID: &str = "agent-composer-chip-agent-remove";
 
 /// SLOP-28 — "+" → Implement issue ›: the issue rows (status glyph, mono
 /// identifier, title), the picks pinned first with their check, the repo
@@ -3240,9 +3300,10 @@ impl LateStart {
 mod tests {
     use super::*;
 
-    /// EXP-1249 — `fixtures/composer-menu.json` is the "+" menu's ×4 spec:
-    /// the words and concept icons row by row, the Effort row's codex label,
-    /// and every `cases` entry replayed through [`composer_menu_rows`].
+    /// EXP-1249 / S-3 — `fixtures/composer-menu.json` is the "+" menu's ×4
+    /// spec: the words and concept icons row by row, `surfaces` and `when`,
+    /// the Effort row's codex label, and every `cases` entry (with its
+    /// `surface`) replayed through [`composer_menu_rows`].
     #[test]
     fn the_plus_menu_replays_the_composer_menu_fixture() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -3250,27 +3311,37 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(fixture["plusLabel"], PLUS_TOOLTIP);
+        use ComposerMenuRow as R;
         let row_of = |id: &str| match id {
-            "implement-issue" => (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE),
-            "message-agent" => (ComposerMenuRow::MessageAgent, MENU_MESSAGE_AGENT),
-            "add-file" => (ComposerMenuRow::AddFile, MENU_ADD_FILE),
-            "effort" => (ComposerMenuRow::Effort, coding::CodingAgent::Claude.effort_label()),
-            "subagents" => (ComposerMenuRow::Subagents, MENU_SUBAGENTS),
-            "ultracode" => (ComposerMenuRow::Ultracode, MENU_ULTRACODE),
-            "mcp-servers" => (ComposerMenuRow::McpServers, MENU_MCP_SERVERS),
-            "computer-use" => (ComposerMenuRow::ComputerUse, MENU_COMPUTER_USE),
-            "-" => (ComposerMenuRow::Separator, ""),
+            "add-file" => R::AddFile,
+            "implement-issue" => R::ImplementIssue,
+            "device" => R::Device,
+            "account" => R::Account,
+            "model" => R::Model,
+            "repository" => R::Repository,
+            "effort" => R::Effort,
+            "subagents" => R::Subagents,
+            "ultracode" => R::Ultracode,
+            "mcp-servers" => R::McpServers,
+            "computer-use" => R::ComputerUse,
+            "-" => R::Separator,
             other => panic!("unknown composer menu row {other}"),
+        };
+        let surface_of = |name: &str| match name {
+            "launch" => ComposerSurface::Launch,
+            "session" => ComposerSurface::Session,
+            "agent" => ComposerSurface::Agent,
+            other => panic!("unknown surface {other}"),
         };
         let mut every = Vec::new();
         for row in fixture["rows"].as_array().unwrap() {
             if row["kind"] == "separator" {
-                every.push(ComposerMenuRow::Separator);
+                every.push(R::Separator);
                 continue;
             }
             let id = row["id"].as_str().unwrap();
-            let (menu_row, label) = row_of(id);
-            assert_eq!(row["label"], label, "{id} label");
+            let menu_row = row_of(id);
+            assert_eq!(row["label"], menu_row.label(), "{id} label");
             use gpui_component::IconNamed as _;
             assert_eq!(
                 menu_row.icon().map(|icon| icon.path()),
@@ -3280,36 +3351,55 @@ mod tests {
             );
             if let Some(codex) = row["codexLabel"].as_str() {
                 assert_eq!(coding::CodingAgent::Codex.effort_label(), codex);
+                assert_eq!(coding::CodingAgent::Claude.effort_label(), menu_row.label());
             }
+            let surfaces: Vec<ComposerSurface> = row["surfaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|surface| surface_of(surface.as_str().unwrap()))
+                .collect();
+            assert_eq!(menu_row.surfaces(), surfaces.as_slice(), "{id} surfaces");
             every.push(menu_row);
         }
         let all = ComposerMenuConditions {
+            temporary: true,
+            device: true,
+            account: true,
+            model: true,
+            repositories: true,
             subagent_model: true,
             ultracode: true,
             mcp: true,
             computer_use: true,
-            agents: true,
         };
-        assert_eq!(composer_menu_rows(Some(all)), every, "rows order");
+        assert_eq!(composer_menu_rows(ComposerSurface::Launch, all), every, "rows order");
         for case in fixture["cases"].as_array().unwrap() {
             let when = &case["conditions"];
+            let flag = |key: &str| when[key].as_bool().unwrap();
             let conditions = ComposerMenuConditions {
-                subagent_model: when["subagentModel"].as_bool().unwrap(),
-                ultracode: when["ultracode"].as_bool().unwrap(),
-                mcp: when["mcp"].as_bool().unwrap(),
-                computer_use: when["computerUse"].as_bool().unwrap(),
-                agents: when["agents"].as_bool().unwrap(),
+                temporary: flag("temporary"),
+                device: flag("device"),
+                account: flag("account"),
+                model: flag("model"),
+                repositories: flag("repositories"),
+                subagent_model: flag("subagentModel"),
+                ultracode: flag("ultracode"),
+                mcp: flag("mcp"),
+                computer_use: flag("computerUse"),
             };
             let expected: Vec<ComposerMenuRow> = case["expected"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|id| row_of(id.as_str().unwrap()).0)
+                .map(|id| row_of(id.as_str().unwrap()))
                 .collect();
-            assert_eq!(composer_menu_rows(Some(conditions)), expected, "{}", case["name"]);
-            // NEW-6: the same case off a REAL launch-menu state and the
-            // team's synced `agents` rows (another team's agent never
-            // counts), through the rail's `list_agents`.
+            let surface = surface_of(case["surface"].as_str().unwrap());
+            assert_eq!(composer_menu_rows(surface, conditions), expected, "{}", case["name"]);
+            if surface != ComposerSurface::Launch {
+                continue;
+            }
+            // The same launch case off a REAL launch-menu state.
             let menu = launch_options::ComposerMenu {
                 effort_label: "Effort",
                 effort_choices: &[("High", "high")],
@@ -3332,30 +3422,18 @@ mod tests {
                 mcp_selected: Vec::new(),
                 computer_use: conditions.computer_use.then_some(false),
             };
-            let mut defs: Vec<domain::rows::AgentDefRow> = vec![serde_json::from_value(
-                serde_json::json!({ "id": "a-other", "team_id": "t-2", "name": "Elsewhere" }),
-            )
-            .unwrap()];
-            if conditions.agents {
-                defs.push(
-                    serde_json::from_value(
-                        serde_json::json!({ "id": "a-1", "team_id": "t-1", "name": "Triage" }),
-                    )
-                    .unwrap(),
-                );
-            }
-            let def_refs: Vec<&domain::rows::AgentDefRow> = defs.iter().collect();
-            let rows = domain::session_tree::list_agents(&def_refs, &[], Some("t-1"), None);
+            let repos = if conditions.repositories { 2 } else { 1 };
             // NEW-39: off real state the Subagents row always hides (web's
             // `subagentModel: false`); the fixture's own rows replay above.
-            let expected: Vec<ComposerMenuRow> = expected
-                .into_iter()
-                .filter(|row| *row != ComposerMenuRow::Subagents)
-                .collect();
+            let expected: Vec<ComposerMenuRow> =
+                expected.into_iter().filter(|row| *row != R::Subagents).collect();
             assert_eq!(
-                composer_menu_rows(Some(ComposerMenuConditions::of(&menu, &rows))),
+                composer_menu_rows(
+                    ComposerSurface::Launch,
+                    ComposerMenuConditions::launch(&menu, conditions.temporary, repos)
+                ),
                 expected,
-                "{} (from rows)",
+                "{} (from state)",
                 case["name"]
             );
         }
@@ -3374,11 +3452,6 @@ mod tests {
             let count = case["count"].as_u64().unwrap() as usize;
             assert_eq!(case["expected"], implement_button_label(count));
         }
-        // Before the launch cluster exists: the first group, no separator.
-        assert_eq!(
-            composer_menu_rows(None),
-            [ComposerMenuRow::ImplementIssue, ComposerMenuRow::AddFile]
-        );
     }
 
     /// EXP-993: the Repository pin seeds itself with the FIRST connected
@@ -3420,8 +3493,7 @@ mod tests {
             repos: HashMap::new(),
         });
         assert_eq!(placeholder_for_subject(&issues), SUBJECT_PLACEHOLDER);
-        // NEW-3: a message to an agent, like the web composer.
-        let agent = Subject::Agent(AgentSubject { agent_id: "a-1".to_string() });
-        assert_eq!(placeholder_for_subject(&agent), SUBJECT_PLACEHOLDER);
+        // S-3: the agent row's pick never moves the subject, so an agent
+        // picked keeps the home question (iOS / web parity).
     }
 }

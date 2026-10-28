@@ -5,6 +5,7 @@ import {
   chatSelectionActions,
   threadMenuEntries,
   type AgentBubble,
+  type AgentChatRow,
   type ChatFilter,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
@@ -43,6 +44,8 @@ const noop = (): void => {}
 const LIST = chats.listCases[0]!.expected
 const LIST_ROWS = LIST.rows as ChatRowModel[]
 const BUBBLES = chats.bubbleCases[0]!.expected as AgentBubble[]
+/** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
+const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
 
 export function ChatListSpecimen() {
   const [filter, setFilter] = useState<ChatFilter>(`all`)
@@ -61,7 +64,7 @@ export function ChatListSpecimen() {
       <ChatsHeader inboxUnread />
       <AgentBubbles bubbles={BUBBLES} />
       <ChatFilterChips value={filter} counts={LIST.counts} onChange={setFilter} />
-      <ChatList rows={rows} agentOf={() => `claude`} />
+      <ChatList rows={rows} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
     </div>
   )
 }

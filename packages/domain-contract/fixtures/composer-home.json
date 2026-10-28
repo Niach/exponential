@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1253 (EXP-1259 D1): the Agent page is HOME on every client. The app opens on it (web: the team index redirects to /t/$teamSlug/agent; desktop already starts on Agent; iOS + Android land on the Agent tab) and the IDE/web New session tab (EXP-1255) hosts the same column. Top to bottom, centred on the composer column: the HEADLINE row = the disc mark (`mark` px, the brand logo in the foreground colour) + `gap` + ONE line of Inter semibold at `headline` px (phones `headlinePhone`), never a serif, never a subtitle; then `headlineToCard` px; then the composer card (placeholder `placeholder`, no subject chip) and its options line. NOTHING renders beneath the options line (Danny 2026-10-12: no Recent list, the history button and the Agent › Recent sidebar stay the one place for recent sessions; no suggestion rows either). EXP-1316 phones (`phone`): the composer card + its options row are pinned to the BOTTOM (above the tab bar, keyboard-aware) with the dawn standing on the card (EXP-1314), and there is NO Running list (`phone.running` false; the Threads tab owns live work); web md+ and the IDE keep the centred column unchanged. While the team has NO board the Getting started block (getting-started.json) follows the composer, `composerToGettingStarted` px below the options line. On phones the Getting started block sits ABOVE the dawn instead (the composer stays at the bottom). The brand-mark watermark and the three suggestion rows are GONE (composer-menu.json). Greeting = pure `homeGreeting(local, name)` (TS reference packages/domain-contract/src/home-greeting.ts, mirrored by desktop crates/ui home_greeting, iOS ExpCore HomeGreeting.swift, Android domain/HomeGreeting.kt; every mirror replays `cases`): `local` = the device's local wall-clock time as `YYYY-MM-DDTHH:mm`; the BUCKET comes from the hour (`from`..`to` inclusive, night wraps midnight); the VARIANT = dayIndex mod the bucket's length, where dayIndex = whole days from 1970-01-01 to the local date of (`local` minus `dayStartsAtHour` hours), so one night keeps one greeting across midnight and a new one starts at 05:00; `{name}` = the first whitespace-separated token of the user row's name, and with no name the `, {name}` segment is dropped (`Back at it`, `What's next?`). The greeting is computed once per page mount (it never flips while you type). Review #16: `{name}` is replaced literally (no replacement patterns).",
+  "$comment": "EXP-1253 (EXP-1259 D1): the Agent page is HOME on every client. The app opens on it (web: the team index redirects to /t/$teamSlug/agent; desktop already starts on Agent; iOS + Android land on the Agent tab) and the IDE/web New session tab (EXP-1255) hosts the same column. Top to bottom, centred on the composer column: the HEADLINE row = the disc mark (`mark` px, the brand logo in the foreground colour) + `gap` + ONE line of Inter semibold at `headline` px (phones `headlinePhone`), never a serif, never a subtitle; then `headlineToCard` px; then the AGENT ROW (`agentRow`, S-3) and the composer card (placeholder `placeholder`, no subject chip). S-3: there is NO options line (composer-menu.json). NOTHING renders beneath the card (Danny 2026-10-12: no Recent list, the history button and the Agent › Recent sidebar stay the one place for recent sessions; no suggestion rows either). EXP-1316 phones (`phone`): the agent row + the composer card are pinned to the BOTTOM (above the tab bar, keyboard-aware) with the dawn standing on the card (EXP-1314), and there is NO Running list (`phone.running` false; the Threads tab owns live work); web md+ and the IDE keep the centred column unchanged. While the team has NO board the Getting started block (getting-started.json) follows the composer, `composerToGettingStarted` px below the card. On phones the Getting started block sits ABOVE the dawn instead (the composer stays at the bottom). The brand-mark watermark and the three suggestion rows are GONE (composer-menu.json). Greeting = pure `homeGreeting(local, name)` (TS reference packages/domain-contract/src/home-greeting.ts, mirrored by desktop crates/ui home_greeting, iOS ExpCore HomeGreeting.swift, Android domain/HomeGreeting.kt; every mirror replays `cases`): `local` = the device's local wall-clock time as `YYYY-MM-DDTHH:mm`; the BUCKET comes from the hour (`from`..`to` inclusive, night wraps midnight); the VARIANT = dayIndex mod the bucket's length, where dayIndex = whole days from 1970-01-01 to the local date of (`local` minus `dayStartsAtHour` hours), so one night keeps one greeting across midnight and a new one starts at 05:00; `{name}` = the first whitespace-separated token of the user row's name, and with no name the `, {name}` segment is dropped (`Back at it`, `What's next?`). The greeting is computed once per page mount (it never flips while you type). Review #16: `{name}` is replaced literally (no replacement patterns).",
   "testIds": {
     "home": "agent-home",
     "greeting": "agent-home-greeting",
@@ -158,5 +158,242 @@
       "user": "$&x Smith",
       "expected": "Evening, $&x"
     }
-  ]
+  ],
+  "agentRow": {
+    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
+    "size": 40,
+    "ringWidth": 2,
+    "ringGap": 3,
+    "gap": 10,
+    "labelToRow": 8,
+    "rowToCard": 12,
+    "temporaryIcon": "ui-icon-placeholder",
+    "temporaryId": "temporary",
+    "copy": {
+      "to": "To {name}",
+      "temporary": "Temporary session"
+    },
+    "testIds": {
+      "row": "composer-agent-row",
+      "option": "composer-agent-{id}",
+      "label": "composer-agent-label"
+    },
+    "cases": [
+      {
+        "name": "the Assistant first and preselected, other members' Assistants out, the dotted circle last",
+        "agents": [
+          {
+            "id": "g-b",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Triage",
+            "sortOrder": 1
+          },
+          {
+            "id": "g-me",
+            "role": "assistant",
+            "ownerId": "u-me",
+            "name": "Assistant",
+            "sortOrder": 3
+          },
+          {
+            "id": "g-o",
+            "role": "assistant",
+            "ownerId": "u-other",
+            "name": "Assistant",
+            "sortOrder": 0
+          },
+          {
+            "id": "g-a",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Designer",
+            "sortOrder": 1
+          }
+        ],
+        "me": "u-me",
+        "picked": null,
+        "expected": {
+          "options": [
+            "g-me",
+            "g-a",
+            "g-b",
+            "temporary"
+          ],
+          "selected": "g-me",
+          "label": "To Assistant"
+        }
+      },
+      {
+        "name": "a picked team agent",
+        "agents": [
+          {
+            "id": "g-b",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Triage",
+            "sortOrder": 1
+          },
+          {
+            "id": "g-me",
+            "role": "assistant",
+            "ownerId": "u-me",
+            "name": "Assistant",
+            "sortOrder": 3
+          },
+          {
+            "id": "g-o",
+            "role": "assistant",
+            "ownerId": "u-other",
+            "name": "Assistant",
+            "sortOrder": 0
+          },
+          {
+            "id": "g-a",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Designer",
+            "sortOrder": 1
+          }
+        ],
+        "me": "u-me",
+        "picked": "g-b",
+        "expected": {
+          "options": [
+            "g-me",
+            "g-a",
+            "g-b",
+            "temporary"
+          ],
+          "selected": "g-b",
+          "label": "To Triage"
+        }
+      },
+      {
+        "name": "temporary session",
+        "agents": [
+          {
+            "id": "g-b",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Triage",
+            "sortOrder": 1
+          },
+          {
+            "id": "g-me",
+            "role": "assistant",
+            "ownerId": "u-me",
+            "name": "Assistant",
+            "sortOrder": 3
+          },
+          {
+            "id": "g-o",
+            "role": "assistant",
+            "ownerId": "u-other",
+            "name": "Assistant",
+            "sortOrder": 0
+          },
+          {
+            "id": "g-a",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Designer",
+            "sortOrder": 1
+          }
+        ],
+        "me": "u-me",
+        "picked": "temporary",
+        "expected": {
+          "options": [
+            "g-me",
+            "g-a",
+            "g-b",
+            "temporary"
+          ],
+          "selected": "temporary",
+          "label": "Temporary session"
+        }
+      },
+      {
+        "name": "no Assistant yet: temporary is the default",
+        "agents": [
+          {
+            "id": "g-b",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Triage",
+            "sortOrder": 1
+          }
+        ],
+        "me": "u-me",
+        "picked": null,
+        "expected": {
+          "options": [
+            "g-b",
+            "temporary"
+          ],
+          "selected": "temporary",
+          "label": "Temporary session"
+        }
+      },
+      {
+        "name": "a pick that left the list falls back to the default",
+        "agents": [
+          {
+            "id": "g-b",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Triage",
+            "sortOrder": 1
+          },
+          {
+            "id": "g-me",
+            "role": "assistant",
+            "ownerId": "u-me",
+            "name": "Assistant",
+            "sortOrder": 3
+          },
+          {
+            "id": "g-o",
+            "role": "assistant",
+            "ownerId": "u-other",
+            "name": "Assistant",
+            "sortOrder": 0
+          },
+          {
+            "id": "g-a",
+            "role": "agent",
+            "ownerId": "u-x",
+            "name": "Designer",
+            "sortOrder": 1
+          }
+        ],
+        "me": "u-me",
+        "picked": "g-gone",
+        "expected": {
+          "options": [
+            "g-me",
+            "g-a",
+            "g-b",
+            "temporary"
+          ],
+          "selected": "g-me",
+          "label": "To Assistant"
+        }
+      },
+      {
+        "name": "no agents at all: only the dotted circle",
+        "agents": [],
+        "me": "u-me",
+        "picked": null,
+        "expected": {
+          "options": [
+            "temporary"
+          ],
+          "selected": "temporary",
+          "label": "Temporary session"
+        }
+      }
+    ]
+  }
 }

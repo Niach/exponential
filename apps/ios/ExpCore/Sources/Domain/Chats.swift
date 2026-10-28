@@ -127,6 +127,12 @@ public enum Chats {
             public static let title = "Archived"
             public static let empty = "No archived chats"
         }
+        /// S-3: the list's section headers, drawn only while an agent row
+        /// (`agentChatRows`) exists.
+        public enum Sections {
+            public static let agents = "Agents"
+            public static let chats = "Chats"
+        }
     }
 
     /// Fixture `transcript` (#EXP-1380 WINDOW + FOLLOW ×4): a chat paints
@@ -274,6 +280,9 @@ public enum Chats {
         public static let bubbleRing: Double = 3
         /// S-3: a DONE chat's row (`ChatRow.dim`) draws at this opacity.
         public static let dimOpacity: Double = 0.5
+        /// S-3: a chat row's lead glyph (concept; needs-you = this glyph +
+        /// the amber badge). The brand mark is the Assistant's alone.
+        public static let chatLead = "action-chat"
     }
 
     /// Fixture `surfaceCard` (the ENTER animation; motion tokens by name).
@@ -478,6 +487,47 @@ public enum Chats {
         public let agent: AgentRow
         public let ring: AgentRing?
         public var id: String { agent.agentId }
+    }
+
+    /// S-3: an agent row pinned on top of the Chats list (`agentRowCases`).
+    public struct AgentChatRow: Equatable, Sendable, Identifiable {
+        public let agentId: String
+        /// The viewer's conversation with the agent; nil = none yet.
+        public let sessionId: String?
+        public let name: String
+        public let icon: String
+        public let color: String
+        /// The viewer's Assistant: the brand mark instead of icon/color.
+        public let assistant: Bool
+        public let preview: ChatPreview
+        /// `chatTimeLabel` of `activityAt`; empty without a conversation.
+        public let time: String
+        /// The newest person/agent message of the conversation, else its
+        /// creation; nil without one (wire text).
+        public let activityAt: String?
+        public let unreadCount: Int
+        public let needsYou: Bool
+        public let busy: Bool
+
+        public var id: String { agentId }
+
+        public init(
+            agentId: String, sessionId: String?, name: String, icon: String, color: String, assistant: Bool,
+            preview: ChatPreview, time: String, activityAt: String?, unreadCount: Int, needsYou: Bool, busy: Bool
+        ) {
+            self.agentId = agentId
+            self.sessionId = sessionId
+            self.name = name
+            self.icon = icon
+            self.color = color
+            self.assistant = assistant
+            self.preview = preview
+            self.time = time
+            self.activityAt = activityAt
+            self.unreadCount = unreadCount
+            self.needsYou = needsYou
+            self.busy = busy
+        }
     }
 
     public enum ThreadMenuEntry: String, Equatable, Sendable, CaseIterable {
@@ -873,6 +923,65 @@ public enum Chats {
             }
             let unread = conversation.map { unreadCount(rootId: $0.id, messages: messages, reads: reads) > 0 } ?? false
             return AgentBubble(agent: agent, ring: unread ? .unread : nil)
+        }
+    }
+
+    /// S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one
+    /// row per `listAgents` row (that order), filtered by the chip like a
+    /// chat; none on the Archived page.
+    public static func agentChatRows(
+        agents: [AgentRow],
+        sessions: [TreeSession],
+        messages: [TreeMessage],
+        reads: [TreeSessionRead] = [],
+        me: String?,
+        filter: ChatFilter,
+        view: ChatListView = .list,
+        now: String,
+        utcOffsetMinutes: Int
+    ) -> [AgentChatRow] {
+        if view == .archived { return [] }
+        return agents.map { agent -> AgentChatRow in
+            let conversation = sessions.first {
+                $0.parentId == nil && $0.agentId == agent.agentId && $0.userId == me
+            }
+            let id = conversation?.id
+            var newest: String?
+            if let id {
+                var newestMs = -1.0
+                for m in messages where m.sessionId == id && (m.authorKind == "user" || m.authorKind == "agent") {
+                    let at = ms(m.createdAt) ?? 0
+                    if at > newestMs {
+                        newestMs = at
+                        newest = m.createdAt
+                    }
+                }
+            }
+            let activityAt = newest ?? conversation?.createdAt
+            return AgentChatRow(
+                agentId: agent.agentId,
+                sessionId: id,
+                name: agent.name,
+                icon: agent.icon,
+                color: agent.color,
+                assistant: agent.assistant,
+                preview: id.map {
+                    chatPreview(rootId: $0, messages: messages, needsYou: agent.needsYou, busy: agent.busy)
+                } ?? ChatPreview(kind: .empty, text: Copy.Preview.empty),
+                time: activityAt.map { chatTimeLabel(at: $0, now: now, utcOffsetMinutes: utcOffsetMinutes) } ?? "",
+                activityAt: activityAt,
+                unreadCount: id.map { unreadCount(rootId: $0, messages: messages, reads: reads) } ?? 0,
+                needsYou: agent.needsYou,
+                busy: agent.busy
+            )
+        }
+        .filter { row in
+            switch filter {
+            case .all: true
+            case .needsYou: row.needsYou
+            case .running: row.busy
+            case .unread: row.unreadCount > 0
+            }
         }
     }
 

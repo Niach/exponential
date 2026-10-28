@@ -1457,6 +1457,13 @@
       "when": 1793191112373,
       "tag": "0207_new57_meeting_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793210719077,
+      "tag": "0208_s3_assistant",
+      "breakpoints": true
     }
   ]
 }

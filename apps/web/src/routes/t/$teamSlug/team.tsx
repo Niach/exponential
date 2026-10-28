@@ -6,6 +6,7 @@ import {
   SETTINGS_NAV_PHONE_ROWS,
   SETTINGS_NAV_ROWS,
   SETTINGS_NAV_TEST_IDS,
+  settingsNavRow,
   settingsNavVisible,
   type SettingsNavRow,
 } from "@exp/domain-contract/settings-nav"
@@ -31,6 +32,7 @@ import { boardCollection, issueCollection, notificationCollection } from "@/lib/
 import { pageTitle } from "@/lib/page-title"
 import { cn } from "@/lib/utils"
 import {
+  flattenSettingsNav,
   SETTINGS_NAV,
   type SettingsNavItem,
   type SettingsSectionPath,
@@ -125,15 +127,48 @@ export function teamRowPath(id: string): TeamRowPath {
 /** The Team page's settings rows in order: per fixture group, the
  *  `phoneRows` first (fixture order), then that group's web-only rows. */
 export function teamSettingsRows(visible: (row: SettingsNavRow) => boolean): SettingsNavRow[] {
+  return teamSettingsGroups().flatMap((group) => group.rows).filter(visible)
+}
+
+function teamSettingsGroups(): { group: string; rows: SettingsNavRow[] }[] {
   const groups: string[] = []
   for (const row of SETTINGS_NAV_ROWS) if (!groups.includes(row.group)) groups.push(row.group)
   const phone = SETTINGS_NAV_PHONE_ROWS.map((id) => SETTINGS_NAV_ROWS.find((row) => row.id === id)).filter(
     (row): row is SettingsNavRow => Boolean(row)
   )
-  return groups.flatMap((group) => [
-    ...phone.filter((row) => row.group === group),
-    ...SETTINGS_NAV_ROWS.filter((row) => row.group === group && !row.phone),
-  ]).filter(visible)
+  return groups.map((group) => ({
+    group,
+    rows: [
+      ...phone.filter((row) => row.group === group),
+      ...SETTINGS_NAV_ROWS.filter((row) => row.group === group && !row.phone),
+    ],
+  }))
+}
+
+/** S-3 (settings-nav.json `nav`): a group's web pages that are no `rows`
+ *  row (Team: Storage, Import; Boards: Archived boards; the Advanced group
+ *  is gone), drawn after that group's rows on the Team page. */
+export function teamExtraPages(group: string): SettingsNavItem[] {
+  return flattenSettingsNav(SETTINGS_NAV.find((entry) => entry.id === group)?.items ?? []).filter(
+    (item) => settingsNavRow(item.id) === undefined
+  )
+}
+
+/** One Team-page settings row: a fixture row, or a web page after it. */
+export type TeamPageRow = { kind: `row`; row: SettingsNavRow } | { kind: `page`; item: SettingsNavItem }
+
+/** The Team page's settings rows: per fixture group its rows (phone rows
+ *  first), then the group's extra web pages, each filtered for the viewer. */
+export function teamPageRows(
+  visibleRow: (row: SettingsNavRow) => boolean,
+  visibleItem: (item: SettingsNavItem) => boolean
+): TeamPageRow[] {
+  return teamSettingsGroups().flatMap(({ group, rows }) => [
+    ...rows.filter(visibleRow).map((row): TeamPageRow => ({ kind: `row`, row })),
+    ...teamExtraPages(group)
+      .filter(visibleItem)
+      .map((item): TeamPageRow => ({ kind: `page`, item })),
+  ])
 }
 
 function RowLink({
@@ -201,7 +236,7 @@ function TeamTabPage() {
   const navContext = { isCloud: Boolean(config?.isCloud) }
   const visible = (item: SettingsNavItem) => item.visible(permissions, navContext)
   const group = (name: string) =>
-    (SETTINGS_NAV.find((entry) => entry.group === name)?.items ?? []).filter(visible)
+    (SETTINGS_NAV.find((entry) => entry.id === name)?.items ?? []).filter(visible)
   const iconOf = (item: SettingsNavItem) => {
     const Icon = item.icon
     return <Icon className="size-5" />
@@ -210,7 +245,7 @@ function TeamTabPage() {
     <RowLink key={item.to} to={item.to} teamSlug={teamSlug} icon={iconOf(item)} label={item.label} />
   )
   const viewer = { isOwner: permissions.isOwner, isCloud: navContext.isCloud }
-  const settingsRows = teamSettingsRows((row) => settingsNavVisible(row, viewer))
+  const settingsRows = teamPageRows((row) => settingsNavVisible(row, viewer), visible)
   const countOf = (row: SettingsNavRow): number | undefined =>
     row.count === `members`
       ? members.length
@@ -219,7 +254,7 @@ function TeamTabPage() {
         : row.count === `agents`
           ? agents.length
           : undefined
-  const personal = group(`Personal`)
+  const personal = group(`personal`)
   const account = personal.find((item) => item.to === `/t/$teamSlug/settings/account`)
 
   const switchTeam = (slug: string, name: string) => {
@@ -268,7 +303,9 @@ function TeamTabPage() {
         </GlassGroup>
 
         <GlassGroup data-testid="team-settings">
-          {settingsRows.map((row) => {
+          {settingsRows.map((entry) => {
+            if (entry.kind === `page`) return itemRow(entry.item)
+            const row = entry.row
             const Icon = conceptIcon(row.icon as Parameters<typeof conceptIcon>[0])
             return (
               <RowLink
@@ -297,7 +334,6 @@ function TeamTabPage() {
             </Link>
           )}
           {personal.filter((item) => item !== account).map((item) => itemRow(item))}
-          {group(`Advanced`).map((item) => itemRow(item))}
         </GlassGroup>
 
         <GlassGroup>

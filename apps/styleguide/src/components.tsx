@@ -2414,9 +2414,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `variant inline = the composer word, row = the glass form ladder's picker row`
       ),
       desktop: ok(
-        `coding_selects::account_picker`,
-        `apps/desktop/crates/ui/src/coding_selects.rs`,
-        `the hover preview is an anchored overlay right of the menu row`
+        `picker::account_picker::account_picker`,
+        `apps/desktop/crates/ui/src/picker/account_picker.rs`,
+        `THE Picker family's account rows (S-3: the composer's Account row is a "+" submenu now)`
       ),
       ios: ok(
         `AccountPicker`,

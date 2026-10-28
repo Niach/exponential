@@ -41,6 +41,7 @@ public enum DomainContract {
     public static let sessionIssueSourceValues: [String] = ["user", "agent"]
     public static let messageAuthorKindValues: [String] = ["user", "agent", "system"]
     public static let conversationKindValues: [String] = ["dm", "channel", "session"]
+    public static let agentRoleValues: [String] = ["assistant", "agent"]
     public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
     public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
@@ -247,6 +248,8 @@ public enum DomainContract {
     public static let conversationKindDm: String = "dm"
     public static let conversationKindChannel: String = "channel"
     public static let conversationKindSession: String = "session"
+    public static let agentRoleAssistant: String = "assistant"
+    public static let agentRoleAgent: String = "agent"
     public static let messageCardKindQuestion: String = "question"
     public static let messageCardKindPlan: String = "plan"
     public static let messageCardKindSubagent: String = "subagent"

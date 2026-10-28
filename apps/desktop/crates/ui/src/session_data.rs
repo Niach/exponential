@@ -16,7 +16,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
-use domain::contract::{SESSION_STATUS_QUEUED, SESSION_STATUS_RUNNING};
 use domain::message_conversation::ConversationSessions;
 use domain::pr_stack::PrSet;
 use domain::rows::{
@@ -44,14 +43,13 @@ pub(crate) fn now_ms() -> i64 {
 // Row predicates
 // ---------------------------------------------------------------------------
 
-/// A session the agent is working on right now or is about to: status
-/// `queued` or `running` (an `idle` one waits on a person, an `ended` one is
-/// over). The Running band's rule (`partition_threads`).
+/// A session the agent is working on right now or is about to: the shared
+/// four-state rule's `working` (`domain::session_tree::session_state`:
+/// queued, or `busy` and neither ended nor waiting on a person). A
+/// `running` row between turns is idle. The agent mark's and the prune
+/// checks' rule.
 pub(crate) fn session_is_working(session: &SessionRow) -> bool {
-    matches!(
-        session.status.as_deref(),
-        Some(SESSION_STATUS_QUEUED) | Some(SESSION_STATUS_RUNNING)
-    )
+    domain::session_tree::session_state(session) == domain::session_tree::SessionState::Working
 }
 
 /// A non-ended session that waits on a person (a question or a plan).
@@ -81,6 +79,52 @@ fn signed_in_user(cx: &App) -> Option<String> {
 pub(crate) fn session(session_id: &str, cx: &App) -> Option<SessionRow> {
     let store = Store::try_global(cx)?;
     store.collections().sessions.read(cx).get(session_id).cloned()
+}
+
+/// S-3: the teams whose Assistant this app run already ensured.
+#[derive(Default)]
+struct EnsuredAssistants(HashSet<String>);
+
+impl gpui::Global for EnsuredAssistants {}
+
+/// S-3 `agents.ensureAssistant({teamId})`: the composer home, the chats list
+/// and the Settings Agents group call it on mount; it runs ONCE per team per
+/// app run (fire-and-forget, the synced `agents` row is the answer; a
+/// failure only logs and re-arms).
+pub(crate) fn ensure_assistant(team_id: &str, cx: &mut App) {
+    if team_id.is_empty() {
+        return;
+    }
+    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains(team_id)) {
+        return;
+    }
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        return;
+    };
+    cx.default_global::<EnsuredAssistants>().0.insert(team_id.to_string());
+    let team = team_id.to_string();
+    cx.spawn(async move |cx| {
+        let probe = team.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::agents::ensure_assistant(&trpc, &probe) })
+            .await;
+        if let Err(err) = result {
+            log::warn!("[ui] agents.ensureAssistant failed: {err}");
+            let _ = cx.update(|cx| {
+                cx.default_global::<EnsuredAssistants>().0.remove(&team);
+            });
+        }
+    })
+    .detach();
+}
+
+/// S-3: the viewer's own Assistant in `team_id` (synced row), if any.
+pub(crate) fn my_assistant(team_id: &str, cx: &App) -> Option<domain::rows::AgentDefRow> {
+    let store = Store::try_global(cx)?;
+    let me = signed_in_user(cx);
+    let agents = store.collections().agents.read(cx);
+    domain::agent_settings::my_assistant(agents.iter(), team_id, me.as_deref()).cloned()
 }
 
 /// NEW-2: one synced agent DEFINITION (`agents` shape).
@@ -885,6 +929,9 @@ pub(crate) struct ChatsModel {
     /// #EXP-1388: the Archived page's list (view `archived`, filter All).
     pub(crate) archived: domain::chats::ChatList,
     pub(crate) bubbles: Vec<domain::chats::AgentBubble>,
+    /// S-3: the AGENT rows pinned on top (filter All; the chips filter them
+    /// in the view like the chats).
+    pub(crate) agent_rows: Vec<domain::chats::AgentChatRow>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1004,7 +1051,18 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
     let list = list_of(domain::chats::ChatListView::List);
     let archived = list_of(domain::chats::ChatListView::Archived);
     let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
-    ChatsModel { list, archived, bubbles }
+    let agent_rows = domain::chats::agent_chat_rows(domain::chats::AgentChatRowsInput {
+        agents: &agents,
+        sessions: &team_sessions,
+        messages: &messages,
+        reads: &reads,
+        me: me.as_deref(),
+        filter: domain::chats::ChatFilter::All,
+        view: domain::chats::ChatListView::List,
+        now: &now,
+        utc_offset_minutes: offset,
+    });
+    ChatsModel { list, archived, bubbles, agent_rows }
 }
 
 /// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has
@@ -1319,7 +1377,7 @@ mod tests {
     fn root(id: &str, team: &str, user: &str, status: &str) -> SessionRow {
         row(json!({
             "id": id, "team_id": team, "kind": "thread", "user_id": user,
-            "status": status, "root_id": id, "shared": true,
+            "status": status, "busy": status == "running", "root_id": id, "shared": true,
             "created_at": "2026-10-13T10:00:00.000Z",
             "updated_at": "2026-10-13T10:00:00.000Z",
         }))
@@ -1328,18 +1386,30 @@ mod tests {
     fn child(id: &str, root_id: &str, team: &str, user: &str, status: &str, updated_at: &str) -> SessionRow {
         row(json!({
             "id": id, "team_id": team, "kind": "thread", "user_id": user,
-            "status": status, "parent_id": root_id, "root_id": root_id, "depth": 1,
+            "status": status, "busy": status == "running", "parent_id": root_id, "root_id": root_id, "depth": 1,
             "created_at": "2026-10-13T10:01:00.000Z",
             "updated_at": updated_at,
         }))
     }
 
     #[test]
-    fn working_means_queued_or_running() {
+    fn working_means_queued_or_busy() {
         assert!(session_is_working(&root("a", "t", "me", "queued")));
+        // `root` marks a `running` row busy (a turn in flight).
         assert!(session_is_working(&root("a", "t", "me", "running")));
         assert!(!session_is_working(&root("a", "t", "me", "idle")));
         assert!(!session_is_working(&root("a", "t", "me", "ended")));
+        // S-3: `running` between turns (not busy) is idle, not working.
+        let mut between = root("a", "t", "me", "running");
+        between.busy = false;
+        assert!(!session_is_working(&between));
+        // Waiting on a person beats busy; ended never works.
+        let mut asking = root("a", "t", "me", "running");
+        asking.needs_input = true;
+        assert!(!session_is_working(&asking));
+        let mut over = root("a", "t", "me", "ended");
+        over.busy = true;
+        assert!(!session_is_working(&over));
     }
 
     /// The switcher counts a thread ONCE however many of my sessions run in

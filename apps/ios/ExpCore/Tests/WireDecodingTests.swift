@@ -397,6 +397,14 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(bare.triggers, "[]")
         XCTAssertEqual(bare.sortOrder, 0)
         XCTAssertNil(bare.deviceId)
+        // S-3: a row without `role` (an old snapshot) is a team agent.
+        XCTAssertEqual(agent.role, "agent")
+        XCTAssertFalse(bare.isAssistant)
+        let assistant = try decode(AgentDefinitionEntity.self, #"""
+        {"id":"a3","team_id":"w1","name":"Assistant","role":"assistant","owner_id":"u1",
+         "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertTrue(assistant.isAssistant)
     }
 
     func testEventDecodesPayloadObjectStringAndNull() throws {

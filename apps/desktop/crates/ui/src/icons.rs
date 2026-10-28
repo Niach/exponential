@@ -263,8 +263,12 @@ pub fn agent_icon(icon: Option<&str>, color: Option<&str>) -> Icon {
 }
 
 /// [`agent_icon`] of a rail [`domain::session_tree::AgentRow`] (defaults
-/// already applied).
+/// already applied). S-3: the viewer's Assistant = the Exponential brand
+/// mark (the caller's text colour: the foreground), never a stored icon.
 pub fn agent_row_icon(row: &domain::session_tree::AgentRow) -> Icon {
+    if row.assistant {
+        return Icon::from(ExpIcon::Logo);
+    }
     agent_icon(Some(&row.icon), Some(&row.color))
 }
 

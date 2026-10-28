@@ -28,24 +28,41 @@ final class ComposerMenuTests: XCTestCase {
 
     func testComposerMenuLayoutMatchesTheFixtureCases() throws {
         let cases = try XCTUnwrap(try fixture()["cases"] as? [[String: Any]])
-        XCTAssertEqual(cases.count, 5)
+        XCTAssertFalse(cases.isEmpty)
         for testCase in cases {
             let name = try XCTUnwrap(testCase["name"] as? String)
+            let surface = try XCTUnwrap(ComposerMenu.Surface(rawValue: try XCTUnwrap(testCase["surface"] as? String)), name)
             let c = try XCTUnwrap(testCase["conditions"] as? [String: Bool], name)
+            XCTAssertEqual(Set(c.keys), Set(ComposerMenu.Condition.allCases.map(\.rawValue)), name)
             let layout = ComposerMenu.composerMenuLayout(ComposerMenu.Conditions(
+                temporary: c["temporary"] ?? false,
+                device: c["device"] ?? false,
+                account: c["account"] ?? false,
+                model: c["model"] ?? false,
+                repositories: c["repositories"] ?? false,
                 subagentModel: c["subagentModel"] ?? false,
                 ultracode: c["ultracode"] ?? false,
                 mcp: c["mcp"] ?? false,
-                computerUse: c["computerUse"] ?? false,
-                agents: c["agents"] ?? false
-            ))
+                computerUse: c["computerUse"] ?? false
+            ), surface: surface)
             XCTAssertEqual(wire(layout), testCase["expected"] as? [String], name)
         }
     }
 
-    func testTheRowsCopyGlyphsAndKindsAreTheFixtures() throws {
-        let rows = try XCTUnwrap(try fixture()["rows"] as? [[String: Any]])
-            .filter { $0["kind"] as? String != "separator" }
+    func testTheRowsCopyGlyphsKindsSurfacesAndConditionsAreTheFixtures() throws {
+        let fixture = try fixture()
+        XCTAssertEqual(
+            Set((try XCTUnwrap(fixture["conditions"] as? [String: Any])).keys),
+            Set(ComposerMenu.Condition.allCases.map(\.rawValue))
+        )
+        let all = try XCTUnwrap(fixture["rows"] as? [[String: Any]])
+        // Separators sit where the fixture puts them.
+        let layout = ComposerMenu.composerMenuLayout(ComposerMenu.Conditions(
+            temporary: true, device: true, account: true, model: true, repositories: true,
+            subagentModel: true, ultracode: true, mcp: true, computerUse: true
+        ), surface: .launch)
+        XCTAssertEqual(wire(layout), all.map { ($0["id"] as? String) ?? "-" })
+        let rows = all.filter { $0["kind"] as? String != "separator" }
         XCTAssertEqual(ComposerMenu.allRows.count, rows.count)
         for (row, want) in zip(ComposerMenu.allRows, rows) {
             XCTAssertEqual(row.id.rawValue, want["id"] as? String)
@@ -53,8 +70,12 @@ final class ComposerMenuTests: XCTestCase {
             XCTAssertEqual(row.label, want["label"] as? String)
             XCTAssertEqual(row.codexLabel, want["codexLabel"] as? String)
             XCTAssertEqual(row.icon, want["icon"] as? String)
+            XCTAssertEqual(row.surfaces.map(\.rawValue), want["surfaces"] as? [String], row.id.rawValue)
+            let when: [String] = (want["when"] as? [String]) ?? (want["when"] as? String).map { [$0] } ?? []
+            XCTAssertEqual(row.when.map(\.rawValue), when, row.id.rawValue)
         }
-        XCTAssertEqual(ComposerMenu.allRows.first { $0.id == .effort }?.label(codex: true), "Reasoning")
+        XCTAssertEqual(ComposerMenu.row(.effort).label(codex: true), "Reasoning")
+        XCTAssertNil(ComposerMenu.RowId(rawValue: "message-agent"))
     }
 
     func testNamesTheContractsComputerUsePayloadKeyAndCap() throws {

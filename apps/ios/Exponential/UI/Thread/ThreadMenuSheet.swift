@@ -141,45 +141,56 @@ struct ThreadFoldSheet: View {
     }
 }
 
-/// EXP-1334: THE thread composer's "+" on a phone — composer-menu.json's
-/// rows (`ComposerMenu.composerMenuLayout`, fixture-locked ×4) in THE Menu's
-/// sheet, the same rows before and DURING a session: Implement issue (links
-/// it into this thread, waking the dispatcher) · Message an agent › (NEW-7,
-/// while the team has agents: the pick becomes the composer's subject, the
-/// send goes into the caller's DM with it) · Add file or image | Effort ›
-/// · Ultracode | MCP servers › · Computer use. Run action has no target in a
-/// running thread (an action STARTS one), so it stays off. Toggles flip in
-/// place (the host sends `sessions.configure`); a hand-off row closes the
-/// sheet and the host opens its picker once it has dismissed.
+/// EXP-1334 / S-3: THE "+" of a session's composer and an agent chat's on a
+/// phone (composer-menu.json `surface` session | agent,
+/// `ComposerMenu.composerMenuLayout`, fixture-locked ×4) — the composer's
+/// ONLY tool: Photo or file (closes the sheet, the host floats THE Photo |
+/// File GlassMenu) · Issue › (THE issue search list as a pushed page; a pick
+/// inserts `#IDENT` at the caret) · Model › (THE model picker's rows as a
+/// pushed page, while the agent switches models). A running session never
+/// moves device or login here, and the work picks are the launch's.
 struct ThreadComposerPlusMenu: View {
     let conditions: ComposerMenu.Conditions
-    /// The session's agent (codex words Effort as Reasoning).
+    /// A session's "+" or an agent chat's (composer-menu.json `surface`).
+    var surface: ComposerMenu.Surface = .session
+    /// The session's agent (its models).
     let agent: String
-    /// The Effort row's value, the MCP row's value.
-    let effortValue: String?
-    let mcpValue: String?
-    /// NEW-7: Message an agent ›'s value (the picked agent's name).
-    var agentValue: String? = nil
-    @Binding var ultracode: Bool
-    @Binding var computerUse: Bool
+    /// The Model row's value (the picked model) and its pick.
+    var modelValue: String?
+    var onPickModel: (String) -> Void = { _ in }
+    /// The team whose issues the Issue page searches; nil = no page.
+    var teamId: String?
+    /// The Issue page's pick (the host inserts `#IDENT` at the caret).
+    var onPickIssue: (IssueEntity) -> Void = { _ in }
     var addFileEnabled = true
-    /// An ENDED session: the Effort row and the toggles stand down (the
-    /// server refuses `sessions.configure`); Implement issue and Add file
-    /// stay, they never configure.
-    var rowsDisabled = false
+    /// A hand-off row (Photo or file): the host closes the sheet and opens
+    /// what it names.
     let onPick: (ComposerMenu.RowId) -> Void
 
+    /// The pushed page, nil = the rows.
+    @State private var page: ComposerMenu.RowId?
+    @Environment(\.motion) private var motion
+
     private var entries: [ComposerMenu.Entry] {
-        var out: [ComposerMenu.Entry] = []
-        for entry in ComposerMenu.composerMenuLayout(conditions) {
-            if entry == .separator, out.last == nil || out.last == .separator { continue }
-            out.append(entry)
-        }
-        while out.last == .separator { out.removeLast() }
-        return out
+        ComposerMenu.composerMenuLayout(conditions, surface: surface)
     }
 
     var body: some View {
+        Group {
+            if let page {
+                ComposerMenuPage(id: page, onBack: { self.page = nil }) {
+                    pageContent(page)
+                }
+                .transition(.move(edge: .trailing))
+            } else {
+                rows
+                    .transition(.move(edge: .leading))
+            }
+        }
+        .animation(motion.standard, value: page)
+    }
+
+    private var rows: some View {
         GlassSheetChrome(title: nil) {
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
@@ -201,58 +212,45 @@ struct ThreadComposerPlusMenu: View {
     }
 
     @ViewBuilder
-    private func menuRow(_ row: ComposerMenu.Row) -> some View {
-        let label = row.label(codex: agent == "codex")
-        switch row.kind {
-        case .toggle:
-            GlassToggleRow(label, isOn: row.id == .ultracode ? $ultracode : $computerUse) {
-                rowIcon(row)
+    private func pageContent(_ id: ComposerMenu.RowId) -> some View {
+        switch id {
+        case .model:
+            GlassPickerContent(
+                items: ModelPicker<EmptyView>.items(agent: agent),
+                mode: .single,
+                value: modelValue.map { [$0] } ?? [],
+                onChange: { picked in picked.first.map(onPickModel) }
+            )
+        default:
+            if let teamId {
+                ThreadIssueSearchList(teamId: teamId, onPick: onPickIssue)
             }
-            .font(.body)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 48)
-            .disabled(rowsDisabled)
-            .opacity(rowsDisabled ? 0.45 : 1)
-            .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
-        case .submenu, .item:
-            let disabled = row.id == .effort && (rowsDisabled || agent == "claude" && ultracode)
-                || row.id == .addFile && !addFileEnabled
+        }
+    }
+
+    @ViewBuilder
+    private func menuRow(_ row: ComposerMenu.Row) -> some View {
+        // A session's / agent chat's "+" never holds a toggle (those are
+        // the launch's work picks).
+        if row.kind != .toggle {
+            let disabled = row.id == .addFile && !addFileEnabled
             Button {
-                onPick(row.id)
-            } label: {
-                HStack(spacing: 12) {
-                    rowIcon(row)
-                    Text(label)
-                        .font(.body)
-                        .foregroundStyle(.white)
-                    Spacer(minLength: 8)
-                    if let value = row.id == .effort ? effortValue
-                        : row.id == .mcpServers ? mcpValue
-                        : row.id == .messageAgent ? agentValue : nil {
-                        Text(value)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                    if row.kind == .submenu {
-                        AppIcon(AppIcons.uiChevronRight, size: 12)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
+                if row.kind == .submenu {
+                    page = row.id
+                } else {
+                    onPick(row.id)
                 }
-                .padding(.horizontal, 12)
-                .frame(minHeight: 48)
-                .contentShape(Rectangle())
+            } label: {
+                ComposerMenuRowLabel(
+                    row: row,
+                    label: row.label(codex: agent == "codex"),
+                    value: row.id == .model ? modelValue.map(LaunchVocabulary.modelLabel) : nil
+                )
             }
             .buttonStyle(.plain)
             .disabled(disabled)
             .opacity(disabled ? 0.45 : 1)
             .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
         }
-    }
-
-    private func rowIcon(_ row: ComposerMenu.Row) -> some View {
-        AppIcon(ComposerPlusMenu.icon(row.icon), size: 18, weight: .medium)
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .frame(width: 22)
     }
 }

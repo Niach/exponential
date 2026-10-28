@@ -7776,9 +7776,11 @@ impl SteerSessionView {
     /// ([`crate::composer::SessionComposerControls`]): the device pin, the
     /// model pin, the context ring (S-3: no Plan switch).
     fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
+        // S-3: NO options line (the model is a "+" row; a running session
+        // never moves device here): the context ring stays.
         crate::composer::SessionComposerControls {
-            device_pin: self.render_device_pin(cx),
-            model_pin: self.render_model_pin(cx),
+            device_pin: None,
+            model_pin: None,
             context_ring: self.render_context_ring(cx),
         }
     }
@@ -7935,218 +7937,122 @@ impl SteerSessionView {
         .detach();
     }
 
-    /// EXP-1334 — the composer's "+": THE composer menu (composer-menu.json)
-    /// with the rows a RUNNING session can change — Add file or image, then
-    /// Effort and Ultracode, then Computer use — each a
-    /// `sessions.configure` (the subject pickers belong to a start).
+    /// EXP-1334 / S-3 — the composer's "+": THE composer menu
+    /// (composer-menu.json) on the `session` surface (`agent` for an agent
+    /// conversation): Photo or file, Issue › (THE issue search list; a pick
+    /// inserts `#IDENT` at the caret), then Model › while the run may switch
+    /// models (claude and codex: `sessions.configure({model})`). A running
+    /// session never moves device or login here; the work rows belong to a
+    /// start.
     fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        use crate::chat_screen::ComposerMenuRow as Row;
+        use crate::chat_screen::{composer_menu_rows, titled_row, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
         let view = cx.entity().downgrade();
         let session_id = self.session_id.to_string();
-        let configurable = self.configurable();
-        let claude = self.agent() == SessionAgent::Claude;
-        let agent = if claude {
-            coding::CodingAgent::Claude
+        let surface = if self.row.as_ref().and_then(|row| row.agent_id.as_deref()).is_some_and(|id| !id.is_empty()) {
+            ComposerSurface::Agent
         } else {
-            coding::CodingAgent::Codex
+            ComposerSurface::Session
         };
-        let mcp = self.mcp.clone().filter(|mcp| !mcp.servers.is_empty());
-        // The pick ahead of its row, else the row (web `useSessionComposerOptions`).
-        let row = self.row.as_ref();
-        let picks = &self.option_picks;
-        let effort = picks
-            .effort
-            .clone()
-            .unwrap_or_else(|| row.and_then(|row| row.effort.clone()))
-            .unwrap_or_default();
-        let ultracode = picks.ultracode.unwrap_or_else(|| row.is_some_and(|row| row.ultracode));
-        let computer_use = picks.computer_use.unwrap_or_else(|| row.is_some_and(|row| row.computer_use));
+        let rows = composer_menu_rows(
+            surface,
+            ComposerMenuConditions { model: self.configurable(), ..ComposerMenuConditions::default() },
+        );
+        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        let (models, model_picked): (&'static [(&'static str, &'static str)], String) = {
+            let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
+                .map(|chip| chip.value)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| crate::composer::session_fallback_model(self.row.as_ref(), cx));
+            let choices: &'static [(&'static str, &'static str)] = if self.agent() == SessionAgent::Claude {
+                &crate::coding_selects::MODEL_CHOICES
+            } else {
+                &crate::coding_selects::CODEX_MODEL_CHOICES
+            };
+            (choices, value)
+        };
+        let input = self.input.clone();
         let trigger = crate::composer::composer_tool(
             SharedString::from(format!("{}-plus", self.composer_ids.attach)),
             registry::UI_ADD,
             cx,
         )
-        .tooltip("Add")
+        .tooltip(crate::chat_screen::PLUS_TOOLTIP)
         .disabled(self.sending);
         crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
-            use crate::controls::{menu_row, pointer_check_item, pointer_menu_item, pointer_toggle_item};
-            menu = menu.min_w(px(260.));
-            let configure = {
-                let view = view.clone();
-                move |input: api::sessions::ConfigureInput, cx: &mut App| Self::configure(view.clone(), input, cx)
-            };
-            let base = {
-                let session_id = session_id.clone();
-                move || api::sessions::ConfigureInput {
-                    session_id: session_id.clone(),
-                    ..Default::default()
-                }
-            };
-            // Add file or image.
-            {
-                let view = view.clone();
-                menu = menu.item(
-                    pointer_menu_item(Row::AddFile.icon(), "Add file or image", |_| None, move |window, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| this.pick_files(window, cx));
-                        }
-                    }),
-                );
-            }
-            if !configurable {
-                return menu;
-            }
-            menu = menu.separator();
-            // Effort (Reasoning on codex); Ultracode IS the level while on.
-            let label = if claude { "Effort" } else { "Reasoning" };
-            let choices = crate::coding_selects::effort_choices_for(agent);
-            if ultracode && claude {
-                let title = SharedString::from(format!("{label} · Ultracode"));
-                menu = menu.item(
-                    gpui_component::menu::PopupMenuItem::element(move |_, cx| {
-                        menu_row(Row::Effort.icon(), title.clone(), None, true, cx)
-                    })
-                    .disabled(true),
-                );
-            } else {
-                let value = choices
-                    .iter()
-                    .find(|(_, value)| *value == effort)
-                    .map(|(label, _)| *label)
-                    .unwrap_or("Default");
-                let picked = effort.clone();
-                let configure = configure.clone();
-                let base = base.clone();
-                menu = menu.submenu_with_icon(
-                    Row::Effort.icon().map(Icon::new),
-                    format!("{label} · {value}"),
-                    window,
-                    cx,
-                    move |mut sub, _, _| {
-                        for (label, value) in choices {
-                            let configure = configure.clone();
-                            let base = base.clone();
-                            let value = (*value).to_string();
-                            sub = sub.item(pointer_check_item(*label, picked == value, move |_, cx| {
-                                configure(
-                                    api::sessions::ConfigureInput {
-                                        effort: Some(Some(value.clone()).filter(|value| !value.is_empty())),
-                                        ..base()
-                                    },
-                                    cx,
-                                );
-                            }));
-                        }
-                        sub
-                    },
-                );
-            }
-            if claude {
-                let configure = configure.clone();
-                let base = base.clone();
-                menu = menu.item(pointer_toggle_item(
-                    "steer-menu-ultracode",
-                    Row::Ultracode.icon(),
-                    "Ultracode",
-                    ultracode,
-                    move |on, _, cx| configure(api::sessions::ConfigureInput { ultracode: Some(on), ..base() }, cx),
-                ));
-            }
-            menu = menu.separator();
-            // MCP servers: the team's servers, the session's pick checked; a
-            // flip = sessions.configure({mcpServerIds}) (the device applies
-            // it between turns; the pick shows at once and comes back if the
-            // server refuses it).
-            if let Some(mcp) = mcp.clone() {
-                let configure = configure.clone();
-                let base = base.clone();
-                let label = match mcp.picks.len() {
-                    0 => "MCP servers".to_string(),
-                    count => format!("MCP servers · {count}"),
-                };
-                menu = menu.submenu_with_icon(Row::McpServers.icon().map(Icon::new), label, window, cx, move |mut sub, _, _| {
-                    for (id, name, blocked) in &mcp.servers {
-                        let picked = mcp.picks.contains(id);
-                        let mut next: Vec<String> =
-                            mcp.picks.iter().filter(|pick| *pick != id).cloned().collect();
-                        if !picked {
-                            next.push(id.clone());
-                        }
-                        next.sort();
-                        let configure = configure.clone();
-                        let base = base.clone();
-                        let label = if *blocked { format!("{name} (not connected)") } else { name.clone() };
-                        sub = sub.item(pointer_check_item(label, picked, move |_, cx| {
-                            configure(
-                                api::sessions::ConfigureInput {
-                                    mcp_server_ids: Some(next.clone()),
-                                    ..base()
-                                },
-                                cx,
-                            );
-                        }));
+            use crate::controls::{pointer_check_item, pointer_menu_item};
+            let root = cx.entity().downgrade();
+            menu = crate::picker::search_list::search_submenu_parent(menu.min_w(px(260.)));
+            for row in rows.iter().copied() {
+                menu = match row {
+                    Row::Separator => menu.separator(),
+                    Row::AddFile => {
+                        let view = view.clone();
+                        menu.item(pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |this, cx| this.pick_files(window, cx));
+                            }
+                        }))
                     }
-                    sub
-                });
+                    Row::ImplementIssue => {
+                        let Some(team_id) = team_id.clone() else {
+                            continue;
+                        };
+                        let input = input.clone();
+                        let root = root.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
+                            let input = input.clone();
+                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
+                                    input.update(cx, |state, cx| state.insert(text, window, cx));
+                                    input.read(cx).focus_handle(cx).focus(window, cx);
+                                });
+                            crate::picker::search_list::menu_search_list_submenu(
+                                "steer-issue-ref",
+                                crate::picker::search_list::issue_ref_source(team_id.clone(), insert),
+                                sub,
+                                root.clone(),
+                                window,
+                                cx,
+                            )
+                        })
+                    }
+                    Row::Model => {
+                        let value = models
+                            .iter()
+                            .find(|(_, value)| *value == model_picked)
+                            .map(|(label, _)| (*label).to_string())
+                            .unwrap_or_else(|| crate::steer_viewer::model_label(&model_picked));
+                        let picked = model_picked.clone();
+                        let view = view.clone();
+                        let session_id = session_id.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, Some(value)), window, cx, move |mut sub, _, _| {
+                            for (label, value) in models {
+                                let view = view.clone();
+                                let session_id = session_id.clone();
+                                let value = (*value).to_string();
+                                sub = sub.item(pointer_check_item(*label, picked == value, move |_, cx| {
+                                    Self::configure(
+                                        view.clone(),
+                                        api::sessions::ConfigureInput {
+                                            session_id: session_id.clone(),
+                                            model: Some(value.clone()),
+                                            ..Default::default()
+                                        },
+                                        cx,
+                                    );
+                                }));
+                            }
+                            sub
+                        })
+                    }
+                    // Launch-only rows never reach a session's surface.
+                    _ => menu,
+                };
             }
-            let configure = configure.clone();
-            let base = base.clone();
-            menu.item(pointer_toggle_item(
-                "steer-menu-computer-use",
-                Row::ComputerUse.icon(),
-                "Computer use",
-                computer_use,
-                move |on, _, cx| configure(api::sessions::ConfigureInput { computer_use: Some(on), ..base() }, cx),
-            ))
+            menu
         })
         .anchor(gpui::Anchor::BottomLeft)
         .into_any_element()
-    }
-
-    /// EXP-1252 — the Device pin before the model: the session's device; a
-    /// pick moves the session there (`sessions.send{sessionId, deviceId}`).
-    /// None on a replay (a transcript has nowhere to move).
-    fn render_device_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if self.source.read_only() {
-            return None;
-        }
-        let row = self.row.as_ref()?;
-        crate::device_move::session_device_pin(
-            SharedString::from(format!("{}-device", self.composer_ids.model)),
-            row,
-            self.may_message,
-            cx,
-        )
-    }
-
-    /// EXP-877 — the model the run is on, off `config_state.options[model]`
-    /// (the engine publishes the VALUE; there is no menu on the wire).
-    ///
-    /// Claude gets a PICKER, and picking sends `/model <alias>` to the agent
-    /// as a message: that prompt is how the CLI switches, so it queues
-    /// mid-turn like anything else and the republished `config_state` is the
-    /// confirmation. Nothing is written optimistically — a pick the CLI
-    /// refuses must not leave the footer lying. Codex's is a plain label.
-    /// Before the run publishes a `model` option (or with no live relay at
-    /// all) the pin reads [`crate::composer::session_fallback_model`].
-    fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // The model in force (the relay's `config_state`), else the row's /
-        // device's pick (web `sessionModel(config) ?? fallback`): a thread
-        // with no live relay still names its model.
-        let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
-            .map(|chip| chip.value)
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| crate::composer::session_fallback_model(self.row.as_ref(), cx));
-        crate::composer::session_model_pin(
-            self.composer_ids.model.clone(),
-            &value,
-            self.agent() == SessionAgent::Claude,
-            self.run_open(),
-            |view: &mut Self, alias: &str, _window, cx| {
-                view.send_command(&format!("/model {alias}"), cx);
-            },
-            cx,
-        )
     }
 
     /// EXP-877 — the context ring, and the usage sheet it opens. Hidden on a

@@ -854,6 +854,91 @@ pub(crate) fn user_bubble(
         .into_any_element()
 }
 
+/// S-3 CHAT MODE (chats.json, session-thread.json `chatModeCases`): an
+/// agent conversation's person message = THE user bubble, right-aligned, at
+/// most 80% of the column; `queued` / `own` as [`user_bubble`].
+pub(crate) fn chat_user_bubble(
+    id: &str,
+    body: MarkdownView,
+    caption: String,
+    queued: bool,
+    own: bool,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let unqueue_id = id.to_string();
+    let unqueue = unqueue_offered(queued, own).then(|| {
+        unqueue_button("thread-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
+    });
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .items_end()
+        .gap_1()
+        .child(
+            body_text(div())
+                .min_w_0()
+                .max_w(gpui::relative(0.8))
+                .rounded(px(12.))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
+                .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+                .px_3()
+                .py_2()
+                .when(queued, |bubble| bubble.opacity(0.7))
+                .child(body),
+        )
+        .child(
+            h_flex()
+                .gap_1()
+                .items_center()
+                .text_2xs()
+                .text_color(muted)
+                .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
+                .when(queued, |row| row.child(SharedString::from(format!("· {QUEUED_WORD}"))))
+                .children(unqueue),
+        )
+        .into_any_element()
+}
+
+/// S-3 CHAT MODE: the agent's message = a LEFT bg-card bubble, at most 94%
+/// of the column, its top-left corner 6px, the time at its bottom right.
+pub(crate) fn chat_agent_bubble(body: MarkdownView, time: String, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let radius = px(12.);
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_start()
+        .child(
+            v_flex()
+                .min_w_0()
+                .max_w(gpui::relative(0.94))
+                .rounded_tl(px(6.))
+                .rounded_tr(radius)
+                .rounded_bl(radius)
+                .rounded_br(radius)
+                .bg(theme::tokens::CARD.to_hsla())
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .px_3()
+                .pt_2()
+                .pb_1()
+                .child(body_text(div()).min_w_0().child(body))
+                .when(!time.is_empty(), |bubble| {
+                    bubble.child(
+                        h_flex()
+                            .w_full()
+                            .justify_end()
+                            .text_2xs()
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(time)),
+                    )
+                }),
+        )
+        .into_any_element()
+}
+
 /// The agent's prose: its mark beside the markdown.
 pub(crate) fn agent_prose(body: MarkdownView, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
@@ -3228,14 +3313,23 @@ impl ThreadScreenView {
                 &self.text,
                 &self.images,
             );
+            // S-3: an agent conversation paints CHAT bubbles on this same
+            // screen (`thread_chat_mode`); a thread its transcript.
+            let bubbles = domain::session_tree::thread_chat_mode(model.root.agent_id.as_deref())
+                == domain::session_tree::ThreadChatMode::Bubbles;
+            let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
             return match author.as_str() {
                 domain::contract::MESSAGE_AUTHOR_KIND_USER => {
-                    let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
                     let name = member_name(author_id.as_deref(), cx);
                     let own = author_id.is_some()
                         && crate::queries::active_account(cx).map(|me| me.user_id) == *author_id;
-                    user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, own, cx)
+                    if bubbles {
+                        chat_user_bubble(id, markdown, clock(at), *queued, own, cx)
+                    } else {
+                        user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, own, cx)
+                    }
                 }
+                domain::contract::MESSAGE_AUTHOR_KIND_AGENT if bubbles => chat_agent_bubble(markdown, clock(at), cx),
                 domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
                 _ => muted_line(registry::UI_INFO, body.clone(), cx),
             };
@@ -3662,7 +3756,11 @@ impl Render for ThreadScreenView {
         // NEW-6 (N-1): a thread with ONE session = that session's raw work
         // in place of the Conversation (its composer, Stop in the header).
         let on_conversation = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
-        let main = on_conversation.then(|| model.view.main_session_id.clone()).flatten();
+        // S-3 (chats.json CHAT MODE): an agent conversation always paints
+        // its bubbles, never the root's raw work in place.
+        let bubbles = domain::session_tree::thread_chat_mode(model.root.agent_id.as_deref())
+            == domain::session_tree::ThreadChatMode::Bubbles;
+        let main = (on_conversation && !bubbles).then(|| model.view.main_session_id.clone()).flatten();
         self.sync_main(main.as_deref(), window, cx);
         let header = self.render_header(&model, window, cx);
         // EXP-1323: the live tail's viewer rides the Conversation only.

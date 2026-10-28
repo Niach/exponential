@@ -252,4 +252,77 @@ object AgentSettings {
      */
     fun hidesAssigneeControl(memberCount: Int, agentCount: Int, assigneeAgentId: String? = null): Boolean =
         memberCount == 1 && agentCount == 0 && assigneeAgentId.isNullOrEmpty()
+
+    // S-3 (owner 2026-10-28): THE ASSISTANT (`assistant` in the fixture;
+    // contract `agentRole`), the mirror of TS `ASSISTANT*`,
+    // `assistantScheduleOf`, `visibleAgent`, `orderedAgents`; replayed by
+    // `AgentSettingsTest` (`scheduleCases`, `visibleCases`, `orderCases`).
+    object Assistant {
+        const val ROLE = "assistant"
+        const val TITLE = "Assistant"
+        const val NAME = "Assistant"
+        const val RUNS_ON = "Runs on"
+        const val CHECK_IN = "Check in"
+        const val VOICE = "Voice"
+        const val NO_DEVICE = "Connect a desktop to set up your Assistant"
+        const val DELETE_REFUSED = "The Assistant can't be deleted"
+        const val SCHEDULE_REFUSED = "The Assistant checks in on a schedule only"
+        const val DEFAULT_SCHEDULE = "1h"
+        val SECTIONS = listOf("identity", "runs-on", "check-in", "voice", "instructions")
+
+        data class Schedule(val id: String, val label: String, val cron: String?)
+
+        val SCHEDULES = listOf(
+            Schedule("off", "Off", null),
+            Schedule("15m", "Every 15 minutes", "*/15 * * * *"),
+            Schedule("30m", "Every 30 minutes", "*/30 * * * *"),
+            Schedule("1h", "Every hour", "0 * * * *"),
+            Schedule("daily", "Every day", "0 9 * * *"),
+        )
+
+        /** The preset stored triggers stand for; null = not an Assistant's
+         *  (an event, a custom cron, more than one). */
+        fun scheduleOf(triggers: List<TriggerLike>): String? {
+            if (triggers.isEmpty()) return "off"
+            if (triggers.size > 1) return null
+            val trigger = triggers.single()
+            if (trigger.kind != "schedule") return null
+            val preset = SCHEDULES.firstOrNull { it.cron != null && it.cron == trigger.cron } ?: return null
+            return if (trigger.enabled == false) "off" else preset.id
+        }
+
+        /** [scheduleOf] over the parsed stored triggers. */
+        fun scheduleOfStored(triggers: List<AgentTrigger>): String? = scheduleOf(
+            triggers.map { trigger ->
+                when (val part = trigger.whenPart) {
+                    is TriggerWhen.Schedule -> TriggerLike("schedule", trigger.enabled, part.cron, part.tz)
+                    is TriggerWhen.Event -> TriggerLike("event", trigger.enabled, name = part.name)
+                }
+            },
+        )
+
+        /** The triggers a preset saves as (`off` = none). */
+        fun scheduleTriggers(id: String, tz: String? = null): List<AgentTrigger> {
+            val cron = SCHEDULES.firstOrNull { it.id == id }?.cron ?: return emptyList()
+            return listOf(AgentTrigger(id = null, enabled = true, whenPart = TriggerWhen.Schedule(cron, tz?.takeIf { it.isNotEmpty() })))
+        }
+
+        fun isAssistant(role: String?): Boolean = role == ROLE
+
+        /** Another member's Assistant is never listed (settings, composer, chats). */
+        fun visibleAgent(role: String?, ownerId: String?, me: String?): Boolean =
+            role != ROLE || ownerId == me
+
+        data class OrderLike(val role: String?, val ownerId: String?, val name: String, val sortOrder: Int)
+
+        /** The agents a member sees, in order: their Assistant first, then the
+         *  team agents by sortOrder, then name. */
+        fun <T> orderedAgents(agents: List<T>, me: String?, row: (T) -> OrderLike): List<T> =
+            agents.filter { row(it).let { r -> visibleAgent(r.role, r.ownerId, me) } }
+                .sortedWith(
+                    compareBy<T> { if (isAssistant(row(it).role)) 0 else 1 }
+                        .thenBy { row(it).sortOrder }
+                        .thenComparator { a, b -> compareNames(row(a).name, row(b).name) },
+                )
+    }
 }

@@ -2837,6 +2837,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v85 (S-3): `agents.role` (contract `agentRole`; existing rows =
+        // `agent`). Rows already synced lack it, so the agents cursor resets
+        // and they re-arrive with it (the viewer's Assistant included).
+        migrator.registerMigration("v85_agent_role") { db in
+            guard try db.tableExists("agents") else { return }
+            guard try db.columns(in: "agents").contains(where: { $0.name == "role" }) == false else { return }
+            try db.alter(table: "agents") { t in
+                t.add(column: "role", .text).notNull().defaults(to: DomainContract.agentRoleAgent)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'agents'
+                    """)
+            }
+        }
+
         return migrator
     }
 

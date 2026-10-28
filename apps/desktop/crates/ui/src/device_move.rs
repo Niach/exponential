@@ -16,6 +16,12 @@
 //! THE device picker ([`crate::picker::device_picker`]) behind
 //! [`crate::launch_options::inline_pin_trigger_with`], its rows off
 //! [`crate::queries::launch_devices`].
+//!
+//! S-3 (composer-menu.json): the session composer's Device pin is GONE (no
+//! options line; a running session never moves device from its composer),
+//! so the pin and its move flow have no caller until a new surface hosts
+//! them; kept (and tested) rather than rewritten later.
+#![allow(dead_code)]
 
 use std::rc::Rc;
 
@@ -345,7 +351,7 @@ pub(crate) fn session_device_pin(
     let trigger = crate::launch_options::inline_pin_glyph_trigger(id.clone(), glyph, cx)
         .tooltip(tooltip)
         .into_any_element();
-    // The launch line's rows ([`crate::launch_options::launch_device_rows`]:
+    // THE device picker's rows (
     // each machine's own glyph + its picker line), refused ones disabled
     // with their reason as the description.
     let picker_rows: Vec<crate::picker::device_picker::DevicePickerDevice> = rows

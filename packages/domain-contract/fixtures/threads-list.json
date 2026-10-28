@@ -1638,7 +1638,8 @@
           "icon": "rocket",
           "color": "#f97316",
           "busy": true,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag3",
@@ -1647,7 +1648,8 @@
           "icon": "bot",
           "color": "#6366f1",
           "busy": false,
-          "needsYou": true
+          "needsYou": true,
+          "assistant": false
         },
         {
           "agentId": "ag1",
@@ -1656,7 +1658,8 @@
           "icon": "bot",
           "color": "#22c55e",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         }
       ]
     },
@@ -1805,7 +1808,8 @@
           "icon": "bot",
           "color": "#6366f1",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag2",
@@ -1814,7 +1818,8 @@
           "icon": "rocket",
           "color": "#f97316",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag3",
@@ -1823,7 +1828,8 @@
           "icon": "bot",
           "color": "#6366f1",
           "busy": true,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag1",
@@ -1832,7 +1838,8 @@
           "icon": "bot",
           "color": "#22c55e",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         }
       ]
     },
@@ -1941,6 +1948,68 @@
         "me": "u-dana"
       },
       "expected": []
+    },
+    {
+      "name": "S-3: my Assistant first (role assistant, mine), another member's Assistant never listed",
+      "input": {
+        "agents": [
+          {
+            "id": "ag1",
+            "teamId": "t-team-1",
+            "name": "Triage",
+            "icon": "bot",
+            "color": "#22c55e",
+            "sortOrder": 0,
+            "role": "agent",
+            "ownerId": "u-x"
+          },
+          {
+            "id": "as-me",
+            "teamId": "t-team-1",
+            "name": "Assistant",
+            "icon": null,
+            "color": null,
+            "sortOrder": 9,
+            "role": "assistant",
+            "ownerId": "u-dana"
+          },
+          {
+            "id": "as-other",
+            "teamId": "t-team-1",
+            "name": "Assistant",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "role": "assistant",
+            "ownerId": "u-other"
+          }
+        ],
+        "sessions": [],
+        "teamId": "t-team-1",
+        "me": "u-dana"
+      },
+      "expected": [
+        {
+          "agentId": "as-me",
+          "teamId": "t-team-1",
+          "name": "Assistant",
+          "icon": "bot",
+          "color": "#6366f1",
+          "busy": false,
+          "needsYou": false,
+          "assistant": true
+        },
+        {
+          "agentId": "ag1",
+          "teamId": "t-team-1",
+          "name": "Triage",
+          "icon": "bot",
+          "color": "#22c55e",
+          "busy": false,
+          "needsYou": false,
+          "assistant": false
+        }
+      ]
     }
   ],
   "markCases": [

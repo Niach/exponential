@@ -8,9 +8,12 @@ import fixture from "@exp/domain-contract/fixtures/composer-menu.json"
 // only binds each row id to the model.
 
 export type ComposerMenuRowId =
-  | `implement-issue`
-  | `message-agent`
   | `add-file`
+  | `implement-issue`
+  | `device`
+  | `account`
+  | `model`
+  | `repository`
   | `effort`
   | `subagents`
   | `ultracode`
@@ -20,6 +23,9 @@ export type ComposerMenuRowId =
 export type ComposerMenuCondition = keyof typeof fixture.conditions
 
 export type ComposerMenuConditions = Record<ComposerMenuCondition, boolean>
+
+/** S-3: which composer the "+" sits on (a row's `surfaces`). */
+export type ComposerMenuSurface = `launch` | `session` | `agent`
 
 export interface ComposerMenuRow {
   id: ComposerMenuRowId
@@ -39,7 +45,8 @@ interface FixtureRow {
   label?: string
   codexLabel?: string
   icon?: string
-  when?: string
+  surfaces?: string[]
+  when?: string | string[]
 }
 
 const ROWS = fixture.rows as readonly FixtureRow[]
@@ -57,10 +64,12 @@ export function composerMenuRowTestId(id: ComposerMenuRowId): string {
   return fixture.testIds.row.replace(`{id}`, id)
 }
 
-/** The rows the "+" shows under `conditions`, separators tidied (never
+/** The rows the "+" shows on `surface` under `conditions` (a row's `when` =
+ *  one condition or a list, all must hold), separators tidied (never
  *  leading, trailing or doubled). */
 export function composerMenuLayout(
-  conditions: ComposerMenuConditions
+  surface: ComposerMenuSurface,
+  conditions: Partial<ComposerMenuConditions>
 ): ComposerMenuLayoutEntry[] {
   const out: ComposerMenuLayoutEntry[] = []
   for (const row of ROWS) {
@@ -69,7 +78,10 @@ export function composerMenuLayout(
       if (last && last.kind !== `separator`) out.push({ kind: `separator` })
       continue
     }
-    if (row.when && !conditions[row.when as ComposerMenuCondition]) continue
+    if (row.surfaces && !row.surfaces.includes(surface)) continue
+    const when =
+      row.when === undefined ? [] : Array.isArray(row.when) ? row.when : [row.when]
+    if (when.some((c) => !conditions[c as ComposerMenuCondition])) continue
     out.push({
       id: row.id as ComposerMenuRowId,
       kind: row.kind as ComposerMenuRow[`kind`],

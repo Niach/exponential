@@ -129,7 +129,8 @@ final class ChatsTests: XCTestCase {
                 icon: try XCTUnwrap(string($0["icon"])),
                 color: try XCTUnwrap(string($0["color"])),
                 busy: try XCTUnwrap($0["busy"] as? Bool),
-                needsYou: try XCTUnwrap($0["needsYou"] as? Bool)
+                needsYou: try XCTUnwrap($0["needsYou"] as? Bool),
+                assistant: ($0["assistant"] as? Bool) ?? false
             )
         }
     }
@@ -232,7 +233,37 @@ final class ChatsTests: XCTestCase {
                 [
                     "agentId": bubble.agent.agentId, "teamId": bubble.agent.teamId, "name": bubble.agent.name,
                     "icon": bubble.agent.icon, "color": bubble.agent.color, "busy": bubble.agent.busy,
-                    "needsYou": bubble.agent.needsYou, "ring": json(bubble.ring?.rawValue),
+                    "needsYou": bubble.agent.needsYou, "assistant": bubble.agent.assistant,
+                    "ring": json(bubble.ring?.rawValue),
+                ]
+            }
+            assertJSON(rendered, testCase["expected"], name)
+        }
+    }
+
+    /// S-3 `agentRowCases`: the pinned agent rows (the WHOLE expected row).
+    func testAgentRowCases() throws {
+        for testCase in try cases("agentRowCases") {
+            let name = try XCTUnwrap(string(testCase["name"]))
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let view = try string(input["view"]).map { try XCTUnwrap(Chats.ChatListView(rawValue: $0)) } ?? .list
+            let got = Chats.agentChatRows(
+                agents: try agents(input["agents"]),
+                sessions: try sessions(input["sessions"]),
+                messages: try messages(input["messages"]),
+                reads: try reads(input["reads"]),
+                me: string(input["me"]),
+                filter: try XCTUnwrap(Chats.ChatFilter(rawValue: try XCTUnwrap(string(input["filter"])))),
+                view: view,
+                now: try XCTUnwrap(string(input["now"])),
+                utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
+            )
+            let rendered: [[String: Any]] = got.map { row in
+                [
+                    "agentId": row.agentId, "sessionId": json(row.sessionId), "name": row.name,
+                    "icon": row.icon, "color": row.color, "assistant": row.assistant,
+                    "preview": json(row.preview), "time": row.time, "activityAt": json(row.activityAt),
+                    "unreadCount": row.unreadCount, "needsYou": row.needsYou, "busy": row.busy,
                 ]
             }
             assertJSON(rendered, testCase["expected"], name)
@@ -475,6 +506,10 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Set(copy.keys), [
             "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "stopTurn", "dividers",
             "superseded", "boardChips", "team", "inbox", "loadEarlier", "working", "selection", "archived",
+            "sections",
+        ])
+        XCTAssertEqual(copy["sections"] as? [String: String], [
+            "agents": C.Sections.agents, "chats": C.Sections.chats,
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
     }
@@ -533,8 +568,9 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Set(shell.keys), [
             "tabs", "tabIcons", "bar", "boardTab", "boardMenu", "header", "boardChips", "leadDisc",
             "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph",
-            "bubble", "bubbleRing", "dimOpacity",
+            "bubble", "bubbleRing", "dimOpacity", "chatLead",
         ])
+        XCTAssertEqual(shell["chatLead"] as? String, Chats.Shell.chatLead)
         XCTAssertEqual(shell["leadDisc"] as? Double, Chats.Shell.leadDisc)
         XCTAssertEqual(shell["selectBadge"] as? Double, Chats.Shell.selectBadge)
         XCTAssertEqual(shell["selectBadgeRing"] as? Double, Chats.Shell.selectBadgeRing)

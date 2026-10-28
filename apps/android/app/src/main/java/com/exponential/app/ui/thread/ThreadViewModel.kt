@@ -157,8 +157,12 @@ class ThreadViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** An agent root's channel (kind `agent`) rather than a thread. */
-    val isAgent: StateFlow<Boolean> = root.map { it?.isAgent == true }
+    /** S-3 (session-thread.json `chatModeCases`): an agent conversation
+     *  paints chat bubbles (`threadChatMode`), a thread its transcript. */
+    val isAgent: StateFlow<Boolean> = root.map {
+        com.exponential.app.domain.SessionTree.threadChatMode(it?.agentId) ==
+            com.exponential.app.domain.SessionTree.ThreadChatMode.Bubbles
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** NEW-2: an agent conversation's DEFINITION row (`sessions.agent_id`):

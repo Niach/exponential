@@ -382,6 +382,81 @@ export function agentBubbles(input: {
   })
 }
 
+/** S-3: an agent row pinned on top of the Chats list (`agentRowCases`). */
+export interface AgentChatRow {
+  agentId: string
+  /** The viewer's conversation with the agent; null = none yet. */
+  sessionId: string | null
+  name: string
+  icon: string
+  color: string
+  /** The viewer's Assistant: the brand mark instead of icon/color. */
+  assistant: boolean
+  preview: ChatPreview
+  /** `chatTimeLabel` of `activityAt`; empty without a conversation. */
+  time: string
+  /** The newest person/agent message of the conversation, else its
+   *  creation; null without one. */
+  activityAt: string | null
+  unreadCount: number
+  needsYou: boolean
+  busy: boolean
+}
+
+/** S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one row per
+ *  `listAgents` row (that order), filtered by the chip like a chat; none on
+ *  the Archived page. */
+export function agentChatRows(input: {
+  agents: readonly AgentRow[]
+  sessions: readonly TreeSession[]
+  messages: readonly TreeMessage[]
+  reads?: readonly TreeSessionRead[]
+  me: string | null
+  filter: ChatFilter
+  view?: ChatListView
+  now: string
+  utcOffsetMinutes: number
+}): AgentChatRow[] {
+  if (input.view === `archived`) return []
+  const reads = input.reads ?? []
+  return input.agents
+    .map((agent): AgentChatRow => {
+      const conversation = input.sessions.find(
+        (s) => s.parentId === null && s.agentId === agent.agentId && s.userId === input.me
+      )
+      const id = conversation?.id ?? null
+      const newest = id
+        ? input.messages
+            .filter((m) => m.sessionId === id && (m.authorKind === `user` || m.authorKind === `agent`))
+            .reduce<string | null>((at, m) => ((ms(m.createdAt) ?? 0) > (ms(at) ?? -1) ? m.createdAt : at), null)
+        : null
+      const activityAt = newest ?? conversation?.createdAt ?? null
+      return {
+        agentId: agent.agentId,
+        sessionId: id,
+        name: agent.name,
+        icon: agent.icon,
+        color: agent.color,
+        assistant: agent.assistant,
+        preview: id
+          ? chatPreview({ rootId: id, messages: input.messages, needsYou: agent.needsYou, busy: agent.busy })
+          : { kind: `empty`, text: fixture.copy.preview.empty },
+        time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
+        activityAt,
+        unreadCount: id ? unreadCount(id, input.messages, reads) : 0,
+        needsYou: agent.needsYou,
+        busy: agent.busy,
+      }
+    })
+    .filter(
+      (row) =>
+        input.filter === `all` ||
+        (input.filter === `needs_you` && row.needsYou) ||
+        (input.filter === `running` && row.busy) ||
+        (input.filter === `unread` && row.unreadCount > 0)
+    )
+}
+
 export type ThreadMenuEntry = `delete`
 
 /** A thread row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28)

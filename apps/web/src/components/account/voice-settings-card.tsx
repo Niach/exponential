@@ -112,12 +112,18 @@ export function VoiceSettingsCard({
   devices,
   agents,
   consentOpen: initialConsentOpen = false,
+  assistantId,
 }: {
   settings: VoiceSettings
   devices: readonly VoiceDeviceRow[]
   agents: readonly VoiceAgentRow[]
   /** The styleguide's open-dialog state (meeting-consent). */
   consentOpen?: boolean
+  /** S-3 (agent-settings.json `assistant`): the block sits on THIS
+   *  Assistant's page: no Voice device row (the device is Runs on's) and no
+   *  Agent row (the agent is this Assistant); a change made here moves the
+   *  voice onto it when another of the member's Assistants held it. */
+  assistantId?: string
 }) {
   const [settings, setSettings] = useState<VoiceSettings>(initial)
   // #NEW-57: THE consent dialog; turning Meeting mode on only opens it.
@@ -189,8 +195,10 @@ export function VoiceSettingsCard({
     const next = clearOnNone(settings, change)
     setSettings(next)
     const seq = ++seqRef.current
+    const sent: VoiceChange =
+      assistantId && settings.agentId !== assistantId ? { ...change, agentId: assistantId } : change
     void trpc.voice.update
-      .mutate(change, SKIP_ERROR_TOAST)
+      .mutate(sent, SKIP_ERROR_TOAST)
       .then((stored) => {
         if (seq === seqRef.current) setSettings((current) => keepText(stored, current))
       })
@@ -272,30 +280,34 @@ export function VoiceSettingsCard({
   return (
     <div className="space-y-3" data-testid={VOICE_TEST_IDS.page}>
       <GlassGroup>
-        <Picker
-          mode="single"
-          triggerVariant="row"
-          width="md"
-          mobileTitle={VOICE_COPY.voiceDevice}
-          data-testid={VOICE_TEST_IDS.voiceDevice}
-          value={settings.voiceDeviceId}
-          items={deviceItems}
-          noneLabel={VOICE_COPY.voiceDeviceNone}
-          onNone={() => apply({ voiceDeviceId: null })}
-          onChange={(voiceDeviceId) => apply({ voiceDeviceId })}
-        />
-        <Picker
-          mode="single"
-          triggerVariant="row"
-          width="md"
-          mobileTitle={VOICE_COPY.agent}
-          data-testid={VOICE_TEST_IDS.agent}
-          value={settings.agentId}
-          items={agentItems}
-          noneLabel={VOICE_COPY.agentNone}
-          onNone={() => apply({ agentId: null })}
-          onChange={(agentId) => apply({ agentId })}
-        />
+        {assistantId === undefined && (
+          <>
+            <Picker
+              mode="single"
+              triggerVariant="row"
+              width="md"
+              mobileTitle={VOICE_COPY.voiceDevice}
+              data-testid={VOICE_TEST_IDS.voiceDevice}
+              value={settings.voiceDeviceId}
+              items={deviceItems}
+              noneLabel={VOICE_COPY.voiceDeviceNone}
+              onNone={() => apply({ voiceDeviceId: null })}
+              onChange={(voiceDeviceId) => apply({ voiceDeviceId })}
+            />
+            <Picker
+              mode="single"
+              triggerVariant="row"
+              width="md"
+              mobileTitle={VOICE_COPY.agent}
+              data-testid={VOICE_TEST_IDS.agent}
+              value={settings.agentId}
+              items={agentItems}
+              noneLabel={VOICE_COPY.agentNone}
+              onNone={() => apply({ agentId: null })}
+              onChange={(agentId) => apply({ agentId })}
+            />
+          </>
+        )}
         <GlassToggleRow
           id={VOICE_TEST_IDS.speakReplies}
           label={VOICE_COPY.speakReplies}
@@ -449,7 +461,14 @@ export function VoiceSettingsCard({
 
 /** The page body: the card over the synced devices of the member and the
  *  agents of the member's teams. */
-export function VoiceSettingsSection({ settings }: { settings: VoiceSettings }) {
+export function VoiceSettingsSection({
+  settings,
+  assistantId,
+}: {
+  settings: VoiceSettings
+  /** S-3: the Assistant page's Voice section (VoiceSettingsCard). */
+  assistantId?: string
+}) {
   const { data: session } = useSession()
   const userId = session?.user?.id
   const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
@@ -478,5 +497,5 @@ export function VoiceSettingsSection({ settings }: { settings: VoiceSettings }) 
     }))
   }, [agentRows, teamRows])
 
-  return <VoiceSettingsCard settings={settings} devices={devices} agents={agents} />
+  return <VoiceSettingsCard settings={settings} devices={devices} agents={agents} assistantId={assistantId} />
 }

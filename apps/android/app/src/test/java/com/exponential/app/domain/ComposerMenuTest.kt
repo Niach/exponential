@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
@@ -33,7 +34,16 @@ class ComposerMenuTest {
             assertEquals(want.string("label"), row.label)
             assertEquals(want["codexLabel"]?.jsonPrimitive?.content, row.codexLabel)
             assertEquals(want.string("icon"), row.icon)
-            assertEquals(want["when"]?.jsonPrimitive?.content, row.condition?.wire)
+            val whenList = when (val w = want["when"]) {
+                null -> emptyList()
+                is JsonArray -> w.map { it.jsonPrimitive.content }
+                else -> listOf(w.jsonPrimitive.content)
+            }
+            assertEquals(whenList, row.conditions.map { it.wire })
+            assertEquals(
+                want.getValue("surfaces").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+                row.surfaces.map { it.wire }.toSet(),
+            )
         }
     }
 
@@ -44,13 +54,20 @@ class ComposerMenuTest {
         for (element in cases) {
             val case = element.jsonObject
             val c = case.getValue("conditions").jsonObject
+            val surface = ComposerMenuSurface.entries.single { it.wire == case.string("surface") }
+            fun b(key: String) = c.getValue(key).jsonPrimitive.boolean
             val layout = ComposerMenu.composerMenuLayout(
+                surface,
                 ComposerMenuConditions(
-                    subagentModel = c.getValue("subagentModel").jsonPrimitive.boolean,
-                    ultracode = c.getValue("ultracode").jsonPrimitive.boolean,
-                    mcp = c.getValue("mcp").jsonPrimitive.boolean,
-                    computerUse = c.getValue("computerUse").jsonPrimitive.boolean,
-                    agents = c.getValue("agents").jsonPrimitive.boolean,
+                    temporary = b("temporary"),
+                    device = b("device"),
+                    account = b("account"),
+                    model = b("model"),
+                    repositories = b("repositories"),
+                    subagentModel = b("subagentModel"),
+                    ultracode = b("ultracode"),
+                    mcp = b("mcp"),
+                    computerUse = b("computerUse"),
                 ),
             )
             assertEquals(
@@ -59,6 +76,14 @@ class ComposerMenuTest {
                 layout.map { if (it is ComposerMenuEntry.Row) it.id.wire else "-" },
             )
         }
+    }
+
+    @Test
+    fun `the conditions are the fixture's`() {
+        assertEquals(
+            fixture.getValue("conditions").jsonObject.keys,
+            ComposerMenuCondition.entries.map { it.wire }.toSet(),
+        )
     }
 
     @Test

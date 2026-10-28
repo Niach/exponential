@@ -343,6 +343,11 @@ export const DEMO_AGENT_IDS = {
   release: `efb92a14-ee7c-4da6-ab07-6697d706ee62`,
 } as const
 
+/** S-3 (agent-settings.json `assistant`): the demo user's Assistant in the
+ *  demo team (role `assistant`, the brand mark, on the demo desktop): the
+ *  `settings-assistant` view's subject and the demo user's voice agent. */
+export const DEMO_ASSISTANT_ID = `8f4e2b71-3c9d-4a5e-b6f0-1d2c3e4f5a6b`
+
 /** NEW-2: the agents above are `agents` DEFINITION rows; each runs as the
  *  demo user's CONVERSATION session with it (a root with `agent_id`), keyed
  *  the same way. DEMO_AGENT_ID stays the agent (the `/agents/$agentId` and

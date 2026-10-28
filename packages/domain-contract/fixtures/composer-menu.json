@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1249: the launch composer's ONE '+' menu, byte-identical x4 (web components/launch-dialog/composer-menu.ts, desktop chat_screen.rs + launch_options.rs, iOS AgentComposerCard.swift, Android AgentComposer.kt). The '+' is the composer's ONLY tool (the Issue and Action tools and the options line's '...' overflow are gone; NEW-2: prompts live in the `/` menu, never here); md+ = a dropdown anchored at the '+', phones = a bottom sheet of the same rows, submenus as pushed pages. Rows in `rows` order; a row with `when` renders only while that condition holds (`conditions` says when), then separators are TIDIED (never leading, trailing or doubled). Icons are CONCEPTS (packages/icons/icons.json). Submenus (SLOP-28, EXP-1259 D5): implement-issue is, the shared search list (search-list.json: a search input on top, Picker rows of ONE height `submenuRowHeight`, the list scrolls, at most `submenuMaxRows` rows visible, bottom fade); on a pointer they open to the side on hover or Right arrow (Left/Escape closes back to the parent), on phones they push as pages. implement-issue = issue rows (status glyph, mono identifier, title; the picks pinned first, checkmarks) with a footer button `implementButton` once something is picked (it only closes the menu: the picks are already the subject); effort = picker rows over the agent's efforts, value = the picked effort's label, label `codexLabel` for codex, DISABLED while ultracode is on; subagents = THE model picker rows (the contract coding models, all four, NO Default: every model is explicit, device default `deviceAgentDefaults.subagentModel`), value = the picked label; mcp-servers = multi picker rows over the team's servers (a server the caller has not connected opens Settings > MCP servers instead of toggling), value = the number picked (no value at zero). add-file opens the platform file chooser with NO type filter (any file: images up to 10 MB keep their [Image #N] marker, other files up to 50 MB ride as file links, 4 of each); iOS alone opens a two-entry GlassMenu 'Photo' | 'File' (the photo picker | fileImporter(.item)), the one iOS-only sub-choice. The options line under the card keeps Device, Account, Model and Repository and nothing else (S-3 owner 2026-10-28: no Plan toggle anywhere ×4); EXP-1345 (owner 2026-10-17) picker rule ×4, every surface: a single-select pick (the options line's Device, Account, Model and effort, the session composer's model, every settings/dialog select) is THE Picker: the selected row's ui-check is TRAILING (never leading, never replacing the row glyph); md+ = a popover/dropdown at the trigger, phones = a bottom sheet of the same rows (no anchored context menu for a pick); action menus (context menus, the '+') stay THE Menu; Model, effort, subagents, ultracode and computer use are the WORK picks the dispatcher root hands its children. The Agent page draws NO suggestion rows and NO brand-mark watermark (EXP-1270/EXP-1253: composer-home.json owns the page around the card); the `#` and rocket buttons under the card stay gone. NEW-3 (plan 3.9): `message-agent` = Message an agent › (shown while the team has agents): THE Picker rows of the team's agents (icon + colour + name, single pick); the pick becomes the composer's SUBJECT as ONE agent chip (`agent-composer-chip-agent` + `-remove`, the agent's icon and name; picking an issue or a prompt swaps it out), the options line HIDES (a DM runs on the agent's own device and login), the submit reads `Send`, and the send = `sessions.send({agentId, text, attachmentIds})` into the caller's DM with that agent (NEW-2: its conversation session), which the client then opens (web /t/$teamSlug/agents/$agentId). Natives replay the row in their layouts (`agents` false until NEW-6/NEW-7 draw the submenu).",
+  "$comment": "EXP-1249: the composer's ONE '+' menu, byte-identical x4 (web components/launch-dialog/composer-menu.ts, desktop chat_screen.rs + launch_options.rs, iOS AgentComposerCard.swift, Android AgentComposer.kt). The '+' is the composer's ONLY tool (the Issue and Action tools and the options line's '...' overflow are gone; NEW-2: prompts live in the `/` menu, never here); md+ = a dropdown anchored at the '+', phones = a bottom sheet of the same rows, submenus as pushed pages. Rows in `rows` order; a row with `when` renders only while that condition holds (`conditions` says when), then separators are TIDIED (never leading, trailing or doubled). Icons are CONCEPTS (packages/icons/icons.json). Submenus (SLOP-28, EXP-1259 D5): implement-issue is, the shared search list (search-list.json: a search input on top, Picker rows of ONE height `submenuRowHeight`, the list scrolls, at most `submenuMaxRows` rows visible, bottom fade); on a pointer they open to the side on hover or Right arrow (Left/Escape closes back to the parent), on phones they push as pages. implement-issue = issue rows (status glyph, mono identifier, title; the picks pinned first, checkmarks) with a footer button `implementButton` once something is picked (it only closes the menu: the picks are already the subject); effort = picker rows over the agent's efforts, value = the picked effort's label, label `codexLabel` for codex, DISABLED while ultracode is on; subagents = THE model picker rows (the contract coding models, all four, NO Default: every model is explicit, device default `deviceAgentDefaults.subagentModel`), value = the picked label; mcp-servers = multi picker rows over the team's servers (a server the caller has not connected opens Settings > MCP servers instead of toggling), value = the number picked (no value at zero). add-file ('Photo or file') opens the platform file chooser with NO type filter (any file: images up to 10 MB keep their [Image #N] marker, other files up to 50 MB ride as file links, 4 of each); iOS alone opens a two-entry GlassMenu 'Photo' | 'File' (the photo picker | fileImporter(.item)), the one iOS-only sub-choice. S-3 (owner 2026-10-28, mobile is the reference): EVERY composer ×4 (the launch composer, a session's, an agent chat's: `surface` launch | session | agent) has ONLY the '+' as its tool: NO options line under the card (Device, Account, Model and Repository are + rows now), NO inline image/file/#/emoji/mention buttons (emoji stays only in the issue comment composer). A row's `surfaces` = where it exists; `when` (one condition or a list, all must hold) = when it shows. Rows: add-file 'Photo or file' (iOS keeps its Photo | File sub-choice), implement-issue 'Issue' (launch: the implement subject picker; session/agent: THE same issue search list, a pick inserts `#IDENT` at the caret), a separator, then the RUNNER submenus over THE existing pickers as submenu rows (search-list.json; value = the picked label): device (picker-device), account (picker-account), model (ModelPicker), repository (picker-repository, only while the team has `repositories` > 1), each only where it can change (`device`/`account`/`model` conditions: the launch composer while the agent row picks `Temporary session`; a session's model while it runs on a model-switching agent; an agent chat's model; a running session never moves device or login here). On launch the WORK picks follow (effort, subagents, ultracode, MCP servers, computer use) only for a temporary session (`temporary`): a message to an agent runs on that agent's definition. The old `message-agent` row and its agent chip are GONE: the composer-home.json agent row picks the recipient. EXP-1345 picker rule ×4 (owner 2026-10-17): a single-select pick is THE Picker (selected row's ui-check TRAILING; md+ = a popover at the trigger, phones = a bottom sheet of the same rows); action menus (context menus, the '+') stay THE Menu. The Agent page draws NO suggestion rows and NO brand-mark watermark (composer-home.json owns the page around the card). The options line's Resume pill is GONE with it ×4 (owner 2026-10-28): no + row; a send uses the stored resume default (on).",
   "testIds": {
     "plus": "agent-composer-plus-button",
     "menu": "agent-composer-menu",
@@ -9,23 +9,160 @@
   },
   "plusLabel": "Add",
   "rows": [
-    { "id":  "implement-issue", "kind":  "submenu", "label":  "Implement issue", "icon":  "editor-issue-ref" },
-    { "id":  "message-agent", "kind":  "submenu", "label":  "Message an agent", "icon":  "settings-agents", "when":  "agents" },
-    { "id":  "add-file", "kind":  "item", "label":  "Add file or image", "icon":  "ui-attach" },
-    { "kind":  "separator" },
-    { "id":  "effort", "kind":  "submenu", "label":  "Effort", "codexLabel":  "Reasoning", "icon":  "ui-estimate" },
-    { "id":  "subagents", "kind":  "submenu", "label":  "Subagents", "icon":  "coding-subagent", "when":  "subagentModel" },
-    { "id":  "ultracode", "kind":  "toggle", "label":  "Ultracode", "icon":  "action-default", "when":  "ultracode" },
-    { "kind":  "separator" },
-    { "id":  "mcp-servers", "kind":  "submenu", "label":  "MCP servers", "icon":  "ui-mcp", "when":  "mcp" },
-    { "id":  "computer-use", "kind":  "toggle", "label":  "Computer use", "icon":  "nav-computer", "when":  "computerUse" }
+    {
+      "id": "add-file",
+      "kind": "item",
+      "label": "Photo or file",
+      "icon": "ui-attach",
+      "surfaces": [
+        "launch",
+        "session",
+        "agent"
+      ]
+    },
+    {
+      "id": "implement-issue",
+      "kind": "submenu",
+      "label": "Issue",
+      "icon": "editor-issue-ref",
+      "surfaces": [
+        "launch",
+        "session",
+        "agent"
+      ]
+    },
+    {
+      "kind": "separator"
+    },
+    {
+      "id": "device",
+      "kind": "submenu",
+      "label": "Device",
+      "icon": "nav-devices",
+      "surfaces": [
+        "launch",
+        "session",
+        "agent"
+      ],
+      "when": "device"
+    },
+    {
+      "id": "account",
+      "kind": "submenu",
+      "label": "Account",
+      "icon": "settings-account",
+      "surfaces": [
+        "launch",
+        "session",
+        "agent"
+      ],
+      "when": "account"
+    },
+    {
+      "id": "model",
+      "kind": "submenu",
+      "label": "Model",
+      "icon": "coding-assistant",
+      "surfaces": [
+        "launch",
+        "session",
+        "agent"
+      ],
+      "when": "model"
+    },
+    {
+      "id": "repository",
+      "kind": "submenu",
+      "label": "Repository",
+      "icon": "settings-repositories",
+      "surfaces": [
+        "launch"
+      ],
+      "when": [
+        "temporary",
+        "repositories"
+      ]
+    },
+    {
+      "kind": "separator"
+    },
+    {
+      "id": "effort",
+      "kind": "submenu",
+      "label": "Effort",
+      "codexLabel": "Reasoning",
+      "icon": "ui-estimate",
+      "surfaces": [
+        "launch"
+      ],
+      "when": "temporary"
+    },
+    {
+      "id": "subagents",
+      "kind": "submenu",
+      "label": "Subagents",
+      "icon": "coding-subagent",
+      "surfaces": [
+        "launch"
+      ],
+      "when": [
+        "temporary",
+        "subagentModel"
+      ]
+    },
+    {
+      "id": "ultracode",
+      "kind": "toggle",
+      "label": "Ultracode",
+      "icon": "action-default",
+      "surfaces": [
+        "launch"
+      ],
+      "when": [
+        "temporary",
+        "ultracode"
+      ]
+    },
+    {
+      "kind": "separator"
+    },
+    {
+      "id": "mcp-servers",
+      "kind": "submenu",
+      "label": "MCP servers",
+      "icon": "ui-mcp",
+      "surfaces": [
+        "launch"
+      ],
+      "when": [
+        "temporary",
+        "mcp"
+      ]
+    },
+    {
+      "id": "computer-use",
+      "kind": "toggle",
+      "label": "Computer use",
+      "icon": "nav-computer",
+      "surfaces": [
+        "launch"
+      ],
+      "when": [
+        "temporary",
+        "computerUse"
+      ]
+    }
   ],
   "conditions": {
+    "temporary": "launch: the agent row (composer-home.json `agentRow`) picks Temporary session (no agent)",
+    "device": "the device can change here: launch while temporary; never in a session or an agent chat",
+    "account": "the login can change here: launch while temporary; never in a session or an agent chat",
+    "model": "the model can change here: launch while temporary; a session or an agent chat whose agent switches models (always for claude and codex)",
+    "repositories": "the team has more than one repository",
     "subagentModel": "the picked agent takes a subagent model (claude)",
     "ultracode": "the picked agent supports ultracode (claude)",
     "mcp": "the team has at least one MCP server",
-    "computerUse": "the picked device advertises the `computerUse.cap` capability",
-    "agents": "NEW-3: the team has at least one agent (`agents` rows); the pick = ONE agent, the message goes into the caller's DM with it"
+    "computerUse": "the picked device advertises the `computerUse.cap` capability"
   },
   "implementButton": {
     "one": "Implement 1 issue",
@@ -37,15 +174,152 @@
     "cap": "computer-use-run"
   },
   "cases": [
-    { "name":  "claude on a computer-use device with MCP servers: every row", "conditions":  { "subagentModel":  true, "ultracode":  true, "mcp":  true, "computerUse":  true, "agents":  false}, "expected":  ["implement-issue", "add-file", "-", "effort", "subagents", "ultracode", "-", "mcp-servers", "computer-use"]},
-    { "name":  "codex, no MCP servers, no computer use: the last group goes with its separator", "conditions":  { "subagentModel":  false, "ultracode":  false, "mcp":  false, "computerUse":  false, "agents":  false}, "expected":  ["implement-issue", "add-file", "-", "effort"]},
-    { "name":  "claude on a computer-use device without MCP servers", "conditions":  { "subagentModel":  true, "ultracode":  true, "mcp":  false, "computerUse":  true, "agents":  false}, "expected":  ["implement-issue", "add-file", "-", "effort", "subagents", "ultracode", "-", "computer-use"]},
-    { "name":  "codex with MCP servers on an older device", "conditions":  { "subagentModel":  false, "ultracode":  false, "mcp":  true, "computerUse":  false, "agents":  false}, "expected":  ["implement-issue", "add-file", "-", "effort", "-", "mcp-servers"]},
-    { "name":  "NEW-3: a team with agents: Message an agent follows Implement issue", "conditions":  { "subagentModel":  false, "ultracode":  true, "mcp":  false, "computerUse":  false, "agents":  true}, "expected":  ["implement-issue", "message-agent", "add-file", "-", "effort", "ultracode"]}
+    {
+      "name": "launch, temporary, claude on a computer-use device with MCP servers and two repos: every row",
+      "surface": "launch",
+      "conditions": {
+        "temporary": true,
+        "device": true,
+        "account": true,
+        "model": true,
+        "repositories": true,
+        "subagentModel": true,
+        "ultracode": true,
+        "mcp": true,
+        "computerUse": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "device",
+        "account",
+        "model",
+        "repository",
+        "-",
+        "effort",
+        "subagents",
+        "ultracode",
+        "-",
+        "mcp-servers",
+        "computer-use"
+      ]
+    },
+    {
+      "name": "launch, temporary, codex, one repo, no MCP servers: the last group goes with its separator",
+      "surface": "launch",
+      "conditions": {
+        "temporary": true,
+        "device": true,
+        "account": true,
+        "model": true,
+        "repositories": false,
+        "subagentModel": false,
+        "ultracode": false,
+        "mcp": false,
+        "computerUse": false
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "device",
+        "account",
+        "model",
+        "-",
+        "effort"
+      ]
+    },
+    {
+      "name": "launch with an agent picked: no runner and no work rows",
+      "surface": "launch",
+      "conditions": {
+        "temporary": false,
+        "device": false,
+        "account": false,
+        "model": false,
+        "repositories": true,
+        "subagentModel": true,
+        "ultracode": true,
+        "mcp": true,
+        "computerUse": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue"
+      ]
+    },
+    {
+      "name": "a session: the model only",
+      "surface": "session",
+      "conditions": {
+        "temporary": false,
+        "device": false,
+        "account": false,
+        "model": true,
+        "repositories": true,
+        "subagentModel": true,
+        "ultracode": true,
+        "mcp": true,
+        "computerUse": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "model"
+      ]
+    },
+    {
+      "name": "an agent chat: the same rows as a session",
+      "surface": "agent",
+      "conditions": {
+        "temporary": false,
+        "device": false,
+        "account": false,
+        "model": true,
+        "repositories": false,
+        "subagentModel": false,
+        "ultracode": false,
+        "mcp": false,
+        "computerUse": false
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "model"
+      ]
+    },
+    {
+      "name": "a session whose agent cannot switch models",
+      "surface": "session",
+      "conditions": {
+        "temporary": false,
+        "device": false,
+        "account": false,
+        "model": false,
+        "repositories": false,
+        "subagentModel": false,
+        "ultracode": false,
+        "mcp": false,
+        "computerUse": false
+      },
+      "expected": [
+        "add-file",
+        "implement-issue"
+      ]
+    }
   ],
   "implementLabels": [
-    { "count":  1, "expected":  "Implement 1 issue" },
-    { "count":  3, "expected":  "Implement 3 issues" }
+    {
+      "count": 1,
+      "expected": "Implement 1 issue"
+    },
+    {
+      "count": 3,
+      "expected": "Implement 3 issues"
+    }
   ],
   "submenuRowHeight": 32,
   "submenuMaxRows": 8

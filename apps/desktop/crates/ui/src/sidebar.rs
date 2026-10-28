@@ -312,6 +312,9 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "account" => Some(S::Account),
         "notifications" => Some(S::Notifications),
         "voice" => Some(S::Voice),
+        // S-3: the viewer's Assistant page (`Voice` resolves to it once
+        // the agents synced: `first_agent_resolved`).
+        "assistant" => Some(S::Voice),
         "api-keys" => Some(S::ApiKeys),
         "mcp-servers" => Some(S::McpServers),
         "about" => Some(S::About),

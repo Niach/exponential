@@ -104,6 +104,11 @@ object Chats {
         const val ARCHIVED_TITLE = "Archived"
         const val ARCHIVED_EMPTY = "No archived chats"
 
+        /** S-3 `copy.sections`: the Chats list's headers, only while an
+         *  agent row exists. */
+        const val SECTION_AGENTS = "Agents"
+        const val SECTION_CHATS = "Chats"
+
         /** `copy.selection.count` filled. */
         fun selectionCount(n: Int): String = SELECTION_COUNT.replace("{n}", n.toString())
 
@@ -233,6 +238,9 @@ object Chats {
         const val BUBBLE_RING = 3
         /** S-3 `shell.dimOpacity`: a done chat row (whole row). */
         const val DIM_OPACITY = 0.5f
+        /** S-3 `shell.chatLead`: a chat row's lead glyph CONCEPT (never the
+         *  brand mark). */
+        const val CHAT_LEAD = "action-chat"
     }
 
     object TestIds {
@@ -852,6 +860,76 @@ object Chats {
         val conversation = sessions.firstOrNull { it.parentId == null && it.agentId == agent.agentId && it.userId == me }
         val unread = conversation != null && unreadCount(conversation.id, messages, reads) > 0
         AgentBubble(agent, if (unread) AgentRing.Unread else null)
+    }
+
+    /** S-3: an agent row pinned on top of the Chats list (`agentRowCases`). */
+    data class AgentChatRow(
+        val agentId: String,
+        /** The viewer's conversation with the agent; null = none yet. */
+        val sessionId: String?,
+        val name: String,
+        val icon: String,
+        val color: String,
+        /** The viewer's Assistant: the brand mark instead of icon/color. */
+        val assistant: Boolean,
+        val preview: ChatPreview,
+        /** [chatTimeLabel] of [activityAt]; empty without a conversation. */
+        val time: String,
+        val activityAt: String?,
+        val unreadCount: Int,
+        val needsYou: Boolean,
+        val busy: Boolean,
+    )
+
+    /** S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one row
+     *  per [SessionTree.listAgents] row (that order), filtered by the chip
+     *  like a chat; none on the Archived page. */
+    fun agentChatRows(
+        agents: List<SessionTree.AgentRow>,
+        sessions: List<SessionTree.Session>,
+        messages: List<SessionTree.Message>,
+        reads: List<SessionTree.SessionRead> = emptyList(),
+        me: String?,
+        filter: ChatFilter,
+        view: ChatListView = ChatListView.List,
+        now: String,
+        utcOffsetMinutes: Int,
+    ): List<AgentChatRow> {
+        if (view == ChatListView.Archived) return emptyList()
+        return agents.map { agent ->
+            val conversation = sessions.firstOrNull { it.parentId == null && it.agentId == agent.agentId && it.userId == me }
+            val id = conversation?.id
+            var newest: String? = null
+            if (id != null) {
+                for (m in messages) {
+                    if (m.sessionId != id) continue
+                    if (m.authorKind != DomainContract.messageAuthorKindUser && m.authorKind != DomainContract.messageAuthorKindAgent) continue
+                    if ((ms(m.createdAt) ?: 0L) > (ms(newest) ?: -1L)) newest = m.createdAt
+                }
+            }
+            val activityAt = newest ?: conversation?.createdAt
+            AgentChatRow(
+                agentId = agent.agentId,
+                sessionId = id,
+                name = agent.name,
+                icon = agent.icon,
+                color = agent.color,
+                assistant = agent.assistant,
+                preview = if (id != null) chatPreview(id, messages, agent.needsYou, agent.busy) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
+                time = activityAt?.let { chatTimeLabel(it, now, utcOffsetMinutes) } ?: "",
+                activityAt = activityAt,
+                unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,
+                needsYou = agent.needsYou,
+                busy = agent.busy,
+            )
+        }.filter {
+            when (filter) {
+                ChatFilter.All -> true
+                ChatFilter.NeedsYou -> it.needsYou
+                ChatFilter.Running -> it.busy
+                ChatFilter.Unread -> it.unreadCount > 0
+            }
+        }
     }
 
     enum class ThreadMenuEntry(val wire: String) { Delete("delete") }

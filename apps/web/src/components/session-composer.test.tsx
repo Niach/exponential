@@ -254,29 +254,37 @@ function pointerOpen(element: HTMLElement) {
 }
 
 describe(`SessionComposer, the one composer (EXP-1334)`, () => {
-  it(`the "+" opens the options menu, never the file chooser, and no subject rows`, () => {
+  const openPlus = () => pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+  const rowIds = () =>
+    [...screen.getByTestId(`agent-composer-menu`).querySelectorAll(`[data-testid^="agent-composer-menu-"]`)].map(
+      (row) => row.getAttribute(`data-testid`)!.replace(`agent-composer-menu-`, ``)
+    )
+  const pickModel = (label: string) => {
+    act(() => {
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-model`))
+    })
+    act(() => {
+      fireEvent.click(screen.getByText(label))
+    })
+  }
+
+  // S-3 (composer-menu.json surface `session`): Photo or file, Issue ›, Model ›.
+  it(`the "+" holds the session rows: file, issue, model; never the file chooser by itself`, () => {
     const click = vi.spyOn(HTMLInputElement.prototype, `click`)
     renderComposer()
-    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+    openPlus()
     expect(click).not.toHaveBeenCalled()
-    const menu = screen.getByTestId(`agent-composer-menu`)
-    expect(menu.querySelector(`[data-testid="agent-composer-menu-effort"]`)).toBeTruthy()
-    expect(menu.querySelector(`[data-testid="agent-composer-menu-ultracode"]`)).toBeTruthy()
-    expect(menu.querySelector(`[data-testid="agent-composer-menu-implement-issue"]`)).toBeNull()
-    expect(menu.querySelector(`[data-testid="agent-composer-menu-run-action"]`)).toBeNull()
+    expect(rowIds()).toEqual([`add-file`, `implement-issue`, `model`])
     click.mockRestore()
   })
 
-  it(`N-12: the "+" is the only tool; the device glyph and the model pin sit in the card (S-3: no Plan)`, () => {
+  it(`the "+" is the only tool: no inline tools, no device or model pin in the card`, () => {
     renderComposer()
     for (const name of [`Add image`, `Attach files`, `Insert issue reference`, `Insert emoji`]) {
       expect(screen.queryByRole(`button`, { name })).toBeNull()
     }
-    const card = document.querySelector(`[data-slot="composer"]`)!
-    const row = screen.getByTestId(`session-composer-options`)
-    expect(card.contains(row)).toBe(true)
-    expect(row.querySelector(`[data-testid="session-composer-model"]`)).toBeTruthy()
-    expect(row.querySelector(`[data-testid="session-composer-plan"]`)).toBeNull()
+    expect(screen.queryByTestId(`session-composer-options`)).toBeNull()
+    expect(screen.queryByTestId(`session-composer-model`)).toBeNull()
     expect(document.querySelector(`[data-slot="composer-options"]`)).toBeNull()
   })
 
@@ -285,81 +293,56 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
   it(`a model pick configures the session and reads as picked at once`, async () => {
     mocks.configure.mockResolvedValue({ txid: 1 })
     renderComposer()
-    const pin = screen.getByTestId(`session-composer-model`)
-    expect(pin.textContent).toContain(`Opus`)
-    act(() => {
-      fireEvent.click(pin.querySelector(`button`)!)
-    })
-    act(() => {
-      fireEvent.click(document.querySelector(`[data-value="sonnet"]`)!)
-    })
+    openPlus()
+    expect(screen.getByTestId(`agent-composer-menu-model`).textContent).toContain(`Opus`)
+    pickModel(`Sonnet`)
     await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
     expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, model: `sonnet` })
     expect(mocks.send).not.toHaveBeenCalled()
-    expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
+    openPlus()
+    expect(screen.getByTestId(`agent-composer-menu-model`).textContent).toContain(`Sonnet`)
   })
 
   it(`a refused model pick toasts Couldn't switch the model and reverts`, async () => {
     mocks.configure.mockRejectedValue(new Error(`This session is blocked by the haiku usage limit`))
     renderComposer()
-    act(() => {
-      fireEvent.click(screen.getByTestId(`session-composer-model`).querySelector(`button`)!)
-    })
-    act(() => {
-      fireEvent.click(document.querySelector(`[data-value="haiku"]`)!)
-    })
+    openPlus()
+    pickModel(`Haiku`)
     await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
     expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't switch the model`)
-    expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`opus`)
-  })
-
-  it(`an Ultracode pick changes the live session through sessions.configure`, async () => {
-    mocks.configure.mockResolvedValue({ txid: 7 })
-    renderComposer()
-    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
-    act(() => {
-      fireEvent.click(screen.getByTestId(`agent-composer-menu-ultracode`))
-    })
-    await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
-    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, ultracode: true })
+    openPlus()
+    expect(screen.getByTestId(`agent-composer-menu-model`).textContent).toContain(`Opus`)
   })
 
   it(`a second model pick while one is in flight sends nothing`, async () => {
     mocks.configure.mockResolvedValue({ txid: 1 })
     renderComposer()
-    const pick = (alias: string) => {
-      act(() => {
-        fireEvent.click(screen.getByTestId(`session-composer-model`).querySelector(`button`)!)
-      })
-      act(() => {
-        fireEvent.click(document.querySelector(`[data-value="${alias}"]`)!)
-      })
-    }
-    pick(`sonnet`)
-    pick(`haiku`)
+    openPlus()
+    pickModel(`Sonnet`)
+    openPlus()
+    pickModel(`Haiku`)
     await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
     expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, model: `sonnet` })
-    expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
-  })
-
-  it(`a failed configure toasts`, async () => {
-    mocks.configure.mockRejectedValue(new Error(`nope`))
-    renderComposer()
-    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
-    act(() => {
-      fireEvent.click(screen.getByTestId(`agent-composer-menu-ultracode`))
-    })
-    await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
-    expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't change the session options`)
   })
 
   it(`an ended session cannot change its model`, () => {
     mocks.row = sessionRow({ status: `ended` })
     renderComposer()
-    expect(
-      (screen.getByTestId(`session-composer-model`).querySelector(`button`) as HTMLButtonElement)
-        .disabled
-    ).toBe(true)
+    openPlus()
+    expect(screen.getByTestId(`agent-composer-menu-model`).hasAttribute(`data-disabled`)).toBe(true)
+  })
+
+  it(`an agent chat with no conversation yet opens it with sessions.send({agentId})`, async () => {
+    mocks.send.mockResolvedValue({ sessionId: `s-new`, txid: 3 })
+    const onSent = vi.fn()
+    render(
+      <SessionComposer teamId="t1" sessionId={null} agentId="ag-1" surface="agent" onSent={onSent} placeholder="Message Triage" />
+    )
+    const field = screen.getByPlaceholderText(`Message Triage`) as HTMLTextAreaElement
+    type(field, `hello`)
+    pressEnter(field)
+    await waitFor(() => expect(onSent).toHaveBeenCalledWith(`s-new`))
+    expect(mocks.send.mock.calls[0]![0]).toMatchObject({ teamId: `t1`, agentId: `ag-1`, text: `hello` })
   })
 })
 

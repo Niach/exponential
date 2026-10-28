@@ -7,11 +7,13 @@ import UniformTypeIdentifiers
 // EXP-1295: THE session composer box — the reply box EVERYWHERE (the session
 // view, a thread's Conversation, a team agent's channel). One `GlassComposer`
 // holding the markdown field, the pending picture/file strip, the footer
-// (`SessionComposerFooter`: `+` = Photo | File) and the round send glyph; a
-// send is ONE `sessions.send({sessionId, text, attachmentIds})` after every
-// pick uploaded to the session once. The session view adds its session-only
-// controls (plan chip, model pill, usage ring, the `/` keys, Stop); a thread
-// mounts it bare.
+// (`SessionComposerFooter`: the `+`, the composer's ONLY tool, and the usage
+// ring) and the round send glyph; a send is ONE `sessions.send({sessionId,
+// text, attachmentIds})` after every pick uploaded to the session once.
+// S-3 (composer-menu.json, surface session | agent): with `controls` the `+`
+// opens THE "+" sheet (`ThreadComposerPlusMenu`): Photo or file (THE Photo
+// | File sub-choice), Issue › (a pick inserts `#IDENT` at the caret),
+// Model › (`/model <alias>`). A bare box's `+` is Photo | File.
 
 /// The draft one composer edits: the session view's model (it outlives the
 /// screen, EXP-621) or a thread's own (`ThreadComposerDraft`).
@@ -210,10 +212,12 @@ struct SessionComposerAttach: Equatable {
     var photoPicker = false
     var fileImporter = false
     var menu = false
+    /// S-3: THE "+" sheet (composer-menu.json) is up.
+    var plusMenu = false
     var photoItems: [PhotosPickerItem] = []
 
     /// A picker, the menu or a photo load is up.
-    var busy: Bool { photoPicker || fileImporter || menu || !photoItems.isEmpty }
+    var busy: Bool { photoPicker || fileImporter || menu || plusMenu || !photoItems.isEmpty }
 }
 
 struct SessionComposerCard<Draft: SessionComposerDraft>: View {
@@ -240,8 +244,10 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
     var onArrow: ((Int) -> Bool)?
     var onEscape: (() -> Bool)?
     var fieldIdentifier: String?
-    /// EXP-1334: the `+` opens the host's composer-menu.json sheet.
-    var onPlus: (() -> Void)?
+
+    /// The "+" row the sheet closed on, run once it has dismissed (a sheet
+    /// cannot present while its sibling is still animating away).
+    @State private var plusPick: ComposerMenu.RowId?
 
     var body: some View {
         GlassComposer(isOpaque: true) {
@@ -293,7 +299,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 onPhoto: { attach.photoPicker = true },
                 onFile: { attach.fileImporter = true },
                 attachMenuOpen: $attach.menu,
-                onPlus: onPlus
+                onPlus: plusAction
             )
         } submit: {
             GlassComposerSubmitButton(
@@ -319,6 +325,12 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
         }
         .background {
             Color.clear
+                .sheet(isPresented: $attach.plusMenu, onDismiss: promotePlusPick) {
+                    if let controls { plusMenu(controls) }
+                }
+        }
+        .background {
+            Color.clear
                 .fileImporter(
                     isPresented: $attach.fileImporter,
                     allowedContentTypes: [.item],
@@ -328,6 +340,52 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                     Task { await draft.ingestFiles(urls) }
                 }
         }
+    }
+
+    /// THE "+" sheet (composer-menu.json, surface session | agent).
+    private func plusMenu(_ controls: SessionComposerFooter.Controls) -> ThreadComposerPlusMenu {
+        let editor = draft.draftEditor
+        return ThreadComposerPlusMenu(
+            conditions: controls.menuConditions,
+            surface: controls.surface,
+            agent: controls.agent,
+            modelValue: controls.modelValue,
+            onPickModel: controls.onPickModel,
+            teamId: controls.teamId,
+            onPickIssue: { issue in
+                if let identifier = issue.identifier {
+                    editor.insertTextAtCaret("#\(identifier) ")
+                }
+                attach.plusMenu = false
+            },
+            addFileEnabled: !draft.attachFull && !draft.steerSending,
+            onPick: { row in
+                plusPick = row
+                attach.plusMenu = false
+            }
+        )
+    }
+
+    /// With controls the `+` opens THE "+" sheet; a bare box's is Photo | File.
+    private var plusAction: (() -> Void)? {
+        guard controls != nil else { return nil }
+        return { openPlusMenu() }
+    }
+
+    private func openPlusMenu() {
+        UIApplication.endEditing()
+        attach.plusMenu = true
+    }
+
+    /// The row the "+" closed on opens its picker now the sheet is gone:
+    /// Photo or file = THE Photo | File sub-choice.
+    private func promotePlusPick() {
+        guard let pick = plusPick else { return }
+        plusPick = nil
+        guard pick == .addFile else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { attach.menu = true }
     }
 
     private func send() {

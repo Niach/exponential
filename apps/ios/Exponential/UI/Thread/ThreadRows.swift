@@ -68,9 +68,15 @@ struct ThreadRows: Sendable {
     /// `statusId` through them (the anchor only as their fallback).
     var issueStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
 
-    /// A CHANNEL root: an agent's conversation, or (VAPP-110) an app's
-    /// editor session — the Conversation alone, Slack-like rows.
+    /// A conversation WITH someone: an agent's (its header names the agent,
+    /// its `…` is the agent menu), or (VAPP-110) an app's editor session.
     var isAgent: Bool { root.isAgent || root.appId != nil }
+    /// S-3 CHAT MODE (session-thread.json `chatModeCases`): an agent
+    /// conversation is `bubbles`, a thread `transcript`; an app editor's chat
+    /// (VAPP-110) is a conversation with its app, so bubbles too.
+    var chatMode: SessionTree.ThreadChatMode {
+        root.appId != nil ? .bubbles : SessionTree.threadChatMode(agentId: root.agentId)
+    }
 
     /// The channel's name / icon / colour: the app's (an editor session),
     /// the agent definition's, else the defaults.

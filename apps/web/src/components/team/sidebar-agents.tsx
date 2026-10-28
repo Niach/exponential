@@ -4,6 +4,7 @@ import {
   AGENT_ROW_MENU_KIND,
   ClaudeSpinner,
   conceptIcon,
+  ExponentialLogo,
   getActionIcon,
   menuProps,
   SidebarGroup,
@@ -27,14 +28,21 @@ import { cn } from "@/lib/utils"
 const UiAddIcon = conceptIcon(`ui-add`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 
-/** An agent's glyph: the curated icon set boards and actions share. */
+/** An agent's glyph: the curated icon set boards and actions share; S-3:
+ *  the viewer's Assistant = the Exponential brand mark in the foreground
+ *  colour (never its stored icon/color). */
 export function AgentIcon({
   agent,
   className,
 }: {
-  agent: Pick<AgentRow, `icon` | `color`>
+  agent: Pick<AgentRow, `icon` | `color`> & { assistant?: boolean }
   className?: string
 }) {
+  if (agent.assistant) {
+    return (
+      <ExponentialLogo variant="light" className={cn(`size-4 shrink-0 text-foreground`, className)} />
+    )
+  }
   const Icon = getActionIcon({ icon: agent.icon })
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
 }

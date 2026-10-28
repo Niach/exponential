@@ -254,6 +254,8 @@ import com.exponential.app.domain.escapeSteerFileName
 import com.exponential.app.ui.agent.ComposerPick
 import com.exponential.app.ui.agent.ComposerPlusMenuSheet
 import com.exponential.app.ui.agent.AgentIssuePickerPage
+import com.exponential.app.ui.agent.AgentIssueInsertPage
+import com.exponential.app.ui.agent.insertIssueRef
 import com.exponential.app.ui.agent.IssueOption
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuEntry
@@ -4524,6 +4526,8 @@ internal fun SessionComposer(
     /** N-12: THE Dock's cards above the composer, handed this session's own
      *  sources ([SessionDock]); null = those alone ([SessionDockCards]). */
     dock: (@Composable (SessionDock) -> Unit)? = null,
+    /** S-3: the composer's surface (an agent chat = `agent`). */
+    surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -4598,7 +4602,6 @@ internal fun SessionComposer(
     )
     // EXP-1252: the options line's Device pin; a refused move =
     // `Couldn't move the session`.
-    val deviceMove by viewModel.deviceMove.collectAsStateWithLifecycle()
     val moveError by viewModel.moveError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(
         moveError?.let { com.exponential.app.ui.components.FailedAction("move", "the session", it.ifBlank { null }) },
@@ -4634,6 +4637,7 @@ internal fun SessionComposer(
         readOnly = sessionEnded,
         onConfigure = viewModel::configure,
         onImplement = viewModel::implementIssues,
+        surface = surface,
     )
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
@@ -5012,8 +5016,6 @@ internal fun SessionComposer(
                 ),
                 modelPickable = catalogAgent == DEFAULT_AGENT,
                 onPickModel = { alias -> viewModel.sendCommand("/model $alias") },
-                deviceMove = deviceMove,
-                onMoveDevice = viewModel::moveToDevice,
                 contextPercent = contextPercent,
                 hasUsage = hasUsage,
                 onOpenUsage = { onOpenUsage?.invoke() },
@@ -5085,7 +5087,7 @@ private enum class ComposerMenu { None, Slash, Autocomplete }
  * reconnect must never eat what the user was typing.
  */
 @Composable
-private fun SteerComposer(
+internal fun SteerComposer(
     /**
      * EXP-802/EXP-805: the value is a TextFieldValue owned by the FACE, not
      * a string owned here — the `@`/`#`/`:` menu is a sibling above this
@@ -5123,9 +5125,6 @@ private fun SteerComposer(
     model: String?,
     modelPickable: Boolean,
     onPickModel: (String) -> Unit,
-    /** EXP-1252: the Device pin before Model (hidden while not [visible]). */
-    deviceMove: SessionDeviceMoveState,
-    onMoveDevice: (String) -> Unit,
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
@@ -5177,8 +5176,6 @@ private fun SteerComposer(
             model = model,
             modelPickable = modelPickable,
             onPickModel = onPickModel,
-            deviceMove = deviceMove,
-            onMoveDevice = onMoveDevice,
             contextPercent = contextPercent,
             hasUsage = hasUsage,
             onOpenUsage = onOpenUsage,
@@ -5188,11 +5185,7 @@ private fun SteerComposer(
 }
 
 /** EXP-931: the expanded composer's own menus, as the keys of its open set. */
-private const val COMPOSER_MENU_MODEL = "model"
-private const val COMPOSER_MENU_DEVICE = "device"
 private const val COMPOSER_MENU_PLUS = "plus"
-private const val COMPOSER_MENU_EFFORT = "effort"
-private const val COMPOSER_MENU_MCP = "mcp"
 
 /**
  * EXP-1334: what THE session composer's "+" offers in a running session —
@@ -5214,6 +5207,8 @@ internal data class SessionComposerMenu(
     val readOnly: Boolean,
     val onConfigure: (AgentSessionViewModel.ConfigurePicks) -> Unit,
     val onImplement: (List<String>) -> Unit,
+    /** S-3: which composer this is (composer-menu.json `surfaces`). */
+    val surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
 )
 
 @Composable
@@ -5235,8 +5230,6 @@ private fun ExpandedSteerComposer(
     model: String?,
     modelPickable: Boolean,
     onPickModel: (String) -> Unit,
-    deviceMove: SessionDeviceMoveState,
-    onMoveDevice: (String) -> Unit,
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
@@ -5277,16 +5270,15 @@ private fun ExpandedSteerComposer(
     // Default: every model is explicit); a pick sends `/model <alias>` as a
     // plain message and the re-emitted `config_state` is the confirmation,
     // so nothing here waits or locks.
-    var modelMenuOpen by remember { mutableStateOf(false) }
     // The model in force leads the list when this build has no row for it (a
     // legacy alias still renders checked), as on web.
-    val modelChoices = remember(model) {
-        val options = modelOptionsFor(DEFAULT_AGENT)
+    // S-3: the Model › row on claude AND codex (composer-menu.json `model`).
+    val modelSwitches = menu.agent == DEFAULT_AGENT || menu.agent == "codex"
+    val modelChoices = remember(model, menu.agent) {
+        val options = modelOptionsFor(if (modelSwitches) menu.agent else DEFAULT_AGENT)
         if (model != null && model.isNotEmpty() && model !in options) listOf(model) + options else options
     }
     var plusOpen by remember { mutableStateOf(false) }
-    var effortOpen by remember { mutableStateOf(false) }
-    var mcpOpen by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
     GlassComposer(
         // The composer floats over the scrolling activity feed.
@@ -5327,82 +5319,9 @@ private fun ExpandedSteerComposer(
                 enabled = !sending,
                 modifier = Modifier.testTag(com.exponential.app.domain.ComposerMenu.PLUS_TEST_ID),
             )
-            // N-12: THE composer row ×4: "+" · the Device glyph · the model ·
-            // the Plan switch … the context ring · Send ⇄ Stop, all inside
-            // the card; nothing under it. N-14: the card's footer is THE ROW
-            // host ([GlassComposer] wraps it in InlinePickerRow): a pin
-            // opened inline discloses its rows under the whole row, as wide
-            // as it, and its trigger never changes (the Device pin stays
-            // the glyph alone); on this page the pins keep their sheets.
-            Row(
-                modifier = Modifier.weight(1f).testTag("steer-options-line"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // EXP-1252: the Device pin BEFORE Model — the launch line's device
-                // picker, its trigger the same inline pin as Model. A disabled pin
-                // floats its reason on tap (the account rows' rule).
-                if (deviceMove.visible) {
-                    val toaster = LocalToaster.current
-                    val blocked = deviceMove.blockedReason
-                    val current = deviceMove.rows.firstOrNull { it.current }
-                    DevicePicker(
-                        devices = deviceMove.rows.map { row ->
-                            DevicePickerDevice(
-                                id = row.id,
-                                name = row.name,
-                                icon = row.icon,
-                                isServer = row.isServer,
-                                description = row.reason,
-                                disabled = row.reason != null,
-                            )
-                        },
-                        value = deviceMove.deviceId,
-                        onChange = onMoveDevice,
-                        title = SessionDeviceMove.PICKER_TITLE,
-                        onOpenChange = { open -> onMenuOpenChange(COMPOSER_MENU_DEVICE, open) },
-                        trigger = { open ->
-                            ComposerPin(
-                                // N-12: the GLYPH alone; the name lives in the picker.
-                                label = null,
-                                icon = deviceIcon(current?.icon, isServer = current?.isServer == true),
-                                enabled = blocked == null,
-                                contentDescription = "${SessionDeviceMove.PICKER_TITLE} ${deviceMove.label}",
-                                // The move's note (or the refusal) rides the pin as its
-                                // a11y hint, like the account switch: no picker footer.
-                                hint = blocked ?: SessionDeviceMove.NOTE,
-                                testTag = "steer-device",
-                                onClick = open,
-                                onDisabledClick = blocked?.let { reason -> { toaster.error(reason) } },
-                            )
-                        },
-                    )
-                }
-                if (model != null) {
-                    // EXP-1345: THE picker (a bottom sheet, the picked row's TRAILING
-                    // check). codex: the model is what it is — the same read-out,
-                    // disabled (desktop keeps the chevron, dimmed).
-                    com.exponential.app.ui.components.picker.ModelPicker(
-                        options = modelChoices.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, modelLabel(it)) },
-                        value = model,
-                        onChange = { alias -> if (live && alias != model) onPickModel(alias) },
-                        enabled = modelPickable,
-                        open = modelPickable && modelMenuOpen,
-                        onOpenChange = { next ->
-                            modelMenuOpen = next
-                            // EXP-931: an open menu is not a blur.
-                            onMenuOpenChange(COMPOSER_MENU_MODEL, next)
-                        },
-                        trigger = { open ->
-                            ComposerModelPin(
-                                label = modelLabel(model),
-                                enabled = modelPickable,
-                                onClick = open,
-                            )
-                        },
-                    )
-                }
-            }
+            // S-3 (composer-menu.json): the "+" is the card's ONLY tool;
+            // the model is its Model › row, the device never moves here.
+            Spacer(Modifier.weight(1f).testTag("steer-options-line"))
             if (hasUsage) {
                 Box(
                     modifier = Modifier
@@ -5448,32 +5367,24 @@ private fun ExpandedSteerComposer(
     }
 
     if (plusOpen) {
-        val claude = menu.agent == DEFAULT_AGENT
         val closePlus = {
             plusOpen = false
             onMenuOpenChange(COMPOSER_MENU_PLUS, false)
         }
-        var implementPicks by remember { mutableStateOf<Set<String>>(emptySet()) }
         ComposerPlusMenuSheet(
             layout = com.exponential.app.domain.ComposerMenu.composerMenuLayout(
-                ComposerMenuConditions(
-                    // The subagent model is a launch pick: not live-changeable.
-                    subagentModel = false,
-                    ultracode = claude,
-                    mcp = menu.mcpServers.isNotEmpty(),
-                    computerUse = menu.canComputerUse,
-                    agents = false,
-                ),
+                menu.surface,
+                // S-3: a session / an agent chat changes its model only (on a
+                // model-switching agent); never its device or login here.
+                ComposerMenuConditions(model = model != null && (modelPickable || modelSwitches)),
             ),
             codex = menu.agent == "codex",
-            effortValue = menu.effort.takeIf { it.isNotEmpty() }?.let(::effortLabel),
-            effortEnabled = !(claude && menu.ultracode),
-            // An ended session: the option rows read, never change (web
-            // `rowsDisabled`); Implement issue, Run action and Add file stay.
+            effortValue = null,
+            effortEnabled = false,
             rowsReadOnly = menu.readOnly,
             subagentsValue = null,
             ultracode = menu.ultracode,
-            mcpValue = mcpPickValue(menu.mcpServerIds.size),
+            mcpValue = null,
             computerUse = menu.computerUse,
             canAttach = pendingImages.count { it.isImage } < MAX_STEER_IMAGES ||
                 pendingImages.count { !it.isImage } < MAX_STEER_FILES,
@@ -5481,146 +5392,36 @@ private fun ExpandedSteerComposer(
                 closePlus()
                 when (row) {
                     ComposerMenuRowId.AddFile -> onPickImages()
-                    ComposerMenuRowId.Effort -> {
-                        effortOpen = true
-                        onMenuOpenChange(COMPOSER_MENU_EFFORT, true)
-                    }
-                    ComposerMenuRowId.McpServers -> {
-                        mcpOpen = true
-                        onMenuOpenChange(COMPOSER_MENU_MCP, true)
-                    }
                     else -> Unit
                 }
             },
-            onUltracodeChange = { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(ultracode = it)) },
-            onComputerUseChange = { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(computerUse = it)) },
+            onUltracodeChange = {},
+            onComputerUseChange = {},
             onDismiss = closePlus,
-            // Implement issue › in a running session = link the picks to
-            // the thread (a manual link wakes the dispatcher).
+            // S-3: Issue › on a session's / an agent chat's composer = THE
+            // issue search list; a pick inserts `#IDENT` at the caret.
             issuePage = { close ->
-                AgentIssuePickerPage(
+                AgentIssueInsertPage(
                     issues = menu.issues,
-                    checkedIds = implementPicks,
-                    onToggle = { id -> implementPicks = if (id in implementPicks) implementPicks - id else implementPicks + id },
-                    onDone = {
-                        menu.onImplement(implementPicks.toList())
-                        implementPicks = emptySet()
+                    onPick = { option ->
+                        onValueRewrite(insertIssueRef(value, option.identifier))
                         close()
                     },
                 )
             },
-        )
-    }
-    if (effortOpen) {
-        Picker(
-            // `CLI default` first, as the launch pickers: the VM sends `""`,
-            // which the server trims to a null effort (web parity).
-            items = (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(menu.agent)).map { PickerItem(it, effortLabel(it)) },
-            mode = PickerMode.Single,
-            value = setOf(menu.effort),
-            onChange = { picked ->
-                picked.firstOrNull()?.let { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(effort = it)) }
-            },
-            title = if (menu.agent == "codex") "Reasoning" else "Effort",
-            open = true,
-            onOpenChange = { open ->
-                if (!open) {
-                    effortOpen = false
-                    onMenuOpenChange(COMPOSER_MENU_EFFORT, false)
-                }
-            },
-        )
-    }
-    if (mcpOpen) {
-        McpServerPicker(
-            servers = menu.mcpServers,
-            value = menu.mcpServerIds,
-            onToggle = { id ->
-                val next = if (id in menu.mcpServerIds) menu.mcpServerIds - id else menu.mcpServerIds + id
-                menu.onConfigure(AgentSessionViewModel.ConfigurePicks(mcpServerIds = next))
-            },
-            open = true,
-            onOpenChange = { open ->
-                if (!open) {
-                    mcpOpen = false
-                    onMenuOpenChange(COMPOSER_MENU_MCP, false)
-                }
-            },
-        )
-    }
-}
-
-/**
- * The composer row's model read-out ×4: plain muted text + a down chevron, no
- * pill background (web/iOS/desktop). Disabled (codex) dims both and takes no
- * tap.
- */
-@Composable
-private fun ComposerModelPin(label: String, enabled: Boolean, onClick: () -> Unit) =
-    ComposerPin(
-        label = label,
-        enabled = enabled,
-        contentDescription = "Model $label",
-        testTag = "steer-model",
-        onClick = onClick,
-    )
-
-/**
- * THE options line's inline pin: plain muted text (+ an optional leading
- * glyph, EXP-1252's device) and a down chevron, no pill background. A
- * disabled pin dims; [onDisabledClick] (when given) still takes the tap so a
- * refusal can say why.
- */
-@Composable
-private fun ComposerPin(
-    label: String?,
-    enabled: Boolean,
-    contentDescription: String,
-    testTag: String,
-    onClick: () -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    onDisabledClick: (() -> Unit)? = null,
-    /** An accessibility-only hint (EXP-1252: the device move's note). */
-    hint: String? = null,
-) {
-    val textAlpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Tertiary
-    val chevronAlpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary
-    val tap = if (enabled) onClick else onDisabledClick
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier
-            .heightIn(min = 40.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(enabled = tap != null, role = Role.Button) { tap?.invoke() }
-            .padding(horizontal = 4.dp)
-            .semantics {
-                this.contentDescription = contentDescription
-                if (hint != null) stateDescription = hint
-            }
-            .testTag(testTag),
-    ) {
-        if (icon != null) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = Color.White.copy(alpha = textAlpha),
-            )
-        }
-        if (label != null) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = textAlpha),
-                maxLines = 1,
-            )
-        }
-        Icon(
-            ExpIcons.uiChevronDown,
-            contentDescription = null,
-            modifier = Modifier.size(10.dp),
-            tint = Color.White.copy(alpha = chevronAlpha),
+            values = mapOf(ComposerMenuRowId.Model to model?.let(::modelLabel)),
+            pages = mapOf(
+                ComposerMenuRowId.Model to { close ->
+                    // THE model picker's rows inline in the pushed page.
+                    com.exponential.app.ui.components.picker.ModelPicker(
+                        options = modelChoices.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, modelLabel(it)) },
+                        value = model,
+                        onChange = { alias -> if (live && alias != model) onPickModel(alias) },
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+            ),
         )
     }
 }

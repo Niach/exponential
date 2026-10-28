@@ -183,14 +183,16 @@ const SAMPLE_CHECKED: Record<string, boolean> = {
 }
 
 /** The "+" rows straight from the fixture, every condition met (EXP-1293:
- *  minus Subagents, which `sessions.send` does not carry). In a session the
- *  subject rows (Implement issue ›, Message an agent ›) go: they exist
- *  only before a start. */
+ *  minus Subagents, which `sessions.send` does not carry), on the phase's
+ *  surface (S-3: launch | session; a row's `surfaces`), separators tidied. */
 export function composerMenuEntries(phase: ComposerPhase): MenuEntry[] {
-  const subjectRows = new Set([`implement-issue`, `message-agent`])
-  return composerMenu.rows
+  const surface = phase === `start` ? `launch` : `session`
+  const rows = composerMenu.rows
     .filter((row) => row.id !== `subagents`)
-    .filter((row) => phase === `start` || !subjectRows.has(row.id ?? ``))
+    .filter((row) => row.kind === `separator` || (`surfaces` in row && (row.surfaces ?? []).includes(surface)))
+    .filter((row, index, all) => row.kind !== `separator` || (index > 0 && all[index - 1]!.kind !== `separator`))
+  while (rows[rows.length - 1]?.kind === `separator`) rows.pop()
+  return rows
     .map((row): MenuEntry => {
       if (row.kind === `separator`) return { kind: `separator` }
       const base = {

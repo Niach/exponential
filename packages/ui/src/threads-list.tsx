@@ -13,7 +13,7 @@ import {
   type ThreadsListRow,
 } from "@exp/domain-contract/session-tree"
 import { AgentRunMark, AgentWorkingMark, type RunMarkState } from "./agent-brand-mark"
-import { BoardGlyph } from "./board-glyph"
+import { AgentAvatar } from "./chat-list"
 import { EmptyState } from "./empty-state"
 import { GlassSectionHeader } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
@@ -225,7 +225,7 @@ export function ThreadsList({
                   agent.busy ? (
                     <AgentWorkingMark agent={null} />
                   ) : (
-                    <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-3.5" />
+                    <AgentAvatar agent={agent} className="size-3.5" />
                   )
                 }
                 title={agent.name}
