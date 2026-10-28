@@ -1121,20 +1121,24 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_threads", settle: 2)
 
         // ── sg_agent-channel: the Triage agent's chat (DEMO_AGENT_ID) off its
-        // header bubble (EXP-1373).
-        let agentRow = app.descendants(matching: .any)
-            .matching(identifier: "agent-bubble")
-            .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
-            .firstMatch
-        expect(agentRow, within: Wait.sync, "The Chats header has no \(Self.agentName) bubble")
-        agentRow.tap()
-        expect(
-            anyElement(app, containing: Self.agentRequest),
-            within: Wait.sync,
-            "\(Self.agentName)'s channel never drew the seeded request"
-        )
-        snapshot("sg_agent-channel", settle: 2)
-        goBack(app)
+        // header bubble (EXP-1373). Like Android, a scoped run that does not
+        // ask for this shot skips the walk (S-3: a bubble wearing a story
+        // ring opens the viewer, not the channel).
+        if ScreenshotShots.isWanted("sg_agent-channel") {
+            let agentRow = app.descendants(matching: .any)
+                .matching(identifier: "agent-bubble")
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
+                .firstMatch
+            expect(agentRow, within: Wait.sync, "The Chats header has no \(Self.agentName) bubble")
+            agentRow.tap()
+            expect(
+                anyElement(app, containing: Self.agentRequest),
+                within: Wait.sync,
+                "\(Self.agentName)'s channel never drew the seeded request"
+            )
+            snapshot("sg_agent-channel", settle: 2)
+            goBack(app)
+        }
         // A subset run that wants neither of the next two stops here: the
         // session step needs the relay stub (`bun run screenshots:desktop`).
         guard ScreenshotShots.isWanted("sg_thread") || ScreenshotShots.isWanted("sg_session") else { return }
