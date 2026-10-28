@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice|device-readiness|work-screen>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice|device-readiness|work-screen|session-xref>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -65,6 +65,7 @@ struct ThreadCardsScreen: View {
                     case "chat-menus": ChatMenuSpecimens()
                     case "schedule-picker": SchedulePickerSpecimens()
                     case "mention-pill": MentionPillSpecimens()
+                    case "session-xref": SessionXrefSpecimens()
                     case "voice-call": VoiceCallSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()
                     case "work-screen": WorkScreenSpecimens()

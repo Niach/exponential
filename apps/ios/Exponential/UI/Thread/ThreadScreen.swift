@@ -527,6 +527,7 @@ struct ThreadScreen: View {
                             onOpenThread: { threadId in
                                 pushRoute(.thread(accountId: accountId, threadId: threadId))
                             },
+                            onOpenXref: { xref in pushRoute(rows.xrefRoute(xref, accountId: accountId)) },
                             onSubmit: submitAnswer,
                             onUnqueue: unqueue,
                             viewerId: deps.auth.userId,
