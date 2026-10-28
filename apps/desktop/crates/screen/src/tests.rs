@@ -533,6 +533,7 @@ fn a_leftover_buffer_is_found_and_forgotten() {
 
 /// A text-like `width` x `height` frame (a white page of dark glyph cells)
 /// with a dark band at `variant`'s height: every variant hashes apart.
+#[cfg(unix)]
 fn page(width: u32, height: u32, variant: u32) -> Vec<u8> {
     let mut seed = u64::from(variant) + 1;
     let mut rgba = vec![255u8; (width * height * 4) as usize];
@@ -569,8 +570,10 @@ fn cpu_seconds() -> f64 {
 }
 
 /// Pixels lent without a copy, as ScreenCaptureKit's are.
+#[cfg(unix)]
 struct Lent(Arc<Vec<u8>>);
 
+#[cfg(unix)]
 impl crate::capture::Pixels for Lent {
     fn bytes(&self) -> &[u8] {
         &self.0
@@ -579,6 +582,7 @@ impl crate::capture::Pixels for Lent {
 
 /// Two displays whose content changes on every grab (a page scrolling),
 /// lent like the macOS capturer's buffers.
+#[cfg(unix)]
 struct ChangingCapturer {
     width: u32,
     height: u32,
@@ -586,6 +590,7 @@ struct ChangingCapturer {
     next: usize,
 }
 
+#[cfg(unix)]
 impl ChangingCapturer {
     fn frame(&mut self, display: u32) -> Frame {
         self.next += 1;
@@ -594,6 +599,7 @@ impl ChangingCapturer {
     }
 }
 
+#[cfg(unix)]
 impl Capturer for ChangingCapturer {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         Ok(wanted.iter().map(|want| self.frame(want.display)).collect())

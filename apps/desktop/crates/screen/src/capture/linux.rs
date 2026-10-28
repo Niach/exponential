@@ -260,6 +260,7 @@ fn x_pixels_to_rgba(data: &[u8], bytes: usize, little: bool, masks: (u32, u32, u
 }
 
 /// A portal stream as the portal describes it (compositor coordinates).
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct StreamRect {
     position: Option<(i32, i32)>,
@@ -272,6 +273,7 @@ struct StreamRect {
 /// display in position order, then numbers past the last display. Without
 /// them (pure Wayland): 1.. by position, left to right then top to bottom,
 /// position-less streams last in the portal's order.
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
 fn number_streams(streams: &[StreamRect], displays: &[computer::Display]) -> Vec<u32> {
     let mut numbers: Vec<Option<u32>> = vec![None; streams.len()];
     let mut taken = vec![false; displays.len()];
