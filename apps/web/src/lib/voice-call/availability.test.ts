@@ -25,7 +25,6 @@ function doctorFor(speech: CallAvailabilityInput[`speech`]): DeviceDoctor {
 function rowsFor(input: CallAvailabilityInput) {
   const settings = {
     voiceDeviceId: input.device === null ? null : `dev-1`,
-    speakReplies: input.speakReplies,
     meetingStartedAt: input.meeting ? NOW.toISOString() : null,
   }
   const device: CallDeviceRowLike | null =
@@ -48,7 +47,7 @@ describe(`web call availability (voice-call.json availabilityCases)`, () => {
   })
 
   it(`covers every reason a web caller can see`, () => {
-    for (const key of [`noVoiceDevice`, `speakOff`, `offline`, `meeting`, `preparing`, `noGpu`] as const) {
+    for (const key of [`noVoiceDevice`, `offline`, `meeting`, `preparing`, `noGpu`] as const) {
       const hit = WEB_CASES.some((c) => c.expected.reason === fixture.copy.reasons[key].replace(`{device}`, c.input.device ?? ``))
       expect(hit, key).toBe(true)
     }
@@ -56,7 +55,7 @@ describe(`web call availability (voice-call.json availabilityCases)`, () => {
   })
 
   it(`a voice device whose row is gone reads as none picked`, () => {
-    const settings = { voiceDeviceId: `dev-1`, speakReplies: true }
+    const settings = { voiceDeviceId: `dev-1` }
     expect(webCallAvailability(settings, null, NOW).reason).toBe(fixture.copy.reasons.noVoiceDevice)
     const other = { deviceId: `dev-2`, label: `mint`, lastSeenAt: FRESH, doctor: doctorFor(`ok`) }
     expect(webCallAvailability(settings, other, NOW).reason).toBe(fixture.copy.reasons.noVoiceDevice)

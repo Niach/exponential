@@ -36,7 +36,6 @@ pub struct VoiceCopy {
     pub voice_device_none: String,
     pub agent: String,
     pub agent_none: String,
-    pub speak_replies: String,
     pub language: String,
     pub language_note: String,
     pub voice_file: String,
@@ -45,7 +44,6 @@ pub struct VoiceCopy {
     pub voice_transcript_placeholder: String,
     pub tray_header: String,
     pub push_to_talk: String,
-    pub shortcut: String,
     pub wake_word: String,
     pub wake_phrase: String,
     pub wake_phrase_placeholder: String,
@@ -63,6 +61,14 @@ pub struct VoiceCopy {
     pub link: String,
     pub ellipsis: String,
     pub wake_phrase_too_short: String,
+    /// S-3: the push-to-talk row's value while no key is bound.
+    pub shortcut_none: String,
+    /// S-3: the recorder's placeholder while it records.
+    pub shortcut_record: String,
+    /// S-3: the recorder's clear button.
+    pub shortcut_clear: String,
+    /// S-3: the tray's Call item while a call runs here.
+    pub tray_end_call: String,
 }
 
 /// #NEW-54: push to talk's words (`pttCopy`, desktop-only).
@@ -83,6 +89,27 @@ pub struct PttCopy {
     pub overlay_not_sent: String,
     pub overlay_not_sent_line: String,
     pub listen_failed: ListenFailedCopy,
+    /// S-3: the Wake word row's trailing detail (`wakeDetail`).
+    pub wake_detail: WakeDetailCopy,
+    /// S-3: the recorder's inline error (a bare key outside `bareKeys`).
+    pub shortcut_needs_modifier: String,
+}
+
+/// S-3: why the wake word is or is not listening (`pttCopy.wakeDetail`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WakeDetailCopy {
+    pub listening: String,
+    pub muted: String,
+    pub no_agent: String,
+    pub downloading: String,
+    pub mic_busy: String,
+    pub meeting: String,
+    pub no_microphone: String,
+    pub not_granted: String,
+    pub unavailable: String,
+    pub offline: String,
+    pub starting: String,
 }
 
 /// #NEW-54: why a push-to-talk shortcut can't be held (`copy.shortcutReasons`).
@@ -111,21 +138,35 @@ pub struct VoiceTestIds {
     pub page: String,
     pub voice_device: String,
     pub agent: String,
-    pub speak_replies: String,
     pub language: String,
     pub voice_file: String,
     pub voice_transcript: String,
-    pub push_to_talk: String,
     pub shortcut: String,
     pub wake_word: String,
     pub wake_phrase: String,
+    /// S-3: the recorder's clear button.
+    pub shortcut_clear: String,
 }
 
-/// One push-to-talk shortcut (`shortcuts`).
+/// S-3: a push-to-talk binding's grammar (`shortcutGrammar`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct VoiceShortcut {
-    pub value: String,
-    pub label: String,
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutGrammar {
+    pub mods: Vec<String>,
+    pub named: Vec<String>,
+    pub mouse: ShortcutRange,
+    pub function: ShortcutRange,
+    pub max_length: usize,
+    /// A part's label; `mouse` carries {n}.
+    pub labels: HashMap<String, String>,
+    pub separator: String,
+}
+
+/// An inclusive range of the grammar (`mouse`, `function`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct ShortcutRange {
+    pub min: u32,
+    pub max: u32,
 }
 
 /// #NEW-73: one spoken-reply language (`languages`).
@@ -162,8 +203,9 @@ pub struct VoiceLimits {
 pub struct VoiceSettings {
     pub voice_device_id: Option<String>,
     pub agent_id: Option<String>,
-    pub speak_replies: bool,
-    pub push_to_talk: bool,
+    /// S-3: the push-to-talk binding (`shortcutGrammar`); empty = no key
+    /// bound = push to talk off. The legacy `speakReplies` / `pushToTalk`
+    /// the server still answers are ignored.
     pub ptt_shortcut: String,
     pub wake_word: bool,
     pub wake_phrase: String,
@@ -193,12 +235,15 @@ impl VoiceSettings {
         if self.language.is_empty() { "en" } else { &self.language }
     }
 
-    /// voice.json `clearOnNone`: with no voice device or no agent nothing
-    /// listens and nothing speaks.
+    /// S-3: push to talk is on (a key is bound).
+    pub fn push_to_talk(&self) -> bool {
+        !self.ptt_shortcut.is_empty()
+    }
+
+    /// voice.json `clearOnNone`: with no voice device or no agent the wake
+    /// word is cleared (S-3: a bound key stays bound).
     pub fn clear_on_none(mut self) -> Self {
         if self.voice_device_id.is_none() || self.agent_id.is_none() {
-            self.speak_replies = false;
-            self.push_to_talk = false;
             self.wake_word = false;
             // #NEW-57: `clearOnNone` grows `meeting`.
             self.meeting_started_at = None;
@@ -216,7 +261,8 @@ pub struct VoiceSpec {
     /// Keyed by language (`en`, `de`).
     pub spoken_words: HashMap<String, SpokenWords>,
     pub test_ids: VoiceTestIds,
-    pub shortcuts: Vec<VoiceShortcut>,
+    /// S-3: the push-to-talk binding's grammar.
+    pub shortcut_grammar: ShortcutGrammar,
     pub languages: Vec<VoiceLanguage>,
     pub defaults: VoiceSettings,
     pub limits: VoiceLimits,
@@ -284,7 +330,7 @@ fn download_size(bytes: u64, down: bool) -> String {
     format!("{}.{} GB", tenths / 10, tenths % 10)
 }
 
-/// The Speak replies row's detail while the voice downloads; a total of 0
+/// The voice download's row detail (S-3: the Language row); a total of 0
 /// (unknown) reads `copy.downloading`.
 pub fn download_progress(received: u64, total: u64) -> String {
     if total == 0 {
@@ -376,17 +422,63 @@ pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, meeting_lis
     Some(if (wake_listening && !muted) || meeting_listening { TrayIcon::Listening } else { TrayIcon::App })
 }
 
-/// #NEW-86: the IDE's Wake word row detail on the voice device itself
-/// (`wakeDetail`): Microphone muted, Listening while the wake word holds the
-/// microphone, else None. A tray host is not always there to show it.
-pub fn wake_detail(here: bool, wake_word: bool, wake_listening: bool, muted: bool) -> Option<String> {
-    if !here || !wake_word {
+/// S-3: what the voice device reports about its wake word (`WakeState`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WakeState {
+    Listening,
+    /// The tray's Mute.
+    Muted,
+    Downloading,
+    /// A call holds the microphone.
+    MicBusy,
+    /// A meeting holds the microphone.
+    Meeting,
+    NoMicrophone,
+    NotGranted,
+    Unavailable,
+}
+
+/// S-3: what [`wake_detail`] reads (`WakeDetailContext`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WakeDetailContext<'a> {
+    pub wake_word: bool,
+    /// An agent is picked.
+    pub agent: bool,
+    /// The voice device is online.
+    pub online: bool,
+    /// The voice device's name.
+    pub device: &'a str,
+    /// What the worker reported; None = nothing yet.
+    pub state: Option<WakeState>,
+}
+
+/// S-3: the Wake word row's trailing detail ×4 (`wakeDetail`, None = none):
+/// the voice device's IDE reads its worker, every other client the device's
+/// doctor row `wake`.
+pub fn wake_detail(context: &WakeDetailContext<'_>) -> Option<String> {
+    let words = &VOICE.ptt_copy.wake_detail;
+    if !context.wake_word {
         return None;
     }
-    if muted {
-        return Some(VOICE.ptt_copy.overlay_muted.clone());
+    if !context.agent {
+        return Some(words.no_agent.clone());
     }
-    wake_listening.then(|| VOICE.ptt_copy.overlay_listening.clone())
+    if !context.online {
+        return Some(words.offline.replace("{device}", context.device));
+    }
+    let text = match context.state {
+        None => &words.starting,
+        Some(WakeState::Listening) => &words.listening,
+        Some(WakeState::Muted) => &words.muted,
+        Some(WakeState::Downloading) => &words.downloading,
+        Some(WakeState::MicBusy) => &words.mic_busy,
+        Some(WakeState::Meeting) => &words.meeting,
+        Some(WakeState::NoMicrophone) => &words.no_microphone,
+        Some(WakeState::NotGranted) => &words.not_granted,
+        Some(WakeState::Unavailable) => &words.unavailable,
+    };
+    Some(text.replace("{device}", context.device))
 }
 
 /// #NEW-68: one tray menu entry's identity.
@@ -395,7 +487,9 @@ pub fn wake_detail(here: bool, wake_word: bool, wake_listening: bool, muted: boo
 pub enum TrayItemId {
     Open,
     Call,
-    SpeakReplies,
+    /// S-3: the Call item while a call runs here.
+    EndCall,
+    /// S-3: an action (opens Settings → Voice), shown while a key is bound.
     PushToTalk,
     WakeWord,
     /// #NEW-57: Meeting mode (checked = a meeting runs).
@@ -441,6 +535,8 @@ pub struct TrayContext<'a> {
     pub meeting: Option<MeetingTrayState<'a>>,
     /// #NEW-57: Pause listening, Some(paused) while it shows.
     pub pause: Option<bool>,
+    /// S-3: a call runs on this device (Call reads End call).
+    pub in_call: bool,
 }
 
 /// #NEW-57: the tray's Meeting mode switch (`meeting` while `available`).
@@ -476,15 +572,21 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
     let phrase = wake_phrase(settings, Some(agent)).unwrap_or_default();
     let check = |id, label: String, on: bool| TrayItem::Check { id, label, checked: on && ready, enabled: ready };
     let mut menu = vec![TrayItem::Action { id: TrayItemId::Open, label: copy.tray_open.clone(), enabled: true }];
-    if context.call_available && !context.meeting.is_some_and(|meeting| meeting.on) {
+    if context.in_call {
+        menu.push(TrayItem::Action { id: TrayItemId::EndCall, label: copy.tray_end_call.clone(), enabled: true });
+    } else if context.call_available && !context.meeting.is_some_and(|meeting| meeting.on) {
         menu.push(TrayItem::Action { id: TrayItemId::Call, label: copy.tray_call.replace("{agent}", agent), enabled: ready });
     }
-    menu.extend([
-        TrayItem::Separator,
-        check(TrayItemId::SpeakReplies, copy.speak_replies.clone(), settings.speak_replies),
-        check(TrayItemId::PushToTalk, format!("{} · {shortcut}", copy.push_to_talk), settings.push_to_talk),
-        check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word),
-    ]);
+    menu.push(TrayItem::Separator);
+    // S-3: no key bound = push to talk off = no item; the item opens Settings.
+    if settings.push_to_talk() {
+        menu.push(TrayItem::Action {
+            id: TrayItemId::PushToTalk,
+            label: format!("{} · {shortcut}", copy.push_to_talk),
+            enabled: true,
+        });
+    }
+    menu.push(check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word));
     if let Some(meeting) = context.meeting {
         let words = &crate::meeting::MEETING.copy.meeting;
         let label = if meeting.on { format!("{words} · {}", meeting.who) } else { words.clone() };
@@ -560,9 +662,177 @@ pub fn rail_voice(
     })
 }
 
-/// #NEW-54: a shortcut's label (`shortcuts`), the value itself when unknown.
+/// A trailing number of `part` after `prefix` (`f13` → 13, `mouse4` → 4).
+fn numbered(part: &str, prefix: &str) -> Option<u32> {
+    let digits = part.strip_prefix(prefix)?;
+    (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())).then(|| digits.parse().ok()).flatten()
+}
+
+/// S-3: the grammar's key (not a modifier): a letter, digit, f1-f24, a
+/// named key or mouse3-mouse9.
+pub fn is_shortcut_key(part: &str) -> bool {
+    let grammar = &VOICE.shortcut_grammar;
+    if part.len() == 1 && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) {
+        return true;
+    }
+    // TS `^f([1-9][0-9]?)$` / `^mouse([0-9])$`.
+    if let Some(n) = numbered(part, "f").filter(|_| (2..=3).contains(&part.len()) && !part.starts_with("f0")) {
+        return (grammar.function.min..=grammar.function.max).contains(&n);
+    }
+    if let Some(n) = numbered(part, "mouse").filter(|_| part.len() == 6) {
+        return (grammar.mouse.min..=grammar.mouse.max).contains(&n);
+    }
+    grammar.named.iter().any(|named| named == part)
+}
+
+/// S-3: a key that may be bound without a modifier (`bareKeys`).
+fn is_bare_key(part: &str) -> bool {
+    numbered(part, "f").is_some()
+        || (part.len() == 6 && numbered(part, "mouse").is_some())
+        || matches!(part, "insert" | "pause" | "scrolllock" | "printscreen")
+}
+
+/// S-3: a grammar modifier (`mods`).
+pub fn is_shortcut_mod(part: &str) -> bool {
+    VOICE.shortcut_grammar.mods.iter().any(|m| m == part)
+}
+
+/// S-3: the canonical text of a binding (`shortcutCanonical`), or None when
+/// the grammar refuses it; empty stays empty (no key = off).
+pub fn shortcut_canonical(text: &str) -> Option<String> {
+    if text.is_empty() {
+        return Some(String::new());
+    }
+    let mut parts: Vec<&str> = text.split('+').collect();
+    let key = parts.pop().unwrap_or("");
+    if !is_shortcut_key(key) {
+        return None;
+    }
+    if parts.iter().any(|part| !is_shortcut_mod(part)) || (1..parts.len()).any(|i| parts[..i].contains(&parts[i])) {
+        return None;
+    }
+    if parts.is_empty() && !is_bare_key(key) {
+        return None;
+    }
+    let mods = VOICE.shortcut_grammar.mods.iter().map(String::as_str).filter(|m| parts.contains(m));
+    let value = mods.chain(std::iter::once(key)).collect::<Vec<_>>().join("+");
+    (value.len() <= VOICE.shortcut_grammar.max_length).then_some(value)
+}
+
+/// One part's label (`labels`; a letter upper case, mouseN with {n}).
+fn part_label(part: &str) -> String {
+    let labels = &VOICE.shortcut_grammar.labels;
+    if let Some(n) = numbered(part, "mouse").filter(|_| part.len() == 6) {
+        return labels["mouse"].replace("{n}", &n.to_string());
+    }
+    labels.get(part).cloned().unwrap_or_else(|| part.to_uppercase())
+}
+
+/// S-3: the parts of a binding as labels, one keycap each (empty = none).
+pub fn shortcut_keycaps(value: &str) -> Vec<String> {
+    if value.is_empty() {
+        return Vec::new();
+    }
+    value.split('+').map(part_label).collect()
+}
+
+/// S-3: a binding's label (`Ctrl + Shift + K`); empty reads None.
 pub fn shortcut_label(value: &str) -> String {
-    VOICE.shortcuts.iter().find(|entry| entry.value == value).map(|entry| entry.label.clone()).unwrap_or_else(|| value.to_string())
+    if value.is_empty() {
+        return VOICE.copy.shortcut_none.clone();
+    }
+    shortcut_keycaps(value).join(&VOICE.shortcut_grammar.separator)
+}
+
+/// S-3: where the push-to-talk recorder is (`CaptureState.status`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CaptureStatus {
+    Recording,
+    Done,
+    Cancelled,
+}
+
+/// S-3: the push-to-talk recorder (`CaptureState`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureState {
+    pub status: CaptureStatus,
+    /// The binding (the one before recording until a key records).
+    pub value: String,
+    /// The modifiers held now, in canonical order.
+    pub held: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// S-3: one recorder event (`CaptureEvent`); keys use the grammar's names
+/// plus `escape`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureEvent {
+    Down(String),
+    Up(String),
+    Mouse(u32),
+}
+
+/// S-3: start recording over the current binding (`captureStart`).
+pub fn capture_start(value: &str) -> CaptureState {
+    CaptureState { status: CaptureStatus::Recording, value: value.to_string(), held: Vec::new(), error: None }
+}
+
+/// S-3: the push-to-talk recorder (`captureStep`, `captureCases`).
+pub fn capture_step(state: &CaptureState, event: &CaptureEvent) -> CaptureState {
+    if state.status != CaptureStatus::Recording {
+        return state.clone();
+    }
+    let needs_modifier = || CaptureState { error: Some(VOICE.ptt_copy.shortcut_needs_modifier.clone()), ..state.clone() };
+    let record = |key: &str| {
+        let text = state.held.iter().map(String::as_str).chain(std::iter::once(key)).collect::<Vec<_>>().join("+");
+        match shortcut_canonical(&text) {
+            Some(value) => CaptureState { status: CaptureStatus::Done, value, held: Vec::new(), error: None },
+            None => needs_modifier(),
+        }
+    };
+    let (down, key) = match event {
+        CaptureEvent::Mouse(button) if *button < VOICE.shortcut_grammar.mouse.min => return state.clone(),
+        CaptureEvent::Mouse(button) => return record(&format!("mouse{button}")),
+        CaptureEvent::Down(key) => (true, key.as_str()),
+        CaptureEvent::Up(key) => (false, key.as_str()),
+    };
+    if is_shortcut_mod(key) {
+        let held = VOICE
+            .shortcut_grammar
+            .mods
+            .iter()
+            .filter(|m| if *m == key { down } else { state.held.contains(m) })
+            .cloned()
+            .collect();
+        return CaptureState { held, ..state.clone() };
+    }
+    if !down {
+        return state.clone();
+    }
+    if state.held.is_empty() && key == "escape" {
+        return CaptureState { status: CaptureStatus::Cancelled, held: Vec::new(), ..state.clone() };
+    }
+    if state.held.is_empty() && (key == "backspace" || key == "delete") {
+        return CaptureState { status: CaptureStatus::Done, value: String::new(), held: Vec::new(), error: None };
+    }
+    if key == "escape" {
+        return needs_modifier();
+    }
+    if !is_shortcut_key(key) {
+        return state.clone();
+    }
+    record(key)
+}
+
+/// S-3: the held modifiers while recording (`Ctrl + …`; empty = none).
+pub fn capture_pending(state: &CaptureState) -> String {
+    if state.status != CaptureStatus::Recording || state.held.is_empty() {
+        return String::new();
+    }
+    let separator = &VOICE.shortcut_grammar.separator;
+    let held: Vec<String> = state.held.iter().map(|part| part_label(part)).collect();
+    format!("{}{separator}…", held.join(separator))
 }
 
 /// #NEW-54: the voice device's OS.
@@ -604,9 +874,9 @@ impl ShortcutSupport {
     }
 }
 
-/// Whether a `shortcuts` value is a mouse button.
+/// Whether a binding's key is a mouse button (with or without modifiers).
 pub fn is_mouse_shortcut(shortcut: &str) -> bool {
-    shortcut.starts_with("mouse")
+    shortcut.rsplit('+').next().is_some_and(|key| key.len() == 6 && numbered(key, "mouse").is_some())
 }
 
 /// #NEW-54: `shortcutSupport(os, session, shortcut, portal)`.
@@ -620,15 +890,6 @@ pub fn shortcut_support(os: VoiceOs, session: Option<VoiceSession>, shortcut: &s
         VoiceOs::Linux if portal => ShortcutSupport::Portal,
         VoiceOs::Linux => ShortcutSupport::FocusedOnly,
     }
-}
-
-/// #NEW-54: the Shortcut picker's values on the voice device.
-pub fn shortcut_options(os: VoiceOs, session: Option<VoiceSession>) -> Vec<&'static VoiceShortcut> {
-    VOICE
-        .shortcuts
-        .iter()
-        .filter(|entry| shortcut_support(os, session, &entry.value, true) != ShortcutSupport::Unavailable)
-        .collect()
 }
 
 /// #NEW-54: why the shortcut can't be held (`copy.shortcutReasons`).
@@ -883,7 +1144,10 @@ pub struct VoiceContext<'a> {
     pub agent_session_id: Option<&'a str>,
     /// THIS device is the member's voice device.
     pub is_voice_device: bool,
-    pub speak_replies: bool,
+    /// S-3: the member spoke this turn (a call runs with the voice agent, or
+    /// a push-to-talk / wake turn waits for or plays its reply); a typed
+    /// message is never read aloud.
+    pub voice_turn: bool,
     /// #NEW-73: the language replies are spoken in.
     pub language: &'a str,
     /// The languages THIS device's speech worker reports (empty without a
@@ -897,7 +1161,7 @@ pub struct VoiceContext<'a> {
 
 /// Whether a synced message row is read aloud.
 pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> bool {
-    let Some(agent_session) = context.agent_session_id.filter(|_| context.speak_replies && context.is_voice_device) else {
+    let Some(agent_session) = context.agent_session_id.filter(|_| context.voice_turn && context.is_voice_device) else {
         return false;
     };
     if context.meeting {
@@ -1313,10 +1577,9 @@ mod tests {
     #[test]
     fn the_spec_parses() {
         assert_eq!(VOICE.copy.group, "Voice");
-        assert_eq!(VOICE.copy.speak_replies, "Speak replies");
         assert_eq!(VOICE.test_ids.page, "settings-voice");
-        assert_eq!(VOICE.defaults.ptt_shortcut, "ctrl+space");
-        assert!(VOICE.shortcuts.iter().any(|shortcut| shortcut.value == VOICE.defaults.ptt_shortcut));
+        assert_eq!(VOICE.defaults.ptt_shortcut, "", "S-3: no key bound by default");
+        assert!(!VOICE.defaults.push_to_talk());
     }
 
     #[test]
@@ -1336,7 +1599,7 @@ mod tests {
             let context = VoiceContext {
                 agent_session_id: c["agentSessionId"].as_str(),
                 is_voice_device: c["isVoiceDevice"].as_bool().unwrap(),
-                speak_replies: c["speakReplies"].as_bool().unwrap(),
+                voice_turn: c["voiceTurn"].as_bool().unwrap(),
                 language: c["language"].as_str().unwrap(),
                 voices: &voices,
                 armed_at: c["armedAt"].as_str().unwrap(),
@@ -1560,6 +1823,7 @@ mod tests {
                     screen_memory: screen_memory_of(&context["screenMemory"]),
                     meeting: meeting_of(&context["meeting"]),
                     pause: pause_of(&context["pause"]),
+                    in_call: context["inCall"].as_bool().unwrap_or(false),
                 },
             );
             let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
@@ -1586,12 +1850,13 @@ mod tests {
     fn wake_detail_matches_the_fixture() {
         for case in fixture()["wakeDetailCases"].as_array().unwrap() {
             let context = &case["context"];
-            let detail = wake_detail(
-                context["here"].as_bool().unwrap(),
-                context["wakeWord"].as_bool().unwrap(),
-                context["wakeListening"].as_bool().unwrap(),
-                context["muted"].as_bool().unwrap(),
-            );
+            let detail = wake_detail(&WakeDetailContext {
+                wake_word: context["wakeWord"].as_bool().unwrap(),
+                agent: context["agent"].as_bool().unwrap(),
+                online: context["online"].as_bool().unwrap(),
+                device: context["device"].as_str().unwrap(),
+                state: serde_json::from_value(context["state"].clone()).unwrap(),
+            });
             assert_eq!(detail.as_deref(), case["detail"].as_str(), "{}", case["name"]);
         }
     }
@@ -1614,6 +1879,7 @@ mod tests {
                     screen_memory: screen_memory_of(&context["screenMemory"]),
                     meeting: meeting_of(&context["meeting"]),
                     pause: pause_of(&context["pause"]),
+                    in_call: context["inCall"].as_bool().unwrap_or(false),
                 },
                 context["wakeListening"].as_bool().unwrap(),
                 context["meetingListening"].as_bool().unwrap_or(false),
@@ -1655,15 +1921,42 @@ mod tests {
             let support = shortcut_support(os, session, case["shortcut"].as_str().unwrap(), case["portal"].as_bool().unwrap());
             assert_eq!(support.key(), case["support"].as_str().unwrap(), "{case}");
         }
-        for case in fixture["shortcutOptionsCases"].as_array().unwrap() {
-            let (os, session) = os_of(case);
-            let options: Vec<&str> = shortcut_options(os, session).iter().map(|entry| entry.value.as_str()).collect();
-            let expected: Vec<&str> = case["options"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-            assert_eq!(options, expected, "{}", case["name"]);
-        }
         for case in fixture["shortcutReasonCases"].as_array().unwrap() {
             let reason = ShortcutReason::from_key(case["reason"].as_str().unwrap()).unwrap();
             assert_eq!(shortcut_reason(reason, case["shortcut"].as_str().unwrap()), case["text"].as_str().unwrap());
+        }
+    }
+
+    #[test]
+    fn shortcut_canonical_matches_the_fixture() {
+        for case in fixture()["shortcutParseCases"].as_array().unwrap() {
+            let input = case["in"].as_str().unwrap();
+            let value = shortcut_canonical(input);
+            assert_eq!(value.as_deref(), case["value"].as_str(), "{input:?}");
+            if let Some(value) = value {
+                assert_eq!(shortcut_label(&value), case["label"].as_str().unwrap(), "{input:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn capture_step_matches_the_fixture() {
+        for case in fixture()["captureCases"].as_array().unwrap() {
+            let state = case["events"].as_array().unwrap().iter().fold(capture_start(case["before"].as_str().unwrap()), |state, event| {
+                let key = || event["key"].as_str().unwrap().to_string();
+                let event = match event["t"].as_str().unwrap() {
+                    "down" => CaptureEvent::Down(key()),
+                    "up" => CaptureEvent::Up(key()),
+                    _ => CaptureEvent::Mouse(event["button"].as_u64().unwrap() as u32),
+                };
+                capture_step(&state, &event)
+            });
+            let result = &case["result"];
+            let status: CaptureStatus = serde_json::from_value(result["status"].clone()).unwrap();
+            assert_eq!(state.status, status, "{}", case["name"]);
+            assert_eq!(state.value, result["value"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(capture_pending(&state), result["pending"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(state.error.as_deref(), result["error"].as_str(), "{}", case["name"]);
         }
     }
 

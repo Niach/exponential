@@ -65,6 +65,8 @@ import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenTestId
 import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
 import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
+import com.exponential.app.ui.styleguide.CallControlsSpecimenScreen
+import com.exponential.app.ui.styleguide.CallControlsSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
@@ -130,7 +132,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_voice-call · sg_settings-assistant · sg_device-readiness ·
+ *   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
@@ -214,8 +216,9 @@ class StyleguideScreenshotsTest {
             "sg_mention-pill",
             // VAPP-120: the consent card with a typed action's words.
             "sg_app-consent",
-            // NEW-69: the in-call card's four states.
+            // NEW-69 / S-3: the phone-call screen's states, and its round buttons.
             "sg_voice-call",
+            "sg_call-controls",
             // EXP-1375: the Storage band + the composer's low-disk row.
             "sg_device-readiness",
             // S-3 STORIES: THE story ring row + THE story viewer.
@@ -1255,10 +1258,13 @@ class StyleguideScreenshotsTest {
         // unknown address as plain text (styleguide entry mention-pill).
         show(MentionPillSpecimenTestId) { MentionPillSpecimenScreen() }
         flow.screenshot("sg_mention-pill")
-        // --- sg_voice-call (NEW-69, voice-call.json): THE in-call card the
-        // live call screen draws, once per `surfaceSpecimens` row.
+        // --- sg_voice-call (NEW-69 / S-3, voice-call.json): THE phone-call
+        // screen the live call draws, once per `surfaceSpecimens` row.
         show(VoiceCallSpecimenTestId) { VoiceCallSpecimenScreen() }
         flow.screenshot("sg_voice-call")
+        // --- sg_call-controls (S-3): the round icon-only call buttons.
+        show(CallControlsSpecimenTestId) { CallControlsSpecimenScreen() }
+        flow.screenshot("sg_call-controls")
         // --- sg_device-readiness (EXP-1375, device-doctor.json): the low-disk
         // case's block and the composer's low-disk row.
         show(DeviceReadinessSpecimenTestId) { DeviceReadinessSpecimenScreen() }

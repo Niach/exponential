@@ -316,3 +316,64 @@ export async function openCallAudio(): Promise<CallAudio> {
     throw new CallAudioError(`unsupported`)
   }
 }
+
+// S-3 (voice-call.json): the caller's ring while the voice device warms up,
+// a ringback tone (440 + 480 Hz) in the double-ring cadence (on 0.4 s, off
+// 0.2 s, on 0.4 s, off 2 s), quiet under whatever the page plays.
+const RING_TONES = [440, 480]
+const RING_CADENCE = [
+  [0, 0.4],
+  [0.6, 1.0],
+]
+const RING_PERIOD = 3
+const RING_GAIN = 0.08
+const RING_RAMP = 0.02
+
+/** Play the ring tone for `ms` (called inside the click that dials, so the
+ *  context may start); answers a stop that silences it at once. */
+export function playRingTone(ms: number): () => void {
+  let context: AudioContext
+  try {
+    context = new AudioContext({ latencyHint: `interactive` })
+  } catch {
+    return () => {}
+  }
+  const seconds = ms / 1000
+  const start = context.currentTime + 0.05
+  const gain = context.createGain()
+  gain.gain.setValueAtTime(0, start)
+  for (let period = 0; period < seconds; period += RING_PERIOD) {
+    for (const [on, off] of RING_CADENCE) {
+      const from = start + period + on!
+      const to = Math.min(start + period + off!, start + seconds)
+      if (to <= from) continue
+      gain.gain.setValueAtTime(0, from)
+      gain.gain.linearRampToValueAtTime(RING_GAIN, from + RING_RAMP)
+      gain.gain.setValueAtTime(RING_GAIN, to - RING_RAMP)
+      gain.gain.linearRampToValueAtTime(0, to)
+    }
+  }
+  gain.connect(context.destination)
+  const oscillators = RING_TONES.map((frequency) => {
+    const oscillator = context.createOscillator()
+    oscillator.frequency.value = frequency
+    oscillator.connect(gain)
+    oscillator.start(start)
+    oscillator.stop(start + seconds)
+    return oscillator
+  })
+  void context.resume().catch(() => {})
+  let stopped = false
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    for (const oscillator of oscillators) {
+      try {
+        oscillator.stop()
+      } catch {}
+    }
+    void context.close().catch(() => {})
+  }
+  oscillators[0]!.onended = stop
+  return stop
+}

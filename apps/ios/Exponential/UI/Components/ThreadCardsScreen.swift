@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice|device-readiness|work-screen|session-xref>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -67,6 +67,7 @@ struct ThreadCardsScreen: View {
                     case "mention-pill": MentionPillSpecimens()
                     case "session-xref": SessionXrefSpecimens()
                     case "voice-call": VoiceCallSpecimens()
+                    case "call-controls": CallControlsSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()
                     case "work-screen": WorkScreenSpecimens()
                     default: workCards
@@ -785,17 +786,69 @@ private struct PlanCardSpecimens: View {
     }
 }
 
-/// NEW-69: the `voice-call` entry (voice-call.json `surfaceSpecimens`): THE
-/// call card the live call screen draws (`VoiceCallCard`), once per row,
-/// static (the wave at its rest phase).
+/// S-3: the `voice-call` entry (voice-call.json `surfaceSpecimens`): THE
+/// phone-call surface the live call screen draws (`VoiceCallSurface`), once
+/// per row as a scaled phone frame, static (rings at their rest phase).
 private struct VoiceCallSpecimens: View {
+    /// The phone the surface is laid out on, then scaled into the grid.
+    private static let phone = CGSize(width: 360, height: 640)
+    private static let scale: CGFloat = 0.38
+
     var body: some View {
-        VStack(spacing: 12) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             ForEach(Array(VoiceCall.surfaceSpecimens.enumerated()), id: \.offset) { _, specimen in
-                VoiceCallCard(view: specimen.view, level: specimen.level, bands: specimen.bands, animated: false)
+                VoiceCallSurface(
+                    view: specimen.view,
+                    callee: VoiceCallCallee(name: specimen.agent),
+                    timer: .fixed(specimen.timer),
+                    level: specimen.level,
+                    bands: specimen.bands,
+                    animated: false
+                )
+                .frame(width: Self.phone.width, height: Self.phone.height)
+                .background(DesignTokens.Palette.background)
+                .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 40, style: .continuous).stroke(DesignTokens.Palette.border, lineWidth: 2))
+                .scaleEffect(Self.scale)
+                .frame(width: Self.phone.width * Self.scale, height: Self.phone.height * Self.scale)
             }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// S-3: the `call-controls` entry (eUI `CallButton`): the round call
+/// buttons in each state: in call (mute, speaker, the red end), toggled
+/// (muted, speaker off: the inverted fill), and ringing (only the red end,
+/// Cancel under it).
+private struct CallControlsSpecimens: View {
+    var body: some View {
+        VStack(spacing: 32) {
+            row(muted: false, speaker: true)
+            row(muted: true, speaker: false)
+            CallControls {
+                CallButton(
+                    icon: AppIcons.callEnd, label: VoiceCall.Copy.cancel, tone: .destructive,
+                    caption: VoiceCall.Copy.cancel, action: {}
+                )
+            }
+        }
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func row(muted: Bool, speaker: Bool) -> some View {
+        CallControls {
+            CallButton(
+                icon: muted ? AppIcons.callUnmute : AppIcons.callMute,
+                label: muted ? VoiceCall.Copy.unmute : VoiceCall.Copy.mute, toggled: muted, action: {}
+            )
+            CallButton(
+                icon: speaker ? AppIcons.callSpeaker : AppIcons.callSpeakerOff,
+                label: speaker ? VoiceCall.Copy.speaker : VoiceCall.Copy.speakerOff, toggled: !speaker, action: {}
+            )
+            CallButton(icon: AppIcons.callEnd, label: VoiceCall.Copy.endCall, tone: .destructive, action: {})
+        }
     }
 }
 
@@ -884,8 +937,7 @@ private struct VoiceMeetingSpecimens: View {
                 settings: Voice.Settings(
                     voiceDeviceId: "d-mint",
                     agentId: "a-ops",
-                    speakReplies: true,
-                    pushToTalk: true,
+                    pttShortcut: "ctrl+space",
                     wakeWord: true,
                     desktopAudio: .include,
                     desktopAudioApps: Self.apps,

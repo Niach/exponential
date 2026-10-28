@@ -47,4 +47,19 @@ describe(`Button`, () => {
     expect(link.getAttribute(`data-slot`)).toBe(`button`)
     expect(link.className).toContain(`border`)
   })
+
+  // S-3 (voice-call.json): the phone call's round buttons.
+  it(`icon-lg is a 56px circle with a 24px glyph that presses`, () => {
+    render(() => (
+      <Button variant="destructive" size="icon-lg" aria-label="End call">
+        <svg />
+      </Button>
+    ))
+    const button = screen.getByRole(`button`, { name: `End call` })
+    expect(button.className).toContain(`size-14`)
+    expect(button.className).toContain(`rounded-full`)
+    expect(button.className).toContain(`[&_svg:not([class*='size-'])]:size-6`)
+    expect(button.className).toContain(`motion-press`)
+    expect(button.getAttribute(`data-size`)).toBe(`icon-lg`)
+  })
 })

@@ -1915,14 +1915,13 @@ export const devicesRouter = router({
             set: { removedAt: new Date() },
           })
         // #NEW-71: `voice_device_id` has no FK; a removed voice device reads
-        // as None (`clearOnNone`), so a re-registration never speaks again.
+        // as None (`clearOnNone`), so a re-registration never listens again
+        // (S-3: a bound push-to-talk key stays bound).
         await tx
           .update(userVoiceSettings)
           // NEW-57: and stops a running meeting.
           .set({
             voiceDeviceId: null,
-            speakReplies: false,
-            pushToTalk: false,
             wakeWord: false,
             meetingStartedAt: null,
             updatedAt: new Date(),

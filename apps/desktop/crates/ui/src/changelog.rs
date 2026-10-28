@@ -48,15 +48,34 @@ pub(crate) struct ChangelogEntry {
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     id: "2026-10-28-quieter-agents",
     date: "2026-10-28",
-    title: "Agent stories, quieter agents, linked chats",
-    summary: "What agents show you lands as stories you swipe through, and chats link to each other.",
+    title: "Agent stories, quieter agents, linked chats, calls like a phone call",
+    summary: "What agents show you lands as stories you swipe through, chats link to each other, and calls ring and look like a phone call.",
     body: r#"- **Stories**: drafts, questions, plans and results with screenshots land as stories on top of Chats, one ring per agent and chat. Swipe through them and answer right there; what waits on you comes first.
 - **No more Guide tab**: a pull request's description is a short summary plus the story screenshots of each platform.
 - **Agent chats ready on the web**: your agent chats and recent chats sync in the background, so they open instantly.
 - **One card, kept up to date**: agents show results, questions and plans as a card that updates in place, and in an agent chat a newer reply replaces the earlier one until you write again.
 - **Fewer wake-ups**: an agent hears from the chats it started only when they ask, hit a limit, open a PR or finish, and its scheduled check-ins fold into one card that is skipped when nothing changed.
 - **Linked chats**: a message from another chat says where it came from (Message from, Report from, Started by); tap it to jump there and back.
-- **No plan mode**: plans are cards you answer; nothing waits on a switch."#,
+- **No plan mode**: plans are cards you answer; nothing waits on a switch.
+- **It rings first**: a call rings for 3 seconds while your voice device loads speech and the voice, then answers with Hello?; a voice that is still downloading keeps ringing until it is ready.
+- **A real call screen**: the agent's avatar, its name, the call's timer and what is being said, with round mute, speaker and red end buttons on web, iOS, Android and the desktop.
+- **Floating pill**: while the desktop app is minimized a small call pill stays on top; drag it anywhere, it remembers where you put it, and Esc or the tray's End call ends the call.
+- **Replies are always spoken**: Speak replies is gone; whatever you say by voice is answered by voice, typed messages never are.
+- **Your own push-to-talk key**: press any key or combination in your Assistant's Voice settings to bind it, like in a game; Backspace clears it.
+- **Wake word**: it now hears its phrase anywhere in what you say, and your Assistant's Voice settings tell you why it isn't listening."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_109: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-28-meeting-mode",
+    date: "2026-10-28",
+    title: "Meeting mode",
+    summary: "Your voice agent follows a meeting you start, with everyone's consent.",
+    body: r#"- **Meeting mode**: start it in Settings → Voice or the tray; after you confirm that everyone agrees, your voice device transcribes you and the apps you pick (Zoom, Slack…) on separate channels and hands the transcript to your voice agent in short batches.
+- **Nothing kept longer than needed**: audio is never stored, the transcript is deleted from the server after 7 days and from your device after 30.
+- **Pause listening**: Ctrl + Alt + P pauses the meeting and screen memory at once.
+- **Never forgotten on**: a meeting stops by itself after 4 hours and tells you so, and while it listens the tray icon carries the microphone dot."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

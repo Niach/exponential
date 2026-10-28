@@ -20,8 +20,8 @@ import com.exponential.app.ui.theme.AppBackground
 // NEW-71 (fixtures/voice.json): the Android twin of the catalog view
 // `settings-voice` — THE Voice settings page (its chrome and form) over the
 // seed's rows (seed-screenshots.ts: Alex's MacBook Pro as the voice device,
-// Triage as the agent, Speak replies + Push to talk on, German), so the tray
-// group shows. Capture-only (shot `sg_settings-voice`,
+// Triage as the agent, Ctrl + Space bound for push to talk, German), so the
+// tray group shows (S-3: the key row read-only as keycaps, no Speak replies). Capture-only (shot `sg_settings-voice`,
 // StyleguideScreenshotsTest#captureOnlyScreens); a change stays local.
 
 const val VoiceSettingsSpecimenTestId = "settings-voice-specimen"
@@ -51,8 +51,6 @@ private val VOCABULARY = run {
 private val SETTINGS = Voice.Settings(
     voiceDeviceId = DEVICE_ID,
     agentId = TRIAGE_ID,
-    speakReplies = true,
-    pushToTalk = true,
     pttShortcut = "ctrl+space",
     wakeWord = false,
     wakePhrase = "",

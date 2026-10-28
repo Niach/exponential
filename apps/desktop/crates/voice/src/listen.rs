@@ -434,6 +434,12 @@ impl Segmenter {
         if self.speech_start.is_some() { 0 } else { self.frame - self.floor }
     }
 
+    /// S-3: how far the open segment reaches now: the frames scored, or,
+    /// in a pause that may still close it, its speech's padded end.
+    pub fn open_end(&self) -> usize {
+        self.silence_start.map_or(self.frame, |silence| (silence + frames(PAD_MS)).min(self.frame))
+    }
+
     /// The open segment's padded start, while one is open.
     pub fn open_start(&self) -> Option<usize> {
         self.speech_start.map(|start| start.saturating_sub(frames(PAD_MS)).max(self.floor))
@@ -484,6 +490,9 @@ pub struct Utterance {
     /// #NEW-56: a wake turn: this phrase opens what was heard and is
     /// stripped from it.
     wake: Option<String>,
+    /// S-3: a later (sliding) check woke it: the phrase may follow a few
+    /// fragments ([`crate::wake::slide_match`]).
+    slid: bool,
 }
 
 impl Utterance {
@@ -499,6 +508,7 @@ impl Utterance {
             partial_at: 0,
             last_partial: String::new(),
             wake: None,
+            slid: false,
         }
     }
 
@@ -509,12 +519,14 @@ impl Utterance {
         id: impl Into<String>,
         language: impl Into<String>,
         phrase: impl Into<String>,
+        sliding: bool,
         audio: &[f32],
         scores: &[f32],
         transcriber: &mut dyn Transcriber,
     ) -> Result<Self, (ListenFailure, String)> {
         let mut utterance = Utterance::new(id, language);
         utterance.wake = Some(phrase.into());
+        utterance.slid = sliding;
         // The seed's levels and partials are history: the capsule starts now.
         utterance.feed_scored(audio, scores, transcriber, &mut |_| {})?;
         Ok(utterance)
@@ -543,7 +555,9 @@ impl Utterance {
     fn text_with(&self, open: Option<&str>) -> String {
         let joined = join_transcripts(self.heard.iter().map(String::as_str).chain(open));
         match self.wake.as_deref() {
-            Some(phrase) => crate::wake::wake_match(phrase, &joined).unwrap_or(joined),
+            Some(phrase) => crate::wake::wake_match(phrase, &joined)
+                .or_else(|| self.slid.then(|| crate::wake::slide_match(phrase, &joined)).flatten())
+                .unwrap_or(joined),
             None => joined,
         }
     }
@@ -937,7 +951,7 @@ mod tests {
     /// NEW-55: a call answers each utterance as it ends, never Heard/Empty.
     #[test]
     fn a_call_says_each_utterance_as_it_ends() {
-        let audio = [tone(0.5, 0.0), tone(1.0, 0.3), tone(0.6, 0.0), tone(0.8, 0.3), tone(0.5, 0.0)].concat();
+        let audio = [tone(0.5, 0.0), tone(1.0, 0.3), tone(0.9, 0.0), tone(0.8, 0.3), tone(0.9, 0.0)].concat();
         for chunk in [320, 512, 1000, 4800] {
             let (events, clips) = call(&audio, false, chunk);
             assert_eq!(clips.len(), 2, "chunk {chunk}");
@@ -951,12 +965,13 @@ mod tests {
         let (events, _) = call(&audio, false, 512);
         let first_said = events.iter().position(|event| matches!(event, Event::Said { .. })).unwrap();
         let levels_before = events[..first_said].iter().filter(|event| matches!(event, Event::Level { .. })).count();
-        assert!(levels_before * FRAME < (RATE as f32 * 2.1) as usize, "said after {levels_before} frames");
+        assert!(levels_before * FRAME < (RATE as f32 * 2.4) as usize, "said after {levels_before} frames");
     }
 
-    /// NEW-55: 250 ms of silence closes a call's segment (push to talk: 300).
+    /// NEW-55: the call's `minSilenceMs` closes its segment (S-3: 700 ms;
+    /// push to talk: 300).
     #[test]
-    fn a_call_closes_after_250_ms_of_silence() {
+    fn a_call_closes_after_its_min_silence() {
         let mut call = Segmenter::new(talk::CALL_MIN_SILENCE_MS);
         let mut push_to_talk = Segmenter::default();
         let (mut call_closed, mut ptt_closed) = (None, None);
@@ -969,15 +984,15 @@ mod tests {
                 ptt_closed.get_or_insert(frame);
             }
         }
-        // Silence starts at frame 20; 250 ms = 8 frames, 300 ms = 10.
-        assert_eq!(call_closed, Some(27));
+        // Silence starts at frame 20; 700 ms = 22 frames, 300 ms = 10.
+        assert_eq!(call_closed, Some(41));
         assert_eq!(ptt_closed, Some(29));
     }
 
     /// NEW-55: SpeechStarted once per utterance, at 250 ms of speech.
     #[test]
     fn speech_started_fires_once_at_250_ms_of_speech() {
-        let audio = [tone(0.3, 0.0), tone(1.0, 0.3), tone(0.5, 0.0), tone(0.1, 0.3), tone(0.5, 0.0), tone(0.6, 0.3), tone(0.5, 0.0)].concat();
+        let audio = [tone(0.3, 0.0), tone(1.0, 0.3), tone(0.9, 0.0), tone(0.1, 0.3), tone(0.9, 0.0), tone(0.6, 0.3), tone(0.9, 0.0)].concat();
         let (events, _) = call(&audio, false, 512);
         let started: Vec<usize> = events
             .iter()
@@ -996,7 +1011,7 @@ mod tests {
     /// NEW-55: the open utterance alone is the Partial (the GPU's).
     #[test]
     fn a_calls_partial_is_the_open_utterance_only() {
-        let audio = [tone(0.2, 0.0), tone(1.0, 0.3), tone(0.5, 0.0), tone(1.0, 0.3), tone(0.5, 0.0)].concat();
+        let audio = [tone(0.2, 0.0), tone(1.0, 0.3), tone(0.9, 0.0), tone(1.0, 0.3), tone(0.9, 0.0)].concat();
         let (events, clips) = call(&audio, true, 1600);
         let said_at = events.iter().position(|event| matches!(event, Event::Said { .. })).unwrap();
         let partials_after: Vec<&Event> = events[said_at..].iter().filter(|event| matches!(event, Event::Partial { .. })).collect();
@@ -1182,9 +1197,10 @@ mod tests {
                     frames_in.push((f(&run[0]), f(&run[1]), echo));
                 }
             }
-            // The closing silence: the utterance ends (said or dropped).
+            // The closing silence: the utterance ends (said or dropped), S-3
+            // after the call's minSilenceMs (700 ms = 22 frames).
             let last = frames_in.last().unwrap().2;
-            frames_in.extend(std::iter::repeat_n((0.1, -60.0, last), 10));
+            frames_in.extend(std::iter::repeat_n((0.1, -60.0, last), frames(talk::CALL_MIN_SILENCE_MS)));
             let mut vad = Scripted(frames_in.iter().map(|frame| frame.0).collect(), 0);
             let mut transcriber = Lengths { partials: false, clips: Vec::new() };
             let mut call = Call::new("c1", "en");
@@ -1253,7 +1269,8 @@ mod tests {
             // The canceller converged on the reply's residual.
             feed(&mut call, -70.0, Some(-20.0), 20);
             feed(&mut call, -10.0, reference, 20);
-            feed(&mut call, -70.0, reference, 20);
+            // S-3: long enough a pause for the call's 700 ms to close it.
+            feed(&mut call, -70.0, reference, 30);
             assert_eq!(said, expected, "{heard} over {reference:?}");
         }
     }

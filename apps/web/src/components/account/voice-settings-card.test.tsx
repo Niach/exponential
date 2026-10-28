@@ -1,5 +1,5 @@
 import type { ReactElement } from "react"
-import { act, fireEvent, render as rtlRender, screen } from "@testing-library/react"
+import { act, fireEvent, render as rtlRender, screen, within } from "@testing-library/react"
 import { TooltipProvider } from "@exp/ui"
 import {
   clearOnNone,
@@ -12,6 +12,7 @@ import {
   VOICE_TEST_IDS,
   wakePhrasePlaceholder,
 } from "@exp/domain-contract/voice"
+import voiceFixture from "@exp/domain-contract/fixtures/voice.json" with { type: "json" }
 import { consentBody, MEETING_COPY, MEETING_TEST_IDS } from "@exp/domain-contract/meeting"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -47,7 +48,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-import { VoiceSettingsCard, type VoiceSettings } from "@/components/account/voice-settings-card"
+import { VoiceSettingsCard, type VoiceDeviceRow, type VoiceSettings } from "@/components/account/voice-settings-card"
 
 class ResizeObserverStub {
   observe() {}
@@ -56,11 +57,12 @@ class ResizeObserverStub {
 }
 
 const AGENT = `11111111-1111-4111-8111-111111111111`
-const DEVICES = [
+const DEVICES: VoiceDeviceRow[] = [
   {
     deviceId: `d-mint`,
     name: `mint`,
     kind: `desktop`,
+    online: true,
     desktopAudio: {
       capability: `per_app`,
       apps: [
@@ -76,14 +78,22 @@ const AGENTS = [{ id: AGENT, name: `Studio`, team: `Acme` }]
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>)
 // What the server holds: the rendered settings, each update merged in the
 // way `voice.update` stores it (`clearOnNone`).
-const DEFAULTS: VoiceSettings = { ...VOICE_DEFAULTS, desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null }
+const DEFAULTS: VoiceSettings = {
+  ...VOICE_DEFAULTS,
+  // S-3: the server's legacy shims (old clients read them, this card never).
+  speakReplies: true,
+  pushToTalk: false,
+  desktopAudio: `off`,
+  desktopAudioApps: [],
+  meetingStartedAt: null,
+}
 let stored: VoiceSettings = { ...DEFAULTS }
-const renderCard = (settings: Partial<VoiceSettings> = {}) => {
+const renderCard = (settings: Partial<VoiceSettings> = {}, devices: VoiceDeviceRow[] = DEVICES) => {
   stored = { ...DEFAULTS, ...settings }
   return render(
     <VoiceSettingsCard
       settings={stored}
-      devices={DEVICES}
+      devices={devices}
       agents={AGENTS}
     />
   )
@@ -127,7 +137,8 @@ describe(`Settings → Voice (NEW-67)`, () => {
     expect(screen.getByTestId(VOICE_TEST_IDS.page)).toBeTruthy()
     expect(screen.getByText(VOICE_COPY.voiceDevice)).toBeTruthy()
     expect(screen.getByText(VOICE_COPY.agent)).toBeTruthy()
-    expect(screen.getByText(VOICE_COPY.speakReplies)).toBeTruthy()
+    // S-3: speak-back is always on: no Speak replies row.
+    expect(screen.queryByText(`Speak replies`)).toBeNull()
     expect(screen.queryByText(VOICE_COPY.pushToTalk)).toBeNull()
     expect(screen.queryByText(trayHeader(`mint`))).toBeNull()
   })
@@ -136,27 +147,56 @@ describe(`Settings → Voice (NEW-67)`, () => {
     renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
     expect(screen.getByText(trayHeader(`mint`))).toBeTruthy()
     expect(screen.getByText(VOICE_COPY.pushToTalk)).toBeTruthy()
-    expect(screen.getByText(VOICE_COPY.shortcut)).toBeTruthy()
     expect(screen.getByText(VOICE_COPY.wakeWord)).toBeTruthy()
     const phrase = screen.getByTestId(VOICE_TEST_IDS.wakePhrase) as HTMLInputElement
     expect(phrase.placeholder).toBe(wakePhrasePlaceholder(`Studio`))
   })
 
   it(`None for the device or the agent: every switch reads off and is disabled`, () => {
-    renderCard({ voiceDeviceId: `d-mint`, agentId: null, speakReplies: true, pushToTalk: true, wakeWord: true })
-    for (const id of [VOICE_TEST_IDS.speakReplies, VOICE_TEST_IDS.pushToTalk, VOICE_TEST_IDS.wakeWord]) {
-      expect(isOn(id)).toBe(false)
-      expect(switchOf(id).disabled).toBe(true)
-    }
+    renderCard({ voiceDeviceId: `d-mint`, agentId: null, wakeWord: true })
+    expect(isOn(VOICE_TEST_IDS.wakeWord)).toBe(false)
+    expect(switchOf(VOICE_TEST_IDS.wakeWord).disabled).toBe(true)
   })
 
   it(`both picked: the switches are live and a toggle sends its one field`, async () => {
     renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
-    expect(switchOf(VOICE_TEST_IDS.speakReplies).disabled).toBe(false)
-    fireEvent.click(switchOf(VOICE_TEST_IDS.speakReplies))
+    expect(switchOf(VOICE_TEST_IDS.wakeWord).disabled).toBe(false)
+    fireEvent.click(switchOf(VOICE_TEST_IDS.wakeWord))
     await flush()
-    expect(update).toHaveBeenCalledWith({ speakReplies: true }, expect.anything())
-    expect(isOn(VOICE_TEST_IDS.speakReplies)).toBe(true)
+    expect(update).toHaveBeenCalledWith({ wakeWord: true }, expect.anything())
+    expect(isOn(VOICE_TEST_IDS.wakeWord)).toBe(true)
+  })
+
+  it(`S-3: the push-to-talk row is read-only: the binding as keycaps, None while empty`, () => {
+    const { unmount } = renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT, pttShortcut: `ctrl+shift+k` })
+    const row = screen.getByTestId(VOICE_TEST_IDS.shortcut)
+    expect(row.textContent).toBe(`${VOICE_COPY.pushToTalk}CtrlShiftK`)
+    expect([...row.querySelectorAll(`kbd`)].map((cap) => cap.textContent)).toEqual([`Ctrl`, `Shift`, `K`])
+    expect(row.querySelector(`button, input, [role="switch"]`)).toBeNull()
+    unmount()
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT, pttShortcut: `` })
+    const none = screen.getByTestId(VOICE_TEST_IDS.shortcut)
+    expect(none.textContent).toBe(`${VOICE_COPY.pushToTalk}${VOICE_COPY.shortcutNone}`)
+    expect(none.querySelector(`kbd`)).toBeNull()
+  })
+
+  it(`S-3: the wake word's detail is the voice device's doctor row, verbatim`, () => {
+    const mint = (patch: Partial<VoiceDeviceRow>) => [{ ...DEVICES[0]!, ...patch }]
+    const words = voiceFixture.pttCopy.wakeDetail
+    const detailOf = () => screen.getByText(VOICE_COPY.wakeWord).parentElement?.textContent
+    const on = { voiceDeviceId: `d-mint`, agentId: AGENT, wakeWord: true }
+    const cases: [Partial<VoiceDeviceRow>, string][] = [
+      [{ wakeDetail: words.micBusy }, words.micBusy],
+      [{ wakeDetail: null }, words.starting],
+      [{ online: false, wakeDetail: words.listening }, words.offline.replace(`{device}`, `mint`)],
+    ]
+    for (const [patch, detail] of cases) {
+      const { unmount } = renderCard(on, mint(patch))
+      expect(detailOf()).toBe(`${VOICE_COPY.wakeWord}${detail}`)
+      unmount()
+    }
+    renderCard({ ...on, wakeWord: false }, mint({ wakeDetail: words.listening }))
+    expect(detailOf()).toBe(VOICE_COPY.wakeWord)
   })
 
   it(`the device picker lists desktops only, None first; a pick sends voiceDeviceId`, async () => {
@@ -172,24 +212,22 @@ describe(`Settings → Voice (NEW-67)`, () => {
   })
 
   it(`choosing None for the agent clears the switches (clearOnNone)`, async () => {
-    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true, pushToTalk: true, wakeWord: true })
-    expect(isOn(VOICE_TEST_IDS.speakReplies)).toBe(true)
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT, wakeWord: true })
+    expect(isOn(VOICE_TEST_IDS.wakeWord)).toBe(true)
     fireEvent.click(trigger(VOICE_COPY.agent))
-    fireEvent.click(await screen.findByText(VOICE_COPY.agentNone))
+    fireEvent.click(await within(await screen.findByTestId(VOICE_TEST_IDS.agent)).findByText(VOICE_COPY.agentNone))
     await flush()
     expect(update).toHaveBeenCalledWith({ agentId: null }, expect.anything())
-    for (const id of [VOICE_TEST_IDS.speakReplies, VOICE_TEST_IDS.pushToTalk, VOICE_TEST_IDS.wakeWord]) {
-      expect(isOn(id)).toBe(false)
-      expect(switchOf(id).disabled).toBe(true)
-    }
+    expect(isOn(VOICE_TEST_IDS.wakeWord)).toBe(false)
+    expect(switchOf(VOICE_TEST_IDS.wakeWord).disabled).toBe(true)
   })
 
   it(`a refused write reverts and raises the failed-action toast`, async () => {
     update.mockRejectedValueOnce(new Error(`That agent isn't in your teams`))
     renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
-    fireEvent.click(switchOf(VOICE_TEST_IDS.speakReplies))
+    fireEvent.click(switchOf(VOICE_TEST_IDS.wakeWord))
     await flush()
-    expect(isOn(VOICE_TEST_IDS.speakReplies)).toBe(false)
+    expect(isOn(VOICE_TEST_IDS.wakeWord)).toBe(false)
     expect(toastActionError).toHaveBeenCalledWith(`save`, `the voice settings`, expect.any(Error))
   })
 
@@ -216,7 +254,7 @@ describe(`Settings → Voice (NEW-67)`, () => {
     expect(screen.queryByRole(`alert`)).toBeNull()
   })
 
-  it(`#NEW-73: Language follows Speak replies; the voice file + transcript wait for a voice device`, () => {
+  it(`#NEW-73: Language follows the agent; the voice file + transcript wait for a voice device`, () => {
     renderCard()
     expect(trigger(VOICE_COPY.language).textContent).toContain(`English`)
     expect(screen.queryByTestId(VOICE_TEST_IDS.voiceFile)).toBeNull()
@@ -342,7 +380,7 @@ describe(`Settings → Voice: meeting mode (NEW-57)`, () => {
     renderCard({ ...live, meetingStartedAt: `2026-10-28T10:00:00.000Z` })
     expect(isOn(MEETING_TEST_IDS.meeting)).toBe(true)
     fireEvent.click(trigger(VOICE_COPY.agent))
-    fireEvent.click(await screen.findByText(VOICE_COPY.agentNone))
+    fireEvent.click(await within(await screen.findByTestId(VOICE_TEST_IDS.agent)).findByText(VOICE_COPY.agentNone))
     await flush()
     expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
   })

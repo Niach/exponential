@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.exponential.app.BuildConfig
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,7 +54,9 @@ import kotlinx.serialization.json.put
  * outlives the chat that started it. `fixtures/voice-call.json` TRANSPORT:
  * `voice.startCall({agentId, platform: "phone"})` mints the caller ticket,
  * the ticket URL is dialled as-is on the steer client, the relay rings the
- * voice device and both get `call_ready`. Text frames drive
+ * voice device and both get `call_ready`. S-3: the call RINGS first: a local
+ * ringback plays from the press until the host answers (its `rang` + `ready`
+ * `call_event`s; `call_ready` alone answers nothing). Text frames drive
  * [VoiceCall.callStep] (`call_event` carries the host's flow events,
  * speechStarted also flushes the playback); audio rides binary frames
  * ([VoiceCallAudio]). A failure ends the call with the state's toast; a
@@ -75,9 +79,14 @@ class VoiceCallController @Inject constructor(
         val state: VoiceCall.State = VoiceCall.CALL_IDLE,
         /** The agent's name (the notification's `Call {agent}`). */
         val agent: String = "",
+        /** S-3: the agent's mark on the call's avatar (null = the Exponential mark). */
+        val agentIcon: String? = null,
+        val agentColor: String? = null,
         val toast: String? = null,
+        /** When the host answered (elapsedRealtime ms): the call's timer; null while ringing. */
+        val answeredAt: Long? = null,
     ) {
-        val view: VoiceCall.View? get() = VoiceCall.callView(state)
+        val view: VoiceCall.View? get() = VoiceCall.callView(state, VoiceCall.Platform.Phone)
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -91,6 +100,8 @@ class VoiceCallController @Inject constructor(
     /** One running call; every callback checks it is still [current]. */
     private inner class Run(val agentId: String, val accountId: String?) {
         var job: Job? = null
+        /** S-3: fails a ring that outlasts `maxRingMs`. */
+        var ringJob: Job? = null
         var session: DefaultClientWebSocketSession? = null
         var audio: VoiceCallAudio? = null
         /** call_end / error arrived, or End call was pressed: a close is no drop. */
@@ -111,10 +122,16 @@ class VoiceCallController @Inject constructor(
     }
 
     private fun step(event: VoiceCall.Event) {
-        _ui.update { ui ->
+        val ui = _ui.updateAndGet { ui ->
             val next = VoiceCall.callStep(ui.state, event)
-            ui.copy(state = next, toast = next.toast ?: ui.toast)
+            val answeredAt = when (next.phase) {
+                VoiceCall.Phase.Hidden, VoiceCall.Phase.Ringing -> null
+                else -> ui.answeredAt ?: SystemClock.elapsedRealtime()
+            }
+            ui.copy(state = next, toast = next.toast ?: ui.toast, answeredAt = answeredAt)
         }
+        // The ringback lasts while the call rings (answered, ended or failed stops it).
+        if (ui.state.phase != VoiceCall.Phase.Ringing) current?.audio?.stopRing()
     }
 
     fun consumeToast() {
@@ -125,24 +142,48 @@ class VoiceCallController @Inject constructor(
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     /** The RECORD_AUDIO request was refused: the call ends at once (`not_granted`). */
-    fun permissionDenied(device: String) {
+    fun permissionDenied(device: String, language: String? = null) {
         if (current != null) return
-        step(VoiceCall.Event.Start(device))
+        step(VoiceCall.Event.Start(device, language))
         step(VoiceCall.Event.Failed("not_granted"))
     }
 
-    /** Call [agentId] ([agentName] for the copy) on the voice device named [device]. */
-    fun start(agentId: String, agentName: String, device: String) {
+    /**
+     * Call [agentId] ([agentName] for the copy) on the voice device named
+     * [device]; [language] picks the greeting the device answers with.
+     */
+    fun start(
+        agentId: String,
+        agentName: String,
+        device: String,
+        language: String? = null,
+        agentIcon: String? = null,
+        agentColor: String? = null,
+    ) {
         if (current != null || _ui.value.state.phase != VoiceCall.Phase.Hidden) return
-        _ui.update { it.copy(agent = agentName, toast = null) }
-        step(VoiceCall.Event.Start(device))
+        _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null) }
+        step(VoiceCall.Event.Start(device, language))
         if (!hasMicPermission()) return step(VoiceCall.Event.Failed("not_granted"))
         // No Opus encoder below API 29 (MediaCodec), or no microphone at all.
         if (!VoiceCallAudio.isSupported(context)) return step(VoiceCall.Event.Failed("no_microphone"))
         val run = Run(agentId, auth.activeAccountId.value)
         current = run
+        // S-3: the caller rings at once, on the call's own routing (focus
+        // refused = another call holds the audio = dropped).
+        val audio = newAudio(run)
+        run.audio = audio
+        audio.speaker = _ui.value.state.speaker
+        if (!audio.prepare()) return fail(run, "dropped")
+        audio.ring()
         run.job = scope.launch { connect(run) }
         scope.launch { pumpLevel(run) }
+        run.ringJob = scope.launch { ringTimeout(run) }
+    }
+
+    /** A voice still not ready after `maxRingMs` fails the call `unavailable`. */
+    private suspend fun ringTimeout(run: Run) {
+        delay(VoiceCall.Constants.MAX_RING_MS.toLong())
+        if (current === run && _ui.value.state.phase == VoiceCall.Phase.Ringing) fail(run, "unavailable")
     }
 
     /** End call: `call_end` to the relay, then close. */
@@ -161,6 +202,13 @@ class VoiceCallController @Inject constructor(
         run.audio?.muted = muted
         run.session?.outgoing?.trySend(Frame.Text(controlFrame("call_mute") { put("muted", muted) }))
         step(if (muted) VoiceCall.Event.Mute else VoiceCall.Event.Unmute)
+    }
+
+    /** S-3: the loudspeaker vs the earpiece, device-local (the host never hears of it). */
+    fun toggleSpeaker() {
+        val on = !_ui.value.state.speaker
+        current?.audio?.speaker = on
+        step(VoiceCall.Event.Speaker(on))
     }
 
     private suspend fun connect(run: Run) {
@@ -212,7 +260,9 @@ class VoiceCallController @Inject constructor(
         val msg = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return true
         when (msg.str("t")) {
             "call_ready" -> {
-                step(VoiceCall.Event.Connected)
+                // S-3: the pair is up; the flow keeps ringing until the
+                // host's `rang` + `ready` answer it. The microphone opens
+                // now (the host's mic check reads its level during the ring).
                 // The microphone service starts with the microphone (never
                 // for a call refused before it rang).
                 VoiceCallService.start(context, VoiceCall.Copy.call(_ui.value.agent))
@@ -246,14 +296,16 @@ class VoiceCallController @Inject constructor(
         return true
     }
 
+    private fun newAudio(run: Run) = VoiceCallAudio(
+        context = context,
+        onUplink = { frame -> if (current === run) run.session?.outgoing?.trySend(Frame.Binary(true, frame)) },
+        onFailure = { code -> scope.launch { if (current === run) fail(run, code) } },
+    )
+
     private fun startAudio(run: Run) {
-        if (run.audio != null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val audio = VoiceCallAudio(
-            context = context,
-            onUplink = { frame -> if (current === run) run.session?.outgoing?.trySend(Frame.Binary(true, frame)) },
-            onFailure = { code -> scope.launch { if (current === run) fail(run, code) } },
-        )
-        run.audio = audio
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val audio = run.audio ?: newAudio(run).also { run.audio = it }
+        audio.speaker = _ui.value.state.speaker
         audio.muted = _ui.value.state.muted
         audio.sending = true
         try {
@@ -287,6 +339,7 @@ class VoiceCallController @Inject constructor(
             session?.cancel()
             run.job?.cancel()
         }
+        run.ringJob?.cancel()
         VoiceCallService.stop(context)
     }
 
@@ -313,7 +366,13 @@ class VoiceCallController @Inject constructor(
     private companion object {
         const val TAG = "VoiceCall"
         const val LEVEL_TICK_MS = 33L
-        val HOST_EVENTS = setOf(VoiceCall.Event.SpeechStarted, VoiceCall.Event.ReplyFinished)
+        val HOST_EVENTS = setOf(
+            VoiceCall.Event.Rang,
+            VoiceCall.Event.Ready,
+            VoiceCall.Event.NoSound,
+            VoiceCall.Event.SpeechStarted,
+            VoiceCall.Event.ReplyFinished,
+        )
         val HOST_EVENT_CLASSES = setOf(
             VoiceCall.Event.Partial::class,
             VoiceCall.Event.Said::class,

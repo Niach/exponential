@@ -14,6 +14,11 @@
 //!   release polling), created on gpui's main thread. Windows' side buttons
 //!   go through a low-level mouse hook on its own thread; macOS has none.
 //!
+//! S-3: any `shortcutGrammar` binding (any modifiers incl. Super, a letter,
+//! digit, F1-F24, a named key or mouse3-mouse9) on every backend; the X11
+//! side buttons take their modifiers too, Windows' hook reads the middle
+//! button and XBUTTON1/2 with the held modifiers.
+//!
 //! A grab that fails says why ([`Status`]): the tray item and Settings →
 //! Voice show it, and the shell's key listener ([`super::on_focused_key`])
 //! takes the key while an IDE window is focused.
@@ -63,44 +68,153 @@ impl Status {
     }
 }
 
-/// The key of a shortcut.
+/// S-3: the grammar's named keys (`shortcutGrammar.named`, test-locked) with
+/// their X11 keysym, xkb name (the portal's trigger) and W3C code
+/// (`global-hotkey`).
+const NAMED: [(&str, u32, &str, &str); 28] = [
+    ("space", 0x0020, "space", "Space"),
+    ("enter", 0xff0d, "Return", "Enter"),
+    ("tab", 0xff09, "Tab", "Tab"),
+    ("backspace", 0xff08, "BackSpace", "Backspace"),
+    ("delete", 0xffff, "Delete", "Delete"),
+    ("insert", 0xff63, "Insert", "Insert"),
+    ("home", 0xff50, "Home", "Home"),
+    ("end", 0xff57, "End", "End"),
+    ("pageup", 0xff55, "Prior", "PageUp"),
+    ("pagedown", 0xff56, "Next", "PageDown"),
+    ("up", 0xff52, "Up", "ArrowUp"),
+    ("down", 0xff54, "Down", "ArrowDown"),
+    ("left", 0xff51, "Left", "ArrowLeft"),
+    ("right", 0xff53, "Right", "ArrowRight"),
+    ("minus", 0x002d, "minus", "Minus"),
+    ("equal", 0x003d, "equal", "Equal"),
+    ("bracketleft", 0x005b, "bracketleft", "BracketLeft"),
+    ("bracketright", 0x005d, "bracketright", "BracketRight"),
+    ("backslash", 0x005c, "backslash", "Backslash"),
+    ("semicolon", 0x003b, "semicolon", "Semicolon"),
+    ("quote", 0x0027, "apostrophe", "Quote"),
+    ("comma", 0x002c, "comma", "Comma"),
+    ("period", 0x002e, "period", "Period"),
+    ("slash", 0x002f, "slash", "Slash"),
+    ("backquote", 0x0060, "grave", "Backquote"),
+    ("pause", 0xff13, "Pause", "Pause"),
+    ("scrolllock", 0xff14, "Scroll_Lock", "ScrollLock"),
+    ("printscreen", 0xff61, "Print", "PrintScreen"),
+];
+
+/// The key of a binding (`shortcutGrammar`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Key {
-    Space,
-    F13,
-    /// A side button: 4 = back, 5 = forward (X11 buttons 8 and 9, Windows
-    /// XBUTTON1 and XBUTTON2).
+    /// A letter or digit, lowercase ASCII.
+    Char(u8),
+    /// f1-f24.
+    F(u8),
+    /// One of `named` (an entry of [`NAMED`]).
+    Named(&'static str),
+    /// A mouse button 3-9 (3 = middle, 4 = back, 5 = forward).
     Mouse(u8),
-    /// #NEW-57: a letter key, lowercase ASCII (the pause hotkey's `p`).
-    Letter(u8),
 }
 
-/// One `shortcuts` value, parsed.
+impl Key {
+    /// The grammar's name of a key (`k`, `f13`, `pageup`, `mouse4`).
+    fn parse(part: &str) -> Option<Key> {
+        let bytes = part.as_bytes();
+        if bytes.len() == 1 && (bytes[0].is_ascii_lowercase() || bytes[0].is_ascii_digit()) {
+            return Some(Key::Char(bytes[0]));
+        }
+        if let Some(n) = part.strip_prefix("mouse").and_then(|n| n.parse::<u8>().ok()).filter(|_| part.len() == 6) {
+            return (3..=9).contains(&n).then_some(Key::Mouse(n));
+        }
+        if let Some(n) = part.strip_prefix('f').filter(|n| !n.starts_with('0')).and_then(|n| n.parse::<u8>().ok()) {
+            return (1..=24).contains(&n).then_some(Key::F(n));
+        }
+        NAMED.iter().find(|(name, ..)| *name == part).map(|(name, ..)| Key::Named(*name))
+    }
+
+    fn named(name: &str) -> Option<&'static (&'static str, u32, &'static str, &'static str)> {
+        NAMED.iter().find(|(named, ..)| *named == name)
+    }
+
+    /// The X11 keysym (None = a mouse button).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn keysym(self) -> Option<u32> {
+        match self {
+            // Latin-1 letters and digits: the keysym is the ASCII code.
+            Key::Char(byte) => Some(u32::from(byte)),
+            Key::F(n) => Some(0xffbe + u32::from(n) - 1),
+            Key::Named(name) => Key::named(name).map(|(_, keysym, ..)| *keysym),
+            Key::Mouse(_) => None,
+        }
+    }
+
+    /// The W3C key code `global-hotkey` registers (None = a mouse button).
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+    fn w3c(self) -> Option<String> {
+        match self {
+            Key::Char(byte) if byte.is_ascii_digit() => Some(format!("Digit{}", byte as char)),
+            Key::Char(byte) => Some(format!("Key{}", byte.to_ascii_uppercase() as char)),
+            Key::F(n) => Some(format!("F{n}")),
+            Key::Named(name) => Key::named(name).map(|(.., code)| code.to_string()),
+            Key::Mouse(_) => None,
+        }
+    }
+}
+
+/// S-3: a gpui key name as the grammar's (`escape` kept for the recorder),
+/// and whether the name already implies Shift (gpui reports `shift-1` as
+/// `!` without Shift on a US layout). None = a key the grammar has no name
+/// for.
+pub(crate) fn grammar_key(gpui_key: &str) -> Option<(String, bool)> {
+    const SHIFTED: [(&str, &str); 21] = [
+        ("!", "1"), ("@", "2"), ("#", "3"), ("$", "4"), ("%", "5"), ("^", "6"), ("&", "7"), ("*", "8"), ("(", "9"),
+        (")", "0"), ("_", "minus"), ("+", "equal"), ("{", "bracketleft"), ("}", "bracketright"), ("|", "backslash"),
+        (":", "semicolon"), ("\"", "quote"), ("<", "comma"), (">", "period"), ("?", "slash"), ("~", "backquote"),
+    ];
+    const SYMBOLS: [(&str, &str); 11] = [
+        ("-", "minus"), ("=", "equal"), ("[", "bracketleft"), ("]", "bracketright"), ("\\", "backslash"),
+        (";", "semicolon"), ("'", "quote"), (",", "comma"), (".", "period"), ("/", "slash"), ("`", "backquote"),
+    ];
+    let key = gpui_key.to_ascii_lowercase();
+    if let Some((_, name)) = SHIFTED.iter().find(|(symbol, _)| *symbol == key) {
+        return Some((name.to_string(), true));
+    }
+    if let Some((_, name)) = SYMBOLS.iter().find(|(symbol, _)| *symbol == key) {
+        return Some((name.to_string(), false));
+    }
+    let name = match key.as_str() {
+        "escape" => return Some((key, false)),
+        "scroll_lock" => "scrolllock".to_string(),
+        "print" => "printscreen".to_string(),
+        "return" => "enter".to_string(),
+        _ => key,
+    };
+    Key::parse(&name).filter(|key| !matches!(key, Key::Mouse(_))).map(|_| (name, false))
+}
+
+/// One binding (`shortcutGrammar`), parsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Shortcut {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
+    /// The Super (Windows / Command) key.
+    pub super_key: bool,
     pub key: Key,
 }
 
 impl Shortcut {
-    /// `ctrl+space`, `alt+space`, `ctrl+shift+space`, `f13`, `mouse4`, `mouse5`.
+    /// Any grammar value: modifiers in any order, then exactly one key
+    /// (`ctrl+shift+k`, `f13`, `alt+super+1`, `ctrl+mouse5`).
     pub(crate) fn parse(value: &str) -> Option<Shortcut> {
-        let mut shortcut = Shortcut { ctrl: false, alt: false, shift: false, key: Key::Space };
+        let mut shortcut = Shortcut { ctrl: false, alt: false, shift: false, super_key: false, key: Key::Named("space") };
         let mut key = None;
         for part in value.split('+') {
             match part.trim().to_ascii_lowercase().as_str() {
                 "ctrl" => shortcut.ctrl = true,
                 "alt" => shortcut.alt = true,
                 "shift" => shortcut.shift = true,
-                "space" => key = Some(Key::Space),
-                "f13" => key = Some(Key::F13),
-                "mouse4" => key = Some(Key::Mouse(4)),
-                "mouse5" => key = Some(Key::Mouse(5)),
-                letter if letter.len() == 1 && letter.as_bytes()[0].is_ascii_lowercase() => {
-                    key = Some(Key::Letter(letter.as_bytes()[0]))
-                }
+                "super" => shortcut.super_key = true,
+                other if key.is_none() => key = Some(Key::parse(other)?),
                 _ => return None,
             }
         }
@@ -108,28 +222,26 @@ impl Shortcut {
         Some(shortcut)
     }
 
+    /// No modifier is part of the binding.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn bare(&self) -> bool {
+        !(self.ctrl || self.alt || self.shift || self.super_key)
+    }
+
     /// The portal's preferred trigger (the shortcuts XDG spec).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     fn portal_trigger(&self) -> String {
         let mut parts = Vec::new();
-        if self.ctrl {
-            parts.push("CTRL");
-        }
-        if self.alt {
-            parts.push("ALT");
-        }
-        if self.shift {
-            parts.push("SHIFT");
-        }
-        let letter;
-        parts.push(match self.key {
-            Key::Space => "space",
-            Key::F13 => "F13",
-            Key::Mouse(_) => "",
-            Key::Letter(byte) => {
-                letter = (byte as char).to_string();
-                letter.as_str()
+        for (on, name) in [(self.ctrl, "CTRL"), (self.alt, "ALT"), (self.shift, "SHIFT"), (self.super_key, "LOGO")] {
+            if on {
+                parts.push(name.to_string());
             }
+        }
+        parts.push(match self.key {
+            Key::Char(byte) => (byte as char).to_string(),
+            Key::F(n) => format!("F{n}"),
+            Key::Named(name) => Key::named(name).map(|(_, _, xkb, _)| xkb.to_string()).unwrap_or_default(),
+            Key::Mouse(_) => String::new(),
         });
         parts.join("+")
     }
@@ -137,22 +249,22 @@ impl Shortcut {
     /// Whether a gpui keystroke is this shortcut (the focused fallback).
     pub(crate) fn matches_keystroke(&self, keystroke: &gpui::Keystroke) -> bool {
         let modifiers = &keystroke.modifiers;
-        self.key_matches(&keystroke.key)
+        let Some((name, shifted)) = grammar_key(&keystroke.key) else { return false };
+        self.key_is(&name)
             && modifiers.control == self.ctrl
             && modifiers.alt == self.alt
-            && modifiers.shift == self.shift
-            && !modifiers.platform
+            && (modifiers.shift || shifted) == self.shift
+            && modifiers.platform == self.super_key
     }
 
     /// Whether a gpui key name is this shortcut's key (a release ends the
     /// hold whatever the modifiers do).
     pub(crate) fn key_matches(&self, key: &str) -> bool {
-        match self.key {
-            Key::Space => key == "space",
-            Key::F13 => key == "f13",
-            Key::Mouse(_) => false,
-            Key::Letter(byte) => key.len() == 1 && key.as_bytes()[0].eq_ignore_ascii_case(&byte),
-        }
+        grammar_key(key).is_some_and(|(name, _)| self.key_is(&name))
+    }
+
+    fn key_is(&self, name: &str) -> bool {
+        !matches!(self.key, Key::Mouse(_)) && Key::parse(name) == Some(self.key)
     }
 }
 
@@ -258,9 +370,6 @@ mod x11 {
     /// wake-up while idle).
     const IDLE: Duration = Duration::from_millis(15);
 
-    const XK_SPACE: u32 = 0x0020;
-    const XK_F13: u32 = 0xffca;
-
     pub(super) fn grab(shortcut: Shortcut, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) {
         let spawned = std::thread::Builder::new().name("voice-ptt-x11".into()).spawn(move || {
             if let Err(err) = run(shortcut, &tx, &stop) {
@@ -294,15 +403,21 @@ mod x11 {
         if shortcut.shift {
             modifiers |= ModMask::SHIFT;
         }
+        if shortcut.super_key {
+            modifiers |= ModMask::M4;
+        }
         // Caps Lock and Num Lock must not break the grab.
         let variants = [ModMask::from(0u16), ModMask::LOCK, ModMask::M2, ModMask::LOCK | ModMask::M2].map(|extra| modifiers | extra);
-        let target = match shortcut.key {
-            Key::Mouse(n) => Target::Button(if n == 4 { 8 } else { 9 }),
-            Key::Space => Target::Key(keycode(&conn, XK_SPACE)?),
-            Key::F13 => Target::Key(keycode(&conn, XK_F13)?),
-            // Latin-1 letters: the keysym is the lowercase ASCII code.
-            Key::Letter(byte) => Target::Key(keycode(&conn, u32::from(byte))?),
+        let target = match (shortcut.key, shortcut.key.keysym()) {
+            // X11 buttons 4-7 are the wheel: mouse3 = the middle button (2),
+            // mouse4 and up = X11 8 and up.
+            (Key::Mouse(n), _) => Target::Button(if n == 3 { 2 } else { n + 4 }),
+            (_, Some(keysym)) => Target::Key(keycode(&conn, keysym)?),
+            (key, None) => return Err(format!("no keysym for {key:?}")),
         };
+        // A bare button is held whatever the modifiers (as before S-3); a
+        // combination only with exactly its modifiers, like a key.
+        let button_mods: Vec<ModMask> = if shortcut.bare() { vec![ModMask::ANY] } else { variants.to_vec() };
         let grabbed = match target {
             Target::Key(code) => variants.iter().try_for_each(|mods| {
                 conn.grab_key(false, root, *mods, code, GrabMode::ASYNC, GrabMode::ASYNC)
@@ -310,8 +425,8 @@ mod x11 {
                     .check()
                     .map_err(|err| err.to_string())
             }),
-            Target::Button(button) => conn
-                .grab_button(
+            Target::Button(button) => button_mods.iter().try_for_each(|mods| {
+                conn.grab_button(
                     false,
                     root,
                     EventMask::BUTTON_PRESS | EventMask::BUTTON_RELEASE,
@@ -320,11 +435,16 @@ mod x11 {
                     x11rb::NONE,
                     x11rb::NONE,
                     ButtonIndex::from(button),
-                    ModMask::ANY,
+                    *mods,
                 )
                 .map_err(|err| err.to_string())?
                 .check()
-                .map_err(|err| err.to_string()),
+                .map_err(|err| err.to_string())
+            }),
+        };
+        let variants = match target {
+            Target::Key(_) => variants.to_vec(),
+            Target::Button(_) => button_mods,
         };
         if let Err(err) = grabbed {
             // BadAccess: another client holds it.
@@ -376,7 +496,9 @@ mod x11 {
                 }
             }
             Target::Button(button) => {
-                let _ = conn.ungrab_button(ButtonIndex::from(button), root, ModMask::ANY);
+                for mods in variants {
+                    let _ = conn.ungrab_button(ButtonIndex::from(button), root, *mods);
+                }
             }
         }
         let _ = conn.flush();
@@ -533,7 +655,12 @@ mod native {
         if let Key::Mouse(button) = shortcut.key {
             #[cfg(target_os = "windows")]
             {
-                let hook = mouse::Hook::start(button, tx.clone(), stop);
+                // WH_MOUSE_LL reports the middle button and XBUTTON1/2 only.
+                if !(3..=5).contains(&button) {
+                    let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(ShortcutReason::Mouse)));
+                    return None;
+                }
+                let hook = mouse::Hook::start(shortcut, tx.clone(), stop);
                 let status = if hook.is_some() { Status::Global } else { Status::FocusedOnly(ShortcutReason::Taken) };
                 let _ = tx.send(HotkeyEvent::Status(status));
                 return Some(Native { manager: None, hotkey: None, _mouse: hook });
@@ -564,16 +691,12 @@ mod native {
         if shortcut.shift {
             modifiers |= Modifiers::SHIFT;
         }
-        let code = match shortcut.key {
-            Key::F13 => Code::F13,
-            Key::Letter(byte) => match letter_code(byte) {
-                Some(code) => code,
-                None => {
-                    let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(ShortcutReason::Taken)));
-                    return None;
-                }
-            },
-            _ => Code::Space,
+        if shortcut.super_key {
+            modifiers |= Modifiers::SUPER;
+        }
+        let Some(code) = shortcut.key.w3c().and_then(|code| code.parse::<Code>().ok()) else {
+            let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(ShortcutReason::Taken)));
+            return None;
         };
         let hotkey = HotKey::new(Some(modifiers).filter(|modifiers| !modifiers.is_empty()), code);
         GlobalHotKeyEvent::set_event_handler(Some(|event: GlobalHotKeyEvent| {
@@ -608,42 +731,10 @@ mod native {
         })
     }
 
-    /// #NEW-57: a letter's key code (the pause hotkey's `p`).
-    fn letter_code(byte: u8) -> Option<Code> {
-        Some(match byte {
-            b'a' => Code::KeyA,
-            b'b' => Code::KeyB,
-            b'c' => Code::KeyC,
-            b'd' => Code::KeyD,
-            b'e' => Code::KeyE,
-            b'f' => Code::KeyF,
-            b'g' => Code::KeyG,
-            b'h' => Code::KeyH,
-            b'i' => Code::KeyI,
-            b'j' => Code::KeyJ,
-            b'k' => Code::KeyK,
-            b'l' => Code::KeyL,
-            b'm' => Code::KeyM,
-            b'n' => Code::KeyN,
-            b'o' => Code::KeyO,
-            b'p' => Code::KeyP,
-            b'q' => Code::KeyQ,
-            b'r' => Code::KeyR,
-            b's' => Code::KeyS,
-            b't' => Code::KeyT,
-            b'u' => Code::KeyU,
-            b'v' => Code::KeyV,
-            b'w' => Code::KeyW,
-            b'x' => Code::KeyX,
-            b'y' => Code::KeyY,
-            b'z' => Code::KeyZ,
-            _ => return None,
-        })
-    }
-
     /// Windows: WH_MOUSE_LL on its own thread (a hook needs a message loop
-    /// on the thread that set it); the picked side button is swallowed so a
-    /// browser does not also go back.
+    /// on the thread that set it); the picked button is swallowed so a
+    /// browser does not also go back. S-3: the middle button too, and a
+    /// combination fires only while exactly its modifiers are held.
     #[cfg(target_os = "windows")]
     mod mouse {
         use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -652,15 +743,20 @@ mod native {
         use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
         use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
         use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
-            UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_QUIT, WM_XBUTTONDOWN, WM_XBUTTONUP,
+            UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_XBUTTONDOWN,
+            WM_XBUTTONUP,
         };
 
-        use super::super::HotkeyEvent;
+        use super::super::{HotkeyEvent, Key, Shortcut};
 
-        /// The button the hook answers (XBUTTON1 = 1, XBUTTON2 = 2) and its channel.
-        static TARGET: Mutex<Option<(u16, flume::Sender<HotkeyEvent>)>> = Mutex::new(None);
+        /// What the hook answers: the button (0 = middle, XBUTTON1 = 1,
+        /// XBUTTON2 = 2), the modifiers (ctrl, alt, shift, super) and the channel.
+        static TARGET: Mutex<Option<(u16, [bool; 4], flume::Sender<HotkeyEvent>)>> = Mutex::new(None);
+        /// The press went out: its release goes out too, whatever the modifiers.
+        static PRESSED: AtomicBool = AtomicBool::new(false);
 
         pub(crate) struct Hook {
             thread: AtomicU32,
@@ -668,10 +764,16 @@ mod native {
         }
 
         impl Hook {
-            pub(crate) fn start(button: u8, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) -> Option<Hook> {
-                let xbutton = if button == 4 { 1 } else { 2 };
+            pub(crate) fn start(shortcut: Shortcut, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) -> Option<Hook> {
+                let button = match shortcut.key {
+                    Key::Mouse(3) => 0,
+                    Key::Mouse(4) => 1,
+                    _ => 2,
+                };
+                let mods = [shortcut.ctrl, shortcut.alt, shortcut.shift, shortcut.super_key];
+                PRESSED.store(false, Ordering::SeqCst);
                 if let Ok(mut target) = TARGET.lock() {
-                    *target = Some((xbutton, tx));
+                    *target = Some((button, mods, tx));
                 }
                 let (ready_tx, ready) = std::sync::mpsc::channel::<Option<u32>>();
                 std::thread::Builder::new()
@@ -709,16 +811,36 @@ mod native {
             }
         }
 
+        /// The modifiers held now (ctrl, alt, shift, super).
+        fn held() -> [bool; 4] {
+            // SAFETY: GetAsyncKeyState only reads the key state.
+            let down = |vk: u16| unsafe { GetAsyncKeyState(i32::from(vk)) } as u16 & 0x8000 != 0;
+            [down(VK_CONTROL), down(VK_MENU), down(VK_SHIFT), down(VK_LWIN) || down(VK_RWIN)]
+        }
+
         unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-            if code >= 0 && (wparam as u32 == WM_XBUTTONDOWN || wparam as u32 == WM_XBUTTONUP) {
-                // SAFETY: WH_MOUSE_LL hands an MSLLHOOKSTRUCT in lparam.
-                let info = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
-                let button = (info.mouseData >> 16) as u16;
+            let message = wparam as u32;
+            let edge = match message {
+                WM_XBUTTONDOWN | WM_MBUTTONDOWN => Some(true),
+                WM_XBUTTONUP | WM_MBUTTONUP => Some(false),
+                _ => None,
+            };
+            if let (true, Some(down)) = (code >= 0, edge) {
+                let button = if message == WM_MBUTTONDOWN || message == WM_MBUTTONUP {
+                    0
+                } else {
+                    // SAFETY: WH_MOUSE_LL hands an MSLLHOOKSTRUCT in lparam.
+                    let info = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
+                    (info.mouseData >> 16) as u16
+                };
                 if let Ok(target) = TARGET.lock() {
-                    if let Some((wanted, tx)) = target.as_ref().filter(|(wanted, _)| *wanted == button) {
-                        let _ = wanted;
-                        let _ = tx.send(if wparam as u32 == WM_XBUTTONDOWN { HotkeyEvent::Down } else { HotkeyEvent::Up });
-                        return 1;
+                    if let Some((_, mods, tx)) = target.as_ref().filter(|(wanted, ..)| *wanted == button) {
+                        let fire = if down { held() == *mods } else { PRESSED.load(Ordering::SeqCst) };
+                        if fire {
+                            PRESSED.store(down, Ordering::SeqCst);
+                            let _ = tx.send(if down { HotkeyEvent::Down } else { HotkeyEvent::Up });
+                            return 1;
+                        }
                     }
                 }
             }
@@ -733,22 +855,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_fixture_shortcut_parses() {
-        for shortcut in &domain::voice::VOICE.shortcuts {
-            assert!(Shortcut::parse(&shortcut.value).is_some(), "{}", shortcut.value);
+    fn every_grammar_value_parses() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../../packages/domain-contract/fixtures/voice.json")).unwrap();
+        for case in fixture["shortcutParseCases"].as_array().unwrap() {
+            if let Some(value) = case["value"].as_str().filter(|value| !value.is_empty()) {
+                assert!(Shortcut::parse(value).is_some(), "{value}");
+            }
         }
+        let named: Vec<&str> = NAMED.iter().map(|(name, ..)| *name).collect();
+        assert_eq!(named, domain::voice::VOICE.shortcut_grammar.named, "NAMED mirrors the grammar");
         assert_eq!(
             Shortcut::parse("ctrl+shift+space"),
-            Some(Shortcut { ctrl: true, alt: false, shift: true, key: Key::Space })
+            Some(Shortcut { ctrl: true, alt: false, shift: true, super_key: false, key: Key::Named("space") })
         );
+        assert_eq!(Shortcut::parse("alt+super+1").map(|shortcut| (shortcut.super_key, shortcut.key)), Some((true, Key::Char(b'1'))));
+        assert_eq!(Shortcut::parse("ctrl+f24").map(|shortcut| shortcut.key), Some(Key::F(24)));
         assert_eq!(Shortcut::parse("mouse5").map(|shortcut| shortcut.key), Some(Key::Mouse(5)));
-        assert_eq!(Shortcut::parse("ctrl+enter"), None);
+        assert_eq!(Shortcut::parse("ctrl+mouse3").map(|shortcut| shortcut.key), Some(Key::Mouse(3)));
+        assert_eq!(Shortcut::parse("ctrl+enter").map(|shortcut| shortcut.key), Some(Key::Named("enter")));
+        for refused in ["ctrl", "mouse2", "f25", "ctrl+a+b", "hyper+k", "media-play"] {
+            assert_eq!(Shortcut::parse(refused), None, "{refused}");
+        }
         // #NEW-57: the pause hotkey.
         let pause = Shortcut::parse(&domain::meeting::MEETING.pause.shortcut).unwrap();
-        assert_eq!(pause, Shortcut { ctrl: true, alt: true, shift: false, key: Key::Letter(b'p') });
+        assert_eq!(pause, Shortcut { ctrl: true, alt: true, shift: false, super_key: false, key: Key::Char(b'p') });
         assert_eq!(pause.portal_trigger(), "CTRL+ALT+p");
         assert!(pause.key_matches("p"));
-        assert_eq!(Shortcut::parse("ctrl"), None, "a key is required");
+    }
+
+    #[test]
+    fn every_key_has_a_keysym_and_a_code() {
+        for (name, ..) in NAMED {
+            let key = Key::parse(name).unwrap();
+            assert!(key.keysym().is_some() && key.w3c().is_some(), "{name}");
+        }
+        assert_eq!(Key::F(13).keysym(), Some(0xffca));
+        assert_eq!(Key::F(1).keysym(), Some(0xffbe));
+        assert_eq!(Key::Char(b'k').w3c().as_deref(), Some("KeyK"));
+        assert_eq!(Key::Char(b'1').w3c().as_deref(), Some("Digit1"));
+        assert_eq!(Key::Mouse(4).keysym(), None);
     }
 
     #[test]
@@ -756,6 +902,8 @@ mod tests {
         assert_eq!(Shortcut::parse("ctrl+space").unwrap().portal_trigger(), "CTRL+space");
         assert_eq!(Shortcut::parse("ctrl+shift+space").unwrap().portal_trigger(), "CTRL+SHIFT+space");
         assert_eq!(Shortcut::parse("f13").unwrap().portal_trigger(), "F13");
+        assert_eq!(Shortcut::parse("alt+super+pageup").unwrap().portal_trigger(), "ALT+LOGO+Prior");
+        assert_eq!(Shortcut::parse("ctrl+backquote").unwrap().portal_trigger(), "CTRL+grave");
     }
 
     #[test]
@@ -766,6 +914,23 @@ mod tests {
         assert!(!shortcut.matches_keystroke(&gpui::Keystroke::parse("space").unwrap()));
         assert!(shortcut.key_matches("space"));
         assert!(Shortcut::parse("f13").unwrap().matches_keystroke(&gpui::Keystroke::parse("f13").unwrap()));
+        let symbol = Shortcut::parse("alt+backquote").unwrap();
+        assert!(symbol.matches_keystroke(&gpui::Keystroke::parse("alt-`").unwrap()));
+        let superkey = Shortcut::parse("super+k").unwrap();
+        assert!(superkey.matches_keystroke(&gpui::Keystroke::parse("super-k").unwrap()));
+        assert!(!superkey.matches_keystroke(&gpui::Keystroke::parse("k").unwrap()));
+    }
+
+    #[test]
+    fn gpui_key_names_read_as_the_grammar() {
+        assert_eq!(grammar_key("k"), Some(("k".into(), false)));
+        assert_eq!(grammar_key("!"), Some(("1".into(), true)), "shift-1 on a US layout");
+        assert_eq!(grammar_key("`"), Some(("backquote".into(), false)));
+        assert_eq!(grammar_key("pageup"), Some(("pageup".into(), false)));
+        assert_eq!(grammar_key("scroll_lock"), Some(("scrolllock".into(), false)));
+        assert_eq!(grammar_key("escape"), Some(("escape".into(), false)));
+        assert_eq!(grammar_key("f13"), Some(("f13".into(), false)));
+        assert_eq!(grammar_key("audioplay"), None);
     }
 
     #[test]

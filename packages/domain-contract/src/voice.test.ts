@@ -12,7 +12,11 @@ import {
   PTT_HIDDEN,
   pttOverlay,
   pttStep,
-  shortcutOptions,
+  captureStart,
+  captureStep,
+  capturePending,
+  shortcutCanonical,
+  shortcutLabel,
   shortcutReason,
   shortcutSupport,
   shouldSpeak,
@@ -100,7 +104,7 @@ describe(`voice.json`, () => {
     it(`trayIcon: ${c.name}`, () => expect(trayIcon(c.context)).toBe(c.icon as `app` | `listening` | null))
   }
   for (const c of fixture.wakeDetailCases) {
-    it(`wakeDetail: ${c.name}`, () => expect(wakeDetail(c.context)).toBe(c.detail))
+    it(`wakeDetail: ${c.name}`, () => expect(wakeDetail(c.context as Parameters<typeof wakeDetail>[0])).toBe(c.detail))
   }
   for (const c of fixture.railVoiceCases) {
     it(`railVoice: ${c.name}`, () => expect(railVoice(c.settings, c.context)).toEqual(c.rail))
@@ -109,8 +113,17 @@ describe(`voice.json`, () => {
     it(`shortcutSupport ${c.os} ${c.session} ${c.shortcut} portal=${c.portal}`, () =>
       expect(shortcutSupport(c.os as `linux`, c.session as `x11` | null, c.shortcut, c.portal)).toBe(c.support as `global`))
   }
-  for (const c of fixture.shortcutOptionsCases) {
-    it(`shortcutOptions: ${c.name}`, () => expect(shortcutOptions(c.os as `linux`, c.session as `x11` | null)).toEqual(c.options))
+  for (const c of fixture.shortcutParseCases) {
+    it(`shortcutCanonical ${JSON.stringify(c.in)}`, () => {
+      expect(shortcutCanonical(c.in)).toBe(c.value)
+      if (c.value !== null) expect(shortcutLabel(c.value)).toBe(c.label as string)
+    })
+  }
+  for (const c of fixture.captureCases) {
+    it(`captureStep: ${c.name}`, () => {
+      const state = (c.events as Parameters<typeof captureStep>[1][]).reduce(captureStep, captureStart(c.before))
+      expect({ status: state.status, value: state.value, pending: capturePending(state), error: state.error }).toEqual(c.result)
+    })
   }
   for (const c of fixture.shortcutReasonCases) {
     it(`shortcutReason ${c.reason}`, () => expect(shortcutReason(c.reason as `taken`, c.shortcut)).toBe(c.text))

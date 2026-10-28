@@ -4,9 +4,14 @@
 //! bottom centre of the display under the pointer, [`EDGE`] px above its
 //! edge. Wayland places it itself. The window is the capsule's measured
 //! size ([`capsule_size`], at most the display less [`EDGE`] each side): it
-//! opens again, wider, when a longer line no longer fits. NEW-55: a call
-//! (`voice_call`) opens its own window of the same kind with the call's
-//! face ([`Face::Call`]).
+//! opens again, wider, when a longer line no longer fits. S-3: a call
+//! (`voice_call`) opens its own window of the same kind with the FLOATING
+//! CALL PILL ([`Face::Call`], `voice_overlay::call_pill`) while no IDE
+//! window is focused: FIXED at `pill.width` × `pill.height` (never resized
+//! or reopened while its words change), draggable by any point outside its
+//! buttons (X11 override-redirect windows get no WM move: [`Drag`] tracks
+//! the pointer itself), its position remembered on this device
+//! ([`PILL_FILE`]).
 //!
 //! NEW-59 (`fixtures/work-screen.json` OVERLAY): never on a display with a
 //! fullscreen app. When the window opens, the computer crate's screen state
@@ -17,15 +22,16 @@
 
 use exponential_ui::voice_wave::Activity;
 use gpui::{
-    div, point, px, size, App, AppContext as _, Bounds, Context, IntoElement, ParentElement as _,
-    Pixels, Point, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions,
+    div, point, px, size, App, AppContext as _, Bounds, Context, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
+    Pixels, Point, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _, Window, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions,
 };
 use gpui_component::ActiveTheme as _;
 
 use domain::voice::PttOverlay;
-use domain::voice_call::{CallView, VOICE_CALL};
+use domain::voice_call::VOICE_CALL;
 
-use crate::voice_overlay::{call_capsule, capsule, capsule_size, Capsule};
+use crate::voice_overlay::{call_pill, capsule, capsule_size, CallActions, CallFace, Capsule};
 
 /// The air between the capsule and the display's edge.
 const EDGE: f32 = 24.;
@@ -36,8 +42,9 @@ const AIR: f32 = 8.;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Face {
     Ptt(PttOverlay),
-    /// NEW-55: a call: the lead pill (Mute / Unmute) and End call.
-    Call(CallView),
+    /// S-3: the floating call pill (`voice_call` hands it every change:
+    /// a step, the level, the timer's second).
+    Call(Box<CallFace>),
 }
 
 /// The window, open while the capsule shows.
@@ -69,6 +76,10 @@ impl Overlay {
             }
             return;
         };
+        if let Face::Call(face) = view {
+            self.show_pill(face, cx);
+            return;
+        }
         let place = match self.place.clone() {
             Some(place) => place,
             None => {
@@ -99,12 +110,49 @@ impl Overlay {
             let _ = window.update(cx, |_, window, _| window.remove_window());
         }
         let origin = area.map(|area| bottom_centre(area, window_size)).unwrap_or_else(|| point(px(0.), px(0.)));
-        match cx.open_window(options(display, origin, window_size), |_, cx| cx.new(|_| OverlayView { view })) {
+        match cx.open_window(options(display, origin, window_size), |_, cx| cx.new(|_| OverlayView { view, drag: None })) {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(window_size.width);
             }
             Err(err) => log::warn!("[voice] the push-to-talk overlay did not open: {err}"),
+        }
+    }
+
+    /// S-3: the pill's window, FIXED at `pill.width` × `pill.height`: an
+    /// open one only repaints; a new one opens where it was last dropped
+    /// (or at the bottom centre of the display under the pointer).
+    fn show_pill(&mut self, face: Box<CallFace>, cx: &mut App) {
+        if let Some(window) = self.window.as_ref() {
+            let updated = window.update(cx, |this, _, cx| {
+                if this.view != Face::Call(face.clone()) {
+                    this.view = Face::Call(face.clone());
+                    cx.notify();
+                }
+            });
+            if updated.is_ok() {
+                return;
+            }
+            self.window = None;
+        }
+        let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));
+        let remembered = load_pill_origin(cx).filter(|origin| on_a_display(*origin, pill, cx));
+        let (display, origin) = match remembered {
+            Some(origin) => (None, origin),
+            None => {
+                let (display, area) = match placement(cx) {
+                    Place::At(display, area) => (display, area),
+                    Place::Hidden => (None, None),
+                };
+                (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.))))
+            }
+        };
+        match cx.open_window(options(display, origin, pill), |_, cx| cx.new(|_| OverlayView { view: Face::Call(face), drag: None })) {
+            Ok(window) => {
+                self.window = Some(window);
+                self.width = f32::from(pill.width);
+            }
+            Err(err) => log::warn!("[voice] the call pill did not open: {err}"),
         }
     }
 
@@ -122,8 +170,175 @@ impl Overlay {
     }
 }
 
+/// S-3: the pill's default place: the bottom centre of `area`,
+/// `pill.marginPx` above its edge.
+fn pill_default(area: Bounds<Pixels>, pill: Size<Pixels>) -> Point<Pixels> {
+    point(
+        area.origin.x + (area.size.width - pill.width) / 2.,
+        area.origin.y + area.size.height - pill.height - px(VOICE_CALL.pill.margin_px),
+    )
+}
+
+/// S-3: a remembered position still shows the whole pill's centre on one
+/// of the displays (else it falls back to the default).
+fn on_a_display(origin: Point<Pixels>, pill: Size<Pixels>, cx: &App) -> bool {
+    let centre = point(origin.x + pill.width / 2., origin.y + pill.height / 2.);
+    cx.displays().iter().any(|display| display.bounds().contains(&centre))
+}
+
+/// S-3: the device-local file the pill's last position persists in (beside
+/// the tray's `voice-tray.json`).
+const PILL_FILE: &str = "voice-call-pill.json";
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+struct PillOrigin {
+    x: f32,
+    y: f32,
+}
+
+fn pill_file(cx: &App) -> Option<std::path::PathBuf> {
+    // The data dir of the running IDE (the tray keeps its switches there).
+    cx.try_global::<crate::session::AuthContext>().map(|auth| auth.data_dir.join(PILL_FILE))
+}
+
+fn load_pill_origin(cx: &App) -> Option<Point<Pixels>> {
+    let bytes = std::fs::read(pill_file(cx)?).ok()?;
+    let origin: PillOrigin = serde_json::from_slice(&bytes).ok()?;
+    (origin.x.is_finite() && origin.y.is_finite()).then(|| point(px(origin.x), px(origin.y)))
+}
+
+fn save_pill_origin(origin: Point<Pixels>, cx: &App) {
+    let Some(path) = pill_file(cx) else { return };
+    let origin = PillOrigin { x: f32::from(origin.x), y: f32::from(origin.y) };
+    let written = serde_json::to_vec(&origin).map_err(std::io::Error::other).and_then(|bytes| std::fs::write(path, bytes));
+    if let Err(err) = written {
+        log::warn!("[voice] the call pill's position was not kept: {err}");
+    }
+}
+
 pub(crate) struct OverlayView {
     view: Face,
+    /// S-3: the pill being dragged (X11's own pointer tracking).
+    drag: Option<Drag>,
+}
+
+/// S-3: a pill drag on X11: the pointer and the window's origin at the
+/// press, in root pixels; each move puts the window at the origin plus how
+/// far the pointer went (an override-redirect window gets no WM move).
+struct Drag {
+    #[cfg(target_os = "linux")]
+    x11: Option<X11Drag>,
+}
+
+#[cfg(target_os = "linux")]
+struct X11Drag {
+    conn: x11rb::rust_connection::RustConnection,
+    root: u32,
+    window: u32,
+    pointer: (i32, i32),
+    origin: (i32, i32),
+    /// Root pixels per logical pixel (the position is kept logical).
+    scale: f32,
+    last: (i32, i32),
+}
+
+#[cfg(target_os = "linux")]
+impl X11Drag {
+    fn start(window: &Window, cx: &App) -> Option<Self> {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use x11rb::connection::Connection as _;
+        use x11rb::protocol::xproto::ConnectionExt as _;
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            return None;
+        }
+        let handle = HasWindowHandle::window_handle(window).ok()?;
+        let x_window = match handle.as_raw() {
+            RawWindowHandle::Xcb(xcb) => xcb.window.get(),
+            RawWindowHandle::Xlib(xlib) => u32::try_from(xlib.window).ok()?,
+            _ => return None,
+        };
+        let logical_root_width = f32::from(cx.primary_display()?.bounds().size.width);
+        let (conn, screen) = x11rb::connect(None).ok()?;
+        let root = conn.setup().roots.get(screen)?;
+        let (root_id, scale) = (root.root, f32::from(root.width_in_pixels) / logical_root_width);
+        let pointer = conn.query_pointer(root_id).ok()?.reply().ok()?;
+        let at = conn.translate_coordinates(x_window, root_id, 0, 0).ok()?.reply().ok()?;
+        let origin = (i32::from(at.dst_x), i32::from(at.dst_y));
+        Some(X11Drag {
+            conn,
+            root: root_id,
+            window: x_window,
+            pointer: (i32::from(pointer.root_x), i32::from(pointer.root_y)),
+            origin,
+            scale: if scale > 0. { scale } else { 1. },
+            last: origin,
+        })
+    }
+
+    /// Follow the pointer.
+    fn follow(&mut self) {
+        use x11rb::connection::Connection as _;
+        use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt as _};
+        let Some(pointer) = self.conn.query_pointer(self.root).ok().and_then(|cookie| cookie.reply().ok()) else { return };
+        let at = drag_origin(self.origin, self.pointer, (i32::from(pointer.root_x), i32::from(pointer.root_y)));
+        if at == self.last {
+            return;
+        }
+        self.last = at;
+        let _ = self.conn.configure_window(self.window, &ConfigureWindowAux::new().x(at.0).y(at.1));
+        let _ = self.conn.flush();
+    }
+
+    /// Where the pill was dropped, in logical pixels.
+    fn dropped(&self) -> Point<Pixels> {
+        point(px(self.last.0 as f32 / self.scale), px(self.last.1 as f32 / self.scale))
+    }
+}
+
+/// S-3: the window's origin for a pointer that moved from `start` to `now`.
+fn drag_origin(origin: (i32, i32), start: (i32, i32), now: (i32, i32)) -> (i32, i32) {
+    (origin.0 + now.0 - start.0, origin.1 + now.1 - start.1)
+}
+
+impl OverlayView {
+    /// A press outside the pill's buttons starts a drag: X11 tracks the
+    /// pointer itself, everything else hands the move to the system.
+    fn press(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(target_os = "linux")]
+        if let Some(x11) = X11Drag::start(window, cx) {
+            self.drag = Some(Drag { x11: Some(x11) });
+            return;
+        }
+        let _ = cx;
+        window.start_window_move();
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.drag = Some(Drag {});
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.drag = Some(Drag { x11: None });
+        }
+    }
+
+    fn moved(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(x11) = self.drag.as_mut().and_then(|drag| drag.x11.as_mut()) {
+            x11.follow();
+        }
+    }
+
+    /// The drop: remember where the pill went.
+    fn release(&mut self, window: &Window, cx: &App) {
+        let Some(drag) = self.drag.take() else { return };
+        #[cfg(target_os = "linux")]
+        if let Some(x11) = drag.x11.as_ref() {
+            save_pill_origin(x11.dropped(), cx);
+            return;
+        }
+        let _ = drag;
+        save_pill_origin(window.bounds().origin, cx);
+    }
 }
 
 /// The fixture's activity key as the wave's.
@@ -148,17 +363,15 @@ fn specimen(view: &Face) -> Capsule {
             line: SharedString::from(view.line.clone()),
             pill: SharedString::from(view.pill.clone()),
             primary: view.primary,
-            lead: None,
         },
-        Face::Call(view) => Capsule {
-            activity: activity(view.activity),
+        Face::Call(_) => Capsule {
+            activity: Activity::Idle,
             level: 0.,
             bands: Vec::new(),
-            state: SharedString::from(view.state.clone()),
-            line: SharedString::from(view.line.clone()),
-            pill: SharedString::from(VOICE_CALL.copy.end_call.clone()),
+            state: SharedString::default(),
+            line: SharedString::default(),
+            pill: SharedString::default(),
             primary: true,
-            lead: Some(SharedString::from(view.mute.clone())),
         },
     }
 }
@@ -167,32 +380,43 @@ impl Render for OverlayView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // No `Root` here: the rem and the font are set like the banner's.
         window.set_rem_size(cx.theme().font_size);
-        let c = specimen(&self.view);
-        let (level, bands) = match &self.view {
-            Face::Ptt(view) if view.activity == "listening" => super::level(cx),
-            Face::Call(view) if view.activity == "listening" => crate::voice_call::level(cx),
-            _ => (0., Vec::new()),
-        };
-        let c = Capsule { level, bands, ..c };
-        let face = match &self.view {
-            Face::Ptt(_) => capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx)),
-            Face::Call(_) => call_capsule(
-                "voice-call-overlay",
-                &c,
-                std::rc::Rc::new(crate::voice_call::toggle_mute),
-                std::rc::Rc::new(crate::voice_call::end),
-                cx,
-            ),
-        };
-        div()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .font_family(cx.theme().font_family.clone())
-            // The window never takes focus; a click still lands: the pill's
-            // action (Stop, Unmute).
-            .child(face)
+        let root = div().size_full().flex().items_center().justify_center().font_family(cx.theme().font_family.clone());
+        match &self.view {
+            Face::Ptt(view) => {
+                let c = specimen(&self.view);
+                let (level, bands) = if view.activity == "listening" { super::level(cx) } else { (0., Vec::new()) };
+                let c = Capsule { level, bands, ..c };
+                // The window never takes focus; a click still lands: the
+                // pill's action (Stop, Unmute).
+                root.child(capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx))).into_any_element()
+            }
+            Face::Call(face) => {
+                let actions = CallActions {
+                    on_mute: std::rc::Rc::new(crate::voice_call::toggle_mute),
+                    on_end: std::rc::Rc::new(crate::voice_call::end),
+                };
+                root.child(
+                    call_pill(SharedString::from(VOICE_CALL.test_ids.pill.clone()), face, &actions, cx)
+                        // Any point outside the buttons drags it (they stop
+                        // their own presses).
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.press(window, cx)))
+                        .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, _| {
+                            if event.pressed_button == Some(MouseButton::Left) {
+                                this.moved();
+                            }
+                        }))
+                        .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
+                        .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
+                        // Esc ends the call when the pill has the focus.
+                        .on_key_down(|event, _, cx| {
+                            if event.keystroke.key == "escape" {
+                                crate::voice_call::end(cx);
+                            }
+                        }),
+                )
+                .into_any_element()
+            }
+        }
     }
 }
 
@@ -456,6 +680,18 @@ mod tests {
         // The capsule's own bottom (the window less its air) is 24 above.
         assert_eq!(f32::from(origin.y) + f32::from(window.height) - AIR, 1080. - EDGE);
         assert_eq!(f32::from(origin.x) + f32::from(window.width) / 2., 1920. + 960.);
+    }
+
+    /// S-3: the pill sits `pill.marginPx` above the bottom centre, and a
+    /// drag moves the window by exactly what the pointer moved.
+    #[test]
+    fn the_pill_defaults_to_the_bottom_centre_and_follows_the_pointer() {
+        let area = Bounds { origin: point(px(1920.), px(0.)), size: size(px(1920.), px(1080.)) };
+        let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));
+        let origin = pill_default(area, pill);
+        assert_eq!(f32::from(origin.y) + VOICE_CALL.pill.height, 1080. - VOICE_CALL.pill.margin_px);
+        assert_eq!(f32::from(origin.x) + VOICE_CALL.pill.width / 2., 1920. + 960.);
+        assert_eq!(drag_origin((100, 200), (150, 220), (180, 200)), (130, 180));
     }
 
     #[test]

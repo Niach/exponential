@@ -139,7 +139,10 @@ private struct AgentChannelEmpty: View {
             // NEW-69 (voice-call.json): the telephone (no `…` before the
             // first message).
             ToolbarItem(placement: .topBarTrailing) {
-                AgentCallButton(agentId: agent.id, agentName: agent.name)
+                AgentCallButton(
+                    agentId: agent.id, agentName: agent.name,
+                    agentIcon: BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
+                )
             }
         }
         .accessibilityElement(children: .contain)

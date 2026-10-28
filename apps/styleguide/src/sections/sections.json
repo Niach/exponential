@@ -10,6 +10,7 @@
       "strip-chip",
       "session-xref",
       "mention-pill",
+      "call-controls",
       "feedback-states",
       "trace", "code-block"
     ] },
@@ -74,6 +75,7 @@
     "team-agents-settings": "EXP-1293",
     "voice-call-overlay": "NEW-77",
     "voice-call": "NEW-55",
+    "call-controls": "S-3",
     "computer-use-banner": "EXP-1273",
     "voice-settings": "NEW-67",
     "meeting-consent": "NEW-57",

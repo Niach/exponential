@@ -39,12 +39,23 @@ use theme::tokens as t;
 pub(crate) use exponential_ui_gpui::controls::{
     alert, alert_title, checkbox, choice_tiles, disclosure_header, empty_state, empty_state_actions,
     empty_state_list, ghost_icon_button,
-    glass_icon_button, glass_input, search_field, segmented, segmented_item, skeleton,
+    glass_icon_button, glass_input, kbd, kbd_group, search_field, segmented, segmented_item, skeleton,
     text_button, web_switch, web_textarea, AlertVariant, CheckState, ChevronSide, ChoiceTile,
     ChoiceTilesGeometry, OnTilePick, TilePicture,
     SearchFieldSize, Skeleton, TextButtonVariant, WebControl, WebText, CHECKBOX_PX, CTL_LG_H,
     CTL_MD_H, CTL_SM_H, SEARCH_FIELD_SM_H, SKELETON_PULSE,
 };
+
+/// S-3: a push-to-talk binding as THE keycaps (the web `ShortcutKeys`): one
+/// [`kbd`] per `shortcutLabel` part in a [`kbd_group`]; empty =
+/// `copy.shortcutNone` as muted words.
+pub(crate) fn shortcut_keys(value: &str, cx: &App) -> Div {
+    let caps = domain::voice::shortcut_keycaps(value);
+    if caps.is_empty() {
+        return div().text_sm().text_color(cx.theme().muted_foreground).child(domain::voice::shortcut_label(value));
+    }
+    kbd_group(caps.into_iter().map(|cap| kbd(cap, cx)))
+}
 
 /// The IDE's [`Chrome`]: every value straight from the generated design
 /// tokens (`theme::tokens::glass` / `radius` / `motion::ease`) and the icon

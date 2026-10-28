@@ -11,20 +11,48 @@
 //! said while the agent's turn runs rides the queue bar like a typed one.
 //! Every reply in that conversation is spoken (`speak_replies` speaks the
 //! call's conversation while a call runs), speech during a reply stops it
-//! in the worker (barge-in), and THE capsule (`push_to_talk::overlay`,
-//! [`Face::Call`]) shows each step with Mute and End call. A streamed call
-//! plays nothing here: the worker's reply audio goes to the caller, and
-//! every flow event follows it as `call_event`.
+//! in the worker (barge-in). A streamed call plays nothing here: the
+//! worker's reply audio goes to the caller, and every flow event follows it
+//! as `call_event`.
+//!
+//! S-3: a call RINGS first: `Start` = ringing; the worker warms up (`Call`
+//! with `ring_ms`, a local call's ring tone on its one output stream) and
+//! confirms with `CallListening` (= `Ready`); the ring's `ringMs` timer =
+//! `Rang`; both = answered: the device says `callGreeting(language)`
+//! through the worker's `Speak` ([`speak_replies::speak_greeting`], never an
+//! agent message), its end listens. No `CallListening` within `maxRingMs`
+//! (or a failed download) fails it `unavailable`; a voice still downloading
+//! keeps ringing. MIC CHECK: no `Level` ≥ `noSoundLevel` from
+//! `CallListening` until the ring's end (at least 1.5 s of listening) steps
+//! `NoSound`. The surfaces: the in-window CALL PANEL over the agent chat's
+//! body ([`CallPanel`]) and, while no IDE window is focused, the FLOATING
+//! PILL (`push_to_talk::overlay`, [`Face::Call`]); both read [`face`]. The
+//! live level and the timer repaint only them ([`CallLive`]).
+//!
+//! [`speak_replies::speak_greeting`]: crate::speak_replies::speak_greeting
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use gpui::{App, AppContext as _, Context, Entity, Global};
+use gpui::{
+    div, App, AppContext as _, Context, Entity, FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement as _,
+    Render, SharedString, Styled as _, Subscription, Window,
+};
 use sync::Store;
 
 use domain::voice::UtteranceTarget;
-use domain::voice_call::{call_step, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState};
+use domain::voice_call::{
+    call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
+    VOICE_CALL,
+};
 
 use crate::push_to_talk::overlay::{Face, Overlay};
+use crate::voice_overlay::{CallActions, CallFace, CallMark};
+
+/// The mic check listens at least this long after `CallListening`.
+const MIC_CHECK_MIN: Duration = Duration::from_millis(1500);
+/// How often a running call looks at the windows (the pill shows while
+/// none is focused) and the timer's second.
+const TICK: Duration = Duration::from_millis(250);
 
 /// The call running now.
 struct Active {
@@ -35,16 +63,35 @@ struct Active {
     host: Option<steer::call_host::CallHost>,
     /// Utterances said while the agent's turn ran (the queue bar's share).
     queued: usize,
-    /// The reply being spoken (its message id).
+    /// The reply being spoken (its message id, or the greeting's).
     speaking: Option<String>,
+    /// S-3: the greeting's `Speak` id.
+    greeting_id: String,
+    started: Instant,
+    /// S-3: when the worker confirmed it listens.
+    listening_at: Option<Instant>,
+    /// S-3: a `Level` reached `noSoundLevel` since `CallListening`.
+    heard: bool,
+    /// S-3: when rang + ready answered it (the timer counts from here).
+    answered_at: Option<Instant>,
+}
+
+/// S-3: what changes many times a second (the microphone's level, the
+/// timer's second): only the call surfaces observe it.
+#[derive(Default)]
+pub(crate) struct CallLive {
+    level: f32,
+    bands: Vec<f32>,
+    timer: String,
 }
 
 pub(crate) struct VoiceCall {
     state: CallState,
     active: Option<Active>,
     overlay: Overlay,
-    level: f32,
-    bands: Vec<f32>,
+    live: Entity<CallLive>,
+    /// The pill is open (no IDE window focused).
+    pill: bool,
     counter: u64,
     /// The toasts raised (the lifecycle tests read them).
     #[cfg(test)]
@@ -61,6 +108,7 @@ fn global(cx: &App) -> Option<Entity<VoiceCall>> {
 
 /// Install ONCE, after `speak_replies::install`.
 pub fn install(cx: &mut App) {
+    let live = cx.new(|_| CallLive::default());
     let entity = cx.new(|cx: &mut Context<VoiceCall>| {
         if let Some(speaker) = crate::speak_replies::entity(cx) {
             cx.observe(&speaker, |this: &mut VoiceCall, _, cx| this.on_speaker(cx)).detach();
@@ -69,8 +117,8 @@ pub fn install(cx: &mut App) {
             state: CallState::default(),
             active: None,
             overlay: Overlay::default(),
-            level: 0.,
-            bands: Vec::new(),
+            live,
+            pill: false,
             counter: 0,
             #[cfg(test)]
             toasts: Vec::new(),
@@ -94,13 +142,56 @@ pub(crate) fn agent_id(cx: &App) -> Option<String> {
     global(cx).and_then(|entity| entity.read(cx).active.as_ref().map(|active| active.agent_id.clone()))
 }
 
-/// The wave's level now (the overlay reads it each frame).
-pub(crate) fn level(cx: &App) -> (f32, Vec<f32>) {
-    global(cx).map(|entity| {
-        let this = entity.read(cx);
-        (this.level, this.bands.clone())
-    })
-    .unwrap_or_default()
+/// S-3: THIS client runs a call with `agent_id` (its telephone shows the
+/// panel instead of dialing).
+pub(crate) fn runs_for(agent_id: &str, cx: &App) -> bool {
+    global(cx).is_some_and(|entity| entity.read(cx).active.as_ref().is_some_and(|active| active.agent_id == agent_id))
+}
+
+/// S-3: what the call surfaces show now (None = no call).
+pub(crate) fn face(cx: &App) -> Option<CallFace> {
+    global(cx)?.read(cx).face_now(cx)
+}
+
+impl VoiceCall {
+    /// [`face`] from inside the controller (the pill is handed it).
+    fn face_now(&self, cx: &App) -> Option<CallFace> {
+        let active = self.active.as_ref()?;
+        let view = call_view(&self.state, CallPlatform::Desktop)?;
+        let agent = crate::session_data::agent_def(&active.agent_id, cx);
+        let live = self.live.read(cx);
+        let (level, bands) = match view.activity {
+            "listening" => (live.level, live.bands.clone()),
+            // The reply's own loudness is not reported: a steady wave.
+            "speaking" => (0.5, Vec::new()),
+            _ => (0., Vec::new()),
+        };
+        Some(CallFace {
+            agent: SharedString::from(agent.as_ref().map(crate::agent_screen::agent_def_name).unwrap_or_default()),
+            mark: CallMark {
+                icon: agent.as_ref().and_then(|agent| agent.icon.clone()),
+                color: agent.as_ref().and_then(|agent| agent.color.clone()),
+            },
+            view,
+            timer: SharedString::from(answered_timer(active.answered_at)),
+            level,
+            bands,
+        })
+    }
+
+    /// S-3: the open pill gets the face now (a step, a level, a second).
+    fn push_pill(&mut self, cx: &mut App) {
+        if !self.pill {
+            return;
+        }
+        if let Some(face) = self.face_now(cx) {
+            self.overlay.show(Some(Face::Call(Box::new(face))), cx);
+        }
+    }
+}
+
+fn answered_timer(answered_at: Option<Instant>) -> String {
+    call_timer(answered_at.map_or(0, |at| at.elapsed().as_millis() as u64))
 }
 
 /// The member's voice device as THIS client sees it: its name, whether it
@@ -120,7 +211,8 @@ fn voice_device(cx: &App) -> (Option<String>, bool, bool) {
 }
 
 /// None = the telephone is enabled; Some = disabled, with the reason
-/// (voice-call.json `availabilityCases`, the desktop's view).
+/// (voice-call.json `availabilityCases`, the desktop's view). S-3: a voice
+/// still downloading rings until it is ready.
 pub(crate) fn unavailable(cx: &App) -> Option<String> {
     let (device, online, here) = voice_device(cx);
     let speech = crate::speak_replies::speech_state(cx).map(|state| match state {
@@ -131,7 +223,6 @@ pub(crate) fn unavailable(cx: &App) -> Option<String> {
     call_unavailable(&CallAvailabilityInput {
         platform: CallPlatform::Desktop,
         device: device.as_deref(),
-        speak_replies: crate::speak_replies::settings(cx).speak_replies,
         online,
         here,
         speech,
@@ -151,7 +242,7 @@ pub(crate) fn start(agent_id: String, cx: &mut App) {
     entity.update(cx, |this, cx| this.begin(agent_id, None, cx));
 }
 
-/// The capsule's lead pill.
+/// The surfaces' mute button.
 pub(crate) fn toggle_mute(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| {
@@ -161,7 +252,8 @@ pub(crate) fn toggle_mute(cx: &mut App) {
     }
 }
 
-/// End call (the capsule's primary pill, sign-out, a settings change).
+/// End call / Cancel (the surfaces' red button, Esc, the tray, sign-out,
+/// a settings change).
 pub(crate) fn end(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.hang_up(true, cx));
@@ -170,7 +262,8 @@ pub(crate) fn end(cx: &mut App) {
 
 /// The relay rang this device (`call_ring` on the control socket): a phone
 /// or web caller streams a call to `agent_id`. Busy or unable to speak =
-/// no answer (the relay tells the caller).
+/// no answer (the relay tells the caller). S-3: a voice still downloading
+/// answers too (the call rings until it is ready).
 pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     let (_, _, here) = voice_device(cx);
     // #NEW-57: a call reaching the device mid-meeting fails with
@@ -179,7 +272,9 @@ pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
         refuse_for_meeting(call_id, cx);
         return;
     }
-    if !here || active(cx) || crate::speak_replies::speech_state(cx) != Some(coding::device_doctor::SpeechState::Ready) {
+    let speech = crate::speak_replies::speech_state(cx);
+    let can_speak = matches!(speech, Some(coding::device_doctor::SpeechState::Ready | coding::device_doctor::SpeechState::Downloading));
+    if !here || active(cx) || !can_speak {
         log::info!("[voice] call {call_id}: not answered here");
         return;
     }
@@ -259,7 +354,7 @@ pub(crate) fn owns(event: &talk::Event, cx: &App) -> bool {
     let this = entity.read(cx);
     let Some(active) = this.active.as_ref() else { return false };
     match event {
-        talk::Event::Said { id, .. } | talk::Event::SpeechStarted { id } => *id == active.id,
+        talk::Event::Said { id, .. } | talk::Event::SpeechStarted { id } | talk::Event::CallListening { id } => *id == active.id,
         talk::Event::Level { id, .. } | talk::Event::Partial { id, .. } | talk::Event::ListenFailed { id, .. } => *id == active.id,
         talk::Event::SpeechAudio { .. } => active.host.is_some(),
         _ => false,
@@ -285,7 +380,6 @@ fn unavailable_ignoring_busy(cx: &App) -> Option<String> {
     call_unavailable(&CallAvailabilityInput {
         platform: CallPlatform::Desktop,
         device: device.as_deref(),
-        speak_replies: crate::speak_replies::settings(cx).speak_replies,
         online,
         here,
         speech: Some(CallSpeech::Ok),
@@ -294,10 +388,15 @@ fn unavailable_ignoring_busy(cx: &App) -> Option<String> {
     })
 }
 
-/// The flow event as the caller receives it (`call_event`).
+/// The flow event as the caller receives it (`call_event`): S-3 the ring's
+/// `rang`, the worker's `ready` and the mic check's `noSound` too, so caller
+/// and host show the same ring.
 fn wire_event(event: &CallEvent) -> Option<serde_json::Value> {
     use serde_json::json;
     Some(match event {
+        CallEvent::Rang => json!({ "t": "rang" }),
+        CallEvent::Ready => json!({ "t": "ready" }),
+        CallEvent::NoSound => json!({ "t": "noSound" }),
         CallEvent::Partial(text) => json!({ "t": "partial", "text": text }),
         CallEvent::Said(text) => json!({ "t": "said", "text": text }),
         CallEvent::SpeechStarted => json!({ "t": "speechStarted" }),
@@ -308,16 +407,25 @@ fn wire_event(event: &CallEvent) -> Option<serde_json::Value> {
     })
 }
 
+/// S-3: an IDE window of this device is focused (the pill hides then). A
+/// window busy in an update right now is the one acting: focused.
+fn ide_focused(overlay: &Overlay, cx: &mut App) -> bool {
+    cx.windows()
+        .into_iter()
+        .filter(|window| !overlay.owns(window.window_id()))
+        .any(|window| window.update(cx, |_, window, _| window.is_window_active()).unwrap_or(true))
+}
+
 impl VoiceCall {
     fn step(&mut self, event: CallEvent, cx: &mut Context<Self>) {
         if let (Some(event), Some(host)) = (wire_event(&event), self.active.as_ref().and_then(|active| active.host.as_ref())) {
             host.send_event(event);
         }
-        let was_hidden = self.state.phase == CallPhase::Hidden;
+        let before = self.state.clone();
         self.state = call_step(&self.state, &event);
         // The telephones (busy) and the tray's Call follow a call's start
         // and end.
-        if was_hidden != (self.state.phase == CallPhase::Hidden) {
+        if (before.phase == CallPhase::Hidden) != (self.state.phase == CallPhase::Hidden) {
             cx.refresh_windows();
         }
         if let Some(toast) = self.state.toast.take() {
@@ -325,9 +433,26 @@ impl VoiceCall {
             self.toasts.push(toast.clone());
             crate::toast::show_in_active_window(crate::toast::Toast::error(toast), cx);
         }
-        let view = call_view(&self.state);
-        self.overlay.show(view.map(Face::Call), cx);
-        cx.notify();
+        // S-3: rang and ready answered it: the device says its greeting.
+        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Speaking {
+            self.answer(cx);
+        }
+        if self.state != before {
+            self.sync_pill(cx);
+            self.push_pill(cx);
+            cx.notify();
+        }
+    }
+
+    /// S-3: the pill shows while a call runs and no IDE window is focused.
+    fn sync_pill(&mut self, cx: &mut Context<Self>) {
+        let wanted = self.active.is_some() && self.state.phase != CallPhase::Hidden && !ide_focused(&self.overlay, cx);
+        if wanted != self.pill {
+            self.pill = wanted;
+            if !wanted {
+                self.overlay.show(None, cx);
+            }
+        }
     }
 
     fn begin(&mut self, agent_id: String, host: Option<steer::call_host::CallHost>, cx: &mut Context<Self>) {
@@ -338,19 +463,141 @@ impl VoiceCall {
         if crate::speak_replies::speaking(cx).is_some() {
             crate::speak_replies::stop(cx);
         }
+        let id = self.open(agent_id, host, cx);
+        let remote = self.active.as_ref().is_some_and(|active| active.host.is_some());
+        let language = crate::speak_replies::settings(cx).language().to_string();
+        self.step(CallEvent::Start { device: device.unwrap_or_default(), language: Some(language.clone()) }, cx);
+        // S-3: a LOCAL call rings on this device while the worker warms up;
+        // a remote one rings on the caller (the host's `rang` follows).
+        let ring_ms = VOICE_CALL.constants.ring_ms;
+        client.call(id.clone(), language, remote, if remote { 0 } else { ring_ms as u32 });
+        self.arm_timers(id, cx);
+    }
+
+    /// The call's bookkeeping (the worker's id, the clocks).
+    fn open(&mut self, agent_id: String, host: Option<steer::call_host::CallHost>, cx: &mut Context<Self>) -> String {
         self.counter += 1;
         let id = format!("call-{}", self.counter);
-        let remote = host.is_some();
-        let language = crate::speak_replies::settings(cx).language().to_string();
-        self.active = Some(Active { id: id.clone(), agent_id, host, queued: 0, speaking: None });
-        self.level = 0.;
-        self.bands.clear();
-        self.step(CallEvent::Start { device: device.unwrap_or_default() }, cx);
-        client.call(id, language, remote);
-        // A local call is connected at once; a streamed one on `call_ready`
-        // (which may already have come: the caller waits on the relay).
-        if !remote {
-            self.step(CallEvent::Connected, cx);
+        self.active = Some(Active {
+            id: id.clone(),
+            agent_id,
+            host,
+            queued: 0,
+            speaking: None,
+            greeting_id: format!("{id}-greeting"),
+            started: Instant::now(),
+            listening_at: None,
+            heard: false,
+            answered_at: None,
+        });
+        self.live.update(cx, |live, _| *live = CallLive::default());
+        id
+    }
+
+    /// S-3: the ring (`rang` at `ringMs`), the give-up (`maxRingMs`
+    /// without `ready` fails `unavailable`) and the tick that follows the
+    /// windows and the timer.
+    fn arm_timers(&mut self, id: String, cx: &mut Context<Self>) {
+        let ring = Duration::from_millis(VOICE_CALL.constants.ring_ms);
+        let max_ring = Duration::from_millis(VOICE_CALL.constants.max_ring_ms);
+        let ring_id = id.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(ring).await;
+            let _ = this.update(cx, |this, cx| this.on_rang(&ring_id, cx));
+        })
+        .detach();
+        let max_id = id.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(max_ring).await;
+            let _ = this.update(cx, |this, cx| this.on_max_ring(&max_id, cx));
+        })
+        .detach();
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(TICK).await;
+            let running = this.update(cx, |this, cx| this.on_tick(&id, cx)).unwrap_or(false);
+            if !running {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    fn is_call(&self, id: &str) -> bool {
+        self.active.as_ref().is_some_and(|active| active.id == id)
+    }
+
+    fn on_rang(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.is_call(id) {
+            self.step(CallEvent::Rang, cx);
+        }
+    }
+
+    /// `maxRingMs` passed: a voice still not ready fails the call.
+    fn on_max_ring(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.is_call(id) && self.state.phase == CallPhase::Ringing && !self.state.ready {
+            log::warn!("[voice] call {id}: the voice was not ready after the longest ring");
+            self.fail("unavailable", cx);
+        }
+    }
+
+    /// The tick: the pill follows the windows, the timer its second.
+    /// False = the call is over (the loop ends).
+    fn on_tick(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
+        let Some(active) = self.active.as_ref().filter(|active| active.id == id) else { return false };
+        let timer = answered_timer(active.answered_at);
+        let was = self.pill;
+        self.sync_pill(cx);
+        if self.pill && !was {
+            self.push_pill(cx);
+        }
+        let changed = self.live.update(cx, |live, cx| {
+            if live.timer == timer {
+                return false;
+            }
+            live.timer = timer;
+            cx.notify();
+            true
+        });
+        if changed {
+            self.push_pill(cx);
+        }
+        true
+    }
+
+    /// S-3: the worker listens (`CallListening`): `ready`, and the mic
+    /// check runs until the ring's end (at least [`MIC_CHECK_MIN`]).
+    fn on_listening(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active.as_mut() else { return };
+        let now = Instant::now();
+        active.listening_at = Some(now);
+        let id = active.id.clone();
+        let ring_end = active.started + Duration::from_millis(VOICE_CALL.constants.ring_ms);
+        let until = ring_end.max(now + MIC_CHECK_MIN);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(until.saturating_duration_since(Instant::now())).await;
+            let _ = this.update(cx, |this, cx| this.mic_checked(&id, cx));
+        })
+        .detach();
+        self.step(CallEvent::Ready, cx);
+    }
+
+    /// The mic check's end: nothing reached `noSoundLevel`.
+    fn mic_checked(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.is_call(id) && self.active.as_ref().is_some_and(|active| !active.heard) {
+            log::info!("[voice] call {id}: the microphone stayed silent");
+            self.step(CallEvent::NoSound, cx);
+        }
+    }
+
+    /// S-3: answered: the device says its greeting on the call's stream
+    /// (Speak replies tracks it like a reply: its end listens).
+    fn answer(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active.as_mut() else { return };
+        active.answered_at = Some(Instant::now());
+        let greeting_id = active.greeting_id.clone();
+        if !crate::speak_replies::speak_greeting(greeting_id, self.state.greeting.clone(), cx) {
+            // Nothing can speak it: listen at once.
+            self.step(CallEvent::ReplyFinished, cx);
         }
     }
 
@@ -389,6 +636,9 @@ impl VoiceCall {
         if let Some(client) = crate::speak_replies::client(cx) {
             client.hangup(active.id.clone());
         }
+        if active.speaking.is_some() {
+            crate::speak_replies::stop(cx);
+        }
         if let Some(host) = active.host.as_ref() {
             host.end();
         }
@@ -401,7 +651,9 @@ impl VoiceCall {
             return;
         }
         match event {
-            CallHostEvent::Ready => self.step(CallEvent::Connected, cx),
+            // S-3: the pair is up; the ring (`rang`) and the worker
+            // (`ready`) answer it, never `call_ready` alone.
+            CallHostEvent::Ready => log::info!("[voice] the streamed call's caller is on the line"),
             CallHostEvent::Audio(pcm) => {
                 let (Some(active), Some(client)) = (self.active.as_ref(), crate::speak_replies::client(cx)) else { return };
                 client.call_audio(active.id.clone(), &pcm);
@@ -420,10 +672,20 @@ impl VoiceCall {
 
     fn on_worker(&mut self, event: talk::Event, cx: &mut Context<Self>) {
         match event {
+            talk::Event::CallListening { .. } => self.on_listening(cx),
             talk::Event::Level { level, bands, .. } => {
-                self.level = level;
-                self.bands = bands.to_vec();
-                self.overlay.refresh(cx);
+                if let Some(active) = self.active.as_mut() {
+                    if active.listening_at.is_some() && level >= VOICE_CALL.constants.no_sound_level {
+                        active.heard = true;
+                    }
+                }
+                // Only the call surfaces repaint (never every window).
+                self.live.update(cx, |live, cx| {
+                    live.level = level;
+                    live.bands = bands.to_vec();
+                    cx.notify();
+                });
+                self.push_pill(cx);
             }
             talk::Event::Partial { text, .. } => self.step(CallEvent::Partial(text), cx),
             talk::Event::SpeechStarted { .. } => {
@@ -443,6 +705,9 @@ impl VoiceCall {
                 log::warn!("[voice] the speech worker exited during a call");
                 self.fail("dropped", cx);
             }
+            // S-3: a voice still downloading keeps ringing (the worker
+            // opens the call after the download).
+            talk::Event::ListenFailed { reason: talk::ListenFailure::Downloading, .. } => {}
             talk::Event::ListenFailed { reason, detail, .. } => {
                 log::warn!("[voice] the call could not listen: {detail}");
                 let code = match reason {
@@ -450,6 +715,8 @@ impl VoiceCall {
                     talk::ListenFailure::NotGranted => "not_granted",
                     // NEW-57: voice-call.json `failed.meeting`.
                     talk::ListenFailure::Meeting => "meeting",
+                    // S-3: the download or the load failed.
+                    talk::ListenFailure::Unavailable => "unavailable",
                     _ => "dropped",
                 };
                 self.fail(code, cx);
@@ -525,19 +792,23 @@ impl VoiceCall {
         .detach();
     }
 
-    /// Speak replies started or ended a reply: the call's Speaking follows
-    /// (only for the call's own conversation).
+    /// Speak replies started or ended a reply (or the greeting): the
+    /// call's Speaking follows (only for the call's own conversation).
     fn on_speaker(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.as_ref() else { return };
         let conversation = crate::session_data::my_conversation(&active.agent_id, cx).map(|row| row.id);
-        let speaking = crate::speak_replies::speaking(cx).filter(|speaking| Some(&speaking.session_id) == conversation.as_ref());
+        let greeting = active.greeting_id.clone();
+        let speaking = crate::speak_replies::speaking(cx)
+            .filter(|speaking| speaking.message_id == greeting || Some(&speaking.session_id) == conversation.as_ref());
         let was = active.speaking.clone();
         match (was, speaking) {
             (None, Some(speaking)) => {
                 if let Some(active) = self.active.as_mut() {
                     active.speaking = Some(speaking.message_id.clone());
                     // The agent took the queued lines in with this turn.
-                    active.queued = 0;
+                    if speaking.message_id != greeting {
+                        active.queued = 0;
+                    }
                 }
                 self.step(CallEvent::ReplyStarted(speaking.title.clone()), cx);
             }
@@ -563,36 +834,119 @@ impl VoiceCall {
 
 /// How long a ring may wait for the ticket before the relay gives up
 /// (voice-call.json `constants.ringTimeoutMs`), for the log.
-#[allow(dead_code)]
 fn ring_timeout() -> Duration {
-    Duration::from_millis(domain::voice_call::VOICE_CALL.constants.ring_timeout_ms)
+    Duration::from_millis(VOICE_CALL.constants.ring_timeout_ms)
 }
 
-/// A call as if it had connected (no worker, no host), for the lifecycle
-/// tests.
+/// S-3: the in-window CALL PANEL over an agent chat's body (the agent
+/// screen holds one): drawn while THIS client runs a call with that agent,
+/// nothing otherwise. Esc in it ends the call; the header's telephone
+/// focuses it. It repaints on the call's steps and its live level/timer,
+/// never the chat around it.
+pub(crate) struct CallPanel {
+    agent_id: Option<String>,
+    focus: FocusHandle,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl CallPanel {
+    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+        let mut subscriptions = Vec::new();
+        if let Some(call) = global(cx) {
+            let live = call.read(cx).live.clone();
+            subscriptions.push(cx.observe(&call, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&live, |_, _, cx| cx.notify()));
+        }
+        CallPanel { agent_id: None, focus: cx.focus_handle(), _subscriptions: subscriptions }
+    }
+
+    /// The chat's agent (its screen resolves it).
+    pub(crate) fn set_agent(&mut self, agent_id: Option<String>, cx: &mut Context<Self>) {
+        if self.agent_id != agent_id {
+            self.agent_id = agent_id;
+            cx.notify();
+        }
+    }
+
+    /// The panel shows (a call with this chat's agent runs here).
+    pub(crate) fn shown(&self, cx: &App) -> bool {
+        self.agent_id.as_deref().is_some_and(|agent_id| runs_for(agent_id, cx))
+    }
+}
+
+impl Focusable for CallPanel {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl Render for CallPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let face = self.shown(cx).then(|| face(cx)).flatten();
+        let Some(face) = face else { return div().into_any_element() };
+        let actions = CallActions { on_mute: std::rc::Rc::new(toggle_mute), on_end: std::rc::Rc::new(end) };
+        div()
+            .absolute()
+            .inset_0()
+            .track_focus(&self.focus)
+            .on_key_down(|event, _, cx| {
+                if event.keystroke.key == "escape" {
+                    cx.stop_propagation();
+                    end(cx);
+                }
+            })
+            .child(crate::voice_overlay::call_panel(SharedString::from(VOICE_CALL.test_ids.panel.clone()), &face, &actions, cx))
+            .into_any_element()
+    }
+}
+
+/// A call as if it had started (no worker, no host), ringing, for the
+/// lifecycle tests.
+#[cfg(test)]
+fn ring_for_test(agent_id: &str, cx: &mut App) -> String {
+    let Some(entity) = global(cx) else { return String::new() };
+    entity.update(cx, |this, cx| {
+        let id = this.open(agent_id.into(), None, cx);
+        this.step(CallEvent::Start { device: "mint".into(), language: Some("en".into()) }, cx);
+        id
+    })
+}
+
+/// A call as if it had been answered, for the lifecycle tests.
 #[cfg(test)]
 fn start_for_test(agent_id: &str, cx: &mut App) {
-    let Some(entity) = global(cx) else { return };
-    entity.update(cx, |this, cx| {
-        this.active = Some(Active { id: "call-test".into(), agent_id: agent_id.into(), host: None, queued: 0, speaking: None });
-        this.step(CallEvent::Start { device: "mint".into() }, cx);
-        this.step(CallEvent::Connected, cx);
-    });
+    let id = ring_for_test(agent_id, cx);
+    on_worker_event(talk::Event::CallListening { id: id.clone() }, cx);
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.on_rang(&id, cx));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn running(cx: &mut gpui::TestAppContext) {
+    fn setup(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);
             install(cx);
+        });
+    }
+
+    fn running(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        cx.update(|cx| {
             start_for_test("agent-1", cx);
             assert!(active(cx));
             assert_eq!(agent_id(cx).as_deref(), Some("agent-1"));
+            assert!(runs_for("agent-1", cx));
+            assert!(!runs_for("agent-2", cx));
         });
+    }
+
+    fn phase(cx: &App) -> CallPhase {
+        global(cx).unwrap().read(cx).state.phase
     }
 
     /// NEW-55 review: a crashed speech worker ends the call and clears it.
@@ -603,7 +957,7 @@ mod tests {
             assert!(!owns(&talk::Event::Exited, cx), "the dispatcher sends Exited itself");
             on_worker_event(talk::Event::Exited, cx);
             assert!(!active(cx));
-            assert_eq!(global(cx).unwrap().read(cx).state.phase, CallPhase::Hidden);
+            assert_eq!(phase(cx), CallPhase::Hidden);
         });
     }
 
@@ -614,6 +968,7 @@ mod tests {
         cx.update(|cx| {
             end(cx);
             assert!(!active(cx));
+            assert!(face(cx).is_none());
         });
     }
 
@@ -632,12 +987,89 @@ mod tests {
     /// A worker that exits with no call running is not the call's business.
     #[gpui::test]
     async fn an_exit_without_a_call_is_ignored(cx: &mut gpui::TestAppContext) {
+        setup(cx);
         cx.update(|cx| {
-            gpui_component::init(cx);
-            theme::init(cx);
-            install(cx);
             on_worker_event(talk::Event::Exited, cx);
             assert!(!active(cx));
+        });
+    }
+
+    /// S-3: a call rings first; the ring's end and the worker's
+    /// `CallListening` (either order) answer it: the greeting (nothing can
+    /// speak it in the test app, so it listens at once) and the timer.
+    #[gpui::test]
+    async fn the_ring_and_the_worker_answer_the_call(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        cx.update(|cx| {
+            let id = ring_for_test("agent-1", cx);
+            assert_eq!(phase(cx), CallPhase::Ringing);
+            assert_eq!(face(cx).unwrap().view.status.as_deref(), Some(VOICE_CALL.copy.calling.as_str()));
+            let event = talk::Event::CallListening { id: id.clone() };
+            assert!(owns(&event, cx));
+            on_worker_event(event, cx);
+            assert_eq!(phase(cx), CallPhase::Ringing, "ready without the ring's end keeps ringing");
+            global(cx).unwrap().update(cx, |this, cx| this.on_rang(&id, cx));
+            let entity = global(cx).unwrap();
+            assert!(entity.read(cx).active.as_ref().unwrap().answered_at.is_some());
+            assert_eq!(phase(cx), CallPhase::Listening);
+            let face = face(cx).unwrap();
+            assert_eq!(face.view.status, None, "answered: the timer");
+            assert_eq!(face.timer.as_ref(), "00:00");
+            assert_eq!(face.view.buttons, vec![domain::voice_call::CallButton::Mute, domain::voice_call::CallButton::End]);
+        });
+    }
+
+    /// S-3: the ring ending first says Getting ready; a voice still
+    /// downloading keeps ringing (never dropped).
+    #[gpui::test]
+    async fn a_downloading_voice_keeps_ringing(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        cx.update(|cx| {
+            let id = ring_for_test("agent-1", cx);
+            global(cx).unwrap().update(cx, |this, cx| this.on_rang(&id, cx));
+            assert_eq!(face(cx).unwrap().view.status.as_deref(), Some(VOICE_CALL.copy.getting_ready.as_str()));
+            on_worker_event(
+                talk::Event::ListenFailed { id: id.clone(), reason: talk::ListenFailure::Downloading, detail: "downloading".into() },
+                cx,
+            );
+            assert!(active(cx));
+            assert_eq!(phase(cx), CallPhase::Ringing);
+        });
+    }
+
+    /// S-3: no `CallListening` within `maxRingMs` fails it `unavailable`;
+    /// so does a failed download.
+    #[gpui::test]
+    async fn the_longest_ring_fails_unavailable(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        let unavailable = VOICE_CALL.copy.failed["unavailable"].replace("{device}", "mint");
+        cx.update(|cx| {
+            let id = ring_for_test("agent-1", cx);
+            global(cx).unwrap().update(cx, |this, cx| this.on_max_ring(&id, cx));
+            assert!(!active(cx));
+            let id = ring_for_test("agent-1", cx);
+            on_worker_event(talk::Event::ListenFailed { id, reason: talk::ListenFailure::Unavailable, detail: "load".into() }, cx);
+            assert!(!active(cx));
+            assert_eq!(global(cx).unwrap().read(cx).toasts, vec![unavailable.clone(), unavailable.clone()]);
+        });
+    }
+
+    /// S-3: the mic check: a silent microphone says so once answered; a
+    /// level at `noSoundLevel` passes it.
+    #[gpui::test]
+    async fn a_silent_microphone_is_reported(cx: &mut gpui::TestAppContext) {
+        running(cx);
+        cx.update(|cx| {
+            let id = global(cx).unwrap().read(cx).active.as_ref().unwrap().id.clone();
+            global(cx).unwrap().update(cx, |this, cx| this.mic_checked(&id, cx));
+            assert_eq!(face(cx).unwrap().view.caption, VOICE_CALL.copy.no_sound);
+            end(cx);
+            start_for_test("agent-1", cx);
+            let id = global(cx).unwrap().read(cx).active.as_ref().unwrap().id.clone();
+            let level = VOICE_CALL.constants.no_sound_level;
+            on_worker_event(talk::Event::Level { id: id.clone(), level, bands: [level; talk::LEVEL_BANDS] }, cx);
+            global(cx).unwrap().update(cx, |this, cx| this.mic_checked(&id, cx));
+            assert_eq!(face(cx).unwrap().view.caption, "");
         });
     }
 
@@ -660,13 +1092,13 @@ mod tests {
     /// with the `dropped` toast, never silently.
     #[gpui::test]
     async fn the_relays_idle_timeout_toasts_dropped(cx: &mut gpui::TestAppContext) {
-        let dropped = domain::voice_call::VOICE_CALL.copy.failed["dropped"].clone();
+        let dropped = VOICE_CALL.copy.failed["dropped"].clone();
         assert_eq!(host_ended(Some("idle"), cx), vec![dropped]);
     }
 
     #[gpui::test]
     async fn the_relays_max_length_toasts_dropped(cx: &mut gpui::TestAppContext) {
-        let dropped = domain::voice_call::VOICE_CALL.copy.failed["dropped"].clone();
+        let dropped = VOICE_CALL.copy.failed["dropped"].clone();
         assert_eq!(host_ended(Some("max_length"), cx), vec![dropped]);
     }
 
@@ -680,8 +1112,12 @@ mod tests {
     fn only_flow_events_go_to_the_caller() {
         assert_eq!(wire_event(&CallEvent::Said("hi".into())).unwrap()["t"], "said");
         assert_eq!(wire_event(&CallEvent::Queued { count: 2, text: "x".into() }).unwrap()["count"], 2);
+        // S-3: the host's ring goes out, so the caller rings the same.
+        assert_eq!(wire_event(&CallEvent::Rang).unwrap()["t"], "rang");
+        assert_eq!(wire_event(&CallEvent::Ready).unwrap()["t"], "ready");
+        assert_eq!(wire_event(&CallEvent::NoSound).unwrap()["t"], "noSound");
         assert!(wire_event(&CallEvent::Mute).is_none());
         assert!(wire_event(&CallEvent::End).is_none());
-        assert!(wire_event(&CallEvent::Start { device: "mint".into() }).is_none());
+        assert!(wire_event(&CallEvent::Start { device: "mint".into(), language: None }).is_none());
     }
 }

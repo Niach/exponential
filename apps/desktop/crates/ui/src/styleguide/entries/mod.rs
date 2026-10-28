@@ -55,6 +55,8 @@ pub(crate) mod script_card;
 pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
 pub(crate) mod voice_call;
+// S-3: the round call buttons.
+pub(crate) mod call_controls;
 pub(crate) mod voice_call_overlay;
 // NEW-67: Settings → Voice.
 pub(crate) mod voice_settings;
@@ -128,6 +130,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: strip_chip::ID, owner: strip_chip::OWNER, render: strip_chip::render },
     Entry { id: session_xref::ID, owner: session_xref::OWNER, render: session_xref::render },
     Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
+    Entry { id: call_controls::ID, owner: call_controls::OWNER, render: call_controls::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },

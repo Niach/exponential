@@ -10,6 +10,7 @@ export const VOICE_CALL_ICONS = fixture.icons
 export const VOICE_CALL_CONSTANTS = fixture.constants
 export const VOICE_CALL_WIRE = fixture.wire
 export const VOICE_CALL_HANG_UP = fixture.hangUpRules
+export const VOICE_CALL_PILL = fixture.pill
 
 export type CallPlatform = `desktop` | `phone` | `web`
 /** The voice device's doctor row `speech` as a caller reads it. */
@@ -19,13 +20,12 @@ export interface CallAvailabilityInput {
   platform: CallPlatform
   /** The voice device's name; null = none picked. */
   device: string | null
-  speakReplies: boolean
   online: boolean
   /** THIS client is the voice device. */
   here: boolean
   /** null = no `speech` row yet. */
   speech: CallSpeech | null
-  /** A call already runs on the voice device. */
+  /** A call this client does not run already runs on the voice device. */
   busy: boolean
   /** #NEW-57: a meeting runs on the voice device. */
   meeting?: boolean
@@ -36,7 +36,8 @@ export interface CallAvailability {
   reason: string | null
 }
 
-/** Whether the telephone is enabled, and the reason when it is not. */
+/** Whether the telephone is enabled, and the reason when it is not. S-3:
+ *  a voice that is still downloading rings until it is ready. */
 export function callAvailability(input: CallAvailabilityInput): CallAvailability {
   const reasons = fixture.copy.reasons
   const off = (reason: string): CallAvailability => ({
@@ -44,22 +45,31 @@ export function callAvailability(input: CallAvailabilityInput): CallAvailability
     reason: reason.replace(`{device}`, input.device ?? ``),
   })
   if (input.device === null) return off(reasons.noVoiceDevice)
-  if (!input.speakReplies) return off(reasons.speakOff)
   if (!input.online) return off(reasons.offline)
   if (input.meeting) return off(reasons.meeting)
   if (input.platform === `desktop` && !input.here) return off(reasons.notHere)
-  if (input.speech === null || input.speech === `preparing`) return off(reasons.preparing)
+  if (input.speech === null) return off(reasons.preparing)
   if (input.speech === `noGpu`) return off(reasons.noGpu)
   if (input.busy) return off(reasons.busy)
   return { enabled: true, reason: null }
 }
 
-export type CallPhase = `hidden` | `connecting` | `listening` | `thinking` | `speaking`
+export type CallPhase = `hidden` | `ringing` | `listening` | `thinking` | `speaking`
 
 export interface CallState {
   phase: CallPhase
   muted: boolean
+  /** Phones: the loudspeaker (false = the earpiece). */
+  speaker: boolean
   device: string
+  /** The greeting the device says once answered. */
+  greeting: string
+  /** The ring's `ringMs` ran out. */
+  rang: boolean
+  /** The worker confirmed it listens (`CallListening`). */
+  ready: boolean
+  /** The microphone stayed silent during the ring. */
+  noSound: boolean
   /** The last utterance, quoted (what Thinking shows). */
   said: string
   line: string
@@ -67,8 +77,10 @@ export interface CallState {
 }
 
 export type CallEvent =
-  | { t: `start`; device: string }
-  | { t: `connected` }
+  | { t: `start`; device: string; language?: string }
+  | { t: `rang` }
+  | { t: `ready` }
+  | { t: `noSound` }
   | { t: `partial`; text: string }
   | { t: `said`; text: string }
   | { t: `speechStarted` }
@@ -77,12 +89,31 @@ export type CallEvent =
   | { t: `replyFinished` }
   | { t: `mute` }
   | { t: `unmute` }
+  | { t: `speaker`; on: boolean }
   | { t: `end` }
   /** The other side's `call_end` (`hangUpRules`): a reason fails it. */
   | { t: `hungUp`; reason?: string | null }
   | { t: `failed`; code: string }
 
-export const CALL_IDLE: CallState = { phase: `hidden`, muted: false, device: ``, said: ``, line: ``, toast: null }
+export const CALL_IDLE: CallState = {
+  phase: `hidden`,
+  muted: false,
+  speaker: true,
+  device: ``,
+  greeting: ``,
+  rang: false,
+  ready: false,
+  noSound: false,
+  said: ``,
+  line: ``,
+  toast: null,
+}
+
+/** The greeting in `language` (English for an unknown one). */
+export function callGreeting(language: string | undefined): string {
+  const greetings = fixture.copy.greeting as Record<string, string>
+  return greetings[language ?? `en`] ?? greetings.en
+}
 
 function quoted(text: string): string {
   return `“${text}”`
@@ -94,6 +125,11 @@ function failedState(state: CallState, code: string): CallState {
   return { ...CALL_IDLE, toast }
 }
 
+/** Rang and ready: the device speaks its greeting (not an agent turn). */
+function answered(state: CallState): CallState {
+  return { ...state, phase: `speaking`, line: state.greeting, toast: null }
+}
+
 /** One step of the call (the same machine on the voice device and a caller). */
 export function callStep(state: CallState, event: CallEvent): CallState {
   const at = (phase: CallPhase, line: string, patch: Partial<CallState> = {}): CallState => ({
@@ -103,19 +139,28 @@ export function callStep(state: CallState, event: CallEvent): CallState {
     toast: null,
     ...patch,
   })
-  if (event.t === `start`) return { ...CALL_IDLE, phase: `connecting`, device: event.device }
+  if (event.t === `start`) {
+    return { ...CALL_IDLE, phase: `ringing`, device: event.device, greeting: callGreeting(event.language) }
+  }
   if (state.phase === `hidden`) return state
+  const ringing = state.phase === `ringing`
   switch (event.t) {
-    case `connected`:
-      return state.phase === `connecting` ? at(`listening`, ``) : state
+    case `rang`:
+      if (!ringing) return state
+      return state.ready ? answered({ ...state, rang: true }) : { ...state, rang: true }
+    case `ready`:
+      if (!ringing) return state
+      return state.rang ? answered({ ...state, ready: true }) : { ...state, ready: true }
+    case `noSound`:
+      return { ...state, noSound: true }
     case `partial`: {
       const text = event.text.trim()
-      return state.phase === `listening` && text ? at(`listening`, quoted(text)) : state
+      return state.phase === `listening` && text ? at(`listening`, quoted(text), { noSound: false }) : state
     }
     case `said`: {
       const text = event.text.trim()
-      if (!text) return state
-      return at(`thinking`, quoted(text), { said: quoted(text) })
+      if (ringing || !text) return state
+      return at(`thinking`, quoted(text), { said: quoted(text), noSound: false })
     }
     case `speechStarted`:
       return state.phase === `speaking` ? at(`listening`, ``) : state
@@ -127,13 +172,15 @@ export function callStep(state: CallState, event: CallEvent): CallState {
         fixture.copy.queued.replace(`{count}`, String(event.count)).replace(`{text}`, quoted(event.text.trim()))
       )
     case `replyStarted`:
-      return at(`speaking`, event.text.trim())
+      return ringing ? state : at(`speaking`, event.text.trim())
     case `replyFinished`:
       return state.phase === `speaking` ? at(`listening`, ``) : state
     case `mute`:
       return { ...state, muted: true }
     case `unmute`:
       return { ...state, muted: false }
+    case `speaker`:
+      return { ...state, speaker: event.on }
     case `end`:
       return CALL_IDLE
     case `hungUp`:
@@ -144,30 +191,56 @@ export function callStep(state: CallState, event: CallEvent): CallState {
   return state
 }
 
+export type CallActivity = `ringing` | `listening` | `thinking` | `speaking` | `muted`
+export type CallButton = `mute` | `speaker` | `end`
+
 export interface CallView {
-  activity: `listening` | `thinking` | `speaking` | `muted`
-  state: string
-  line: string
-  /** The mute pill's label (Mute / Unmute); End call is always beside it. */
-  mute: string
+  activity: CallActivity
+  /** The line under the name; null = the call's timer (`callTimer`). */
+  status: string | null
+  caption: string
+  muted: boolean
+  speaker: boolean
+  /** The round buttons, in order. */
+  buttons: CallButton[]
+  /** The end button's label (shown under it while ringing). */
+  end: string
 }
 
 /** What the call surface shows; null = no surface. */
-export function callView(state: CallState): CallView | null {
+export function callView(state: CallState, platform: CallPlatform = `phone`): CallView | null {
   const copy = fixture.copy
-  const mute = state.muted ? copy.unmute : copy.mute
-  switch (state.phase) {
-    case `hidden`:
-      return null
-    case `connecting`:
-      return { activity: `thinking`, state: copy.connecting, line: state.line, mute }
-    case `listening`:
-      return state.muted
-        ? { activity: `muted`, state: copy.muted, line: copy.mutedLine, mute }
-        : { activity: `listening`, state: copy.listening, line: state.line, mute }
-    case `thinking`:
-      return { activity: `thinking`, state: copy.thinking, line: state.line, mute }
-    case `speaking`:
-      return { activity: `speaking`, state: copy.speaking, line: state.line, mute }
+  if (state.phase === `hidden`) return null
+  const base = { muted: state.muted, speaker: state.speaker }
+  if (state.phase === `ringing`) {
+    return {
+      ...base,
+      activity: `ringing`,
+      status: state.rang ? copy.gettingReady : copy.calling,
+      caption: ``,
+      buttons: [`end`],
+      end: copy.cancel,
+    }
   }
+  const buttons: CallButton[] = platform === `phone` ? [`mute`, `speaker`, `end`] : [`mute`, `end`]
+  const inCall = { ...base, status: null, buttons, end: copy.endCall }
+  switch (state.phase) {
+    case `listening`:
+      if (state.muted) return { ...inCall, activity: `muted`, caption: copy.muted }
+      return { ...inCall, activity: `listening`, caption: state.line || (state.noSound ? copy.noSound : ``) }
+    case `thinking`:
+      return { ...inCall, activity: `thinking`, caption: state.line }
+    case `speaking`:
+      return { ...inCall, activity: `speaking`, caption: state.line }
+  }
+}
+
+/** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
+export function callTimer(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  const pad = (n: number) => String(n).padStart(2, `0`)
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
 }

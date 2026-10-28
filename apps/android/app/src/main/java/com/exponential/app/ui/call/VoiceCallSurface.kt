@@ -1,13 +1,37 @@
 package com.exponential.app.ui.call
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import android.Manifest
+import android.os.SystemClock
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
+import com.exponential.app.ui.components.CallControls
+import com.exponential.app.ui.theme.GlassTokens
+import kotlinx.coroutines.delay
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -54,13 +78,12 @@ import com.exponential.app.domain.VoiceCall
 import com.exponential.app.domain.parseDeviceDoctor
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ExponentialMark
-import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.thread.AgentGlyph
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
-import com.exponential.app.ui.theme.glassCard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,71 +106,167 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 // NEW-69 (voice V5, `fixtures/voice-call.json`): the phone's call. THE
-// telephone in the agent chat's header ([AgentCallButton]), THE in-call
-// surface ([VoiceCallCard], the styleguide entry `voice-call`: a glass card
-// with VoiceWave xl around the brand mark, the state, the line, End call as
-// the one primary pill and Mute) shown full screen over the app background
-// while a call runs ([VoiceCallHost]).
+// telephone in the agent chat's header ([AgentCallButton]) and, S-3, THE
+// PHONE-CALL screen ([VoiceCallScreen], styleguide entry `voice-call`):
+// full screen, top to bottom the agent's avatar large with its activity
+// ring (ringing a soft halo pulse, listening the success ring glowing with
+// the level, speaking VoiceWave, thinking dim, muted none), the name, the
+// status or the ticking timer, the caption, and at the bottom the round
+// icon-only buttons ([CallControls], entry `call-controls`), shown while a
+// call runs ([VoiceCallHost]).
 
 /** The VoiceWave edge at `xl` (the size enum: sm 32 · md 56 · lg 160 · xl 200). */
 private const val WAVE_XL = 200f
 
-/** The brand mark inside the wave (web `ExponentialLogo size={56}`). */
+/** The brand mark inside the avatar. */
 private const val MARK_SIZE = 56f
 
-/** The in-call card's width on a wide screen (web `w-[22rem]`). */
-private val CARD_MAX_WIDTH = 352.dp
+/** The avatar's disc. */
+private val AVATAR_SIZE = 112.dp
 
 /**
- * THE in-call surface: [view] from [VoiceCall.callView]; [level] / [bands]
- * move the wave (bands may be empty). [still] = the specimen's frame zero.
+ * THE phone-call screen: [view] from [VoiceCall.callView]; [timer] = the
+ * ticking `callTimer` text while [VoiceCall.View.status] is null; [level] /
+ * [bands] move the ring (bands may be empty). [still] = the specimen's
+ * frame zero.
  */
 @Composable
-fun VoiceCallCard(
+fun VoiceCallScreen(
+    agent: String,
     view: VoiceCall.View,
+    /** The agent's mark (null icon = the Exponential mark: the Assistant). */
+    agentIcon: String? = null,
+    agentColor: String? = null,
+    timer: String?,
     level: Float,
     bands: List<Double>,
-    onEnd: () -> Unit,
     onMute: () -> Unit,
+    onSpeaker: () -> Unit,
+    onEnd: () -> Unit,
     modifier: Modifier = Modifier,
     still: Boolean = false,
 ) {
     Column(
         modifier = modifier
-            .glassCard()
-            .padding(24.dp)
+            .padding(horizontal = 24.dp, vertical = 32.dp)
             .testTag(VoiceCall.TestIds.SURFACE),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        VoiceCallWave(activity = view.activity, level = level, bands = bands, still = still)
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                view.state,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                view.line,
-                style = MaterialTheme.typography.bodyMedium,
-                color = DesignTokens.Palette.MutedForeground,
-                textAlign = TextAlign.Center,
-            )
+        Spacer(Modifier.weight(0.6f))
+        CompositionLocalProvider(LocalCallMark provides CallMark(agentIcon, agentColor)) {
+            VoiceCallAvatar(activity = view.activity, level = level, bands = bands, still = still)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            GlassPill(
-                VoiceCall.Copy.END_CALL,
-                onClick = onEnd,
-                primary = true,
-                modifier = Modifier.testTag(VoiceCall.TestIds.END),
-            )
-            GlassPill(
-                view.mute,
-                onClick = onMute,
-                modifier = Modifier.testTag(VoiceCall.TestIds.MUTE),
-            )
+        Spacer(Modifier.height(20.dp))
+        Text(
+            agent,
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(4.dp))
+        val status = view.status
+        Text(
+            status ?: timer.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = DesignTokens.Palette.MutedForeground,
+            textAlign = TextAlign.Center,
+            modifier = if (status == null) Modifier.testTag(VoiceCall.TestIds.TIMER) else Modifier,
+        )
+        Spacer(Modifier.height(32.dp))
+        Text(
+            view.caption,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        CallControls(view = view, onMute = onMute, onSpeaker = onSpeaker, onEnd = onEnd)
+    }
+}
+
+/**
+ * The agent's avatar (the brand mark on its disc) inside its activity ring;
+ * the state word is the avatar's accessibility value.
+ */
+@Composable
+private fun VoiceCallAvatar(activity: VoiceCall.Activity, level: Float, bands: List<Double>, still: Boolean) {
+    val reduced = LocalReduceMotion.current
+    Box(
+        modifier = Modifier
+            .size(WAVE_XL.dp)
+            .semantics { stateDescription = activity.label },
+        contentAlignment = Alignment.Center,
+    ) {
+        when (activity) {
+            VoiceCall.Activity.Speaking -> VoiceCallWave(activity = activity, level = level, bands = bands, still = still) { AvatarDisc() }
+            VoiceCall.Activity.Ringing -> {
+                RingingHalo(animates = !still && !reduced)
+                AvatarDisc()
+            }
+            VoiceCall.Activity.Listening -> {
+                val glow by animateFloatAsState(level.coerceIn(0f, 1f), label = "call-level")
+                val green = DesignTokens.Semantic.Green
+                Canvas(Modifier.size(AVATAR_SIZE + 32.dp)) {
+                    val r = AVATAR_SIZE.toPx() / 2
+                    drawCircle(green.copy(alpha = 0.10f + 0.25f * glow), radius = r + (8 + 12 * glow).dp.toPx())
+                    drawCircle(green, radius = r + 3.dp.toPx(), style = Stroke(width = 3.dp.toPx()))
+                }
+                AvatarDisc()
+            }
+            VoiceCall.Activity.Thinking -> AvatarDisc(Modifier.alpha(0.5f))
+            VoiceCall.Activity.Muted -> AvatarDisc()
         }
+    }
+}
+
+@Composable
+private fun AvatarDisc(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(AVATAR_SIZE)
+            .background(DesignTokens.Palette.Card, CircleShape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        val mark = LocalCallMark.current
+        if (mark.icon == null) {
+            ExponentialMark(size = MARK_SIZE.dp)
+        } else {
+            AgentGlyph(icon = mark.icon, color = mark.color, size = MARK_SIZE.dp)
+        }
+    }
+}
+
+/** S-3: the callee's mark, the same disc ×4 (iOS `VoiceCallCallee`). */
+private data class CallMark(val icon: String?, val color: String?)
+
+private val LocalCallMark = staticCompositionLocalOf { CallMark(null, null) }
+
+/** Ringing: a soft halo pulsing out of the disc (still under reduced motion). */
+@Composable
+private fun RingingHalo(animates: Boolean) {
+    val pulse = if (animates) {
+        val transition = rememberInfiniteTransition(label = "call-ring")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(durationMillis = 1600, easing = LinearEasing), RepeatMode.Restart),
+            label = "call-ring-pulse",
+        ).value
+    } else {
+        0.5f
+    }
+    val tint = DesignTokens.Palette.Foreground
+    Canvas(Modifier.size(WAVE_XL.dp)) {
+        val r = AVATAR_SIZE.toPx() / 2
+        val reach = size.minDimension / 2 - r
+        drawCircle(tint.copy(alpha = 0.06f), radius = r + reach * 0.45f)
+        drawCircle(tint.copy(alpha = 0.16f * (1f - pulse)), radius = r + reach * pulse)
     }
 }
 
@@ -158,7 +277,7 @@ fun VoiceCallCard(
  * motion); idle and muted draw quiet (35%, the muted colour).
  */
 @Composable
-private fun VoiceCallWave(activity: VoiceCall.Activity, level: Float, bands: List<Double>, still: Boolean) {
+private fun VoiceCallWave(activity: VoiceCall.Activity, level: Float, bands: List<Double>, still: Boolean, child: @Composable () -> Unit) {
     val reduced = LocalReduceMotion.current
     val animates = !still && !reduced && activity != VoiceCall.Activity.Muted
     val elapsed = remember { mutableFloatStateOf(0f) }
@@ -182,10 +301,11 @@ private fun VoiceCallWave(activity: VoiceCall.Activity, level: Float, bands: Lis
     VoiceWaveView(
         rings = rings,
         size = WAVE_XL.dp,
-        childScale = frame?.childScale ?: 1f,
+        // S-3: the avatar disc keeps its size (the phone-call layout); the rings move around it.
+        childScale = 1f,
         modifier = Modifier.alpha(if (quiet) 0.35f else 1f),
     ) {
-        ExponentialMark(size = MARK_SIZE.dp)
+        child()
     }
 }
 
@@ -204,8 +324,8 @@ private fun voiceWaveFrame(activity: String, level: Double, bands: List<Double>,
             put("elapsed", elapsed)
             put("reducedMotion", reducedMotion)
             putJsonObject("child") {
-                put("width", MARK_SIZE)
-                put("height", MARK_SIZE)
+                put("width", AVATAR_SIZE.value)
+                put("height", AVATAR_SIZE.value)
             }
         }
         val out = Json.parseToJsonElement(voiceWaveJson(input.toString())).jsonObject
@@ -228,26 +348,9 @@ private fun voiceWaveFrame(activity: String, level: Double, bands: List<Double>,
             )
         }
         val childScale = (out["child"] as? JsonObject)?.num("scale")
-            ?: if (out.num("childSize") > 0f) minOf(1f, out.num("childSize") / MARK_SIZE) else 0f
+            ?: if (out.num("childSize") > 0f) minOf(1f, out.num("childSize") / AVATAR_SIZE.value) else 0f
         WaveFrame(rings, childScale)
     }.getOrNull()
-
-/** The full screen while a call runs: the app background, the card centred. */
-@Composable
-fun VoiceCallScreen(view: VoiceCall.View, level: Float, onEnd: () -> Unit, onMute: () -> Unit) {
-    AppBackground {
-        Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-            VoiceCallCard(
-                view = view,
-                level = level,
-                bands = emptyList(),
-                onEnd = onEnd,
-                onMute = onMute,
-                modifier = Modifier.widthIn(max = CARD_MAX_WIDTH).fillMaxWidth(),
-            )
-        }
-    }
-}
 
 @HiltViewModel
 class VoiceCallHostViewModel @Inject constructor(val controller: VoiceCallController) : ViewModel()
@@ -284,7 +387,29 @@ fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
             window.keepScreenOn = true
             onDispose { window.keepScreenOn = false }
         }
-        VoiceCallScreen(view = view, level = level, onEnd = controller::end, onMute = controller::toggleMute)
+        // The timer ticks once a second from the answer on.
+        val answeredAt = ui.answeredAt
+        val now by produceState(SystemClock.elapsedRealtime(), answeredAt) {
+            while (answeredAt != null) {
+                value = SystemClock.elapsedRealtime()
+                delay(1_000L - (value - answeredAt) % 1_000L)
+            }
+        }
+        AppBackground {
+            VoiceCallScreen(
+                agent = ui.agent,
+                agentIcon = ui.agentIcon,
+                agentColor = ui.agentColor,
+                view = view,
+                timer = answeredAt?.let { VoiceCall.callTimer(now - it) },
+                level = level,
+                bands = emptyList(),
+                onMute = controller::toggleMute,
+                onSpeaker = controller::toggleSpeaker,
+                onEnd = controller::end,
+                modifier = Modifier.fillMaxSize().systemBarsPadding(),
+            )
+        }
     }
 }
 
@@ -316,7 +441,6 @@ class AgentCallViewModel @Inject constructor(
                 VoiceCall.AvailabilityInput(
                     platform = VoiceCall.Platform.Phone,
                     device = device,
-                    speakReplies = s?.speakReplies == true,
                     online = row != null && DeviceLiveness.isOnline(row.lastSeenAt, now),
                     here = false,
                     speech = VoiceCall.callSpeech(parseDeviceDoctor(row?.doctor)),
@@ -337,16 +461,16 @@ class AgentCallViewModel @Inject constructor(
 
     fun hasMicPermission(): Boolean = controller.hasMicPermission()
 
-    fun start(agentId: String, agentName: String) {
-        controller.start(agentId, agentName, target.value.device.orEmpty())
+    fun start(agentId: String, agentName: String, agentIcon: String?, agentColor: String?) {
+        controller.start(agentId, agentName, target.value.device.orEmpty(), settings.value?.language, agentIcon, agentColor)
     }
 
     fun permissionDenied() {
-        controller.permissionDenied(target.value.device.orEmpty())
+        controller.permissionDenied(target.value.device.orEmpty(), settings.value?.language)
     }
 
     private companion object {
-        val OFF = VoiceCall.AvailabilityInput(VoiceCall.Platform.Phone, null, false, false, false, null, false)
+        val OFF = VoiceCall.AvailabilityInput(VoiceCall.Platform.Phone, null, false, false, null, false)
     }
 }
 
@@ -357,12 +481,18 @@ class AgentCallViewModel @Inject constructor(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgentCallButton(agentId: String?, agentName: String, viewModel: AgentCallViewModel = hiltViewModel()) {
+fun AgentCallButton(
+    agentId: String?,
+    agentName: String,
+    agentIcon: String? = null,
+    agentColor: String? = null,
+    viewModel: AgentCallViewModel = hiltViewModel(),
+) {
     LaunchedEffect(Unit) { viewModel.refresh() }
     val target by viewModel.target.collectAsStateWithLifecycle()
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (agentId == null) return@rememberLauncherForActivityResult
-        if (granted) viewModel.start(agentId, agentName) else viewModel.permissionDenied()
+        if (granted) viewModel.start(agentId, agentName, agentIcon, agentColor) else viewModel.permissionDenied()
     }
     val enabled = target.availability.enabled && agentId != null
     val button: @Composable () -> Unit = {
@@ -371,7 +501,7 @@ fun AgentCallButton(agentId: String?, agentName: String, viewModel: AgentCallVie
             VoiceCall.Copy.call(agentName),
             onClick = {
                 if (agentId == null) return@CircleIconButton
-                if (viewModel.hasMicPermission()) viewModel.start(agentId, agentName) else permission.launch(Manifest.permission.RECORD_AUDIO)
+                if (viewModel.hasMicPermission()) viewModel.start(agentId, agentName, agentIcon, agentColor) else permission.launch(Manifest.permission.RECORD_AUDIO)
             },
             enabled = enabled,
             size = 44.dp,
@@ -391,15 +521,18 @@ fun AgentCallButton(agentId: String?, agentName: String, viewModel: AgentCallVie
     }
 }
 
-/** The specimen card for one `surfaceSpecimens` row (the styleguide's static frame). */
+/** The phone-call screen for one `surfaceSpecimens` row (the styleguide's static frame). */
 @Composable
-fun VoiceCallSpecimenCard(specimen: VoiceCall.SurfaceSpecimen, modifier: Modifier = Modifier) {
-    VoiceCallCard(
+fun VoiceCallSpecimen(specimen: VoiceCall.SurfaceSpecimen, modifier: Modifier = Modifier) {
+    VoiceCallScreen(
+        agent = specimen.agent,
         view = specimen.view,
+        timer = specimen.timer,
         level = specimen.level.toFloat(),
         bands = specimen.bands,
-        onEnd = {},
         onMute = {},
+        onSpeaker = {},
+        onEnd = {},
         modifier = modifier,
         still = true,
     )

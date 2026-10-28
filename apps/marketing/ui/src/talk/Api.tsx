@@ -155,9 +155,7 @@ export default function Api({ path }: PageProps) {
             rows={[
               [<code key="f">voiceDeviceId</code>, `one of your desktops, or null`, `null`],
               [<code key="f">agentId</code>, `an agent of one of your teams, or null`, `null`],
-              [<code key="f">speakReplies</code>, `boolean`, `false`],
-              [<code key="f">pushToTalk</code>, `boolean`, `false`],
-              [<code key="f">pttShortcut</code>, <>a <a href="/talk/guides/push-to-talk/">shortcut</a></>, <code key="d">ctrl+space</code>],
+              [<code key="f">pttShortcut</code>, <>a <a href="/talk/guides/push-to-talk/">key binding</a> (empty = push to talk off)</>, `""`],
               [<code key="f">wakeWord</code>, `boolean, stored, not used yet`, `false`],
               [<code key="f">wakePhrase</code>, `one line, ≤ 64 chars (empty = Hey {agent})`, `""`],
               [<code key="f">language</code>, <><code>en</code> | <code>de</code></>, <code key="d">en</code>],
@@ -165,7 +163,7 @@ export default function Api({ path }: PageProps) {
               [<code key="f">voiceTranscript</code>, `one line, ≤ 500 chars`, `""`],
             ]}
           />
-          <p>Picking None as the device or agent turns Speak replies, Push to talk and Wake word off.</p>
+          <p>Replies to your voice are always spoken. Picking None as the device or agent turns Wake word off; a bound key stays bound.</p>
         </DocsSection>
 
         <DocsSection id="examples" num="08" label="Try it">

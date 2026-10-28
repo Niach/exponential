@@ -18,6 +18,8 @@ export * from "./ask-dock-specimen"
 export * from "./dock-card-specimen"
 // FEED-160: the web device-readiness specimen (the app's ?dev= capture).
 export * from "./device-readiness-specimen"
+// The keycap + S-3's push-to-talk binding as keycaps.
+export * from "./kbd"
 // EXP-1280: THE rich plan / question card's form parts + its specimen.
 export * from "./plan-card"
 export * from "./plan-card-specimen"
@@ -170,8 +172,11 @@ export * from "./user-avatar"
 export * from "./user-message-bubble"
 // NEW-77: the voice level (the Exponential UI VoiceWave native as a primitive).
 export * from "./voice-wave"
-// NEW-70: THE call card (the `voice-call` entry; web's centred call).
+// S-3: THE call surface (the `voice-call` entry; web's full-height call).
 export * from "./voice-call-card"
+// S-3: the round call buttons, their rows and the call pill (`call-controls`).
+export * from "./call-controls"
+export * from "./call-specimen"
 export * from "./wave-graph"
 export * from "./work-header"
 // EXP-1275: THE feedback states (Spinner, InlineStatus, useDelayedFlag,

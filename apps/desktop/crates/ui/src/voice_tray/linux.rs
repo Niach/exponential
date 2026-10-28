@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn clicks_route_enabled_rows_only() {
         let (menu, rx) = menu(vec![
-            TrayItem::Check { id: TrayItemId::SpeakReplies, label: "Speak replies".into(), checked: false, enabled: false },
+            TrayItem::Check { id: TrayItemId::WakeWord, label: "Wake word".into(), checked: false, enabled: false },
             TrayItem::Separator,
             TrayItem::Action { id: TrayItemId::Quit, label: "Quit".into(), enabled: true },
         ]);

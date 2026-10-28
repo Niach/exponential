@@ -219,6 +219,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "download" => ExpIcon::Download,
         "droplet" => ExpIcon::Droplet,
         "dumbbell" => ExpIcon::Dumbbell,
+        "ear" => ExpIcon::Ear,
         "ellipsis" => ExpIcon::Ellipsis,
         "ellipsis-vertical" => ExpIcon::EllipsisVertical,
         "external-link" => ExpIcon::ExternalLink,
@@ -297,6 +298,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "message-square-plus" => ExpIcon::MessageSquarePlus,
         "message-square-reply" => ExpIcon::MessageSquareReply,
         "mic" => ExpIcon::Mic,
+        "mic-off" => ExpIcon::MicOff,
         "microscope" => ExpIcon::Microscope,
         "minimize-2" => ExpIcon::Minimize2,
         "minus" => ExpIcon::Minus,
@@ -320,6 +322,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "pen-tool" => ExpIcon::PenTool,
         "pencil" => ExpIcon::Pencil,
         "phone" => ExpIcon::Phone,
+        "phone-off" => ExpIcon::PhoneOff,
         "pin" => ExpIcon::Pin,
         "pin-off" => ExpIcon::PinOff,
         "plane" => ExpIcon::Plane,
@@ -425,6 +428,16 @@ pub const ACTION_SUGGESTION: ExpIcon = ExpIcon::Lightbulb;
 pub const APP_EDITOR_CHAT: ExpIcon = ExpIcon::MessageSquare;
 /// Registry concept `auth-passkey` -> Lucide `fingerprint`.
 pub const AUTH_PASSKEY: ExpIcon = ExpIcon::Fingerprint;
+/// Registry concept `call-end` -> Lucide `phone-off`.
+pub const CALL_END: ExpIcon = ExpIcon::PhoneOff;
+/// Registry concept `call-mute` -> Lucide `mic`.
+pub const CALL_MUTE: ExpIcon = ExpIcon::Mic;
+/// Registry concept `call-speaker` -> Lucide `volume-2`.
+pub const CALL_SPEAKER: ExpIcon = ExpIcon::Volume2;
+/// Registry concept `call-speaker-off` -> Lucide `ear`.
+pub const CALL_SPEAKER_OFF: ExpIcon = ExpIcon::Ear;
+/// Registry concept `call-unmute` -> Lucide `mic-off`.
+pub const CALL_UNMUTE: ExpIcon = ExpIcon::MicOff;
 /// Registry concept `coding-assistant` -> Lucide `sparkles`.
 pub const CODING_ASSISTANT: ExpIcon = ExpIcon::Sparkles;
 /// Registry concept `coding-command` -> Lucide `square-slash`.
@@ -989,6 +1002,11 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "action-suggestion" => ACTION_SUGGESTION,
         "app-editor-chat" => APP_EDITOR_CHAT,
         "auth-passkey" => AUTH_PASSKEY,
+        "call-end" => CALL_END,
+        "call-mute" => CALL_MUTE,
+        "call-speaker" => CALL_SPEAKER,
+        "call-speaker-off" => CALL_SPEAKER_OFF,
+        "call-unmute" => CALL_UNMUTE,
         "coding-assistant" => CODING_ASSISTANT,
         "coding-command" => CODING_COMMAND,
         "coding-compact" => CODING_COMPACT,

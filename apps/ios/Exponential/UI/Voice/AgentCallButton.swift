@@ -10,6 +10,9 @@ import SwiftUI
 struct AgentCallButton: View {
     let agentId: String
     let agentName: String
+    /// The agent's own icon (nil = the Exponential logo) and colour.
+    var agentIcon: String? = nil
+    var agentColor: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -23,7 +26,9 @@ struct AgentCallButton: View {
             VoiceCallClient.shared.start(
                 accountId: accountId,
                 agentId: agentId,
+                callee: VoiceCallCallee(name: agentName, icon: agentIcon, color: agentColor),
                 device: model.device?.label ?? "",
+                language: model.settings?.language,
                 voiceApi: deps.voiceApi
             )
         } label: {
@@ -68,7 +73,6 @@ final class AgentCallAvailability {
         return VoiceCall.callAvailability(VoiceCall.AvailabilityInput(
             platform: .phone,
             device: device?.label,
-            speakReplies: settings?.speakReplies ?? Voice.defaults.speakReplies,
             online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: now),
             here: false,
             speech: VoiceCall.callSpeech(ofJSON: device?.doctor),

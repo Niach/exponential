@@ -415,7 +415,7 @@ fun ThreadScreen(
                 menu = chatMenu,
                 menuGroups = listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
-                headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name) } },
+                headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name, agentIcon = a.icon, agentColor = a.color) } },
                 onSurfaceReply = { text -> viewModel.send(text) },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {

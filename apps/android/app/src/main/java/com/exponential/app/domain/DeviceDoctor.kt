@@ -184,6 +184,7 @@ object DeviceReadiness {
         "accessibility" to "Accessibility",
         "microphone" to "Microphone",
         "speech" to "Speech",
+        "wake" to "Wake word",
         "disk" to "Disk",
     )
 

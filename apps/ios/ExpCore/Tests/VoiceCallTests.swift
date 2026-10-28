@@ -31,22 +31,30 @@ final class VoiceCallTests: XCTestCase {
         var copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
         let reasons = try XCTUnwrap(copy.removeValue(forKey: "reasons") as? [String: String])
         let failed = try XCTUnwrap(copy.removeValue(forKey: "failed") as? [String: String])
+        let greeting = try XCTUnwrap(copy.removeValue(forKey: "greeting") as? [String: String])
         XCTAssertEqual(copy as? [String: String], [
             "call": VoiceCall.Copy.call,
-            "connecting": VoiceCall.Copy.connecting,
+            "calling": VoiceCall.Copy.calling,
+            "gettingReady": VoiceCall.Copy.gettingReady,
+            "noSound": VoiceCall.Copy.noSound,
             "listening": VoiceCall.Copy.listening,
             "thinking": VoiceCall.Copy.thinking,
             "speaking": VoiceCall.Copy.speaking,
             "muted": VoiceCall.Copy.muted,
-            "mutedLine": VoiceCall.Copy.mutedLine,
             "mute": VoiceCall.Copy.mute,
             "unmute": VoiceCall.Copy.unmute,
+            "speaker": VoiceCall.Copy.speaker,
+            "speakerOff": VoiceCall.Copy.speakerOff,
             "endCall": VoiceCall.Copy.endCall,
+            "cancel": VoiceCall.Copy.cancel,
             "queued": VoiceCall.Copy.queued,
         ])
+        XCTAssertEqual(greeting, VoiceCall.Copy.greeting)
+        XCTAssertEqual(VoiceCall.callGreeting("de"), "Hallo?")
+        XCTAssertEqual(VoiceCall.callGreeting("fr"), "Hello?")
+        XCTAssertEqual(VoiceCall.callGreeting(nil), "Hello?")
         XCTAssertEqual(reasons, [
             "noVoiceDevice": VoiceCall.Copy.Reasons.noVoiceDevice,
-            "speakOff": VoiceCall.Copy.Reasons.speakOff,
             "offline": VoiceCall.Copy.Reasons.offline,
             "notHere": VoiceCall.Copy.Reasons.notHere,
             "preparing": VoiceCall.Copy.Reasons.preparing,
@@ -65,9 +73,29 @@ final class VoiceCallTests: XCTestCase {
             "surface": VoiceCall.TestIds.surface,
             "mute": VoiceCall.TestIds.mute,
             "end": VoiceCall.TestIds.end,
+            "speaker": VoiceCall.TestIds.speaker,
+            "panel": VoiceCall.TestIds.panel,
+            "pill": VoiceCall.TestIds.pill,
+            "timer": VoiceCall.TestIds.timer,
         ])
-        XCTAssertEqual(try XCTUnwrap(fixture["icons"] as? [String: String]), ["call": VoiceCall.Icons.call])
-        XCTAssertEqual(try XCTUnwrap(fixture["constants"] as? [String: Int]), [
+        XCTAssertEqual(try XCTUnwrap(fixture["icons"] as? [String: String]), [
+            "call": VoiceCall.Icons.call,
+            "mute": VoiceCall.Icons.mute,
+            "unmute": VoiceCall.Icons.unmute,
+            "speaker": VoiceCall.Icons.speaker,
+            "speakerOff": VoiceCall.Icons.speakerOff,
+            "end": VoiceCall.Icons.end,
+        ])
+        XCTAssertEqual(try XCTUnwrap(fixture["pill"] as? [String: Int]), [
+            "width": VoiceCall.Pill.width,
+            "height": VoiceCall.Pill.height,
+            "marginPx": VoiceCall.Pill.marginPx,
+        ])
+        var constants = try XCTUnwrap(fixture["constants"] as? [String: NSNumber])
+        XCTAssertEqual(constants.removeValue(forKey: "noSoundLevel")?.doubleValue, VoiceCall.Constants.noSoundLevel)
+        XCTAssertEqual(constants.mapValues(\.intValue), [
+            "ringMs": VoiceCall.Constants.ringMs,
+            "maxRingMs": VoiceCall.Constants.maxRingMs,
             "ringTimeoutMs": VoiceCall.Constants.ringTimeoutMs,
             "minSilenceMs": VoiceCall.Constants.minSilenceMs,
             "bargeInMs": VoiceCall.Constants.bargeInMs,
@@ -103,12 +131,12 @@ final class VoiceCallTests: XCTestCase {
     func testSurfaceSpecimensMatchTheFixture() throws {
         let rows = try cases("surfaceSpecimens").map { row in
             VoiceCall.Specimen(
-                activity: try XCTUnwrap(VoiceCall.Activity(rawValue: row["activity"] as? String ?? "")),
+                name: row["name"] as? String ?? "",
+                agent: row["agent"] as? String ?? "",
+                timer: row["timer"] as? String,
                 level: (row["level"] as? NSNumber)?.doubleValue ?? -1,
                 bands: (row["bands"] as? [NSNumber])?.map(\.doubleValue) ?? [-1],
-                state: row["state"] as? String ?? "",
-                line: row["line"] as? String ?? "",
-                mute: row["mute"] as? String ?? ""
+                view: try Self.view(row)
             )
         }
         XCTAssertEqual(rows, VoiceCall.surfaceSpecimens)
@@ -123,7 +151,6 @@ final class VoiceCallTests: XCTestCase {
             let availability = VoiceCall.callAvailability(VoiceCall.AvailabilityInput(
                 platform: try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
                 device: input["device"] as? String,
-                speakReplies: input["speakReplies"] as? Bool ?? false,
                 online: input["online"] as? Bool ?? false,
                 here: input["here"] as? Bool ?? false,
                 speech: try speech.map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) },
@@ -144,19 +171,35 @@ final class VoiceCallTests: XCTestCase {
                 try XCTUnwrap(VoiceCall.Event(json: $0), "\(name): \($0)")
             }
             let state = events.reduce(VoiceCall.idle, VoiceCall.callStep)
-            let view = VoiceCall.callView(state)
-            if let expected = row["view"] as? [String: String] {
-                XCTAssertEqual(view, VoiceCall.View(
-                    activity: try XCTUnwrap(VoiceCall.Activity(rawValue: expected["activity"] ?? ""), name),
-                    state: expected["state"] ?? "",
-                    line: expected["line"] ?? "",
-                    mute: expected["mute"] ?? ""
-                ), name)
+            let platform = try XCTUnwrap(VoiceCall.Platform(rawValue: row["platform"] as? String ?? ""), name)
+            let view = VoiceCall.callView(state, platform: platform)
+            if let expected = row["view"] as? [String: Any] {
+                XCTAssertEqual(view, try Self.view(expected), name)
             } else {
                 XCTAssertNil(view, name)
             }
             XCTAssertEqual(state.toast, row["toast"] as? String, name)
         }
+    }
+
+    func testTimerCases() throws {
+        for row in try cases("timerCases") {
+            let ms = try XCTUnwrap(row["ms"] as? Int)
+            XCTAssertEqual(VoiceCall.callTimer(ms: ms), row["text"] as? String, "\(ms)")
+        }
+    }
+
+    /// A fixture `view` object (a `flowCases` view or a specimen row).
+    private static func view(_ json: [String: Any]) throws -> VoiceCall.View {
+        VoiceCall.View(
+            activity: try XCTUnwrap(VoiceCall.Activity(rawValue: json["activity"] as? String ?? "")),
+            status: json["status"] as? String,
+            caption: try XCTUnwrap(json["caption"] as? String),
+            muted: try XCTUnwrap(json["muted"] as? Bool),
+            speaker: try XCTUnwrap(json["speaker"] as? Bool),
+            buttons: try XCTUnwrap(json["buttons"] as? [String]).map { try XCTUnwrap(VoiceCall.Button(rawValue: $0)) },
+            end: try XCTUnwrap(json["end"] as? String)
+        )
     }
 
     /// An unknown failure code (the relay's `no_such_call`) reads as
@@ -172,7 +215,7 @@ final class VoiceCallTests: XCTestCase {
     /// end a running call with their `copy.failed` toast.
     func testRelayEndsToast() {
         func ended(_ last: VoiceCall.Event) -> VoiceCall.State {
-            [VoiceCall.Event.start(device: "mint"), .connected, last].reduce(VoiceCall.idle, VoiceCall.callStep)
+            [VoiceCall.Event.start(device: "mint"), .rang, .ready, .replyFinished, last].reduce(VoiceCall.idle, VoiceCall.callStep)
         }
         XCTAssertEqual(ended(.failed(code: "busy")).toast, "mint is in another call")
         // hangUpRules: ANY reason (one this build doesn't know too) drops.
@@ -252,7 +295,7 @@ final class VoiceCallTests: XCTestCase {
         let perFrame = VoiceCall.Uplink.frameSamples
         let check = min(idle, 5_000)
         for sends in [true, false] {
-            var state = [VoiceCall.Event.start(device: "mint"), .connected, .mute].reduce(VoiceCall.idle, VoiceCall.callStep)
+            var state = [VoiceCall.Event.start(device: "mint"), .rang, .ready, .replyFinished, .mute].reduce(VoiceCall.idle, VoiceCall.callStep)
             var uplink = VoiceCall.Uplink()
             uplink.setMuted(state.muted)
             var lastFrameAt = 0
@@ -283,6 +326,10 @@ final class VoiceCallTests: XCTestCase {
     }
 
     func testHostEvents() {
+        XCTAssertTrue(VoiceCall.Event(json: ["t": "rang"])?.isHostEvent == true)
+        XCTAssertTrue(VoiceCall.Event(json: ["t": "ready"])?.isHostEvent == true)
+        XCTAssertTrue(VoiceCall.Event(json: ["t": "noSound"])?.isHostEvent == true)
+        XCTAssertNil(VoiceCall.Event(json: ["t": "connected"]))
         XCTAssertTrue(VoiceCall.Event(json: ["t": "speechStarted"])?.isHostEvent == true)
         XCTAssertTrue(VoiceCall.Event(json: ["t": "queued", "count": 2, "text": "x"])?.isHostEvent == true)
         XCTAssertFalse(VoiceCall.Event(json: ["t": "end"])?.isHostEvent == true)

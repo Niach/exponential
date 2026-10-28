@@ -23,6 +23,11 @@ import Foundation
 // the tap and the resampler from the route's new input format; a call's end
 // puts the session's category back (no voice-chat routing for later media);
 // a late `wasSuspended` interruption never drops the call.
+//
+// S-3: the session opens at the call's START (`CallAudioSession.enter`), so
+// the caller's ring tone (`CallRingTone`) plays on the call's route; the
+// speaker button overrides the output port (loudspeaker vs earpiece; a
+// headset or AirPods always win), re-applied on every route change.
 
 enum VoiceCallAudioError: Error {
     /// No input route (voice-call.json `failed.no_microphone`).
@@ -59,8 +64,6 @@ final class VoiceCallAudio: @unchecked Sendable {
     private var resampler: AVAudioConverter?
     /// The input format the tap and `resampler` were built for.
     private var captureFormat: VoiceCall.AudioSessionRules.InputFormat?
-    /// The session's category before the call, put back by `stopOnQueue`.
-    private var previousCategory: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
     private var encoder: AVAudioConverter?
     private var decoder: AVAudioConverter?
 
@@ -130,13 +133,8 @@ final class VoiceCallAudio: @unchecked Sendable {
     private func startOnQueue() throws {
         guard !running else { return }
         let session = AVAudioSession.sharedInstance()
-        if session.category != .playAndRecord || session.mode != .voiceChat {
-            previousCategory = (session.category, session.mode, session.categoryOptions)
-        }
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try? session.setPreferredIOBufferDuration(Double(VoiceCall.Constants.frameMs) / 1000)
-            try session.setActive(true)
+            try CallAudioSession.enter()
         } catch {
             throw VoiceCallAudioError.failed
         }
@@ -229,14 +227,7 @@ final class VoiceCallAudio: @unchecked Sendable {
         scheduled = 0
         prebuffering = true
         playGeneration += 1
-        let session = AVAudioSession.sharedInstance()
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
-        // Media played after the call must not keep voice-chat routing (nor
-        // the `audio` background mode's keep-alive): the category before
-        // the call, else the system default.
-        let (category, mode, options) = previousCategory ?? (.soloAmbient, .default, [])
-        try? session.setCategory(category, mode: mode, options: options)
-        previousCategory = nil
+        CallAudioSession.leave()
     }
 
     /// An interruption that began now (a phone call, Siri) drops the call;
@@ -254,6 +245,11 @@ final class VoiceCallAudio: @unchecked Sendable {
             guard VoiceCall.AudioSessionRules.interruptionDropsCall(began: began, wasSuspended: wasSuspended) else { return }
             guard let self else { return }
             self.queue.async { self.failOnQueue() }
+        })
+        observers.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
+        ) { _ in
+            CallAudioSession.applySpeaker()
         })
         observers.append(center.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
@@ -469,4 +465,122 @@ private final class OnceInput: @unchecked Sendable {
         status.pointee = .haveData
         return buffer
     }
+}
+
+/// S-3: the call's ONE audio session, from the ring to the end. `enter`
+/// remembers the category before the call (once) and opens voice chat;
+/// `leave` puts that category back (media played after the call must not
+/// keep voice-chat routing, nor the `audio` background mode's keep-alive).
+/// Both are idempotent and thread-safe (the main actor rings, the audio
+/// queue runs the engine).
+enum CallAudioSession {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var previous: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
+    nonisolated(unsafe) private static var entered = false
+    /// The speaker button (voice-call.json `speaker`, default on).
+    nonisolated(unsafe) private static var speaker = true
+
+    static func enter() throws {
+        try lock.withLock {
+            let session = AVAudioSession.sharedInstance()
+            if !entered {
+                previous = (session.category, session.mode, session.categoryOptions)
+                entered = true
+            }
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+            try? session.setPreferredIOBufferDuration(Double(VoiceCall.Constants.frameMs) / 1000)
+            try session.setActive(true)
+            applySpeakerLocked()
+        }
+    }
+
+    static func leave() {
+        lock.withLock {
+            guard entered else { return }
+            entered = false
+            speaker = true
+            let session = AVAudioSession.sharedInstance()
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            let (category, mode, options) = previous ?? (.soloAmbient, .default, [])
+            try? session.setCategory(category, mode: mode, options: options)
+            previous = nil
+        }
+    }
+
+    /// The loudspeaker (on) or the earpiece (off); a headset keeps its route.
+    static func setSpeaker(_ on: Bool) {
+        lock.withLock {
+            speaker = on
+            if entered { applySpeakerLocked() }
+        }
+    }
+
+    /// Re-applies the speaker after a route change (the override resets).
+    static func applySpeaker() {
+        lock.withLock {
+            if entered { applySpeakerLocked() }
+        }
+    }
+
+    private static func applySpeakerLocked() {
+        let session = AVAudioSession.sharedInstance()
+        let builtIn = session.currentRoute.outputs.allSatisfy {
+            $0.portType == .builtInReceiver || $0.portType == .builtInSpeaker
+        }
+        try? session.overrideOutputAudioPort(builtIn && speaker ? .speaker : .none)
+    }
+}
+
+/// S-3: the caller's ring tone (voice-call.json: plays on the CALLING
+/// client while the call rings): a generated two-tone burst, then silence,
+/// looped until the call is answered or ends.
+@MainActor
+final class CallRingTone {
+    private var player: AVAudioPlayer?
+
+    func start() {
+        guard player == nil else { return }
+        do {
+            try CallAudioSession.enter()
+            let player = try AVAudioPlayer(data: Self.wav)
+            player.numberOfLoops = -1
+            player.volume = 0.6
+            player.play()
+            self.player = player
+        } catch {
+            // No tone is no failure: the call still rings on screen.
+        }
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+    }
+
+    /// One ring period (`ringMs` / 2): 0.4 s on, 0.2 s off, 0.4 s on, the
+    /// rest silent; 440 + 480 Hz, 16-bit mono WAV.
+    private static let wav: Data = {
+        let rate = 16_000
+        let period = rate * VoiceCall.Constants.ringMs / 2 / 1000
+        var samples = [Int16](repeating: 0, count: period)
+        for (from, to) in [(0.0, 0.4), (0.6, 1.0)] {
+            let start = Int(from * Double(rate)), end = min(period, Int(to * Double(rate)))
+            for i in start..<end {
+                let t = Double(i) / Double(rate)
+                // A 10 ms fade at both ends, no clicks.
+                let edge = min(1, min(Double(i - start), Double(end - i)) / (0.01 * Double(rate)))
+                let value = (sin(2 * .pi * 440 * t) + sin(2 * .pi * 480 * t)) / 2 * edge
+                samples[i] = Int16(value * 0.5 * Double(Int16.max))
+            }
+        }
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        let bytes = samples.count * 2
+        data.append(contentsOf: Array("RIFF".utf8)); append(UInt32(36 + bytes))
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); append(UInt32(16)); append(UInt16(1)); append(UInt16(1))
+        append(UInt32(rate)); append(UInt32(rate * 2)); append(UInt16(2)); append(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); append(UInt32(bytes))
+        for sample in samples { append(sample) }
+        return data
+    }()
 }

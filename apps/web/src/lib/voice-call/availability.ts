@@ -23,7 +23,8 @@ export function callSpeechOf(doctor: DeviceDoctor | null | undefined): CallSpeec
 
 export interface CallSettingsLike {
   voiceDeviceId: string | null
-  speakReplies: boolean
+  /** The member's voice language (the call's greeting). */
+  language?: string
   /** #NEW-57: a meeting runs on the voice device (the telephone is off). */
   meetingStartedAt?: string | null
 }
@@ -47,7 +48,6 @@ export function webCallInput(
   return {
     platform: `web`,
     device: row ? row.label : null,
-    speakReplies: settings?.speakReplies ?? false,
     online: row ? deviceRowIsOnline(row.lastSeenAt, now) : false,
     here: false,
     speech: row ? callSpeechOf(row.doctor) : null,

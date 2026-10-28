@@ -13,11 +13,13 @@ private let logger = Logger(subsystem: "at.exponential", category: "voice-call")
 /// outlives the chat that started it (the first utterance can open the
 /// conversation, which swaps the agent's page underneath).
 ///
-/// The flow: microphone permission → `start(device)` (Connecting) →
-/// `voice.startCall({agentId, platform: phone})` → dial the answered `url`
-/// as-is → `call_ready` = connected + capture → the host's `call_event`s
-/// fold into `VoiceCall.callStep` → End call / `call_end` (`hungUp`) / an
-/// error ends it (a failure with a toast). A call keeps running with the
+/// The flow (S-3): `start(device, language)` RINGS (a local ring tone) →
+/// microphone permission → `voice.startCall({agentId, platform: phone})` →
+/// dial the answered `url` as-is → `call_ready` starts the capture (the
+/// host warms up on our stream) → the host's `call_event`s (rang, ready,
+/// noSound, then the turns) fold into `VoiceCall.callStep`; rang + ready
+/// answer the call (the ring stops, the timer starts) → End call /
+/// `call_end` (`hungUp`) / an error ends it (a failure with a toast). A call keeps running with the
 /// screen locked or the app in the background (the `audio` background mode);
 /// while one runs the screen never dims on its own.
 @MainActor
@@ -30,25 +32,37 @@ final class VoiceCallClient {
     /// speaking.
     private(set) var level: Double = 0
 
+    /// Who is called (the screen's avatar and name).
+    private(set) var callee = VoiceCallCallee(name: "")
+    /// When the call was answered (the timer's zero); nil while ringing.
+    private(set) var answeredAt: Date?
+
     /// What the call surface shows; nil = no call.
-    var view: VoiceCall.View? { VoiceCall.callView(state) }
+    var view: VoiceCall.View? { VoiceCall.callView(state, platform: .phone) }
 
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var startTask: Task<Void, Never>?
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var audio: VoiceCallAudio?
     @ObservationIgnored private let toaster = Toaster.shared
+    @ObservationIgnored private let ring = CallRingTone()
 
     private init() {}
 
     // MARK: - Commands
 
     /// Calls `agentId` on the member's voice device (named `device`).
-    func start(accountId: String, agentId: String, device: String, voiceApi: VoiceApi) {
+    func start(
+        accountId: String, agentId: String, callee: VoiceCallCallee, device: String, language: String?,
+        voiceApi: VoiceApi
+    ) {
         guard state.phase == .hidden else { return }
+        self.callee = callee
         generation += 1
         let generation = generation
-        step(.start(device: device))
+        step(.start(device: device, language: language))
+        CallAudioSession.setSpeaker(state.speaker)
+        ring.start()
         startTask = Task { [weak self] in
             let granted = await AVAudioApplication.requestRecordPermission()
             guard let self, generation == self.generation else { return }
@@ -98,6 +112,14 @@ final class VoiceCallClient {
         step(muted ? .mute : .unmute)
         audio?.setMuted(muted)
         socket?.send(.string(#"{"t":"call_mute","muted":\#(muted)}"#)) { _ in }
+    }
+
+    /// Speaker / Speaker off: the loudspeaker vs the earpiece (device-local,
+    /// the host never hears of it).
+    func toggleSpeaker() {
+        guard state.phase != .hidden else { return }
+        step(.speaker(on: !state.speaker))
+        CallAudioSession.setSpeaker(state.speaker)
     }
 
     // MARK: - Socket
@@ -170,7 +192,8 @@ final class VoiceCallClient {
         else { return }
         switch frame["t"] as? String {
         case "call_ready":
-            step(.connected)
+            // The pair is up: the flow keeps ringing until the host's rang +
+            // ready; our stream is what the host warms up on.
             guard let audio else { return }
             let generation = generation
             Task { [weak self] in
@@ -211,6 +234,11 @@ final class VoiceCallClient {
         let before = state.phase
         state = VoiceCall.callStep(state, event)
         if state.phase != before { level = 0 }
+        if before == .ringing, state.phase != .ringing {
+            ring.stop()
+            answeredAt = state.phase == .hidden ? nil : Date()
+        }
+        if state.phase == .hidden { answeredAt = nil }
         UIApplication.shared.isIdleTimerDisabled = state.phase != .hidden
     }
 
@@ -228,7 +256,12 @@ final class VoiceCallClient {
         generation += 1
         startTask?.cancel()
         startTask = nil
-        audio?.stop()
+        ring.stop()
+        if let audio {
+            audio.stop()
+        } else {
+            CallAudioSession.leave()
+        }
         audio = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil

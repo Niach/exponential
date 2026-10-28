@@ -67,7 +67,7 @@ const ROW: CSSProperties = { display: `flex`, flexWrap: `wrap`, alignItems: `cen
 const COLUMN: CSSProperties = { display: `flex`, flexDirection: `column`, gap: 12 }
 const VARIANTS = [`default`, `destructive`, `outline`, `glass`, `secondary`, `ghost`, `link`, `text`] as const
 const TEXT_SIZES = [`default`, `xs`, `sm`, `lg`, `inline`] as const
-const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`] as const
+const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`, `icon-lg`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
 const SOURCE = `import { tokenizeCode } from "@exponential_app/ui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}

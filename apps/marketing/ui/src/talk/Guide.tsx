@@ -1,6 +1,6 @@
 /* NEW-15: /talk/guides/<slug>/, both Talk guides by the path's slug. Facts:
    crates/talk (custom_voice_file), crates/voice/src/builtin.rs,
-   fixtures/voice.json (shortcuts, shortcutSupportCases, pttCopy). */
+   fixtures/voice.json (shortcutGrammar, shortcutSupportCases, pttCopy). */
 import type { ReactNode } from "react"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocShot } from "../../../src/components/DocShot"
@@ -129,16 +129,16 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       label: `The shortcuts`,
       body: (
         <>
-          <p>Pick one in Settings → Voice, under On {`{device}`} (tray). Mouse buttons are hidden on macOS and Wayland.</p>
+          <p>
+            Record one in Settings → Voice on the voice device, under On {`{device}`} (tray): click the row and press the key or
+            combination. A letter, digit or most other keys need Ctrl, Alt, Shift or Super with them; these may stand alone:
+          </p>
           <DocsTable
-            head={[`Shortcut`, ``]}
+            head={[`Binding`, ``]}
             rows={[
-              [`Ctrl + Space`, `the default`],
-              [`Alt + Space`, ``],
-              [`Ctrl + Shift + Space`, ``],
-              [`F13`, ``],
-              [`Mouse button 4`, `Windows, X11`],
-              [`Mouse button 5`, `Windows, X11`],
+              [`F1 … F24`, ``],
+              [`Insert, Pause, Scroll Lock, Print Screen`, ``],
+              [`Mouse button 3 … 9`, `Windows, X11`],
             ]}
           />
         </>

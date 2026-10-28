@@ -11,10 +11,17 @@
 // only a reason-less `call_end` (the host hung up) ends it silently. A
 // browser without WebCodecs Opus toasts `unsupported` before the microphone
 // opens and never dials (Opus only: the host decodes nothing else).
+//
+// S-3: a call RINGS first. The caller plays its own ring tone for `ringMs`
+// (the voice device rings nothing for a remote call) while the host warms
+// up; the host's `call_event`s `rang` + `ready` answer it (`call_ready` only
+// opens the pair: the microphone's frames start flowing then), its
+// `noSound` is the mic check.
 
 import {
   CALL_IDLE,
   callStep,
+  VOICE_CALL_CONSTANTS,
   VOICE_CALL_COPY,
   type CallEvent,
   type CallState,
@@ -39,6 +46,8 @@ export interface CallDeps {
   startCall(agentId: string): Promise<{ url: string }>
   openSocket(url: string): CallSocket
   openAudio(): Promise<CallAudio>
+  /** S-3: play the ring tone for `ms`; answers a stop (none = silent). */
+  ring?(ms: number): () => void
 }
 
 /** What a call shows (the microphone's level is its own store, read only
@@ -74,6 +83,7 @@ export class VoiceCall {
   private seq = 0
   private lastDown: number | null = null
   private generation = 0
+  private stopRing: (() => void) | null = null
   /** A failure's toast: the fixture's (`failed`), or a refusal the server
    *  worded itself (an availability reason). */
   onToast: ((message: string) => void) | null = null
@@ -109,14 +119,23 @@ export class VoiceCall {
     this.snapshot = { state }
     for (const listener of this.listeners) listener()
     if (state.phase === `hidden` || state.muted) this.setLevel(0)
+    if (state.phase !== `ringing`) this.silenceRing()
     if (state.toast) this.onToast?.(state.toast)
   }
 
-  /** Dial `agentId` on the voice device called `device`. */
-  async start(agentId: string, device: string): Promise<void> {
+  private silenceRing() {
+    const stop = this.stopRing
+    this.stopRing = null
+    stop?.()
+  }
+
+  /** Dial `agentId` on the voice device called `device`; `language` = the
+   *  member's voice language (the greeting the caption shows). */
+  async start(agentId: string, device: string, language?: string): Promise<void> {
     if (this.active) return
     const generation = ++this.generation
-    this.step({ t: `start`, device })
+    this.step({ t: `start`, device, language })
+    this.stopRing = this.deps.ring?.(VOICE_CALL_CONSTANTS.ringMs) ?? null
     let audio: CallAudio
     try {
       audio = await this.deps.openAudio()
@@ -183,7 +202,7 @@ export class VoiceCall {
       case `call_ready`:
         this.ready = true
         if (this.snapshot.state.muted) this.sendControl({ t: `call_mute`, muted: true })
-        return this.step({ t: `connected` })
+        return
       case `call_event`: {
         const event = hostCallEvent(frame.event)
         if (!event) return
@@ -239,6 +258,7 @@ export class VoiceCall {
         socket.close(1000, `call_end`)
       } catch {}
     }
+    this.silenceRing()
     this.audio?.close()
     this.audio = null
     this.ready = false

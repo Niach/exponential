@@ -134,6 +134,6 @@ class MeetingTest {
         )
         // Choosing None stops the meeting.
         assertEquals(null, Voice.clearOnNone(row, Voice.Change(agentId = Voice.Pick(null))).meetingStartedAt)
-        assertEquals(row.meetingStartedAt, Voice.clearOnNone(row, Voice.Change(speakReplies = true)).meetingStartedAt)
+        assertEquals(row.meetingStartedAt, Voice.clearOnNone(row, Voice.Change(wakeWord = true)).meetingStartedAt)
     }
 }

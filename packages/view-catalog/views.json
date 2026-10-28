@@ -1504,7 +1504,7 @@
       "web": {
         "route": "/t/$teamSlug/settings/assistant",
         "anchor": {
-          "text": "Speak replies",
+          "text": "Push to talk",
           "timeoutMs": 20000
         },
         "settleMs": 800
@@ -5925,6 +5925,15 @@
       "title": "Voice call",
       "blurb": "THE in-call view (NEW-69, voice-call.json): full screen on the phones, a glass card holding VoiceWave (xl) with the brand mark, the state, the line, End call primary + Mute. Opens from the telephone in the agent chat's header; the call streams to the member's voice device.",
       "order": 44,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=voice-call",
+        "anchor": {
+          "testId": "voice-call-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_voice-call",
         "lane": "styleguide"
@@ -5941,11 +5950,79 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `voice-call`); the web call lands with V6 (#NEW-70).",
+        "web": "The DEV-ONLY `?dev=voice-call` on the Agent route (never parsed in a production build): `@exp/ui` `VoiceCallSpecimen` as web draws it (no speaker button): ringing, in call speaking, muted. A live call is the same `VoiceCallSurface`, a full-height overlay over the agent chat.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_voice-call: the four `surfaceSpecimens` on the live in-call card.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call`: the IDE styleguide twin drawn full-window (a call itself rides the voice capsule).",
-        "web-mobile": "See web."
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call`: the IDE styleguide twin drawn full-window (S-3: the in-window call panel for each `surfaceSpecimens` row).",
+        "web-mobile": "Inherits web: the phone frame shows the first surface (ringing)."
+      }
+    },
+    {
+      "id": "call-controls",
+      "group": "coding",
+      "title": "Call controls",
+      "blurb": "THE round icon-only call buttons (S-3, voice-call.json PHONE-CALL UI, eUI `CallButton`): mute (toggled = the inverted fill), speaker (phones), the red end (Cancel under it while ringing) at 56 px, and the compact row of the desktop's floating call pill.",
+      "order": 49,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=call-controls",
+        "anchor": {
+          "testId": "call-controls-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_call-controls",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_call-controls",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:call-controls"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=call-controls`: `@exp/ui` `CallControlsSpecimen` (the styleguide entry's specimen): every tone, the rows, the compact row.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_call-controls.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:call-controls`: the IDE styleguide twin drawn full-window (every `surfaceSpecimens` button set, then the floating pill row).",
+        "web-mobile": "Inherits web."
+      }
+    },
+    {
+      "id": "voice-call-overlay",
+      "group": "coding",
+      "title": "Voice overlay",
+      "blurb": "THE voice overlay (NEW-77): the push-to-talk capsule's four states (voice.json `overlaySpecimens`), then S-3's floating call pill (fixed `pill.width` × `pill.height`: drag handle, avatar, name over timer, VoiceWave sm, mute, red end) for each `surfaceSpecimens` row.",
+      "order": 50,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=voice-call-overlay",
+        "anchor": {
+          "testId": "voice-call-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:voice-call-overlay"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=voice-call-overlay`: `@exp/ui` `VoiceCallPillSpecimen`, the call pill for each `surfaceSpecimens` row (web itself never shows a pill; the push-to-talk capsules are the IDE's own).",
+        "ios": "The ExpUI specimen of `voice-call-overlay` lands with the iOS call UI (S-3); until then the desktop twin is the picture.",
+        "android": "See ios.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call-overlay`: the IDE styleguide twin drawn full-window (the capsules, then the call pills).",
+        "web-mobile": "Inherits web."
       }
     },
     {

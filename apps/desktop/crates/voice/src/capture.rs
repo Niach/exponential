@@ -10,6 +10,11 @@
 //! thread (which runs the VAD and the transcriber in turn) over a BOUNDED
 //! channel of [`CAPACITY`] chunks; a stalled consumer drops the newest audio
 //! ([`offer`]) instead of growing memory.
+//!
+//! S-3 ("it does not detect my speech"): every open logs the device it
+//! opened: Linux the recorder and the sound server's default source (its
+//! name, mute and volume, resolved off the open's path), cpal the device's
+//! name and config.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
@@ -227,12 +232,52 @@ mod platform {
                         let _ = child.wait();
                         return Err((ListenFailure::NoMicrophone, err.to_string()));
                     }
+                    describe_default_source(program);
                     return Ok((rx, Closer(child)));
                 }
                 Err(err) => errors.push(format!("{program}: {err}")),
             }
         }
         Err((ListenFailure::NoMicrophone, format!("no recorder (needs PipeWire or PulseAudio): {}", errors.join("; "))))
+    }
+
+    /// S-3: log what `recorder` records (the default source), on a thread of
+    /// its own: a push-to-talk open never waits for the sound server's tools.
+    fn describe_default_source(recorder: &'static str) {
+        let _ = std::thread::Builder::new().name("voice-capture-info".into()).spawn(move || {
+            eprintln!("microphone open: {recorder} at {} Hz mono, {}", crate::listen::RATE, default_source());
+        });
+    }
+
+    /// A system tool's trimmed stdout (C locale), if it ran and said something.
+    fn tool(program: &str, args: &[&str]) -> Option<String> {
+        let path = talk::system_binary(program)?;
+        let output = Command::new(path).args(args).env("LC_ALL", "C").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        (output.status.success() && !text.is_empty()).then_some(text)
+    }
+
+    /// The default source as the sound server names it (best effort).
+    fn default_source() -> String {
+        if let Some(name) = tool("pactl", &["get-default-source"]) {
+            let mute = tool("pactl", &["get-source-mute", &name]).unwrap_or_else(|| "mute unknown".into());
+            let volume = tool("pactl", &["get-source-volume", &name])
+                .and_then(|volume| volume.lines().next().map(|line| line.split_whitespace().collect::<Vec<_>>().join(" ")))
+                .unwrap_or_else(|| "volume unknown".into());
+            return format!("default source {name} ({mute}; {volume})");
+        }
+        if let Some(inspect) = tool("wpctl", &["inspect", "@DEFAULT_AUDIO_SOURCE@"]) {
+            let property = |key: &str| {
+                inspect.lines().find_map(|line| {
+                    let (name, value) = line.trim_start_matches([' ', '*']).split_once(" = ")?;
+                    (name.trim() == key).then(|| value.trim().trim_matches('"').to_string())
+                })
+            };
+            if let Some(name) = property("node.name") {
+                return format!("default source {name} ({})", property("node.description").unwrap_or_default());
+            }
+        }
+        "default source unknown (no pactl or wpctl)".into()
     }
 }
 
@@ -276,6 +321,13 @@ mod platform {
                     let supported = device.default_input_config().map_err(|err| (ListenFailure::NoMicrophone, err.to_string()))?;
                     let channels = usize::from(supported.channels());
                     let rate = supported.sample_rate().0;
+                    // S-3: what is recorded, at every open.
+                    eprintln!(
+                        "microphone open: {} at {rate} Hz, {channels} channel(s), {:?} (resampled to {} Hz mono)",
+                        device.name().unwrap_or_else(|_| "an unnamed input".into()),
+                        supported.sample_format(),
+                        crate::listen::RATE
+                    );
                     let config: cpal::StreamConfig = supported.config();
                     let stream = match supported.sample_format() {
                         cpal::SampleFormat::F32 => build::<f32>(&device, &config, channels, rate, tx.clone()),

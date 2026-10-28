@@ -309,6 +309,16 @@ public enum AgentSettings {
     /// The server brief every Assistant turn runs on (read-only here).
     public static let assistantBrief = "You are this member's Assistant: the one agent they talk to. You orchestrate their other chats and agents. On a scheduled check-in, look at every other chat of theirs: is it progressing, stuck, or waiting on them? Gather their open questions and results into one short update, show it (one text and at most one Exponential UI card, edited in place), and nudge stuck chats. Say nothing when nothing needs them."
 
+    /// The Assistant's Model row value (`modelValueCases`): the pinned
+    /// model, else the dispatcher root's default for the login's CLI (never
+    /// `Last used`).
+    public static func assistantModelValue(model: String?, cli: String?) -> String {
+        if let model, !model.trimmingCharacters(in: .whitespaces).isEmpty { return model }
+        return cli == "codex"
+            ? DomainContract.deviceAgentDefaultsCodexThreadModel
+            : DomainContract.deviceAgentDefaultsThreadModel
+    }
+
     /// `assistant.scheduleCases`: the preset stored triggers stand for; nil
     /// = not an Assistant's (an event, a custom cron, more than one) and
     /// `agents.update` refuses it. A paused preset reads `off`.

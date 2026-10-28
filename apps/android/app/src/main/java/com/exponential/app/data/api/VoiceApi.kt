@@ -8,6 +8,10 @@ import kotlinx.serialization.json.JsonObject
 
 // Mirrors apps/web/src/lib/trpc/voice.ts (NEW-67): the member's ONE voice
 // settings row, server-only like the notification prefs (no shape).
+// S-3: the server still answers the legacy `speakReplies` / `pushToTalk` to
+// old clients; the injected Json is `ignoreUnknownKeys`, so this build reads
+// past them, and `Voice.Change` never writes either (push to talk = a bound
+// `pttShortcut`, speak-back always on).
 @Serializable
 private object VoiceEmptyInput
 

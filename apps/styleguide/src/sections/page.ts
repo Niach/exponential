@@ -146,6 +146,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`strip-chip`]: `Buttons & chips`,
   [`session-xref`]: `Buttons & chips`,
   [`mention-pill`]: `Buttons & chips`,
+  [`call-controls`]: `Buttons & chips`,
   [`team-agents-settings`]: `Surfaces`,
   [`voice-call-overlay`]: `Surfaces`,
   [`voice-call`]: `Surfaces`,

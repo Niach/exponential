@@ -12,6 +12,13 @@
 //! and the turn ends by itself after [`TURN_END_MS`] of quiet
 //! ([`turn_over`]).
 //!
+//! S-3 SLIDING WINDOW: a segment that stays open (continuous talk, a TV)
+//! is checked again every [`WINDOW_HOP_MS`] over its LAST window, and once
+//! more when it closes with at least half a hop unchecked, at most
+//! [`MAX_CHECKS_PER_SEGMENT`] times; such a later check opens mid-speech, so
+//! it matches with [`slide_match`] (the phrase within the first
+//! [`SLIDE_SKIP_WORDS`] + 1 words, [`SLIDE_EDIT_RATIO`]).
+//!
 //! Fixture-locked by `packages/domain-contract/fixtures/talk-listen.json`
 //! (`wake`): only the voice device listens, so this is the one
 //! implementation.
@@ -41,6 +48,17 @@ pub const ECHO_TAIL_MS: usize = 300;
 /// #NEW-86: how long after a wake turn ends the microphone still counts as
 /// the turn's (a trailing phrase, the command's echo): no second turn at once.
 pub const COOLDOWN_MS: usize = 1_500;
+/// S-3: an open segment is checked again each time it grew this far past
+/// the previous check's end.
+pub const WINDOW_HOP_MS: usize = 1_000;
+/// S-3: the checks of one segment, the first included.
+pub const MAX_CHECKS_PER_SEGMENT: usize = 6;
+/// S-3: a later check's tolerance (stricter than [`MAX_EDIT_RATIO`]: it
+/// transcribes more windows and lets the phrase start later).
+pub const SLIDE_EDIT_RATIO: f32 = 0.15;
+/// S-3: a later check's phrase may start after this many words (fragments
+/// of the speech the window cut into).
+pub const SLIDE_SKIP_WORDS: usize = 3;
 
 const fn frames(ms: usize) -> usize {
     (ms * RATE / 1000).div_ceil(FRAME)
@@ -149,13 +167,45 @@ pub fn wake_match(phrase: &str, heard: &str) -> Option<String> {
     if distance > wake_allowed(phrase) {
         return None;
     }
-    let words = wake_words(heard);
-    let rest = heard[words[count - 1].end..].trim_start_matches(|ch: char| !ch.is_alphanumeric());
+    Some(rest_after(heard, count))
+}
+
+/// The text after `heard`'s first `words` words, leading punctuation
+/// dropped, its first letter capitalised.
+fn rest_after(heard: &str, words: usize) -> String {
+    let all = wake_words(heard);
+    let rest = heard[all[words - 1].end..].trim_start_matches(|ch: char| !ch.is_alphanumeric());
     let mut chars = rest.chars();
-    Some(match chars.next() {
+    match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
-    })
+    }
+}
+
+/// S-3: the edits [`slide_match`] tolerates: floor(letters ×
+/// [`SLIDE_EDIT_RATIO`]) (`Hey Studio` = 1; under 7 letters, none).
+pub fn slide_allowed(phrase: &str) -> usize {
+    let letters: usize = wake_words(phrase).iter().map(|word| word.folded.chars().count()).sum();
+    (letters as f32 * SLIDE_EDIT_RATIO).floor() as usize
+}
+
+/// S-3: a LATER check's match (talk-listen.json `slideMatch`): the window
+/// opens mid-speech, so the phrase may start at any of `heard`'s first
+/// [`SLIDE_SKIP_WORDS`] + 1 words ([`wake_distance`] from there, the closest
+/// wins, the earliest on a tie) and matches within [`slide_allowed`] edits.
+/// `Some(rest)` = what follows it, as [`wake_match`].
+pub fn slide_match(phrase: &str, heard: &str) -> Option<String> {
+    let words = wake_words(heard);
+    let mut best: Option<(usize, usize)> = None;
+    for skip in 0..=SLIDE_SKIP_WORDS.min(words.len()) {
+        let Some(word) = words.get(skip) else { break };
+        let Some((count, distance)) = wake_distance(phrase, &heard[word.start..]) else { continue };
+        if best.is_none_or(|(_, best)| distance < best) {
+            best = Some((skip + count, distance));
+        }
+    }
+    let (count, distance) = best?;
+    (distance <= slide_allowed(phrase)).then(|| rest_after(heard, count))
 }
 
 /// The window for `phrase`: [`WINDOW_BASE_MS`] + [`WINDOW_PER_LETTER_MS`] per
@@ -170,19 +220,36 @@ pub fn window_ms(phrase: &str) -> usize {
 pub struct Check {
     pub start: usize,
     pub end: usize,
+    /// The segment's padded start (a segment that began while the voice
+    /// played is never checked, however late the check).
+    pub segment: usize,
+    /// S-3: a later check of the segment ([`slide_match`]), not its first.
+    pub later: bool,
 }
 
-/// Speech segments into wake checks, one per segment: when the open segment
-/// reaches its window, or when a shorter one closes. Also keeps the
-/// audio and scores the next check, and a match's seed, need (the open
-/// segment, else only the padding a segment could reach back into).
+impl Check {
+    /// Whether `heard` (this check's transcript) is the phrase.
+    pub fn matches(&self, phrase: &str, heard: &str) -> bool {
+        if self.later { slide_match(phrase, heard).is_some() } else { wake_match(phrase, heard).is_some() }
+    }
+}
+
+/// Speech segments into wake checks: the first when the open segment
+/// reaches its window, or when a shorter one closes; S-3: then again every
+/// [`WINDOW_HOP_MS`] while it stays open (its last window), and over its
+/// tail when it closes with at least half a hop unchecked, at most
+/// [`MAX_CHECKS_PER_SEGMENT`]. Also keeps the audio and scores the next
+/// check, and a match's seed, need (the open segment, else only the padding
+/// a segment could reach back into).
 #[derive(Debug, Clone)]
 pub struct WakeScanner {
     /// The window in frames.
     window: usize,
     segmenter: Segmenter,
-    /// The open segment was checked already.
-    checked: bool,
+    /// The checks of the open segment so far.
+    checks: usize,
+    /// Where the open segment's last check ended.
+    checked_to: usize,
     /// The first frame kept in `audio` / `scores`.
     base: usize,
     audio: Vec<f32>,
@@ -198,7 +265,8 @@ impl WakeScanner {
         WakeScanner {
             window: frames(window_ms),
             segmenter: Segmenter::default(),
-            checked: false,
+            checks: 0,
+            checked_to: 0,
             base: 0,
             audio: Vec::new(),
             scores: Vec::new(),
@@ -218,20 +286,37 @@ impl WakeScanner {
         self.trim();
         self.scores.push(probability);
         let closed = self.segmenter.push(probability);
-        let check = match closed {
-            Some(segment) if !self.checked => {
-                Some(Check { start: segment.start, end: segment.end.min(segment.start + self.window) })
+        let hop = frames(WINDOW_HOP_MS);
+        let last = |start: usize, end: usize| Check { start: end.saturating_sub(self.window).max(start), end, segment: start, later: true };
+        let check = if let Some(segment) = closed {
+            // The segment that just closed (a cut one included): its first
+            // check, or its unchecked tail.
+            let checks = std::mem::take(&mut self.checks);
+            if checks == 0 {
+                Some(Check { start: segment.start, end: segment.end.min(segment.start + self.window), segment: segment.start, later: false })
+            } else {
+                (checks < MAX_CHECKS_PER_SEGMENT && segment.end >= self.checked_to + frames(WINDOW_HOP_MS / 2))
+                    .then(|| last(segment.start, segment.end))
             }
-            _ => self.segmenter.open_start().filter(|_| !self.checked).and_then(|start| {
-                (self.segmenter.frames() - start >= self.window).then_some(Check { start, end: start + self.window })
-            }),
+        } else if let Some(start) = self.segmenter.open_start() {
+            let check = if self.checks == 0 {
+                (self.segmenter.frames() - start >= self.window)
+                    .then_some(Check { start, end: start + self.window, segment: start, later: false })
+            } else {
+                // Grown = its speech (padded) reached that far: a pause
+                // that may still close it adds nothing.
+                let end = self.segmenter.open_end();
+                (self.checks < MAX_CHECKS_PER_SEGMENT && end >= self.checked_to + hop).then(|| last(start, end))
+            };
+            if let Some(check) = check {
+                self.checks += 1;
+                self.checked_to = check.end;
+            }
+            check
+        } else {
+            self.checks = 0;
+            None
         };
-        if closed.is_some() || self.segmenter.open_start().is_none() {
-            self.checked = false;
-        }
-        if check.is_some() && self.segmenter.open_start().is_some() {
-            self.checked = true;
-        }
         check
     }
 
@@ -293,11 +378,11 @@ pub fn scan(
             scanner.played = scanner.frames();
         }
         let Some(check) = check else { continue };
-        if check.start < scanner.played {
+        if check.segment < scanner.played {
             continue;
         }
         let heard = transcriber.transcribe(scanner.pcm(check), language)?;
-        if wake_match(phrase, &heard).is_some() {
+        if check.matches(phrase, &heard) {
             return Ok(Some((check, probabilities[index + 1..].to_vec())));
         }
     }
@@ -315,7 +400,7 @@ pub fn turn(
     transcriber: &mut dyn Transcriber,
 ) -> Result<Utterance, (talk::ListenFailure, String)> {
     let (audio, scores) = scanner.seed(check);
-    let mut utterance = Utterance::woken(id, language, phrase, &audio, &scores, transcriber)?;
+    let mut utterance = Utterance::woken(id, language, phrase, check.later, &audio, &scores, transcriber)?;
     utterance.feed_scored(&[], &rest, transcriber, &mut |_| {})?;
     Ok(utterance)
 }
@@ -367,6 +452,10 @@ mod tests {
         assert_eq!(c["maxTurnMs"], MAX_TURN_MS);
         assert_eq!(c["echoTailMs"], ECHO_TAIL_MS);
         assert_eq!(c["cooldownMs"], COOLDOWN_MS);
+        assert_eq!(c["windowHopMs"], WINDOW_HOP_MS);
+        assert_eq!(c["maxChecksPerSegment"], MAX_CHECKS_PER_SEGMENT);
+        assert_eq!(c["slideEditRatio"].as_f64().unwrap() as f32, SLIDE_EDIT_RATIO);
+        assert_eq!(c["slideSkipWords"], SLIDE_SKIP_WORDS);
     }
 
     #[test]
@@ -395,6 +484,17 @@ mod tests {
     }
 
     #[test]
+    fn slide_matches_follow_the_fixture() {
+        let cases = wake()["slideMatch"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let got = slide_match(case["phrase"].as_str().unwrap(), case["heard"].as_str().unwrap());
+            let expected = case["rest"].as_str().map(str::to_string);
+            assert_eq!(got, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
     fn checks_follow_the_fixture() {
         for case in wake()["checks"].as_array().unwrap() {
             let mut scanner = WakeScanner::new(case["windowMs"].as_u64().unwrap() as usize);
@@ -405,6 +505,7 @@ mod tests {
                     if let Some(check) = scanner.push(run[0].as_f64().unwrap() as f32) {
                         // Every check's audio is still kept.
                         assert_eq!(scanner.pcm(check).len(), (check.end - check.start) * FRAME, "{}", case["name"]);
+                        assert_eq!(check.later, checks.last().is_some_and(|last: &[usize; 2]| last[0] >= check.segment), "{}", case["name"]);
                         checks.push([check.start, check.end]);
                     }
                 }
@@ -518,7 +619,55 @@ mod tests {
         let audio = [tone(0.3, 0.0), tone(0.8, 0.3), tone(0.6, 0.0), tone(3.0, 0.3), tone(0.6, 0.0), tone(10.0, 0.0)].concat();
         let (answer, transcriptions) = wake_on(&audio, "They studied it.");
         assert_eq!(answer, None);
-        assert_eq!(transcriptions, 2, "one check per segment; silence costs none");
+        // S-3: the short segment once; the 3 s one at its window, a hop
+        // later and over its tail (18 frames unchecked >= half a hop).
+        assert_eq!(transcriptions, 4, "the checks of each segment; silence costs none");
+    }
+
+    /// Answers each transcription with the next line (the last repeats).
+    struct Script(Vec<&'static str>, usize);
+
+    impl crate::listen::Transcriber for Script {
+        fn transcribe(&mut self, _pcm: &[f32], _language: &str) -> Result<String, String> {
+            self.1 += 1;
+            Ok(self.0[(self.1 - 1).min(self.0.len() - 1)].to_string())
+        }
+        fn partials(&self) -> bool {
+            false
+        }
+    }
+
+    /// S-3: the phrase said into a segment that was already open (talk
+    /// going on) wakes at a later check, and the turn loses the fragments
+    /// before it with the phrase.
+    #[test]
+    fn a_phrase_inside_a_long_segment_wakes_at_a_later_check() {
+        let audio = [tone(0.3, 0.0), tone(3.0, 0.3), tone(1.5, 0.0)].concat();
+        let mut vad = Loud(Vec::new());
+        let mut engines = Script(vec!["We talked about the release", "the release and hey Studio, move it."], 0);
+        let mut scanner = WakeScanner::new(window_ms("Hey Studio"));
+        let mut turn: Option<Utterance> = None;
+        let mut answer = None;
+        let mut woke_at = None;
+        for chunk in audio.chunks(320) {
+            if let Some(utterance) = turn.as_mut() {
+                utterance.feed(chunk, &mut vad, &mut engines, &mut |_| {}).unwrap();
+                if turn_ended(utterance) {
+                    turn.take().unwrap().finish(&mut engines, &mut |event| answer = Some(event)).unwrap();
+                    break;
+                }
+                continue;
+            }
+            if let Some(matched) = scan(&mut scanner, &mut vad, &mut engines, chunk, "Hey Studio", "en", false).unwrap() {
+                woke_at = Some(matched.0);
+                turn = Some(super::turn("wake-1", "en", "Hey Studio", &scanner, matched, &mut engines).unwrap());
+            }
+        }
+        let check = woke_at.expect("a later check woke it");
+        assert!(check.later && check.start > check.segment, "{check:?}");
+        assert_eq!(answer, Some(talk::Event::Heard { id: "wake-1".into(), text: "Move it.".into() }));
+        // The first window alone would never have woken it.
+        assert_eq!(wake_match("Hey Studio", "the release and hey Studio, move it."), None);
     }
 
     /// #1263 review: the agent's own reply (heard back through the
@@ -547,7 +696,7 @@ mod tests {
             found = found.or(scanner.push(probability));
         }
         let check = found.expect("a 2 s segment is checked while open");
-        assert_eq!(check, Check { start: 18, end: 18 + frames(2_000) });
+        assert_eq!(check, Check { start: 18, end: 18 + frames(2_000), segment: 18, later: false });
         let (audio, scores) = scanner.seed(check);
         assert_eq!(scores.len(), 90 - 18);
         assert_eq!(audio.len(), scores.len() * FRAME);

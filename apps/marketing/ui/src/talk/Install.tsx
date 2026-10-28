@@ -35,7 +35,6 @@ export default function Install({ path }: PageProps) {
             rows={[
               [<strong key="r">Voice device</strong>, `The desktop that listens and speaks. Only your own desktops are listed.`],
               [<strong key="r">Agent</strong>, `The agent you talk to. Your words go into your chat with it.`],
-              [<strong key="r">Speak replies</strong>, `Read the agent's replies aloud on the voice device.`],
               [<strong key="r">Language</strong>, `English or Deutsch. Replies are spoken, and speech is heard, in this language.`],
               [<strong key="r">Voice file, Transcript</strong>, <>Shown once a voice device is picked. A clip of your voice and what it says. Empty = a built-in voice. See <a href={talkGuidePath(`your-voice`)}>Your voice</a>.</>],
             ]}
@@ -45,7 +44,7 @@ export default function Install({ path }: PageProps) {
         <DocsSection id="download" num="02" label="The download">
           <h2>The download</h2>
           <p>
-            Turn on Speak replies and the voice device downloads the voice. The row shows the progress. Every file is pinned and
+            Replies to your voice are always spoken: once a voice device is picked it downloads the voice. The row shows the progress. Every file is pinned and
             checked against its sha256 before it is loaded. A failed download shows &ldquo;Couldn&apos;t download the voice&rdquo; and is
             tried again on the next request, after a wait that starts at a minute and doubles up to an hour.
           </p>
@@ -96,8 +95,9 @@ export default function Install({ path }: PageProps) {
         <DocsSection id="ptt" num="05" label="Push to talk">
           <h2>Push to talk</h2>
           <p>
-            Beta, desktop only. With a voice device picked, a second group appears: On {`{device}`} (tray). Turn on Push to talk and
-            pick a Shortcut. The default is Ctrl + Space.
+            Beta, desktop only. With a voice device picked, a second group appears: On {`{device}`} (tray). Click Push to talk in
+            the desktop app of the voice device and press any key or combination, like a game keybind (Esc cancels, Backspace
+            clears it). No key bound = push to talk off. Other clients show the binding, read-only.
           </p>
           <p>
             Hold the shortcut, speak, let go. Not every desktop lets an app grab every key:{` `}
@@ -113,8 +113,7 @@ export default function Install({ path }: PageProps) {
             head={[`Item`, `Does`]}
             rows={[
               [<strong key="i">Open Exponential</strong>, `Brings a window up, a new one when none is open.`],
-              [<strong key="i">Speak replies</strong>, `The same switch as in Settings → Voice.`],
-              [<strong key="i">Push to talk · Ctrl + Space</strong>, `The switch, with the shortcut you picked. Reads {shortcut} unavailable when the desktop won't let the app grab it.`],
+              [<strong key="i">Push to talk · Ctrl + Space</strong>, `Shown while a key is bound; opens Settings → Voice. Reads {shortcut} unavailable when the desktop won't let the app grab it.`],
               [<strong key="i">Wake word · Hey Triage</strong>, `The switch, with the wake phrase. Nothing listens for it yet.`],
               [<strong key="i">Mute microphone</strong>, `Shown while push to talk listens on this desktop. Keeps the microphone closed.`],
               [<strong key="i">Voice settings…</strong>, `Opens Settings → Voice.`],
@@ -122,7 +121,7 @@ export default function Install({ path }: PageProps) {
             ]}
           />
           <p>
-            The three switches are off and disabled until both a voice device and an agent are picked. While the tray is there,
+            Wake word is off and disabled until both a voice device and an agent are picked. While the tray is there,
             closing the last window keeps the app running, so the voice stays loaded; macOS always keeps it running.
           </p>
           <p>On GNOME the tray needs the AppIndicator extension. Without it there is no tray, and closing the last window quits.</p>

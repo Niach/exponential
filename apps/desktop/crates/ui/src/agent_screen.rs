@@ -187,6 +187,9 @@ pub struct AgentScreenView {
     conv: ChannelRows,
     opened_at: Instant,
     focus_handle: FocusHandle,
+    /// S-3: the in-window call panel over the conversation's body (empty
+    /// unless THIS client runs a call with the agent).
+    call_panel: Entity<crate::voice_call::CallPanel>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -279,6 +282,7 @@ impl AgentScreenView {
             conv: ChannelRows::default(),
             opened_at: Instant::now(),
             focus_handle: cx.focus_handle(),
+            call_panel: cx.new(crate::voice_call::CallPanel::new),
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -345,6 +349,9 @@ impl AgentScreenView {
                 let agent_id = resolve_agent_id(&requested, cx);
                 self.agent = crate::session_data::agent_def(&agent_id, cx);
                 self.conversation = crate::session_data::my_conversation(&agent_id, cx);
+                // S-3: the call panel draws this agent's call.
+                let agent = self.agent.as_ref().map(|agent| agent.id.clone());
+                self.call_panel.update(cx, |panel, cx| panel.set_agent(agent, cx));
             }
             ChannelSubject::App(app_id) => {
                 self.app = Store::try_global(cx)
@@ -764,13 +771,17 @@ impl AgentScreenView {
 
     /// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's
     /// icon button: disabled with the reason as its tooltip while a call
-    /// cannot start here (no voice device, Speak replies off, not this
-    /// machine, no voice yet, no usable GPU, a call already running).
+    /// cannot start here (no voice device, not this machine, no voice yet,
+    /// no usable GPU, a call this client does not run). S-3: while THIS
+    /// client runs the call with this agent it stays enabled and focuses
+    /// the call panel; a new call focuses it too (Esc there ends it).
     fn header_call(&self, cx: &App) -> Option<AnyElement> {
         let agent_id = self.agent.as_ref()?.id.clone();
         let copy = &domain::voice_call::VOICE_CALL.copy;
-        let reason = crate::voice_call::unavailable(cx);
+        let here = crate::voice_call::runs_for(&agent_id, cx);
+        let reason = (!here).then(|| crate::voice_call::unavailable(cx)).flatten();
         let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", &self.subject_name()));
+        let panel = self.call_panel.read(cx).focus_handle(cx);
         let button = crate::controls::ghost_icon_button(
             domain::voice_call::VOICE_CALL.test_ids.call.as_str(),
             Icon::new(registry::VOICE_CALL),
@@ -778,7 +789,12 @@ impl AgentScreenView {
         )
         .tooltip(tooltip)
         .disabled(reason.is_some())
-        .on_click(move |_, _, cx| crate::voice_call::start(agent_id.clone(), cx));
+        .on_click(move |_, window, cx| {
+            if !crate::voice_call::runs_for(&agent_id, cx) {
+                crate::voice_call::start(agent_id.clone(), cx);
+            }
+            window.focus(&panel, cx);
+        });
         Some(div().flex_shrink_0().child(button).into_any_element())
     }
 
@@ -1060,7 +1076,9 @@ impl Render for AgentScreenView {
                         cx.entity_id(),
                         cx,
                     ))
-                    .children(sheet),
+                    .children(sheet)
+                    // S-3: the call panel covers the body while the call runs.
+                    .child(self.call_panel.clone()),
             )
     }
 }

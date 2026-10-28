@@ -159,13 +159,25 @@ function AgentChannelPage() {
           availability={callAvailability}
           agentName={name}
           active={voiceCall.call.active}
-          onCall={() => void voiceCall.call.start(agent.id, callAvailability.device)}
+          onCall={() => void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language)}
           className={className}
         />
         <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />
       </>
     ),
-    overlay: <VoiceCallOverlay {...voiceCall} />,
+    overlay: (
+      <VoiceCallOverlay
+        {...voiceCall}
+        agentName={name}
+        avatar={
+          assistant ? (
+            <ExponentialLogo variant="light" />
+          ) : (
+            <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+          )
+        }
+      />
+    ),
   }
 
   if (conversation && thread.view && thread.root) {

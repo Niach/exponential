@@ -247,6 +247,20 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(DomainContract.agentRoleValues, ["assistant", "agent"])
     }
 
+    func testAssistantModelValueReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["modelValueCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                AgentSettings.assistantModelValue(model: input["model"] as? String, cli: input["cli"] as? String),
+                testCase["expected"] as? String,
+                name
+            )
+        }
+    }
+
     func testAssistantScheduleOfReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try assistantBlock()["scheduleCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

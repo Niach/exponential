@@ -2,11 +2,15 @@
 //! (`fixtures/voice.json`): the member's ONE voice settings row, read with
 //! `voice.get`, written with `voice.update` (server-only, like the
 //! notification prefs). Group 1: Voice device (the member's desktops), Agent,
-//! Speak replies. While a voice device is picked, group 2 under "On {device}
-//! (tray)": Push to talk, Shortcut, Wake word, Wake phrase. Every switch reads
-//! off and is disabled while the device or the agent is None (clearOnNone).
-//! A save hands the stored settings to `speak_replies` at once, so this
-//! device starts or stops speaking without waiting for the next heartbeat.
+//! Language (S-3: replies to the voice are always spoken, no Speak replies
+//! row). While a voice device is picked, group 2 under "On {device} (tray)":
+//! Push to talk (S-3: the key binding as keycaps; on the voice device's own
+//! IDE THE recorder, `capture_step` over the key events; read-only
+//! elsewhere), Wake word (its detail = `wake_detail`), Wake phrase. The wake
+//! word reads off and is disabled while the device or the agent is None
+//! (clearOnNone). A save hands the stored settings to `speak_replies` at
+//! once, so this device starts or stops listening without waiting for the
+//! next heartbeat.
 //!
 //! [`voice_rows`] draws the rows from plain values; the pane and the
 //! styleguide twin (`styleguide/entries/voice_settings.rs`) both call it.
@@ -14,23 +18,26 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Window,
+    div, prelude::FluentBuilder as _, AnyElement, App, AppContext as _, Entity, FocusHandle, InteractiveElement as _,
+    IntoElement, Modifiers, MouseButton, NavigationDirection, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
 use api::voice::VoiceUpdate;
 use domain::voice::{
-    agent_options, language_label, shortcut_label, shortcut_options, shortcut_reason, tray_header, voice_device_options, voice_text_input, wake_phrase_error, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
-    VoiceOption, VoiceSettings, VOICE,
+    agent_options, capture_pending, capture_start, capture_step, language_label, shortcut_reason, tray_header,
+    voice_device_options, voice_text_input, wake_phrase_error, wake_phrase_placeholder, CaptureEvent, CaptureState, CaptureStatus,
+    VoiceAgent, VoiceDevice, VoiceOption, VoiceSettings, VOICE,
 };
 
 use domain::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudioCapability, MEETING};
 
-use crate::controls::{glass_input, PointerMenuButtonExt as _};
+use crate::controls::{glass_input, kbd, kbd_group, shortcut_keys, PointerMenuButtonExt as _};
 use crate::picker::{Picker, PickerItem};
 use crate::queries;
 use crate::surface::{glass_group_rows, glass_input_row, glass_picker_row, glass_toggle_row, picker_value_label};
@@ -157,6 +164,126 @@ fn switch_row(
     glass_toggle_row(label.to_string(), detail, switch.into_any_element(), cx)
 }
 
+/// S-3: what the recorder hands the pane.
+pub(crate) enum RecorderInput {
+    /// A click on the row: start recording.
+    Start,
+    /// A mouse button pressed over the recorder while it records (gpui's
+    /// numbering: 1 left, 2 right, 3 middle, 4 back, 5 forward).
+    Mouse(u32),
+    /// The held modifiers changed while it records.
+    Modifiers(Modifiers),
+    /// The clear button (testId `shortcutClear`): no key = push to talk off.
+    Clear,
+}
+
+/// S-3: the Push to talk row (voice.json PUSH TO TALK = A KEY BINDING).
+#[derive(Default)]
+pub(crate) struct ShortcutRecorder {
+    /// The capture while recording (None = idle).
+    pub capture: Option<CaptureState>,
+    /// The recorder's key focus (the pane's).
+    pub focus: Option<FocusHandle>,
+    /// None = READ-ONLY (another device, the styleguide twin): the label.
+    pub on_input: Option<Rc<dyn Fn(RecorderInput, &mut Window, &mut App)>>,
+}
+
+/// S-3: the recorder's control: idle = the keycaps (the clear button while
+/// a key is bound, on the voice device); recording = the held modifiers as
+/// pending keycaps or `copy.shortcutRecord`, focused so the key events land.
+fn recorder_control(value: &str, recorder: &ShortcutRecorder, cx: &App) -> AnyElement {
+    let Some(on_input) = recorder.on_input.clone() else {
+        return shortcut_keys(value, cx).into_any_element();
+    };
+    let recording = recorder.capture.as_ref().filter(|capture| capture.status == CaptureStatus::Recording);
+    let field = div()
+        .id("settings-voice-shortcut")
+        .cursor_pointer()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .border_1()
+        .border_color(if recording.is_some() { cx.theme().ring } else { gpui::transparent_black() })
+        .when_some(recorder.focus.as_ref(), |field, focus| field.track_focus(focus));
+    let field = match recording {
+        Some(capture) => {
+            let pending = capture_pending(capture);
+            let on_mouse = on_input.clone();
+            let on_modifiers = on_input.clone();
+            let inner = if pending.is_empty() {
+                div().text_sm().text_color(cx.theme().muted_foreground).child(VOICE.copy.shortcut_record.clone())
+            } else {
+                // The held modifiers' keycaps, then the trailing `…`.
+                let separator = &VOICE.shortcut_grammar.separator;
+                let held = pending.trim_end_matches('…').trim_end_matches(separator.as_str());
+                kbd_group(held.split(separator.as_str()).map(|cap| kbd(cap.to_string(), cx)))
+                    .child(div().text_sm().text_color(cx.theme().muted_foreground).child(VOICE.copy.ellipsis.clone()))
+            };
+            field
+                .on_any_mouse_down(move |event, window, cx| {
+                    let button = match event.button {
+                        MouseButton::Left => 1,
+                        MouseButton::Right => 2,
+                        MouseButton::Middle => 3,
+                        MouseButton::Navigate(NavigationDirection::Back) => 4,
+                        MouseButton::Navigate(NavigationDirection::Forward) => 5,
+                    };
+                    on_mouse(RecorderInput::Mouse(button), window, cx);
+                    cx.stop_propagation();
+                })
+                .on_modifiers_changed(move |event, window, cx| on_modifiers(RecorderInput::Modifiers(event.modifiers), window, cx))
+                .child(inner)
+        }
+        None => {
+            let on_start = on_input.clone();
+            field.on_click(move |_, window, cx| on_start(RecorderInput::Start, window, cx)).child(shortcut_keys(value, cx))
+        }
+    };
+    let clear = (!value.is_empty() && recording.is_none()).then(|| {
+        let on_clear = on_input.clone();
+        Button::new("settings-voice-shortcut-clear")
+            .ghost()
+            .xsmall()
+            .cursor_pointer()
+            .label(VOICE.copy.shortcut_clear.clone())
+            .on_click(move |_, window, cx| on_clear(RecorderInput::Clear, window, cx))
+    });
+    h_flex().gap_1().child(field).children(clear).into_any_element()
+}
+
+/// S-3: the Wake word row's detail on a client that is NOT the voice
+/// device: the voice device's doctor row `wake` verbatim (voice.json WAKE
+/// DETAIL), after `wake_detail`'s own noAgent / offline.
+fn remote_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> Option<String> {
+    let id = settings.voice_device_id.as_deref()?;
+    let row = sync::Store::try_global(cx)
+        .and_then(|store| store.collections().devices.read(cx).iter().find(|row| row.device_id.as_deref() == Some(id)).cloned());
+    let online = row.as_ref().is_some_and(|row| {
+        crate::device_settings::row_is_online(row.last_seen_at.as_deref(), chrono::Utc::now().timestamp_millis())
+    });
+    let reported = row
+        .as_ref()
+        .and_then(|row| crate::device_readiness::parse(row.doctor.as_ref()))
+        .and_then(|doctor| {
+            doctor
+                .items
+                .into_iter()
+                .find(|item| item.key == coding::device_doctor::KEY_WAKE && item.group == coding::device_doctor::DoctorGroup::Voice)
+        })
+        .and_then(|item| item.detail);
+    let context = domain::voice::WakeDetailContext {
+        wake_word: settings.wake_word,
+        agent: settings.agent_id.is_some(),
+        online,
+        device: device_name,
+        state: None,
+    };
+    let detail = domain::voice::wake_detail(&context)?;
+    // Listening / muted / … come from the device itself; `starting` until
+    // its doctor says.
+    Some(if online && settings.agent_id.is_some() { reported.unwrap_or(detail) } else { detail })
+}
+
 /// The page's three one-line inputs (the pane's live fields, or the twin's
 /// static ones), already wrapped in `glass_row_input`.
 pub(crate) struct VoiceInputs {
@@ -228,6 +355,7 @@ pub(crate) fn voice_rows(
     agents: &[VoiceOption],
     inputs: VoiceInputs,
     meeting: MeetingRows,
+    recorder: ShortcutRecorder,
     on_change: Option<OnVoiceChange>,
     assistant_block: bool,
     cx: &App,
@@ -237,10 +365,9 @@ pub(crate) fn voice_rows(
     let copy = &VOICE.copy;
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
     // voice.json: while the voice downloads (only ever on the voice device,
-    // i.e. here) the Speak replies row's detail reads `downloadProgress`.
-    let downloading = (on_change.is_some() && ready && settings.speak_replies)
-        .then(|| crate::speak_replies::download_detail(cx))
-        .flatten();
+    // i.e. here) a row's detail reads `downloadProgress`; S-3 removed the
+    // Speak replies row, so the Language row (the voice) carries it.
+    let downloading = (on_change.is_some() && ready).then(|| crate::speak_replies::download_detail(cx)).flatten();
     let send = |make: Rc<dyn Fn(Option<String>) -> VoiceUpdate>| -> Option<Rc<dyn Fn(Option<String>, &mut App)>> {
         on_change.clone().map(|on_change| {
             Rc::new(move |value: Option<String>, cx: &mut App| on_change(make(value), cx)) as Rc<dyn Fn(Option<String>, &mut App)>
@@ -292,20 +419,11 @@ pub(crate) fn voice_rows(
             ));
     }
     first.extend([
-            switch_row(
-                "settings-voice-speak-replies",
-                &copy.speak_replies,
-                downloading.map(SharedString::from),
-                settings.speak_replies,
-                ready,
-                toggle(Rc::new(|on| VoiceUpdate { speak_replies: Some(on), ..Default::default() })),
-                cx,
-            ),
             // #NEW-73: the spoken-reply language, then the custom voice.
             picker_row(
                 "settings-voice-language",
                 &copy.language,
-                None,
+                downloading.map(SharedString::from),
                 SharedString::from(language_label(&language, device_name.as_deref())),
                 languages,
                 Some(language),
@@ -319,53 +437,35 @@ pub(crate) fn voice_rows(
     }
     out.push(glass_group_rows(first).into_any_element());
     if let Some(device_name) = device_name {
-        // #NEW-54: on the voice device itself the picker offers what this OS
-        // can hold (no mouse buttons on macOS or Wayland), the portal's
-        // trigger names the shortcut, and a shortcut that can't be held
-        // system-wide says why under the row.
+        // S-3: on the voice device itself the Push to talk row is THE
+        // recorder; a binding that can't be held system-wide says why under
+        // its label (#NEW-54). Everywhere else it is read-only.
         let here = on_change.is_some()
             && cx.try_global::<crate::session::AuthContext>().is_some_and(|auth| {
                 settings.voice_device_id.as_deref() == Some(steer::persistent_device_id(&auth.data_dir).as_str())
             });
-        let status = if here && settings.push_to_talk { crate::push_to_talk::status(cx) } else { Default::default() };
-        let shortcut_label = status.trigger().map(str::to_string).unwrap_or_else(|| shortcut_label(&settings.ptt_shortcut));
+        let status = if here && settings.push_to_talk() { crate::push_to_talk::status(cx) } else { Default::default() };
         let reason = status.reason().map(|reason| SharedString::from(shortcut_reason(reason, &settings.ptt_shortcut)));
-        // #NEW-86: the Wake word row says whether its microphone is open
-        // here (no tray host may be there to show the dot).
-        let wake_detail = domain::voice::wake_detail(
-            here,
-            settings.wake_word,
-            crate::push_to_talk::wake_listening(cx),
-            crate::voice_tray::muted(cx),
-        );
-        let shortcuts = if here {
-            let (os, session) = crate::push_to_talk::platform();
-            shortcut_options(os, session).into_iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect()
+        // S-3 (WAKE DETAIL ×4): why the wake word is or is not listening:
+        // here from the worker, elsewhere from the voice device's doctor.
+        let wake_detail = if here {
+            crate::push_to_talk::own_wake_detail(settings, &device_name, cx)
+        } else if on_change.is_some() {
+            remote_wake_detail(settings, &device_name, cx)
         } else {
-            VOICE.shortcuts.iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect()
+            None
         };
+        let recorder = if here { recorder } else { ShortcutRecorder::default() };
+        let error = recorder.capture.as_ref().and_then(|capture| capture.error.clone());
+        let shortcut_row = v_flex()
+            .w_full()
+            .child(glass_picker_row(copy.push_to_talk.clone(), reason, recorder_control(&settings.ptt_shortcut, &recorder, cx), cx))
+            // feedback-states.json `errors`: invalid input inline under its field.
+            .when_some(error, |row, error| row.child(crate::action_error::field_error(error, cx).px_4().pb_3()));
         out.push(crate::surface::glass_section_header(tray_header(&device_name), None, cx).into_any_element());
         let tray_rows = {
             let tray = vec![
-                switch_row(
-                    "settings-voice-push-to-talk",
-                    &copy.push_to_talk,
-                    None,
-                    settings.push_to_talk,
-                    ready,
-                    toggle(Rc::new(|on| VoiceUpdate { push_to_talk: Some(on), ..Default::default() })),
-                    cx,
-                ),
-                picker_row(
-                    "settings-voice-shortcut",
-                    &copy.shortcut,
-                    reason,
-                    SharedString::from(shortcut_label),
-                    shortcuts,
-                    Some(settings.ptt_shortcut.clone()),
-                    send(Rc::new(|value| VoiceUpdate { ptt_shortcut: value, ..Default::default() })),
-                    cx,
-                ),
+                shortcut_row,
                 switch_row(
                     "settings-voice-wake-word",
                     &copy.wake_word,
@@ -460,9 +560,16 @@ pub struct VoicePrefsPane {
     /// #NEW-56: a too-short wake phrase, never sent: its line shows under
     /// the field until the next edit (`wakePhraseError`).
     wake_phrase_invalid: Option<SharedString>,
-    /// #NEW-86: the wake word's microphone and Mute as last drawn (the Wake
-    /// word row's detail); push to talk notifies far more often than that.
-    wake_drawn: (bool, bool),
+    /// S-3: the wake word's state as last drawn (the Wake word row's
+    /// detail); push to talk notifies far more often than that.
+    wake_drawn: Option<domain::voice::WakeState>,
+    /// S-3: the push-to-talk recorder while it records.
+    capture: Option<CaptureState>,
+    /// S-3: the recorder's key focus.
+    recorder_focus: Option<FocusHandle>,
+    /// S-3: the key-down interceptor while recording (bindings never fire).
+    _intercept: Option<gpui::Subscription>,
+    _recorder_blur: Option<gpui::Subscription>,
     /// S-3: drawn as the Assistant page's Voice section (no Voice device /
     /// Agent pickers).
     assistant_block: bool,
@@ -534,6 +641,11 @@ impl VoicePrefsPane {
         if let Some(speaker) = crate::speak_replies::entity(cx) {
             cx.observe(&speaker, |this: &mut Self, _, cx| this.on_speaker(cx)).detach();
         }
+        // S-3: on another desktop the Wake word row reads the voice
+        // device's doctor (`wake`).
+        if let Some(store) = sync::Store::try_global(cx) {
+            cx.observe(&store.collections().devices.clone(), |_: &mut Self, _, cx| cx.notify()).detach();
+        }
         // #NEW-86: the Wake word row's detail follows the microphone and Mute.
         if let Some(push_to_talk) = crate::push_to_talk::entity(cx) {
             cx.observe(&push_to_talk, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
@@ -551,7 +663,11 @@ impl VoicePrefsPane {
             in_flight: 0,
             seen: crate::speak_replies::settings(cx),
             wake_phrase_invalid: None,
-            wake_drawn: (crate::push_to_talk::wake_listening(cx), crate::voice_tray::muted(cx)),
+            wake_drawn: crate::push_to_talk::wake_state(cx),
+            capture: None,
+            recorder_focus: None,
+            _intercept: None,
+            _recorder_blur: None,
             assistant_block: false,
         }
     }
@@ -563,11 +679,95 @@ impl VoicePrefsPane {
     }
 
     fn on_wake(&mut self, cx: &mut gpui::Context<Self>) {
-        let now = (crate::push_to_talk::wake_listening(cx), crate::voice_tray::muted(cx));
+        let now = crate::push_to_talk::wake_state(cx);
         if now != self.wake_drawn {
             self.wake_drawn = now;
             cx.notify();
         }
+    }
+
+    /// S-3: one recorder input (voice.json `captureCases`).
+    fn on_recorder(&mut self, input: RecorderInput, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Load::Ready(settings) = &self.load else { return };
+        let current = settings.ptt_shortcut.clone();
+        match input {
+            RecorderInput::Start => {
+                if self.capture.is_some() {
+                    return;
+                }
+                let mut capture = capture_start(&current);
+                // Modifiers already held when the click lands count.
+                for event in modifier_events(&capture, window.modifiers()) {
+                    capture = capture_step(&capture, &event);
+                }
+                self.capture = Some(capture);
+                // While it records the IDE lets its own grab go.
+                crate::push_to_talk::set_recording(true, cx);
+                let focus = self.recorder_focus.get_or_insert_with(|| cx.focus_handle()).clone();
+                window.focus(&focus, cx);
+                self._recorder_blur = Some(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
+                let entity = cx.entity().downgrade();
+                self._intercept = Some(cx.intercept_keystrokes(move |event, window, cx| {
+                    let Some(entity) = entity.upgrade() else { return };
+                    if entity.read(cx).capture.is_none() {
+                        return;
+                    }
+                    cx.stop_propagation();
+                    let keystroke = event.keystroke.clone();
+                    entity.update(cx, |this, cx| this.on_keystroke(&keystroke, window, cx));
+                }));
+                cx.notify();
+            }
+            RecorderInput::Mouse(button) => self.capture_events(vec![CaptureEvent::Mouse(button)], cx),
+            RecorderInput::Modifiers(modifiers) => {
+                let Some(capture) = self.capture.as_ref() else { return };
+                let events = modifier_events(capture, modifiers);
+                self.capture_events(events, cx);
+            }
+            RecorderInput::Clear => {
+                self.stop_recording(cx);
+                self.apply(VoiceUpdate { ptt_shortcut: Some(String::new()), ..Default::default() }, cx);
+            }
+        }
+    }
+
+    /// S-3: a key-down while recording, as the grammar's key (the held
+    /// modifiers first, so `ctrl-k` records `ctrl+k` even when its
+    /// modifier change was not seen).
+    fn on_keystroke(&mut self, keystroke: &gpui::Keystroke, _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(capture) = self.capture.as_ref() else { return };
+        let Some((key, shifted)) = crate::push_to_talk::hotkey::grammar_key(&keystroke.key) else { return };
+        let mut modifiers = keystroke.modifiers;
+        modifiers.shift |= shifted;
+        let mut events = modifier_events(capture, modifiers);
+        events.push(CaptureEvent::Down(key));
+        self.capture_events(events, cx);
+    }
+
+    fn capture_events(&mut self, events: Vec<CaptureEvent>, cx: &mut gpui::Context<Self>) {
+        let Some(mut capture) = self.capture.take() else { return };
+        for event in &events {
+            capture = capture_step(&capture, event);
+        }
+        match capture.status {
+            CaptureStatus::Recording => self.capture = Some(capture),
+            CaptureStatus::Cancelled => self.stop_recording(cx),
+            CaptureStatus::Done => {
+                self.stop_recording(cx);
+                self.apply(VoiceUpdate { ptt_shortcut: Some(capture.value), ..Default::default() }, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// S-3: the recorder ends (done, cancelled, blurred): the grab is taken
+    /// again.
+    fn stop_recording(&mut self, cx: &mut gpui::Context<Self>) {
+        self.capture = None;
+        self._intercept = None;
+        self._recorder_blur = None;
+        crate::push_to_talk::set_recording(false, cx);
+        cx.notify();
     }
 
     fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
@@ -642,12 +842,6 @@ impl VoicePrefsPane {
         }
         if let Some(value) = update.agent_id.clone() {
             next.agent_id = value;
-        }
-        if let Some(value) = update.speak_replies {
-            next.speak_replies = value;
-        }
-        if let Some(value) = update.push_to_talk {
-            next.push_to_talk = value;
         }
         if let Some(value) = update.ptt_shortcut.clone() {
             next.ptt_shortcut = value;
@@ -811,7 +1005,16 @@ impl Render for VoicePrefsPane {
                     }
                 });
                 let meeting = MeetingRows { capability, apps, on_meeting: Some(on_meeting) };
-                let rows = voice_rows(&settings, &devices, &agents, inputs, meeting, Some(on_change), self.assistant_block, cx);
+                let entity = cx.entity();
+                let recorder_focus = self.recorder_focus.get_or_insert_with(|| cx.focus_handle()).clone();
+                let recorder = ShortcutRecorder {
+                    capture: self.capture.clone(),
+                    focus: Some(recorder_focus),
+                    on_input: Some(Rc::new(move |input, window, cx: &mut App| {
+                        entity.update(cx, |this, cx| this.on_recorder(input, window, cx));
+                    })),
+                };
+                let rows = voice_rows(&settings, &devices, &agents, inputs, meeting, recorder, Some(on_change), self.assistant_block, cx);
                 let count = rows.len();
                 for (index, row) in rows.into_iter().enumerate() {
                     // The wake phrase closes the tray group (the meeting
@@ -829,9 +1032,46 @@ impl Render for VoicePrefsPane {
     }
 }
 
+/// S-3: the recorder events that bring `capture`'s held modifiers to
+/// `modifiers` (gpui's `platform` = the grammar's `super`).
+fn modifier_events(capture: &CaptureState, modifiers: Modifiers) -> Vec<CaptureEvent> {
+    [("ctrl", modifiers.control), ("alt", modifiers.alt), ("shift", modifiers.shift), ("super", modifiers.platform)]
+        .into_iter()
+        .filter_map(|(name, down)| {
+            let held = capture.held.iter().any(|held| held == name);
+            match (held, down) {
+                (false, true) => Some(CaptureEvent::Down(name.to_string())),
+                (true, false) => Some(CaptureEvent::Up(name.to_string())),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Field;
+    use super::{modifier_events, Field};
+    use domain::voice::{capture_pending, capture_start, capture_step, CaptureEvent, CaptureStatus};
+
+    /// S-3: gpui's modifier changes fold into the recorder like the
+    /// fixture's `down` / `up` events.
+    #[test]
+    fn modifier_changes_feed_the_recorder() {
+        let held = gpui::Modifiers { control: true, shift: true, ..Default::default() };
+        let mut capture = capture_start("ctrl+space");
+        for event in modifier_events(&capture, held) {
+            capture = capture_step(&capture, &event);
+        }
+        assert_eq!(capture_pending(&capture), "Ctrl + Shift + …");
+        assert!(modifier_events(&capture, held).is_empty(), "nothing changed");
+        let events = modifier_events(&capture, gpui::Modifiers { control: true, ..Default::default() });
+        assert_eq!(events, vec![CaptureEvent::Up("shift".into())]);
+        let mut capture = events.iter().fold(capture, |capture, event| capture_step(&capture, event));
+        capture = capture_step(&capture, &CaptureEvent::Down("k".into()));
+        assert_eq!((capture.status, capture.value.as_str()), (CaptureStatus::Done, "ctrl+k"));
+        let platform = modifier_events(&capture_start(""), gpui::Modifiers { platform: true, ..Default::default() });
+        assert_eq!(platform, vec![CaptureEvent::Down("super".into())]);
+    }
 
     #[test]
     fn typed_cursor_stays_where_the_user_was() {

@@ -24,6 +24,7 @@ mod choice_tiles;
 mod fades;
 mod feedback;
 mod inputs;
+mod kbd;
 pub mod markdown;
 mod meter;
 mod pills;
@@ -33,7 +34,7 @@ mod voice_wave;
 
 pub use animation::{until_next_step, SteppedAnimationElement, SteppedAnimationExt, SMOOTH_STEP};
 pub use buttons::{
-    custom_variant_fill, ghost_icon_button, glass_icon_button, text_button, web_switch,
+    call_button, custom_variant_fill, ghost_icon_button, CallSize, CallTone, glass_icon_button, text_button, web_switch,
     TextButtonVariant, CUSTOM_VARIANT_ALPHA_FACTOR,
 };
 pub use choice_tiles::{
@@ -47,6 +48,7 @@ pub use inputs::{
     checkbox, glass_input, search_field, web_textarea, CheckState, SearchFieldSize,
     CHECKBOX_PX, CHECKBOX_RADIUS_PX, SEARCH_FIELD_SM_H,
 };
+pub use kbd::{kbd, kbd_group, KBD_GAP, KBD_H, KBD_PAD_X};
 pub use markdown::{bare_code_markdown_style, markdown_style, markdown_view};
 pub use meter::{context_ring, meter};
 pub use pills::{
