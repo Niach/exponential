@@ -87,7 +87,7 @@ const device: SteerDevice = {
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
-    agents: { claude: { planMode: true } },
+    agents: { claude: {} },
   },
 }
 
@@ -179,7 +179,6 @@ describe(`buildSendInput`, () => {
     model: `opus`,
     effort: ``,
     ultracode: false,
-    planMode: true,
     account: `work`,
     mcpServerIds: [`m1`],
   }
@@ -201,7 +200,6 @@ describe(`buildSendInput`, () => {
       cli: `claude`,
       account: `work`,
       model: `opus`,
-      planMode: true,
       ultracode: false,
       mcpServerIds: [`m1`],
       issueIds: [`i1`, `i2`],

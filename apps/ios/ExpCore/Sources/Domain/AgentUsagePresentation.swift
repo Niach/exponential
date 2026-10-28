@@ -424,7 +424,10 @@ public enum AgentUsagePresentation {
     ) -> String? {
         guard let blocked else { return nil }
         let kind = blocked.kind ?? "rate_limit"
-        // NEW-1: a watchdog flag (device offline, not picked up, stuck)
+        // S-3: an interruption (device offline, runner restarted) is
+        // invisible: no badge.
+        if kind == "device_offline" || kind == "restarted" { return nil }
+        // NEW-1: a watchdog flag (not picked up, stuck)
         // names itself with the session card's word
         // (`SessionTree.CardCopy.blockedKinds`); it has no reset to count
         // down to.

@@ -85,7 +85,6 @@ struct DeviceSettingsSheet: View {
         var subagentModel: String
         var effort: String
         var ultracode: Bool
-        var planMode: Bool
         /// EXP-1005: claude's auto-rotate toggle as the row advertises it
         /// (nil = absent = ON). Echoed verbatim on a save until edited, so
         /// the whole-object replace never drops it.
@@ -305,7 +304,6 @@ struct DeviceSettingsSheet: View {
             ),
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
-            planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false),
             autoRotateAccounts: advertised?.autoRotateAccounts
         )
     }
@@ -666,7 +664,6 @@ struct DeviceSettingsSheet: View {
             threadModel: draftBinding(\.threadModel),
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
-            planMode: draftBinding(\.planMode),
             autoRotateAccounts: autoRotateBinding,
             footerNote: device.isOnline ? nil : "Applies when the device comes online."
         )
@@ -726,7 +723,6 @@ struct DeviceSettingsSheet: View {
                 threadModel: draft.threadModel,
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
-                planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil,
                 // EXP-1082 §6: echoed verbatim until edited (see the draft).
                 autoRotateAccounts: draft.autoRotateAccounts
             )

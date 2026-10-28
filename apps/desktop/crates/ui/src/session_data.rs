@@ -1221,6 +1221,9 @@ pub(crate) struct LiveRootRow {
     /// Every session of the tree — the row stays lit while one is on screen
     /// (a child row: itself only).
     pub(crate) session_ids: Vec<String>,
+    /// S-3: the tree's fold row (`<root>:earlier`) = how many sub-sessions
+    /// it hides; it opens the thread.
+    pub(crate) earlier: Option<usize>,
 }
 
 /// Pure core of [`live_roots_for_rail`]: the contract's `railThreads` over
@@ -1236,7 +1239,9 @@ pub(crate) fn live_roots_from(
     })
     .into_iter()
     .map(|row| {
-        let session_ids = if row.depth > 0 {
+        let session_ids = if row.earlier.is_some() {
+            Vec::new()
+        } else if row.depth > 0 {
             vec![row.session_id.clone()]
         } else {
             let tree: Vec<&SessionRow> = sessions
@@ -1257,6 +1262,7 @@ pub(crate) fn live_roots_from(
             busy: row.busy,
             needs_you: row.needs_you,
             device_id: row.device_id,
+            earlier: row.earlier,
         }
     })
     .collect()
@@ -1404,6 +1410,7 @@ mod tests {
                     needs_you: false,
                     unread: false,
                     activity_at: String::new(),
+                    earlier: None,
                 })
                 .collect(),
         };
@@ -1442,6 +1449,7 @@ mod tests {
                 needs_you: false,
                 unread: false,
                 activity_at: String::new(),
+                earlier: None,
             }],
         };
         assert_eq!(threads_badge_of(&[]), (false, false));

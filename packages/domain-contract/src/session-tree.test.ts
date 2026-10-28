@@ -32,21 +32,17 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(sessionCard(session, title, now)).toEqual(entry.expected as never)
     })
   }
-  test(`session card: a blocked session names its kind (copy.blockedKinds)`, () => {
-    const base = card.cases.find((entry) => entry.expected.state === `blocked`)!.input as never as {
+  test(`session card: a flagged session that needs you names its kind (copy.blockedKinds)`, () => {
+    const base = card.cases.find((entry) => entry.expected.kindWord === `Usage limit`)!.input as never as {
       session: Record<string, unknown>
       title: string
       now: string
     }
     const word = (blocked: Record<string, unknown>) =>
       sessionCard({ ...base.session, blocked } as never, base.title, base.now).kindWord
-    for (const [kind, text] of Object.entries(card.copy.blockedKinds)) {
-      // EXP-1374: an interruption reads its own word, not the blocked one.
-      const interrupted = (card.copy.interruptedKinds as Record<string, string>)[kind]
-      expect(word({ kind })).toBe(interrupted ?? text)
-    }
-    expect(word({ kind: `future_kind` })).toBe(card.copy.states.blocked)
-    expect(word({ window: `weekly` })).toBe(card.copy.states.blocked)
+    for (const [kind, text] of Object.entries(card.copy.blockedKinds)) expect(word({ kind })).toBe(text)
+    expect(word({ kind: `future_kind` })).toBe(card.copy.states.needs_you)
+    expect(word({ window: `weekly` })).toBe(card.copy.states.needs_you)
   })
   for (const entry of card.bannerCases) {
     test(`session banner: ${entry.name}`, () => {

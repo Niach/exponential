@@ -56,7 +56,6 @@ export const CHAT_SELECTION_ICONS: Record<ChatSelectionAction, ReturnType<typeof
   markUnread: conceptIcon(`ui-mark-unread`),
   archive: ArchiveIcon,
   unarchive: conceptIcon(`ui-unarchive`),
-  stop: conceptIcon(`coding-stop`),
   delete: conceptIcon(`ui-delete`),
 }
 
@@ -338,6 +337,10 @@ export function ChatRow({
       aria-pressed={selecting ? selected : undefined}
       {...menuProps(`thread`, row.sessionId)}
       {...props}
+      // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed as
+      // a whole at `shell.dimOpacity`.
+      data-dim={row.dim || undefined}
+      style={row.dim ? { ...props.style, opacity: CHATS_SHELL.dimOpacity } : props.style}
       // Shift-click ranges: never the browser's text selection.
       onMouseDown={(event) => {
         if (event.shiftKey) event.preventDefault()

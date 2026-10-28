@@ -30,10 +30,10 @@ import type { Tx } from "@/lib/sessions/tx"
 //   S opened a PR       → event `pr_opened`                wakes
 //   S ended / died      → `report` card (its summary)      wakes
 //   S claimed           → event `session_claimed`          no
-//   watchdog            → `session_unclaimed`/`session_stuck` wake,
-//                         `device_offline`/`session_interrupted` no
-//                         (EXP-1374: an interruption continues by itself;
-//                         `session_interrupted` wakes once it did not)
+//   watchdog            → `session_unclaimed`/`session_stuck` wake;
+//                         S-3: an interruption (device_offline, restarted)
+//                         posts nothing (it continues by itself);
+//                         `session_interrupted` wakes once it did not
 //
 // With nobody listening (a root without watchers) a line lands on S
 // itself, pre-consumed, so a person still sees it.
@@ -316,10 +316,6 @@ export const BUS_COPY = {
   // gate or spec run is the normal case and killing one costs real work.
   session_stuck: (silent: number) =>
     `No sign of life for ${silent} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.`,
-  device_offline: `Interrupted: its device went offline. It continues by itself when the device is back.`,
-  session_interrupted: `Interrupted: its runner restarted mid-turn. It continues by itself.`,
-  // NEW-17: the device said the run's process was killed (OOM, a crash).
-  session_lost: `Interrupted: its process was killed mid-turn (out of memory or a crash on its device). It continues by itself.`,
   session_unresumed: `Interrupted ${minutes.resumeMinutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.`,
   pr_opened: (number: number, url: string) => `Opened PR #${number}: ${url}`,
 } as const
@@ -335,7 +331,6 @@ export async function busLine(
     | `session_blocked`
     | `session_unclaimed`
     | `session_stuck`
-    | `device_offline`
     | `session_interrupted`
     | `pr_opened`
   >,

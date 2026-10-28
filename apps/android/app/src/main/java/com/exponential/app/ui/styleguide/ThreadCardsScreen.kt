@@ -194,7 +194,7 @@ private fun specimenCard(id: String, name: String, state: SessionTree.SessionSta
         state = state,
         tone = SessionTree.CardCopy.TONES.getValue(state),
         elapsed = elapsed,
-        running = state == SessionTree.SessionState.Working || state == SessionTree.SessionState.Background,
+        running = state == SessionTree.SessionState.Working,
         testId = SessionTree.CardCopy.TEST_ID_CARD,
     )
 
@@ -239,7 +239,7 @@ private fun SuggestionsSpecimens() {
                     title = "Lazy-load product images",
                     text = "Below-the-fold images load late.",
                     state = SessionTree.SuggestionState.Started,
-                    card = specimenCard("c2", "Lazy-load product images", SessionTree.SessionState.Ended, "3m 00s"),
+                    card = specimenCard("c2", "Lazy-load product images", SessionTree.SessionState.Done, "3m 00s"),
                     issueId = null,
                     identifier = null,
                 ),

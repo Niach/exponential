@@ -719,15 +719,7 @@ export const sessionsRouter = router({
               updatedAt: now,
             })
             .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
-          if (midTurn && flaggable) {
-            await busLine(
-              tx,
-              session,
-              `session_interrupted`,
-              lost === `process_lost` ? BUS_COPY.session_lost : BUS_COPY.session_interrupted,
-              { waking: false }
-            )
-          }
+          // S-3: the interruption is silent (no bus line ×4).
           return txid
         })
         return { txid }

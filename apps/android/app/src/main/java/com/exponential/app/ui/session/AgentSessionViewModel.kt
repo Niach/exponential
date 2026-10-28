@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.Chats
 import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
@@ -1223,8 +1224,11 @@ class AgentSessionViewModel @AssistedInject constructor(
      * back into the composer first ([stopHandingBackQueue]), the same
      * hand-back the relay's interrupt does, and come back out on a failure.
      */
-    fun stopSession() = sessionCall("Couldn't stop the session") { accountId ->
-        stopHandingBackQueue(connection) { sessionsApi.stop(accountId, codingSessionId) }
+    fun stopSession() = sessionCall(Chats.Copy.STOP_TURN_FAILED) { accountId ->
+        var delivered = true
+        stopHandingBackQueue(connection) { delivered = sessionsApi.stop(accountId, codingSessionId).delivered }
+        // chats.json `copy.stopTurn.notDelivered`: the relay reached no device.
+        if (!delivered) _killError.value = Chats.Copy.STOP_TURN_NOT_DELIVERED
     }
 
     /** End the session for good (`sessions.end`; a root ends its tree). */

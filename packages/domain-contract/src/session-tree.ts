@@ -119,35 +119,54 @@ export function formatElapsed(durationMs: number): string {
   return `${seconds}s`
 }
 
-export type SessionState =
-  | `queued`
-  | `working`
-  | `background`
-  | `waiting`
-  | `needs_you`
-  | `interrupted`
-  | `blocked`
-  | `ended`
+/** S-3 (owner 2026-10-28): the FOUR display states ×4, nothing else (no
+ *  running, paused, interrupted or stale in the UI). `working` = queued or
+ *  busy (background tasks included); `needs_you` = needsInput (a card, a
+ *  usage wall, an unclaimed/stuck flag); `done` = ended; `idle` = the rest
+ *  (a started session between turns, an interruption: device_offline and
+ *  restarted are invisible). */
+export type SessionState = `working` | `needs_you` | `idle` | `done`
 
-/** EXP-1374: the blocked kinds that INTERRUPT a run (never on a person;
- *  its device continues it by itself), `copy.interruptedKinds`' keys. */
-export function isInterruption(blocked: TreeSession[`blocked`]): boolean {
-  const kind = blocked?.kind
-  return !!kind && Object.hasOwn(SESSION_CARD_COPY.interruptedKinds, kind)
+/** One state per session, the card's kind word and tone. */
+export function sessionState(
+  session: Pick<TreeSession, `status` | `needsInput` | `busy`>
+): SessionState {
+  if (session.status === `ended`) return `done`
+  if (session.needsInput) return `needs_you`
+  if (session.status === `queued` || session.busy) return `working`
+  return `idle`
 }
 
-/** One state word per session, the card's kind word and tone. */
-export function sessionState(
-  session: Pick<TreeSession, `status` | `needsInput` | `blocked` | `busy` | `background`>
-): SessionState {
-  if (session.status === `ended`) return `ended`
-  if (session.needsInput) return `needs_you`
-  if (isInterruption(session.blocked)) return `interrupted`
-  if (session.blocked) return `blocked`
-  if (session.status === `queued`) return `queued`
-  if (session.busy && session.background) return `background`
-  if (session.busy) return `working`
-  return `waiting`
+/** S-3: a NESTED session (a child row, a strip chip) shows while it works or
+ *  needs you, or while its last activity (ended: endedAt, else updatedAt) is
+ *  within `threads-list.json` `recentChildMinutes` of `now` (null = never). */
+export function visibleChild(
+  session: Pick<TreeSession, `status` | `needsInput` | `busy` | `endedAt` | `updatedAt`>,
+  now: string | null | undefined
+): boolean {
+  const state = sessionState(session)
+  if (state === `working` || state === `needs_you`) return true
+  const at = ms(now)
+  const last = state === `done` ? ms(session.endedAt) ?? ms(session.updatedAt) : ms(session.updatedAt)
+  return at !== null && last !== null && at - last <= listFixture.recentChildMinutes * 60 * 1000
+}
+
+/** S-3: the ids of a tree's sessions that show nested: `visibleChild` or an
+ *  ancestor of one (a working grandchild keeps its idle parent). */
+export function visibleTree(tree: readonly TreeSession[], now: string | null | undefined): Set<string> {
+  const byId = new Map(tree.map((s) => [s.id, s]))
+  const out = new Set<string>()
+  for (const session of tree) {
+    if (!visibleChild(session, now)) continue
+    let at: TreeSession | undefined = session
+    const seen = new Set<string>()
+    while (at && !seen.has(at.id)) {
+      seen.add(at.id)
+      out.add(at.id)
+      at = at.parentId ? byId.get(at.parentId) : undefined
+    }
+  }
+  return out
 }
 
 /** Sessions of one tree in creation order (ties by id). */
@@ -171,16 +190,10 @@ export interface SessionCard {
   testId: string
 }
 
-/** NEW-1: the card's state word; a blocked session names WHY
- *  (`copy.blockedKinds[blocked.kind]`, an unknown kind = `states.blocked`). */
+/** NEW-1: the card's state word; a session that needs you because of a
+ *  flag names WHY (`copy.blockedKinds[blocked.kind]`). */
 export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: SessionState): string {
-  // #EXP-1405: a queued row names what it waits for (its device).
-  if (state === `queued`) return SESSION_CARD_COPY.queuedKind
-  if (state === `interrupted`) {
-    const word = (SESSION_CARD_COPY.interruptedKinds as Record<string, string>)[session.blocked?.kind ?? ``]
-    if (word) return word
-  }
-  if (state === `blocked`) {
+  if (state === `needs_you`) {
     const kind = session.blocked?.kind
     const word = kind ? (SESSION_CARD_COPY.blockedKinds as Record<string, string>)[kind] : undefined
     if (word) return word
@@ -190,9 +203,9 @@ export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: Se
 
 /**
  * THE session card = the Work card's header row (EXP-1240): icon, name,
- * the muted state word, trailing elapsed, a spinner while `running`. Tapping
- * it opens that session's raw view. `title` = its `sessionTitle` (EXP-1341,
- * fixtures/session-title.json; never `Session N`).
+ * the muted state word, trailing elapsed (working and done only), a spinner
+ * while `running` (= working). Tapping it opens that session's raw view.
+ * `title` = its `sessionTitle` (EXP-1341, fixtures/session-title.json).
  */
 export function sessionCard(
   session: TreeSession,
@@ -201,9 +214,13 @@ export function sessionCard(
 ): SessionCard {
   const state = sessionState(session)
   const start = ms(session.startedAt)
-  const end = state === `ended` ? ms(session.endedAt) ?? ms(session.updatedAt) : ms(now)
-  const elapsed =
-    start !== null && end !== null && state !== `queued` ? formatElapsed(end - start) : null
+  const end =
+    state === `done`
+      ? ms(session.endedAt) ?? ms(session.updatedAt)
+      : state === `working` && session.status !== `queued`
+        ? ms(now)
+        : null
+  const elapsed = start !== null && end !== null ? formatElapsed(end - start) : null
   return {
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
@@ -212,16 +229,16 @@ export function sessionCard(
     state,
     tone: cardFixture.tones[state],
     elapsed,
-    running: state === `working` || state === `background`,
+    running: state === `working`,
     testId: cardFixture.testIds.card,
   }
 }
 
-/** EXP-1374: the Dock card of an interrupted or background session, and
- *  (#EXP-1405) of a queued one waiting for its device (a dock.json `banner`
- *  source without its `kind`), null otherwise. */
+/** EXP-1374: the Dock card of a background session, and (#EXP-1405) of a
+ *  queued one waiting for its device (a dock.json `banner` source without
+ *  its `kind`), null otherwise. S-3: an interruption has no card. */
 export interface SessionBanner {
-  id: `interrupted` | `background` | `queued`
+  id: `background` | `queued`
   icon: string
   label: string
   text: string
@@ -230,32 +247,19 @@ export interface SessionBanner {
 }
 
 export function sessionBanner(
-  session: Pick<TreeSession, `status` | `needsInput` | `blocked` | `busy` | `background`>
+  session: Pick<TreeSession, `status` | `needsInput` | `busy` | `background`>
 ): SessionBanner | null {
-  const state = sessionState(session)
-  if (state === `interrupted`) {
-    const text = (cardFixture.banner.interrupted as Record<string, string>)[session.blocked?.kind ?? ``]
-    if (!text) return null
-    return {
-      id: state,
-      icon: SESSION_CARD_ICONS.interrupted,
-      label: SESSION_CARD_COPY.states.interrupted,
-      text,
-      tone: `muted`,
-      action: null,
-    }
+  if (session.status === `ended` || session.needsInput) return null
+  const id = session.status === `queued` ? `queued` : session.busy && session.background ? `background` : null
+  if (!id) return null
+  return {
+    id,
+    icon: cardFixture.bannerIcons[id],
+    label: cardFixture.bannerLabels[id],
+    text: cardFixture.banner[id],
+    tone: `muted`,
+    action: null,
   }
-  if (state === `background` || state === `queued`) {
-    return {
-      id: state,
-      icon: SESSION_CARD_ICONS[state],
-      label: SESSION_CARD_COPY.states[state],
-      text: cardFixture.banner[state],
-      tone: `muted`,
-      action: null,
-    }
-  }
-  return null
 }
 
 /** NEW-1: a thread's issues = the UNION over its tree's rows: the sessions
@@ -286,15 +290,13 @@ export function treeIssues(
   return out
 }
 
-/** A session chip's lead ×4: the thread row mark of THAT session, `ended`
- *  once it ended. */
-export type SessionTabMarkState = ReturnType<typeof threadRowMarkState> | `ended`
+/** A session chip's lead ×4: THAT session's display state (S-3). */
+export type SessionTabMarkState = SessionState
 
 export function sessionTabMarkState(
   session: Pick<TreeSession, `status` | `busy` | `needsInput`>
 ): SessionTabMarkState {
-  if (session.status === `ended`) return `ended`
-  return threadRowMarkState({ needsYou: session.needsInput, busy: session.busy })
+  return sessionState(session)
 }
 
 /** EXP-1334: one row of a folded chip's subtree (the chip's dropdown =
@@ -866,8 +868,11 @@ export function buildSessionThread(input: {
   // top-level ancestor (the chip's dropdown).
   const nameOf = (s: TreeSession) => sessionCard(s, titles.get(s.id) ?? ``, now).name
   const treeIds = new Set(tree.map((s) => s.id))
+  // S-3: only the VISIBLE sessions get chips (`visibleTree`), the focused
+  // one always; the rest stay reachable through their cards.
+  const shown = visibleTree(tree.filter((s) => s.id !== root.id), now)
   const sessionTabs: ThreadTab[] = foldForest(
-    tree.filter((s) => s.id !== root.id),
+    tree.filter((s) => s.id !== root.id && (shown.has(s.id) || s.id === focus?.id)),
     (s) => s.id,
     (s) => (s.parentId === root.id || !s.parentId || !treeIds.has(s.parentId) ? null : s.parentId)
   ).map(({ top, nested }) => ({
@@ -1085,6 +1090,18 @@ export interface ThreadsListRow {
    *  newer than the viewer's read of the root; a child: its own). */
   unread: boolean
   activityAt: string
+  /** S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
+   *  muted list-item row; opens the thread) = how many sub-sessions it hides. */
+  earlier?: number
+}
+
+/** S-3: the fold row's id suffix and its label (`copy.earlier`). */
+export const EARLIER_SUFFIX = `:earlier`
+export function earlierLabel(count: number): string {
+  return (count === 1 ? THREADS_LIST_COPY.earlier.one : THREADS_LIST_COPY.earlier.other).replace(
+    `{n}`,
+    String(count)
+  )
 }
 
 /** EXP-1312: a thread row's lead outside the Threads tab (home Running band,
@@ -1115,31 +1132,26 @@ export interface ThreadsListGroup {
   rows: ThreadsListRow[]
 }
 
-export type TreeState = `needs_you` | `running` | `done` | `stale` | `idle`
-
-export const TREE_STATE_RULES = listFixture.treeState
+/** S-3: a tree's display state = the session's four (`SessionState`). */
+export type TreeState = SessionState
 
 /**
- * NEW-1 (plan 3.13): a tree's derived state. `needs_you` = a live session
- * waits on a person (`needsInput`, a usage wall or a watchdog flag included);
- * `running` = any session queued or running; `done` = every session ended
- * and every PR of the thread merged (none = never done); `stale` = nothing
- * live touched for `treeState.staleHours`; else `idle`.
+ * NEW-1 / S-3: a tree's derived state. `needs_you` = a live session waits on
+ * a person (`needsInput`, a usage wall or a watchdog flag included);
+ * `working` = any live session queued or busy; `done` = every session ended,
+ * or every PR of the thread merged (none = never done this way); else
+ * `idle`. `now` is kept for the signature (no stale state any more).
  */
 export function treeState(
   tree: readonly TreeSession[],
   pullRequests: readonly Pick<TreePullRequest, `id` | `state`>[],
-  now: string
+  _now: string
 ): TreeState {
   const live = tree.filter((s) => s.status !== `ended`)
   if (live.some((s) => s.needsInput)) return `needs_you`
-  if (live.some((s) => s.status === `queued` || s.status === `running`)) return `running`
-  if (live.length === 0 && pullRequests.length > 0 && pullRequests.every((pr) => pr.state === `merged`)) {
-    return `done`
-  }
-  const newest = tree.reduce((latest, s) => Math.max(latest, ms(s.updatedAt) ?? 0), 0)
-  const at = ms(now)
-  if (at !== null && at - newest > TREE_STATE_RULES.staleHours * 60 * 60 * 1000) return `stale`
+  if (live.some((s) => s.status === `queued` || s.busy)) return `working`
+  if (live.length === 0) return `done`
+  if (pullRequests.length > 0 && pullRequests.every((pr) => pr.state === `merged`)) return `done`
   return `idle`
 }
 
@@ -1203,7 +1215,7 @@ export function partitionThreads(input: {
     const tree = byRoot.get(root.id) ?? [root]
     const live = tree.filter((s) => s.status !== `ended`)
     const needsYou = live.some((s) => s.needsInput)
-    const running = live.some((s) => s.status === `queued` || s.status === `running`)
+    const running = live.some((s) => s.status === `queued` || s.busy)
     const activity = tree.reduce(
       (latest, s) => ((ms(s.updatedAt) ?? 0) > (ms(latest) ?? 0) ? s.updatedAt : latest),
       root.updatedAt
@@ -1223,14 +1235,17 @@ export function partitionThreads(input: {
       activityAt: activity,
     }
     const key = needsYou ? `needs_you` : running ? `running` : `recent`
-    // A live tree nests its children (depth-first, creation order); Recent
-    // collapses to the root.
+    // A live tree nests its VISIBLE children (S-3 `visibleTree`: working,
+    // needs you or active within `recentChildMinutes`; depth-first, creation
+    // order), the rest fold into ONE `earlier` row; Recent collapses to the
+    // root.
     const children: ThreadsListRow[] = []
     if (key !== `recent`) {
       const ordered = treeOrder(tree)
+      const shown = visibleTree(ordered.filter((s) => s.id !== root.id), input.now)
       const walk = (parentId: string, depth: number) => {
         for (const child of ordered) {
-          if (child.parentId !== parentId) continue
+          if (child.parentId !== parentId || !shown.has(child.id)) continue
           const card = sessionCard(
             child,
             sessionTitle(child, input.sessionIssues, input.issues, input.messages),
@@ -1253,6 +1268,26 @@ export function partitionThreads(input: {
         }
       }
       walk(root.id, 1)
+      const hidden = ordered.filter((s) => s.id !== root.id && !shown.has(s.id))
+      if (hidden.length > 0) {
+        children.push({
+          sessionId: `${root.id}${EARLIER_SUFFIX}`,
+          teamId: root.teamId,
+          depth: 1,
+          parentId: root.id,
+          rootId: root.id,
+          title: earlierLabel(hidden.length),
+          deviceId: null,
+          busy: false,
+          needsYou: false,
+          unread: false,
+          activityAt: hidden.reduce(
+            (latest, s) => ((ms(s.updatedAt) ?? 0) > (ms(latest) ?? 0) ? s.updatedAt : latest),
+            hidden[0].updatedAt
+          ),
+          earlier: hidden.length,
+        })
+      }
     }
     buckets[key].push({ row, children })
   }

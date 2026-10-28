@@ -614,10 +614,8 @@ fn pickup_deps(device_id: &str, sessions: &[SessionRow], cx: &mut App) -> Option
     let coding = coding_flow::build_coding_deps(cx)?;
     let settings = coding.settings.clone();
     // The host defaults under every row's pickers; the row decides plan
-    // mode (the daemon's rule: an unattended start never parks unless it
-    // asked to).
-    let mut options = coding::LaunchOptions::defaults_for(&settings, settings.default_agent);
-    options.plan_mode = false;
+    // mode (S-3: the defaults never carry one).
+    let options = coding::LaunchOptions::defaults_for(&settings, settings.default_agent);
     let mut identifiers: HashMap<String, Vec<String>> = HashMap::new();
     for row in sessions {
         let root_id = row.root_id_or_self().to_string();

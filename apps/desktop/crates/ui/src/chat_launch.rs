@@ -126,7 +126,8 @@ pub(crate) fn send_input(
         account: options.account.clone(),
         model: Some(options.model.clone()).filter(|model| !model.is_empty()),
         effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
-        plan_mode: Some(options.plan_mode),
+        // S-3: no plan toggle (contract launchKeys has no planMode): never sent.
+        plan_mode: None,
         // EXP-1249: `None` = the target's own switch.
         computer_use: options.computer_use,
         ultracode: options.ultracode.then_some(true),
@@ -403,7 +404,7 @@ mod tests {
         assert_eq!(issues.cli.as_deref(), Some("claude"));
         assert_eq!(issues.model.as_deref(), Some("opus"));
         assert_eq!(issues.effort, None, "blank effort is omitted");
-        assert_eq!(issues.plan_mode, Some(true));
+        assert_eq!(issues.plan_mode, None, "S-3: plan mode is never sent");
         assert_eq!(issues.text.as_deref(), Some("mind the retry"));
         assert_eq!(issues.attachment_ids, Some(vec!["att-1".to_string()]));
         assert_eq!(issues.issue_ids, Some(vec!["i-1".to_string(), "i-2".to_string()]));

@@ -13,7 +13,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1175`,
   title: `Run status row`,
-  blurb: `The status row over a session's raw work (the session view, opened from its session card): the session mark as the spinner, the session card's state word in its tone (\`Working\`, \`Needs you\` amber, \`Usage limit\` amber, \`Ended\`), the last tool line muted under it (live only), and before the first turn THE mark over \`Starting on <device>\`. EXP-1293: no Show work toggle, the view always shows the work.`,
+  blurb: `The status row over a session's raw work (the session view, opened from its session card): the session mark as the spinner, the session card's state word in its tone (\`Working\`, \`Needs you\` amber, \`Usage limit\` amber, \`Done\`), the last tool line muted under it (live only), and before the first turn THE mark over \`Starting on <device>\`. EXP-1293: no Show work toggle, the view always shows the work.`,
   status: {
     web: {
       state: `ok`,
@@ -52,7 +52,7 @@ export const entry: StyleguideEntry = {
         tone="amber"
         toolLine="Bash ./gradlew :app:startupProfile --variant=release"
       />
-      <RunStatusRow agent="codex" markState="ended" caption="Ended" tone="muted" />
+      <RunStatusRow agent="codex" markState="ended" caption="Done" tone="muted" />
     </div>
   ),
 }

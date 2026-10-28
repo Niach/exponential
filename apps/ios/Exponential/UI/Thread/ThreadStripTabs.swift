@@ -466,7 +466,7 @@ enum ThreadStripMetrics {
 
 /// A session chip's lead (`sessionTabMarkState` ×4): the working mark while
 /// it works, the brand mark amber-badged when it needs you, the bare mark
-/// while it waits, dimmed once it ended.
+/// while idle, dimmed once done (S-3).
 struct ThreadSessionChipMark: View {
     let state: SessionState
 
@@ -482,7 +482,7 @@ struct ThreadSessionChipMark: View {
                         .frame(width: 6, height: 6)
                         .offset(x: 2, y: -2)
                 }
-        case .ended:
+        case .done:
             BeatingAgentMark(agent: nil, beating: false)
                 .opacity(0.5)
         default:
@@ -593,7 +593,7 @@ struct ChatHeaderTitle: View {
     var agentIcon: String?
     var agentColor: String?
     var cli: String?
-    var mark: SessionState = .waiting
+    var mark: ThreadRowMark = .waiting
 
     var body: some View {
         HStack(spacing: 10) {

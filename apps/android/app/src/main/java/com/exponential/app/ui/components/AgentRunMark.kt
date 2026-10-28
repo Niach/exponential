@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.R
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.session.rememberWorkingMarkPulse
 import com.exponential.app.ui.theme.LocalReduceMotion
 import kotlinx.coroutines.delay
@@ -107,7 +106,6 @@ fun AgentWorkingMark(
 /** The badge colour each parked state wears; null = no badge. */
 internal fun runMarkBadgeColor(state: SessionTree.SessionState?): Color? = when (state) {
     SessionTree.SessionState.NeedsYou -> NeedsInputAmber
-    SessionTree.SessionState.Blocked -> DesignTokens.Semantic.Red
     else -> null
 }
 
@@ -116,10 +114,10 @@ internal const val RUN_MARK_ENDED_ALPHA = 0.5f
 
 /**
  * A session's mark, wherever one is named (EXP-1291: keyed by the ×4
- * [SessionTree.SessionState]): Working = the agent's working mark, no badge;
- * NeedsYou / Blocked = the brand mark with an amber / rose badge at its top
- * end corner; Queued / Waiting / null = the bare mark; Ended (or [ended]) =
- * the brand mark dimmed, no badge.
+ * [SessionTree.SessionState], S-3's four): Working = the agent's working
+ * mark, no badge; NeedsYou = the brand mark with an amber badge at its top
+ * end corner; Idle / null = the bare mark; Done (or [ended]) = the brand
+ * mark dimmed, no badge.
  */
 @Composable
 fun AgentRunMark(
@@ -128,7 +126,7 @@ fun AgentRunMark(
     size: Dp,
     badgeSize: Dp,
     modifier: Modifier = Modifier,
-    ended: Boolean = state == SessionTree.SessionState.Ended,
+    ended: Boolean = state == SessionTree.SessionState.Done,
 ) {
     val id = agent.orEmpty()
     if (ended) {
@@ -144,8 +142,8 @@ fun AgentRunMark(
         return
     }
     Box(modifier = modifier.size(size).testTag("run-mark")) {
-        // EXP-1374: background tasks still run = running too.
-        if (state == SessionTree.SessionState.Working || state == SessionTree.SessionState.Background) {
+        // EXP-1374: background tasks still run = working too.
+        if (state == SessionTree.SessionState.Working) {
             AgentWorkingMark(id, size)
         } else {
             Icon(

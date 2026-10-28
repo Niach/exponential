@@ -227,20 +227,14 @@ pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) 
 }
 
 /// EXP-1184 — a session state's corner badge (web `RUN_MARK_BADGE_CLASS`),
-/// in the ONE session-dot palette: amber needs you, red blocked, blue ended;
-/// working, queued and waiting wear none (EXP-1294: the session-card states).
+/// in the ONE session-dot palette: amber needs you, blue done; working and
+/// idle wear none (S-3: the four session-card states).
 pub(crate) fn run_badge_color(state: domain::session_tree::SessionState) -> Option<gpui::Hsla> {
     use domain::session_tree::SessionState;
     match state {
-        // EXP-1374: background spins like working; an interruption is muted.
-        SessionState::Queued
-        | SessionState::Working
-        | SessionState::Background
-        | SessionState::Waiting
-        | SessionState::Interrupted => None,
+        SessionState::Working | SessionState::Idle => None,
         SessionState::NeedsYou => Some(theme::tokens::YELLOW.to_hsla()),
-        SessionState::Blocked => Some(theme::tokens::RED.to_hsla()),
-        SessionState::Ended => Some(theme::tokens::BLUE.to_hsla()),
+        SessionState::Done => Some(theme::tokens::BLUE.to_hsla()),
     }
 }
 
@@ -665,17 +659,13 @@ mod tests {
 
         use domain::session_tree::SessionState;
         assert_eq!(super::run_badge_color(SessionState::Working), None);
-        assert_eq!(super::run_badge_color(SessionState::Waiting), None);
+        assert_eq!(super::run_badge_color(SessionState::Idle), None);
         assert_eq!(
             super::run_badge_color(SessionState::NeedsYou),
             Some(theme::tokens::YELLOW.to_hsla())
         );
         assert_eq!(
-            super::run_badge_color(SessionState::Blocked),
-            Some(theme::tokens::RED.to_hsla())
-        );
-        assert_eq!(
-            super::run_badge_color(SessionState::Ended),
+            super::run_badge_color(SessionState::Done),
             Some(theme::tokens::BLUE.to_hsla())
         );
     }

@@ -103,8 +103,6 @@ function fakeLaunch(): LaunchOptions {
     setEffortValue: vi.fn(),
     ultracode: false,
     setUltracode: vi.fn(),
-    planMode: false,
-    setPlanMode: vi.fn(),
     mcpServerIds: [],
     setMcpServerIds: vi.fn(),
     toggleMcpServer: vi.fn(),
@@ -119,7 +117,6 @@ function fakeLaunch(): LaunchOptions {
       model: `opus`,
       effort: ``,
       ultracode: false,
-      planMode: false,
     }),
   }
 }

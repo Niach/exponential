@@ -5,23 +5,18 @@ import SwiftUI
 /// N-12 (THE composer row ×4): the expanded steer composer's ONE tool row,
 /// web's order: `+` (the only tool; wave D: Photo | File, a thread's opens
 /// its composer-menu.json sheet) · the Device pin as its GLYPH alone (the
-/// name in the picker and its label) · the model pin · the Plan switch …
-/// the context ring beside Send ⇄ Stop; nothing under the card.
+/// name in the picker and its label) · the model pin … the context ring
+/// beside Send ⇄ Stop; nothing under the card (S-3: no plan switch).
 /// EXP-893: · the model pill (the session's `model`
 /// config option; picking one SENDS `/model <alias>` as a plain message,
 /// EXP-877; codex and an ENDED row get a plain label; before the relay
-/// reports one it falls back to the row/device model) · `Plan mode` (blue,
-/// only while the run is in plan mode — or the row's pick before the relay
-/// reports; read-only: EXP-790 keeps plan mode launch-time) · spacer · the usage
+/// reports one it falls back to the row/device model) · spacer · the usage
 /// ring (hidden until context data lands; opens the Usage sheet, EXP-1150).
 /// Rides `GlassComposer`'s `tools:` slot, so the send button stays the card's
 /// own. A thread's box carries the same controls for its ROOT session.
 struct SessionComposerFooter: View {
-    /// The session view's own controls: the plan chip, the model pill and
-    /// the usage ring.
+    /// The session view's own controls: the model pill and the usage ring.
     struct Controls {
-        /// The run is in plan mode right now (the latest `config_state`).
-        let planModeActive: Bool
         /// `AgentSessionModel.composerModelValue` (live, else the row, else
         /// the device/contract defaults) — nil hides the pill.
         let modelValue: String?
@@ -34,23 +29,13 @@ struct SessionComposerFooter: View {
         /// The session's row ENDED: the model pin is a read-only label (web
         /// disables the picker on `status === 'ended'`).
         var ended: Bool = false
-        /// Before the relay reports a `config_state`, the synced row's own
-        /// `planMode` pick stands in for the read-out (web parity).
-        var planModeFallback: Bool = false
         /// EXP-1252: the Device pin before Model (`AgentSessionModel.devicePin`);
         /// nil = hidden (agents).
         var devicePin: SessionDevicePin? = nil
-        /// N-12: the Plan switch (`sessions.configure`, live mid-run); nil =
-        /// none (codex, an ended row).
-        var plan: Binding<Bool>? = nil
 
         /// Codex has no mid-run model prompt and an ended row takes no
         /// `/model`: both draw the chevron-less label.
         var canPickModel: Bool { !ended && agent == "claude" }
-
-        /// The plan read-out shows only while plan mode is in force (or the
-        /// row says so before the relay does) — never a muted "off" label.
-        var showsPlanLabel: Bool { planModeActive || planModeFallback }
     }
 
     /// nil = the bare box (the `+` alone).
@@ -107,16 +92,6 @@ struct SessionComposerFooter: View {
                         SessionDevicePinView(pin: devicePin, iconOnly: true)
                     }
                     SessionModelPill(controls: controls)
-
-                    if let plan = controls.plan {
-                        SessionPlanSwitch(plan: plan, ended: controls.ended)
-                    } else if controls.showsPlanLabel {
-                        Text(AgentFeed.planModeFooterLabel)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(DesignTokens.Semantic.blue)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("session-plan-mode")
-                    }
                 }
 
                 Spacer(minLength: 0)
@@ -243,29 +218,6 @@ struct SessionDevicePinView: View {
                 .accessibilityHint(pin.blockedReason ?? "")
                 .accessibilityIdentifier("session-device-pin")
         }
-    }
-}
-
-/// THE Plan switch of the composer row (web `Plan` + the small Switch).
-struct SessionPlanSwitch: View {
-    let plan: Binding<Bool>
-    var ended = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text("Plan")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Toggle("Plan", isOn: plan)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(DesignTokens.Semantic.blue)
-                .disabled(ended)
-        }
-        .fixedSize()
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("session-plan-toggle")
     }
 }
 

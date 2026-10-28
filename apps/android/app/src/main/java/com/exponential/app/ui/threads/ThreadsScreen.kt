@@ -83,7 +83,7 @@ import com.exponential.app.ui.theme.flatRow
  * activity, no bands, no nesting). A row opens its chat. #EXP-1388: a
  * long-press ENTERS THE SELECTION with that row (taps toggle, nothing opens;
  * the bar = the issue list's bulk bar in the tab bar's slot: Mark read /
- * unread, Archive / Unarchive, Stop, Delete); the Archived entry (first,
+ * unread, Archive / Unarchive, Delete; S-3: no Stop); the Archived entry (first,
  * filter All) pushes the Archived page ([view] Archived: the page header
  * with back, the archived rows). A bubble opens the agent's chat; its
  * long-press the agent menu.
@@ -205,7 +205,6 @@ fun ThreadsScreen(
                         Chats.ChatSelectionAction.MarkUnread -> viewModel.setRead(ids, read = false)
                         Chats.ChatSelectionAction.Archive -> viewModel.setArchived(ids, archived = true)
                         Chats.ChatSelectionAction.Unarchive -> viewModel.setArchived(ids, archived = false)
-                        Chats.ChatSelectionAction.Stop -> viewModel.stopChats(ids)
                         Chats.ChatSelectionAction.Delete -> deleteFor = ids
                     }
                     // Every action leaves the selection.
@@ -217,7 +216,6 @@ fun ThreadsScreen(
     }
 
     agentMenuFor?.let { agent ->
-        val conversation = conversations[agent.agentId]
         ChatMenuSheet(
             title = agent.name,
             items = agentMenuItems(Chats.agentMenuEntries(busy = agent.busy, isOwner = isOwner)) { entry ->
@@ -225,7 +223,6 @@ fun ThreadsScreen(
                 when (entry) {
                     Chats.AgentMenuEntry.Compact, Chats.AgentMenuEntry.NewConversation ->
                         Chats.agentMenuSend(entry)?.let { viewModel.sendToAgent(agent.agentId, it) }
-                    Chats.AgentMenuEntry.Stop -> conversation?.let(viewModel::stopTurn)
                     Chats.AgentMenuEntry.Settings -> onOpenAgentSettings(agent.agentId)
                 }
             },
@@ -348,6 +345,9 @@ internal fun ThreadListRow(
     prLead: ThreadRowPrLead? = null,
 ) {
     val state = SessionTree.threadRowMarkState(row.needsYou, row.busy)
+    // S-3: a tree's fold row (`earlier`) = this muted row, no mark; it
+    // opens the thread.
+    val fold = row.earlier != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -358,7 +358,9 @@ internal fun ThreadListRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (threadsTab) {
+        if (fold) {
+            Spacer(Modifier.size(14.dp))
+        } else if (threadsTab) {
             ThreadsTabLead(row, meta?.agent, word, prLead)
         } else {
             AgentRunMark(agent = meta?.agent, state = state, size = 14.dp, badgeSize = 6.dp)
@@ -369,7 +371,11 @@ internal fun ThreadListRow(
                 row.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (row.unread) FontWeight.SemiBold else null,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (fold) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.testTag(if (row.unread) "threads-row-unread" else "threads-row-title"),
@@ -420,7 +426,7 @@ private fun ThreadsTabLead(
             Icon(ExpIcons.prMerged, contentDescription = null, tint = DesignTokens.Avatar.Violet, modifier = Modifier.size(14.dp))
         else -> AgentRunMark(
             agent = agent,
-            state = if (word == null) SessionTree.SessionState.Ended else SessionTree.SessionState.Waiting,
+            state = if (word == null) SessionTree.SessionState.Done else SessionTree.SessionState.Idle,
             size = 14.dp,
             badgeSize = 6.dp,
         )

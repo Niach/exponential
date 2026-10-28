@@ -818,7 +818,7 @@ private fun ThreadSubtreeSheet(
                             )
                         }
                     } else {
-                        val mark = row.mark ?: SessionTree.SessionState.Waiting
+                        val mark = row.mark ?: SessionTree.SessionState.Idle
                         SessionTabMark(mark)
                         Text(
                             row.label,

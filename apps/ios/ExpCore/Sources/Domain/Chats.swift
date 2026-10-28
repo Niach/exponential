@@ -30,7 +30,7 @@ public enum Chats {
         public enum Filters {
             public static let all = "All"
             public static let needsYou = "Needs you"
-            public static let running = "Running"
+            public static let running = "Working"
             public static let unread = "Unread"
         }
         public enum Preview {
@@ -61,8 +61,6 @@ public enum Chats {
             public static let monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         }
         public enum Menu {
-            public static let stop = "Stop"
-            public static let stopAndDelete = "Stop and delete"
             public static let delete = "Delete"
             public static let compact = "Compact conversation"
             public static let newConversation = "New conversation"
@@ -73,11 +71,15 @@ public enum Chats {
             public static let body = "Its messages and sessions are deleted for everyone. Pull requests stay on GitHub."
         }
         public enum Toasts {
-            public static let stopFailed = "Couldn't stop the chat"
             public static let deleteFailed = "Couldn't delete the chat"
-            public static let stopNotDelivered = "The device didn't get the stop"
             public static let selectionFailed = "Couldn't update every chat"
             public static let selectionPartial = "{n} of {m} chats couldn't be updated"
+        }
+        /// S-3: the composer stop-turn's toasts (`copy.stopTurn`): a refused
+        /// `sessions.stop` → `failed`, `delivered == false` → `notDelivered`.
+        public enum StopTurn {
+            public static let failed = "Couldn't stop the turn"
+            public static let notDelivered = "The device didn't get the stop"
         }
         public enum Dividers {
             public static let new = "New conversation"
@@ -112,7 +114,6 @@ public enum Chats {
             public static let markUnread = "Mark unread"
             public static let archive = "Archive"
             public static let unarchive = "Unarchive"
-            public static let stop = "Stop"
             public static let delete = "Delete"
             public static let confirmDeleteMany = "Delete {n} chats?"
 
@@ -271,6 +272,8 @@ public enum Chats {
         public static let archivedGlyph: Double = 24
         public static let bubble: Double = 66
         public static let bubbleRing: Double = 3
+        /// S-3: a DONE chat's row (`ChatRow.dim`) draws at this opacity.
+        public static let dimOpacity: Double = 0.5
     }
 
     /// Fixture `surfaceCard` (the ENTER animation; motion tokens by name).
@@ -387,6 +390,9 @@ public enum Chats {
         public let needsYou: Bool
         public let busy: Bool
         public let word: ThreadRowWord?
+        /// S-3: the chat is DONE (every PR of the root merged, nothing works
+        /// or needs you): it stays in the list at `Shell.dimOpacity`.
+        public let dim: Bool
 
         public var id: String { sessionId }
     }
@@ -411,7 +417,7 @@ public enum Chats {
     }
 
     public enum ChatSelectionAction: String, Equatable, Sendable, CaseIterable {
-        case markRead, markUnread, archive, unarchive, stop, delete
+        case markRead, markUnread, archive, unarchive, delete
 
         public var label: String {
             switch self {
@@ -419,7 +425,6 @@ public enum Chats {
             case .markUnread: Copy.Selection.markUnread
             case .archive: Copy.Selection.archive
             case .unarchive: Copy.Selection.unarchive
-            case .stop: Copy.Selection.stop
             case .delete: Copy.Selection.delete
             }
         }
@@ -431,7 +436,6 @@ public enum Chats {
             case .markUnread: "ui-mark-unread"
             case .archive: "ui-archive"
             case .unarchive: "ui-unarchive"
-            case .stop: "coding-stop"
             case .delete: "ui-delete"
             }
         }
@@ -477,35 +481,23 @@ public enum Chats {
     }
 
     public enum ThreadMenuEntry: String, Equatable, Sendable, CaseIterable {
-        case stop, stopAndDelete, delete
+        case delete
 
-        public var label: String {
-            switch self {
-            case .stop: Copy.Menu.stop
-            case .stopAndDelete: Copy.Menu.stopAndDelete
-            case .delete: Copy.Menu.delete
-            }
-        }
+        public var label: String { Copy.Menu.delete }
 
         /// Concept icon.
-        public var icon: String {
-            switch self {
-            case .stop: "coding-stop"
-            case .stopAndDelete, .delete: "ui-delete"
-            }
-        }
+        public var icon: String { "ui-delete" }
 
-        public var destructive: Bool { self != .stop }
+        public var destructive: Bool { true }
     }
 
     public enum AgentMenuEntry: String, Equatable, Sendable, CaseIterable {
-        case compact, newConversation, stop, settings
+        case compact, newConversation, settings
 
         public var label: String {
             switch self {
             case .compact: Copy.Menu.compact
             case .newConversation: Copy.Menu.newConversation
-            case .stop: Copy.Menu.stop
             case .settings: Copy.Menu.settings
             }
         }
@@ -515,7 +507,6 @@ public enum Chats {
             switch self {
             case .compact: "coding-compact"
             case .newConversation: "ui-clean"
-            case .stop: "coding-stop"
             case .settings: "nav-settings"
             }
         }
@@ -752,12 +743,13 @@ public enum Chats {
         let rows: [ChatRow] = groups.flatMap { group in
             group.rows.filter { $0.depth == 0 }.map { row -> ChatRow in
                 let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
+                let rowPrStates = prStates[row.sessionId] ?? []
                 let lead: ChatLead
                 switch mark {
                 case .needsYou: lead = .needsYou
                 case .working: lead = .working
-                default:
-                    switch SessionTree.threadRowLeadPr(prStates: prStates[row.sessionId] ?? []) {
+                case .waiting:
+                    switch SessionTree.threadRowLeadPr(prStates: rowPrStates) {
                     case .open: lead = .open
                     case .merged: lead = .merged
                     case nil: lead = .waiting
@@ -782,7 +774,9 @@ public enum Chats {
                     unreadCount: unreadCount(rootId: row.sessionId, messages: messages, reads: reads),
                     needsYou: row.needsYou,
                     busy: row.busy,
-                    word: words[row.sessionId]
+                    word: words[row.sessionId],
+                    dim: mark == .waiting && !rowPrStates.isEmpty
+                        && rowPrStates.allSatisfy { $0 == DomainContract.prStateMerged }
                 )
             }
         }
@@ -823,8 +817,6 @@ public enum Chats {
             ChatSelectionItem(action: rows.contains { $0.unreadCount > 0 } ? .markRead : .markUnread, sessionIds: ids),
             ChatSelectionItem(action: view == .archived ? .unarchive : .archive, sessionIds: ids),
         ]
-        let live = rows.filter { $0.canSteer && $0.rootStatus != "ended" }
-        if !live.isEmpty { out.append(ChatSelectionItem(action: .stop, sessionIds: live.map(\.sessionId))) }
         if rows.allSatisfy({ $0.canSteer && $0.canDelete }) { out.append(ChatSelectionItem(action: .delete, sessionIds: ids)) }
         return out
     }
@@ -884,21 +876,18 @@ public enum Chats {
         }
     }
 
-    /// A chat row's context menu ×4 (`menuCases`): live → Stop, Stop and
-    /// delete; ended → Delete; nothing for a viewer who cannot steer it. The
-    /// delete entries need `canDelete` (the chat's starter or a team owner,
-    /// the server's `sessions.delete` rule).
+    /// A chat row's context menu ×4 (`menuCases`): S-3 no Stop/End
+    /// anywhere: Delete for a viewer who can steer the chat and may delete
+    /// it (the chat's starter or a team owner, the server's
+    /// `sessions.delete` rule, which ends what is live first); else nothing.
     public static func threadMenuEntries(rootStatus: String, canSteer: Bool, canDelete: Bool) -> [ThreadMenuEntry] {
-        guard canSteer else { return [] }
-        if rootStatus == "ended" { return canDelete ? [.delete] : [] }
-        return canDelete ? [.stop, .stopAndDelete] : [.stop]
+        canSteer && canDelete ? [.delete] : []
     }
 
     /// The agent chat's header menu (and its bubble's long-press) ×4
-    /// (`agentMenuCases`).
+    /// (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one).
     public static func agentMenuEntries(busy: Bool, isOwner: Bool) -> [AgentMenuEntry] {
         var entries: [AgentMenuEntry] = [.compact, .newConversation]
-        if busy { entries.append(.stop) }
         if isOwner { entries.append(.settings) }
         return entries
     }

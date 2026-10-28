@@ -19,6 +19,7 @@ import { GlassSectionHeader } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 import { menuProps, type MenuEntry, type MenuIcon } from "./menu"
 import { CHATS_COPY, type AgentMenuEntry, type ThreadMenuEntry } from "@exp/domain-contract/chats"
+import { cn } from "./cn"
 import { SessionRow } from "./session-row"
 import { ThreadsListItem } from "./session-thread-view"
 import { SkeletonRows } from "./skeleton"
@@ -44,17 +45,15 @@ import { treeGuides } from "./tree-guides"
 export const CHAT_ROW_MENU_KIND = `thread`
 export const AGENT_ROW_MENU_KIND = `agent`
 
-const ChatStopIcon = conceptIcon(`coding-stop`)
 const ChatDeleteIcon = conceptIcon(`ui-delete`)
 const AGENT_MENU_ICONS: Record<AgentMenuEntry, MenuIcon> = {
   compact: conceptIcon(`coding-compact`),
   newConversation: conceptIcon(`ui-clean`),
-  stop: ChatStopIcon,
   settings: conceptIcon(`nav-settings`),
 }
 
-/** A chat's menu (`threadMenuEntries`) as THE Menu's rows: Stop, then the
- *  destructive Stop and delete / Delete. */
+/** A chat's menu (`threadMenuEntries`) as THE Menu's rows: the destructive
+ *  Delete (S-3: no Stop). */
 export function chatMenuRows(
   entries: readonly ThreadMenuEntry[],
   run: (entry: ThreadMenuEntry) => void
@@ -63,15 +62,15 @@ export function chatMenuRows(
     kind: `item`,
     id: entry,
     label: CHATS_COPY.menu[entry],
-    icon: entry === `stop` ? ChatStopIcon : ChatDeleteIcon,
-    destructive: entry !== `stop`,
+    icon: ChatDeleteIcon,
+    destructive: true,
     "data-testid": `chat-menu-${entry}`,
     onSelect: () => run(entry),
   }))
 }
 
 /** The agent menu (`agentMenuEntries`) as THE Menu's rows: the
- *  conversation pair, a divider, then Stop / Agent settings. */
+ *  conversation pair, a divider, then Agent settings. */
 export function agentMenuRows(
   entries: readonly AgentMenuEntry[],
   run: (entry: AgentMenuEntry) => void
@@ -79,7 +78,7 @@ export function agentMenuRows(
   const rows: MenuEntry[] = []
   let divided = false
   for (const entry of entries) {
-    if (!divided && (entry === `stop` || entry === `settings`)) {
+    if (!divided && entry === `settings`) {
       rows.push({ kind: `separator`, id: `sep` })
       divided = true
     }
@@ -287,6 +286,24 @@ function GroupRows({
     <div className="flex flex-col">
       {group.rows.map((row, index) => {
         const enter = entering(`${group.key}:${row.sessionId}`)
+        if (row.earlier !== undefined) {
+          // S-3: a tree's hidden sub-sessions fold into ONE muted row (the
+          // list item's ended look); it opens the thread.
+          return (
+            <SessionRow
+              key={row.sessionId}
+              size="small"
+              agent={cliByRoot.get(row.rootId) ?? null}
+              markState="ended"
+              title={row.title}
+              depth={row.depth}
+              guide={guides[index]}
+              data-testid="threads-row-earlier"
+              className={cn(`text-muted-foreground`, enter)}
+              onClick={() => onOpenThread(row.rootId)}
+            />
+          )
+        }
         if (row.depth > 0) {
           const device = deviceGlyph(row.deviceId)
           return (

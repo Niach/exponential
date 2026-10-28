@@ -84,7 +84,6 @@ struct LaunchOptionsSection: View {
     var threadModel: Binding<String>? = nil
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
-    var planMode: Binding<Bool>? = nil
     /// EXP-1005: claude's "Auto-rotate accounts" device toggle, bound only
     /// on a machine's launch defaults.
     var autoRotateAccounts: Binding<Bool>? = nil
@@ -256,13 +255,10 @@ struct LaunchOptionsSection: View {
                 label: { effortRowLabel($0) },
                 enabled: effortEnabled
             )
-            // EXP-208: no helper notices, like the IDE. Ultracode and plan
-            // mode are both claude-only (EXP-441/EXP-849).
+            // EXP-208: no helper notices, like the IDE. Ultracode is
+            // claude-only (EXP-441); S-3: no plan mode.
             if let ultracode, agent == "claude" {
                 GlassToggleRow("Ultracode", isOn: ultracode)
-            }
-            if let planMode, LaunchVocabulary.supportsPlanMode(agent) {
-                GlassToggleRow("Plan mode", isOn: planMode)
             }
             if let autoRotateAccounts, LaunchVocabulary.supportsAccountRotation(agent) {
                 GlassToggleRow("Auto-rotate accounts", isOn: autoRotateAccounts)

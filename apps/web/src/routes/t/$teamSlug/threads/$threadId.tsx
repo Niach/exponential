@@ -60,7 +60,7 @@ import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu
 import { useChatActions } from "@/components/thread/chat-menu"
 import { ChatHeaderTitle } from "@/components/thread/chat-header"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
-import { InPlaceSession, SessionStopPill } from "@/components/thread/session-body"
+import { InPlaceSession } from "@/components/thread/session-body"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import { primeTabEnter, TAB_BODY_TOUCH_CLASS, useFaceSwipe } from "@/hooks/use-face-swipe"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
@@ -712,10 +712,6 @@ function ThreadScreen({
     },
   }
 
-  // Chats STOP: the header pill = `sessions.end` on the ROOT, on every tab
-  // while the root is not ended (the composer's stop is the turn's).
-  const stopPill = root.status !== `ended` ? <SessionStopPill rootId={root.id} /> : null
-
   if (isMobile) {
     const trailing = headerMenu(HEADER_BUTTON_CLASS)
     const headerNeedsYou =
@@ -770,10 +766,7 @@ function ThreadScreen({
             }
             onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
             menu={
-              <span className="flex shrink-0 items-center gap-1">
-                {stopPill}
-                {trailing}
-              </span>
+              <span className="flex shrink-0 items-center gap-1">{trailing}</span>
             }
             below={<div className="px-3 pb-2">{tabs}</div>}
           />
@@ -800,7 +793,6 @@ function ThreadScreen({
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">{title}</div>
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
-            {stopPill}
             {headerMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>

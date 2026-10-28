@@ -16,7 +16,7 @@ class SessionStatusLineTest {
     fun `live run names its device`() {
         assertEquals(
             "Live · macbook",
-            sessionStatusLine(AgentPhase.Live, "macbook", awaiting = false, paused = false),
+            sessionStatusLine(AgentPhase.Live, "macbook", awaiting = false),
         )
     }
 
@@ -28,7 +28,6 @@ class SessionStatusLineTest {
                 AgentPhase.Live,
                 "macbook",
                 awaiting = true,
-                paused = false,
                 staleMinutes = 27,
             ),
         )
@@ -42,7 +41,6 @@ class SessionStatusLineTest {
                 AgentPhase.Live,
                 "macbook",
                 awaiting = false,
-                paused = false,
                 staleMinutes = 27,
             ),
         )
@@ -56,25 +54,11 @@ class SessionStatusLineTest {
                 AgentPhase.Live,
                 null,
                 awaiting = false,
-                paused = false,
                 staleMinutes = 10,
             ),
         )
     }
 
-    @Test
-    fun `a paused run stays paused`() {
-        assertEquals(
-            "Paused · macbook",
-            sessionStatusLine(
-                AgentPhase.Live,
-                "macbook",
-                awaiting = false,
-                paused = true,
-                staleMinutes = 27,
-            ),
-        )
-    }
 
     @Test
     fun `quiet minutes only start at the threshold`() {
