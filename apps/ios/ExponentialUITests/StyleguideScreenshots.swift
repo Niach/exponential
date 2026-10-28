@@ -1147,6 +1147,19 @@ final class StyleguideScreenshots: XCTestCase {
             expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
         }
+        // S-3: the Conversation opens on its newest rows; scroll back to the
+        // child's relayed turn so its link header ("Message from … ›") and
+        // the report line below it are in the shot.
+        let relayed = app.descendants(matching: .any)
+            .matching(identifier: "thread-xref")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Message from"))
+            .firstMatch
+        var back = 0
+        while !(relayed.exists && relayed.isHittable) && back < 8 {
+            app.swipeDown()
+            back += 1
+        }
+        expect(relayed, within: Wait.sync, "The cold-start thread drew no \"Message from\" link — reseed with `bun run seed:screenshots`")
         snapshot("sg_thread", settle: 2)
         guard ScreenshotShots.isWanted("sg_session") else {
             goBack(app)

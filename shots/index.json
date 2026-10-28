@@ -4367,6 +4367,13 @@
         "bytes": 39430,
         "sha256": "7b9b4acc5f9d20009f54653ff58b7c55a277f95acd97c6cea6f4449878ae7332"
       },
+      "ios": {
+        "file": "shots/session-xref/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 14052,
+        "sha256": "c159725145db57153f4dfd046f57b03b1f5942e55ae21682161bc641e229d219"
+      },
       "web": {
         "file": "shots/session-xref/web.webp",
         "width": 1800,
@@ -5116,8 +5123,8 @@
         "file": "shots/thread/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 67572,
-        "sha256": "c1ab4cc74cc5edd6fbf8c0c2db78c6e6cf591bc25c2426fcdacad68cefe7e1a6"
+        "bytes": 77738,
+        "sha256": "b296e52348afc0e489b37fe11cb0caf74cb5606e4bf6b6a1d5c0a7ab7684ad22"
       },
       "web": {
         "file": "shots/thread/web.webp",
