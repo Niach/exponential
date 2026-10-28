@@ -8,7 +8,8 @@ import SwiftUI
 /// 4pt gaps. The whole line opens that session (the host pushes it).
 /// Named `…Header` beside the ExpCore `SessionXref` model.
 public struct SessionXrefHeader: View {
-    /// The agent's mark, resolved by the host (nil = the session glyph).
+    /// The agent's mark, resolved by the host (nil = the session glyph,
+    /// `coding-assistant`, also for an agent not synced yet).
     public struct AgentMark: Equatable {
         public let icon: String
         public let color: Color
@@ -40,7 +41,7 @@ public struct SessionXrefHeader: View {
                 if let agent {
                     AppIcon(agent.icon, size: 16).foregroundStyle(agent.color)
                 } else {
-                    AppIcon(AppIcons.navThreads, size: 16).foregroundStyle(muted)
+                    AppIcon(AppIcons.codingAssistant, size: 16).foregroundStyle(muted)
                 }
                 Text(xref.name)
                     .fontWeight(.medium)

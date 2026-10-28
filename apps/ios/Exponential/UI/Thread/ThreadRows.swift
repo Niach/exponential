@@ -93,14 +93,15 @@ struct ThreadRows: Sendable {
         return copy
     }
 
-    /// S-3: a link's agent mark (its icon in its colour); nil = no agent,
-    /// the session glyph.
+    /// S-3: a link's agent mark (its icon in its colour); nil = no agent
+    /// or its definition not synced, the session glyph.
     func xrefMark(_ xref: SessionXref) -> SessionXrefHeader.AgentMark? {
-        guard let agentId = xref.agentId else { return nil }
-        let agent = xrefAgents.first { $0.id == agentId } ?? (agent?.id == agentId ? agent : nil)
+        guard let agentId = xref.agentId,
+              let agent = xrefAgents.first(where: { $0.id == agentId }) ?? (agent?.id == agentId ? agent : nil)
+        else { return nil }
         return SessionXrefHeader.AgentMark(
-            icon: BoardTypeDisplay.iconName(for: agent?.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-            color: Color(hex: agent?.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
+            icon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+            color: Color(hex: agent.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
         )
     }
 
