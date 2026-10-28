@@ -174,7 +174,7 @@ struct VoiceSettingsPage: View {
             if let deviceId = settings.voiceDeviceId {
                 Section {
                     // S-3: read-only; the voice device's IDE records the key.
-                    GlassPickerRowLabel(Voice.Copy.pushToTalk, value: Voice.shortcutLabel(settings.pttShortcut))
+                    GlassPickerRowLabel(Voice.Copy.pushToTalk, value: Voice.shortcutLabel(settings.pttShortcut), chevron: false)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier(Voice.TestIds.shortcut)
                     GlassToggleRow(

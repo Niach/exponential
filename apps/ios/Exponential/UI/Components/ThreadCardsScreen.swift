@@ -810,7 +810,7 @@ private struct PlanCardSpecimens: View {
 private struct VoiceCallSpecimens: View {
     /// The phone the surface is laid out on, then scaled into the grid.
     private static let phone = CGSize(width: 360, height: 640)
-    private static let scale: CGFloat = 0.46
+    private static let scale: CGFloat = 0.38
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {

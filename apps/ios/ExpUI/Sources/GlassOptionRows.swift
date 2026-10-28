@@ -85,12 +85,15 @@ public struct GlassPickerRowLabel: View {
     let value: String
     var icon: String?
     var enabled: Bool = true
+    /// False for a READ-ONLY value row (no picker behind it, S-3's Push to talk).
+    var chevron: Bool = true
 
-    public init(_ title: String, value: String, icon: String? = nil, enabled: Bool = true) {
+    public init(_ title: String, value: String, icon: String? = nil, enabled: Bool = true, chevron: Bool = true) {
         self.title = title
         self.value = value
         self.icon = icon
         self.enabled = enabled
+        self.chevron = chevron
     }
 
     public var body: some View {
@@ -113,8 +116,10 @@ public struct GlassPickerRowLabel: View {
                 .foregroundStyle(.white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            AppIcon(AppIcons.uiChevronRight, size: 14)
-                .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
+            if chevron {
+                AppIcon(AppIcons.uiChevronRight, size: 14)
+                    .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
+            }
         }
         .contentShape(Rectangle())
     }
