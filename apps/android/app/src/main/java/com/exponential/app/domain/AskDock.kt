@@ -180,22 +180,38 @@ object AskDock {
      *  [Anchors.unanchored] (card order, the transcript's head). */
     data class Anchors(val after: Map<Long, List<String>>, val unanchored: List<String>)
 
+    /** S-3: THE call that posts every kind now (`exponential_show`). */
+    const val SHOW_CARD_CALL = "show"
+
+    /** The row a card-posting call resolves to: a contract row (`show`), else
+     *  a retired legacy row by the same prefix rule, else null. */
+    fun cardCallRow(name: String?): String? {
+        ExpToolDisplay.row(name)?.let { return it }
+        val trimmed = name?.trim().orEmpty()
+        return SessionCardKind.entries.map { it.postingCall }
+            .firstOrNull { trimmed.endsWith(DomainContract.expToolPrefix + it) }
+    }
+
+    /** Legacy calls of the card's kind first, then the shared `show` calls (S-3). */
     fun anchorSessionCards(calls: List<FeedCall>, cards: List<SessionCard>): Anchors {
         val byRow = HashMap<String, MutableList<Long>>()
         for (call in calls) {
             if (!call.settled || call.failed) continue
-            val row = ExpToolDisplay.row(call.name) ?: continue
+            val row = cardCallRow(call.name) ?: continue
             byRow.getOrPut(row) { mutableListOf() }.add(call.id)
         }
         val used = HashMap<String, Int>()
+        fun take(row: String): Long? {
+            val skip = used[row] ?: 0
+            val ids = byRow[row].orEmpty()
+            val call = ids.getOrNull(ids.size - 1 - skip)
+            if (call != null) used[row] = skip + 1
+            return call
+        }
         val after = LinkedHashMap<Long, MutableList<String>>()
         val unanchored = ArrayList<String>()
         for (card in cards.asReversed()) {
-            val row = card.kind.postingCall
-            val skip = used[row] ?: 0
-            used[row] = skip + 1
-            val ids = byRow[row].orEmpty()
-            val call = ids.getOrNull(ids.size - 1 - skip)
+            val call = take(card.kind.postingCall) ?: take(SHOW_CARD_CALL)
             if (call == null) unanchored.add(0, card.id) else after.getOrPut(call) { mutableListOf() }.add(0, card.id)
         }
         return Anchors(after, unanchored)
