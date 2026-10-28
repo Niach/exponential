@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -103,7 +104,7 @@ fun ChatLeadDisc(
             )
             Chats.ChatLead.Waiting -> AgentRunMark(
                 agent = agent,
-                state = SessionTree.SessionState.Waiting,
+                state = SessionTree.SessionState.Idle,
                 size = glyph,
                 badgeSize = size * 0.18f,
             )
@@ -148,6 +149,9 @@ fun ChatRow(
             .fillMaxWidth()
             // Edge to edge, no radius, no hairline.
             .then(if (isSelected) Modifier.background(GlassTokens.RowFillActive) else Modifier)
+            // S-3: a done chat (every root PR merged, nothing live) stays,
+            // the WHOLE row at `shell.dimOpacity`.
+            .then(if (row.dim) Modifier.alpha(Chats.Shell.DIM_OPACITY) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .testTag(Chats.TestIds.CHAT_ROW)
             .padding(start = ChatRowEdge),
@@ -309,7 +313,6 @@ fun chatSelectionIcon(action: Chats.ChatSelectionAction): ImageVector = when (ac
     Chats.ChatSelectionAction.MarkUnread -> ExpIcons.uiMarkUnread
     Chats.ChatSelectionAction.Archive -> ExpIcons.uiArchive
     Chats.ChatSelectionAction.Unarchive -> ExpIcons.uiUnarchive
-    Chats.ChatSelectionAction.Stop -> ExpIcons.codingStop
     Chats.ChatSelectionAction.Delete -> ExpIcons.uiDelete
 }
 
@@ -548,21 +551,19 @@ data class ChatMenuItem(
     val testTag: String? = null,
     /** A hairline above this row (web `agentMenuRows`' separator, iOS
      *  `separates`, the IDE's `menu.separator()`): the agent menu's
-     *  conversation pair sits apart from Stop / Agent settings. */
+     *  conversation pair sits apart from Agent settings. */
     val dividerBefore: Boolean = false,
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */
 fun chatMenuIcon(entry: Chats.ThreadMenuEntry): ImageVector = when (entry) {
-    Chats.ThreadMenuEntry.Stop -> ExpIcons.codingStop
-    Chats.ThreadMenuEntry.StopAndDelete, Chats.ThreadMenuEntry.Delete -> ExpIcons.uiDelete
+    Chats.ThreadMenuEntry.Delete -> ExpIcons.uiDelete
 }
 
 /** The icon CONCEPT of an agent menu entry (`agentMenuCases`). */
 fun agentMenuIcon(entry: Chats.AgentMenuEntry): ImageVector = when (entry) {
     Chats.AgentMenuEntry.Compact -> ExpIcons.codingCompact
     Chats.AgentMenuEntry.NewConversation -> ExpIcons.uiClean
-    Chats.AgentMenuEntry.Stop -> ExpIcons.codingStop
     Chats.AgentMenuEntry.Settings -> ExpIcons.navSettings
 }
 
@@ -637,17 +638,16 @@ fun ChatMenuSheetFace(title: String, items: List<ChatMenuItem>, modifier: Modifi
 }
 
 /** The chat menu's entries for a chat row: [Chats.threadMenuEntries] with
- *  their copy and icon; Delete / Stop and delete ask first ([onDelete]). */
+ *  their copy and icon; Delete asks first ([onDelete]). S-3: no Stop. */
 fun chatMenuItems(
     entries: List<Chats.ThreadMenuEntry>,
-    onStop: () -> Unit,
     onDelete: () -> Unit,
 ): List<ChatMenuItem> = entries.map { entry ->
     ChatMenuItem(
         label = Chats.threadMenuLabel(entry),
         icon = chatMenuIcon(entry),
-        onClick = if (entry == Chats.ThreadMenuEntry.Stop) onStop else onDelete,
-        destructive = entry != Chats.ThreadMenuEntry.Stop,
+        onClick = onDelete,
+        destructive = true,
         testTag = "chat-menu-${entry.wire}",
     )
 }
@@ -657,7 +657,7 @@ fun agentMenuItems(
     entries: List<Chats.AgentMenuEntry>,
     onPick: (Chats.AgentMenuEntry) -> Unit,
 ): List<ChatMenuItem> {
-    val firstApart = entries.indexOfFirst { it == Chats.AgentMenuEntry.Stop || it == Chats.AgentMenuEntry.Settings }
+    val firstApart = entries.indexOfFirst { it == Chats.AgentMenuEntry.Settings }
     return entries.mapIndexed { index, entry ->
         ChatMenuItem(
             label = Chats.agentMenuLabel(entry),

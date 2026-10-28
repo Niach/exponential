@@ -327,11 +327,8 @@ class ThreadsViewModel @Inject constructor(
         }
     }
 
-    /** Stop = `sessions.end` on the ROOT (the whole tree ends). */
-    fun stopChat(rootId: String) = call("stop") { sessionsApi.end(it, rootId) }
-
-    /** Stop and delete / Delete = `sessions.delete` (the server ends what is
-     *  live, then deletes the tree). */
+    /** Delete = `sessions.delete` (the server ends what is live, then
+     *  deletes the tree). S-3: no Stop. */
     fun deleteChat(rootId: String, onDeleted: () -> Unit = {}) =
         call("delete", onDeleted) { sessionsApi.delete(it, rootId) }
 
@@ -351,9 +348,6 @@ class ThreadsViewModel @Inject constructor(
         rootIds.chunked(SELECTION_BATCH).forEach { sessionsApi.setArchived(accountId, it, archived) }
     }
 
-    /** Stop = `sessions.end` per chat (every one tried, then one toast). */
-    fun stopChats(rootIds: List<String>) = selectionCall { accountId -> each(rootIds) { sessionsApi.end(accountId, it) } }
-
     /** Delete = `sessions.delete` per chat (after the confirm). */
     fun deleteChats(rootIds: List<String>) = selectionCall { accountId -> each(rootIds) { sessionsApi.delete(accountId, it) } }
 
@@ -371,12 +365,6 @@ class ThreadsViewModel @Inject constructor(
             }
         }
         first?.let { throw PartialSelectionFailure(failed, ids.size, it) }
-    }
-
-    /** The agent menu's Stop = `sessions.stop` (the TURN interrupt). */
-    fun stopTurn(sessionId: String) = call("stop") { accountId ->
-        val result = sessionsApi.stop(accountId, sessionId)
-        if (!result.delivered) _notice.value = Chats.Copy.TOAST_STOP_NOT_DELIVERED
     }
 
     /** Compact / New conversation = the builtin line, sent like a typed one

@@ -90,6 +90,7 @@ private fun chatRow(
     word: SessionTree.ThreadRowWord? = null,
     activityAt: String = "",
     deviceId: String? = null,
+    dim: Boolean = false,
 ) = Chats.ChatRow(
     sessionId = id,
     teamId = "t1",
@@ -104,6 +105,7 @@ private fun chatRow(
     needsYou = needsYou,
     busy = busy,
     word = word,
+    dim = dim,
 )
 
 /**
@@ -134,7 +136,7 @@ object ChatListSpecimen {
             chatRow(
                 "d", "Merged", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Merged,
                 "you", "You: ship it", Chats.Copy.TIME_YESTERDAY,
-                activityAt = "2026-10-22T10:00:00.000Z",
+                activityAt = "2026-10-22T10:00:00.000Z", dim = true,
             ),
         ),
         counts = Chats.ChatCounts(needsYou = 1, running = 1, unread = 1),
@@ -412,7 +414,6 @@ fun ChatTranscriptSpecimenScreen() {
                         onBack = {},
                         menu = chatMenuItems(
                             Chats.threadMenuEntries("running", canSteer = true, canDelete = true),
-                            onStop = {},
                             onDelete = {},
                         ),
                     )
@@ -442,10 +443,9 @@ fun ChatTranscriptSpecimenScreen() {
 }
 
 /** THE chat menus as the phone's long-press sheets, in the web entry's
- *  order (chat-menus.tsx; iOS's faces line for line): a live chat (Stop ·
- *  Stop and delete), an ended chat (Delete), the agent menu busy + owner
- *  (Compact conversation · New conversation | Stop · Agent settings)
- *  (shot `sg_chat-menus`). */
+ *  order (chat-menus.tsx; iOS's faces line for line): a chat (S-3: Delete
+ *  only, no Stop), the agent menu of an owner (Compact conversation · New
+ *  conversation | Agent settings) (shot `sg_chat-menus`). */
 @Composable
 fun ChatMenusSpecimenScreen() {
     AppBackground {
@@ -458,8 +458,7 @@ fun ChatMenusSpecimenScreen() {
                 .testTag(ChatMenusSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true), {}, {}))
-            ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true, true), {}, {}))
+            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true)) {})
             ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
         }
     }

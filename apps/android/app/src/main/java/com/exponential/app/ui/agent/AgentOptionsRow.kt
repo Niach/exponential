@@ -16,17 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.AccountOption
-import com.exponential.app.ui.components.GlassSwitch
-import com.exponential.app.ui.components.GlassSwitchSize
 import com.exponential.app.ui.components.picker.ModelPicker
 import com.exponential.app.ui.components.picker.ModelPickerOption
 import com.exponential.app.ui.components.picker.AccountPicker
@@ -41,14 +34,13 @@ import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
-import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-825: the launch options as ONE muted inline line under the composer
- * card (Danny's variant B): Device, Account, Model, a Plan switch and the
- * Resume switch inline while a worktree makes it offerable (EXP-481).
+ * card (Danny's variant B): Device, Account, Model and the Resume switch
+ * inline (S-3: no Plan switch) while a worktree makes it offerable (EXP-481).
  * EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
  * servers and Computer use live in the composer's "+" menu.
  * Every pill is a menu or a toggle — no disabled controls; the caption under
@@ -71,15 +63,11 @@ internal fun AgentOptionsRow(
     /** A picked login sets the agent AND the account in one go. */
     onAccountChange: (AccountOption) -> Unit,
     onModelChange: (String) -> Unit,
-    onPlanModeChange: (Boolean) -> Unit,
     resumeCandidate: DeviceWorktreeEntity?,
     resume: Boolean,
     onResumeChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // A resume never re-enters plan mode (EXP-202) — the switch hides while
-    // one is on, like the machine's own clamp.
-    val resumeActive = resume && resumeCandidate != null
     // N-14: inside a sheet the pins disclose their rows into the row's slot,
     // UNDER the whole row and as wide as it, so no pin and no sibling moves.
     InlinePickerRow(
@@ -153,14 +141,6 @@ internal fun AgentOptionsRow(
                 )
             },
         )
-        // Plan mode is claude-only since EXP-849. EXP-827: a slide switch on
-        // every platform, not a lit select pill.
-        if (supportsPlanMode(launch.agent) && !resumeActive) {
-            PlanSwitchPill(
-                checked = launch.planMode,
-                onCheckedChange = onPlanModeChange,
-            )
-        }
         // EXP-481: offered only while the picked machine's synced worktree
         // inventory carries a row for the ONE checked issue.
         if (resumeCandidate != null) {
@@ -173,28 +153,6 @@ internal fun AgentOptionsRow(
             )
         }
     }
-}
-
-/**
- * EXP-827: the Plan switch on the row's capsule. The whole pill is the tap
- * target and reads as ONE switch to TalkBack; the M3 switch inside is a pure
- * indicator ([GlassSwitch]), scaled to sit in the 28dp capsule.
- */
-@Composable
-private fun PlanSwitchPill(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    GlassPill(
-        "Plan",
-        onClick = { onCheckedChange(!checked) },
-        trailing = { GlassSwitch(checked = checked, onCheckedChange = null, size = GlassSwitchSize.Pill) },
-        contentDescription = "Plan mode",
-        modifier = Modifier.semantics {
-            role = Role.Switch
-            toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
-        },
-    )
 }
 
 /**

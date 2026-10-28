@@ -15,7 +15,6 @@ import com.exponential.app.data.api.StartSuggestionInput
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.steer.SteerConnection
 import com.exponential.app.data.steer.SteerConnectionStore
-import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.steer.steerDeviceFlow
@@ -513,28 +512,10 @@ class ThreadViewModel @Inject constructor(
     /** Revoke one of my queued messages (the queue bar's ✕). */
     fun unqueue(messageId: String) = run("remove", "the message") { sessionsApi.unqueue(it, messageId) }
 
-    /** Stop a session's current turn (it stays live). EXP-1342: the shown
-     *  page's queued messages go back into its composer first, as the
-     *  composer's own Stop does ([SteerConnection.interrupt]); the page's
-     *  connection is the store's, shared with the session view. */
-    fun stop(sessionId: String = rootId) = run("stop", "the session") { accountId ->
-        var delivered = true
-        stopHandingBackQueue(steerStore.peek(sessionId)) { delivered = sessionsApi.stop(accountId, sessionId).delivered }
-        // chats.json: a stop no device got toasts `copy.toasts.stopNotDelivered`.
-        if (!delivered) _notice.value = com.exponential.app.domain.Chats.Copy.TOAST_STOP_NOT_DELIVERED
-    }
-
-    /** End a session (the ROOT ends the whole tree; agents refuse). */
-    fun end(sessionId: String = rootId) = run("end", "the session") { sessionsApi.end(it, sessionId) }
-
     // ── thread 58cb32df: the chat's menu (chats.json MENUS) ─────────────────
 
-    /** Stop (the header pill, the `…` menu) = `sessions.end` on the ROOT:
-     *  the whole tree ends; a later message still resumes the root. */
-    fun stopChat() = run("stop", CHAT_THING) { sessionsApi.end(it, rootId) }
-
-    /** Stop and delete / Delete = `sessions.delete`; [onDeleted] closes the
-     *  chat's screen back to the list. */
+    /** Delete = `sessions.delete`; [onDeleted] closes the chat's screen back
+     *  to the list. S-3: no Stop/End. */
     fun deleteChat(onDeleted: () -> Unit) = run("delete", CHAT_THING, settled = { ok -> if (ok) onDeleted() }) {
         sessionsApi.delete(it, rootId)
     }

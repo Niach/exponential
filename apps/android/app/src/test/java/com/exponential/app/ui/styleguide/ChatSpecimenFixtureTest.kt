@@ -49,6 +49,7 @@ class ChatSpecimenFixtureTest {
                             put("needsYou", row.needsYou)
                             put("busy", row.busy)
                             put("word", nullable(row.word?.wire))
+                            put("dim", row.dim)
                         }
                     },
                 ),
@@ -72,7 +73,6 @@ class ChatSpecimenFixtureTest {
             listOf(
                 Chats.ChatSelectionAction.MarkRead to listOf("a", "c"),
                 Chats.ChatSelectionAction.Archive to listOf("a", "c"),
-                Chats.ChatSelectionAction.Stop to listOf("a"),
                 Chats.ChatSelectionAction.Delete to listOf("a", "c"),
             ),
             chatSelectionSpecimenActions().map { it.action to it.sessionIds },

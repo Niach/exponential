@@ -21,7 +21,7 @@ class ThreadPagesTest {
                 SessionTree.SessionState.Working,
                 nested = listOf(SessionTree.NestedSession("s2", "Measure", SessionTree.SessionState.NeedsYou, 1)),
             ),
-            ThreadTab.SessionTab("s3", "Cache", SessionTree.SessionState.Ended),
+            ThreadTab.SessionTab("s3", "Cache", SessionTree.SessionState.Done),
             ThreadTab.Guide(dot = false),
         )
         assertEquals(

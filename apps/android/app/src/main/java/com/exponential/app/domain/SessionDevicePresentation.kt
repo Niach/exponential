@@ -32,14 +32,6 @@ data class SessionDevicePresentation(
     /** Never blank — an unlabelled/unknown machine still reads as something. */
     val displayLabel: String get() = label?.takeIf { it.isNotBlank() } ?: "Desktop"
 
-    /**
-     * EXP-1291: whether the session should read "paused" instead of live —
-     * it is not ended and its machine went away (it continues when the
-     * machine comes back).
-     */
-    fun isPaused(state: SessionTree.SessionState): Boolean =
-        offline && state != SessionTree.SessionState.Ended
-
     companion object {
         val Unknown = SessionDevicePresentation(label = null, online = null)
     }

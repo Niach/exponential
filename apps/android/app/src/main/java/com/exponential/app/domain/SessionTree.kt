@@ -115,63 +115,42 @@ object SessionTree {
     // ── copy (= the fixtures) ───────────────────────────────────────────────
 
     object CardCopy {
+        /** S-3: the FOUR display states' words. */
         val STATES: Map<SessionState, String> = mapOf(
-            SessionState.Queued to "Queued",
             SessionState.Working to "Working",
-            SessionState.Background to "Background task",
-            SessionState.Waiting to "Waiting",
             SessionState.NeedsYou to "Needs you",
-            SessionState.Interrupted to "Interrupted",
-            SessionState.Blocked to "Usage limit",
-            SessionState.Ended to "Ended",
+            SessionState.Idle to "Idle",
+            SessionState.Done to "Done",
         )
         /** Icon CONCEPT names (icons.json), per state. */
         val ICONS: Map<SessionState, String> = mapOf(
-            SessionState.Queued to "ui-clock",
             SessionState.Working to "coding-running",
-            SessionState.Background to "trace-background",
-            SessionState.Waiting to "coding-assistant",
             SessionState.NeedsYou to "coding-needs-input",
-            SessionState.Interrupted to "run-pause",
-            SessionState.Blocked to "notification-session-blocked",
-            SessionState.Ended to "coding-ended",
+            SessionState.Idle to "coding-assistant",
+            SessionState.Done to "coding-ended",
         )
-        /** Tone tokens: muted | foreground | amber | rose. */
+        /** Tone tokens: muted | foreground | amber. */
         val TONES: Map<SessionState, String> = mapOf(
-            SessionState.Queued to "muted",
             SessionState.Working to "foreground",
-            SessionState.Background to "foreground",
-            SessionState.Waiting to "muted",
             SessionState.NeedsYou to "amber",
-            SessionState.Interrupted to "muted",
-            SessionState.Blocked to "rose",
-            SessionState.Ended to "muted",
+            SessionState.Idle to "muted",
+            SessionState.Done to "muted",
         )
         const val TEST_ID_CARD = "session-card"
-        /** NEW-1 `copy.blockedKinds`: a `blocked.kind` → its word. */
+        /** NEW-1 `copy.blockedKinds`: a `blocked.kind` → its word (S-3: a
+         *  `needs_you` session's; an interruption is invisible). */
         val BLOCKED_KINDS: Map<String, String> = mapOf(
             "rate_limit" to "Usage limit",
-            "device_offline" to "Device offline",
             "unclaimed" to "Not picked up",
             "stuck" to "Stuck",
-            "restarted" to "Interrupted",
         )
-        /** EXP-1374 `copy.interruptedKinds`: the blocked kinds that INTERRUPT
-         *  a run → the card's word. */
-        val INTERRUPTED_KINDS: Map<String, String> = mapOf(
-            "device_offline" to "Interrupted · device offline",
-            "restarted" to "Interrupted · runner restarted",
-        )
-        /** EXP-1374 `banner`: the Dock banner's text, an interruption by kind. */
-        val BANNER_INTERRUPTED: Map<String, String> = mapOf(
-            "device_offline" to "Its device went offline. It continues by itself when the device is back.",
-            "restarted" to "Its runner restarted mid-turn. It continues by itself.",
-        )
+        /** EXP-1374 `banner.background`. */
         const val BANNER_BACKGROUND = "The turn is over; background tasks still run on its device."
-        /** #EXP-1405 `copy.queuedKind`: a queued row waits for its device. */
-        const val QUEUED_KIND = "Queued · waiting for the device"
         /** #EXP-1405 `banner.queued`. */
         const val BANNER_QUEUED = "Waiting for its device to pick it up. It starts by itself once the device is online."
+        /** S-3 `bannerIcons` / `bannerLabels`, by banner id. */
+        val BANNER_ICONS: Map<String, String> = mapOf("background" to "trace-background", "queued" to "ui-clock")
+        val BANNER_LABELS: Map<String, String> = mapOf("background" to "Background task", "queued" to "Queued")
     }
 
     object ThreadCopy {
@@ -192,11 +171,8 @@ object SessionTree {
             "session_blocked" to "{session} hit a usage limit",
             "session_unclaimed" to "{session} was not picked up",
             "session_stuck" to "{session} shows no sign of life",
-            "device_offline" to "{session} interrupted: device offline",
             // NEW-2: a trigger firing in an agent's conversation.
             "trigger_fired" to "Trigger fired: {name}",
-            // EXP-1374: a child's run stopped mid-turn (runner restart).
-            "session_interrupted" to "{session} interrupted: runner restarted",
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused" to "Merge of PR {pr} refused",
         )
@@ -242,7 +218,7 @@ object SessionTree {
         const val AGENTS = "Agents"
         val GROUPS: Map<ThreadsGroupKey, String> = mapOf(
             ThreadsGroupKey.NeedsYou to "Needs you",
-            ThreadsGroupKey.Running to "Running",
+            ThreadsGroupKey.Running to "Working",
             ThreadsGroupKey.Recent to "Recent",
         )
         const val EMPTY = "No sessions yet"
@@ -253,23 +229,26 @@ object SessionTree {
         const val TEST_ID_AGENT_ROW = "agents-row"
         /** EXP-1318: the rail band (web + IDE). */
         const val RAIL = "Active"
-        /** NEW-1 fixture `recent` (hours, max) + `treeState.staleHours`. */
+        /** NEW-1 fixture `recent` (hours, max). */
         const val RECENT_HOURS = 24
         const val RECENT_MAX = 20
-        const val STALE_HOURS = 24
+        /** S-3 fixture `recentChildMinutes`: [visibleChild]'s window. */
+        const val RECENT_CHILD_MINUTES = 120
+        /** S-3 `copy.earlier`: the fold row's label. */
+        const val EARLIER_ONE = "1 earlier sub-session"
+        const val EARLIER_OTHER = "{n} earlier sub-sessions"
     }
 
     // ── session state + card ────────────────────────────────────────────────
 
+    /** S-3 (owner 2026-10-28): the FOUR display states ×4, nothing else (no
+     *  running, paused, interrupted or stale in the UI). [Idle] doubles as a
+     *  thread row's `waiting` mark ([threadRowMarkState], wire `waiting`). */
     enum class SessionState(val wire: String) {
-        Queued("queued"),
         Working("working"),
-        Background("background"),
-        Waiting("waiting"),
         NeedsYou("needs_you"),
-        Interrupted("interrupted"),
-        Blocked("blocked"),
-        Ended("ended"),
+        Idle("idle"),
+        Done("done"),
     }
 
     private fun ms(iso: String?): Long? =
@@ -289,31 +268,57 @@ object SessionTree {
         }
     }
 
-    /** EXP-1374: the blocked kinds that INTERRUPT a run (never on a person;
-     *  its device continues it by itself), `copy.interruptedKinds`' keys. */
-    fun isInterruption(blocked: Blocked?): Boolean =
-        blocked?.kind?.let { it in CardCopy.INTERRUPTED_KINDS } == true
-
-    /** One state word per session, the card's kind word and tone. */
+    /** S-3: one state per session (`working` = queued or busy, background
+     *  tasks included; `needs_you` = needsInput; `done` = ended; else `idle`,
+     *  an interruption included), the card's kind word and tone. */
     fun sessionState(session: Session): SessionState = when {
-        session.status == DomainContract.sessionStatusEnded -> SessionState.Ended
+        session.status == DomainContract.sessionStatusEnded -> SessionState.Done
         session.needsInput -> SessionState.NeedsYou
-        isInterruption(session.blocked) -> SessionState.Interrupted
-        session.blocked != null -> SessionState.Blocked
-        session.status == DomainContract.sessionStatusQueued -> SessionState.Queued
-        session.busy && session.background -> SessionState.Background
-        session.busy -> SessionState.Working
-        else -> SessionState.Waiting
+        session.status == DomainContract.sessionStatusQueued || session.busy -> SessionState.Working
+        else -> SessionState.Idle
+    }
+
+    /** S-3: a NESTED session (a child row, a strip chip) shows while it works
+     *  or needs you, or while its last activity (ended: endedAt, else
+     *  updatedAt) is within [ListCopy.RECENT_CHILD_MINUTES] of [now] (null =
+     *  never). */
+    fun visibleChild(session: Session, now: String?): Boolean {
+        val state = sessionState(session)
+        if (state == SessionState.Working || state == SessionState.NeedsYou) return true
+        val at = ms(now)
+        val last = if (state == SessionState.Done) ms(session.endedAt) ?: ms(session.updatedAt) else ms(session.updatedAt)
+        return at != null && last != null && at - last <= ListCopy.RECENT_CHILD_MINUTES * 60L * 1000L
+    }
+
+    /** S-3: the ids of a tree's sessions that show nested: [visibleChild] or
+     *  an ancestor of one (a working grandchild keeps its idle parent). */
+    fun visibleTree(tree: List<Session>, now: String?): Set<String> {
+        val byId = tree.associateBy { it.id }
+        val out = HashSet<String>()
+        for (session in tree) {
+            if (!visibleChild(session, now)) continue
+            var at: Session? = session
+            val seen = HashSet<String>()
+            while (at != null && seen.add(at.id)) {
+                out.add(at.id)
+                at = at.parentId?.let { byId[it] }
+            }
+        }
+        return out
     }
 
     /** EXP-1312: a thread row's lead outside the Threads tab (the home's
      *  Running band) ×4: needs you beats working, else the bare mark
-     *  (`threads-list.json` `markCases`). */
+     *  (`threads-list.json` `markCases`; its `waiting` = [SessionState.Idle]). */
     fun threadRowMarkState(needsYou: Boolean, busy: Boolean): SessionState = when {
         needsYou -> SessionState.NeedsYou
         busy -> SessionState.Working
-        else -> SessionState.Waiting
+        else -> SessionState.Idle
     }
+
+    /** The `markCases` wire of a [threadRowMarkState] (`waiting` for idle). */
+    fun threadRowMarkWire(state: SessionState): String =
+        if (state == SessionState.Idle) "waiting" else state.wire
 
     /** Sessions of one tree in creation order (ties by id). */
     fun treeOrder(sessions: List<Session>): List<Session> =
@@ -340,36 +345,28 @@ object SessionTree {
      * (EXP-1341, never `Session N`); [now] = an ISO timestamp.
      */
     /**
-     * NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
-     * names WHY (`copy.blockedKinds[blocked.kind]`), an unknown kind keeps
-     * `states.blocked` ("Usage limit").
+     * NEW-1 (TS `sessionKindWord`): the card's state word; a session that
+     * needs you because of a flag names WHY (`copy.blockedKinds[blocked.kind]`),
+     * an unknown kind keeps `states.needs_you`.
      */
     fun sessionKindWord(session: Session, state: SessionState): String {
-        // #EXP-1405: a queued row names what it waits for (its device).
-        if (state == SessionState.Queued) return CardCopy.QUEUED_KIND
-        // EXP-1374: an interruption reads its own word, not the blocked one.
-        if (state == SessionState.Interrupted) {
-            session.blocked?.kind?.let { kind -> CardCopy.INTERRUPTED_KINDS[kind] }?.let { return it }
-        }
-        if (state == SessionState.Blocked) {
+        if (state == SessionState.NeedsYou) {
             session.blocked?.kind?.let { kind -> CardCopy.BLOCKED_KINDS[kind] }?.let { return it }
         }
         return CardCopy.STATES.getValue(state)
     }
 
+    /** S-3: elapsed only while working (not queued; startedAt → now) and once
+     *  done (startedAt → endedAt, else updatedAt); idle / needs you = none. */
     fun sessionCard(session: Session, title: String, now: String): SessionCard {
         val state = sessionState(session)
         val start = ms(session.startedAt)
-        val end = if (state == SessionState.Ended) {
-            ms(session.endedAt) ?: ms(session.updatedAt)
-        } else {
-            ms(now)
+        val end = when {
+            state == SessionState.Done -> ms(session.endedAt) ?: ms(session.updatedAt)
+            state == SessionState.Working && session.status != DomainContract.sessionStatusQueued -> ms(now)
+            else -> null
         }
-        val elapsed = if (start != null && end != null && state != SessionState.Queued) {
-            formatElapsed(end - start)
-        } else {
-            null
-        }
+        val elapsed = if (start != null && end != null) formatElapsed(end - start) else null
         return SessionCard(
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
@@ -378,16 +375,17 @@ object SessionTree {
             state = state,
             tone = CardCopy.TONES.getValue(state),
             elapsed = elapsed,
-            running = state == SessionState.Working || state == SessionState.Background,
+            running = state == SessionState.Working,
             testId = CardCopy.TEST_ID_CARD,
         )
     }
 
-    /** EXP-1374: the Dock card of an interrupted or background session (a
-     *  dock.json `banner` source without its `kind`); [tone] is always `muted`,
-     *  [action] always null. */
+    /** EXP-1374: the Dock card of a background session and (#EXP-1405) of a
+     *  queued one waiting for its device (a dock.json `banner` source without
+     *  its `kind`); [tone] is always `muted`, [action] always null. S-3: an
+     *  interruption has no card. */
     data class SessionBanner(
-        /** `interrupted` | `background`. */
+        /** `background` | `queued`. */
         val id: String,
         /** Concept icon. */
         val icon: String,
@@ -401,20 +399,19 @@ object SessionTree {
             get() = Dock.Source.Banner(id, icon, label, text, Dock.Tint.Muted, action)
     }
 
-    /** EXP-1374 (TS `sessionBanner`): null unless interrupted, background or
-     *  (#EXP-1405) queued, waiting for its device. */
+    /** EXP-1374 (TS `sessionBanner`): null unless background or (#EXP-1405)
+     *  queued, waiting for its device; never once ended or needing you. */
     fun sessionBanner(session: Session): SessionBanner? {
-        val state = sessionState(session)
-        val text = when (state) {
-            SessionState.Interrupted -> session.blocked?.kind?.let { CardCopy.BANNER_INTERRUPTED[it] } ?: return null
-            SessionState.Background -> CardCopy.BANNER_BACKGROUND
-            SessionState.Queued -> CardCopy.BANNER_QUEUED
+        if (session.status == DomainContract.sessionStatusEnded || session.needsInput) return null
+        val (id, text) = when {
+            session.status == DomainContract.sessionStatusQueued -> "queued" to CardCopy.BANNER_QUEUED
+            session.busy && session.background -> "background" to CardCopy.BANNER_BACKGROUND
             else -> return null
         }
         return SessionBanner(
-            id = state.wire,
-            icon = CardCopy.ICONS.getValue(state),
-            label = CardCopy.STATES.getValue(state),
+            id = id,
+            icon = CardCopy.BANNER_ICONS.getValue(id),
+            label = CardCopy.BANNER_LABELS.getValue(id),
             text = text,
             tone = "muted",
             action = null,
@@ -467,14 +464,8 @@ object SessionTree {
         messages.map(::titleMessage),
     )
 
-    /** A session chip's lead ×4: the thread row mark of THAT session,
-     *  [SessionState.Ended] once it ended. */
-    fun sessionTabMarkState(session: Session): SessionState =
-        if (session.status == DomainContract.sessionStatusEnded) {
-            SessionState.Ended
-        } else {
-            threadRowMarkState(needsYou = session.needsInput, busy = session.busy)
-        }
+    /** A session chip's lead ×4: THAT session's display state (S-3). */
+    fun sessionTabMarkState(session: Session): SessionState = sessionState(session)
 
     /** NEW-1: a thread's issues = the UNION over its tree's rows: the
      *  sessions in tree order (the root first, then creation order), each
@@ -972,8 +963,11 @@ object SessionTree {
         // its top-level ancestor (the chip's dropdown).
         fun nameOf(s: Session) = sessionCard(s, titles[s.id] ?: "", now).name
         val treeIds = tree.map { it.id }.toSet()
+        // S-3: only the VISIBLE sessions get chips ([visibleTree]), the
+        // focused one always; the rest stay reachable through their cards.
+        val shown = visibleTree(tree.filter { it.id != root.id }, now)
         val sessionTabs = foldForest(
-            tree.filter { it.id != root.id },
+            tree.filter { it.id != root.id && (it.id in shown || it.id == focused?.id) },
             { it.id },
             { s -> if (s.parentId == root.id || s.parentId == null || s.parentId !in treeIds) null else s.parentId },
         ).map { (top, nested) ->
@@ -1157,7 +1151,17 @@ object SessionTree {
         /** EXP-1323: bold title (a root: the tree's newest agent message is
          *  newer than the viewer's read of the root; a child: its own). */
         val unread: Boolean = false,
+        /** S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1,
+         *  the muted list-item row; opens the thread) = how many
+         *  sub-sessions it hides; null elsewhere. */
+        val earlier: Int? = null,
     )
+
+    /** S-3: the fold row's id suffix and its label (`copy.earlier`). */
+    const val EARLIER_SUFFIX = ":earlier"
+
+    fun earlierLabel(count: Int): String =
+        (if (count == 1) ListCopy.EARLIER_ONE else ListCopy.EARLIER_OTHER).replace("{n}", count.toString())
 
     data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
 
@@ -1216,9 +1220,7 @@ object SessionTree {
             val tree = byRoot[root.id] ?: listOf(root)
             val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
             val needsYou = live.any { it.needsInput }
-            val running = live.any {
-                it.status == DomainContract.sessionStatusQueued || it.status == DomainContract.sessionStatusRunning
-            }
+            val running = live.any { it.status == DomainContract.sessionStatusQueued || it.busy }
             val activity = tree.fold(root.updatedAt) { latest, s ->
                 if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
             }
@@ -1241,14 +1243,17 @@ object SessionTree {
                 running -> ThreadsGroupKey.Running
                 else -> ThreadsGroupKey.Recent
             }
-            // A live tree nests its children (depth-first, creation order);
-            // Recent collapses to the root.
+            // A live tree nests its VISIBLE children (S-3 [visibleTree]:
+            // working, needs you or active within `recentChildMinutes`;
+            // depth-first, creation order), the rest fold into ONE `earlier`
+            // row; Recent collapses to the root.
             val children = mutableListOf<ThreadsListRow>()
             if (key != ThreadsGroupKey.Recent) {
                 val ordered = treeOrder(tree)
+                val shown = visibleTree(ordered.filter { it.id != root.id }, now)
                 fun walk(parentId: String, depth: Int) {
                     for (child in ordered) {
-                        if (child.parentId != parentId) continue
+                        if (child.parentId != parentId || child.id !in shown) continue
                         val card = sessionCard(child, titleOf(child), cardNow)
                         val ended = child.status == DomainContract.sessionStatusEnded
                         children.add(
@@ -1270,6 +1275,27 @@ object SessionTree {
                     }
                 }
                 walk(root.id, 1)
+                val hidden = ordered.filter { it.id != root.id && it.id !in shown }
+                if (hidden.isNotEmpty()) {
+                    children.add(
+                        ThreadsListRow(
+                            sessionId = "${root.id}$EARLIER_SUFFIX",
+                            teamId = root.teamId,
+                            title = earlierLabel(hidden.size),
+                            busy = false,
+                            needsYou = false,
+                            activityAt = hidden.drop(1).fold(hidden[0].updatedAt) { latest, s ->
+                                if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
+                            },
+                            deviceId = null,
+                            depth = 1,
+                            parentId = root.id,
+                            rootId = root.id,
+                            unread = false,
+                            earlier = hidden.size,
+                        ),
+                    )
+                }
             }
             buckets.getValue(key).add(row to children)
         }
@@ -1297,40 +1323,23 @@ object SessionTree {
             .filter { it.rows.isNotEmpty() }
     }
 
-    /** NEW-1 (plan 3.13): a tree's derived state ([treeState]). */
-    enum class TreeState(val wire: String) {
-        NeedsYou("needs_you"),
-        Running("running"),
-        Done("done"),
-        Stale("stale"),
-        Idle("idle"),
-    }
-
     /**
-     * NEW-1: a tree's derived state. `needs_you` = a live session waits on a
-     * person (needsInput: a card, a usage wall or a watchdog flag); `running`
-     * = any session queued or running; `done` = every session ended and every
-     * PR of the thread merged (none = never done); `stale` = nothing touched
-     * for [ListCopy.STALE_HOURS]; else `idle`.
+     * NEW-1 / S-3: a tree's derived state = the session's four. `needs_you` =
+     * a live session waits on a person (needsInput: a card, a usage wall or a
+     * watchdog flag); `working` = any live session queued or busy; `done` =
+     * every session ended, or every PR of the thread merged (none = never
+     * done this way); else `idle`. [now] is kept for the signature.
      */
-    fun treeState(tree: List<Session>, pullRequests: List<PullRequest>, now: String): TreeState {
+    @Suppress("UNUSED_PARAMETER")
+    fun treeState(tree: List<Session>, pullRequests: List<PullRequest>, now: String): SessionState {
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
-        if (live.any { it.needsInput }) return TreeState.NeedsYou
-        if (live.any {
-                it.status == DomainContract.sessionStatusQueued || it.status == DomainContract.sessionStatusRunning
-            }
-        ) {
-            return TreeState.Running
+        if (live.any { it.needsInput }) return SessionState.NeedsYou
+        if (live.any { it.status == DomainContract.sessionStatusQueued || it.busy }) return SessionState.Working
+        if (live.isEmpty()) return SessionState.Done
+        if (pullRequests.isNotEmpty() && pullRequests.all { it.state == DomainContract.prStateMerged }) {
+            return SessionState.Done
         }
-        if (live.isEmpty() && pullRequests.isNotEmpty() &&
-            pullRequests.all { it.state == DomainContract.prStateMerged }
-        ) {
-            return TreeState.Done
-        }
-        val newest = tree.fold(0L) { latest, s -> maxOf(latest, ms(s.updatedAt) ?: 0L) }
-        val at = ms(now)
-        if (at != null && at - newest > ListCopy.STALE_HOURS * 60L * 60L * 1000L) return TreeState.Stale
-        return TreeState.Idle
+        return SessionState.Idle
     }
 
     /** EXP-1323: the Threads nav dot = any thread row is unread (`unreadCases`). */

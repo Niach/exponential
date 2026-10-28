@@ -138,10 +138,10 @@ class AskDockTest {
                 SessionTree.ThreadTab.SessionTab(
                     sessionId = json.str("sessionId")!!,
                     name = json.str("name")!!,
-                    markState = SessionTree.SessionState.Ended,
+                    markState = SessionTree.SessionState.Done,
                     nested = json.getValue("nested").jsonArray.map { nested ->
                         val n = nested.jsonObject
-                        SessionTree.NestedSession(n.str("sessionId")!!, n.str("name")!!, SessionTree.SessionState.Ended, 1)
+                        SessionTree.NestedSession(n.str("sessionId")!!, n.str("name")!!, SessionTree.SessionState.Done, 1)
                     },
                 )
             }

@@ -680,7 +680,6 @@ fun AgentScreen(
                             ),
                             onAccountChange = viewModel::selectAccount,
                             onModelChange = viewModel::setModel,
-                            onPlanModeChange = viewModel::setPlanMode,
                             resumeCandidate = resumeCandidate,
                             resume = resume,
                             onResumeChange = viewModel::setResume,
