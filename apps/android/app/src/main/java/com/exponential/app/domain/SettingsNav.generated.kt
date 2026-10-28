@@ -40,7 +40,7 @@ object SettingsNav {
         Row("boards", "Boards", "settings-boards", "boards", "all", true, "boards"),
         Row("agents", "Agents", "settings-agents", "agents", "all", true, "agents"),
         Row("mcp-servers", "MCP servers", "settings-mcp", "agents", "all", false, null),
-        Row("devices", "Devices", "nav-devices", "team", "all", true, null),
+        Row("devices", "Devices", "nav-devices", "devices", "all", true, null),
     )
 
     val PHONE_ROWS: List<String> = listOf(GENERAL, MEMBERS, LABELS, REPOSITORIES, PROMPTS, BOARDS, AGENTS, DEVICES)
