@@ -8,6 +8,7 @@ import type { SessionRow } from "@/lib/session-tree"
 // strip as THE Queue. The store is stubbed: this pins the RENDER of a feed.
 
 let snapshot: SteerSessionSnapshot
+const relayAnswer = vi.fn()
 
 vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/steer-session-store")>()
@@ -23,7 +24,7 @@ vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
       reconnect: () => {},
       loadEarlier: () => {},
       sendMessage: () => true,
-      answerQuestion: () => {},
+      answerQuestion: (...args: unknown[]) => relayAnswer(...args),
       unqueue: () => {},
     }),
   }
@@ -103,6 +104,7 @@ beforeEach(() => {
   snapshot = snap({})
   messages = []
   answerMutate.mockClear()
+  relayAnswer.mockClear()
 })
 
 describe(`AgentSessionView Trace transcript`, () => {
@@ -356,5 +358,33 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     // After the call, before the next narration.
     const narration = screen.getByText(`Implementing.`)
     expect(cards[0]!.compareDocumentPosition(narration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe(`AgentSessionView relay ask (S-3)`, () => {
+  it(`the engine's waiting question stays inline, undocked, and its hotkeys answer it through the relay`, () => {
+    snapshot = snap({
+      turnState: `running`,
+      feed: [
+        {
+          id: 1,
+          seq: 1,
+          kind: `question`,
+          text: `Which env?`,
+          questionId: `q1`,
+          options: [
+            { label: `prod`, key: `1` },
+            { label: `staging`, key: `2` },
+          ],
+        },
+      ] as unknown as SteerSessionSnapshot[`feed`],
+    })
+    render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
+    expect(screen.queryByTestId(`dock-card`)).toBeNull()
+    expect(screen.getByText(`Which env?`)).toBeTruthy()
+    fireEvent.keyDown(window, { key: `2` })
+    expect(relayAnswer).toHaveBeenCalledTimes(1)
+    expect(relayAnswer.mock.calls[0]![2]).toEqual([`staging`])
+    expect(answerMutate).not.toHaveBeenCalled()
   })
 })

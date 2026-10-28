@@ -468,7 +468,8 @@ export function StoryViewerPanel({
         onPointerCancel={endPress}
         onPointerLeave={endPress}
       >
-        {story.title && (
+        {/* The plan text starts with the title: no title line over it. */}
+        {story.title && story.text === null && (
           <div data-slot="story-title" className="truncate text-base font-semibold">
             {story.title}
           </div>
