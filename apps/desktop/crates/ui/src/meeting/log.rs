@@ -2,7 +2,9 @@
 //! `<data dir>/meeting.sqlite` (`meeting_segments`: meeting id, channel,
 //! label, start/end ms, text, words), for
 //! `domain::meeting::LOCAL_RETENTION_DAYS` days, pruned at start and
-//! hourly. Audio is never stored here.
+//! hourly. Audio is never stored here. #FEED-163 RESTART: beside them,
+//! `meeting_listened` remembers the one `meetingStartedAt` this IDE listened
+//! to last, so the next process start can tell "the same sitting" apart.
 
 use std::path::Path;
 
@@ -51,7 +53,11 @@ impl SegmentLog {
                  words TEXT NOT NULL DEFAULT '[]'
              );
              CREATE INDEX IF NOT EXISTS meeting_segments_end ON meeting_segments (end_ms);
-             CREATE INDEX IF NOT EXISTS meeting_segments_meeting ON meeting_segments (meeting_id, start_ms);",
+             CREATE INDEX IF NOT EXISTS meeting_segments_meeting ON meeting_segments (meeting_id, start_ms);
+             CREATE TABLE IF NOT EXISTS meeting_listened (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 started_at TEXT NOT NULL
+             );",
         )
         .map_err(sql)?;
         Ok(SegmentLog { conn })
@@ -89,6 +95,28 @@ impl SegmentLog {
         let gone = self.conn.execute("DELETE FROM meeting_segments", []).map_err(sql)?;
         let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
         Ok(gone)
+    }
+
+    /// #FEED-163 RESTART: the `meetingStartedAt` this IDE listened to last.
+    pub(crate) fn listened(&self) -> Result<Option<String>, String> {
+        let mut statement = self.conn.prepare("SELECT started_at FROM meeting_listened WHERE id = 1").map_err(sql)?;
+        let mut rows = statement.query([]).map_err(sql)?;
+        match rows.next().map_err(sql)? {
+            Some(row) => row.get(0).map(Some).map_err(sql),
+            None => Ok(None),
+        }
+    }
+
+    /// #FEED-163 RESTART: remember that this IDE listens to `started_at`.
+    pub(crate) fn set_listened(&self, started_at: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO meeting_listened (id, started_at) VALUES (1, ?1)
+                 ON CONFLICT (id) DO UPDATE SET started_at = excluded.started_at",
+                params![started_at],
+            )
+            .map(|_| ())
+            .map_err(sql)
     }
 
     #[cfg(test)]
@@ -153,6 +181,20 @@ mod tests {
         assert_eq!(log.clear().unwrap(), 2);
         assert!(log.all().is_empty());
         assert_eq!(log.clear().unwrap(), 0);
+    }
+
+    #[test]
+    fn the_listened_meeting_survives_a_reopen() {
+        let dir = std::env::temp_dir().join(format!("meeting-listened-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = SegmentLog::open(&dir).unwrap();
+        assert_eq!(log.listened().unwrap(), None);
+        log.set_listened("2026-10-27T09:00:00.000Z").unwrap();
+        log.set_listened("2026-10-28T10:00:00.000Z").unwrap();
+        drop(log);
+        let reopened = SegmentLog::open(&dir).unwrap();
+        assert_eq!(reopened.listened().unwrap().as_deref(), Some("2026-10-28T10:00:00.000Z"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

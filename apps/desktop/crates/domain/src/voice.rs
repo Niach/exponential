@@ -198,7 +198,7 @@ pub struct VoiceLimits {
 
 /// The member's voice settings (`user_voice_settings`, the heartbeat's
 /// `voice`, `voice.get`); `defaults` when the member has no row.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct VoiceSettings {
     pub voice_device_id: Option<String>,
@@ -222,9 +222,44 @@ pub struct VoiceSettings {
     /// #NEW-57: the running meeting (None = none; written only by
     /// `voice.startMeeting` / `voice.stopMeeting`).
     pub meeting_started_at: Option<String>,
+    /// #FEED-163: how many hours a meeting may run (`meeting.json`
+    /// `autoStop.hoursValues`; read through [`VoiceSettings::auto_stop_hours`]).
+    #[serde(default = "default_meeting_auto_stop_hours")]
+    pub meeting_auto_stop_hours: i64,
+}
+
+fn default_meeting_auto_stop_hours() -> i64 {
+    crate::meeting::MEETING.auto_stop.default_hours
+}
+
+impl Default for VoiceSettings {
+    fn default() -> Self {
+        Self {
+            voice_device_id: None,
+            agent_id: None,
+            speak_replies: false,
+            push_to_talk: false,
+            ptt_shortcut: String::new(),
+            wake_word: false,
+            wake_phrase: String::new(),
+            language: String::new(),
+            voice_file: String::new(),
+            voice_transcript: String::new(),
+            desktop_audio: Default::default(),
+            desktop_audio_apps: Vec::new(),
+            meeting_started_at: None,
+            meeting_auto_stop_hours: default_meeting_auto_stop_hours(),
+        }
+    }
 }
 
 impl VoiceSettings {
+    /// #FEED-163: the member's auto-stop hours, an unknown value read as the
+    /// default.
+    pub fn auto_stop_hours(&self) -> i64 {
+        crate::meeting::auto_stop_hours(self.meeting_auto_stop_hours)
+    }
+
     /// #NEW-57: a meeting runs (`meetingStartedAt` set).
     pub fn meeting(&self) -> bool {
         self.meeting_started_at.as_deref().is_some_and(|at| !at.is_empty())
@@ -410,16 +445,32 @@ pub enum TrayIcon {
     App,
     /// The app icon with the always-on microphone dot.
     Listening,
+    /// #FEED-163: the app icon with a red record dot: a meeting runs here.
+    Recording,
 }
 
 /// #NEW-56: the tray icon; None = no tray on this device. #NEW-57:
 /// `meeting_listening` (a meeting's channels listen, not paused) shows the
-/// dot too, muted or not (Mute never pauses a meeting).
-pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, meeting_listening: bool, muted: bool) -> Option<TrayIcon> {
+/// dot too, muted or not (Mute never pauses a meeting). #FEED-163:
+/// `meeting_running` (a meeting runs on this device, paused or not) wins
+/// with the red record dot.
+pub fn tray_icon(
+    device_is_voice_device: bool,
+    wake_listening: bool,
+    meeting_listening: bool,
+    meeting_running: bool,
+    muted: bool,
+) -> Option<TrayIcon> {
     if !device_is_voice_device {
         return None;
     }
-    Some(if (wake_listening && !muted) || meeting_listening { TrayIcon::Listening } else { TrayIcon::App })
+    Some(if meeting_running {
+        TrayIcon::Recording
+    } else if (wake_listening && !muted) || meeting_listening {
+        TrayIcon::Listening
+    } else {
+        TrayIcon::App
+    })
 }
 
 /// S-3: what the voice device reports about its wake word (`WakeState`).
@@ -643,7 +694,7 @@ pub fn rail_voice(
         phrase => phrase.to_string(),
     };
     Some(RailVoice {
-        badge: tray_icon(context.device_is_voice_device, wake_listening, meeting_listening, context.muted)
+        badge: tray_icon(context.device_is_voice_device, wake_listening, meeting_listening, false, context.muted)
             == Some(TrayIcon::Listening),
         tooltip: if let Some(meeting) = meeting {
             format!("{} · {}", crate::meeting::MEETING.copy.meeting, meeting.who)
@@ -1839,6 +1890,7 @@ mod tests {
                 context["deviceIsVoiceDevice"].as_bool().unwrap(),
                 context["wakeListening"].as_bool().unwrap(),
                 context["meetingListening"].as_bool().unwrap_or(false),
+                context["meetingRunning"].as_bool().unwrap_or(false),
                 context["muted"].as_bool().unwrap(),
             );
             let expected: Option<TrayIcon> = serde_json::from_value(case["icon"].clone()).unwrap();

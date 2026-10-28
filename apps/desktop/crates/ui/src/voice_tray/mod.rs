@@ -62,22 +62,58 @@ struct IconFrame {
 /// ring, so it reads on a light taskbar as well as on the default dark one
 /// (macOS tints its template image itself; Linux panels are dark by default,
 /// like the hicolor icon `desktop_integration` installs). #NEW-56: `Listening`
-/// adds the always-on microphone dot.
+/// adds the always-on microphone dot. #FEED-163: `Recording` adds the red
+/// record dot in the same corner; macOS draws it NOT templated (a template
+/// is monochrome), so there the disc carries the dark ring too and reads on
+/// a light menu bar.
 fn icon_svg(icon: TrayIcon) -> std::borrow::Cow<'static, [u8]> {
-    let svg = if cfg!(target_os = "windows") { std::borrow::Cow::Owned(ringed(ICON_SVG)) } else { std::borrow::Cow::Borrowed(ICON_SVG) };
+    let ring = cfg!(target_os = "windows") || (cfg!(target_os = "macos") && icon == TrayIcon::Recording);
+    let svg = if ring { std::borrow::Cow::Owned(ringed(ICON_SVG)) } else { std::borrow::Cow::Borrowed(ICON_SVG) };
     match icon {
         TrayIcon::App => svg,
         TrayIcon::Listening => std::borrow::Cow::Owned(dotted(&svg)),
+        TrayIcon::Recording => std::borrow::Cow::Owned(recording(&svg)),
     }
+}
+
+/// #FEED-163: whether the OS may tint `icon` as a template image (macOS):
+/// everything but the red record dot.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn templated(icon: TrayIcon) -> bool {
+    icon != TrayIcon::Recording
+}
+
+/// The dark that cuts the dots (and the Windows ring) out of the disc.
+const CUT: &str = "#27272a";
+
+/// A design token as an SVG colour.
+fn svg_color(color: theme::Srgb8) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
 
 /// The icon with the microphone dot in its lower right corner: the
 /// design tokens' `destructive` red, cut out of the disc by a dark ring.
 fn dotted(svg: &[u8]) -> Vec<u8> {
+    let red = svg_color(theme::tokens::DESTRUCTIVE);
     String::from_utf8_lossy(svg)
         .replace(
             "</svg>",
-            "  <circle cx=\"86\" cy=\"86\" r=\"21\" fill=\"#ff6467\" stroke=\"#27272a\" stroke-width=\"7\"></circle>\n</svg>",
+            &format!("  <circle cx=\"86\" cy=\"86\" r=\"21\" fill=\"{red}\" stroke=\"{CUT}\" stroke-width=\"7\"></circle>\n</svg>"),
+        )
+        .into_bytes()
+}
+
+/// #FEED-163: the icon with the record dot in the same corner, distinct
+/// from the microphone dot: a red ring around a red core (⏺), on a larger
+/// dark cut-out.
+fn recording(svg: &[u8]) -> Vec<u8> {
+    let red = svg_color(theme::tokens::DESTRUCTIVE);
+    String::from_utf8_lossy(svg)
+        .replace(
+            "</svg>",
+            &format!(
+                "  <circle cx=\"84\" cy=\"84\" r=\"28\" fill=\"{CUT}\"></circle>\n  <circle cx=\"84\" cy=\"84\" r=\"21\" fill=\"none\" stroke=\"{red}\" stroke-width=\"6\"></circle>\n  <circle cx=\"84\" cy=\"84\" r=\"12\" fill=\"{red}\"></circle>\n</svg>"
+            ),
         )
         .into_bytes()
 }
@@ -301,6 +337,13 @@ fn switch_step(screen: &mut ScreenMemory, on: bool, account: Option<String>) -> 
     step
 }
 
+/// NEW-58: a buffer left on disk goes at install while the switch is off
+/// or, #FEED-164, while this machine cannot capture (Wayland: no row, no
+/// start, so nothing would ever sweep it).
+fn sweeps_leftover(switch_on: bool, available: bool) -> bool {
+    !switch_on || !available
+}
+
 /// NEW-58: the Screen memory switch and the capture it drives.
 #[derive(Debug)]
 struct ScreenMemory {
@@ -403,8 +446,10 @@ pub fn install(cx: &mut App) {
             })
             .detach();
     }
-    // A buffer an earlier run left behind with the switch off goes.
-    if !switch_on && screen::leftover(&data_dir) {
+    // A buffer an earlier run left behind with the switch off goes; #FEED-164:
+    // so does one on a machine that cannot capture now (Wayland hides the
+    // row, so nothing else would ever sweep an earlier X11 session's frames).
+    if sweeps_leftover(switch_on, screen.available) && screen::leftover(&data_dir) {
         let _ = screen_ops.send(ScreenOp::Forget);
     }
     if muted {
@@ -623,7 +668,8 @@ impl VoiceTray {
         let meeting_state = crate::meeting::state(cx);
         // NEW-57: a meeting holding the microphone shows the dot too.
         let meeting_listening = meeting_state.running && meeting_state.listening && !meeting_state.paused;
-        let icon = tray_icon(device_is_voice_device, wake_listening, meeting_listening, self.muted);
+        // #FEED-163: a meeting running here (paused or not) records.
+        let icon = tray_icon(device_is_voice_device, wake_listening, meeting_listening, meeting_state.running, self.muted);
         let meeting_on = settings.meeting();
         let who = if meeting_state.running && !meeting_state.who.is_empty() {
             meeting_state.who.clone()
@@ -870,7 +916,7 @@ mod backend {
             self.icon = state;
             let Some(tray) = self.tray.as_ref() else { return };
             #[cfg(target_os = "macos")]
-            let set = tray.set_icon_templated(icon(state));
+            let set = if super::templated(state) { tray.set_icon_templated(icon(state)) } else { tray.set_icon(icon(state)) };
             #[cfg(not(target_os = "macos"))]
             let set = tray.set_icon(icon(state));
             if let Err(err) = set {
@@ -917,10 +963,11 @@ mod backend {
                 builder = builder.with_menu_on_left_click(false);
             }
             if let Some(icon) = icon(self.icon) {
-                // The menu bar tints a template image for light and dark.
+                // The menu bar tints a template image for light and dark
+                // (#FEED-163: never the red record dot).
                 #[cfg(target_os = "macos")]
                 {
-                    builder = builder.with_icon_templated(icon);
+                    builder = if super::templated(self.icon) { builder.with_icon_templated(icon) } else { builder.with_icon(icon) };
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -1064,6 +1111,64 @@ mod tests {
             }
             pixmap.save_png(path).unwrap();
         }
+    }
+
+    /// #FEED-163: the record dot: red in the same corner as the microphone
+    /// dot, but its own shape (a ring around a core), drawn in colour on
+    /// macOS (never a template) while App and Listening stay templates.
+    /// EXP_TRAY_ICON_DIR=<dir>: write every state at 22 and 64 px for the PR.
+    #[test]
+    fn the_recording_icon_carries_the_record_dot() {
+        let red_at = |frame: &IconFrame, corner: bool| {
+            frame
+                .rgba
+                .chunks_exact(4)
+                .enumerate()
+                .filter(|(index, pixel)| {
+                    let (x, y) = (*index as u32 % frame.width, *index as u32 / frame.width);
+                    let lower_right = x > frame.width / 2 && y > frame.height / 2;
+                    lower_right == corner && pixel[3] > 200 && pixel[0] > 200 && pixel[1] < 140
+                })
+                .count()
+        };
+        let listening = icon_frames(TrayIcon::Listening, &[64]).pop().unwrap();
+        let recording = icon_frames(TrayIcon::Recording, &[64]).pop().unwrap();
+        assert!(red_at(&recording, true) > 60, "{} red pixels", red_at(&recording, true));
+        assert_eq!(red_at(&recording, false), 0, "only in the corner");
+        assert_ne!(recording.rgba, listening.rgba, "distinct from the microphone dot");
+        // The record dot's core and ring are red, the gap between them dark.
+        let at = |frame: &IconFrame, units: f32| {
+            let px = ((units + 11.0) * frame.width as f32 / 122.0) as u32;
+            let i = ((px * frame.width + px) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        let red = theme::tokens::DESTRUCTIVE;
+        assert_eq!(at(&recording, 84.0), [red.r, red.g, red.b], "the core");
+        // 15 units out along the diagonal: between the core (12) and the ring (18..24).
+        assert!(at(&recording, 84.0 + 10.6)[0] < 80, "the gap");
+        assert!(templated(TrayIcon::App) && templated(TrayIcon::Listening) && !templated(TrayIcon::Recording));
+        if let Ok(dir) = std::env::var("EXP_TRAY_ICON_DIR") {
+            std::fs::create_dir_all(&dir).unwrap();
+            for (name, icon) in [("app", TrayIcon::App), ("listening", TrayIcon::Listening), ("recording", TrayIcon::Recording)] {
+                for frame in icon_frames(icon, &[22, 64]) {
+                    let mut pixmap = resvg::tiny_skia::Pixmap::new(frame.width, frame.height).unwrap();
+                    for (pixel, rgba) in pixmap.pixels_mut().iter_mut().zip(frame.rgba.chunks_exact(4)) {
+                        *pixel = resvg::tiny_skia::ColorU8::from_rgba(rgba[0], rgba[1], rgba[2], rgba[3]).premultiply();
+                    }
+                    pixmap.save_png(format!("{dir}/tray-{name}-{}.png", frame.width)).unwrap();
+                }
+            }
+        }
+    }
+
+    /// #FEED-164: a leftover buffer goes at install with the switch off, and
+    /// with it on where nothing can capture (Wayland hides the row).
+    #[test]
+    fn a_leftover_buffer_is_swept_where_nothing_captures() {
+        assert!(sweeps_leftover(false, true), "switch off");
+        assert!(sweeps_leftover(true, false), "on, but Wayland");
+        assert!(sweeps_leftover(false, false));
+        assert!(!sweeps_leftover(true, true), "on and capturing: kept");
     }
 
     /// #NEW-86: Mute survives a restart on this device; no file (or a

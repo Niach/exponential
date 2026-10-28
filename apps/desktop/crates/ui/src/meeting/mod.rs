@@ -14,8 +14,13 @@
 //! A meeting runs here while THIS device is the voice device, an agent is
 //! picked and `meetingStartedAt` is set (`clearOnNone`); anything else, a
 //! sign-out included (its settings reset to the defaults), stops it. The
-//! meeting's id is its `meetingStartedAt`, so a restarted IDE or worker
-//! picks the same meeting up. FLUSH: segments queue; `wake` (the phrase
+//! meeting's id is its `meetingStartedAt`, so a restarted worker picks the
+//! same meeting up. #FEED-163 RESTART: a restarted IDE PROCESS never does:
+//! the local log remembers the meeting it listened to, and when the voice
+//! row still holds that one at the next start, the IDE stops it
+//! (`voice.stopMeeting {reason: 'restart'}`) and opens THE consent dialog
+//! instead ([`domain::meeting::meeting_resume_asks`]); a meeting it never
+//! listened to starts as usual. FLUSH: segments queue; `wake` (the phrase
 //! opening a `you` segment), `ptt` (a push-to-talk key-down, which the
 //! worker answers `MeetingFlushNow`), `tick` (every second) and `turnDone`
 //! (the agent's reply row after the turn's own message, or the turn
@@ -91,7 +96,9 @@ fn wanted_for(settings: &VoiceSettings, device_id: &str, now_ms: i64) -> Option<
     }
     let settings = settings.clone().clear_on_none();
     // AUTO-STOP: on this device's own clock (an offline device stops too).
-    if !settings.meeting() || domain::meeting::meeting_expired(settings.meeting_started_at.as_deref(), now_ms) {
+    if !settings.meeting()
+        || domain::meeting::meeting_expired(settings.meeting_started_at.as_deref(), now_ms, settings.auto_stop_hours())
+    {
         return None;
     }
     Some(Wanted {
@@ -294,6 +301,11 @@ pub(crate) struct MeetingHost {
     tick_generation: u64,
     /// The account signed in when last looked at ([`purges_log`]).
     account: Option<String>,
+    /// #FEED-163 RESTART: the meeting the previous IDE process listened to
+    /// (read once at start): never listened to again without a new consent.
+    listened_before: Option<String>,
+    /// The restart stop + consent went out (once per process).
+    resume_asked: bool,
 }
 
 struct MeetingHostGlobal(Entity<MeetingHost>);
@@ -322,6 +334,12 @@ pub fn init(cx: &mut App) {
             None
         }
     };
+    let listened_before = log.as_ref().and_then(|log| {
+        log.listened().unwrap_or_else(|err| {
+            ::log::warn!("[meeting] reading the listened meeting failed: {err}");
+            None
+        })
+    });
     let entity = cx.new(|cx: &mut Context<MeetingHost>| {
         cx.observe(&speaker, |this: &mut MeetingHost, _, cx| this.follow(cx)).detach();
         cx.observe(&messages, |this: &mut MeetingHost, collection, cx| this.on_messages(&collection, cx)).detach();
@@ -337,6 +355,8 @@ pub fn init(cx: &mut App) {
             last_prune_ms: 0,
             tick_generation: 0,
             account: crate::speak_replies::session_account(cx),
+            listened_before,
+            resume_asked: false,
         }
     });
     entity.update(cx, |this, cx| {
@@ -428,7 +448,22 @@ impl MeetingHost {
             self.client = crate::speak_replies::client(cx);
         }
         let settings = crate::speak_replies::settings(cx);
-        let wanted = wanted_for(&settings, &self.device_id, crate::session_data::now_ms());
+        let mut wanted = wanted_for(&settings, &self.device_id, crate::session_data::now_ms());
+        // RESTART: the sitting this IDE listened to before it was gone needs
+        // a new consent: stop it and ask, never listen on.
+        if wanted.as_ref().is_some_and(|wanted| {
+            domain::meeting::meeting_resume_asks(self.listened_before.as_deref(), Some(wanted.id.as_str()))
+        }) {
+            wanted = None;
+            if !self.resume_asked {
+                self.resume_asked = true;
+                ::log::info!("[meeting] the IDE restarted during a meeting: stopped, asking for consent again");
+                cx.defer(|cx| {
+                    crate::meeting_mode::stop_for(domain::meeting::MeetingStopReason::Restart, cx);
+                    crate::meeting_mode::request_consent(cx);
+                });
+            }
+        }
         let current = self.running.as_ref().map(|running| running.wanted.clone());
         if wanted == current {
             return;
@@ -456,10 +491,11 @@ impl MeetingHost {
         }
         self.publish(&settings, cx);
         if auto_stopped {
-            ::log::info!("[meeting] stopped after {} ms (autoStop)", MEETING.auto_stop.after_ms);
-            cx.defer(|cx| {
-                crate::meeting_mode::stop(cx);
-                crate::meeting_mode::notify_auto_stopped(cx);
+            let hours = settings.auto_stop_hours();
+            ::log::info!("[meeting] stopped after {hours} h (autoStop)");
+            cx.defer(move |cx| {
+                crate::meeting_mode::stop_for(domain::meeting::MeetingStopReason::AutoStop, cx);
+                crate::meeting_mode::notify_auto_stopped(hours, cx);
             });
         }
     }
@@ -467,6 +503,12 @@ impl MeetingHost {
     fn start(&mut self, wanted: Wanted, cx: &mut Context<Self>) {
         let capability = talk::apps::capability();
         self.listening = false;
+        // RESTART: remembered before anything listens.
+        if let Some(log) = self.log.as_ref() {
+            if let Err(err) = log.set_listened(&wanted.id) {
+                ::log::warn!("[meeting] remembering the listened meeting failed: {err}");
+            }
+        }
         ::log::info!("[meeting] started on this device ({:?} desktop audio, {:?})", wanted.desktop_audio, capability);
         self.running = Some(Running {
             account: crate::speak_replies::session_account(cx),
@@ -490,8 +532,9 @@ impl MeetingHost {
                 }
                 this.step(FlushEvent::Tick, None, cx);
                 // AUTO-STOP: the tick is the clock that ends a too-old meeting.
+                let hours = crate::speak_replies::settings(cx).auto_stop_hours();
                 if this.running.as_ref().is_some_and(|running| {
-                    domain::meeting::meeting_expired(Some(&running.wanted.id), crate::session_data::now_ms())
+                    domain::meeting::meeting_expired(Some(&running.wanted.id), crate::session_data::now_ms(), hours)
                 }) {
                     this.follow(cx);
                     return false;
@@ -845,6 +888,12 @@ mod tests {
         let after = MEETING.auto_stop.after_ms;
         assert!(wanted_for(&settings(), "mint", NOW - 3_600_000 + after - 1).is_some());
         assert_eq!(wanted_for(&settings(), "mint", NOW - 3_600_000 + after), None, "auto-stopped");
+        // #FEED-163: the member's own hours (1 h: NOW is the edge).
+        let one_hour = VoiceSettings { meeting_auto_stop_hours: 1, ..settings() };
+        assert!(wanted_for(&one_hour, "mint", NOW - 1).is_some());
+        assert_eq!(wanted_for(&one_hour, "mint", NOW), None, "auto-stopped after 1 h");
+        let eight = VoiceSettings { meeting_auto_stop_hours: 8, ..settings() };
+        assert!(wanted_for(&eight, "mint", NOW - 3_600_000 + after).is_some(), "8 h outlives the default");
         assert_eq!(selection_of(DesktopAudio::Off, &[]), talk::MeetingApps::Off);
         assert_eq!(selection_of(DesktopAudio::Exclude, &["x".into()]), talk::MeetingApps::Exclude(vec!["x".into()]));
     }
