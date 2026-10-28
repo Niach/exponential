@@ -261,14 +261,9 @@ enum SubtreeRow {
     },
 }
 
-/// A session chip's lead ×4: the thread row mark of THAT session.
+/// A session chip's lead ×4: THAT session's display state (S-3: one type).
 fn chip_state(mark: SessionTabMarkState) -> SessionState {
-    match mark {
-        SessionTabMarkState::NeedsYou => SessionState::NeedsYou,
-        SessionTabMarkState::Working => SessionState::Working,
-        SessionTabMarkState::Waiting => SessionState::Waiting,
-        SessionTabMarkState::Ended => SessionState::Ended,
-    }
+    mark
 }
 
 /// A chip and its nested rows with their picks, depths relative to the chip
@@ -340,7 +335,7 @@ fn subtree_row(item: &SubtreeRow, guides: &domain::tree_guides::Guides, active: 
             title,
             status,
         } => row
-            .child(issue_glyph(status.as_ref(), cx))
+            .children(issue_glyph(status.as_ref(), cx))
             .child(
                 div()
                     .flex_shrink_0()
@@ -360,9 +355,7 @@ fn subtree_row(item: &SubtreeRow, guides: &domain::tree_guides::Guides, active: 
             ),
         SubtreeRow::Session { name, state } => {
             let word_color = match state {
-                SessionState::NeedsYou | SessionState::Blocked => {
-                    crate::work_card::session_tone_color(state.tone(), cx)
-                }
+                SessionState::NeedsYou => crate::work_card::session_tone_color(state.tone(), cx),
                 _ => theme.muted_foreground,
             };
             row.child(crate::run_rows::run_mark(crate::run_rows::run_agent(None), *state, cx))
@@ -478,9 +471,9 @@ pub(super) fn row(
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
+    if let SessionThreadRow::Message { id, author, body, queued, xref, .. } = row {
         let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, &crate::thread_screen::ThreadText::default(), images);
-        return match author.as_str() {
+        let bubble = match author.as_str() {
             domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                 let at = case
                     .messages
@@ -493,6 +486,8 @@ pub(super) fn row(
             domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
             _ => muted_line(registry::UI_INFO, body.clone(), cx),
         };
+        // S-3: another session's message = its link header above the bubble.
+        return crate::thread_screen::with_xref(id, xref.as_ref(), author, bubble, cx);
     }
     card_row(row, &case.view.root_id, &crate::thread_screen::ThreadText::default(), images, window, cx).unwrap_or_else(|| div().into_any_element())
 }

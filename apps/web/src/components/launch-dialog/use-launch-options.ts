@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   agentSeed,
-  agentSupportsPlanMode,
   agentSupportsSubagentModel,
   agentSupportsUltracode,
   DEFAULT_LAUNCH_AGENT,
@@ -77,8 +76,6 @@ export interface LaunchOptions {
   setEffortValue: (effort: string) => void
   ultracode: boolean
   setUltracode: (value: boolean) => void
-  planMode: boolean
-  setPlanMode: (value: boolean) => void
   /** EXP-792: the picked team MCP servers (row ids, list order). Seeded from
    * the team's last pick or its `enabledByDefault` rows once the list loads —
    * only servers the caller has connected (or that need no sign-in); every
@@ -118,7 +115,6 @@ export function useLaunchOptions({
   open,
   devices,
   initialDeviceId,
-  planModeOff = false,
   teamId,
   mcpServers = null,
 }: {
@@ -135,18 +131,12 @@ export function useLaunchOptions({
   mcpServers?:
     | readonly Pick<McpServerRow, `id` | `enabledByDefault` | `connection`>[]
     | null
-  /** EXP-772: never seed plan mode from the device's defaults — the chat page
-   * starts every conversation in build mode unless the user flips the switch,
-   * and a surface that HIDES the switch must send `planMode: false` rather
-   * than a value nobody could see. */
-  planModeOff?: boolean
 }): LaunchOptions {
   const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
   const [model, setModel] = useState(``)
   const [subagentModel, setSubagentModel] = useState(``)
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
-  const [planMode, setPlanMode] = useState(false)
   // EXP-1249: the person's explicit per-run flip, null = untouched (the run
   // follows the device's CURRENT default and the start omits the key).
   const [computerUsePick, setComputerUsePick] = useState<boolean | null>(null)
@@ -194,7 +184,6 @@ export function useLaunchOptions({
     setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(CLI_DEFAULT_EFFORT)
     setUltracode(seed.ultracode)
-    setPlanMode(planModeOff ? false : seed.planMode)
     setComputerUsePick(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -228,7 +217,6 @@ export function useLaunchOptions({
     setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
-    setPlanMode(planModeOff ? false : seed.planMode)
   }
 
   // EXP-437: seed the launch options from the selected device's advertised
@@ -263,7 +251,6 @@ export function useLaunchOptions({
     setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
-    setPlanMode(planModeOff ? false : seed.planMode)
     // EXP-1249: a per-DEVICE switch, so a device change drops the flip —
     // an agent switch keeps whatever the person set.
     setComputerUsePick(null)
@@ -377,7 +364,6 @@ export function useLaunchOptions({
       ? { subagentModel }
       : {}),
     ultracode: ultracode && agentSupportsUltracode(agent),
-    planMode: planMode && agentSupportsPlanMode(agent),
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike.
     ...(mcpServerIds.length > 0
@@ -416,8 +402,6 @@ export function useLaunchOptions({
     setEffortValue,
     ultracode,
     setUltracode,
-    planMode,
-    setPlanMode,
     mcpServerIds,
     setMcpServerIds,
     toggleMcpServer,

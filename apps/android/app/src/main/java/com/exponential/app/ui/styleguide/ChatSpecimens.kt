@@ -90,6 +90,7 @@ private fun chatRow(
     word: SessionTree.ThreadRowWord? = null,
     activityAt: String = "",
     deviceId: String? = null,
+    dim: Boolean = false,
 ) = Chats.ChatRow(
     sessionId = id,
     teamId = "t1",
@@ -104,6 +105,7 @@ private fun chatRow(
     needsYou = needsYou,
     busy = busy,
     word = word,
+    dim = dim,
 )
 
 /**
@@ -134,16 +136,38 @@ object ChatListSpecimen {
             chatRow(
                 "d", "Merged", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Merged,
                 "you", "You: ship it", Chats.Copy.TIME_YESTERDAY,
-                activityAt = "2026-10-22T10:00:00.000Z",
+                activityAt = "2026-10-22T10:00:00.000Z", dim = true,
             ),
         ),
         counts = Chats.ChatCounts(needsYou = 1, running = 1, unread = 1),
     )
 
     val BUBBLES: List<Chats.AgentBubble> = listOf(
+        // S-3: the viewer's Assistant first (no conversation yet = no ring).
+        Chats.AgentBubble(SessionTree.AgentRow("as", "t1", "Assistant", "bot", "#6366f1", busy = false, needsYou = false, assistant = true), null),
         Chats.AgentBubble(SessionTree.AgentRow("ag1", "t1", "Triage", "bug", "#a855f7", busy = false, needsYou = true), Chats.AgentRing.NeedsYou),
         Chats.AgentBubble(SessionTree.AgentRow("ag2", "t1", "Designer", "bot", "#6366f1", busy = false, needsYou = false), Chats.AgentRing.Unread),
         Chats.AgentBubble(SessionTree.AgentRow("ag3", "t1", "Release", "package", "#22c55e", busy = false, needsYou = false), null),
+    )
+
+    /** S-3: the pinned AGENT rows = `agentRowCases[0].expected` (the
+     *  Assistant first with the brand mark, Triage busy, Designer needs you). */
+    val AGENT_ROWS: List<Chats.AgentChatRow> = listOf(
+        Chats.AgentChatRow(
+            agentId = "as", sessionId = "c-as", name = "Assistant", icon = "bot", color = "#6366f1", assistant = true,
+            preview = Chats.ChatPreview("agent", "All chats are on track."), time = "09:00",
+            activityAt = "2026-10-23T09:00:00.000Z", unreadCount = 1, needsYou = false, busy = false,
+        ),
+        Chats.AgentChatRow(
+            agentId = "ag1", sessionId = "c-ag1", name = "Triage", icon = "bug", color = "#a855f7", assistant = false,
+            preview = Chats.ChatPreview("working", Chats.Copy.PREVIEW_WORKING), time = "08:00",
+            activityAt = "2026-10-23T08:00:00.000Z", unreadCount = 0, needsYou = false, busy = true,
+        ),
+        Chats.AgentChatRow(
+            agentId = "ag2", sessionId = "c-ag2", name = "Designer", icon = "bot", color = "#6366f1", assistant = false,
+            preview = Chats.ChatPreview("question", "Question: Which palette?"), time = "09:30",
+            activityAt = "2026-10-23T09:30:00.000Z", unreadCount = 1, needsYou = true, busy = false,
+        ),
     )
 }
 
@@ -169,6 +193,15 @@ fun ChatListSpecimenScreen() {
                     ),
                     filter = filter,
                     bubbles = BUBBLES,
+                    // S-3: the pinned Agents section, filtered by the chip like a chat.
+                    agentRows = ChatListSpecimen.AGENT_ROWS.filter {
+                        when (filter) {
+                            Chats.ChatFilter.All -> true
+                            Chats.ChatFilter.NeedsYou -> it.needsYou
+                            Chats.ChatFilter.Running -> it.busy
+                            Chats.ChatFilter.Unread -> it.unreadCount > 0
+                        }
+                    },
                     agentOf = { "claude" },
                     onSelectFilter = { filter = it },
                     onOpenChat = {},
@@ -412,7 +445,6 @@ fun ChatTranscriptSpecimenScreen() {
                         onBack = {},
                         menu = chatMenuItems(
                             Chats.threadMenuEntries("running", canSteer = true, canDelete = true),
-                            onStop = {},
                             onDelete = {},
                         ),
                     )
@@ -442,10 +474,9 @@ fun ChatTranscriptSpecimenScreen() {
 }
 
 /** THE chat menus as the phone's long-press sheets, in the web entry's
- *  order (chat-menus.tsx; iOS's faces line for line): a live chat (Stop ·
- *  Stop and delete), an ended chat (Delete), the agent menu busy + owner
- *  (Compact conversation · New conversation | Stop · Agent settings)
- *  (shot `sg_chat-menus`). */
+ *  order (chat-menus.tsx; iOS's faces line for line): a chat (S-3: Delete
+ *  only, no Stop), the agent menu of an owner (Compact conversation · New
+ *  conversation | Agent settings) (shot `sg_chat-menus`). */
 @Composable
 fun ChatMenusSpecimenScreen() {
     AppBackground {
@@ -458,8 +489,7 @@ fun ChatMenusSpecimenScreen() {
                 .testTag(ChatMenusSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true), {}, {}))
-            ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true, true), {}, {}))
+            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true)) {})
             ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
         }
     }

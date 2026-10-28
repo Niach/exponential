@@ -60,6 +60,17 @@ class AgentSettingsViewModel @Inject constructor(
     private val agentsApi: AgentsApi,
 ) : ViewModel() {
 
+    /** S-3: the viewer (an Assistant is edited by its owner only). */
+    val me: StateFlow<String?> get() = auth.userId
+
+    /** S-3: the Settings Agents group makes sure the viewer has an Assistant. */
+    fun ensureAssistant() {
+        val team = teamId.value
+        viewModelScope.launch {
+            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
+        }
+    }
+
     /** The agent definition id (`settings/agent/{agentId}`); null = list / new. */
     val agentId: String? = savedStateHandle.get<String>("agentId")?.takeIf { it.isNotBlank() }
 

@@ -1007,13 +1007,6 @@ impl SteerSessionView {
         }
     }
 
-    /// Whether the header may offer Stop. EXP-1294: Stop is a server call
-    /// (`sessions.stop`), so it needs no socket — only a session that is not
-    /// over and that the reader may steer ([`may_steer`]).
-    pub(crate) fn killable(&self) -> bool {
-        self.may_message && !self.session_over()
-    }
-
     /// The synced `sessions` row behind this viewer — what the header names
     /// the session from and gates its Stop on.
     pub(crate) fn session_row(&self) -> Option<&domain::rows::SessionRow> {
@@ -2755,7 +2748,7 @@ impl SteerSessionView {
             .filter(|item| shown.contains(&item.id))
             .filter_map(|item| match &item.kind {
                 FeedKind::Tool { name, settled: true, failed: false, .. } => {
-                    steer::exp_tool_row(name).map(|row| (item.id, row))
+                    domain::ask_dock::card_call_row(name).map(|row| (item.id, row))
                 }
                 _ => None,
             })
@@ -2937,20 +2930,6 @@ impl SteerSessionView {
     /// bar is the conversation alone).
     pub(crate) fn context_layout(&self) -> Vec<steer::ContextSegment> {
         self.feed.context_layout().to_vec()
-    }
-
-    /// EXP-847: the run's MODE, for the header's read-only Plan chip — the
-    /// latest `config_state` through the shared
-    /// [`crate::session_extras::mode_chip`] (the ×4 `modeChip`). `None` for a
-    /// run that advertises no modes (codex) and for one that is not in plan
-    /// mode, which is why the header shows nothing the moment an approved
-    /// `ExitPlanMode` flips the mode back.
-    ///
-    /// Never a control: EXP-790 keeps plan a LAUNCH-time choice.
-    pub(crate) fn plan_mode_label(&self) -> Option<SharedString> {
-        let chip = crate::session_extras::mode_chip(self.feed.config())?;
-        (chip.value == crate::session_extras::PLAN_MODE_ID)
-            .then(|| SharedString::from(chip.value_label))
     }
 
     /// EXP-1261: whether the transcript left its top (the work body's top
@@ -3674,8 +3653,9 @@ pub(crate) fn may_steer(row: &domain::rows::SessionRow, me: Option<&str>) -> boo
 }
 
 /// EXP-1294 — Stop: `sessions.stop` interrupts the session's turn through
-/// the relay (a queued one simply ends); a refusal is the usual toast, a
-/// stop no device got (`delivered: false`) `copy.toasts.stopNotDelivered`.
+/// the relay (a queued one simply ends). S-3: the composer stop-turn's
+/// toasts read chats.json `copy.stopTurn`: a refusal = `failed` (+ the
+/// reason), a stop no device got (`delivered: false`) = `notDelivered`.
 /// Shared with the terminal strip's per-row stop.
 pub(crate) fn stop_session(session_id: &str, cx: &mut App) {
     stop_sessions(vec![session_id.to_string()], cx);
@@ -3683,14 +3663,14 @@ pub(crate) fn stop_session(session_id: &str, cx: &mut App) {
 
 /// [`stop_session`] over several sessions as ONE stop action (a root's
 /// composer stopping its busy tree): every `sessions.stop` goes out, and the
-/// outcome is at most one toast — the first refusal, else one
-/// `stopNotDelivered` when any stop reached no device.
+/// outcome is at most one toast — the first refusal.
 pub(crate) fn stop_sessions(session_ids: Vec<String>, cx: &mut App) {
     if session_ids.is_empty() {
         return;
     }
+    let copy = &domain::chats::CHATS.copy.stop_turn;
     let Some(trpc) = crate::queries::trpc_client(cx) else {
-        crate::action_error::failed_action("stop", "the session", None, cx);
+        crate::toast::show_in_active_window(crate::toast::Toast::error(copy.failed.clone()), cx);
         return;
     };
     cx.spawn(async move |cx| {
@@ -3707,20 +3687,26 @@ pub(crate) fn stop_sessions(session_ids: Vec<String>, cx: &mut App) {
         let mut failure = None;
         for result in results {
             match result {
-                // Thread 58cb32df: the relay reached no device for a live run.
                 Ok(out) => not_delivered |= out.not_delivered(),
                 Err(err) => {
                     failure.get_or_insert(err);
                 }
             }
         }
-        let _ = cx.update(|cx| match failure {
-            Some(err) => crate::action_error::failed_action_err("stop", "the session", &err, cx),
-            None if not_delivered => {
-                let title = domain::chats::CHATS.copy.toasts.stop_not_delivered.clone();
-                crate::toast::show_in_active_window(crate::toast::Toast::error(title), cx);
-            }
-            None => {}
+        let copy = &domain::chats::CHATS.copy.stop_turn;
+        let _ = cx.update(|cx| {
+            let toast = match failure {
+                Some(err) => {
+                    let toast = crate::toast::Toast::error(copy.failed.clone());
+                    match crate::action_error::action_error_description(&err) {
+                        Some(description) => toast.description(description),
+                        None => toast,
+                    }
+                }
+                None if not_delivered => crate::toast::Toast::error(copy.not_delivered.clone()),
+                None => return,
+            };
+            crate::toast::show_in_active_window(toast, cx);
         });
     })
     .detach();
@@ -4016,7 +4002,6 @@ const MCP_RETRY_AFTER: Duration = Duration::from_secs(5);
 /// `useSessionComposerOptions`' `Overrides`). `None` = read the row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct OptionPicks {
-    plan_mode: Option<bool>,
     /// `Some(None)` = the default effort was picked.
     effort: Option<Option<String>>,
     ultracode: Option<bool>,
@@ -4026,9 +4011,6 @@ struct OptionPicks {
 impl OptionPicks {
     /// Take `input`'s picks (a later pick replaces an earlier one).
     fn apply(&mut self, input: &api::sessions::ConfigureInput) {
-        if let Some(on) = input.plan_mode {
-            self.plan_mode = Some(on);
-        }
         if let Some(effort) = input.effort.as_ref() {
             self.effort = Some(effort.clone());
         }
@@ -4043,9 +4025,6 @@ impl OptionPicks {
     /// Drop the picks `made`, unless a later pick replaced them (web
     /// `dropSettled`).
     fn drop_settled(&mut self, made: &OptionPicks) {
-        if made.plan_mode.is_some() && self.plan_mode == made.plan_mode {
-            self.plan_mode = None;
-        }
         if made.effort.is_some() && self.effort == made.effort {
             self.effort = None;
         }
@@ -4059,9 +4038,6 @@ impl OptionPicks {
 
     /// Drop every pick the synced row already says.
     fn drop_matching(&mut self, row: &domain::rows::SessionRow) {
-        if self.plan_mode == Some(row.plan_mode) {
-            self.plan_mode = None;
-        }
         if self.effort.as_ref() == Some(&row.effort) {
             self.effort = None;
         }
@@ -4698,18 +4674,8 @@ impl SteerSessionView {
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
-            let paused = self.paused(cx);
-            let body: AnyElement = if paused {
-                let device = self.device(cx);
-                centered(vec![
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child(SharedString::from(paused_title(device.label.as_deref())))
-                        .into_any_element(),
-                    div().text_xs().text_color(muted.opacity(0.7)).child(PAUSED_BODY).into_any_element(),
-                ])
-            } else if matches!(
+            // S-3: no paused body (an offline host is invisible).
+            let body: AnyElement = if matches!(
                 self.phase,
                 ViewerPhase::Connecting | ViewerPhase::Starting | ViewerPhase::Reconnecting
             ) {
@@ -7277,8 +7243,7 @@ impl SteerSessionView {
     /// N-12: the session view's status strips as THE Dock's banner cards
     /// (dock.json `banner`: the host's words and tone; web
     /// `useSessionDock`): a replay, a failed end, an unavailable relay, a
-    /// dropped stream (Reconnect), the agent starting, paused on an offline
-    /// device, the rate-limit wall (Switch account), compacting, a notice.
+    /// dropped stream (Reconnect), the agent starting, the rate-limit wall (Switch account), compacting, a notice.
     fn dock_banners(&self, cx: &App) -> Vec<domain::dock::DockSource> {
         use domain::dock::{DockSource, DockTint};
         let banner = |id: &str, icon: &str, label: &str, text: String, tone: DockTint, action: Option<&str>| DockSource::Banner {
@@ -7337,14 +7302,15 @@ impl SteerSessionView {
             }
             _ => {}
         }
-        // EXP-1374 (session-card.json `banner`): an interrupted or
-        // background session's own card; it replaces the offline "paused"
-        // banner while shown.
+        // EXP-1374 (session-card.json `banner`): a background or queued
+        // session's own card. S-3: no paused strip (an offline host is
+        // invisible) and no interrupted card.
         if let Some(session) = self.row.as_ref().and_then(domain::session_tree::session_banner) {
-            out.push(banner(session.id.as_str(), &session.icon, &session.label, session.text, DockTint::Muted, None));
-        } else if paused && !self.feed.is_empty() {
-            let device = self.device(cx);
-            out.push(banner("paused", "ui-device-offline", &paused_title(device.label.as_deref()), PAUSED_BODY.to_string(), DockTint::Muted, None));
+            let id = match session.id {
+                domain::session_tree::SessionBannerId::Background => "background",
+                domain::session_tree::SessionBannerId::Queued => "queued",
+            };
+            out.push(banner(id, &session.icon, &session.label, session.text, DockTint::Muted, None));
         }
         if self.run_open() {
             if let Some(compacting) = self.feed.compacting() {
@@ -7807,15 +7773,14 @@ impl SteerSessionView {
     }
 
     /// EXP-877 — the run's controls in the composer card's bottom row
-    /// ([`crate::composer::SessionComposerControls`]): the model pin, the
-    /// Plan switch (a claude run only, web `planSupported`; on a DISPATCHER
-    /// root it reads the local pick, which is the children's plan mode from
-    /// then on), the context ring.
+    /// ([`crate::composer::SessionComposerControls`]): the device pin, the
+    /// model pin, the context ring (S-3: no Plan switch).
     fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
+        // S-3: NO options line (the model is a "+" row; a running session
+        // never moves device here): the context ring stays.
         crate::composer::SessionComposerControls {
-            device_pin: self.render_device_pin(cx),
-            model_pin: self.render_model_pin(cx),
-            plan: self.render_plan_switch(cx),
+            device_pin: None,
+            model_pin: None,
             context_ring: self.render_context_ring(cx),
         }
     }
@@ -7972,264 +7937,122 @@ impl SteerSessionView {
         .detach();
     }
 
-    /// EXP-1334 — THE Plan switch under the card (web `planOn`): the pick
-    /// ahead of its row, else the live mode (`config_state.currentMode`),
-    /// else the row's
-    /// `plan_mode`; a flip = `sessions.configure({planMode})`. Read-only
-    /// where the run cannot change; nothing for an agent without a plan mode
-    /// (web `agentSupportsPlanMode`: claude only).
-    fn render_plan_switch(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let row = self.row.as_ref()?;
-        if self.agent() != SessionAgent::Claude {
-            return None;
-        }
-        let on = match self.option_picks.plan_mode {
-            Some(on) => on,
-            None if self.feed.config().is_some() => self.plan_mode_label().is_some(),
-            None => row.plan_mode,
-        };
-        let session_id = self.session_id.to_string();
-        let configurable = self.configurable();
-        Some(
-            h_flex()
-                .flex_shrink_0()
-                .gap_1p5()
-                .items_center()
-                .px_1()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(crate::composer::PLAN_MODE_FALLBACK)
-                .child(
-                    crate::controls::web_switch(SharedString::from(format!("{}-plan", self.composer_ids.model)))
-                        .checked(on)
-                        .disabled(!configurable)
-                        .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                            this.configure_now(
-                                api::sessions::ConfigureInput {
-                                    session_id: session_id.clone(),
-                                    plan_mode: Some(*on),
-                                    ..Default::default()
-                                },
-                                cx,
-                            );
-                        })),
-                )
-                .into_any_element(),
-        )
-    }
-
-    /// EXP-1334 — the composer's "+": THE composer menu (composer-menu.json)
-    /// with the rows a RUNNING session can change — Add file or image, then
-    /// Effort and Ultracode, then Computer use — each a
-    /// `sessions.configure` (the subject pickers belong to a start).
+    /// EXP-1334 / S-3 — the composer's "+": THE composer menu
+    /// (composer-menu.json) on the `session` surface (`agent` for an agent
+    /// conversation): Photo or file, Issue › (THE issue search list; a pick
+    /// inserts `#IDENT` at the caret), then Model › while the run may switch
+    /// models (claude and codex: `sessions.configure({model})`). A running
+    /// session never moves device or login here; the work rows belong to a
+    /// start.
     fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        use crate::chat_screen::ComposerMenuRow as Row;
+        use crate::chat_screen::{composer_menu_rows, titled_row, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
         let view = cx.entity().downgrade();
         let session_id = self.session_id.to_string();
-        let configurable = self.configurable();
-        let claude = self.agent() == SessionAgent::Claude;
-        let agent = if claude {
-            coding::CodingAgent::Claude
+        let surface = if self.row.as_ref().and_then(|row| row.agent_id.as_deref()).is_some_and(|id| !id.is_empty()) {
+            ComposerSurface::Agent
         } else {
-            coding::CodingAgent::Codex
+            ComposerSurface::Session
         };
-        let mcp = self.mcp.clone().filter(|mcp| !mcp.servers.is_empty());
-        // The pick ahead of its row, else the row (web `useSessionComposerOptions`).
-        let row = self.row.as_ref();
-        let picks = &self.option_picks;
-        let effort = picks
-            .effort
-            .clone()
-            .unwrap_or_else(|| row.and_then(|row| row.effort.clone()))
-            .unwrap_or_default();
-        let ultracode = picks.ultracode.unwrap_or_else(|| row.is_some_and(|row| row.ultracode));
-        let computer_use = picks.computer_use.unwrap_or_else(|| row.is_some_and(|row| row.computer_use));
+        let rows = composer_menu_rows(
+            surface,
+            ComposerMenuConditions { model: self.configurable(), ..ComposerMenuConditions::default() },
+        );
+        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        let (models, model_picked): (&'static [(&'static str, &'static str)], String) = {
+            let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
+                .map(|chip| chip.value)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| crate::composer::session_fallback_model(self.row.as_ref(), cx));
+            let choices: &'static [(&'static str, &'static str)] = if self.agent() == SessionAgent::Claude {
+                &crate::coding_selects::MODEL_CHOICES
+            } else {
+                &crate::coding_selects::CODEX_MODEL_CHOICES
+            };
+            (choices, value)
+        };
+        let input = self.input.clone();
         let trigger = crate::composer::composer_tool(
             SharedString::from(format!("{}-plus", self.composer_ids.attach)),
             registry::UI_ADD,
             cx,
         )
-        .tooltip("Add")
+        .tooltip(crate::chat_screen::PLUS_TOOLTIP)
         .disabled(self.sending);
         crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
-            use crate::controls::{menu_row, pointer_check_item, pointer_menu_item, pointer_toggle_item};
-            menu = menu.min_w(px(260.));
-            let configure = {
-                let view = view.clone();
-                move |input: api::sessions::ConfigureInput, cx: &mut App| Self::configure(view.clone(), input, cx)
-            };
-            let base = {
-                let session_id = session_id.clone();
-                move || api::sessions::ConfigureInput {
-                    session_id: session_id.clone(),
-                    ..Default::default()
-                }
-            };
-            // Add file or image.
-            {
-                let view = view.clone();
-                menu = menu.item(
-                    pointer_menu_item(Row::AddFile.icon(), "Add file or image", |_| None, move |window, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| this.pick_files(window, cx));
-                        }
-                    }),
-                );
-            }
-            if !configurable {
-                return menu;
-            }
-            menu = menu.separator();
-            // Effort (Reasoning on codex); Ultracode IS the level while on.
-            let label = if claude { "Effort" } else { "Reasoning" };
-            let choices = crate::coding_selects::effort_choices_for(agent);
-            if ultracode && claude {
-                let title = SharedString::from(format!("{label} · Ultracode"));
-                menu = menu.item(
-                    gpui_component::menu::PopupMenuItem::element(move |_, cx| {
-                        menu_row(Row::Effort.icon(), title.clone(), None, true, cx)
-                    })
-                    .disabled(true),
-                );
-            } else {
-                let value = choices
-                    .iter()
-                    .find(|(_, value)| *value == effort)
-                    .map(|(label, _)| *label)
-                    .unwrap_or("Default");
-                let picked = effort.clone();
-                let configure = configure.clone();
-                let base = base.clone();
-                menu = menu.submenu_with_icon(
-                    Row::Effort.icon().map(Icon::new),
-                    format!("{label} · {value}"),
-                    window,
-                    cx,
-                    move |mut sub, _, _| {
-                        for (label, value) in choices {
-                            let configure = configure.clone();
-                            let base = base.clone();
-                            let value = (*value).to_string();
-                            sub = sub.item(pointer_check_item(*label, picked == value, move |_, cx| {
-                                configure(
-                                    api::sessions::ConfigureInput {
-                                        effort: Some(Some(value.clone()).filter(|value| !value.is_empty())),
-                                        ..base()
-                                    },
-                                    cx,
-                                );
-                            }));
-                        }
-                        sub
-                    },
-                );
-            }
-            if claude {
-                let configure = configure.clone();
-                let base = base.clone();
-                menu = menu.item(pointer_toggle_item(
-                    "steer-menu-ultracode",
-                    Row::Ultracode.icon(),
-                    "Ultracode",
-                    ultracode,
-                    move |on, _, cx| configure(api::sessions::ConfigureInput { ultracode: Some(on), ..base() }, cx),
-                ));
-            }
-            menu = menu.separator();
-            // MCP servers: the team's servers, the session's pick checked; a
-            // flip = sessions.configure({mcpServerIds}) (the device applies
-            // it between turns; the pick shows at once and comes back if the
-            // server refuses it).
-            if let Some(mcp) = mcp.clone() {
-                let configure = configure.clone();
-                let base = base.clone();
-                let label = match mcp.picks.len() {
-                    0 => "MCP servers".to_string(),
-                    count => format!("MCP servers · {count}"),
-                };
-                menu = menu.submenu_with_icon(Row::McpServers.icon().map(Icon::new), label, window, cx, move |mut sub, _, _| {
-                    for (id, name, blocked) in &mcp.servers {
-                        let picked = mcp.picks.contains(id);
-                        let mut next: Vec<String> =
-                            mcp.picks.iter().filter(|pick| *pick != id).cloned().collect();
-                        if !picked {
-                            next.push(id.clone());
-                        }
-                        next.sort();
-                        let configure = configure.clone();
-                        let base = base.clone();
-                        let label = if *blocked { format!("{name} (not connected)") } else { name.clone() };
-                        sub = sub.item(pointer_check_item(label, picked, move |_, cx| {
-                            configure(
-                                api::sessions::ConfigureInput {
-                                    mcp_server_ids: Some(next.clone()),
-                                    ..base()
-                                },
-                                cx,
-                            );
-                        }));
+            use crate::controls::{pointer_check_item, pointer_menu_item};
+            let root = cx.entity().downgrade();
+            menu = crate::picker::search_list::search_submenu_parent(menu.min_w(px(260.)));
+            for row in rows.iter().copied() {
+                menu = match row {
+                    Row::Separator => menu.separator(),
+                    Row::AddFile => {
+                        let view = view.clone();
+                        menu.item(pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |this, cx| this.pick_files(window, cx));
+                            }
+                        }))
                     }
-                    sub
-                });
+                    Row::ImplementIssue => {
+                        let Some(team_id) = team_id.clone() else {
+                            continue;
+                        };
+                        let input = input.clone();
+                        let root = root.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
+                            let input = input.clone();
+                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
+                                    input.update(cx, |state, cx| state.insert(text, window, cx));
+                                    input.read(cx).focus_handle(cx).focus(window, cx);
+                                });
+                            crate::picker::search_list::menu_search_list_submenu(
+                                "steer-issue-ref",
+                                crate::picker::search_list::issue_ref_source(team_id.clone(), insert),
+                                sub,
+                                root.clone(),
+                                window,
+                                cx,
+                            )
+                        })
+                    }
+                    Row::Model => {
+                        let value = models
+                            .iter()
+                            .find(|(_, value)| *value == model_picked)
+                            .map(|(label, _)| (*label).to_string())
+                            .unwrap_or_else(|| crate::steer_viewer::model_label(&model_picked));
+                        let picked = model_picked.clone();
+                        let view = view.clone();
+                        let session_id = session_id.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, Some(value)), window, cx, move |mut sub, _, _| {
+                            for (label, value) in models {
+                                let view = view.clone();
+                                let session_id = session_id.clone();
+                                let value = (*value).to_string();
+                                sub = sub.item(pointer_check_item(*label, picked == value, move |_, cx| {
+                                    Self::configure(
+                                        view.clone(),
+                                        api::sessions::ConfigureInput {
+                                            session_id: session_id.clone(),
+                                            model: Some(value.clone()),
+                                            ..Default::default()
+                                        },
+                                        cx,
+                                    );
+                                }));
+                            }
+                            sub
+                        })
+                    }
+                    // Launch-only rows never reach a session's surface.
+                    _ => menu,
+                };
             }
-            let configure = configure.clone();
-            let base = base.clone();
-            menu.item(pointer_toggle_item(
-                "steer-menu-computer-use",
-                Row::ComputerUse.icon(),
-                "Computer use",
-                computer_use,
-                move |on, _, cx| configure(api::sessions::ConfigureInput { computer_use: Some(on), ..base() }, cx),
-            ))
+            menu
         })
         .anchor(gpui::Anchor::BottomLeft)
         .into_any_element()
-    }
-
-    /// EXP-1252 — the Device pin before the model: the session's device; a
-    /// pick moves the session there (`sessions.send{sessionId, deviceId}`).
-    /// None on a replay (a transcript has nowhere to move).
-    fn render_device_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if self.source.read_only() {
-            return None;
-        }
-        let row = self.row.as_ref()?;
-        crate::device_move::session_device_pin(
-            SharedString::from(format!("{}-device", self.composer_ids.model)),
-            row,
-            self.may_message,
-            cx,
-        )
-    }
-
-    /// EXP-877 — the model the run is on, off `config_state.options[model]`
-    /// (the engine publishes the VALUE; there is no menu on the wire).
-    ///
-    /// Claude gets a PICKER, and picking sends `/model <alias>` to the agent
-    /// as a message: that prompt is how the CLI switches, so it queues
-    /// mid-turn like anything else and the republished `config_state` is the
-    /// confirmation. Nothing is written optimistically — a pick the CLI
-    /// refuses must not leave the footer lying. Codex's is a plain label.
-    /// Before the run publishes a `model` option (or with no live relay at
-    /// all) the pin reads [`crate::composer::session_fallback_model`].
-    fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // The model in force (the relay's `config_state`), else the row's /
-        // device's pick (web `sessionModel(config) ?? fallback`): a thread
-        // with no live relay still names its model.
-        let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
-            .map(|chip| chip.value)
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| crate::composer::session_fallback_model(self.row.as_ref(), cx));
-        crate::composer::session_model_pin(
-            self.composer_ids.model.clone(),
-            &value,
-            self.agent() == SessionAgent::Claude,
-            self.run_open(),
-            |view: &mut Self, alias: &str, _window, cx| {
-                view.send_command(&format!("/model {alias}"), cx);
-            },
-            cx,
-        )
     }
 
     /// EXP-877 — the context ring, and the usage sheet it opens. Hidden on a
@@ -8285,20 +8108,10 @@ impl SteerSessionView {
     }
 }
 
-const PAUSED_BODY: &str =
-    "The agent is paused on that machine and continues when it comes back online.";
-
 /// #EXP-1383: a view over a FINISHED local engine follows a LIVE one hosting
 /// the same session (the restarted agent); a live engine of its own stays.
 fn follows_engine(current_done: bool, next_done: bool) -> bool {
     current_done && !next_done
-}
-
-fn paused_title(device: Option<&str>) -> String {
-    match device {
-        Some(label) if !label.is_empty() => format!("{label} is offline"),
-        _ => "The device is offline".to_string(),
-    }
 }
 
 fn centered(children: Vec<AnyElement>) -> AnyElement {
@@ -9682,12 +9495,6 @@ mod tests {
         assert_eq!(QUEUE_STRIP_TITLE, "Queued");
         assert_eq!(steer::feed::QUEUE_REMOVE_LABEL, "Remove from queue");
         assert_eq!(COMPACTED_LABEL, "Context compacted");
-    }
-
-    #[test]
-    fn the_paused_title_falls_back_to_a_nameless_device() {
-        assert_eq!(paused_title(Some("macbook")), "macbook is offline");
-        assert_eq!(paused_title(None), "The device is offline");
     }
 
     /// EXP-746 review UI-2: attaching to a live engine seeds the phase through

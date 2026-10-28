@@ -237,7 +237,8 @@ describe(`domain-contract parity`, () => {
     expect([...messageEventKindValues]).toEqual([
       ...contract.messageEventKind.values,
     ])
-    expect(contract.sessionsSend).toEqual({
+    // S-3: the agent reuse thresholds (`reuseMax*`) are server-only.
+    expect(contract.sessionsSend).toMatchObject({
       textMax: SESSIONS_SEND_TEXT_MAX,
       maxAttachments: SESSIONS_SEND_MAX_ATTACHMENTS,
       maxIssues: SESSIONS_SEND_MAX_ISSUES,

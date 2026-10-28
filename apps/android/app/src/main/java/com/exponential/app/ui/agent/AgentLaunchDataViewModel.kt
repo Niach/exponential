@@ -102,7 +102,7 @@ data class StartPullRequestOption(
 @HiltViewModel
 class AgentLaunchDataViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    auth: AuthRepository,
+    private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val repositoriesApi: RepositoriesApi,
     selection: TeamSelection,
@@ -146,17 +146,19 @@ class AgentLaunchDataViewModel @Inject constructor(
      * name) — the "+" menu's Message an agent › rows.
      */
     val agents: StateFlow<List<com.exponential.app.domain.SessionTree.AgentRow>> =
-        combine(dbFlow, teamId) { db, teamId -> db to teamId }
-            .flatMapLatest { (db, teamId) ->
+        combine(dbFlow, teamId, auth.userId) { db, teamId, me -> Triple(db, teamId, me) }
+            .flatMapLatest { (db, teamId, me) ->
                 if (db == null || teamId == null) {
                     flowOf(emptyList())
                 } else {
                     db.agentDefinitionDao().observeByTeam(teamId).map { rows ->
+                        // S-3: `me` keeps the viewer's own Assistant (first)
+                        // and drops other members'.
                         com.exponential.app.domain.SessionTree.listAgents(
                             rows.map(com.exponential.app.domain.SessionTree::agentDefinition),
                             emptyList(),
                             teamId,
-                            null,
+                            me,
                         )
                     }
                 }

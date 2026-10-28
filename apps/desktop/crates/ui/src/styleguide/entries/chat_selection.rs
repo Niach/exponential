@@ -121,7 +121,7 @@ mod tests {
             .collect();
         assert_eq!(
             actions,
-            [ChatSelectionAction::MarkRead, ChatSelectionAction::Archive, ChatSelectionAction::Stop, ChatSelectionAction::Delete]
+            [ChatSelectionAction::MarkRead, ChatSelectionAction::Archive, ChatSelectionAction::Delete]
         );
     }
 }

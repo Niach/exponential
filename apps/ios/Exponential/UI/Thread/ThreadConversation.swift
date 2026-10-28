@@ -37,8 +37,10 @@ struct ThreadLiveTail: View {
 /// opens that thread; a question or plan answers IN the session view's
 /// `QuestionCard` (`sessions.answer`); a subagent is one muted row; a
 /// picture is the Guide's inline tile; an event is one muted line.
-/// EXP-1323: a child's `report` is ONE event line `Report from <name> ›`
-/// opening that session; a `suggestions` card is THE suggested tasks card
+/// EXP-1323: a child's `report` is ONE line, S-3: its link header
+/// (`SessionXrefHeader`, `Report from <chip> ›`) pushing that session; a
+/// turn another session posted carries the same header above its bubble,
+/// and the view's `origin` heads the rows; a `suggestions` card is THE suggested tasks card
 /// (`ThreadSuggestionsCard`; N-12: while an item is open it rides THE Dock
 /// instead); the host's live tail (`tail`) closes the rows.
 /// EXP-1300: an AGENT channel (web `AgentChannel`, Android
@@ -54,6 +56,8 @@ struct ThreadConversationView: View {
     var onOpenSession: (String) -> Void = { _ in }
     /// A card naming ANOTHER root: open that thread.
     var onOpenThread: (String) -> Void = { _ in }
+    /// S-3: an inter-session link (`SessionXref`): PUSH that session.
+    var onOpenXref: (SessionXref) -> Void = { _ in }
     /// A question or plan card's answer (`sessions.answer`).
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
     /// EXP-1317: the viewer's own queued message's X (`sessions.unqueue`).
@@ -122,11 +126,15 @@ struct ThreadConversationView: View {
         // place (`onLoadEarlier`).
         let all = shownRows
         let _ = handlers.update(
-            onOpenSession: onOpenSession, onOpenThread: onOpenThread, onSubmit: onSubmit,
-            onUnqueue: onUnqueue, onReply: onReply, suggestions: suggestions
+            onOpenSession: onOpenSession, onOpenThread: onOpenThread, onOpenXref: onOpenXref,
+            onSubmit: onSubmit, onUnqueue: onUnqueue, onReply: onReply, suggestions: suggestions
         )
         let start = windowStart(all, pinned: pinnedStart)
         LazyVStack(alignment: .leading, spacing: 14) {
+            // S-3: who started the viewed session, atop the Conversation.
+            if let origin = view.origin {
+                SessionXrefHeader(xref: origin, agent: rows.xrefMark(origin)) { onOpenXref(origin) }
+            }
             if start > 0 {
                 TranscriptLoadEarlierButton {
                     let anchor = all[start].id
@@ -142,6 +150,9 @@ struct ThreadConversationView: View {
                 // clock tick or an answer elsewhere re-renders only the
                 // rows whose inputs moved.
                 rowView(row).equatable()
+                    // S-3 CHAT MODE `bubbles`: cards sit in the agent's
+                    // column (the agent bubble's ~94%).
+                    .padding(.trailing, bubbles && Self.isCard(row) ? ChatBubbleMetrics.agentTrailingGap : 0)
             }
             if let liveTail {
                 liveTail
@@ -174,6 +185,16 @@ struct ThreadConversationView: View {
         )
     }
 
+    private var bubbles: Bool { rows.chatMode == .bubbles }
+
+    /// A card (not a bubble, an event line or a divider pill).
+    private static func isCard(_ row: ThreadRow) -> Bool {
+        switch row {
+        case .message, .event, .divider: false
+        default: true
+        }
+    }
+
     private static func isSurface(_ row: ThreadRow) -> Bool {
         if case .surface = row { return true }
         return false
@@ -184,9 +205,10 @@ struct ThreadConversationView: View {
         WireTimestamps.parse(at).map { GlassTimeRow.formatted($0) }
     }
 
-    /// An agent channel's own card (row 0) stays off it.
+    /// `bubbles` (an agent conversation): the root's own card (row 0)
+    /// stays off it — the conversation IS that session.
     private var shownRows: [ThreadRow] {
-        guard rows.isAgent else { return view.rows }
+        guard rows.chatMode == .bubbles else { return view.rows }
         return view.rows.filter { row in
             if case let .session(_, card) = row { return card.sessionId != rows.root.id }
             return true
@@ -201,7 +223,8 @@ struct ThreadConversationView: View {
         item.canAnswer = canAnswer
         item.answeringId = answeringId == row.id ? answeringId : nil
         switch row {
-        case let .message(id, author, authorId, _, queued, _):
+        case let .message(id, author, authorId, _, queued, _, xref):
+            item.xrefMark = xref.flatMap(rows.xrefMark)
             let at = rows.createdAt(messageId: id)
             if author == DomainContract.messageAuthorKindAgent {
                 item.time = at.flatMap(clock)
@@ -216,6 +239,8 @@ struct ThreadConversationView: View {
             }
         case let .session(_, card):
             item.otherRoot = rows.isOtherRoot(card.sessionId)
+        case let .report(_, _, _, _, xref):
+            item.xrefMark = rows.xrefMark(xref)
         case let .suggestions(id, _, _, _, _):
             item.docked = canAnswer && suggestions != nil && Self.isDocked(row)
             item.pending = suggestions?.pending.filter { $0.hasPrefix("\(id):") } ?? []
@@ -240,6 +265,7 @@ struct ThreadConversationView: View {
 final class ThreadRowHandlers {
     private(set) var onOpenSession: (String) -> Void = { _ in }
     private(set) var onOpenThread: (String) -> Void = { _ in }
+    private(set) var onOpenXref: (SessionXref) -> Void = { _ in }
     private(set) var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
     private(set) var onUnqueue: (String) -> Void = { _ in }
     private(set) var onReply: (String) -> Void = { _ in }
@@ -250,6 +276,7 @@ final class ThreadRowHandlers {
     func update(
         onOpenSession: @escaping (String) -> Void,
         onOpenThread: @escaping (String) -> Void,
+        onOpenXref: @escaping (SessionXref) -> Void,
         onSubmit: @escaping (ThreadCardAnswer) -> Void,
         onUnqueue: @escaping (String) -> Void,
         onReply: @escaping (String) -> Void,
@@ -257,6 +284,7 @@ final class ThreadRowHandlers {
     ) {
         self.onOpenSession = onOpenSession
         self.onOpenThread = onOpenThread
+        self.onOpenXref = onOpenXref
         self.onSubmit = onSubmit
         self.onUnqueue = onUnqueue
         self.onReply = onReply
@@ -303,6 +331,8 @@ struct ThreadConversationRow: View, Equatable {
     var suggestable = false
     /// A surface card's reply presses post (a member).
     var replies = false
+    /// S-3: the link header's agent mark (nil = the session glyph).
+    var xrefMark: SessionXrefHeader.AgentMark?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -316,6 +346,7 @@ struct ThreadConversationRow: View, Equatable {
 
     private func onOpenSession(_ id: String) { handlers.onOpenSession(id) }
     private func onOpenThread(_ id: String) { handlers.onOpenThread(id) }
+    private func onOpenXref(_ xref: SessionXref) { handlers.onOpenXref(xref) }
     private func onUnqueue(_ id: String) { handlers.onUnqueue(id) }
     private func onSubmit(_ answer: ThreadCardAnswer) { handlers.onSubmit(answer) }
 
@@ -325,7 +356,8 @@ struct ThreadConversationRow: View, Equatable {
             && lhs.answeringId == rhs.answeringId && lhs.time == rhs.time && lhs.caption == rhs.caption
             && lhs.removable == rhs.removable && lhs.otherRoot == rhs.otherRoot && lhs.docked == rhs.docked
             && lhs.pending == rhs.pending && lhs.eventIssue == rhs.eventIssue
-            && lhs.suggestable == rhs.suggestable && lhs.replies == rhs.replies && lhs.handlers === rhs.handlers
+            && lhs.suggestable == rhs.suggestable && lhs.replies == rhs.replies && lhs.xrefMark == rhs.xrefMark
+            && lhs.handlers === rhs.handlers
     }
 
     /// Attachment images through the instance, `#EXP-1` refs chipped against
@@ -350,10 +382,24 @@ struct ThreadConversationRow: View, Equatable {
         content.chatBubbleArrival(arrived)
     }
 
+    /// S-3: a turn ANOTHER session posted carries its link header right
+    /// above the bubble.
     @ViewBuilder
     private var content: some View {
+        if case let .message(_, _, _, _, _, _, xref?) = row {
+            VStack(alignment: .leading, spacing: 4) {
+                SessionXrefHeader(xref: xref, agent: xrefMark) { onOpenXref(xref) }
+                bubble
+            }
+        } else {
+            bubble
+        }
+    }
+
+    @ViewBuilder
+    private var bubble: some View {
         switch row {
-        case let .message(id, author, _, body, queued, _):
+        case let .message(id, author, _, body, queued, _, _):
             if author == DomainContract.messageAuthorKindSystem {
                 ThreadEventLine(text: body)
             } else if author == DomainContract.messageAuthorKindAgent {
@@ -368,7 +414,8 @@ struct ThreadConversationRow: View, Equatable {
                     text: body,
                     context: markdownContext,
                     caption: caption,
-                    onRemove: removable ? { onUnqueue(id) } : nil
+                    onRemove: removable ? { onUnqueue(id) } : nil,
+                    leadingGap: ChatBubbleMetrics.personLeadingGap
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")
@@ -381,8 +428,9 @@ struct ThreadConversationRow: View, Equatable {
                     onOpenSession(card.sessionId)
                 }
             }
-        case let .report(_, sessionId, text, _):
-            ThreadReportLine(text: text) { onOpenSession(sessionId) }
+        case let .report(_, _, _, _, xref):
+            // S-3: a report renders AS its link header (`Report from <chip> ›`).
+            SessionXrefHeader(xref: xref, agent: xrefMark) { onOpenXref(xref) }
         case let .suggestions(id, _, header, startAll, items):
             // N-12: a row with an open item rides THE Dock (`ThreadScreen`)
             // for a reader who may act on it; it stays here once none is.
@@ -503,33 +551,6 @@ private struct ThreadEventLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("thread-event-line")
-    }
-}
-
-/// EXP-1323: a child's report — ONE muted event line `Report from <name> ›`
-/// opening that session; the summary is never repeated (the parent's next
-/// message relays it).
-struct ThreadReportLine: View {
-    let text: String
-    let onOpen: () -> Void
-
-    var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 6) {
-                AppIcon(AppIcons.notificationReporterReply, size: 13)
-                Text(text)
-                    .font(.footnote)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                AppIcon(AppIcons.uiChevronRight, size: 12)
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("thread-report")
     }
 }
 

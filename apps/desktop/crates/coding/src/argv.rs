@@ -460,7 +460,8 @@ impl LaunchOptions {
             model: settings.model_for(agent).to_string(),
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
-            plan_mode: settings.plan_mode_for(agent),
+            // S-3: no plan-mode default (the toggle is gone).
+            plan_mode: false,
             subagent_model: settings.subagent_model_for(agent).to_string(),
             mcp_server_ids: Vec::new(),
             // EXP-1158: unnamed — the launcher runs it on the agent's last
@@ -954,7 +955,6 @@ mod tests {
         let mut settings = Settings::default();
         settings.default_agent = CodingAgent::Claude;
         settings.claude_ultracode = true; // claude-only — must mask on codex
-        settings.claude_plan_mode = true;
         settings.codex_model = "gpt-5.6-terra".to_string();
         settings.codex_effort = "xhigh".to_string();
 
@@ -972,7 +972,8 @@ mod tests {
         assert_eq!(via_default.model, via_for.model);
         assert_eq!(via_default.effort, via_for.effort);
 
-        assert!(LaunchOptions::defaults_for(&settings, CodingAgent::Claude).plan_mode);
+        // S-3: no plan-mode default on any agent.
+        assert!(!LaunchOptions::defaults_for(&settings, CodingAgent::Claude).plan_mode);
 
         // EXP-1158: a local launch names no account — the launcher runs it
         // on the agent's last used login.
@@ -985,7 +986,6 @@ mod tests {
         let mut settings = Settings::default();
         settings.claude_model = "sonnet".to_string();
         settings.claude_effort = "high".to_string();
-        settings.claude_plan_mode = false;
         let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "sonnet");
@@ -994,11 +994,11 @@ mod tests {
         assert!(!opts.ultracode);
 
         // The stock defaults (EXP-206 — ONE set, no issue/batch split):
-        // plan mode ON, ultracode OFF.
+        // S-3 plan mode OFF (no default), ultracode OFF.
         let opts = LaunchOptions::defaults(&Settings::default());
         assert_eq!(opts.model, "fable");
         assert_eq!(opts.effort, "");
-        assert!(opts.plan_mode);
+        assert!(!opts.plan_mode);
         assert!(!opts.ultracode);
     }
 
@@ -1011,7 +1011,6 @@ mod tests {
         settings.codex_model = "gpt-5.6-terra".to_string();
         settings.codex_effort = "xhigh".to_string();
         settings.claude_ultracode = true; // claude-only — must mask
-        settings.claude_plan_mode = true; // the claude default, not codex's
         let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-terra");
@@ -1029,7 +1028,6 @@ mod tests {
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
         settings.claude_ultracode = true;
-        settings.claude_plan_mode = true; // must NOT leak into a remote start
         let opts = LaunchOptions::remote(&settings, None, None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "opus");

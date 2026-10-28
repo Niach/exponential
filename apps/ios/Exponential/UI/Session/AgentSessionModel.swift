@@ -299,6 +299,9 @@ final class AgentSessionModel {
     /// A failed Stop, surfaced as a toast — cleared on each attempt. Success
     /// needs no local state: the turn's own edge is the confirmation.
     private(set) var stopError: String?
+    /// S-3: a stop no device got (`delivered == false`), stamped per attempt
+    /// so the toast fires each time.
+    private(set) var stopNotDeliveredAt: Date?
     /// Why the last plain message failed to send — a toast, cleared on the
     /// next attempt (the draft stays put).
     private(set) var sendError: String?
@@ -1340,7 +1343,8 @@ final class AgentSessionModel {
         let sessionId = sessionId
         Task { [weak self] in
             do {
-                try await self?.sessionsApi.stop(accountId: accountId, sessionId: sessionId)
+                let result = try await self?.sessionsApi.stop(accountId: accountId, sessionId: sessionId)
+                if result?.delivered == false { self?.stopNotDeliveredAt = Date() }
             } catch {
                 self?.stopError = error.trpcUserMessage
             }

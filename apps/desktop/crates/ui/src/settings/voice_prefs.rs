@@ -357,6 +357,7 @@ pub(crate) fn voice_rows(
     meeting: MeetingRows,
     recorder: ShortcutRecorder,
     on_change: Option<OnVoiceChange>,
+    assistant_block: bool,
     cx: &App,
 ) -> Vec<AnyElement> {
     let MeetingRows { capability, apps: apps_control, on_meeting } = meeting;
@@ -390,8 +391,12 @@ pub(crate) fn voice_rows(
         .collect();
 
     let mut out: Vec<AnyElement> = Vec::new();
-    let mut first: Vec<gpui::Div> = vec![
-            picker_row(
+    // S-3 (agent-settings.json `assistant`): on the Assistant page the
+    // block drops the "Voice device" and "Agent" pickers (the device is Runs
+    // on's, the agent is this Assistant).
+    let mut first: Vec<gpui::Div> = Vec::new();
+    if !assistant_block {
+        first.push(picker_row(
                 "settings-voice-device",
                 &copy.voice_device,
                 None,
@@ -400,8 +405,8 @@ pub(crate) fn voice_rows(
                 settings.voice_device_id.clone(),
                 send(Rc::new(|value| VoiceUpdate { voice_device_id: Some(value), ..Default::default() })),
                 cx,
-            ),
-            picker_row(
+            ));
+        first.push(picker_row(
                 "settings-voice-agent",
                 &copy.agent,
                 None,
@@ -411,7 +416,9 @@ pub(crate) fn voice_rows(
                 settings.agent_id.clone(),
                 send(Rc::new(|value| VoiceUpdate { agent_id: Some(value), ..Default::default() })),
                 cx,
-            ),
+            ));
+    }
+    first.extend([
             // #NEW-73: the spoken-reply language, then the custom voice.
             picker_row(
                 "settings-voice-language",
@@ -423,7 +430,7 @@ pub(crate) fn voice_rows(
                 send(Rc::new(|value| VoiceUpdate { language: value, ..Default::default() })),
                 cx,
             ),
-    ];
+    ]);
     if device_name.is_some() {
         first.push(glass_input_row(copy.voice_file.clone(), voice_file, cx));
         first.push(glass_input_row(copy.voice_transcript.clone(), voice_transcript, cx));
@@ -563,6 +570,9 @@ pub struct VoicePrefsPane {
     /// S-3: the key-down interceptor while recording (bindings never fire).
     _intercept: Option<gpui::Subscription>,
     _recorder_blur: Option<gpui::Subscription>,
+    /// S-3: drawn as the Assistant page's Voice section (no Voice device /
+    /// Agent pickers).
+    assistant_block: bool,
 }
 
 /// Which one-line input (`VoicePrefsPane::inputs` index).
@@ -658,7 +668,14 @@ impl VoicePrefsPane {
             recorder_focus: None,
             _intercept: None,
             _recorder_blur: None,
+            assistant_block: false,
         }
+    }
+
+    /// S-3: the pane as the Assistant page's Voice block.
+    pub(crate) fn assistant_block(mut self) -> Self {
+        self.assistant_block = true;
+        self
     }
 
     fn on_wake(&mut self, cx: &mut gpui::Context<Self>) {
@@ -997,7 +1014,7 @@ impl Render for VoicePrefsPane {
                         entity.update(cx, |this, cx| this.on_recorder(input, window, cx));
                     })),
                 };
-                let rows = voice_rows(&settings, &devices, &agents, inputs, meeting, recorder, Some(on_change), cx);
+                let rows = voice_rows(&settings, &devices, &agents, inputs, meeting, recorder, Some(on_change), self.assistant_block, cx);
                 let count = rows.len();
                 for (index, row) in rows.into_iter().enumerate() {
                     // The wake phrase closes the tray group (the meeting

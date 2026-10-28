@@ -34,7 +34,7 @@ use crate::contract::{
     MESSAGE_CARD_KIND_SUBAGENT, MESSAGE_CARD_KIND_SURFACE,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
     SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
-    SESSION_STATUS_RUNNING, PR_STATE_MERGED,
+    PR_STATE_MERGED,
 };
 use crate::rows::{AgentDefRow, Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 use crate::session_title::{session_title, session_titles};
@@ -50,30 +50,21 @@ fn title_of<'t>(titles: &'t HashMap<String, String>, id: &str) -> &'t str {
 
 /// One string per [`SessionState`] (the fixtures key them snake_case).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StateStrings {
-    pub queued: String,
     pub working: String,
-    /// EXP-1374: busy only on background tasks after the turn.
-    pub background: String,
-    pub waiting: String,
     pub needs_you: String,
-    /// EXP-1374: an interruption (device offline, runner restarted).
-    pub interrupted: String,
-    pub blocked: String,
-    pub ended: String,
+    pub idle: String,
+    pub done: String,
 }
 
 impl StateStrings {
     pub fn get(&self, state: SessionState) -> &str {
         match state {
-            SessionState::Queued => &self.queued,
             SessionState::Working => &self.working,
-            SessionState::Background => &self.background,
-            SessionState::Waiting => &self.waiting,
             SessionState::NeedsYou => &self.needs_you,
-            SessionState::Interrupted => &self.interrupted,
-            SessionState::Blocked => &self.blocked,
-            SessionState::Ended => &self.ended,
+            SessionState::Idle => &self.idle,
+            SessionState::Done => &self.done,
         }
     }
 }
@@ -83,24 +74,28 @@ impl StateStrings {
 pub struct SessionCardCopy {
     /// The muted state word per state.
     pub states: StateStrings,
-    /// NEW-1: the word per `blocked.kind` (`rate_limit` → `Usage limit`,
-    /// `device_offline`, `unclaimed`, `stuck`).
+    /// NEW-1: the word per `blocked.kind` of a session that needs you
+    /// (`rate_limit` → `Usage limit`, `unclaimed`, `stuck`).
     pub blocked_kinds: BTreeMap<String, String>,
-    /// EXP-1374: the word per INTERRUPTION kind (`device_offline`,
-    /// `restarted`); its keys ARE the interruption kinds.
-    pub interrupted_kinds: BTreeMap<String, String>,
-    /// #EXP-1405: a queued row's word: it waits for its device.
-    pub queued_kind: String,
 }
 
-/// EXP-1374: `session-card.json` `banner` = the Dock banner's text.
+/// EXP-1374 / S-3: `session-card.json` `banner` (text), `bannerIcons`,
+/// `bannerLabels` = the Dock banner per id (background, queued).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionBannerCopy {
-    /// The text per interruption kind.
-    pub interrupted: BTreeMap<String, String>,
     pub background: String,
     /// #EXP-1405: a queued row waiting for its device.
     pub queued: String,
+}
+
+impl SessionBannerCopy {
+    pub fn get(&self, id: SessionBannerId) -> &str {
+        match id {
+            SessionBannerId::Background => &self.background,
+            SessionBannerId::Queued => &self.queued,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -120,6 +115,10 @@ pub struct SessionCardSpec {
     pub test_ids: SessionCardTestIds,
     /// EXP-1374: the Dock banner's text ([`session_banner`]).
     pub banner: SessionBannerCopy,
+    /// S-3: the banner's icon concept per id.
+    pub banner_icons: SessionBannerCopy,
+    /// S-3: the banner's label per id.
+    pub banner_labels: SessionBannerCopy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -140,6 +139,34 @@ pub struct ThreadCopy {
     pub suggestions: SuggestionsCopy,
     /// EXP-1211: the quick replies row above the composer.
     pub replies: RepliesCopy,
+    /// S-3: the inter-session link's lead by kind.
+    pub xref: XrefCopy,
+    /// S-3: the engine's notice for a turn that ended with nothing said,
+    /// thought or done (`{reason}` = the ACP stopReason).
+    #[serde(rename = "emptyTurn")]
+    pub empty_turn: String,
+}
+
+/// S-3: `session-thread.json` `copy.xref` (the [`SessionXref`] lead).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct XrefCopy {
+    pub message: String,
+    pub report: String,
+    pub started: String,
+    pub reported: String,
+}
+
+impl XrefCopy {
+    /// The lead for a [`SessionXref::kind`] (`""` for an unknown kind).
+    pub fn lead(&self, kind: &str) -> &str {
+        match kind {
+            "message" => &self.message,
+            "report" => &self.report,
+            "started" => &self.started,
+            "reported" => &self.reported,
+            _ => "",
+        }
+    }
 }
 
 /// EXP-1211: `session-thread.json` `copy.replies`.
@@ -189,6 +216,8 @@ pub struct ThreadTestIds {
     pub replies: String,
     #[serde(rename = "liveTail")]
     pub live_tail: String,
+    /// S-3: an inter-session link header.
+    pub xref: String,
 }
 
 /// `fixtures/session-thread.json` minus its cases.
@@ -219,6 +248,15 @@ pub struct ThreadsListCopy {
     pub rail: String,
     /// EXP-1318: the trailing words.
     pub words: ThreadRowWords,
+    /// S-3: the fold row's label ([`earlier_label`]).
+    pub earlier: EarlierCopy,
+}
+
+/// S-3: `threads-list.json` `copy.earlier` (`{n}` slot).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct EarlierCopy {
+    pub one: String,
+    pub other: String,
 }
 
 /// `threads-list.json` `copy.words`. `deny_unknown_fields`: a word key
@@ -257,8 +295,9 @@ pub struct ThreadsListSpec {
     pub test_ids: ThreadsListTestIds,
     /// NEW-1: the Recent band's window + fill.
     pub recent: RecentRules,
-    /// NEW-1: [`tree_state`]'s thresholds.
-    pub tree_state: TreeStateRules,
+    /// S-3: a nested child shows while active within this many minutes
+    /// ([`visible_child`]).
+    pub recent_child_minutes: i64,
 }
 
 /// NEW-1: `threads-list.json` `recent`: every tree active within `hours`,
@@ -267,13 +306,6 @@ pub struct ThreadsListSpec {
 pub struct RecentRules {
     pub hours: i64,
     pub max: usize,
-}
-
-/// NEW-1: `threads-list.json` `treeState`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TreeStateRules {
-    pub stale_hours: i64,
 }
 
 const SESSION_CARD_JSON: &str =
@@ -357,38 +389,31 @@ pub fn format_elapsed(duration_ms: i64) -> String {
 // The session card
 // ---------------------------------------------------------------------------
 
-/// One state word per session: the card's kind word, icon and tone.
+/// S-3 (owner 2026-10-28): the FOUR display states ×4, nothing else (no
+/// running, paused, interrupted or stale in the UI). `working` = queued or
+/// busy (background tasks included); `needs_you` = needs input (a card, a
+/// usage wall, an unclaimed/stuck flag); `done` = ended; `idle` = the rest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionState {
-    Queued,
     Working,
-    /// EXP-1374: busy only on background tasks after the turn.
-    Background,
-    Waiting,
     NeedsYou,
-    /// EXP-1374: a device offline / runner restart; never on a person.
-    Interrupted,
-    Blocked,
-    Ended,
+    Idle,
+    Done,
 }
 
 impl SessionState {
     /// The fixture's wire word.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Queued => "queued",
             Self::Working => "working",
-            Self::Background => "background",
-            Self::Waiting => "waiting",
             Self::NeedsYou => "needs_you",
-            Self::Interrupted => "interrupted",
-            Self::Blocked => "blocked",
-            Self::Ended => "ended",
+            Self::Idle => "idle",
+            Self::Done => "done",
         }
     }
 
-    /// The muted state word (`Working`, `Needs you`, …).
+    /// The muted state word (`Working`, `Needs you`, `Idle`, `Done`).
     pub fn word(self) -> &'static str {
         SESSION_CARD.copy.states.get(self)
     }
@@ -398,56 +423,95 @@ impl SessionState {
         SESSION_CARD.icons.get(self)
     }
 
-    /// The tone token (`muted` | `foreground` | `amber` | `rose`).
+    /// The tone token (`muted` | `foreground` | `amber`).
     pub fn tone(self) -> &'static str {
         SESSION_CARD.tones.get(self)
     }
 
-    /// EXP-1374: the card's spinner (working or background).
+    /// The card's spinner (= working).
     pub fn running(self) -> bool {
-        matches!(self, Self::Working | Self::Background)
+        self == Self::Working
     }
 }
 
-/// EXP-1374 (TS `isInterruption`): whether the session's `blocked.kind`
-/// INTERRUPTS its run (`copy.interruptedKinds`' keys: device offline,
-/// runner restarted): never on a person, its device continues it.
-pub fn is_interruption(session: &SessionRow) -> bool {
-    blocked_kind(session).is_some_and(|kind| SESSION_CARD.copy.interrupted_kinds.contains_key(kind))
-}
-
-/// ended → needs you → interrupted → blocked → queued → background (busy
-/// on background tasks) → working (busy) → waiting.
+/// S-3 (TS `sessionState`): ended → done; needs input → needs you; queued
+/// or busy → working; else idle.
 pub fn session_state(session: &SessionRow) -> SessionState {
     if status_is(session, SESSION_STATUS_ENDED) {
-        SessionState::Ended
+        SessionState::Done
     } else if session.needs_input {
         SessionState::NeedsYou
-    } else if is_interruption(session) {
-        SessionState::Interrupted
-    } else if session.blocked.is_some() {
-        SessionState::Blocked
-    } else if status_is(session, SESSION_STATUS_QUEUED) {
-        SessionState::Queued
-    } else if session.busy && session.background {
-        SessionState::Background
-    } else if session.busy {
+    } else if status_is(session, SESSION_STATUS_QUEUED) || session.busy {
         SessionState::Working
     } else {
-        SessionState::Waiting
+        SessionState::Idle
     }
+}
+
+/// S-3 (TS `visibleChild`): a NESTED session (a child row, a strip chip)
+/// shows while it works or needs you, or while its last activity (done:
+/// `ended_at`, else `updated_at`) is within `recentChildMinutes` of `now`
+/// (`None` = never).
+pub fn visible_child(session: &SessionRow, now_ms: Option<i64>) -> bool {
+    let state = session_state(session);
+    if matches!(state, SessionState::Working | SessionState::NeedsYou) {
+        return true;
+    }
+    let last = if state == SessionState::Done {
+        ms(session.ended_at.as_deref()).or_else(|| ms(session.updated_at.as_deref()))
+    } else {
+        ms(session.updated_at.as_deref())
+    };
+    match (now_ms, last) {
+        (Some(at), Some(last)) => at - last <= THREADS_LIST.recent_child_minutes * 60 * 1000,
+        _ => false,
+    }
+}
+
+/// S-3 (TS `visibleTree`): the ids of a tree's sessions that show nested:
+/// [`visible_child`] or an ancestor of one (a working grandchild keeps its
+/// idle parent).
+pub fn visible_tree<'a>(tree: &[&'a SessionRow], now_ms: Option<i64>) -> HashSet<&'a str> {
+    let by_id: HashMap<&str, &'a SessionRow> = tree.iter().map(|session| (session.id.as_str(), *session)).collect();
+    let mut out: HashSet<&'a str> = HashSet::new();
+    for session in tree.iter().copied() {
+        if !visible_child(session, now_ms) {
+            continue;
+        }
+        let mut at = Some(session);
+        let mut seen: HashSet<&str> = HashSet::new();
+        while let Some(current) = at {
+            if !seen.insert(current.id.as_str()) {
+                break;
+            }
+            out.insert(current.id.as_str());
+            at = current.parent_id.as_deref().and_then(|parent| by_id.get(parent).copied());
+        }
+    }
+    out
 }
 
 /// EXP-1312: a thread row's lead outside the Threads list (the rail's
 /// Running rows) ×4: needs you beats working, else the bare mark
-/// (`threads-list.json` `markCases`).
+/// (`threads-list.json` `markCases`; the bare mark = [`SessionState::Idle`],
+/// the fixture's `waiting`, [`thread_row_mark_word`]).
 pub fn thread_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
     if needs_you {
         SessionState::NeedsYou
     } else if busy {
         SessionState::Working
     } else {
-        SessionState::Waiting
+        SessionState::Idle
+    }
+}
+
+/// The wire word of a [`thread_row_mark_state`] (TS `threadRowMarkState`:
+/// `needs_you` | `working` | `waiting`).
+pub fn thread_row_mark_word(state: SessionState) -> &'static str {
+    match state {
+        SessionState::NeedsYou => "needs_you",
+        SessionState::Working => "working",
+        SessionState::Idle | SessionState::Done => "waiting",
     }
 }
 
@@ -518,20 +582,10 @@ pub fn is_usage_wall(session: &SessionRow) -> bool {
     session.blocked.is_some() && blocked_kind(session).is_none_or(|kind| kind == "rate_limit")
 }
 
-/// NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
-/// names WHY (`copy.blockedKinds[blocked.kind]`; an unknown kind or none =
-/// `states.blocked`).
+/// NEW-1 (TS `sessionKindWord`): the card's state word; a session that
+/// needs you because of a flag names WHY (`copy.blockedKinds[blocked.kind]`).
 pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
-    // #EXP-1405: a queued row names what it waits for (its device).
-    if state == SessionState::Queued {
-        return SESSION_CARD.copy.queued_kind.clone();
-    }
-    if state == SessionState::Interrupted {
-        if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.interrupted_kinds.get(kind)) {
-            return word.clone();
-        }
-    }
-    if state == SessionState::Blocked {
+    if state == SessionState::NeedsYou {
         if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.blocked_kinds.get(kind)) {
             return word.clone();
         }
@@ -553,15 +607,15 @@ pub fn watchdog_blocked_word(session: &SessionRow) -> Option<String> {
 pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCard {
     let state = session_state(session);
     let start = ms(session.started_at.as_deref());
-    let end = if state == SessionState::Ended {
-        ms(session.ended_at.as_deref()).or_else(|| ms(session.updated_at.as_deref()))
-    } else {
-        Some(now_ms)
+    // S-3: elapsed for working (not queued; to now) and done (to endedAt,
+    // else updatedAt) only.
+    let end = match state {
+        SessionState::Done => ms(session.ended_at.as_deref()).or_else(|| ms(session.updated_at.as_deref())),
+        SessionState::Working if !status_is(session, SESSION_STATUS_QUEUED) => Some(now_ms),
+        _ => None,
     };
     let elapsed = match (start, end) {
-        (Some(start), Some(end)) if state != SessionState::Queued => {
-            Some(format_elapsed(end - start))
-        }
+        (Some(start), Some(end)) => Some(format_elapsed(end - start)),
         _ => None,
     };
     let name = title.to_string();
@@ -578,12 +632,12 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
     }
 }
 
-/// EXP-1374: the Dock card of an interrupted or background session (a
-/// dock.json `banner` source without its `kind`; TS `SessionBanner`).
+/// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
+/// queued one waiting for its device (a dock.json `banner` source without
+/// its `kind`; TS `SessionBanner`). S-3: an interruption has no card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionBanner {
-    /// `interrupted` | `background` | (#EXP-1405) `queued`.
-    pub id: SessionState,
+    pub id: SessionBannerId,
     /// Icon concept.
     pub icon: String,
     pub label: String,
@@ -594,25 +648,32 @@ pub struct SessionBanner {
     pub action: Option<String>,
 }
 
-/// EXP-1374 (TS `sessionBanner`): the Dock banner of an interrupted or
-/// background session, and (#EXP-1405) of a queued one waiting for its
-/// device, `None` for any other state. It replaces the host's
-/// own offline "paused" banner while shown.
+/// [`SessionBanner::id`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionBannerId {
+    Background,
+    Queued,
+}
+
+/// EXP-1374 / S-3 (TS `sessionBanner`): `None` once ended or needing you;
+/// queued → `queued`; busy on background tasks → `background`; else `None`.
 pub fn session_banner(session: &SessionRow) -> Option<SessionBanner> {
-    let state = session_state(session);
-    let text = match state {
-        SessionState::Interrupted => {
-            SESSION_CARD.banner.interrupted.get(blocked_kind(session)?)?.clone()
-        }
-        SessionState::Background => SESSION_CARD.banner.background.clone(),
-        SessionState::Queued => SESSION_CARD.banner.queued.clone(),
-        _ => return None,
+    if session.is_ended() || session.needs_input {
+        return None;
+    }
+    let id = if status_is(session, SESSION_STATUS_QUEUED) {
+        SessionBannerId::Queued
+    } else if session.busy && session.background {
+        SessionBannerId::Background
+    } else {
+        return None;
     };
     Some(SessionBanner {
-        id: state,
-        icon: state.icon().to_string(),
-        label: state.word().to_string(),
-        text,
+        id,
+        icon: SESSION_CARD.banner_icons.get(id).to_string(),
+        label: SESSION_CARD.banner_labels.get(id).to_string(),
+        text: SESSION_CARD.banner.get(id).to_string(),
         tone: "muted".to_string(),
         action: None,
     })
@@ -738,26 +799,12 @@ pub struct ThreadTabNestedSession {
     pub depth: usize,
 }
 
-/// EXP-1316: a session chip's lead ×4 = the thread row mark of THAT
-/// session, `ended` once it ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionTabMarkState {
-    NeedsYou,
-    Working,
-    Waiting,
-    Ended,
-}
+/// EXP-1316 / S-3: a session chip's lead ×4 = THAT session's display
+/// state ([`session_state`]).
+pub type SessionTabMarkState = SessionState;
 
 pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
-    if session.is_ended() {
-        return SessionTabMarkState::Ended;
-    }
-    match thread_row_mark_state(session.needs_input, session.busy) {
-        SessionState::NeedsYou => SessionTabMarkState::NeedsYou,
-        SessionState::Working => SessionTabMarkState::Working,
-        _ => SessionTabMarkState::Waiting,
-    }
+    session_state(session)
 }
 
 /// EXP-1322: one option of a thread question card. The synced card carries
@@ -963,6 +1010,21 @@ pub fn is_tool_card(message: &MessageRow) -> bool {
     })
 }
 
+/// S-3 inter-session links: a compact header naming ANOTHER session (the
+/// lead `copy.xref[kind]`, the agent's mark, the session's name, `›`); a
+/// click opens that session and pushes the current one on the back stack.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionXref {
+    /// `message` | `report` | `started` | `reported` (`copy.xref` keys).
+    pub kind: String,
+    pub session_id: String,
+    /// That session's card name.
+    pub name: String,
+    /// The agent whose tree the session belongs to (its mark), else `None`.
+    pub agent_id: Option<String>,
+}
+
 /// One row of the thread's Conversation (the TS `ThreadRow`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
@@ -977,6 +1039,8 @@ pub enum SessionThreadRow {
         queued: bool,
         /// EXP-1323: the session that posted it (a child asking its parent).
         author_session_id: Option<String>,
+        /// S-3: posted by ANOTHER (synced) session = its `message` link.
+        xref: Option<SessionXref>,
     },
     /// A session's card (`id` = the message id of the `session` /
     /// `thread_started` card that announced it; EXP-1334: the dispatcher
@@ -989,6 +1053,8 @@ pub enum SessionThreadRow {
         session_id: String,
         text: String,
         summary: String,
+        /// S-3: the row renders AS this header (`Report from <chip> ›`).
+        xref: SessionXref,
     },
     /// EXP-1323: ONE suggestions card (`sessions_suggest`); `session_id` =
     /// the posting session (Do it here messages it).
@@ -1203,6 +1269,10 @@ pub struct SessionThreadView {
     /// shows that session's raw work as the main thing: its id, and the
     /// strip carries no Conversation tab. `None` once a second session exists.
     pub main_session_id: Option<String>,
+    /// S-3: who started the viewed session (the focus, else the root): its
+    /// parent, else the agent conversation that started the root; `reported`
+    /// once the viewed session ended. `None` = a person started it.
+    pub origin: Option<SessionXref>,
 }
 
 /// [`build_session_thread`]'s input: what the caller synced.
@@ -1626,8 +1696,31 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     let name_of = |session: &SessionRow| {
         session_card(session, title_of(&titles, &session.id), now).name
     };
+    // S-3: a link to another session = its name + its agent's mark; an
+    // unsynced session (the viewer may not see it) never links.
+    let non_empty = |id: &Option<String>| id.as_deref().filter(|id| !id.is_empty()).map(str::to_string);
+    let xref = |kind: &str, id: Option<&str>| -> Option<SessionXref> {
+        let target = by_id.get(id?)?;
+        let top = by_id.get(target.root_id_or_self()).copied().unwrap_or(*target);
+        Some(SessionXref {
+            kind: kind.to_string(),
+            session_id: target.id.clone(),
+            name: name_of(target),
+            agent_id: non_empty(&target.agent_id)
+                .or_else(|| non_empty(&top.agent_id))
+                .or_else(|| non_empty(&top.started_by_agent_id)),
+        })
+    };
     let tree_ids: HashSet<&str> = tree.iter().map(|session| session.id.as_str()).collect();
-    let children: Vec<&SessionRow> = tree.iter().copied().filter(|session| session.id != root.id).collect();
+    // S-3: only the VISIBLE sessions get chips ([`visible_tree`]), the
+    // focused one always; the rest stay reachable through their cards.
+    let below: Vec<&SessionRow> = tree.iter().copied().filter(|session| session.id != root.id).collect();
+    let shown = visible_tree(&below, Some(now));
+    let children: Vec<&SessionRow> = below
+        .iter()
+        .copied()
+        .filter(|session| shown.contains(session.id.as_str()) || focus.is_some_and(|focus| focus.id == session.id))
+        .collect();
     let session_tabs: Vec<ThreadTab> = fold_forest(
         &children,
         |session| session.id.as_str(),
@@ -1722,6 +1815,11 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 queued: author == MESSAGE_AUTHOR_KIND_USER
                     && message.consumed_at.as_deref().is_none_or(str::is_empty),
                 author_session_id: message.author_session_id.clone(),
+                xref: message
+                    .author_session_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty() && *id != root.id)
+                    .and_then(|id| xref("message", Some(id))),
             });
             continue;
         };
@@ -1766,6 +1864,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     text: THREAD.copy.report.replacen("{session}", &name, 1),
                     summary: card_str(card, "summary")
                         .map_or_else(|| message.body_text().to_string(), str::to_string),
+                    xref: xref("report", Some(target.id.as_str())).expect("a synced report target"),
                 });
             }
             Some(MESSAGE_CARD_KIND_SUGGESTIONS) => {
@@ -1829,6 +1928,22 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     // Conversation tab opens its raw work, `main_session_id`); NEW-46: the
     // tab itself is always in the strip.
     let single = tree.iter().all(|session| session.id == root.id);
+    // S-3: the viewed session's origin (its parent, else the agent
+    // conversation that started the root).
+    let viewed = focus.unwrap_or(root);
+    let starter: Option<String> = non_empty(&viewed.parent_id).or_else(|| {
+        let agent = non_empty(&root.started_by_agent_id).filter(|_| viewed.id == root.id)?;
+        by_id
+            .values()
+            .find(|s| {
+                s.agent_id.as_deref() == Some(agent.as_str())
+                    && s.is_root()
+                    && s.root_id_or_self() == s.id
+                    && s.user_id == root.user_id
+            })
+            .map(|s| s.id.clone())
+    });
+    let origin = xref(if viewed.is_ended() { "reported" } else { "started" }, starter.as_deref());
     let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
@@ -1851,6 +1966,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         busy: live.iter().any(|session| session.busy),
         needs_you: live.iter().any(|session| session.needs_input),
         main_session_id: single.then(|| root.id.clone()),
+        origin,
     }
 }
 
@@ -1886,6 +2002,20 @@ pub struct ThreadsListRow {
     /// The tree's newest `updated_at` (the sort key), verbatim; a child's
     /// own `updated_at`.
     pub activity_at: String,
+    /// S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
+    /// muted list-item row; opens the thread) = how many sub-sessions it
+    /// hides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earlier: Option<usize>,
+}
+
+/// S-3: the fold row's id suffix ([`ThreadsListRow::earlier`]).
+pub const EARLIER_SUFFIX: &str = ":earlier";
+
+/// S-3: the fold row's label (`copy.earlier`, `{n}` slot).
+pub fn earlier_label(count: usize) -> String {
+    let copy = &THREADS_LIST.copy.earlier;
+    (if count == 1 { &copy.one } else { &copy.other }).replace("{n}", &count.to_string())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1935,59 +2065,30 @@ pub struct ThreadsListInput<'a> {
     pub now_ms: Option<i64>,
 }
 
-/// NEW-1: a tree's derived state ([`tree_state`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TreeState {
-    NeedsYou,
-    Running,
-    Done,
-    Stale,
-    Idle,
-}
+/// NEW-1 / S-3: a tree's derived state = the session's four
+/// ([`SessionState`]).
+pub type TreeState = SessionState;
 
-impl TreeState {
-    /// The fixture's wire word.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::NeedsYou => "needs_you",
-            Self::Running => "running",
-            Self::Done => "done",
-            Self::Stale => "stale",
-            Self::Idle => "idle",
-        }
-    }
-}
-
-/// NEW-1 (plan 3.13): a tree's derived state. `needs_you` = a live session
-/// waits on a person (`needs_input`, a usage wall or a watchdog flag
-/// included); `running` = any session queued or running; `done` = every
-/// session ended and every PR of the thread merged (none = never done);
-/// `stale` = nothing touched for `treeState.staleHours`; else `idle`.
-pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], now_ms: i64) -> TreeState {
+/// NEW-1 / S-3 (TS `treeState`): `needs_you` = a live session waits on a
+/// person (`needs_input`, a usage wall or a watchdog flag included);
+/// `working` = any live session queued or busy; `done` = every session
+/// ended, or every PR of the thread merged (none = never done this way);
+/// else `idle`. `now_ms` is kept for the signature (no stale state).
+pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], _now_ms: i64) -> TreeState {
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
     if live.iter().any(|session| session.needs_input) {
-        return TreeState::NeedsYou;
+        return SessionState::NeedsYou;
     }
-    if live.iter().any(|session| {
-        status_is(session, SESSION_STATUS_QUEUED) || status_is(session, SESSION_STATUS_RUNNING)
-    }) {
-        return TreeState::Running;
+    if live.iter().any(|session| status_is(session, SESSION_STATUS_QUEUED) || session.busy) {
+        return SessionState::Working;
     }
-    if live.is_empty()
-        && !pull_requests.is_empty()
-        && pull_requests.iter().all(|pr| pr.state.as_deref() == Some(PR_STATE_MERGED))
-    {
-        return TreeState::Done;
+    if live.is_empty() {
+        return SessionState::Done;
     }
-    let newest = tree
-        .iter()
-        .map(|session| ms_or_zero(session.updated_at.as_deref()))
-        .fold(0, i64::max);
-    if now_ms - newest > THREADS_LIST.tree_state.stale_hours * 60 * 60 * 1000 {
-        return TreeState::Stale;
+    if !pull_requests.is_empty() && pull_requests.iter().all(|pr| pr.state.as_deref() == Some(PR_STATE_MERGED)) {
+        return SessionState::Done;
     }
-    TreeState::Idle
+    SessionState::Idle
 }
 
 /// The Threads page: roots of kind `thread` in scope grouped Needs you (a
@@ -2038,9 +2139,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         let tree: &[&SessionRow] = by_root.get(root.id.as_str()).map_or(&alone[..], Vec::as_slice);
         let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
         let needs_you = live.iter().any(|session| session.needs_input);
-        let running = live.iter().any(|session| {
-            status_is(session, SESSION_STATUS_QUEUED) || status_is(session, SESSION_STATUS_RUNNING)
-        });
+        let running = live.iter().any(|session| status_is(session, SESSION_STATUS_QUEUED) || session.busy);
         let mut activity = root.updated_at.clone().unwrap_or_default();
         for session in tree {
             if ms_or_zero(session.updated_at.as_deref()) > ms_or_zero(Some(&activity)) {
@@ -2067,27 +2166,34 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
             activity_at: activity,
+            earlier: None,
         };
-        // A live tree nests its children (depth-first, creation order);
-        // Recent collapses to the root.
+        // A live tree nests its VISIBLE children (S-3 [`visible_tree`]:
+        // working, needs you or active within `recentChildMinutes`;
+        // depth-first, creation order), the rest fold into ONE `earlier`
+        // row; Recent collapses to the root.
         let mut children = Vec::new();
         if key != ThreadsListKey::Recent {
             let ordered = tree_order(tree);
+            let below: Vec<&SessionRow> =
+                ordered.iter().copied().filter(|session| session.id != root.id).collect();
+            let shown = visible_tree(&below, input.now_ms);
             fn walk<'s>(
                 parent_id: &str,
                 depth: usize,
                 ordered: &[&'s SessionRow],
+                shown: &HashSet<&str>,
                 visit: &mut dyn FnMut(&'s SessionRow, &str, usize),
             ) {
                 for child in ordered.iter().copied() {
-                    if child.parent_id.as_deref() != Some(parent_id) {
+                    if child.parent_id.as_deref() != Some(parent_id) || !shown.contains(child.id.as_str()) {
                         continue;
                     }
                     visit(child, parent_id, depth);
-                    walk(&child.id, depth + 1, ordered, visit);
+                    walk(&child.id, depth + 1, ordered, shown, visit);
                 }
             }
-            walk(&root.id, 1, &ordered, &mut |child, parent_id, depth| {
+            walk(&root.id, 1, &ordered, &shown, &mut |child, parent_id, depth| {
                 let card = session_card(
                     child,
                     &session_title(child, input.session_issues, input.issues, input.messages),
@@ -2105,8 +2211,33 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     needs_you: !child.is_ended() && child.needs_input,
                     unread: unread_at(newest_agent.get(child.id.as_str()), &child.id),
                     activity_at: child.updated_at.clone().unwrap_or_default(),
+                    earlier: None,
                 });
             });
+            let hidden: Vec<&SessionRow> =
+                below.iter().copied().filter(|session| !shown.contains(session.id.as_str())).collect();
+            if let Some(first) = hidden.first() {
+                let mut newest = first.updated_at.clone().unwrap_or_default();
+                for session in &hidden {
+                    if ms_or_zero(session.updated_at.as_deref()) > ms_or_zero(Some(&newest)) {
+                        newest = session.updated_at.clone().unwrap_or_default();
+                    }
+                }
+                children.push(ThreadsListRow {
+                    session_id: format!("{}{EARLIER_SUFFIX}", root.id),
+                    team_id: root.team_id.clone().unwrap_or_default(),
+                    depth: 1,
+                    parent_id: Some(root.id.clone()),
+                    root_id: root.id.clone(),
+                    title: earlier_label(hidden.len()),
+                    device_id: None,
+                    busy: false,
+                    needs_you: false,
+                    unread: false,
+                    activity_at: newest,
+                    earlier: Some(hidden.len()),
+                });
+            }
         }
         buckets.entry(key).or_default().push((row, children));
     }
@@ -2282,6 +2413,10 @@ pub struct AgentRow {
     /// From the VIEWER's own conversation session with the agent.
     pub busy: bool,
     pub needs_you: bool,
+    /// S-3: the viewer's own Assistant (`agents.role = assistant`): the
+    /// brand mark instead of icon/color, always first.
+    #[serde(default)]
+    pub assistant: bool,
 }
 
 /// `localeCompare`-ish: case-insensitive first, then exact.
@@ -2313,12 +2448,17 @@ pub fn list_agents(
         .iter()
         .copied()
         .filter(|agent| team_id.is_none_or(|team| agent.team_id.as_deref() == Some(team)))
+        // S-3: another member's Assistant is never listed (agent-settings
+        // `assistant.visibleCases`); the viewer's own comes first.
+        .filter(|agent| !agent.is_assistant() || (me.is_some() && agent.owner_id.as_deref() == me))
         .collect();
     agents.sort_by(|a, b| {
-        a.sort_order
+        (!a.is_assistant())
+            .cmp(&!b.is_assistant())
+            .then_with(|| a.sort_order
             .unwrap_or(0.0)
             .partial_cmp(&b.sort_order.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| {
                 locale_cmp(a.name.as_deref().unwrap_or_default(), b.name.as_deref().unwrap_or_default())
             })
@@ -2338,9 +2478,36 @@ pub fn list_agents(
                 color: agent.color.clone().unwrap_or_else(|| defaults.color.clone()),
                 busy: live && conversation.is_some_and(|session| session.busy),
                 needs_you: live && conversation.is_some_and(|session| session.needs_input),
+                assistant: agent.is_assistant(),
             }
         })
         .collect()
+}
+
+/// S-3 (TS `threadChatMode`, session-thread.json `chatModeCases`): THE
+/// thread screen's mode: an agent conversation paints chat bubbles, a thread
+/// its transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadChatMode {
+    Bubbles,
+    Transcript,
+}
+
+impl ThreadChatMode {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Bubbles => "bubbles",
+            Self::Transcript => "transcript",
+        }
+    }
+}
+
+pub fn thread_chat_mode(agent_id: Option<&str>) -> ThreadChatMode {
+    if agent_id.is_some_and(|id| !id.is_empty()) {
+        ThreadChatMode::Bubbles
+    } else {
+        ThreadChatMode::Transcript
+    }
 }
 
 #[cfg(test)]
@@ -2517,9 +2684,12 @@ mod tests {
             ("unclaimed", "Not picked up"),
             ("stuck", "Stuck"),
         ] {
-            let session = row(serde_json::json!({"kind": kind}));
-            assert_eq!(session_state(&session), SessionState::Blocked, "{kind}");
-            assert_eq!(session_kind_word(&session, SessionState::Blocked), word, "{kind}");
+            let session: SessionRow = serde_json::from_value(
+                serde_json::json!({"id": "s", "status": "running", "needs_input": true, "blocked": {"kind": kind}}),
+            )
+            .unwrap();
+            assert_eq!(session_state(&session), SessionState::NeedsYou, "{kind}");
+            assert_eq!(session_kind_word(&session, SessionState::NeedsYou), word, "{kind}");
             assert_eq!(session_card(&session, "T", 0).kind_word, word, "{kind}");
             assert_eq!(SESSION_CARD.copy.blocked_kinds.get(kind).map(String::as_str), Some(word));
             if kind == "rate_limit" {
@@ -2530,22 +2700,18 @@ mod tests {
                 assert!(!is_usage_wall(&session), "{kind}");
             }
         }
-        // EXP-1374: an interruption reads its own state and word.
-        for (kind, word) in [
-            ("device_offline", "Interrupted · device offline"),
-            ("restarted", "Interrupted · runner restarted"),
-        ] {
+        // S-3: an interruption is invisible: an idle session reads Idle.
+        for kind in ["device_offline", "restarted"] {
             let session = row(serde_json::json!({"kind": kind, "resume": true}));
-            assert!(is_interruption(&session), "{kind}");
-            assert_eq!(session_state(&session), SessionState::Interrupted, "{kind}");
-            assert_eq!(session_card(&session, "T", 0).kind_word, word, "{kind}");
+            assert_eq!(session_state(&session), SessionState::Idle, "{kind}");
+            assert_eq!(session_card(&session, "T", 0).kind_word, "Idle", "{kind}");
             assert!(!is_usage_wall(&session), "{kind}");
         }
         let future = row(serde_json::json!({"kind": "future_kind"}));
-        assert_eq!(session_kind_word(&future, SessionState::Blocked), "Usage limit");
+        assert_eq!(session_kind_word(&future, SessionState::NeedsYou), "Needs you");
         assert_eq!(watchdog_blocked_word(&future), None);
         let legacy = row(serde_json::json!({"window": "weekly"}));
-        assert_eq!(session_kind_word(&legacy, SessionState::Blocked), "Usage limit");
+        assert_eq!(session_kind_word(&legacy, SessionState::NeedsYou), "Needs you");
         assert!(is_usage_wall(&legacy));
         // Not blocked: the plain state word, no wall.
         let free: SessionRow = serde_json::from_value(serde_json::json!({"id": "s", "status": "running"})).unwrap();
@@ -2557,16 +2723,20 @@ mod tests {
     fn the_copy_comes_from_the_fixtures() {
         assert_eq!(SessionState::NeedsYou.word(), "Needs you");
         assert_eq!(SessionState::Working.icon(), "coding-running");
-        assert_eq!(SessionState::Blocked.tone(), "rose");
+        assert_eq!(SessionState::NeedsYou.tone(), "amber");
         assert_eq!(THREAD.copy.placeholder, "Type / for commands");
         assert_eq!(THREADS_LIST.copy.title, "Chats");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
         assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });
-        assert_eq!(THREADS_LIST.tree_state.stale_hours, 24);
+        assert_eq!(THREADS_LIST.recent_child_minutes, 120);
+        assert_eq!(earlier_label(1), "1 earlier sub-session");
+        assert_eq!(earlier_label(3), "3 earlier sub-sessions");
         assert_eq!(SESSION_CARD.copy.blocked_kinds.get("rate_limit").map(String::as_str), Some("Usage limit"));
+        // S-3: device_offline / restarted are invisible (no word).
         for kind in crate::contract::CODING_SESSION_BLOCKED_KINDS {
-            assert!(SESSION_CARD.copy.blocked_kinds.contains_key(*kind), "{kind}");
+            let invisible = matches!(*kind, "device_offline" | "restarted");
+            assert_eq!(SESSION_CARD.copy.blocked_kinds.contains_key(*kind), !invisible, "{kind}");
         }
     }
 
@@ -2762,7 +2932,7 @@ mod tests {
         for case in mark_cases {
             let input = &case["input"];
             let state = thread_row_mark_state(input["needsYou"].as_bool().unwrap(), input["busy"].as_bool().unwrap());
-            assert_eq!(Some(state.as_str()), case["expected"].as_str(), "{}", case["name"]);
+            assert_eq!(Some(thread_row_mark_word(state)), case["expected"].as_str(), "{}", case["name"]);
         }
         assert_eq!(THREADS_LIST.copy.rail, "Active");
         let stack_cases = fixture["stackCases"].as_array().unwrap();
@@ -2916,4 +3086,17 @@ mod tests {
             assert_whole(&layout, &case["expected"], case["name"].as_str().unwrap());
         }
     }
+
+    /// S-3: `session-thread.json` `chatModeCases` (TS `threadChatMode`).
+    #[test]
+    fn chat_mode_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(SESSION_THREAD_JSON).unwrap();
+        let cases = fixture["chatModeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let mode = thread_chat_mode(case["root"]["agentId"].as_str());
+            assert_eq!(Some(mode.key()), case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
 }

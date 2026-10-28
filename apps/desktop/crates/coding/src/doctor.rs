@@ -2047,7 +2047,6 @@ mod tests {
             claude_model: "opus".into(),
             claude_effort: "".into(),
             claude_ultracode: true,
-            claude_plan_mode: true,
             codex_model: "".into(),
             codex_effort: "high".into(),
             ..Settings::default()
@@ -2064,7 +2063,8 @@ mod tests {
         assert_eq!(claude.model, "opus");
         assert_eq!(claude.effort, "");
         assert!(claude.ultracode);
-        assert!(claude.plan_mode);
+        // S-3: no plan-mode default.
+        assert!(!claude.plan_mode);
         // Capability masking: codex can never carry ultracode/plan, but its
         // blank model rides through.
         let codex = &advert.launch_defaults["codex"];

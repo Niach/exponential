@@ -29,6 +29,7 @@
  *   bun run seed:screenshots
  *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
+import { ASSISTANT_COPY, assistantScheduleTriggers } from "@exp/domain-contract/agent-settings"
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
@@ -101,6 +102,7 @@ import {
   DEMO_AGENT_EVENT_TRIGGER_ID,
   DEMO_AGENT_ID,
   DEMO_AGENT_IDS,
+  DEMO_ASSISTANT_ID,
   DEMO_AGENT_REQUEST,
   DEMO_APP_CHAT_TIMES,
   DEMO_APP_EDITOR_SESSION_ID,
@@ -676,6 +678,29 @@ async function seedSessionTree(ctx: {
       updatedAt: daysAgo(20),
     }))
   )
+  // S-3: the demo user's Assistant (agent-settings.json `assistant`): what
+  // `agents.ensureAssistant` would create on first use, seeded so every
+  // client photographs it at once: the copy's name, no icon/colour (the
+  // brand mark), the default hourly check-in, on the demo desktop.
+  await db.insert(agents).values({
+    id: DEMO_ASSISTANT_ID,
+    teamId,
+    name: ASSISTANT_COPY.name,
+    icon: null,
+    color: null,
+    instructions: `Keep my mornings quiet: batch what needs me into one update.`,
+    triggers: assistantScheduleTriggers(`1h`).map((trigger) => ({
+      ...trigger,
+      id: `2a9c4e6f-8b1d-4f3a-9c5e-7d1f3b5a9c2e`,
+    })) satisfies AgentTrigger[],
+    deviceId: DEMO_DEVICE_ID,
+    cli: `claude`,
+    ownerId: demoId,
+    role: `assistant`,
+    sortOrder: 0,
+    createdAt: daysAgo(20),
+    updatedAt: daysAgo(20),
+  })
   await db.insert(sessions).values(
     agentSpecs.map((spec) =>
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
@@ -995,7 +1020,14 @@ async function seedSessionTree(ctx: {
     ),
   ]
   await db.insert(sessions).values([
-    root(ids.coldStart, { ...liveState(ids.coldStart), branch: `exp/APP-5`, guide: coldStartGuide }),
+    root(ids.coldStart, {
+      ...liveState(ids.coldStart),
+      branch: `exp/APP-5`,
+      guide: coldStartGuide,
+      // S-3: the Triage agent's conversation started it (the Conversation
+      // opens with `Started by Triage ›`).
+      startedByAgentId: DEMO_AGENT_IDS.triage,
+    }),
     root(ids.groupByAssignee, {
       ...liveState(ids.groupByAssignee),
       cli: `codex`,
@@ -1456,6 +1488,13 @@ async function seedSessionTree(ctx: {
         ],
       },
     }),
+    // S-3: the profiling child's relayed turn (`Message from Profile the
+    // launch path ›` over its bubble).
+    thread({
+      at: minutesAgo(30),
+      authorSessionId: DEMO_SESSION_ID,
+      body: `The sync bootstrap blocks the first frame for 410 ms; deferring the shape subscribe now.`,
+    }),
     thread({
       at: minutesAgo(20),
       authorSessionId: DEMO_REPORT_SESSION_ID,
@@ -1464,6 +1503,27 @@ async function seedSessionTree(ctx: {
         kind: `report`,
         sessionId: DEMO_REPORT_SESSION_ID,
         summary: `740 ms cold start on the Galaxy A54, under the 800 ms target. The snapshot cache paints in 210 ms.`,
+      },
+    }),
+    // S-3 / Chats `surfaceCard`: the agent's inline show card.
+    thread({
+      at: minutesAgo(9),
+      card: {
+        kind: `surface`,
+        title: `Launch timings`,
+        surface: {
+          root: {
+            id: `timings`,
+            component: `Box`,
+            style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm` },
+            children: [
+              { id: `timings-pixel`, component: `Row`, props: { title: `Pixel 6a`, value: `760 ms` } },
+              { id: `timings-a54`, component: `Row`, props: { title: `Galaxy A54`, value: `740 ms` } },
+              { id: `timings-target`, component: `Row`, props: { title: `Target`, value: `800 ms` } },
+            ],
+          },
+          data: {},
+        },
       },
     }),
   ])
@@ -2515,12 +2575,12 @@ async function main() {
   }
   await seedSessionTree({ teamId: ws.id, demoId, jonas, repoId: repo.id, issue })
 
-  // NEW-67: Settings → Voice with the demo desktop as the voice device and
-  // Triage (seeded by the session tree above) as the agent, so the capture
-  // shows the tray group too.
+  // NEW-67 / S-3: the voice runs on the demo user's Assistant (seeded by
+  // the session tree above) on the demo desktop (the server-kept mirror of
+  // it), so the Assistant page's Voice section shows the tray group too.
   const voice = {
     voiceDeviceId: DEMO_DEVICE_ID,
-    agentId: DEMO_AGENT_IDS.triage,
+    agentId: DEMO_ASSISTANT_ID,
     // S-3: push to talk = a bound key (the row's keycaps in the capture).
     pttShortcut: `ctrl+space`,
     wakeWord: false,

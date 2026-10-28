@@ -553,7 +553,7 @@ function SessionMark({ row }: { row: SessionRow }) {
     <AgentRunMark
       agent={row.cli}
       state={
-        state === `ended`
+        state === `done`
           ? `ended`
           : threadRunMarkState({
               needsYou: state === `needs_you`,

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.Chats
 import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
@@ -81,6 +82,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -735,6 +737,61 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** S-3: the synced agent definitions by id (the origin link's mark). */
+    val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
+            .map { rows -> rows.associateBy { it.id } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** S-3: the session page's `origin` link ([root] = the target is a
+     *  root: it opens as its thread, else as its session view). */
+    data class OriginLink(val xref: SessionTree.SessionXref, val root: Boolean)
+
+    /**
+     * S-3 (session-thread.json "S-3 INTER-SESSION LINKS"): who started THIS
+     * session = the view's `origin` with this session focused: its parent,
+     * else (a root) the conversation of the agent that started it; null = a
+     * person started it.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val origin: StateFlow<OriginLink?> = rootId
+        .flatMapLatest { root ->
+            if (root == null) {
+                flowOf(null)
+            } else {
+                combine(
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() },
+                    dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
+                        db.keyedMessages(db.messageDao().observeByRoot(root))
+                    },
+                    dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
+                    issues,
+                ) { tree, agentRoots, messages, links, linked ->
+                    val rootRow = tree.firstOrNull { it.id == root } ?: return@combine null
+                    if (tree.none { it.id == codingSessionId }) return@combine null
+                    val starters = rootRow.startedByAgentId?.takeIf { it.isNotEmpty() }?.let { agentId ->
+                        agentRoots.filter { it.agentId == agentId && it.userId == rootRow.userId }
+                    }.orEmpty()
+                    val rows = (tree + starters).distinctBy { it.id }
+                    val xref = SessionTree.buildSessionThread(
+                        root = SessionTree.session(rootRow),
+                        sessions = rows.map(SessionTree::session),
+                        sessionIssues = links.map(SessionTree::sessionIssue),
+                        issues = linked.map { SessionTree.issue(it) },
+                        messages = messages,
+                        pullRequests = emptyList(),
+                        now = SessionTree.nowIso(),
+                        focus = codingSessionId,
+                    ).origin ?: return@combine null
+                    val target = rows.firstOrNull { it.id == xref.sessionId }
+                    OriginLink(xref, root = target != null && target.rootId.ifEmpty { target.id } == target.id)
+                }.flowOn(kotlinx.coroutines.Dispatchers.Default)
+            }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * EXP-1291: the viewer's OWN messages the server still holds for this
      * session (`consumed_at` NULL) — the queue bar; X = [unqueueMessage].
@@ -1223,8 +1280,11 @@ class AgentSessionViewModel @AssistedInject constructor(
      * back into the composer first ([stopHandingBackQueue]), the same
      * hand-back the relay's interrupt does, and come back out on a failure.
      */
-    fun stopSession() = sessionCall("Couldn't stop the session") { accountId ->
-        stopHandingBackQueue(connection) { sessionsApi.stop(accountId, codingSessionId) }
+    fun stopSession() = sessionCall(Chats.Copy.STOP_TURN_FAILED) { accountId ->
+        var delivered = true
+        stopHandingBackQueue(connection) { delivered = sessionsApi.stop(accountId, codingSessionId).delivered }
+        // chats.json `copy.stopTurn.notDelivered`: the relay reached no device.
+        if (!delivered) _killError.value = Chats.Copy.STOP_TURN_NOT_DELIVERED
     }
 
     /** End the session for good (`sessions.end`; a root ends its tree). */

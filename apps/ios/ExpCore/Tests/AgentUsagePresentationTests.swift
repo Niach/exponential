@@ -439,7 +439,9 @@ final class AgentUsagePresentationTests: XCTestCase {
         func blocked(_ kind: String?) -> SessionBlocked {
             SessionBlocked(kind: kind, agent: "claude", window: nil, resetsAt: "2026-08-28T12:00:00.000Z")
         }
-        XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("device_offline"), now: now), "Device offline")
+        // S-3: an interruption is invisible.
+        XCTAssertNil(AgentUsagePresentation.blockedBadgeLabel(blocked("device_offline"), now: now))
+        XCTAssertNil(AgentUsagePresentation.blockedBadgeLabel(blocked("restarted"), now: now))
         XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("unclaimed"), now: now), "Not picked up")
         XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("stuck"), now: now), "Stuck")
         XCTAssertTrue(AgentUsagePresentation.isUsageWall(blocked("rate_limit")))

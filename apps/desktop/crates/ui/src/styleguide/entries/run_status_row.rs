@@ -12,16 +12,9 @@ use domain::session_tree::SessionState;
 pub(crate) const ID: &str = "run-status-row";
 pub(crate) const OWNER: &str = "EXP-1175";
 
-/// The demo rows' states, in the web entry's order.
-const STATES: [SessionState; 7] = [
-    SessionState::Queued,
-    SessionState::Working,
-    SessionState::Background,
-    SessionState::NeedsYou,
-    SessionState::Interrupted,
-    SessionState::Blocked,
-    SessionState::Ended,
-];
+/// The demo rows' states (S-3: the four display states), in the web
+/// entry's order.
+const STATES: [SessionState; 4] = [SessionState::Working, SessionState::NeedsYou, SessionState::Idle, SessionState::Done];
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let rows = STATES.iter().enumerate().map(|(index, state)| {

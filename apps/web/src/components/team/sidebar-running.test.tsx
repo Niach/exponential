@@ -191,6 +191,31 @@ describe(`SidebarRunningSection — nested children`, () => {
     })
   })
 
+  it(`S-3: the earlier fold row is muted and opens the thread`, () => {
+    renderSection([
+      {
+        ...nested[0]!,
+        rows: [
+          ...nested[0]!.rows,
+          {
+            ...row(`t-run:earlier`, `3 earlier sub-sessions`, { depth: 1, parentId: `t-run`, rootId: `t-run` }),
+            earlier: 3,
+          },
+        ],
+      },
+    ])
+    const fold = screen.getByTestId(`sidebar-running-t-run:earlier`)
+    expect(fold.textContent).toContain(`3 earlier sub-sessions`)
+    expect(fold.className).toContain(`text-muted-foreground`)
+    expect(fold.style.paddingLeft).toBe(`22px`)
+    fireEvent.click(fold)
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug: `acme`, threadId: `t-run` },
+      search: { from: `running` },
+    })
+  })
+
   it(`the compact rail lists the threads only`, () => {
     const items: { key: string }[] = []
     render(

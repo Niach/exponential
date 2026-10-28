@@ -16,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.background
@@ -38,6 +40,8 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.uploadedImageIds
+import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedAction
@@ -79,6 +83,7 @@ class AgentConversationViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val sender: SessionSender,
+    private val imagesApi: com.exponential.app.data.api.IssueImagesApi,
 ) : ViewModel() {
 
     val agentId: String = savedStateHandle["agentId"] ?: ""
@@ -111,14 +116,72 @@ class AgentConversationViewModel @Inject constructor(
         _failure.value = null
     }
 
-    /** The first message: `sessions.send({agentId, text})` creates my DM. */
+    /** S-3: the composer's pending attachments (THE thread composer's +
+     *  Photo or file), uploaded against the agent's team on send. */
+    private val _images = MutableStateFlow<List<com.exponential.app.domain.PendingAttachment>>(emptyList())
+    val images: StateFlow<List<com.exponential.app.domain.PendingAttachment>> = _images
+
+    private val _imageError = MutableStateFlow<String?>(null)
+    val imageError: StateFlow<String?> = _imageError
+
+    fun addImage(uri: android.net.Uri, bytes: ByteArray, filename: String, contentType: String) {
+        _imageError.value = null
+        val canonical = com.exponential.app.domain.canonicalContentType(contentType)
+        val isImage = com.exponential.app.domain.isInlineImage(canonical)
+        val current = _images.value
+        val refusal = com.exponential.app.domain.steerAttachmentRefusal(
+            imageCount = current.count { it.isImage },
+            fileCount = current.count { !it.isImage },
+            isImage = isImage,
+            sizeBytes = bytes.size.toLong(),
+        )
+        if (refusal != null) {
+            _imageError.value = refusal
+            return
+        }
+        _images.value = current + com.exponential.app.domain.PendingAttachment(
+            uri = uri, bytes = bytes, filename = filename, contentType = canonical, isImage = isImage,
+        )
+    }
+
+    fun refuseAttachment(message: String) {
+        _imageError.value = message
+    }
+
+    fun removeImage(index: Int) {
+        _images.value = _images.value.filterIndexed { i, _ -> i != index }
+    }
+
+    /** The first message: `sessions.send({agentId, text, attachmentIds})`
+     *  creates my DM (the pending files upload against the team first). */
     fun send(text: String, onSent: () -> Unit) {
-        if (text.isBlank() || _sending.value) return
+        if ((text.isBlank() && _images.value.isEmpty()) || _sending.value) return
+        val accountId = auth.activeAccountId.value ?: return
         _sending.value = true
         viewModelScope.launch {
             try {
-                val result = sender.send(SessionsSendInput.toAgent(agentId, text))
+                val teamId = agent.value?.teamId
+                var current = _images.value
+                if (teamId != null) {
+                    for ((index, image) in current.withIndex()) {
+                        if (image.uploadedId != null) continue
+                        val uploaded = imagesApi.uploadTeamSessionImage(accountId, teamId, image.bytes, image.filename, image.contentType)
+                        current = current.mapIndexed { i, entry ->
+                            if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
+                        }
+                        _images.value = current
+                    }
+                }
+                val body = com.exponential.app.domain.AgentComposerPrompt.build(
+                    text,
+                    current.uploadedImageIds(),
+                    current.uploadedSteerFiles(),
+                ).orEmpty()
+                val result = sender.send(
+                    SessionsSendInput.toAgent(agentId, body, current.mapNotNull { it.uploadedId }),
+                )
                 onSent()
+                _images.value = emptyList()
                 _sent.value = result.sessionId
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -157,8 +220,27 @@ fun AgentConversationScreen(
         delay(SYNC_GRACE_MS)
         graceOver = true
     }
-    var draft by rememberSaveable { mutableStateOf("") }
+    var field by remember { mutableStateOf(TextFieldValue("")) }
     var expanded by rememberSaveable { mutableStateOf(false) }
+    val images by viewModel.images.collectAsStateWithLifecycle()
+    val imageError by viewModel.imageError.collectAsStateWithLifecycle()
+    imageError?.let { message ->
+        val toaster = com.exponential.app.ui.components.LocalToaster.current
+        LaunchedEffect(message) { toaster.error(message) }
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris: List<android.net.Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            for (uri in uris) when (val picked = com.exponential.app.ui.agent.readComposerPick(context, uri)) {
+                is com.exponential.app.ui.agent.ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                is com.exponential.app.ui.agent.ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
+            }
+        }
+    }
 
     val row = agent
     val name = row?.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS
@@ -222,41 +304,48 @@ fun AgentConversationScreen(
                             .fillMaxWidth()
                             .padding(bottom = bottomInset),
                     ) {
-                        FloatingComposer(
+                        // S-3: THE thread composer (its card, the "+" with
+                        // Photo or file and Issue ›, surface `agent`); the
+                        // first send creates the conversation.
+                        com.exponential.app.ui.session.SteerComposer(
+                            value = field,
+                            onValueChange = { field = it },
+                            onValueRewrite = { field = it },
+                            pendingImages = images,
+                            sending = sending,
+                            live = true,
+                            working = false,
+                            onInterrupt = {},
                             expanded = expanded,
                             onExpandedChange = { expanded = it },
+                            onPickImages = { filePicker.launch(arrayOf("*/*")) },
+                            menu = com.exponential.app.ui.session.SessionComposerMenu(
+                                agent = row.cli?.takeIf { it.isNotBlank() } ?: com.exponential.app.ui.components.DEFAULT_AGENT,
+                                effort = "",
+                                ultracode = false,
+                                computerUse = false,
+                                canComputerUse = false,
+                                mcpServers = emptyList(),
+                                mcpServerIds = emptyList(),
+                                issues = emptyList(),
+                                readOnly = false,
+                                onConfigure = {},
+                                onImplement = {},
+                                surface = com.exponential.app.domain.ComposerMenuSurface.Agent,
+                            ),
+                            onRemoveImage = viewModel::removeImage,
+                            onSend = { viewModel.send(field.text) { field = TextFieldValue("") } },
+                            // The model is the agent's until the conversation runs.
+                            model = null,
+                            modelPickable = false,
+                            onPickModel = {},
+                            contextPercent = null,
+                            hasUsage = false,
+                            onOpenUsage = {},
+                            trailing = null,
                             placeholder = placeholder,
-                            hasDraft = draft.isNotBlank(),
                             capsuleTestTag = "agent-composer-capsule",
-                            modifier = Modifier.testTag("agent-composer"),
-                        ) {
-                            GlassComposer(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                submit = {
-                                    ComposerSubmitButton(
-                                        ExpIcons.uiSubmit,
-                                        contentDescription = ThreadUiCopy.SEND,
-                                        onClick = { viewModel.send(draft) { draft = "" } },
-                                        enabled = draft.isNotBlank(),
-                                        sending = sending,
-                                        modifier = Modifier.testTag("agent-composer-submit"),
-                                    )
-                                },
-                            ) {
-                                GlassTextField(
-                                    value = draft,
-                                    onValueChange = { draft = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("agent-composer-field")
-                                        .then(fieldModifier),
-                                    placeholder = placeholder,
-                                    minLines = 2,
-                                    maxLines = 8,
-                                    bordered = false,
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }

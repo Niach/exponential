@@ -4,8 +4,8 @@
 //!
 //! - Launch: the Agent page composer (EXP-825) and, before it, the start-coding
 //!   dialog: the doctor-filtered agent pill strip, the per-agent Model /
-//!   Effort selects and the capability-gated toggles (ultracode, plan
-//!   mode). This is [`LaunchOptionsSection`], which OWNS that
+//!   Effort selects and the capability-gated toggle (ultracode; S-3: no
+//!   plan toggle anywhere). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
 //! - Trigger: [`crate::trigger_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
@@ -29,11 +29,11 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, AnyElement, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
+    div, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{h_flex, select::Select, ActiveTheme as _, Icon};
+use gpui_component::{select::Select, ActiveTheme as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
@@ -211,17 +211,13 @@ pub(crate) fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<Codi
         .collect()
 }
 
-/// The `(ultracode, plan_mode)` settings defaults for `agent`,
-/// capability-masked (EXP-201: ultracode is Claude-only, plan mode is
-/// claude-only). EXP-206: ONE set of defaults — a single-issue
-/// session and a multi-issue session seed identically, and plan mode is a
-/// per-AGENT setting. EXP-690 retired the skip-permissions toggle (every
-/// run bypasses).
-pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool) {
-    (
-        settings.claude_ultracode && agent.supports_ultracode(),
-        settings.plan_mode_for(agent) && agent.supports_plan_mode(),
-    )
+/// The ultracode settings default for `agent`, capability-masked (EXP-201:
+/// ultracode is Claude-only). EXP-206: ONE set of defaults — a single-issue
+/// session and a multi-issue session seed identically. EXP-690 retired the
+/// skip-permissions toggle (every run bypasses); S-3 the plan toggle and its
+/// per-device default (a launch never enters plan mode from a UI default).
+pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> bool {
+    settings.claude_ultracode && agent.supports_ultracode()
 }
 
 /// EXP-749: can `agent` NOT run a session on a machine advertising
@@ -345,36 +341,6 @@ pub(crate) fn inline_pin_glyph_trigger(id: SharedString, icon: ExpIcon, cx: &App
         .child(Icon::new(icon).size(gpui::px(12.)))
 }
 
-/// EXP-1030 — the candidate machines as THE device picker
-/// ([`crate::picker::device_picker`]) reads them: one row per machine, its
-/// [`crate::icons::device_icon_name`] glyph (its owner's pick, else its kind
-/// — resolved HERE, because the typed constructor takes no `&App` and the
-/// kind lives on the synced row), and its picker line as the label. Every
-/// launch surface that offers a machine — the composer's Device pin, an
-/// action trigger's runner — builds its rows through this ONE function, so
-/// they can never list the same fleet differently.
-pub(crate) fn launch_device_rows(
-    devices: &[crate::queries::LaunchDevice],
-    cx: &App,
-) -> Vec<crate::picker::device_picker::DevicePickerDevice> {
-    devices
-        .iter()
-        .map(|device| crate::picker::device_picker::DevicePickerDevice {
-            id: device.device_id.clone(),
-            name: device.label.clone(),
-            icon: Some(device_glyph_name(&device.device_id, cx).to_string()),
-            // The glyph above is already resolved (EXP-924), so the kind
-            // default the picker would derive from this is never consulted.
-            server: false,
-            description: None,
-            // EXP-615: an offline-but-capable machine is not a lesser choice
-            // (the run fires when it comes back), so no candidate is ever
-            // greyed out here.
-            disabled: false,
-        })
-        .collect()
-}
-
 /// The stored glyph NAME for one machine (EXP-924: its own `icon` when it
 /// names a device icon, else its kind's default) — resolved off the synced
 /// `devices` row, so a picker row and the Devices list wear the same mark.
@@ -391,32 +357,6 @@ pub(crate) fn device_glyph_name(device_id: &str, cx: &App) -> &'static str {
         })
         .unwrap_or((None, false));
     crate::icons::device_icon_name(icon.as_deref(), is_server)
-}
-
-/// EXP-825: a labelled switch on the composer options row.
-fn inline_switch<V: Render>(
-    id: SharedString,
-    label: &'static str,
-    on: bool,
-    write: impl Fn(&mut V, bool) + 'static,
-    cx: &mut Context<V>,
-) -> AnyElement {
-    h_flex()
-        .gap_1p5()
-        .items_center()
-        .px_1()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
-        .child(
-            crate::controls::web_switch(id)
-                .checked(on)
-                .on_click(cx.listener(move |view, on: &bool, _, cx| {
-                    write(view, *on);
-                    cx.notify();
-                })),
-        )
-        .into_any_element()
 }
 
 /// EXP-877 — THE choice pin: `trigger` with a checked-item menu of
@@ -467,44 +407,6 @@ pub(crate) fn choice_pin_for<V: Render>(
         }
         menu
     })
-}
-
-/// Hangs a model/effort choice menu off `trigger`, writing the pick into the
-/// section's `ChoiceSelect` (the same entity the grouped cluster's select row
-/// edits, so the two never disagree) — [`choice_pin`] with that write.
-fn choice_menu<V: Render>(
-    trigger: Button,
-    choices: &'static [(&'static str, &'static str)],
-    picked: String,
-    select: fn(&LaunchOptionsSection) -> &ChoiceSelect,
-    access: fn(&mut V) -> &mut LaunchOptionsSection,
-    cx: &mut Context<V>,
-) -> impl IntoElement {
-    choice_menu_for(trigger, choices, picked, select, access, cx.entity().downgrade())
-}
-
-/// [`choice_menu`] against a captured weak handle.
-fn choice_menu_for<V: Render>(
-    trigger: Button,
-    choices: &'static [(&'static str, &'static str)],
-    picked: String,
-    select: fn(&LaunchOptionsSection) -> &ChoiceSelect,
-    access: fn(&mut V) -> &mut LaunchOptionsSection,
-    view: gpui::WeakEntity<V>,
-) -> impl IntoElement {
-    choice_pin_for(
-        trigger,
-        choices,
-        picked,
-        view,
-        move |view: &mut V, value: &str, window, cx| {
-            let state = select(access(view)).clone();
-            state.update(cx, |state, cx| {
-                state.set_selected_value(&SharedString::from(value.to_string()), window, cx)
-            });
-            cx.notify();
-        },
-    )
 }
 
 /// One switch row of an [`AgentDefaultsGroup`]: the label, its state, and
@@ -755,8 +657,6 @@ pub(crate) struct LaunchOptionsSection {
     subagent_model: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     pub(crate) ultracode: bool,
-    /// Native plan mode (`--permission-mode plan`).
-    pub(crate) plan_mode: bool,
     /// EXP-696: `Some` while the run targets another machine — its agents
     /// and its published defaults replace the local doctor + hub everywhere.
     remote: Option<RemoteDefaults>,
@@ -789,7 +689,7 @@ impl LaunchOptionsSection {
     pub(crate) fn new(window: &mut Window, cx: &mut App) -> Self {
         let settings = crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone();
         let agent = settings.default_agent;
-        let (ultracode, plan_mode) = agent_defaults(&settings, agent);
+        let ultracode = agent_defaults(&settings, agent);
         let mut this = Self {
             agent,
             model: choice_select(model_choices_for(agent), settings.model_for(agent), window, cx),
@@ -806,7 +706,6 @@ impl LaunchOptionsSection {
                 cx,
             ),
             ultracode,
-            plan_mode,
             remote: None,
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
@@ -990,7 +889,7 @@ impl LaunchOptionsSection {
             window,
             cx,
         );
-        (self.ultracode, self.plan_mode) = agent_defaults(settings, agent);
+        self.ultracode = agent_defaults(settings, agent);
     }
 
     /// Switch the agent tab (EXP-201): rebuild the model/effort selects from
@@ -1057,7 +956,8 @@ impl LaunchOptionsSection {
             // Capability-clamped so a stale toggle can never leak onto an
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
-            plan_mode: self.plan_mode && self.agent.supports_plan_mode(),
+            // S-3: no plan toggle; a launch never enters plan mode.
+            plan_mode: false,
             // EXP-981: claude-only, clamped like the toggles above.
             subagent_model: if self.agent.supports_subagent_model() {
                 selected(&self.subagent_model, cx)
@@ -1095,6 +995,17 @@ impl LaunchOptionsSection {
         set_choice(&self.effort, value, window, cx);
     }
 
+    /// S-3: the "+" menu's Model pick (any agent: codex too), into the
+    /// same select the grouped cluster edits.
+    pub(crate) fn pick_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
+        set_choice(&self.model, value, window, cx);
+    }
+
+    /// S-3: the Model submenu's rows and pick (the picked agent's list).
+    pub(crate) fn model_menu(&self, cx: &App) -> (&'static [(&'static str, &'static str)], String) {
+        (model_choices_for(self.agent), selected(&self.model, cx))
+    }
+
     /// EXP-1249: the "+" menu's Subagents pick (claude only).
     pub(crate) fn pick_subagent_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
         set_choice(&self.subagent_model, value, window, cx);
@@ -1104,62 +1015,6 @@ impl LaunchOptionsSection {
     /// current pick (every subject, EXP-1294).
     pub(crate) fn mcp_menu(&self) -> (Vec<McpServerOption>, Vec<String>) {
         (self.mcp_servers.clone(), self.mcp_selected.clone())
-    }
-
-    // ── EXP-825: the Agent page composer's inline options row ──────────────
-    //
-    // Variant B of the composer mockups: under the card ONE muted line —
-    // Device (the composer's own), Agent, Model, Plan — and a `⋯` popover
-    // holding Effort, Ultracode, MCP servers and Account. These are thin
-    // views over the same state `render` shows as a grouped cluster, so the
-    // two surfaces cannot disagree about what a run launches with.
-
-    /// EXP-825: reseed plan mode when the composer's subject flips between
-    /// "nothing picked" (a chat — a conversation, never a planning run, so
-    /// OFF whatever the agent's setting says, EXP-772) and a picked subject
-    /// (the agent's own default, EXP-206). `planModeOff` is read on open on
-    /// the web too; the always-open composer needs the same reseed on the
-    /// flip or a chat inherits the device default (the EXP-772 regression).
-    pub(crate) fn reseed_plan_for_subject(&mut self, has_subject: bool, cx: &mut App) {
-        self.plan_mode = if has_subject {
-            agent_defaults(&self.seed_settings(cx), self.agent).1
-        } else {
-            false
-        };
-    }
-
-    /// The Model pin over the picked agent's own model list.
-    pub(crate) fn model_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> AnyElement {
-        let choices = model_choices_for(self.agent);
-        let picked = selected(&self.model, cx);
-        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
-        let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-model")), label, cx);
-        choice_menu(trigger, choices, picked, |section| &section.model, access, cx)
-            .into_any_element()
-    }
-
-    /// The Plan switch; `None` for an agent without a plan mode.
-    pub(crate) fn plan_toggle<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        if !self.agent.supports_plan_mode() {
-            return None;
-        }
-        Some(inline_switch(
-            SharedString::from(format!("{prefix}-plan")),
-            "Plan",
-            self.plan_mode,
-            move |view: &mut V, on| access(view).plan_mode = on,
-            cx,
-        ))
     }
 
     /// EXP-1249: everything the composer's "+" menu draws, read off the
@@ -1184,40 +1039,6 @@ impl LaunchOptionsSection {
         }
     }
 
-    /// EXP-872 — THE account pin: ONE picker over every signed-in login the
-    /// TARGET machine reports, across agents. It replaced the agent pin and
-    /// the old account pin both — picking a login picks its agent — so it
-    /// renders WHENEVER the machine offers anything, and collapses to plain
-    /// text (no chevron) when there is a single login to spend.
-    pub(crate) fn account_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        let options = self.account_options(cx);
-        if options.is_empty() {
-            return None;
-        }
-        let current = self.account_key();
-        let view = cx.entity().downgrade();
-        Some(crate::coding_selects::account_picker(
-            SharedString::from(format!("{prefix}-account")),
-            &options,
-            Some(current.as_str()),
-            crate::coding_selects::AccountTrigger::Inline,
-            move |option, window, cx| {
-                if let Some(view) = view.upgrade() {
-                    let option = option.clone();
-                    view.update(cx, |view, cx| {
-                        access(view).set_account(&option, window, cx);
-                        cx.notify();
-                    });
-                }
-            },
-            cx,
-        ))
-    }
 }
 
 /// EXP-1249 — the composer "+" menu's run options, snapshotted off a

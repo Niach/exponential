@@ -5,6 +5,7 @@ import {
   chatSelectionActions,
   threadMenuEntries,
   type AgentBubble,
+  type AgentChatRow,
   type ChatFilter,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
@@ -43,6 +44,8 @@ const noop = (): void => {}
 const LIST = chats.listCases[0]!.expected
 const LIST_ROWS = LIST.rows as ChatRowModel[]
 const BUBBLES = chats.bubbleCases[0]!.expected as AgentBubble[]
+/** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
+const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
 
 export function ChatListSpecimen() {
   const [filter, setFilter] = useState<ChatFilter>(`all`)
@@ -61,7 +64,7 @@ export function ChatListSpecimen() {
       <ChatsHeader inboxUnread />
       <AgentBubbles bubbles={BUBBLES} />
       <ChatFilterChips value={filter} counts={LIST.counts} onChange={setFilter} />
-      <ChatList rows={rows} agentOf={() => `claude`} />
+      <ChatList rows={rows} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
     </div>
   )
 }
@@ -249,6 +252,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   {
     type: `plan`,
@@ -271,6 +275,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   { type: `surface`, id: `s1`, sessionId: `r`, title: `Launch path`, surface: LAUNCH_SURFACE },
   { type: `divider`, id: `d1`, kind: `compact`, at: `2026-10-23T18:20:00` },
@@ -282,6 +287,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Anything new overnight?`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   {
     type: `message`,
@@ -291,6 +297,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Three reports, all about the iPad sign-in. I linked them to #APP-19.`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   { type: `divider`, id: `d2`, kind: `new`, at: `2026-10-24T09:30:00` },
 ]

@@ -25,16 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    id: `2026-10-28-voice-calls`,
+    id: `2026-10-28-quieter-agents`,
     date: `2026-10-28`,
-    title: `Calls like a phone call`,
-    summary: `Calls ring first, your agent answers with Hello?, and the call screen looks like a phone call.`,
-    body: `- **It rings first**: a call rings for 3 seconds while your voice device loads speech and the voice, then answers with Hello?; a voice that is still downloading keeps ringing until it is ready.
+    title: `Quieter agents, linked chats, calls like a phone call`,
+    summary: `Agents show one card instead of many messages, chats link to each other, and calls ring and look like a phone call.`,
+    body: `- **One card, kept up to date**: agents show results, questions and plans as a card that updates in place, and in an agent chat a newer reply replaces the earlier one until you write again.
+- **Fewer wake-ups**: an agent hears from the chats it started only when they ask, hit a limit, open a PR or finish, and its scheduled check-ins fold into one card that is skipped when nothing changed.
+- **Linked chats**: a message from another chat says where it came from (Message from, Report from, Started by); tap it to jump there and back.
+- **No plan mode**: plans are cards you answer; nothing waits on a switch.
+- **It rings first**: a call rings for 3 seconds while your voice device loads speech and the voice, then answers with Hello?; a voice that is still downloading keeps ringing until it is ready.
 - **A real call screen**: the agent's avatar, its name, the call's timer and what is being said, with round mute, speaker and red end buttons on web, iOS, Android and the desktop.
 - **Floating pill**: while the desktop app is minimized a small call pill stays on top; drag it anywhere, it remembers where you put it, and Esc or the tray's End call ends the call.
 - **Replies are always spoken**: Speak replies is gone; whatever you say by voice is answered by voice, typed messages never are.
-- **Your own push-to-talk key**: press any key or combination in Settings → Voice to bind it, like in a game; Backspace clears it.
-- **Wake word**: it now hears its phrase anywhere in what you say, and Settings → Voice tells you why it isn't listening.`,
+- **Your own push-to-talk key**: press any key or combination in your Assistant's Voice settings to bind it, like in a game; Backspace clears it.
+- **Wake word**: it now hears its phrase anywhere in what you say, and your Assistant's Voice settings tell you why it isn't listening.`,
   },
   {
     id: `2026-10-28-meeting-mode`,

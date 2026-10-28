@@ -718,18 +718,27 @@ export function useSessionThread(
   // while a session of the tree works; a settled chat rebuilds per minute.
   const ticking = tree.some((session) => session.status !== `ended` && (session.busy || session.status === `running` || session.status === `queued`))
   const now = useNow(ticking ? 1_000 : 60_000)
+  // S-3: the sessions OUTSIDE the tree an xref names (another session's
+  // line, the agent conversation that started the root), with titles.
+  const linked = useLinkedSessions(root, treeIds, messages)
+  const xrefTitles = useMemo(() => {
+    if (linked.tree.length === 0) return titles
+    const merged = new Map(sessionTitles(linked.tree, [], [], linked.digests))
+    for (const [id, title] of titles) merged.set(id, title)
+    return merged
+  }, [titles, linked])
   const view = useMemo(() => {
     if (!root) return null
     return buildSessionThread({
       root: toTreeSession(root),
-      sessions: tree,
+      sessions: linked.tree.length > 0 ? [...tree, ...linked.tree] : tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
       issues: foldedIssues,
       messages: messages.map(toTreeMessage),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
-    }, { focus, titles })
-  }, [root, tree, links, foldedIssues, messages, pullRequests, now, focus, titles])
+    }, { focus, titles: xrefTitles })
+  }, [root, tree, linked, links, foldedIssues, messages, pullRequests, now, focus, xrefTitles])
   return {
     view,
     root,
@@ -747,6 +756,76 @@ export function useSessionThread(
       },
     },
   }
+}
+
+/** S-3: the synced sessions outside a tree its xrefs name: the authors of
+ *  its messages from other sessions, their roots (the agent mark), and the
+ *  agent conversations of the agent that started the root. An unsynced one
+ *  never shows (the contract drops its link). */
+export function useLinkedSessions(
+  root: SessionRow | null,
+  treeIds: readonly string[],
+  messages: readonly MessageRow[]
+): { tree: TreeSession[]; digests: TreeMessage[] } {
+  const inTree = new Set(treeIds)
+  const authorIds = [
+    ...new Set(
+      messages
+        .map((message) => message.authorSessionId)
+        .filter((id): id is string => Boolean(id) && !inTree.has(id as string))
+    ),
+  ].sort()
+  const authorKey = authorIds.join(`,`)
+  const { data: authors } = useLiveQuery(
+    (query) =>
+      authorIds.length > 0
+        ? query.from({ sessions: sessionCollection }).where(({ sessions }) => inArray(sessions.id, authorIds))
+        : undefined,
+    [authorKey]
+  )
+  const authorRows = (authors ?? []) as SessionRow[]
+  const rootIds = [
+    ...new Set(
+      authorRows
+        .map((row) => row.rootId ?? row.id)
+        .filter((id) => !inTree.has(id) && !authorIds.includes(id))
+    ),
+  ].sort()
+  const rootKey = rootIds.join(`,`)
+  const { data: roots } = useLiveQuery(
+    (query) =>
+      rootIds.length > 0
+        ? query.from({ sessions: sessionCollection }).where(({ sessions }) => inArray(sessions.id, rootIds))
+        : undefined,
+    [rootKey]
+  )
+  const starterAgentId = root?.startedByAgentId ?? null
+  const { data: starters } = useLiveQuery(
+    (query) =>
+      starterAgentId
+        ? query
+            .from({ sessions: sessionCollection })
+            .where(({ sessions }) => eq(sessions.agentId, starterAgentId))
+        : undefined,
+    [starterAgentId]
+  )
+  const rows = useMemo(() => {
+    const byId = new Map<string, SessionRow>()
+    for (const row of [
+      ...authorRows,
+      ...((roots ?? []) as SessionRow[]),
+      ...((starters ?? []) as SessionRow[]).filter(
+        (row) => row.parentId === null && row.userId === root?.userId
+      ),
+    ]) {
+      if (!inTree.has(row.id)) byId.set(row.id, row)
+    }
+    return [...byId.values()]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authors, roots, starters, root?.userId, treeIds.join(`,`)])
+  const ids = useMemo(() => rows.map((row) => row.id).sort(), [rows])
+  const { messages: digests } = useDigestMessages({ sessionIds: ids })
+  return useMemo(() => ({ tree: rows.map(toTreeSession), digests }), [rows, digests])
 }
 
 /** The linked issues with their fold parents (`linkedIssueParents`), the

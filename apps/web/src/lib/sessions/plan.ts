@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm"
 import {
   CORE_CATALOG_ID,
   reduceNested,
@@ -19,8 +19,8 @@ import { PLAN_CARD_COPY, resolveUpload, type AskCardLike } from "@exp/domain-con
 import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { busAsk, closeAskMirrors } from "@/lib/sessions/bus"
-import { postAgentMessage, postOwnAskCard } from "@/lib/sessions/messages"
+import { askText, busAsk, closeAskMirrors } from "@/lib/sessions/bus"
+import { insertMessage, pendingInput, postOwnAskCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
@@ -261,7 +261,8 @@ export function buildSurfaceCard(input: {
 }
 
 /** Posts a surface card as an AGENT message in the caller's own session
- *  (answers nothing, wakes nothing). → the message id. */
+ *  (answers nothing, wakes nothing; `author_session_id` = the session, so
+ *  S-3's `replace` finds it). → the message id. */
 export async function postSurfaceCard(args: {
   sessionId: string
   card: Extract<MessageCard, { kind: `surface` }>
@@ -284,9 +285,135 @@ export async function postSurfaceCard(args: {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     }
     await generateTxId(tx)
-    return postAgentMessage(tx, session, ``, args.card)
+    return insertMessage(tx, session, { authorKind: `agent`, authorSessionId: session.id, card: args.card })
   })
   return { messageId }
+}
+
+type ShowCard = Extract<MessageCard, { kind: `surface` | `plan` | `question` }>
+
+const isAsk = (card: { kind: string }) => card.kind === `plan` || card.kind === `question`
+
+/**
+ * S-3 `exponential_show {replace: true}`: the session's own card of the
+ * CURRENT turn (newer than the last input the device delivered to it) is
+ * edited in place: the same row, so every client's card updates instead of
+ * a new one landing. A card a person already answered is final (refused);
+ * a card of the other family (a plain surface vs an ask/plan) or none this
+ * turn = a new card. → the edited row, or null to insert.
+ */
+export async function replaceTarget(
+  tx: Tx,
+  sessionId: string,
+  card: ShowCard
+): Promise<{ id: string; card: MessageCard } | null> {
+  const [input] = await tx
+    .select({ at: messages.createdAt })
+    .from(messages)
+    .where(and(eq(messages.sessionId, sessionId), pendingInput(), isNotNull(messages.consumedAt)))
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+  const [row] = await tx
+    .select({ id: messages.id, card: messages.card, answeredAt: messages.answeredAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.sessionId, sessionId),
+        eq(messages.authorSessionId, sessionId),
+        sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`,
+        ...(input ? [gt(messages.createdAt, input.at)] : [])
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .for(`update`)
+  if (!row?.card) return null
+  if (row.answeredAt) {
+    throw new TRPCError({
+      code: `CONFLICT`,
+      message: `Your latest card was already answered and is final: post a new one (replace: false).`,
+    })
+  }
+  if (isAsk(row.card) !== isAsk(card)) return null
+  return { id: row.id, card: row.card }
+}
+
+/** S-3: THE show path (`exponential_show`): a plain surface, a question or
+ *  a plan card on the caller's own session; `replace` edits this turn's
+ *  card in place (`replaceTarget`), else a new card lands (an ask/plan the
+ *  way `postAskCard` posts it). */
+export async function postShowCard(args: {
+  userId: string
+  sessionId: string
+  card: ShowCard
+  replace: boolean
+}): Promise<{ messageId: string; replaced: boolean; uploads: CardUpload[]; next?: string }> {
+  const replaced = args.replace
+    ? await db.transaction(async (tx) => {
+        const [session] = await tx
+          .select({ id: sessions.id, status: sessions.status })
+          .from(sessions)
+          .where(eq(sessions.id, args.sessionId))
+          .limit(1)
+          .for(`update`)
+        if (!session) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+        if (session.status === `ended`) {
+          throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
+        }
+        const target = await replaceTarget(tx, session.id, args.card)
+        if (!target) return null
+        await generateTxId(tx)
+        const now = new Date()
+        await tx.update(messages).set({ card: args.card, updatedAt: now }).where(eq(messages.id, target.id))
+        if (isAsk(args.card)) {
+          // The parent's / watchers' ask mirrors keep pointing at the row;
+          // their text follows (a neutral private line stays as it is).
+          const before = askText(session, target.card as Extract<MessageCard, { kind: `question` | `plan` }>)
+          await tx
+            .update(messages)
+            .set({ body: askText(session, args.card as Extract<MessageCard, { kind: `question` | `plan` }>), updatedAt: now })
+            .where(
+              and(
+                eq(messages.authorSessionId, session.id),
+                sql`${messages.card}->>'kind' = 'ask'`,
+                sql`${messages.card}->>'messageId' = ${target.id}`,
+                eq(messages.body, before)
+              )
+            )
+        }
+        return target.id
+      })
+    : null
+  if (replaced) {
+    return {
+      messageId: replaced,
+      replaced: true,
+      uploads: isAsk(args.card)
+        ? mintCardUploads({
+            userId: args.userId,
+            sessionId: args.sessionId,
+            messageId: replaced,
+            labels: ((args.card as Extract<MessageCard, { kind: `plan` | `question` }>).pictures ?? []).map(
+              (picture) => picture.label
+            ),
+          })
+        : [],
+      ...(isAsk(args.card) ? { next: PLAN_CARD_COPY.proposeNext } : {}),
+    }
+  }
+  if (isAsk(args.card)) {
+    const posted = await postAskCard({
+      userId: args.userId,
+      sessionId: args.sessionId,
+      card: args.card as Extract<MessageCard, { kind: `plan` | `question` }>,
+    })
+    return { ...posted, replaced: false }
+  }
+  const posted = await postSurfaceCard({
+    sessionId: args.sessionId,
+    card: args.card as Extract<MessageCard, { kind: `surface` }>,
+  })
+  return { ...posted, replaced: false, uploads: [] }
 }
 
 /** One signed upload per picture label of the card. */

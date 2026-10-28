@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -63,9 +64,10 @@ private val DiscFill: Color = DesignTokens.Palette.Muted
 /** The inbox circle's unread dot. */
 val ChatsInboxDot: Color = DesignTokens.Semantic.Blue
 
-/** The 52 lead DISC of a chat row (`lead`): needs_you = the brand mark with
- *  the amber badge, working = the working mark, open / merged = the root's PR
- *  glyph (emerald / violet), waiting = the bare brand mark. */
+/** The 52 lead DISC of a chat row (`lead`): S-3 needs_you = the chat glyph
+ *  (`shell.chatLead`) with the amber badge, working = the working mark, open
+ *  / merged = the root's PR glyph (emerald / violet), waiting = the plain
+ *  chat glyph. */
 @Composable
 fun ChatLeadDisc(
     lead: Chats.ChatLead,
@@ -82,12 +84,23 @@ fun ChatLeadDisc(
         contentAlignment = Alignment.Center,
     ) {
         when (lead) {
-            Chats.ChatLead.NeedsYou -> AgentRunMark(
-                agent = agent,
-                state = SessionTree.SessionState.NeedsYou,
-                size = glyph,
-                badgeSize = size * 0.18f,
-            )
+            // S-3 (chats.json `shell.chatLead`): the plain chat glyph, never
+            // the brand mark; needs you = that glyph + the amber badge.
+            Chats.ChatLead.NeedsYou -> Box {
+                Icon(
+                    ExpIcons.actionChat,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.size(glyph),
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .size(size * 0.18f)
+                        .clip(CircleShape)
+                        .background(NeedsInputAmber, CircleShape),
+                )
+            }
             Chats.ChatLead.Working -> AgentWorkingMark(agent = agent, size = glyph)
             Chats.ChatLead.Open -> Icon(
                 ExpIcons.prOpen,
@@ -101,11 +114,11 @@ fun ChatLeadDisc(
                 tint = DesignTokens.Avatar.Violet,
                 modifier = Modifier.size(glyph),
             )
-            Chats.ChatLead.Waiting -> AgentRunMark(
-                agent = agent,
-                state = SessionTree.SessionState.Waiting,
-                size = glyph,
-                badgeSize = size * 0.18f,
+            Chats.ChatLead.Waiting -> Icon(
+                ExpIcons.actionChat,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.size(glyph),
             )
         }
     }
@@ -148,6 +161,9 @@ fun ChatRow(
             .fillMaxWidth()
             // Edge to edge, no radius, no hairline.
             .then(if (isSelected) Modifier.background(GlassTokens.RowFillActive) else Modifier)
+            // S-3: a done chat (every root PR merged, nothing live) stays,
+            // the WHOLE row at `shell.dimOpacity`.
+            .then(if (row.dim) Modifier.alpha(Chats.Shell.DIM_OPACITY) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .testTag(Chats.TestIds.CHAT_ROW)
             .padding(start = ChatRowEdge),
@@ -199,6 +215,113 @@ fun ChatRow(
                     Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline)
                         .then(if (isSelected) Modifier else Modifier.background(GlassTokens.StrokeCard)),
                 )
+            }
+        }
+    }
+}
+
+/** S-3 (chats.json `copy.sections`): the Agents / Chats header over the
+ *  list's two sections (only while an agent row exists). */
+@Composable
+fun ChatSectionHeader(label: String, modifier: Modifier = Modifier) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = ChatRowEdge, end = ChatRowEdge, top = 12.dp, bottom = 4.dp)
+            .testTag("chat-section-header"),
+    )
+}
+
+/**
+ * S-3 (chats.json `agentChatRows`): ONE agent row pinned on top of the list
+ * = THE chat row's layout with the agent's disc as its lead (the viewer's
+ * Assistant = the brand mark), its name, the conversation's preview, time
+ * and unread badge. A tap opens the agent's chat.
+ */
+@Composable
+fun AgentChatRowItem(
+    row: Chats.AgentChatRow,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    divider: Boolean = true,
+) {
+    val unread = row.unreadCount > 0
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val timeColor = when {
+        row.needsYou -> NeedsInputAmber
+        unread -> MaterialTheme.colorScheme.onSurface
+        else -> muted
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag("chat-agent-row")
+            .padding(start = ChatRowEdge),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // chats.json AGENT ROWS: the avatar ALWAYS (busy reads in the
+        // preview, never as the working mark); needs you = the chat lead's
+        // amber badge on it (web `ChatLeadDisc` `run-mark-badge`).
+        Box(modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp)) {
+            AgentBubbleDisc(
+                icon = row.icon,
+                color = row.color,
+                assistant = row.assistant,
+                size = Chats.Shell.LEAD_DISC.dp,
+                ring = Color.Transparent,
+                ringWidth = 0.dp,
+                ringGap = 0.dp,
+                glyph = (Chats.Shell.LEAD_DISC * 0.5f).dp,
+            )
+            if (row.needsYou) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-8).dp, y = 8.dp)
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(DiscFill, CircleShape)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(NeedsInputAmber, CircleShape)
+                        .testTag("chat-agent-row-needs-you"),
+                )
+            }
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (unread || row.needsYou) FontWeight.SemiBold else FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (row.time.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(row.time, style = MaterialTheme.typography.labelMedium, color = timeColor, maxLines = 1)
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ChatPreviewText(row.preview, Modifier.weight(1f))
+                    if (unread) {
+                        Spacer(Modifier.width(8.dp))
+                        UnreadBadge(row.unreadCount, amber = row.needsYou)
+                    }
+                }
+            }
+            if (divider) {
+                Box(Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
             }
         }
     }
@@ -309,7 +432,6 @@ fun chatSelectionIcon(action: Chats.ChatSelectionAction): ImageVector = when (ac
     Chats.ChatSelectionAction.MarkUnread -> ExpIcons.uiMarkUnread
     Chats.ChatSelectionAction.Archive -> ExpIcons.uiArchive
     Chats.ChatSelectionAction.Unarchive -> ExpIcons.uiUnarchive
-    Chats.ChatSelectionAction.Stop -> ExpIcons.codingStop
     Chats.ChatSelectionAction.Delete -> ExpIcons.uiDelete
 }
 
@@ -477,10 +599,6 @@ fun AgentBubbles(
     ) {
         bubbles.forEach { bubble ->
             val agent = bubble.agent
-            val tint = remember(agent.color) { parseColor(agent.color) }
-            val icon = ExpIcons.byName(agent.icon)
-                ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
-                ?: ExpIcons.settingsAgents
             val ring = when (bubble.ring) {
                 Chats.AgentRing.NeedsYou -> NeedsInputAmber
                 Chats.AgentRing.Unread -> MaterialTheme.colorScheme.onSurface
@@ -503,24 +621,17 @@ fun AgentBubbles(
                     )
                     .testTag(Chats.TestIds.AGENT_BUBBLE),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(Chats.Shell.BUBBLE.dp)
-                        .border(ringWidth, ring, CircleShape)
-                        .padding(Chats.Shell.BUBBLE_RING.dp)
-                        .clip(CircleShape)
-                        .background(DesignTokens.Palette.Background, CircleShape)
-                        .padding(Chats.Shell.BUBBLE_RING.dp)
-                        .clip(CircleShape)
-                        .background(DiscFill, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (agent.busy) {
-                        AgentWorkingMark(agent = null, size = 26.dp)
-                    } else {
-                        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(26.dp))
-                    }
-                }
+                AgentBubbleDisc(
+                    icon = agent.icon,
+                    color = agent.color,
+                    assistant = agent.assistant,
+                    size = Chats.Shell.BUBBLE.dp,
+                    ring = ring,
+                    ringWidth = ringWidth,
+                    ringGap = Chats.Shell.BUBBLE_RING.dp,
+                    glyph = 26.dp,
+                    busy = agent.busy,
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     agent.name,
@@ -539,6 +650,49 @@ fun AgentBubbles(
     }
 }
 
+/**
+ * S-3: THE agent bubble disc (chats.json `bubble`, composer-home.json
+ * `agentRow`): the agent's icon in its colour on bg muted inside a
+ * [ringGap] background gap, wearing [ring]. The viewer's Assistant paints
+ * the Exponential brand mark in the foreground colour instead.
+ */
+@Composable
+fun AgentBubbleDisc(
+    icon: String?,
+    color: String?,
+    assistant: Boolean,
+    size: Dp,
+    ring: Color,
+    ringWidth: Dp,
+    ringGap: Dp,
+    glyph: Dp,
+    modifier: Modifier = Modifier,
+    busy: Boolean = false,
+) {
+    val tint = remember(color) { parseColor(color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR) }
+    val vector = icon?.let { ExpIcons.byName(it) }
+        ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
+        ?: ExpIcons.settingsAgents
+    Box(
+        modifier = modifier
+            .size(size)
+            .border(ringWidth, ring, CircleShape)
+            .padding(ringGap)
+            .clip(CircleShape)
+            .background(DesignTokens.Palette.Background, CircleShape)
+            .padding(ringGap)
+            .clip(CircleShape)
+            .background(DiscFill, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            busy -> AgentWorkingMark(agent = null, size = glyph)
+            assistant -> ExponentialMark(size = glyph, tint = MaterialTheme.colorScheme.onSurface)
+            else -> Icon(vector, contentDescription = null, tint = tint, modifier = Modifier.size(glyph))
+        }
+    }
+}
+
 /** One entry of THE chat menu sheet. */
 data class ChatMenuItem(
     val label: String,
@@ -548,21 +702,19 @@ data class ChatMenuItem(
     val testTag: String? = null,
     /** A hairline above this row (web `agentMenuRows`' separator, iOS
      *  `separates`, the IDE's `menu.separator()`): the agent menu's
-     *  conversation pair sits apart from Stop / Agent settings. */
+     *  conversation pair sits apart from Agent settings. */
     val dividerBefore: Boolean = false,
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */
 fun chatMenuIcon(entry: Chats.ThreadMenuEntry): ImageVector = when (entry) {
-    Chats.ThreadMenuEntry.Stop -> ExpIcons.codingStop
-    Chats.ThreadMenuEntry.StopAndDelete, Chats.ThreadMenuEntry.Delete -> ExpIcons.uiDelete
+    Chats.ThreadMenuEntry.Delete -> ExpIcons.uiDelete
 }
 
 /** The icon CONCEPT of an agent menu entry (`agentMenuCases`). */
 fun agentMenuIcon(entry: Chats.AgentMenuEntry): ImageVector = when (entry) {
     Chats.AgentMenuEntry.Compact -> ExpIcons.codingCompact
     Chats.AgentMenuEntry.NewConversation -> ExpIcons.uiClean
-    Chats.AgentMenuEntry.Stop -> ExpIcons.codingStop
     Chats.AgentMenuEntry.Settings -> ExpIcons.navSettings
 }
 
@@ -637,17 +789,16 @@ fun ChatMenuSheetFace(title: String, items: List<ChatMenuItem>, modifier: Modifi
 }
 
 /** The chat menu's entries for a chat row: [Chats.threadMenuEntries] with
- *  their copy and icon; Delete / Stop and delete ask first ([onDelete]). */
+ *  their copy and icon; Delete asks first ([onDelete]). S-3: no Stop. */
 fun chatMenuItems(
     entries: List<Chats.ThreadMenuEntry>,
-    onStop: () -> Unit,
     onDelete: () -> Unit,
 ): List<ChatMenuItem> = entries.map { entry ->
     ChatMenuItem(
         label = Chats.threadMenuLabel(entry),
         icon = chatMenuIcon(entry),
-        onClick = if (entry == Chats.ThreadMenuEntry.Stop) onStop else onDelete,
-        destructive = entry != Chats.ThreadMenuEntry.Stop,
+        onClick = onDelete,
+        destructive = true,
         testTag = "chat-menu-${entry.wire}",
     )
 }
@@ -657,7 +808,7 @@ fun agentMenuItems(
     entries: List<Chats.AgentMenuEntry>,
     onPick: (Chats.AgentMenuEntry) -> Unit,
 ): List<ChatMenuItem> {
-    val firstApart = entries.indexOfFirst { it == Chats.AgentMenuEntry.Stop || it == Chats.AgentMenuEntry.Settings }
+    val firstApart = entries.indexOfFirst { it == Chats.AgentMenuEntry.Settings }
     return entries.mapIndexed { index, entry ->
         ChatMenuItem(
             label = Chats.agentMenuLabel(entry),

@@ -175,6 +175,7 @@ mod session_registry;
 mod session_results;
 mod session_rows;
 mod session_screen;
+mod session_xref;
 mod settings;
 mod sidebar;
 // EXP-1192: the slide-swap state machine (left column + second sidebar).

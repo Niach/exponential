@@ -14,6 +14,7 @@ import {
   ChatSelectionSpecimen,
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
+  SessionXrefSpecimen,
   PhoneTabBarSpecimen,
   PhoneBoardMenuSpecimen,
   PhonePageHeaderSpecimen,
@@ -28,6 +29,7 @@ import { useSteerConfig } from "@/hooks/use-steer-config"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
+import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -54,8 +56,8 @@ const str = (value: unknown): string | undefined =>
 // EXP-1253: the team's AGENT page is HOME (composer-home.json): the team
 // index lands here. EXP-1293 (Threads v2, draft 1): top to bottom, centred,
 // the DAWN (FEED-100: the big Exponential mark's top half above the
-// composer), the composer ("What do you want to build?") and its options
-// line, then, while the team has no board, Getting started. No greeting, no
+// composer), S-3 the agent row over the composer ("What do you want to
+// build?"; composer-home.json `agentRow`), then, while the team has no board, Getting started. No greeting, no
 // history button, no recent list: Threads (the rail) is where past work
 // lives. EXP-1316 phones: the column stands at the BOTTOM (the dawn on the
 // card, the options row under it, keyboard-aware), Getting started above the
@@ -79,7 +81,8 @@ const str = (value: unknown): string | undefined =>
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
-// buttons) (identical ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
+// buttons; S-3 `session-xref` THE session link) (identical ×4) for theirs.
+// Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
   `trace`,
@@ -98,6 +101,7 @@ const DEV_VIEWS = [
   `voice-call`,
   `voice-call-overlay`,
   `call-controls`,
+  `session-xref`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -152,6 +156,8 @@ function AgentRoute() {
           <ChatSelectionSpecimen />
         ) : dev === `chat-transcript` ? (
           <ChatTranscriptSpecimen />
+        ) : dev === `session-xref` ? (
+          <SessionXrefSpecimen />
         ) : dev === `phone-tab-bar` ? (
           <PhoneTabBarSpecimen />
         ) : dev === `phone-board-menu` ? (
@@ -359,7 +365,19 @@ function ComposerPane({
   seed: LaunchSeed | null
   onSeedConsumed: () => void
 }) {
-  const model = useLaunchComposer({ teamId, devices, seed, onSeedConsumed })
+  const { data: authSession } = useSession()
+  // S-3: the viewer's Assistant exists before the agent row lists it.
+  useEnsureAssistant(teamId)
+  const model = useLaunchComposer({
+    teamId,
+    devices,
+    seed,
+    onSeedConsumed,
+    // S-3 (composer-home.json `agentRow`): the New-chat composer picks its
+    // recipient, the viewer's Assistant preselected.
+    agentRow: true,
+    me: authSession?.user?.id ?? null,
+  })
   return <LaunchComposer model={model} users={users} variant="home" />
 }
 

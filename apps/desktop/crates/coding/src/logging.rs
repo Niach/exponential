@@ -181,6 +181,9 @@ const WORKSPACE_TARGETS: &[&str] = &[
     "updater",
     "terminal",
     "gpui_markdown_editor",
+    // S-3: the voice stack (the speech worker's stderr logs under `talk`).
+    "talk",
+    "voice",
 ];
 
 fn is_workspace_target(target: &str) -> bool {

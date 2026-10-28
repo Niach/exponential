@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
@@ -10,12 +11,24 @@ import {
   type agentTriggersSchema as AgentTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { agents, attachments, conversations, messages, sessionIssues, sessions, type Agent } from "@/db/schema"
+import {
+  agents,
+  attachments,
+  conversations,
+  devices,
+  messages,
+  sessionIssues,
+  sessions,
+  type Agent,
+  type DeviceAgentAccounts,
+} from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
 import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
-import { assertRunnerVocabulary, resolveSessionDeviceInTx } from "@/lib/sessions/send"
+import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
+import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
+import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
 // members read the synced `agents` shape). An agent runs as conversation
@@ -33,6 +46,12 @@ export function withTriggerIds(triggers: z.infer<typeof AgentTriggersSchema>): A
 
 async function loadOwnedAgent(userId: string, id: string): Promise<Agent> {
   const agent = await loadAgentForUser(userId, id)
+  // S-3: an Assistant is its member's alone (agent-settings.json
+  // `assistant`); a team agent is the team owners'.
+  if (agent.role === `assistant`) {
+    if (agent.ownerId !== userId) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
+    return agent
+  }
   await assertTeamOwner(userId, agent.teamId)
   return agent
 }
@@ -44,6 +63,37 @@ async function conversationIds(tx: { select: typeof import("@/db/connection").db
     .from(sessions)
     .where(and(eq(sessions.agentId, agentId), isNull(sessions.parentId)))
   return rows.map((row) => row.id)
+}
+
+/** S-3: the login an agent runs on, checked against its device's report.
+ *  A named profile the device does not have falls back to the device's
+ *  ACTIVE profile (else none = the device's own default); a device that
+ *  reported no profiles for the agent is unknowable and keeps the name. */
+export function reconcileAgentAccount(
+  account: string | null,
+  cli: string | null,
+  accounts: DeviceAgentAccounts | null | undefined
+): string | null {
+  const profiles = accounts?.[cli ?? `claude`]?.profiles ?? []
+  if (!account || profiles.length === 0) return account
+  if (profiles.some((profile) => profile.id === account)) return account
+  return profiles.find((profile) => profile.active)?.id ?? null
+}
+
+/** The device's per-agent logins as its owner's row reports them; null when
+ *  the caller may no longer see the machine (nothing to check against). */
+async function deviceAgentAccounts(
+  tx: Parameters<typeof resolveSessionDeviceInTx>[0],
+  ownerId: string | null,
+  deviceId: string
+): Promise<DeviceAgentAccounts | null> {
+  if (!ownerId) return null
+  const [row] = await tx
+    .select({ agentAccounts: devices.agentAccounts })
+    .from(devices)
+    .where(and(eq(devices.deviceId, deviceId), eq(devices.userId, ownerId)))
+    .limit(1)
+  return row?.agentAccounts ?? null
 }
 
 export const agentsRouter = router({
@@ -63,6 +113,7 @@ export const agentsRouter = router({
         account: agents.account,
         model: agents.model,
         ownerId: agents.ownerId,
+        role: agents.role,
         sortOrder: agents.sortOrder,
         instructionsUpdatedAt: agents.instructionsUpdatedAt,
         createdAt: agents.createdAt,
@@ -72,6 +123,15 @@ export const agentsRouter = router({
       .where(eq(agents.teamId, input.teamId))
       .orderBy(asc(agents.sortOrder), asc(agents.name))
     return { agents: rows }
+  }),
+
+  /** S-3: the caller's Assistant in the team, created on first use (null
+   *  while they have no device to run it on). */
+  ensureAssistant: authedProcedure.input(z.object({ teamId: uuid })).mutation(async ({ ctx, input }) => {
+    const agent = await ensureAssistant(ctx.session.user.id, input.teamId)
+    if (!agent) return { agent: null }
+    const { triggerState: _state, ...rest } = agent
+    return { agent: rest }
   }),
 
   /** Member read: the row with its server-only instructions. */
@@ -136,6 +196,7 @@ export const agentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
+      if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
       const cli = input.cli ?? agent.cli ?? undefined
       // The model comes from the CLI's vocabulary like a send's; a blank (an
       // old client's "CLI default") = unset, never stored.
@@ -144,7 +205,7 @@ export const agentsRouter = router({
       // A new device re-stamps every conversation's visibility (its device's
       // share decides it) and hands them over: queued again, the new device
       // boots them, the old one drops rows that no longer name it.
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
         // #EXP-1259: the new device is read under its share lock.
@@ -152,6 +213,22 @@ export const agentsRouter = router({
           input.deviceId !== undefined && input.deviceId !== agent.deviceId
             ? await resolveSessionDeviceInTx(tx, userId, agent.teamId, input.deviceId)
             : null
+        // S-3: the login is re-checked on every save against the device the
+        // agent runs on, and the conversations take the SAME value, so the
+        // definition and its sessions never drift apart (a profile the
+        // device lacks falls back to its active one).
+        const deviceId = moved ? input.deviceId! : agent.deviceId
+        const ownerId = moved
+          ? moved.ownerId
+          : await resolveSessionDevice(userId, agent.teamId, deviceId, tx).then(
+              (device) => device.ownerId,
+              () => null
+            )
+        const account = reconcileAgentAccount(
+          input.account !== undefined ? input.account : agent.account,
+          cli ?? null,
+          await deviceAgentAccounts(tx, ownerId, deviceId)
+        )
         const [updated] = await tx
           .update(agents)
           .set({
@@ -165,7 +242,7 @@ export const agentsRouter = router({
               : {}),
             ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
-            ...(input.account !== undefined ? { account: input.account } : {}),
+            account,
             ...(model !== undefined ? { model } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved ? { deviceId: input.deviceId } : {}),
@@ -182,7 +259,7 @@ export const agentsRouter = router({
             .set({
               ...agentMirror(updated!),
               ...(input.cli !== undefined ? { cli: input.cli } : {}),
-              ...(input.account !== undefined ? { account: input.account } : {}),
+              account,
               ...(model !== undefined ? { model } : {}),
               ...(moved
                 ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false, background: false }
@@ -236,12 +313,18 @@ export const agentsRouter = router({
         const { triggerState: _state, ...rest } = updated!
         return { agent: rest, txid }
       })
+      // S-3: the Assistant's device IS the member's voice device.
+      if (agent.role === `assistant` && result.agent.deviceId !== agent.deviceId) {
+        await syncVoiceMirror(ctx.db, agent.ownerId)
+      }
+      return result
     }),
 
   /** Deletes the definition and, by cascade, every conversation with its tree. */
   delete: authedProcedure.input(z.object({ id: uuid })).mutation(async ({ ctx, input }) => {
     const userId = ctx.session.user.id
     const agent = await loadOwnedAgent(userId, input.id)
+    if (agent.role === `assistant`) throw new TRPCError({ code: `BAD_REQUEST`, message: ASSISTANT_COPY.deleteRefused })
     const result = await ctx.db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
       const roots = await conversationIds(tx, agent.id)

@@ -153,25 +153,42 @@ public struct AgentDetails: Decodable, Sendable, Equatable {
     public let id: String
     /// Server-only markdown (never on the shape).
     public let instructions: String
+    /// S-3: contract `agentRole`; absent (an older server) = `agent`.
+    public let role: String
 
-    public init(id: String, instructions: String) {
+    public init(id: String, instructions: String, role: String = DomainContract.agentRoleAgent) {
         self.id = id
         self.instructions = instructions
+        self.role = role
     }
 
+    public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
+
     enum CodingKeys: String, CodingKey {
-        case id, instructions
+        case id, instructions, role
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         instructions = try c.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+        let role = try c.decodeIfPresent(String.self, forKey: .role) ?? ""
+        self.role = role.isEmpty ? DomainContract.agentRoleAgent : role
     }
 }
 
 private struct AgentResult: Decodable {
     let agent: AgentDetails
+}
+
+/// S-3 `agents.ensureAssistant`: the caller's Assistant, or null while they
+/// have no device to run it on.
+struct EnsureAssistantResult: Decodable {
+    let agent: AgentDetails?
+}
+
+private struct EnsureAssistantInput: Encodable {
+    let teamId: String
 }
 
 private struct AgentIdInput: Encodable {
@@ -189,6 +206,19 @@ public final class AgentsApi: Sendable {
     public func get(accountId: String, id: String) async throws -> AgentDetails {
         let result: AgentResult = try await trpc.query(
             accountId: accountId, path: "agents.get", input: AgentIdInput(id: id)
+        )
+        return result.agent
+    }
+
+    /// S-3: the caller's Assistant in `teamId`, created on first use (on
+    /// their newest own desktop); nil = they have no device yet
+    /// (`AgentSettings.AssistantCopy.noDevice`). Call it once per team per
+    /// app run when the composer home, the chats list or the Settings
+    /// Agents group mounts; the row itself arrives over the agents shape.
+    @discardableResult
+    public func ensureAssistant(accountId: String, teamId: String) async throws -> AgentDetails? {
+        let result: EnsureAssistantResult = try await trpc.mutation(
+            accountId: accountId, path: "agents.ensureAssistant", input: EnsureAssistantInput(teamId: teamId)
         )
         return result.agent
     }

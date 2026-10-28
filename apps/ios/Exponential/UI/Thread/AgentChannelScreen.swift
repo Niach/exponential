@@ -3,13 +3,13 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-/// NEW-2/NEW-3: a team agent's page = the CALLER's DM with it (web
-/// `t/$teamSlug/agents/$agentId`). The route names the agent DEFINITION
+/// NEW-2/NEW-3: a team agent's page = the CALLER's conversation with it
+/// (web `t/$teamSlug/agents/$agentId`). The route names the agent DEFINITION
 /// (`agents` row); the page shows the caller's own conversation session with
 /// it — the root with that `agent_id` whose `user_id` is me — as THE thread
-/// screen (`ThreadScreen`: the Conversation as a channel, the agent's
-/// coloured icon + name in the header from the definition). No conversation
-/// yet = the same screen, empty, whose composer opens one with
+/// screen (`ThreadScreen`, S-3 chat mode `bubbles`). A THIN wrapper stays
+/// only for an agent WITHOUT a conversation yet: the empty screen with THE
+/// thread composer (`ThreadComposer`, `agentId`) whose first send is
 /// `sessions.send({agentId, text, attachmentIds})`; the page switches to the
 /// conversation the moment its row syncs.
 struct AgentChannelScreen: View {
@@ -104,9 +104,9 @@ final class AgentChannelModel {
     }
 }
 
-/// The DM before its first message: the header (the agent's coloured icon +
-/// name), an empty Conversation, and THE floating composer (`Message
-/// <name>`) whose send opens the conversation.
+/// The conversation before its first message: the header (the agent's
+/// coloured icon + name), an empty Conversation, and THE thread composer
+/// (`Message <name>`) whose first send opens the conversation.
 private struct AgentChannelEmpty: View {
     let agent: AgentDefinitionEntity
 
@@ -119,7 +119,12 @@ private struct AgentChannelEmpty: View {
                 .onTapGesture { UIApplication.endEditing() }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            AgentFirstMessageComposer(agent: agent)
+            ThreadComposer(
+                sessionId: "",
+                placeholder: "Message \(agent.name)",
+                agentId: agent.id,
+                teamId: agent.teamId
+            )
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
@@ -142,141 +147,5 @@ private struct AgentChannelEmpty: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-channel-page")
-    }
-}
-
-/// THE floating composer (capsule → THE session composer box) for a DM that
-/// has no session yet: text + files, sent as `sessions.send({agentId})`.
-private struct AgentFirstMessageComposer: View {
-    let agent: AgentDefinitionEntity
-
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
-    @Environment(\.toaster) private var toaster
-    @Environment(\.motion) private var motion
-    @State private var draft: AgentFirstMessageDraft?
-    @State private var attach = SessionComposerAttach()
-    @State private var expanded = false
-
-    private var placeholder: String { "Message \(agent.name)" }
-
-    var body: some View {
-        Group {
-            if let draft {
-                let open = expanded || draft.hasContent || attach.busy
-                FloatingComposer(
-                    placeholder: placeholder,
-                    open: open,
-                    collapsedLabel: placeholder,
-                    collapsedIdentifier: "agent-composer-collapsed",
-                    onExpand: expand
-                ) {
-                    SessionComposerCard(
-                        draft: draft,
-                        placeholder: placeholder,
-                        controls: nil,
-                        attach: $attach,
-                        sendEnabled: !draft.steerSending,
-                        onSend: { Task { await draft.sendDraft() } },
-                        fieldIdentifier: "agent-composer-field"
-                    )
-                }
-                .animation(motion.standard, value: open)
-                .onChange(of: draft.sendError) { _, message in
-                    guard let message else { return }
-                    toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
-                }
-                .onChange(of: draft.draftEditor.isEditing) { _, editing in
-                    guard expanded, !editing, !attach.busy, !draft.hasContent else { return }
-                    withAnimation(motion.standard) { expanded = false }
-                }
-            } else {
-                Color.clear.frame(height: 1)
-            }
-        }
-        .frame(maxWidth: DesignTokens.Transcript.maxWidth)
-        .frame(maxWidth: .infinity)
-        .floatingBarEdge(!(expanded || draft?.hasContent == true))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-composer")
-        .task(id: agent.id) {
-            if draft?.agentId != agent.id {
-                draft = AgentFirstMessageDraft(
-                    agentId: agent.id,
-                    teamId: agent.teamId,
-                    accountId: accountId,
-                    sessionsApi: deps.sessionsApi,
-                    attachmentsApi: deps.attachmentsApi
-                )
-            }
-        }
-    }
-
-    private func expand() {
-        withAnimation(motion.standard) { expanded = true }
-        DispatchQueue.main.async {
-            guard let editor = draft?.draftEditor else { return }
-            editor.setFocused(editor.blocks.first?.id)
-        }
-    }
-}
-
-/// The first message's draft: uploads go to the TEAM's session route (there
-/// is no session yet), the send is `sessions.send({agentId, text,
-/// attachmentIds})`, which opens the caller's conversation server-side.
-@MainActor
-@Observable
-final class AgentFirstMessageDraft: SessionComposerDraft {
-    let agentId: String
-    let draftEditor = IssueEditorModel()
-    var pendingImages: [PendingSteerImage] = []
-    var pendingFiles: [PendingSteerFile] = []
-    var steerImageError: String?
-    var steerSending = false
-    /// A refused send: the host toasts it (the draft stays put).
-    var sendError: String?
-
-    @ObservationIgnored private let teamId: String
-    @ObservationIgnored private let accountId: String
-    @ObservationIgnored private let sessionsApi: SessionsApi
-    @ObservationIgnored private let attachmentsApi: AttachmentsApi
-
-    init(agentId: String, teamId: String, accountId: String, sessionsApi: SessionsApi, attachmentsApi: AttachmentsApi) {
-        self.agentId = agentId
-        self.teamId = teamId
-        self.accountId = accountId
-        self.sessionsApi = sessionsApi
-        self.attachmentsApi = attachmentsApi
-    }
-
-    func uploadAttachment(data: Data, filename: String, contentType: String) async throws -> UploadedAttachment {
-        try await attachmentsApi.uploadTeamSessionImage(
-            accountId: accountId,
-            teamId: teamId,
-            data: data,
-            filename: filename,
-            contentType: contentType
-        )
-    }
-
-    func sendMessage(_ text: String, attachmentIds: [String]?) async -> Bool {
-        sendError = nil
-        let holdsFlag = !steerSending
-        if holdsFlag { steerSending = true }
-        defer { if holdsFlag { steerSending = false } }
-        do {
-            _ = try await sessionsApi.send(
-                accountId: accountId,
-                .agent(
-                    agentId: agentId,
-                    text: text.isEmpty ? nil : text,
-                    attachmentIds: attachmentIds?.isEmpty == false ? attachmentIds : nil
-                )
-            )
-            return true
-        } catch {
-            sendError = error.userFacingMessage
-            return false
-        }
     }
 }

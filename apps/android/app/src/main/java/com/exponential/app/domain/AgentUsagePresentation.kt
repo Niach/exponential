@@ -444,6 +444,8 @@ object AgentUsagePresentation {
         // itself with the session card's word (`copy.blockedKinds`); it has
         // no reset to count down to.
         val kind = blocked.kind ?: "rate_limit"
+        // S-3: an interruption (device offline, runner restarted) is invisible.
+        if (kind == "device_offline" || kind == "restarted") return null
         if (kind != "rate_limit") SessionTree.CardCopy.BLOCKED_KINDS[kind]?.let { return it }
         val label = if ((blocked.kind ?: "rate_limit") == "rate_limit") "Rate limited" else "Blocked"
         val countdown = resetCountdown(blocked.resetsAt, nowMs) ?: return label

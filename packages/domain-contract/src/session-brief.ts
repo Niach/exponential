@@ -11,8 +11,6 @@ export interface BriefInput {
   issues?: { identifier: string; title: string }[]
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
-  /** EXP-1280: a session started in plan mode. */
-  planMode?: boolean
 }
 
 function cutToBytes(text: string, maxBytes: number): string {
@@ -36,9 +34,6 @@ export function composeBrief(input: BriefInput): string {
     if (body.trim()) sections.push(`## ${heading}\n\n${body}`)
   }
   section(fixture.headings.request, (input.text ?? ``).trim())
-  // The plan gate rides right behind the Request: the cut at `briefMaxBytes`
-  // trims from the END, so a near-cap request can never take it.
-  if (input.planMode) section(fixture.headings.plan, fixture.plan)
   section(
     fixture.headings.issues,
     (input.issues ?? []).map((issue) => `- ${issue.identifier} ${issue.title}`).join(`\n`)

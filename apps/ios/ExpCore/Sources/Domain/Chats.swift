@@ -30,7 +30,7 @@ public enum Chats {
         public enum Filters {
             public static let all = "All"
             public static let needsYou = "Needs you"
-            public static let running = "Running"
+            public static let running = "Working"
             public static let unread = "Unread"
         }
         public enum Preview {
@@ -61,8 +61,6 @@ public enum Chats {
             public static let monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         }
         public enum Menu {
-            public static let stop = "Stop"
-            public static let stopAndDelete = "Stop and delete"
             public static let delete = "Delete"
             public static let compact = "Compact conversation"
             public static let newConversation = "New conversation"
@@ -73,11 +71,15 @@ public enum Chats {
             public static let body = "Its messages and sessions are deleted for everyone. Pull requests stay on GitHub."
         }
         public enum Toasts {
-            public static let stopFailed = "Couldn't stop the chat"
             public static let deleteFailed = "Couldn't delete the chat"
-            public static let stopNotDelivered = "The device didn't get the stop"
             public static let selectionFailed = "Couldn't update every chat"
             public static let selectionPartial = "{n} of {m} chats couldn't be updated"
+        }
+        /// S-3: the composer stop-turn's toasts (`copy.stopTurn`): a refused
+        /// `sessions.stop` → `failed`, `delivered == false` → `notDelivered`.
+        public enum StopTurn {
+            public static let failed = "Couldn't stop the turn"
+            public static let notDelivered = "The device didn't get the stop"
         }
         public enum Dividers {
             public static let new = "New conversation"
@@ -112,7 +114,6 @@ public enum Chats {
             public static let markUnread = "Mark unread"
             public static let archive = "Archive"
             public static let unarchive = "Unarchive"
-            public static let stop = "Stop"
             public static let delete = "Delete"
             public static let confirmDeleteMany = "Delete {n} chats?"
 
@@ -125,6 +126,12 @@ public enum Chats {
             public static let entry = "Archived"
             public static let title = "Archived"
             public static let empty = "No archived chats"
+        }
+        /// S-3: the list's section headers, drawn only while an agent row
+        /// (`agentChatRows`) exists.
+        public enum Sections {
+            public static let agents = "Agents"
+            public static let chats = "Chats"
         }
     }
 
@@ -271,6 +278,11 @@ public enum Chats {
         public static let archivedGlyph: Double = 24
         public static let bubble: Double = 66
         public static let bubbleRing: Double = 3
+        /// S-3: a DONE chat's row (`ChatRow.dim`) draws at this opacity.
+        public static let dimOpacity: Double = 0.5
+        /// S-3: a chat row's lead glyph (concept; needs-you = this glyph +
+        /// the amber badge). The brand mark is the Assistant's alone.
+        public static let chatLead = "action-chat"
     }
 
     /// Fixture `surfaceCard` (the ENTER animation; motion tokens by name).
@@ -387,6 +399,9 @@ public enum Chats {
         public let needsYou: Bool
         public let busy: Bool
         public let word: ThreadRowWord?
+        /// S-3: the chat is DONE (every PR of the root merged, nothing works
+        /// or needs you): it stays in the list at `Shell.dimOpacity`.
+        public let dim: Bool
 
         public var id: String { sessionId }
     }
@@ -411,7 +426,7 @@ public enum Chats {
     }
 
     public enum ChatSelectionAction: String, Equatable, Sendable, CaseIterable {
-        case markRead, markUnread, archive, unarchive, stop, delete
+        case markRead, markUnread, archive, unarchive, delete
 
         public var label: String {
             switch self {
@@ -419,7 +434,6 @@ public enum Chats {
             case .markUnread: Copy.Selection.markUnread
             case .archive: Copy.Selection.archive
             case .unarchive: Copy.Selection.unarchive
-            case .stop: Copy.Selection.stop
             case .delete: Copy.Selection.delete
             }
         }
@@ -431,7 +445,6 @@ public enum Chats {
             case .markUnread: "ui-mark-unread"
             case .archive: "ui-archive"
             case .unarchive: "ui-unarchive"
-            case .stop: "coding-stop"
             case .delete: "ui-delete"
             }
         }
@@ -476,36 +489,65 @@ public enum Chats {
         public var id: String { agent.agentId }
     }
 
-    public enum ThreadMenuEntry: String, Equatable, Sendable, CaseIterable {
-        case stop, stopAndDelete, delete
+    /// S-3: an agent row pinned on top of the Chats list (`agentRowCases`).
+    public struct AgentChatRow: Equatable, Sendable, Identifiable {
+        public let agentId: String
+        /// The viewer's conversation with the agent; nil = none yet.
+        public let sessionId: String?
+        public let name: String
+        public let icon: String
+        public let color: String
+        /// The viewer's Assistant: the brand mark instead of icon/color.
+        public let assistant: Bool
+        public let preview: ChatPreview
+        /// `chatTimeLabel` of `activityAt`; empty without a conversation.
+        public let time: String
+        /// The newest person/agent message of the conversation, else its
+        /// creation; nil without one (wire text).
+        public let activityAt: String?
+        public let unreadCount: Int
+        public let needsYou: Bool
+        public let busy: Bool
 
-        public var label: String {
-            switch self {
-            case .stop: Copy.Menu.stop
-            case .stopAndDelete: Copy.Menu.stopAndDelete
-            case .delete: Copy.Menu.delete
-            }
+        public var id: String { agentId }
+
+        public init(
+            agentId: String, sessionId: String?, name: String, icon: String, color: String, assistant: Bool,
+            preview: ChatPreview, time: String, activityAt: String?, unreadCount: Int, needsYou: Bool, busy: Bool
+        ) {
+            self.agentId = agentId
+            self.sessionId = sessionId
+            self.name = name
+            self.icon = icon
+            self.color = color
+            self.assistant = assistant
+            self.preview = preview
+            self.time = time
+            self.activityAt = activityAt
+            self.unreadCount = unreadCount
+            self.needsYou = needsYou
+            self.busy = busy
         }
+    }
+
+    public enum ThreadMenuEntry: String, Equatable, Sendable, CaseIterable {
+        case delete
+
+        public var label: String { Copy.Menu.delete }
 
         /// Concept icon.
-        public var icon: String {
-            switch self {
-            case .stop: "coding-stop"
-            case .stopAndDelete, .delete: "ui-delete"
-            }
-        }
+        public var icon: String { "ui-delete" }
 
-        public var destructive: Bool { self != .stop }
+        public var destructive: Bool { true }
     }
 
     public enum AgentMenuEntry: String, Equatable, Sendable, CaseIterable {
-        case compact, newConversation, stop, settings
+        case compact, newConversation, settings
 
         public var label: String {
             switch self {
             case .compact: Copy.Menu.compact
             case .newConversation: Copy.Menu.newConversation
-            case .stop: Copy.Menu.stop
             case .settings: Copy.Menu.settings
             }
         }
@@ -515,7 +557,6 @@ public enum Chats {
             switch self {
             case .compact: "coding-compact"
             case .newConversation: "ui-clean"
-            case .stop: "coding-stop"
             case .settings: "nav-settings"
             }
         }
@@ -752,12 +793,13 @@ public enum Chats {
         let rows: [ChatRow] = groups.flatMap { group in
             group.rows.filter { $0.depth == 0 }.map { row -> ChatRow in
                 let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
+                let rowPrStates = prStates[row.sessionId] ?? []
                 let lead: ChatLead
                 switch mark {
                 case .needsYou: lead = .needsYou
                 case .working: lead = .working
-                default:
-                    switch SessionTree.threadRowLeadPr(prStates: prStates[row.sessionId] ?? []) {
+                case .waiting:
+                    switch SessionTree.threadRowLeadPr(prStates: rowPrStates) {
                     case .open: lead = .open
                     case .merged: lead = .merged
                     case nil: lead = .waiting
@@ -782,7 +824,9 @@ public enum Chats {
                     unreadCount: unreadCount(rootId: row.sessionId, messages: messages, reads: reads),
                     needsYou: row.needsYou,
                     busy: row.busy,
-                    word: words[row.sessionId]
+                    word: words[row.sessionId],
+                    dim: mark == .waiting && !rowPrStates.isEmpty
+                        && rowPrStates.allSatisfy { $0 == DomainContract.prStateMerged }
                 )
             }
         }
@@ -823,8 +867,6 @@ public enum Chats {
             ChatSelectionItem(action: rows.contains { $0.unreadCount > 0 } ? .markRead : .markUnread, sessionIds: ids),
             ChatSelectionItem(action: view == .archived ? .unarchive : .archive, sessionIds: ids),
         ]
-        let live = rows.filter { $0.canSteer && $0.rootStatus != "ended" }
-        if !live.isEmpty { out.append(ChatSelectionItem(action: .stop, sessionIds: live.map(\.sessionId))) }
         if rows.allSatisfy({ $0.canSteer && $0.canDelete }) { out.append(ChatSelectionItem(action: .delete, sessionIds: ids)) }
         return out
     }
@@ -884,21 +926,77 @@ public enum Chats {
         }
     }
 
-    /// A chat row's context menu ×4 (`menuCases`): live → Stop, Stop and
-    /// delete; ended → Delete; nothing for a viewer who cannot steer it. The
-    /// delete entries need `canDelete` (the chat's starter or a team owner,
-    /// the server's `sessions.delete` rule).
+    /// S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one
+    /// row per `listAgents` row (that order), filtered by the chip like a
+    /// chat; none on the Archived page.
+    public static func agentChatRows(
+        agents: [AgentRow],
+        sessions: [TreeSession],
+        messages: [TreeMessage],
+        reads: [TreeSessionRead] = [],
+        me: String?,
+        filter: ChatFilter,
+        view: ChatListView = .list,
+        now: String,
+        utcOffsetMinutes: Int
+    ) -> [AgentChatRow] {
+        if view == .archived { return [] }
+        return agents.map { agent -> AgentChatRow in
+            let conversation = sessions.first {
+                $0.parentId == nil && $0.agentId == agent.agentId && $0.userId == me
+            }
+            let id = conversation?.id
+            var newest: String?
+            if let id {
+                var newestMs = -1.0
+                for m in messages where m.sessionId == id && (m.authorKind == "user" || m.authorKind == "agent") {
+                    let at = ms(m.createdAt) ?? 0
+                    if at > newestMs {
+                        newestMs = at
+                        newest = m.createdAt
+                    }
+                }
+            }
+            let activityAt = newest ?? conversation?.createdAt
+            return AgentChatRow(
+                agentId: agent.agentId,
+                sessionId: id,
+                name: agent.name,
+                icon: agent.icon,
+                color: agent.color,
+                assistant: agent.assistant,
+                preview: id.map {
+                    chatPreview(rootId: $0, messages: messages, needsYou: agent.needsYou, busy: agent.busy)
+                } ?? ChatPreview(kind: .empty, text: Copy.Preview.empty),
+                time: activityAt.map { chatTimeLabel(at: $0, now: now, utcOffsetMinutes: utcOffsetMinutes) } ?? "",
+                activityAt: activityAt,
+                unreadCount: id.map { unreadCount(rootId: $0, messages: messages, reads: reads) } ?? 0,
+                needsYou: agent.needsYou,
+                busy: agent.busy
+            )
+        }
+        .filter { row in
+            switch filter {
+            case .all: true
+            case .needsYou: row.needsYou
+            case .running: row.busy
+            case .unread: row.unreadCount > 0
+            }
+        }
+    }
+
+    /// A chat row's context menu ×4 (`menuCases`): S-3 no Stop/End
+    /// anywhere: Delete for a viewer who can steer the chat and may delete
+    /// it (the chat's starter or a team owner, the server's
+    /// `sessions.delete` rule, which ends what is live first); else nothing.
     public static func threadMenuEntries(rootStatus: String, canSteer: Bool, canDelete: Bool) -> [ThreadMenuEntry] {
-        guard canSteer else { return [] }
-        if rootStatus == "ended" { return canDelete ? [.delete] : [] }
-        return canDelete ? [.stop, .stopAndDelete] : [.stop]
+        canSteer && canDelete ? [.delete] : []
     }
 
     /// The agent chat's header menu (and its bubble's long-press) ×4
-    /// (`agentMenuCases`).
+    /// (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one).
     public static func agentMenuEntries(busy: Bool, isOwner: Bool) -> [AgentMenuEntry] {
         var entries: [AgentMenuEntry] = [.compact, .newConversation]
-        if busy { entries.append(.stop) }
         if isOwner { entries.append(.settings) }
         return entries
     }

@@ -245,7 +245,7 @@
   },
   "codingSession": {
     "staleHours": 2,
-    "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "mcpServerIds", "account", "computerUse"],
+    "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse"],
     "computerUseCap": "computer-use-run"
   },
   "sessionsSend": {
@@ -257,7 +257,11 @@
     "agentNameMax": 64,
     "agentInstructionsMaxBytes": 16384,
     "treeMaxDepth": 3,
-    "treeMaxSessions": 10
+    "treeMaxSessions": 10,
+    "$comment": "S-3: an AGENT's message to an existing tree (messageSession from an agent tree) reuses that root only while it is not ended or ended < reuseMaxEndedHours ago, its last activity is < reuseMaxIdleHours old and it has < reuseMaxChildren children; otherwise nothing is refused: the result names the fresh-thread path (start a new thread with wakeOn).",
+    "reuseMaxEndedHours": 2,
+    "reuseMaxIdleHours": 24,
+    "reuseMaxChildren": 8
   },
   "sessionWatchdog": {
     "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; EXP-1374: a busy session with NO SIGN OF LIFE for stuckMinutes = blocked:stuck (the bus says 'no sign of life for N minutes, check whether it is still needed', never 'stop it'). Sign of life = the latest of a device report, a message, the heartbeat's per-session activity (a tool call, terminal output), an MCP call by the session, a push to its branch; a session with background tasks (`background`) or that its online host lists in liveSessionIds is alive (FEED-145). A host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline (resume = it was busy) until its next heartbeat: a listed one is busy again, an unlisted mid-turn one keeps the flag until its device continues it (pickup `Continue`); a listed-dead busy one = blocked:restarted, resume. An interruption its device has not continued resumeMinutes after the device is back = Needs you. A rate_limit wall whose resetsAt passed = cleared (FEED-129). FEED-153: a started session nudgeMinutes idle whose only person message is the one its claim delivered and that produced nothing (no agent message, no child) gets that message back as pending input (once: the device's delivery re-stamps it).",
@@ -483,6 +487,10 @@
     "cronMax": 64,
     "tzMax": 64,
     "catchUpHours": 24
+  },
+  "agentRole": {
+    "$comment": "S-3 (owner 2026-10-28): agents.role. `assistant` = a member's ONE personal Assistant per team (unique (team_id, owner_id) where role = assistant): owned and edited by that member only, avatar = the Exponential brand mark (never a stored icon), triggers = at most ONE schedule preset (agent-settings.json `assistant.schedules`), created on first use, its device = the member's voice device. `agent` = a team agent (owner-written, triggers + prompt).",
+    "values": ["assistant", "agent"]
   },
   "timeZones": {
     "$comment": "NEW-2: the ONE time-zone list every schedule picker offers (`schedule-picker.json`): UTC, then ICU's canonical IANA zones (Intl.supportedValuesOf('timeZone'), sorted). The server validates a trigger's tz with the same ICU (`timeZoneSchema`), so every row here saves; a stored zone off the list is offered as its own row.",
@@ -869,6 +877,17 @@
         "result": "results"
       },
       {
+        "name": "show",
+        "title": "Show a card",
+        "blurb": "Posts or updates the session's one card: an Exponential UI surface, a question or a plan a person answers in the card.",
+        "progressive": "Showing a card",
+        "done": "Showed a card",
+        "progressiveMany": "Showing {n} cards",
+        "doneMany": "Showed {n} cards",
+        "subjectKey": "title",
+        "result": "none"
+      },
+      {
         "name": "people_invites_create",
         "title": "Create invite",
         "blurb": "Creates an invite link for a team, optionally mailed to an address.",
@@ -1199,17 +1218,6 @@
         "result": "none"
       },
       {
-        "name": "session_self_plan",
-        "title": "Propose a plan",
-        "blurb": "Posts the plan card: markdown with pictures, choice questions and an optional surface; a person approves it in the card.",
-        "progressive": "Proposing a plan",
-        "done": "Proposed a plan",
-        "progressiveMany": "Proposing {n} plans",
-        "doneMany": "Proposed {n} plans",
-        "subjectKey": "plan",
-        "result": "none"
-      },
-      {
         "name": "pr_close",
         "title": "Close pull request",
         "blurb": "Closes an open pull request without merging it.",
@@ -1373,28 +1381,6 @@
         "doneMany": "Listed repositories {n} times",
         "subjectKey": "",
         "result": "list"
-      },
-      {
-        "name": "session_self_ask",
-        "title": "Ask a question",
-        "blurb": "Posts one question card with text or picture options, single or multiple choice; a person answers in the card.",
-        "progressive": "Asking a question",
-        "done": "Asked a question",
-        "progressiveMany": "Asking {n} questions",
-        "doneMany": "Asked {n} questions",
-        "subjectKey": "question",
-        "result": "none"
-      },
-      {
-        "name": "session_self_show",
-        "title": "Show a preview",
-        "blurb": "Draws an inline Exponential UI preview in the chat; a reply button sends its text as the person's reply.",
-        "progressive": "Showing a preview",
-        "done": "Showed a preview",
-        "progressiveMany": "Showing {n} previews",
-        "doneMany": "Showed {n} previews",
-        "subjectKey": "title",
-        "result": "none"
       },
       {
         "name": "session_self_compact",
@@ -1682,6 +1668,7 @@
       { "name": "events_emit", "refs": "" },
       { "name": "events_list", "refs": "list:event@events" },
       { "name": "guide_write", "refs": "" },
+      { "name": "show", "refs": "" },
       { "name": "people_invites_create", "refs": "invite@invite" },
       { "name": "people_invites_list", "refs": "list:invite@" },
       { "name": "people_invites_revoke", "refs": "" },
@@ -1712,7 +1699,6 @@
       { "name": "people_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },
-      { "name": "session_self_plan", "refs": "" },
       { "name": "pr_close", "refs": "issue@$issueId" },
       { "name": "pr_files", "refs": "issue@$issueId" },
       { "name": "pr_merge", "refs": "issue@$issueId" },
@@ -1728,9 +1714,7 @@
       { "name": "team_config_prompts_update", "refs": "prompt@" },
       { "name": "team_config_repositories_add", "refs": "repository@" },
       { "name": "team_config_repositories_list", "refs": "list:repository@" },
-      { "name": "session_self_ask", "refs": "" },
       { "name": "session_self_compact", "refs": "" },
-      { "name": "session_self_show", "refs": "" },
       { "name": "sessions_configure", "refs": "session@" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_escalate", "refs": "session@" },

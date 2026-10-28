@@ -15,7 +15,6 @@ import com.exponential.app.data.api.StartSuggestionInput
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.steer.SteerConnection
 import com.exponential.app.data.steer.SteerConnectionStore
-import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.steer.steerDeviceFlow
@@ -77,6 +76,11 @@ internal fun referencedSessionIds(messages: List<SessionTree.Message>): List<Str
     }
     return out.toList()
 }
+
+/** S-3: the sessions the messages were posted by (`authorSessionId`), sorted —
+ *  a row from ANOTHER session links it (its row + title). */
+internal fun authorSessionIds(messages: List<SessionTree.Message>): List<String> =
+    messages.mapNotNullTo(sortedSetOf()) { it.authorSessionId?.takeIf { id -> id.isNotEmpty() } }.toList()
 
 /** #EXP-1399: the ORIGIN message ids the `ask` mirrors name (an agent's
  *  conversation watching another thread draws THAT card, read from its
@@ -158,8 +162,12 @@ class ThreadViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** An agent root's channel (kind `agent`) rather than a thread. */
-    val isAgent: StateFlow<Boolean> = root.map { it?.isAgent == true }
+    /** S-3 (session-thread.json `chatModeCases`): an agent conversation
+     *  paints chat bubbles (`threadChatMode`), a thread its transcript. */
+    val isAgent: StateFlow<Boolean> = root.map {
+        com.exponential.app.domain.SessionTree.threadChatMode(it?.agentId) ==
+            com.exponential.app.domain.SessionTree.ThreadChatMode.Bubbles
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** NEW-2: an agent conversation's DEFINITION row (`sessions.agent_id`):
@@ -205,17 +213,57 @@ class ThreadViewModel @Inject constructor(
     /** EXP-1341: the sessions the tree's cards name outside the tree (an
      *  agent channel's `thread_started` → another root): their rows + the
      *  card-less messages their titles read, by id. */
+    // S-3: + the sessions the messages came from (a link to another session).
     private val referencedIds: Flow<List<String>> = combine(treeMessages, tree) { messages, treeRows ->
         val inTree = treeRows.mapTo(HashSet()) { it.id }
-        referencedSessionIds(messages).filter { it !in inTree }
+        (referencedSessionIds(messages) + authorSessionIds(messages)).distinct().sorted().filter { it !in inTree }
     }
         .distinctUntilChanged()
 
-    private val referencedSessions: Flow<List<SessionEntity>> = referencedIds.flatMapLatest { ids ->
-        if (ids.isEmpty()) flowOf(emptyList()) else dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeByIds(ids) }
-    }
+    /** S-3: the root's starter = the conversation of the agent that started
+     *  it (`started_by_agent_id`, a root of the same user): its `origin`. */
+    private val starterSessions: Flow<List<SessionEntity>> = root
+        .map { r -> r?.startedByAgentId?.takeIf { it.isNotEmpty() }?.let { it to r.userId } }
+        .distinctUntilChanged()
+        .flatMapLatest { key ->
+            if (key == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() }
+                    .map { rows -> rows.filter { it.agentId == key.first && it.userId == key.second } }
+            }
+        }
 
-    private val referencedTitleMessages: Flow<List<SessionTree.Message>> = referencedIds.flatMapLatest { ids ->
+    private val linkedSessions: Flow<List<SessionEntity>> = combine(
+        referencedIds.flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList()) else dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeByIds(ids) }
+        },
+        starterSessions,
+    ) { refs, starters -> (refs + starters).distinctBy { it.id } }
+
+    /** + the roots of those sessions (S-3: a link's agent mark reads its
+     *  root's agent), once each. */
+    private val referencedSessions: Flow<List<SessionEntity>> = linkedSessions.flatMapLatest { rows ->
+        val have = rows.mapTo(HashSet()) { it.id }
+        val roots = rows.map { it.rootId.ifEmpty { it.id } }.filter { it !in have && it != rootId }.distinct().sorted()
+        if (roots.isEmpty()) {
+            flowOf(rows)
+        } else {
+            dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeByIds(roots) }.map { rows + it }
+        }
+    }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** S-3: the synced agent definitions by id (the links' marks). */
+    val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
+            .map { rows -> rows.associateBy { it.id } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val referencedTitleMessages: Flow<List<SessionTree.Message>> = referencedSessions
+        .map { rows -> rows.map { it.id }.sorted() }
+        .distinctUntilChanged()
+        .flatMapLatest { ids ->
         if (ids.isEmpty()) {
             flowOf(emptyList())
         } else {
@@ -239,12 +287,16 @@ class ThreadViewModel @Inject constructor(
             }
         }
 
+    /** The sessions the tree's CARDS name (their elapsed ladder ticks). */
+    private val cardRefIds: Flow<Set<String>> = treeMessages.map { referencedSessionIds(it).toSet() }.distinctUntilChanged()
+
     /** chats.json PERF: the clock ticks only while a session the chat paints
      *  a CARD for is live (a child, a `thread_started` root: their elapsed
      *  ladder). The root never has a card, so an idle agent chat or a lone
      *  thread builds once per change, never once a second. */
-    private val clock: Flow<Unit> = combine(tree, referencedSessions) { treeRows, refs ->
-        treeRows.any { it.id != rootId && !it.isEnded } || refs.any { it.id != rootId && !it.isEnded }
+    private val clock: Flow<Unit> = combine(tree, referencedSessions, cardRefIds) { treeRows, refs, cardIds ->
+        // S-3: a linked session (an author, the starter) draws no card: no tick.
+        treeRows.any { it.id != rootId && !it.isEnded } || refs.any { it.id != rootId && it.id in cardIds && !it.isEnded }
     }
         .distinctUntilChanged()
         .flatMapLatest { live ->
@@ -513,28 +565,10 @@ class ThreadViewModel @Inject constructor(
     /** Revoke one of my queued messages (the queue bar's ✕). */
     fun unqueue(messageId: String) = run("remove", "the message") { sessionsApi.unqueue(it, messageId) }
 
-    /** Stop a session's current turn (it stays live). EXP-1342: the shown
-     *  page's queued messages go back into its composer first, as the
-     *  composer's own Stop does ([SteerConnection.interrupt]); the page's
-     *  connection is the store's, shared with the session view. */
-    fun stop(sessionId: String = rootId) = run("stop", "the session") { accountId ->
-        var delivered = true
-        stopHandingBackQueue(steerStore.peek(sessionId)) { delivered = sessionsApi.stop(accountId, sessionId).delivered }
-        // chats.json: a stop no device got toasts `copy.toasts.stopNotDelivered`.
-        if (!delivered) _notice.value = com.exponential.app.domain.Chats.Copy.TOAST_STOP_NOT_DELIVERED
-    }
-
-    /** End a session (the ROOT ends the whole tree; agents refuse). */
-    fun end(sessionId: String = rootId) = run("end", "the session") { sessionsApi.end(it, sessionId) }
-
     // ── thread 58cb32df: the chat's menu (chats.json MENUS) ─────────────────
 
-    /** Stop (the header pill, the `…` menu) = `sessions.end` on the ROOT:
-     *  the whole tree ends; a later message still resumes the root. */
-    fun stopChat() = run("stop", CHAT_THING) { sessionsApi.end(it, rootId) }
-
-    /** Stop and delete / Delete = `sessions.delete`; [onDeleted] closes the
-     *  chat's screen back to the list. */
+    /** Delete = `sessions.delete`; [onDeleted] closes the chat's screen back
+     *  to the list. S-3: no Stop/End. */
     fun deleteChat(onDeleted: () -> Unit) = run("delete", CHAT_THING, settled = { ok -> if (ok) onDeleted() }) {
         sessionsApi.delete(it, rootId)
     }

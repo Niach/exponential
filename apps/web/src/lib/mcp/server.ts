@@ -38,12 +38,11 @@ export function createExponentialMcpServer(
         inSession: gates.inSession,
         unattended: gates.unattended,
         agent: gates.agent,
-        planMode: gates.planMode === true,
         reportBug: Boolean(buildRuntimeConfig().feedbackWidget?.widgetKey),
       }),
     }
   )
-  // NEW-4: the 16 noun tools route `op` to the per-operation definitions.
+  // NEW-4: the 17 tools (S-3 added `show`) route `op` to the per-operation definitions.
   registerNounTools(server, user, request, access, sessionId, gates)
   // EXP-1183: the MCP Apps views the issue/run tools point at. EXP-1212: not
   // for a coding run (it cannot draw them, and reading one would pull the

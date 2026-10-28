@@ -37,8 +37,10 @@ vi.mock(`@tanstack/react-router`, () => ({
       data-tab={search?.tab}
       data-session={search?.session}
       data-from={search?.from}
+      data-back={search?.back}
     />
   ),
+  useNavigate: () => vi.fn(),
   Link: ({
     children,
     params,
@@ -78,6 +80,10 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
     agent: id === `agent-1` ? { id, name: `Triage` } : null,
     isReady: true,
   }),
+  useAllAgentRows: () => [],
+}))
+vi.mock(`@/hooks/use-session`, () => ({
+  useSession: () => ({ data: { user: { id: `u1` } } }),
 }))
 vi.mock(`@/lib/page-title`, () => ({
   pageTitle: (...parts: string[]) => parts.join(` `),
@@ -140,6 +146,13 @@ describe(`the session page`, () => {
     expect(target.getAttribute(`data-session`)).toBe(`s2`)
     expect(target.getAttribute(`data-from`)).toBe(`inbox`)
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
+  })
+
+  it(`S-3: keeps the back stack through the redirect`, () => {
+    mocks.root.current = { id: `s1`, agentId: null, rootId: `s1`, teamId: `t1` }
+    mocks.search.current = { back: `s9,s1` }
+    render(<Page />)
+    expect(screen.getByTestId(`navigate`).getAttribute(`data-back`)).toBe(`s9,s1`)
   })
 
   it(`keeps an agent's session on its own screen, back to the agent`, () => {

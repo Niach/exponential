@@ -95,8 +95,7 @@ export async function loadCardForAnswer(
 
 /** Stamp `card` + `answered_at` while still unanswered; needs-you clears
  *  once nothing else waits on a person. `claimed` = this call stamped it.
- *  EXP-1280: an approved plan takes the session out of plan mode (the
- *  `pr_open` gate opens) in the same transaction. */
+ */
 export async function stampAnsweredCardInTx(
   tx: Tx,
   messageId: string,
@@ -111,12 +110,6 @@ export async function stampAnsweredCardInTx(
     .returning({ id: messages.id })
   if (claimed.length === 0) return false
   await closeAskMirrors(tx, sessionId, [messageId], now)
-  if (card.kind === `plan` && card.decision === `approved`) {
-    await tx
-      .update(sessions)
-      .set({ planMode: false, updatedAt: now })
-      .where(and(eq(sessions.id, sessionId), eq(sessions.planMode, true)))
-  }
   const [{ pending } = { pending: 0 }] = await tx
     .select({ pending: sql<number>`count(*)::int` })
     .from(messages)

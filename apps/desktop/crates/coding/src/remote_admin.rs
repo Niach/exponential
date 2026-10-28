@@ -244,14 +244,7 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 set_bool(&mut settings.claude_ultracode, ultracode, &mut changed);
             }
         }
-        if let Some(plan_mode) = entry.plan_mode {
-            match agent {
-                CodingAgent::Claude => {
-                    set_bool(&mut settings.claude_plan_mode, plan_mode, &mut changed)
-                }
-                CodingAgent::Codex => {}
-            }
-        }
+        // S-3: a pushed `planMode` default lands nowhere (no plan toggle).
         if let Some(auto_rotate) = entry.auto_rotate_accounts {
             if agent == CodingAgent::Claude {
                 set_bool(&mut settings.auto_rotate_accounts, auto_rotate, &mut changed);
@@ -288,7 +281,6 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.codex_thread_model = from.codex_thread_model.clone();
     onto.codex_effort = from.codex_effort.clone();
     onto.claude_ultracode = from.claude_ultracode;
-    onto.claude_plan_mode = from.claude_plan_mode;
     onto.auto_rotate_accounts = from.auto_rotate_accounts;
     onto.computer_use = from.computer_use;
     onto.computer_use_model = from.computer_use_model.clone();
@@ -314,9 +306,8 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
                 ultracode: agent
                     .supports_ultracode()
                     .then_some(settings.claude_ultracode),
-                // The plan-mode DEFAULT is a claude setting (codex keeps its
-                // composer pick only).
-                plan_mode: (agent == CodingAgent::Claude).then_some(settings.plan_mode_for(agent)),
+                // S-3: no plan-mode default.
+                plan_mode: None,
                 auto_rotate_accounts: (agent == CodingAgent::Claude)
                     .then_some(settings.auto_rotate_accounts),
             },
@@ -370,7 +361,6 @@ mod tests {
         .unwrap();
         assert!(!apply_defaults_patch(&mut fresh, &codex_only));
         assert!(!fresh.claude_ultracode);
-        assert!(fresh.claude_plan_mode, "codex planMode never lands anywhere");
     }
 
     #[test]
@@ -597,12 +587,12 @@ mod tests {
             codex.get("subagentModel").is_none(),
             "the subagent model is claude-only"
         );
-        assert!(codex.get("planMode").is_none(), "plan mode is claude-only");
+        assert!(codex.get("planMode").is_none(), "S-3: no plan-mode default");
         // EXP-690: the retired key is never advertised on any agent.
         assert!(codex.get("skipPermissions").is_none());
         let claude = &wire["agents"]["claude"];
         assert!(claude.get("skipPermissions").is_none());
-        assert!(claude.get("planMode").is_some());
+        assert!(claude.get("planMode").is_none(), "S-3: no plan-mode default");
         assert!(claude.get("subagentModel").is_some());
         // EXP-849: pi is gone from the wire entirely.
         assert!(wire["agents"].get("pi").is_none());
@@ -615,7 +605,6 @@ mod tests {
         source.claude_model = "sonnet".into();
         source.claude_ultracode = true;
         source.codex_effort = "high".into();
-        source.claude_plan_mode = false;
         source.claude_thread_model = "opus".into();
         source.codex_thread_model = "gpt-5.6-sol".into();
         let wire = defaults_wire(&source);
@@ -625,7 +614,6 @@ mod tests {
         assert_eq!(target.claude_model, "sonnet");
         assert!(target.claude_ultracode);
         assert_eq!(target.codex_effort, "high");
-        assert!(!target.claude_plan_mode);
         assert_eq!(target.claude_thread_model, "opus");
         assert_eq!(target.codex_thread_model, "gpt-5.6-sol");
     }
@@ -650,7 +638,6 @@ mod tests {
             codex_thread_model: "gpt-5.6-sol".into(),
             codex_effort: "high".into(),
             claude_ultracode: true,
-            claude_plan_mode: false,
             auto_rotate_accounts: false,
             computer_use: true,
             computer_use_model: "opus".into(),

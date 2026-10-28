@@ -84,7 +84,6 @@ struct DeviceSettingsDemo {
     codex_thread_model: ChoiceSelect,
     subagent_model: ChoiceSelect,
     ultracode: bool,
-    plan_mode: bool,
     /// EXP-1236: the readiness block's Computer use switch + the model
     /// picker it reveals.
     doctor: Option<DeviceDoctor>,
@@ -135,7 +134,6 @@ impl DeviceSettingsDemo {
                 cx,
             ),
             ultracode: settings.claude_ultracode,
-            plan_mode: settings.claude_plan_mode,
             doctor: computer_use_on_doctor(),
             computer_use: true,
             computer_use_model: model_select(
@@ -228,12 +226,6 @@ impl DeviceSettingsDemo {
                     "Ultracode",
                     self.ultracode,
                     |this: &mut Self, on, _| this.ultracode = on,
-                ))
-                .toggle(DefaultsToggle::new(
-                    "sg-device-plan",
-                    "Plan mode",
-                    self.plan_mode,
-                    |this: &mut Self, on, _| this.plan_mode = on,
                 ));
         }
         group.render(cx)

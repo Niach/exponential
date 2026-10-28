@@ -75,23 +75,15 @@ private val SOURCES: List<Dock.Source> = listOf(
 )
 
 /** EXP-1374: the session's own state cards (session-card.json `banner`, the
- *  web entry's `STATE_ROWS`): interrupted (its device went offline),
- *  background tasks and (#EXP-1405) queued, waiting for its device. */
+ *  web entry's `STATE_ROWS`): background tasks and (#EXP-1405) queued,
+ *  waiting for its device. S-3: no interrupted card. */
 private val STATE_ROWS: List<Dock.Row> = Dock.dockRows(
-    listOf(
-        SessionTree.SessionState.Interrupted,
-        SessionTree.SessionState.Background,
-        SessionTree.SessionState.Queued,
-    ).map { state ->
+    listOf("background", "queued").map { id ->
         Dock.Source.Banner(
-            id = state.wire,
-            icon = SessionTree.CardCopy.ICONS.getValue(state),
-            label = SessionTree.CardCopy.STATES.getValue(state),
-            text = when (state) {
-                SessionTree.SessionState.Interrupted -> SessionTree.CardCopy.BANNER_INTERRUPTED.getValue("device_offline")
-                SessionTree.SessionState.Queued -> SessionTree.CardCopy.BANNER_QUEUED
-                else -> SessionTree.CardCopy.BANNER_BACKGROUND
-            },
+            id = id,
+            icon = SessionTree.CardCopy.BANNER_ICONS.getValue(id),
+            label = SessionTree.CardCopy.BANNER_LABELS.getValue(id),
+            text = if (id == "queued") SessionTree.CardCopy.BANNER_QUEUED else SessionTree.CardCopy.BANNER_BACKGROUND,
             tone = Dock.Tint.Muted,
             action = null,
         )

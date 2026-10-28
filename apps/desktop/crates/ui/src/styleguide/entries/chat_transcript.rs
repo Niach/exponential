@@ -56,6 +56,7 @@ fn message(id: &str, author: &str, body: &str) -> SessionThreadRow {
         body: body.into(),
         queued: false,
         author_session_id: None,
+        xref: None,
     }
 }
 

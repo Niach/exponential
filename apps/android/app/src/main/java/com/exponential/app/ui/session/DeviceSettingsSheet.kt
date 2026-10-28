@@ -487,10 +487,6 @@ fun DeviceSettingsSheet(
                     onUltracodeChange = { next ->
                         editDraft(agentTab) { it.copy(ultracode = next) }
                     },
-                    planMode = draft.planMode,
-                    onPlanModeChange = { next ->
-                        editDraft(agentTab) { it.copy(planMode = next) }
-                    },
                     // EXP-1005: the device-level rotation switch (claude only;
                     // absent on the row = ON, a flip stores the explicit value).
                     autoRotateAccounts = draft.autoRotateAccounts,

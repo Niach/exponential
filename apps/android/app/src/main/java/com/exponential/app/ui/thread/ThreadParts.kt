@@ -15,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.TranscriptLoadEarlierButton
+import com.exponential.app.ui.components.SessionXref
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.PillSize
@@ -818,7 +819,7 @@ private fun ThreadSubtreeSheet(
                             )
                         }
                     } else {
-                        val mark = row.mark ?: SessionTree.SessionState.Waiting
+                        val mark = row.mark ?: SessionTree.SessionState.Idle
                         SessionTabMark(mark)
                         Text(
                             row.label,
@@ -1001,7 +1002,7 @@ data class ThreadRowMeta(
 )
 
 /** The agent a channel belongs to (its rows' avatar + name). */
-data class ThreadAgent(val name: String, val icon: String?, val color: String?)
+data class ThreadAgent(val name: String, val icon: String?, val color: String?, val assistant: Boolean = false)
 
 /**
  * The Conversation page: the model's rows in order. A thread draws a
@@ -1039,6 +1040,11 @@ fun ThreadConversation(
     /** Thread 58cb32df: a surface card's `reply` posts its text here (the
      *  person's next message); null = inert. */
     onSurfaceReply: ((String) -> Unit)? = null,
+    /** S-3: the view's `origin` (`Started by` / `Reported to`), the
+     *  Conversation's first line; null = a person started it. */
+    origin: SessionTree.SessionXref? = null,
+    /** S-3: an inter-session link PUSHES that session (null = inert). */
+    onOpenXref: ((sessionId: String) -> Unit)? = null,
 ) {
     // EXP-1334: no root card any more (the conversation IS the dispatcher).
     val shown = if (dockedIds.isEmpty()) {
@@ -1122,6 +1128,9 @@ fun ThreadConversation(
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (origin != null) {
+                item(key = "__origin__") { SessionXref(origin, onOpenXref) }
+            }
             if (header > 0) {
                 // THE Load earlier ×4 (the run view's, muted small text).
                 item(key = "load-earlier") {
@@ -1143,15 +1152,24 @@ fun ThreadConversation(
                     // card-fill bubble on the left, each with its time.
                     is SessionTree.ThreadRow.MessageRow -> {
                         val rowMeta = meta(row)
-                        when (row.author) {
-                            "user", "agent" -> ChatBubble(
-                                text = row.body,
-                                fromPerson = row.author == "user",
-                                time = rowMeta?.time,
-                                queued = row.queued,
-                                onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
-                            )
-                            else -> ThreadEventLine(row.body)
+                        // S-3: a row from ANOTHER session = its link header
+                        // right above the bubble, on the bubble's side.
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = if (row.author == "user") Alignment.End else Alignment.Start,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            row.xref?.let { SessionXref(it, onOpenXref) }
+                            when (row.author) {
+                                "user", "agent" -> ChatBubble(
+                                    text = row.body,
+                                    fromPerson = row.author == "user",
+                                    time = rowMeta?.time,
+                                    queued = row.queued,
+                                    onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
+                                )
+                                else -> ThreadEventLine(row.body)
+                            }
                         }
                     }
                     is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clockTime(row.at))
@@ -1170,10 +1188,8 @@ fun ThreadConversation(
                     )
                     is SessionTree.ThreadRow.Picture -> ThreadPictureRow(row)
                     is SessionTree.ThreadRow.Event -> ThreadEventLine(row.text)
-                    is SessionTree.ThreadRow.Report -> ThreadReportLine(
-                        text = row.text,
-                        onOpen = onOpenSession?.let { open -> { open(row.sessionId) } },
-                    )
+                    // S-3: a report renders AS its `Report from <chip> ›` line.
+                    is SessionTree.ThreadRow.Report -> SessionXref(row.xref, onOpenXref)
                     is SessionTree.ThreadRow.Suggestions -> ThreadSuggestionsCard(
                         row = row,
                         actions = suggestions,
@@ -1596,34 +1612,6 @@ fun ThreadEventLine(text: String) {
 }
 
 // ── EXP-1323: reports + suggested tasks ─────────────────────────────────────
-
-/** EXP-1323: a child's report = ONE event line `Report from <session> ›`
- *  opening that session; its summary is never repeated (the parent's next
- *  message relays it). */
-@Composable
-fun ThreadReportLine(text: String, onOpen: (() -> Unit)?) {
-    Row(
-        modifier = Modifier
-            .then(if (onOpen != null) Modifier.clickable(role = Role.Button, onClick = onOpen) else Modifier)
-            .padding(horizontal = 4.dp, vertical = 2.dp)
-            .testTag("thread-report"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(ExpIcons.notificationReporterReply, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = Muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        if (onOpen != null) {
-            Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-        }
-    }
-}
 
 /** A Start on… row: a runnable device. */
 data class SuggestionDevice(val id: String, val name: String, val icon: ImageVector)

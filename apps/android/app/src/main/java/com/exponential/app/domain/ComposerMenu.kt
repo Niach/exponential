@@ -8,13 +8,17 @@ package com.exponential.app.domain
 // same rows, submenus as pushed pages (`AgentComposer.kt` binds the ids).
 // EXP-1259: the suggestion rows are gone (`composer-home.json` owns the page
 // around the card). NEW-2: the Run action row is gone (prompts live in the
-// `/` menu); the `mcp` condition = the team has a server.
+// `/` menu); the `mcp` condition = the team has a server. S-3: rows carry
+// `surfaces` (launch | session | agent) and `when` lists; Device / Account /
+// Model / Repository are + rows (no options line); `message-agent` is gone.
 
 enum class ComposerMenuRowId(val wire: String) {
-    ImplementIssue("implement-issue"),
-    /** NEW-3: Message an agent ›; `agents` stays false until NEW-7 draws it. */
-    MessageAgent("message-agent"),
     AddFile("add-file"),
+    ImplementIssue("implement-issue"),
+    Device("device"),
+    Account("account"),
+    Model("model"),
+    Repository("repository"),
     Effort("effort"),
     Subagents("subagents"),
     Ultracode("ultracode"),
@@ -24,29 +28,45 @@ enum class ComposerMenuRowId(val wire: String) {
 
 enum class ComposerMenuRowKind { Submenu, Item, Toggle }
 
+/** S-3: which composer the "+" sits on (a row's `surfaces`). */
+enum class ComposerMenuSurface(val wire: String) { Launch("launch"), Session("session"), Agent("agent") }
+
 /** When a row shows (fixture `conditions`). */
 enum class ComposerMenuCondition(val wire: String) {
+    Temporary("temporary"),
+    Device("device"),
+    Account("account"),
+    Model("model"),
+    Repositories("repositories"),
     SubagentModel("subagentModel"),
     Ultracode("ultracode"),
     Mcp("mcp"),
     ComputerUse("computerUse"),
-    Agents("agents"),
 }
 
 data class ComposerMenuConditions(
-    val subagentModel: Boolean,
-    val ultracode: Boolean,
-    val mcp: Boolean,
-    val computerUse: Boolean,
-    /** NEW-3: the team has at least one agent (false until NEW-7). */
-    val agents: Boolean = false,
+    /** S-3: launch with the agent row on Temporary session. */
+    val temporary: Boolean = false,
+    val device: Boolean = false,
+    val account: Boolean = false,
+    val model: Boolean = false,
+    /** The team has more than one repository. */
+    val repositories: Boolean = false,
+    val subagentModel: Boolean = false,
+    val ultracode: Boolean = false,
+    val mcp: Boolean = false,
+    val computerUse: Boolean = false,
 ) {
     fun holds(condition: ComposerMenuCondition): Boolean = when (condition) {
+        ComposerMenuCondition.Temporary -> temporary
+        ComposerMenuCondition.Device -> device
+        ComposerMenuCondition.Account -> account
+        ComposerMenuCondition.Model -> model
+        ComposerMenuCondition.Repositories -> repositories
         ComposerMenuCondition.SubagentModel -> subagentModel
         ComposerMenuCondition.Ultracode -> ultracode
         ComposerMenuCondition.Mcp -> mcp
         ComposerMenuCondition.ComputerUse -> computerUse
-        ComposerMenuCondition.Agents -> agents
     }
 }
 
@@ -59,7 +79,10 @@ sealed interface ComposerMenuEntry {
         val codexLabel: String? = null,
         /** A concept id (`packages/icons/icons.json`). */
         val icon: String,
-        val condition: ComposerMenuCondition? = null,
+        /** S-3: the composers the row exists on. */
+        val surfaces: Set<ComposerMenuSurface> = ComposerMenuSurface.entries.toSet(),
+        /** S-3: every condition must hold (`when`: one or a list). */
+        val conditions: List<ComposerMenuCondition> = emptyList(),
     ) : ComposerMenuEntry
 
     data object Separator : ComposerMenuEntry
@@ -99,40 +122,65 @@ object ComposerMenu {
 
     val COMPUTER_USE_RUN_CAP: String = DomainContract.codingSessionComputerUseCap
 
+    private val LAUNCH = setOf(ComposerMenuSurface.Launch)
+    private val ALL = ComposerMenuSurface.entries.toSet()
+
     /** Every row in fixture order (`rows`). */
     val ROWS: List<ComposerMenuEntry> = listOf(
-        ComposerMenuEntry.Row(ComposerMenuRowId.ImplementIssue, ComposerMenuRowKind.Submenu, "Implement issue", icon = "editor-issue-ref"),
-        ComposerMenuEntry.Row(
-            ComposerMenuRowId.MessageAgent, ComposerMenuRowKind.Submenu, "Message an agent",
-            icon = "settings-agents", condition = ComposerMenuCondition.Agents,
-        ),
-        ComposerMenuEntry.Row(ComposerMenuRowId.AddFile, ComposerMenuRowKind.Item, "Add file or image", icon = "ui-attach"),
+        ComposerMenuEntry.Row(ComposerMenuRowId.AddFile, ComposerMenuRowKind.Item, "Photo or file", icon = "ui-attach", surfaces = ALL),
+        ComposerMenuEntry.Row(ComposerMenuRowId.ImplementIssue, ComposerMenuRowKind.Submenu, "Issue", icon = "editor-issue-ref", surfaces = ALL),
         ComposerMenuEntry.Separator,
-        ComposerMenuEntry.Row(ComposerMenuRowId.Effort, ComposerMenuRowKind.Submenu, "Effort", codexLabel = "Reasoning", icon = "ui-estimate"),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Device, ComposerMenuRowKind.Submenu, "Device",
+            icon = "nav-devices", surfaces = ALL, conditions = listOf(ComposerMenuCondition.Device),
+        ),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Account, ComposerMenuRowKind.Submenu, "Account",
+            icon = "settings-account", surfaces = ALL, conditions = listOf(ComposerMenuCondition.Account),
+        ),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Model, ComposerMenuRowKind.Submenu, "Model",
+            icon = "coding-assistant", surfaces = ALL, conditions = listOf(ComposerMenuCondition.Model),
+        ),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Repository, ComposerMenuRowKind.Submenu, "Repository",
+            icon = "settings-repositories", surfaces = LAUNCH,
+            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.Repositories),
+        ),
+        ComposerMenuEntry.Separator,
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Effort, ComposerMenuRowKind.Submenu, "Effort", codexLabel = "Reasoning",
+            icon = "ui-estimate", surfaces = LAUNCH, conditions = listOf(ComposerMenuCondition.Temporary),
+        ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Subagents, ComposerMenuRowKind.Submenu, "Subagents",
-            icon = "coding-subagent", condition = ComposerMenuCondition.SubagentModel,
+            icon = "coding-subagent", surfaces = LAUNCH,
+            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.SubagentModel),
         ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Ultracode, ComposerMenuRowKind.Toggle, "Ultracode",
-            icon = "action-default", condition = ComposerMenuCondition.Ultracode,
+            icon = "action-default", surfaces = LAUNCH,
+            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.Ultracode),
         ),
         ComposerMenuEntry.Separator,
         ComposerMenuEntry.Row(
             ComposerMenuRowId.McpServers, ComposerMenuRowKind.Submenu, "MCP servers",
-            icon = "ui-mcp", condition = ComposerMenuCondition.Mcp,
+            icon = "ui-mcp", surfaces = LAUNCH,
+            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.Mcp),
         ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.ComputerUse, ComposerMenuRowKind.Toggle, "Computer use",
-            icon = "nav-computer", condition = ComposerMenuCondition.ComputerUse,
+            icon = "nav-computer", surfaces = LAUNCH,
+            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.ComputerUse),
         ),
     )
 
     fun rowTestId(id: ComposerMenuRowId): String = "agent-composer-menu-${id.wire}"
 
-    /** The rows the "+" shows under [conditions], separators tidied (never
-     *  leading, trailing or doubled). */
-    fun composerMenuLayout(conditions: ComposerMenuConditions): List<ComposerMenuEntry> {
+    /** The rows the "+" shows on [surface] under [conditions] (a row's
+     *  `when` = all must hold), separators tidied (never leading, trailing
+     *  or doubled). */
+    fun composerMenuLayout(surface: ComposerMenuSurface, conditions: ComposerMenuConditions): List<ComposerMenuEntry> {
         val out = mutableListOf<ComposerMenuEntry>()
         for (entry in ROWS) {
             when (entry) {
@@ -141,7 +189,8 @@ object ComposerMenu {
                     if (last != null && last != ComposerMenuEntry.Separator) out += ComposerMenuEntry.Separator
                 }
                 is ComposerMenuEntry.Row -> {
-                    if (entry.condition != null && !conditions.holds(entry.condition)) continue
+                    if (surface !in entry.surfaces) continue
+                    if (entry.conditions.any { !conditions.holds(it) }) continue
                     out += entry
                 }
             }

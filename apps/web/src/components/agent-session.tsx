@@ -146,7 +146,7 @@ import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { useSessionMessages } from "@/hooks/use-session-tree"
-import { useAnswerMessage } from "@/components/thread/agent-channel"
+import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { FeedText } from "@/components/feed-text"
 import { workingCaption } from "@/lib/working-caption"
@@ -181,7 +181,6 @@ import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
   buildSessionThread,
   sessionBanner,
-  sessionState,
   toTreeMessage,
   toTreeSession,
   type SessionRow,
@@ -195,7 +194,6 @@ const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const EditorImageIcon = conceptIcon(`editor-image`)
-const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
@@ -567,18 +565,7 @@ export function AgentSessionView({
     userId: session.userId,
   })
   const isMobile = useIsMobile()
-  /** EXP-550: no live stream AND the host machine is offline — PAUSED on
-   *  that machine, not starting and not gone. */
-  const paused =
-    device.online === false &&
-    !sessionEnded &&
-    (phase.kind === `starting` ||
-      phase.kind === `connecting` ||
-      phase.kind === `idle` ||
-      phase.kind === `closed`)
   const deviceName = device.label || `Desktop`
-  const pausedTitle = `${device.label ?? `The device`} is offline`
-  const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
   // EXP-773: the history phases name the machine the transcript lives on.
   useEffect(
     () => store.noteDeviceLabel(device.label),
@@ -624,15 +611,11 @@ export function AgentSessionView({
     [rows, workflows]
   )
 
-  /** N-11: before the run's first turn (the session card's `queued`, not
-   *  paused) the empty column reads "Starting on <device>"; there is no
-   *  status row over the feed, the live row at its bottom is the working
-   *  signal (needs-you = the Dock's card, blocked/paused = Dock banners). */
-  const starting =
-    !paused &&
-    !awaitingInput &&
-    !working &&
-    sessionState(toTreeSession(session)) === `queued`
+  /** N-11: before the run's first turn (queued) the empty column reads
+   *  "Starting on <device>"; there is no status row over the feed, the live
+   *  row at its bottom is the working signal (needs-you = the Dock's card).
+   *  S-3: an offline host looks like any idle session (no Paused state). */
+  const starting = !awaitingInput && !working && session.status === `queued`
   const startingCaption = STARTING_COPY.label.replace(`{device}`, deviceName)
 
   const ownerName =
@@ -899,15 +882,7 @@ export function AgentSessionView({
             )}
             style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
           >
-            {feedPlaceholder && paused ? (
-              <CenteredState>
-                <EmptyState
-                  icon={UiDeviceOfflineIcon}
-                  title={pausedTitle}
-                  description={pausedBody}
-                />
-              </CenteredState>
-            ) : feedPlaceholder && starting ? (
+            {feedPlaceholder && starting ? (
               /* N-11: no status row over the feed; before the first turn the
                  column holds the placeholder rows over "Starting on …". */
               <div
@@ -1968,7 +1943,7 @@ export function useAgentHintDock(session: SessionRow | null): {
 
 /** N-12: the session's Dock beyond the asks: THE Queue (task-queue.json),
  *  the queued messages (EXP-861, the X revokes a held one) and the status
- *  banners (EXP-550 paused on an offline device, EXP-877 a dropped stream
+ *  banners (EXP-877 a dropped stream
  *  with its Reconnect, EXP-804 the persisted usage wall with EXP-849's
  *  account switch, EXP-724 the compaction strip, EXP-784 the rate-limit
  *  window, the starting line), as `DockSource`s with their sheets and
@@ -1987,15 +1962,13 @@ export function useSessionDock(session: SessionRow): {
   const device = useSessionDevice({ deviceId: session.deviceId, userId: session.userId })
   const now = useNow(30_000)
   const sessionEnded = session.status === `ended`
-  const paused =
-    device.online === false &&
-    !sessionEnded &&
-    (phase.kind === `starting` || phase.kind === `connecting` || phase.kind === `idle` || phase.kind === `closed`)
-  // EXP-1374 (session-card.json `sessionBanner`): an interrupted or
-  // background run says so; it replaces the offline banner and, for an
-  // interruption, the blocked one (one card per cause).
+  // S-3: an offline host looks like any idle session: no Paused banner, and
+  // its dropped stream / pending start draw nothing either.
+  const hostOffline = device.online === false && !sessionEnded
+  // EXP-1374 (session-card.json `sessionBanner`): a queued or background run
+  // says so (S-3: an interruption draws nothing).
   const stateBanner = useMemo(() => sessionBanner(toTreeSession(session)), [session])
-  const blockedLabel = stateBanner?.id === `interrupted` ? null : blockedBadgeLabel(session.blocked, now)
+  const blockedLabel = blockedBadgeLabel(session.blocked, now)
   const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
   const tick = useNow(ticking ? 1_000 : 60_000)
   const queueModel = useMemo(
@@ -2012,20 +1985,8 @@ export function useSessionDock(session: SessionRow): {
       { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
       { kind: `tasks`, queue: queueModel },
     ]
-    if (stateBanner) {
-      out.push({ kind: `banner`, ...stateBanner })
-    } else if (paused && feed.length > 0) {
-      out.push({
-        kind: `banner`,
-        id: `paused`,
-        icon: `ui-device-offline`,
-        label: `${device.label ?? `The device`} is offline`,
-        text: `The agent is paused on that machine and continues when it comes back online.`,
-        tone: `muted`,
-        action: null,
-      })
-    }
-    if (phase.kind === `closed` && !paused) {
+    if (stateBanner) out.push({ kind: `banner`, ...stateBanner })
+    if (phase.kind === `closed` && !hostOffline) {
       out.push({
         kind: `banner`,
         id: `closed`,
@@ -2071,7 +2032,7 @@ export function useSessionDock(session: SessionRow): {
     }
     // #EXP-1405: an idle row's replayed transcript waits for its next turn,
     // not for a start: only a busy run is "starting".
-    if (phase.kind === `starting` && !paused && feed.length > 0 && session.busy) {
+    if (phase.kind === `starting` && !hostOffline && feed.length > 0 && session.busy) {
       out.push({
         kind: `banner`,
         id: `starting`,
@@ -2084,7 +2045,7 @@ export function useSessionDock(session: SessionRow): {
     }
     if (hintSource) out.push(hintSource)
     return out
-  }, [queue, queueModel, stateBanner, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource])
+  }, [queue, queueModel, stateBanner, hostOffline, feed.length, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource])
   const renderSheet = (row: DockRow): ReactNode => {
     if (row.kind === `tasks`) {
       return (

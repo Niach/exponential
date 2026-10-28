@@ -5,9 +5,8 @@ import SwiftUI
 /// Thread 58cb32df (chats.json MENUS, ×4): a chat's menu on a phone — THE
 /// Menu in its SHEET look titled with the chat's title (a row's or a
 /// bubble's long press, the chat header's `…`). The rows are
-/// `threadMenuEntries` (Stop · Stop and delete · Delete) or
-/// `agentMenuEntries` (Compact conversation · New conversation · Stop ·
-/// Agent settings). A pick hands the entry back; the host runs it once the
+/// `threadMenuEntries` (S-3: Delete) or `agentMenuEntries` (Compact
+/// conversation · New conversation · Agent settings). A pick hands the entry back; the host runs it once the
 /// sheet has dismissed (a confirm or a push from under a dismissing sheet is
 /// dropped).
 struct ChatMenuSheet: View {
@@ -46,7 +45,7 @@ struct ChatMenuSheet: View {
         }
     }
 
-    /// The agent menu's sends sit apart from Stop / Agent settings (the
+    /// The agent menu's sends sit apart from Agent settings (the
     /// draft's separator); the Guide's Close PR from the chat's entries.
     static func separates(_ previous: Entry, _ next: Entry) -> Bool {
         switch (previous, next) {
@@ -89,27 +88,14 @@ struct ChatMenuSheet: View {
     }
 }
 
-/// The chats' actions ×4 (chats.json): Stop = `sessions.end` on the ROOT
-/// (the whole tree), Stop and delete / Delete = `sessions.delete`, the agent
-/// menu's Compact / New conversation SEND the builtin lines, its Stop =
-/// `sessions.stop` (the turn interrupt; an undelivered stop toasts). A
-/// failure = a toast (`copy.toasts`).
+/// The chats' actions ×4 (chats.json): Delete = `sessions.delete` (S-3: no
+/// Stop), the agent menu's Compact / New conversation SEND the builtin
+/// lines. A failure = a toast (`copy.toasts`).
 @MainActor
 struct ChatActions {
     let deps: AppDependencies
     let accountId: String
     let toaster: Toaster
-
-    func stop(rootId: String) {
-        let api = deps.sessionsApi
-        Task {
-            do {
-                try await api.end(accountId: accountId, sessionId: rootId)
-            } catch {
-                toaster.error(Chats.Copy.Toasts.stopFailed, description: error.userFacingMessage)
-            }
-        }
-    }
 
     /// Resolves true once the server deleted the chat.
     func delete(rootId: String, done: @escaping @MainActor (Bool) -> Void = { _ in }) {
@@ -127,7 +113,7 @@ struct ChatActions {
 
     /// #EXP-1388: the selection bar's actions (Delete runs after its
     /// confirm through `deleteAll`). Mark read / unread and (un)archive batch
-    /// (200 ids a call); Stop ends each chat, one at a time. A failure = ONE
+    /// (200 ids a call). A failure = ONE
     /// toast, `chatSelectionFailedTitle` (`{n} of {m}` when only some failed).
     func run(_ item: Chats.ChatSelectionItem) {
         let api = deps.sessionsApi
@@ -142,10 +128,6 @@ struct ChatActions {
                 do { try await api.setRead(accountId: accountId, sessionIds: ids, read: item.action == .markRead) } catch { failed = error }
             case .archive, .unarchive:
                 do { try await api.setArchived(accountId: accountId, sessionIds: ids, archived: item.action == .archive) } catch { failed = error }
-            case .stop:
-                for id in ids {
-                    do { try await api.end(accountId: accountId, sessionId: id) } catch { failed = failed ?? error; failures += 1 }
-                }
             case .delete:
                 for id in ids {
                     do { try await api.delete(accountId: accountId, sessionId: id) } catch { failed = failed ?? error; failures += 1 }
@@ -163,21 +145,6 @@ struct ChatActions {
     /// #EXP-1388: the confirmed multi-delete (`sessions.delete` per chat).
     func deleteAll(rootIds: [String]) {
         run(Chats.ChatSelectionItem(action: .delete, sessionIds: rootIds))
-    }
-
-    /// The TURN interrupt (composer stop, the agent menu's Stop).
-    func interrupt(sessionId: String) {
-        let api = deps.sessionsApi
-        Task {
-            do {
-                let result = try await api.stop(accountId: accountId, sessionId: sessionId)
-                if result.delivered == false {
-                    toaster.warning(Chats.Copy.Toasts.stopNotDelivered)
-                }
-            } catch {
-                toaster.error(Chats.Copy.Toasts.stopFailed, description: error.userFacingMessage)
-            }
-        }
     }
 
     /// Compact / New conversation into the caller's conversation with the

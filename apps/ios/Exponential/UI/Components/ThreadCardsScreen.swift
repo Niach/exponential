@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -65,6 +65,7 @@ struct ThreadCardsScreen: View {
                     case "chat-menus": ChatMenuSpecimens()
                     case "schedule-picker": SchedulePickerSpecimens()
                     case "mention-pill": MentionPillSpecimens()
+                    case "session-xref": SessionXrefSpecimens()
                     case "voice-call": VoiceCallSpecimens()
                     case "call-controls": CallControlsSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()
@@ -301,7 +302,7 @@ struct ThreadCardsScreen: View {
 /// then folded (issue chips identifier-only with a
 /// sub-issue chevron and `› APP-16` open, the session chips with a folded
 /// subtree, each zone's "+N"), the subtree sheet's rows, and THE thread
-/// composer's options line + "+" rows.
+/// composer's tool row (the + alone, S-3) and an agent chat's "+" rows.
 private struct ThreadStripSpecimens: View {
     private static let fits: [ThreadTab] = [
         .add, .conversation,
@@ -329,10 +330,10 @@ private struct ThreadStripSpecimens: View {
         .session(sessionId: "s1", name: "Threads impl", markState: .needsYou, nested: [
             ThreadTabNestedSession(sessionId: "s2", name: "Web lane", markState: .working, depth: 1),
             ThreadTabNestedSession(sessionId: "s3", name: "Android lane", markState: .needsYou, depth: 1),
-            ThreadTabNestedSession(sessionId: "s4", name: "Emulator shots", markState: .ended, depth: 2),
+            ThreadTabNestedSession(sessionId: "s4", name: "Emulator shots", markState: .done, depth: 2),
         ]),
-        .session(sessionId: "s5", name: "Docs", markState: .waiting, nested: []),
-        .session(sessionId: "s6", name: "Review", markState: .ended, nested: []),
+        .session(sessionId: "s5", name: "Docs", markState: .idle, nested: []),
+        .session(sessionId: "s6", name: "Review", markState: .done, nested: []),
         .guide(dot: false),
     ]
 
@@ -351,7 +352,7 @@ private struct ThreadStripSpecimens: View {
                 ThreadFoldSheet(fold: fold) { _ in }
                     .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
             }
-            caption("THE composer row: + · the device glyph · the model · Plan … the ring beside Send")
+            caption("THE composer row: the + alone … the ring beside Send")
             composerRow()
             caption("EXP-1211: the agent's quick replies above the composer")
             VStack(spacing: 0) {
@@ -377,13 +378,12 @@ private struct ThreadStripSpecimens: View {
                 }
             }
             .padding(.horizontal, -16)
+            // S-3: an agent chat's "+" (composer-menu.json surface `agent`).
             ThreadComposerPlusMenu(
-                conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true, agents: false),
+                conditions: ComposerMenu.Conditions(model: true),
+                surface: .agent,
                 agent: "claude",
-                effortValue: "High",
-                mcpValue: "2",
-                ultracode: .constant(false),
-                computerUse: .constant(true)
+                modelValue: "opus"
             ) { _ in }
                 .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
         }
@@ -396,42 +396,19 @@ private struct ThreadStripSpecimens: View {
         HStack(spacing: GlassComposerTokens.toolSpacing) {
             SessionComposerFooter(
                 controls: SessionComposerFooter.Controls(
-                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
-                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
-                    devicePin: Self.devicePin(),
-                    plan: .constant(true)
+                    modelValue: "opus", agent: "claude", onPickModel: { _ in },
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
                 ),
                 attachEnabled: true,
                 onPhoto: {},
                 onFile: {},
-                attachMenuOpen: .constant(false)
+                attachMenuOpen: .constant(false),
+                onPlus: {}
             )
             GlassComposerSubmitButton(AppIcons.uiSubmit, accessibilityLabel: "Send", action: {})
         }
         .padding(8)
         .glassCard(isOpaque: true)
-    }
-
-    /// EXP-1252: the Device pin specimen — this laptop, a shared studio
-    /// machine (refused: shared differently) and an offline one.
-    private static func devicePin() -> SessionDevicePin {
-        let devices = [
-            SteerDevice(deviceId: "laptop", deviceLabel: "MacBook Pro", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
-            SteerDevice(deviceId: "studio", deviceLabel: "Mac Studio", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
-            SteerDevice(deviceId: "build", deviceLabel: "Build server", agents: ["claude"], kind: "server", online: true, version: "0.14.73", sharedTeamIds: ["t1"]),
-            SteerDevice(deviceId: "mini", deviceLabel: "Mac mini", agents: ["claude"], kind: "desktop", online: false, version: "0.14.73"),
-        ]
-        let rows = SessionDeviceMove.rows(
-            devices: devices, currentDeviceId: "laptop", sessionTeamId: "t1", sessionShared: false, agent: "claude"
-        )
-        return SessionDevicePin(
-            label: "MacBook Pro",
-            icon: DeviceIconDisplay.iconName(for: devices[0]),
-            rows: rows.map(DevicePickerDevice.init(moveRow:)),
-            currentDeviceId: "laptop",
-            blockedReason: nil,
-            onPick: { _ in }
-        )
     }
 
     private func caption(_ text: String) -> some View {
@@ -441,7 +418,23 @@ private struct ThreadStripSpecimens: View {
     }
 
     private func strip(_ tabs: [ThreadTab], selection: ThreadPage) -> some View {
-        ThreadStripTabs(tabs: tabs, selection: selection, onSelect: { _ in }, onAdd: {}, onOpenSession: { _ in })
+        // The demo statuses (the web's and desktop's): in progress, backlog,
+        // by the chip's index among the issue chips.
+        let issueIds = tabs.compactMap { tab -> String? in
+            if case let .issue(issueId, _, _) = tab { return issueId }
+            return nil
+        }
+        return ThreadStripTabs(
+            tabs: tabs,
+            selection: selection,
+            issueStatus: { id in
+                let key: IssueStatus = (issueIds.firstIndex(of: id) ?? 0) % 2 == 0 ? .inProgress : .backlog
+                return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
+            },
+            onSelect: { _ in },
+            onAdd: {},
+            onOpenSession: { _ in }
+        )
             .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -561,23 +554,15 @@ private struct DockCardSpecimens: View {
     ]
 
     /// EXP-1374: the session's own state cards (session-card.json `banner`,
-    /// web `STATE_ROWS`): interrupted (its device went offline), background
-    /// tasks and (#EXP-1405) queued, waiting for its device.
-    private static let stateRows: [Dock.Row] = Dock.rows([
+    /// web `STATE_ROWS`): background tasks and (#EXP-1405) queued, waiting
+    /// for its device. S-3: no interrupted card.
+    private static let stateRows: [Dock.Row] = Dock.rows(["background", "queued"].map { id in
         .banner(
-            id: SessionState.interrupted.rawValue, icon: SessionState.interrupted.icon,
-            label: SessionState.interrupted.word,
-            text: SessionTree.CardCopy.bannerInterrupted["device_offline"] ?? "", tone: .muted, action: nil
-        ),
-        .banner(
-            id: SessionState.background.rawValue, icon: SessionState.background.icon,
-            label: SessionState.background.word, text: SessionTree.CardCopy.bannerBackground, tone: .muted, action: nil
-        ),
-        .banner(
-            id: SessionState.queued.rawValue, icon: SessionState.queued.icon,
-            label: SessionState.queued.word, text: SessionTree.CardCopy.bannerQueued, tone: .muted, action: nil
-        ),
-    ])
+            id: id, icon: SessionTree.CardCopy.bannerIcons[id] ?? "",
+            label: SessionTree.CardCopy.bannerLabels[id] ?? "",
+            text: SessionTree.CardCopy.banner[id] ?? "", tone: .muted, action: nil
+        )
+    })
 
     private static func action(_ row: Dock.Row) -> AnyView? {
         guard row.kind == .banner, row.id == "banner:wall" else { return nil }

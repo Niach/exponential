@@ -30,10 +30,10 @@ import type { Tx } from "@/lib/sessions/tx"
 //   S opened a PR       → event `pr_opened`                wakes
 //   S ended / died      → `report` card (its summary)      wakes
 //   S claimed           → event `session_claimed`          no
-//   watchdog            → `session_unclaimed`/`session_stuck` wake,
-//                         `device_offline`/`session_interrupted` no
-//                         (EXP-1374: an interruption continues by itself;
-//                         `session_interrupted` wakes once it did not)
+//   watchdog            → `session_unclaimed`/`session_stuck` wake;
+//                         S-3: an interruption (device_offline, restarted)
+//                         posts nothing (it continues by itself);
+//                         `session_interrupted` wakes once it did not
 //
 // With nobody listening (a root without watchers) a line lands on S
 // itself, pre-consumed, so a person still sees it.
@@ -52,6 +52,8 @@ export type BusSession = Pick<
 
 interface Listener {
   id: string
+  /** S-3: a team agent's conversation (its root's agent). */
+  agentId: string | null
   rootId: string
   teamId: string
   shared: boolean
@@ -61,6 +63,7 @@ interface Listener {
 
 const LISTENER = {
   id: sessions.id,
+  agentId: sessions.agentId,
   rootId: sessions.rootId,
   teamId: sessions.teamId,
   shared: sessions.shared,
@@ -106,9 +109,14 @@ async function deliver(
     waking: boolean
     /** With no listener: post on the child itself (pre-consumed). */
     fallbackToSelf?: boolean
+    /** S-3: the child's own row this line copies (an edit patches it). */
+    originMessageId?: string | null
+    /** S-3: listeners this line skips (still counted as listening). */
+    skip?: (listener: Listener) => boolean
   }
 ): Promise<string[]> {
-  const listeners = await busListeners(tx, child)
+  const all = await busListeners(tx, child)
+  const listeners = message.skip ? all.filter((listener) => !message.skip!(listener)) : all
   const origin = message.hidden && listeners.length > 0 ? await busOrigin(tx, child.id) : null
   const now = new Date()
   const ids: string[] = []
@@ -121,10 +129,11 @@ async function deliver(
         body: line.body,
         card: line.card,
         consumedAt: message.waking && listener.status !== `ended` ? null : now,
+        originMessageId: message.originMessageId ?? null,
       })
     )
   }
-  if (listeners.length === 0 && message.fallbackToSelf) {
+  if (all.length === 0 && message.fallbackToSelf) {
     ids.push(
       await insertMessage(tx, child.id, {
         authorKind: message.authorKind,
@@ -156,11 +165,15 @@ export function privateText(child: Pick<Session, `id`>, lead: string): string {
 }
 
 /** A turn of `child` ended with a reply: the reply reaches its listeners
- *  as the child's own message. Blank = nothing. */
+ *  as the child's own message. Blank = nothing. S-3: a team agent's
+ *  conversation that WATCHES the child (not its parent) is not woken per
+ *  turn: it hears the child's ask, wall, PR and report only, so a busy
+ *  thread never spams its agent. */
 export async function busRelayTurn(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>,
-  body: string
+  body: string,
+  originMessageId: string | null = null
 ): Promise<string[]> {
   const text = body.trim()
   if (!text) return []
@@ -170,6 +183,8 @@ export async function busRelayTurn(
     card: null,
     hidden: { body: privateText(child, PRIVATE_REPLY_LEAD), card: null },
     waking: true,
+    originMessageId,
+    skip: (listener) => listener.agentId !== null && listener.id !== child.parentId,
   })
 }
 
@@ -316,10 +331,6 @@ export const BUS_COPY = {
   // gate or spec run is the normal case and killing one costs real work.
   session_stuck: (silent: number) =>
     `No sign of life for ${silent} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.`,
-  device_offline: `Interrupted: its device went offline. It continues by itself when the device is back.`,
-  session_interrupted: `Interrupted: its runner restarted mid-turn. It continues by itself.`,
-  // NEW-17: the device said the run's process was killed (OOM, a crash).
-  session_lost: `Interrupted: its process was killed mid-turn (out of memory or a crash on its device). It continues by itself.`,
   session_unresumed: `Interrupted ${minutes.resumeMinutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.`,
   pr_opened: (number: number, url: string) => `Opened PR #${number}: ${url}`,
 } as const
@@ -335,7 +346,6 @@ export async function busLine(
     | `session_blocked`
     | `session_unclaimed`
     | `session_stuck`
-    | `device_offline`
     | `session_interrupted`
     | `pr_opened`
   >,

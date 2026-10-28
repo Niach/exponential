@@ -2,7 +2,6 @@ package com.exponential.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.semantics.semantics
 import com.exponential.app.domain.DeviceDoctor
 import com.exponential.app.domain.DeviceLiveness
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -111,8 +111,10 @@ class VoiceSettingsViewModel @Inject constructor(
     private val voiceApi: VoiceApi,
 ) : ViewModel() {
 
-    /** The account the page edits (`server/{accountId}/voice`). */
-    val accountId: String = savedStateHandle.get<String>("accountId").orEmpty()
+    /** The account the page edits (`server/{accountId}/voice`); S-3: on
+     *  the Assistant page (no `accountId` arg) the active account. */
+    val accountId: String = savedStateHandle.get<String>("accountId")
+        ?: auth.activeAccountId.value.orEmpty()
 
     private val db = holder.database(forAccountId = accountId)
 
@@ -499,17 +501,27 @@ internal fun VoiceSettingsForm(
     onVoiceTranscriptChange: (String) -> Unit,
     onVoiceTranscriptDone: () -> Unit,
     modifier: Modifier = Modifier,
+    /** S-3 (agent-settings.json `assistant`): the block MOVED onto the
+     *  Assistant page — its rows unchanged MINUS the Voice device and Agent
+     *  pickers (the device is Runs on's, the agent is the Assistant), laid
+     *  into the page's own scroll. */
+    assistantBlock: Boolean = false,
 ) {
     // voice.json: every switch is off and disabled while either is None.
     val armed = settings.voiceDeviceId != null && settings.agentId != null
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp),
+        modifier = if (assistantBlock) {
+            modifier.fillMaxWidth()
+        } else {
+            modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp)
+        },
     ) {
         OptionGroup {
+          if (!assistantBlock) {
             // THE device picker's rows (glyph + name), None first.
             val deviceItems = remember(vocabulary.deviceRows) {
                 listOf(PickerItem(value = NONE, label = Voice.Copy.VOICE_DEVICE_NONE)) +
@@ -534,6 +546,7 @@ internal fun VoiceSettingsForm(
                 testTag = Voice.TestIds.AGENT,
             )
             GroupDivider()
+          }
             // Every language carries its GPU note (#NEW-74), in the row and in the menu.
             val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: Voice.Copy.ELLIPSIS }
             ChoicePickerRow(

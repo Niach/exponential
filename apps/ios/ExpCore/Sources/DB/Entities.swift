@@ -1061,6 +1061,12 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     /// #EXP-1383: when the instructions TEXT last changed
     /// (`agents.instructions_updated_at`; chats.json `agentHint`).
     public let instructionsUpdatedAt: String?
+    /// S-3: contract `agentRole` (`assistant` | `agent`); a row synced
+    /// before the column = `agent`.
+    public let role: String
+
+    /// S-3: the member's own Assistant (`agents.role = assistant`).
+    public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
 
     public init(
         id: String,
@@ -1077,9 +1083,11 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         sortOrder: Double = 0,
         createdAt: String,
         updatedAt: String,
-        instructionsUpdatedAt: String? = nil
+        instructionsUpdatedAt: String? = nil,
+        role: String = DomainContract.agentRoleAgent
     ) {
         self.instructionsUpdatedAt = instructionsUpdatedAt
+        self.role = role
         self.id = id
         self.teamId = teamId
         self.name = name
@@ -1097,7 +1105,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, triggers, cli, account, model
+        case id, name, icon, color, triggers, cli, account, model, role
         case teamId = "team_id"
         case deviceId = "device_id"
         case ownerId = "owner_id"
@@ -1127,6 +1135,9 @@ extension AgentDefinitionEntity: Codable {
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         // #EXP-1383: absent on a pre-rotation snapshot.
         instructionsUpdatedAt = try c.decodeIfPresent(String.self, forKey: .instructionsUpdatedAt)
+        // S-3: absent (an old snapshot / pre-v85 row) or empty = `agent`.
+        let role = try c.decodeIfPresent(String.self, forKey: .role) ?? ""
+        self.role = role.isEmpty ? DomainContract.agentRoleAgent : role
     }
 }
 

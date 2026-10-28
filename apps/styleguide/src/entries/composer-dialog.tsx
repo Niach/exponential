@@ -35,7 +35,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `LaunchDialogHost / LaunchComposer / SessionComposer / ComposerOptionsMenu`,
       file: `apps/web/src/components/launch-dialog/launch-dialog.tsx`,
-      note: `the start card is launch-composer.tsx, the thread/session card session-composer.tsx; both = @exp/ui ComposerFrame + composer-inline-tools.tsx, the "+" = launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
+      note: `the start card is launch-composer.tsx, the thread/session card session-composer.tsx; both = @exp/ui ComposerFrame + composer-inline-tools.tsx (the hidden file input), the "+" (the only tool) = launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
     },
     desktop: {
       state: `ok`,

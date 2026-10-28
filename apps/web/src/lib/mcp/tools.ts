@@ -161,11 +161,10 @@ import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
 import { escalateCard } from "@/lib/sessions/escalate"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
-import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postAskCard, postSurfaceCard } from "@/lib/sessions/plan"
-import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
+import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postShowCard, SURFACE_CARD_TITLE_MAX } from "@/lib/sessions/plan"
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
-import { appCatalogText } from "@/lib/apps/package"
+import { appCatalogText, componentCatalogText } from "@/lib/apps/package"
 import { emitEventInTx } from "@/lib/events"
 import {
   closePullRequestTx,
@@ -392,6 +391,10 @@ const cardSurfaceInput = z
 
 // EXP-1251 → EXP-1291: the Guide tool's description (always-loaded bytes).
 const GUIDE_TOOL_DESCRIPTION = `Your thread's GUIDE = the body of every PR in it. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes. prUrl = the topic's PR (default: your open PR; a parent may tag its children's). label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
+// S-3: the show tool's description (always-loaded bytes; its own per-tool
+// cap in context-budget.test.ts): the nested node syntax, one example, the
+// reply rule and the component names; props come from the apps catalog.
+const SHOW_TOOL_DESCRIPTION = `ONE card in your chat per turn (result, status, draft, choice); replace: true edits this turn's card. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event sends text as the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[...]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (option picture, ![a](upload:label) in plan.text); run each returned curl. After ask/plan end your turn: the answer is your next message.`
 // EXP-1262: the call only mints the upload grant; nothing renders until the
 // curl runs.
 export const GUIDE_PICTURE_NEXT_STEP = `Run the curl line now: the picture shows only once it uploads.`
@@ -2534,13 +2537,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_configure`,
     {
-      description: `Change a session's model, account (its login), effort, plan mode, computer use or ultracode, no message (sessionId omitted = your own). Applies on a blocked session too: a new account, or a new model on a model wall, unblocks it and runs its queued messages; a pick that cannot lift the wall errors.`,
+      description: `Change a session's model, account (its login), effort, computer use or ultracode, no message (sessionId omitted = your own). Applies on a blocked session too: a new account, or a new model on a model wall, unblocks it and runs its queued messages; a pick that cannot lift the wall errors.`,
       inputSchema: strictInput({
         sessionId: uuidString.optional(),
         model: z.string().min(1).max(64).optional(),
         account: z.string().min(1).max(64).optional(),
         effort: z.string().max(32).optional(),
-        planMode: z.boolean().optional(),
         computerUse: z.boolean().optional(),
         ultracode: z.boolean().optional(),
       }),
@@ -2552,7 +2554,7 @@ export function registerExponentialTools(
         if (!target) throw new Error(noSessionMessage(`exponential_sessions_configure`, `sessionId`))
         if (!access.full) await loadGrantedSession(target)
         if (Object.values(picks).every((value) => value === undefined)) {
-          throw new Error(`Nothing to configure: pass model, account, effort, planMode, computerUse or ultracode.`)
+          throw new Error(`Nothing to configure: pass model, account, effort, computerUse or ultracode.`)
         }
         const { sessionId, status } = await sendSession({
           userId: user.id,
@@ -2659,93 +2661,62 @@ export function registerExponentialTools(
     )
   }
 
-  // EXP-1280 custom plan mode: the session posts ONE rich card on itself
-  // (lib/sessions/plan.ts) and stops; a person answers IN the card and the
-  // answer arrives as the session's next message. Not always-loaded: the
-  // runbook names both, tool search finds them.
+  // S-3: THE show verb (always loaded, a whole tool like the Guide): ONE
+  // card on the caller's own session: a surface, ONE question (ask) or a
+  // plan, edited in place with `replace`. A person answers ask/plan IN the
+  // card and the answer arrives as the session's next message; plan mode
+  // and its gate are gone (lib/sessions/plan.ts).
   if (gates.inSession) {
     server.registerTool(
-      `exponential_plan_propose`,
+      `exponential_show`,
       {
-        description: `Plan mode: post your plan as one card for a person to approve, then end your turn. plan = GFM; a picture = ![alt](upload:<label>) declared in pictures (run each returned curl). questions = choices answered in the card (option.picture = a label). surface = an Exponential UI core tree {root, data}. The answer arrives as your next message.`,
+        description: SHOW_TOOL_DESCRIPTION,
+        _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
-          plan: z.string().trim().min(1).max(MESSAGE_BODY_MAX),
-          pictures: cardPicturesInput,
-          questions: z
-            .array(
-              z.strictObject({
-                id: z.string().trim().min(1).max(PLAN_CARD_LABEL_KEY_MAX),
-                prompt: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
-                multi: z.boolean().optional(),
-                custom: z.boolean().optional(),
-                options: z.array(cardOptionInput).max(PLAN_CARD_OPTIONS_MAX),
-              })
-            )
-            .max(PLAN_CARD_QUESTIONS_MAX)
+          surface: cardSurfaceInput,
+          title: z.string().trim().min(1).max(SURFACE_CARD_TITLE_MAX).optional(),
+          replace: z.boolean().optional(),
+          ask: z
+            .strictObject({
+              question: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+              options: z.array(cardOptionInput).max(QUESTION_CARD_OPTIONS_MAX),
+              multi: z.boolean().optional(),
+              custom: z.boolean().optional(),
+            })
             .optional(),
-          surface: cardSurfaceInput,
-        }),
-      },
-      async (input) => {
-        try {
-          const own = await loadCallerSession()
-          if (!own) throw new Error(noSessionMessage(`exponential_plan_propose`))
-          if (!access.full) assertTeamFullyGranted(access, own.teamId)
-          const card = buildPlanCard(input)
-          return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_sessions_ask`,
-      {
-        description: `Ask a person ONE question as a card in your conversation, then end your turn. options = text or picture choices (picture = a label in pictures; run each returned curl), multi = several picks, custom = free text allowed (default true). surface = an Exponential UI core tree {root, data}. The answer arrives as your next message.`,
-        inputSchema: strictInput({
-          question: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
-          options: z.array(cardOptionInput).max(QUESTION_CARD_OPTIONS_MAX),
-          multi: z.boolean().optional(),
-          custom: z.boolean().optional(),
+          plan: z
+            .strictObject({
+              text: z.string().trim().min(1).max(MESSAGE_BODY_MAX),
+              questions: z
+                .array(
+                  z.strictObject({
+                    id: z.string().trim().min(1).max(PLAN_CARD_LABEL_KEY_MAX),
+                    prompt: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+                    multi: z.boolean().optional(),
+                    custom: z.boolean().optional(),
+                    options: z.array(cardOptionInput).max(PLAN_CARD_OPTIONS_MAX),
+                  })
+                )
+                .max(PLAN_CARD_QUESTIONS_MAX)
+                .optional(),
+            })
+            .optional(),
           pictures: cardPicturesInput,
-          surface: cardSurfaceInput,
         }),
       },
-      async (input) => {
+      async ({ surface, title, replace, ask, plan, pictures }) => {
         try {
           const own = await loadCallerSession()
-          if (!own) throw new Error(noSessionMessage(`exponential_sessions_ask`))
+          if (!own) throw new Error(noSessionMessage(`exponential_show`))
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
-          const card = buildQuestionCard(input)
-          return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-  }
-
-  // Chats: an inline Exponential UI preview in the caller's own chat
-  // (fixtures/chats.json `surfaceCard`); a reply Button's press posts its
-  // text as the person's next message (the clients).
-  if (gates.inSession) {
-    server.registerTool(
-      `exponential_surface_show`,
-      {
-        description: `Draw an inline Exponential UI preview in your chat; a Button whose press event is {name:"reply", context:{text}} sends that text as the person's reply.`,
-        inputSchema: strictInput({
-          surface: cardSurfaceInput.unwrap(),
-          title: z.string().trim().min(1).max(200).optional(),
-        }),
-      },
-      async (input) => {
-        try {
-          const own = await loadCallerSession()
-          if (!own) throw new Error(noSessionMessage(`exponential_surface_show`))
-          if (!access.full) assertTeamFullyGranted(access, own.teamId)
-          const card = buildSurfaceCard(input)
-          return ok(await postSurfaceCard({ sessionId: own.id, card }))
+          if (ask && plan) throw new Error(`Pass ask or plan, not both: one card per call.`)
+          if (!ask && !plan && !surface) throw new Error(`Pass surface, ask or plan.`)
+          const card = plan
+            ? buildPlanCard({ plan: plan.text, questions: plan.questions, pictures, surface })
+            : ask
+              ? buildQuestionCard({ ...ask, pictures, surface })
+              : buildSurfaceCard({ surface: surface!, title })
+          return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))
         } catch (e) {
           return err(e)
         }
@@ -2951,11 +2922,6 @@ export function registerExponentialTools(
     async ({ issueIds: refs, ...rest }) => {
       try {
         const own = await loadCallerSession()
-        // EXP-1280: a session in plan mode opens no PR until a person
-        // approves its plan (approval flips plan_mode off).
-        if (own?.planMode) {
-          throw new TRPCError({ code: `FORBIDDEN`, message: PLAN_CARD_COPY.planModeGate })
-        }
         const issueIds: string[] = []
         for (const ref of refs ?? []) {
           const id = await resolveIssueId(ref, user.id, access)
@@ -3864,12 +3830,12 @@ export function registerExponentialTools(
     `exponential_apps_catalog`,
     {
       annotations: READ_ONLY,
-      description: `The package format, the bindings (exp: sources), the host functions, records and every Exponential UI component an app may use. Read it once before writing a package.`,
-      inputSchema: strictInput({}),
+      description: `The package format, the bindings (exp: sources), the host functions, records and every Exponential UI component an app may use. Read it once before writing a package. only = just these components' props (for an exponential_show surface).`,
+      inputSchema: strictInput({ only: z.array(z.string().min(1).max(40)).min(1).max(20).optional() }),
     },
-    async () => {
+    async ({ only }) => {
       try {
-        return ok(appCatalogText())
+        return ok(only ? componentCatalogText(only) : appCatalogText())
       } catch (e) {
         return err(e)
       }

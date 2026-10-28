@@ -44,7 +44,6 @@ import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
-import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
@@ -99,6 +98,8 @@ internal fun composerPlaceholder(
     home: Boolean = false,
 ): String {
     if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
+    // S-3: an agent picked in the agent row keeps the home's question.
+    if (home && subject is ComposerSubject.Agent) return AgentHome.PLACEHOLDER
     return DomainContract.composerUiInstructionsPlaceholder
 }
 
@@ -143,7 +144,6 @@ data class LaunchDraft(
     val subagentModel: String = "",
     val effort: String = "",
     val ultracode: Boolean = false,
-    val planMode: Boolean = false,
     val account: String = "",
 ) {
     /**
@@ -175,7 +175,20 @@ class AgentComposerViewModel @Inject constructor(
     private val imagesApi: IssueImagesApi,
     private val issuesApi: IssuesApi,
     private val mcpServersApi: McpServersApi,
+    private val agentsApi: com.exponential.app.data.api.AgentsApi,
 ) : ViewModel() {
+
+    /** S-3: the viewer (the agent row's `me`). */
+    val me: StateFlow<String?> get() = auth.userId
+
+    /** S-3: the composer home calls `agents.ensureAssistant` on mount. */
+    fun ensureAssistant() {
+        val team = teamId.value
+        viewModelScope.launch {
+            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
+        }
+    }
+
 
     /** The route's one-shot preselection — applied once in `init`. */
     val seed: AgentComposerSeed = AgentComposerSeed.fromArgs(savedStateHandle)
@@ -318,6 +331,12 @@ class AgentComposerViewModel @Inject constructor(
      * shown.
      */
     private val _chatRepoId = MutableStateFlow("")
+    /** S-3: the + menu's Repository › (a team with more than one). */
+    val chatRepoId: StateFlow<String> = _chatRepoId
+
+    fun setChatRepo(repoId: String) {
+        _chatRepoId.value = repoId
+    }
 
     /** EXP-481: "Resume previous session" — ON whenever it is offerable; a
      * manual flip sticks for the page's lifetime. */
@@ -388,7 +407,6 @@ class AgentComposerViewModel @Inject constructor(
         _images.value = emptyList()
         _draft.value = ""
         _subject.value = null
-        reseedPlanMode()
     }
 
     // ── Launch options (EXP-437 seeding) ────────────────────────────────────
@@ -542,7 +560,6 @@ class AgentComposerViewModel @Inject constructor(
         seed.deviceId?.let { id -> _launch.value = _launch.value.copy(requestedDeviceId = id) }
         val text = seed.text
         if (!text.isNullOrEmpty() && _draft.value.isBlank()) _draft.value = text
-        reseedPlanMode()
     }
 
     // ── Subject actions ─────────────────────────────────────────────────────
@@ -557,20 +574,17 @@ class AgentComposerViewModel @Inject constructor(
             if (ids.isEmpty()) null else ComposerSubject.Issues(ids)
         }
         steerLaunch.clearFailure()
-        reseedPlanMode()
     }
 
     /** NEW-2: pick a saved prompt as the subject (the `/` menu, NEW-7). */
     fun pickPrompt(promptId: String) {
         _subject.value = ComposerSubject.Prompt(promptId)
         steerLaunch.clearFailure()
-        reseedPlanMode()
     }
 
     fun clearPrompt() {
         if (_subject.value is ComposerSubject.Prompt) _subject.value = null
         steerLaunch.clearFailure()
-        reseedPlanMode()
     }
 
     /** NEW-3: Message an agent ›'s pick — the agent replaces whatever subject
@@ -578,13 +592,11 @@ class AgentComposerViewModel @Inject constructor(
     fun pickAgent(agentId: String) {
         _subject.value = ComposerSubject.Agent(agentId)
         steerLaunch.clearFailure()
-        reseedPlanMode()
     }
 
     fun clearAgent() {
         if (_subject.value is ComposerSubject.Agent) _subject.value = null
         steerLaunch.clearFailure()
-        reseedPlanMode()
     }
 
     fun setDraft(text: String) {
@@ -690,10 +702,6 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(ultracode = value)
     }
 
-    fun setPlanMode(value: Boolean) {
-        _launch.value = _launch.value.copy(planMode = value)
-    }
-
     // ── EXP-1249: the "+" menu's MCP servers + Computer use ─────────────────
 
     private val _mcpServers = MutableStateFlow<List<McpServerOption>>(emptyList())
@@ -763,25 +771,9 @@ class AgentComposerViewModel @Inject constructor(
             subagentModel = seed.subagentModel,
             effort = seed.effort,
             ultracode = seed.ultracode,
-            // EXP-772: a chat (no subject) starts in build mode; a subject
-            // takes the machine's plan-mode default.
-            planMode = if (_subject.value == null) false else seed.planMode,
             // Profiles are per machine AND per agent — reset on either change.
             account = "",
         )
-    }
-
-    // EXP-772 regression guard: the always-open composer reseeds plan mode
-    // when the subject flips null↔set, or a chat would inherit the device
-    // default and a subject would inherit the chat's build mode.
-    private var hadSubject = false
-    private fun reseedPlanMode() {
-        val hasSubject = _subject.value != null
-        if (hasSubject == hadSubject) return
-        hadSubject = hasSubject
-        val current = _launch.value
-        val planMode = if (hasSubject) agentSeed(device.value, current.agent).planMode else false
-        _launch.value = current.copy(planMode = planMode && supportsPlanMode(current.agent))
     }
 
     // ── Submit ──────────────────────────────────────────────────────────────
@@ -790,8 +782,8 @@ class AgentComposerViewModel @Inject constructor(
      * EXP-1291: the composer's runner pickers + subject as ONE `sessions.send`
      * NEW ROOT input (in the ACTIVE team, on the settled device). [text] is
      * the composed prompt (image embeds included), [attachmentIds] the
-     * uploaded files. Plan mode, ultracode and computer use ride only where
-     * the agent / device reads them.
+     * uploaded files. Ultracode and computer use ride only where the agent /
+     * device reads them (S-3: no plan mode).
      */
     fun sendInput(
         teamId: String,
@@ -816,7 +808,6 @@ class AgentComposerViewModel @Inject constructor(
             account = draft.wireAccount,
             model = draft.model.takeIf { it.isNotEmpty() },
             effort = draft.effort.takeIf { it.isNotEmpty() },
-            planMode = if (supportsPlanMode(agent)) draft.planMode else null,
             ultracode = if (agent == DEFAULT_AGENT && draft.ultracode) true else null,
             // The row stores what was sent (NOT NULL, default off), so send the
             // SHOWN value, device default included, not only an explicit flip.

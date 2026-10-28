@@ -243,7 +243,11 @@ final class SessionListsModel {
             issues: rows.issues,
             messages: rows.messages,
             teamId: nil,
-            reads: rows.reads
+            reads: rows.reads,
+            // S-3: the clock the Recent window and the nested children's
+            // `visibleChild` read (a phone draws roots only; a hidden child
+            // folds into the `earlier` row, which opens the thread).
+            now: ISO8601DateFormatter().string(from: Date())
         )
         // Roots holding a live session of mine (any depth of the tree).
         let mine = Set(rows.sessions.filter {

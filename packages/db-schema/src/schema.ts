@@ -34,6 +34,8 @@ import {
   messageAuthorKindSchema,
   messageAuthorKindValues,
   conversationKindValues,
+  agentRoleValues,
+  type AgentRole,
   conversationKindSchema,
   type ConversationKind,
   sessionIssueSourceSchema,
@@ -156,6 +158,7 @@ export const messageAuthorKindEnum = pgEnum(
 )
 // NEW-3: conversations.kind.
 export const conversationKindEnum = pgEnum(`conversation_kind`, conversationKindValues)
+export const agentRoleEnum = pgEnum(`agent_role`, agentRoleValues)
 
 // EXP-741: who posted a comment (a person, or an agent over MCP).
 export const commentSourceEnum = pgEnum(`comment_source`, commentSourceValues)
@@ -2141,12 +2144,19 @@ export const agents = pgTable(
     ownerId: text(`owner_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
+    // S-3 (agent-settings.json `assistant`): `assistant` = the owner's ONE
+    // personal Assistant in this team (only they read it in lists and edit
+    // it; never deleted); `agent` = a team agent. SYNCED.
+    role: agentRoleEnum(`role`).notNull().default(`agent`).$type<AgentRole>(),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index(`idx_agents_team`).on(table.teamId),
     index(`idx_agents_device`).on(table.deviceId),
+    uniqueIndex(`uniq_agents_assistant`)
+      .on(table.teamId, table.ownerId)
+      .where(sql`role = 'assistant'`),
   ]
 )
 
@@ -2496,6 +2506,12 @@ export const messages = pgTable(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
     ),
+    // S-3: a bus COPY of another row (a child's relayed turn in its
+    // parent): the row it copies, so an edit of the origin patches every
+    // copy. SERVER-ONLY: never in the shape's columns. NULL = an original.
+    originMessageId: uuid(`origin_message_id`).references((): AnyPgColumn => messages.id, {
+      onDelete: `set null`,
+    }),
     // Plain GFM (images `![alt](/api/attachments/{id})`, mentions `@email`,
     // refs `#IDENT`). Empty on a pure card.
     body: text().notNull().default(``),
@@ -2526,6 +2542,7 @@ export const messages = pgTable(
       .on(table.sessionId)
       .where(sql`author_kind = 'user' AND consumed_at IS NULL`),
     index(`idx_messages_author_session`).on(table.authorSessionId),
+    index(`idx_messages_origin`).on(table.originMessageId).where(sql`origin_message_id IS NOT NULL`),
     // #EXP-1399: one `ask` mirror of a card per conversation (escalate
     // twice, or the bus and escalate, never insert twice).
     uniqueIndex(`uq_messages_ask_mirror`)

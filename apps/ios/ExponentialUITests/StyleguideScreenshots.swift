@@ -19,7 +19,7 @@ import XCTest
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_composer-menu · sg_chat-issues ·
-///   sg_machine-settings · sg_settings-team-agent · sg_threads ·
+///   sg_machine-settings · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
 ///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
@@ -29,7 +29,7 @@ import XCTest
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
-///   sg_app-export · sg_app-import · sg_voice-call · sg_settings-voice · sg_device-readiness
+///   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_device-readiness
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -510,13 +510,25 @@ final class StyleguideScreenshots: XCTestCase {
         chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
         expect(composer, within: Wait.nav, "Agent page did not open")
+        // S-3: the agent row stands over the card, the viewer's Assistant
+        // preselected (composer-home.json `agentRow`): that is `sg_chat`.
+        let assistantLabel = anyElement(app, identified: "composer-agent-label")
+        expect(assistantLabel, within: Wait.sync, "The composer's agent row never appeared")
+        expect(
+            app.staticTexts["To Assistant"].firstMatch,
+            within: Wait.sync,
+            "The agent row never preselected the Assistant — does the demo user have a desktop?"
+        )
+        snapshot("sg_chat", settle: 2)
+        // The dotted circle = Temporary session: today's launch, whose "+"
+        // carries the runner and work rows.
+        anyElement(app, identified: "composer-agent-temporary").tap()
         // The submit label proves the composer resolved its subject (a chat).
         expect(
             app.buttons["Start chat"].firstMatch,
             within: Wait.sync,
             "The composer never settled on the chat subject"
         )
-        snapshot("sg_chat", settle: 2)
 
         // EXP-1249: the "+" is the composer's ONLY tool — its sheet of the
         // `composer-menu.json` rows is `sg_composer-menu`. SLOP-28: Implement
@@ -776,6 +788,48 @@ final class StyleguideScreenshots: XCTestCase {
             goBack(app)
         }
 
+        // ── sg_settings-assistant: Settings → Agents → Assistant (S-3) ─────
+        // The viewer's OWN Assistant (the `@assistant` row, brand mark; the
+        // Agents page mounting ensures it): identity, Runs on, Check in, the
+        // Voice block and the server-only instructions (gate on them). A
+        // detour: nothing is edited.
+        if ScreenshotShots.isWanted("sg_settings-assistant") {
+            let agentsRow = teamSettingsRow(app, "Agents")
+            scrollUntilVisible(app, agentsRow, attempts: 4)
+            agentsRow.tap()
+            let assistantRow = app.buttons["assistant-settings-row"]
+            expect(assistantRow, within: Wait.sync, "The Agents page has no Assistant row")
+            assistantRow.tap()
+            expect(
+                anyElement(app, identified: "assistant-check-in-row"),
+                within: Wait.network,
+                "The Assistant page drew no Check in row (no Assistant synced: does the demo member own a device?)"
+            )
+            // The Form is lazy: the instructions (last section) exist only
+            // once scrolled into view; scroll down to gate on them, then back.
+            let assistantInstructions = anyElement(app, identified: "agent-instructions")
+            var swipes = 0
+            while !assistantInstructions.exists && swipes < 8 {
+                app.swipeUp()
+                swipes += 1
+            }
+            expect(
+                assistantInstructions,
+                within: Wait.network,
+                "The Assistant's instructions never loaded (agents.get)"
+            )
+            for _ in 0...swipes { app.swipeDown() }
+            expect(
+                anyElement(app, identified: "assistant-check-in-row"),
+                within: Wait.nav,
+                "The Assistant page did not scroll back to its top"
+            )
+            snapshot("sg_settings-assistant", settle: 2)
+            goBack(app)
+            expect(assistantRow, within: Wait.nav, "Did not return to the Agents page")
+            goBack(app)
+        }
+
         // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────
         // NEW-7: the team settings page's Prompts section (the band with New
         // prompt over one row per prompt) scrolled into view, then New prompt
@@ -935,13 +989,12 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) ·
-        // sg_settings-voice (NEW-71, voice.json: THE Voice page over the
-        // seed's rows) · sg_device-readiness (EXP-1375): the styleguide entries'
+        // sg_device-readiness (EXP-1375) · sg_session-xref (S-3): the styleguide entries'
         // specimens.
         for entry in [
             "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
             "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-            "call-controls", "settings-voice", "device-readiness",
+            "call-controls", "device-readiness", "session-xref",
         ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
@@ -956,8 +1009,8 @@ final class StyleguideScreenshots: XCTestCase {
             case "mention-pill": snapshot("sg_mention-pill", settle: 2)
             case "voice-call": snapshot("sg_voice-call", settle: 2)
             case "call-controls": snapshot("sg_call-controls", settle: 2)
-            case "settings-voice": snapshot("sg_settings-voice", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
+            case "session-xref": snapshot("sg_session-xref", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
@@ -1148,6 +1201,19 @@ final class StyleguideScreenshots: XCTestCase {
             expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
         }
+        // S-3: the Conversation opens on its newest rows; scroll back to the
+        // child's relayed turn so its link header ("Message from … ›") and
+        // the report line below it are in the shot.
+        let relayed = app.descendants(matching: .any)
+            .matching(identifier: "thread-xref")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Message from"))
+            .firstMatch
+        var back = 0
+        while !(relayed.exists && relayed.isHittable) && back < 8 {
+            app.swipeDown()
+            back += 1
+        }
+        expect(relayed, within: Wait.sync, "The cold-start thread drew no \"Message from\" link — reseed with `bun run seed:screenshots`")
         snapshot("sg_thread", settle: 2)
         guard ScreenshotShots.isWanted("sg_session") else {
             goBack(app)
@@ -1211,10 +1277,10 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "The session did not open as the thread's \"\(Self.sessionTitle)\" page"
         )
-        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The thread header drew no Stop for the session")
+        // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
         // Back once (the session page → the Threads list) on the system
-        // back button (`goBack`: by name, never the bar's Stop or `…`).
+        // back button (`goBack`: by name, never the bar's `…`).
         goBack(app)
         settle(1)
     }

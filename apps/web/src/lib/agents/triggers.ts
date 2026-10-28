@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, gt, ne, sql } from "drizzle-orm"
 import type { AgentTrigger, AgentTriggerState } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -19,7 +19,9 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // minute, so a server that was down over a due time fires ONCE when it is
 // back (#FEED-124: caught up, never lost) and a tick never fires twice. A
 // schedule never stacks: while its last firing is still unread the tick is
-// skipped. Event triggers fire as the `events` row lands (`lib/events.ts`),
+// skipped (S-3: the due schedules of a tick fold into ONE edited tick card;
+// a tick with nothing moved in the agent's trees is skipped). Event
+// triggers fire as the `events` row lands (`lib/events.ts`),
 // never for the agent whose own session emitted it. #EXP-1409: an event
 // about a private session (`EventPrivateDetail`) posts its full payload
 // only into a conversation whose readers may see that session (the
@@ -105,25 +107,69 @@ export function nudgeAgentHost(host: { ownerId: string; deviceId: string } | nul
   nudge(host)
 }
 
-/** The firing of `trigger` still unread on the owner's conversation. */
-async function firingPending(tx: Tx, agent: Agent, triggerId: string): Promise<boolean> {
+/** S-3: the owner's schedule TICK card the next firing folds into: the
+ *  unread one, else the newest one when no person message came after it
+ *  (then it is re-armed: unread again). Null = post a new card. */
+async function foldableTick(tx: Tx, agent: Agent): Promise<{ id: string; pending: boolean } | null> {
   const [row] = await tx
-    .select({ id: messages.id })
+    .select({ id: messages.id, consumedAt: messages.consumedAt, sessionId: messages.sessionId, createdAt: messages.createdAt })
     .from(messages)
     .innerJoin(sessions, eq(sessions.id, messages.sessionId))
     .where(
       and(
         eq(sessions.agentId, agent.id),
         eq(sessions.userId, agent.ownerId),
-        isNull(messages.consumedAt),
-        sql`${messages.card}->>'event' = 'trigger_fired' AND ${messages.card}->>'triggerId' = ${triggerId}`
+        sql`${messages.card}->>'event' = 'trigger_fired' AND ${messages.card}->>'eventId' IS NULL AND ${messages.card}->>'triggerId' IS NOT NULL`
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+  if (!row) return null
+  if (row.consumedAt === null) return { id: row.id, pending: true }
+  const [later] = await tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.sessionId, row.sessionId),
+        eq(messages.authorKind, `user`),
+        ne(messages.id, row.id),
+        gt(messages.createdAt, row.createdAt)
       )
     )
     .limit(1)
-  return !!row
+  return later ? null : { id: row.id, pending: false }
 }
 
-/** One tick of every agent's schedules. Returns the firings posted. */
+/** S-3: whether anything moved in the agent's watched trees (the threads
+ *  it started, the sub-sessions of its conversations) since `since`. An
+ *  agent with no tree at all always counts as changed (nothing to judge
+ *  by: its schedule is its own work). */
+async function treesChanged(tx: Tx, agent: Agent, since: Date): Promise<boolean> {
+  const trees = sql`(
+    ${sessions.rootId} IN (SELECT id FROM sessions r WHERE r.started_by_agent_id = ${agent.id})
+    OR (${sessions.rootId} IN (SELECT id FROM sessions c WHERE c.agent_id = ${agent.id}) AND ${sessions.id} <> ${sessions.rootId})
+  )`
+  const [any] = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.teamId, agent.teamId), trees))
+    .limit(1)
+  if (!any) return true
+  const [moved] = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.teamId, agent.teamId), trees, gt(sessions.lastActivityAt, since)))
+    .limit(1)
+  return !!moved
+}
+
+/** One tick of every agent's schedules. Returns the firings posted. S-3:
+ *  every schedule due this tick folds into ONE tick card per agent
+ *  conversation, edited in place while it is unread (or the newest thing no
+ *  person message answered: then it is re-armed), and a tick is skipped
+ *  when nothing moved in the agent's watched trees since its last firing.
+ *  Never stacks: an unread tick only takes the newer text. */
 export async function fireScheduledTriggers(now: Date = new Date()): Promise<number> {
   const catchUpSince = new Date(now.getTime() - contract.agentTrigger.catchUpHours * HOUR)
   const hosts: Array<{ ownerId: string; deviceId: string } | null> = []
@@ -137,11 +183,15 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
     for (const agent of rows) {
       const state: AgentTriggerState = { ...(agent.triggerState ?? {}) }
       let changed = false
+      const due: Array<{ trigger: AgentTrigger; cron: string; tz: string | null; at: Date; caughtUp: boolean }> = []
+      let lastFired: Date | null = null
       for (const trigger of enabledTriggers(agent)) {
         if (trigger.kind !== `schedule`) continue
         const fields = parseCron(trigger.cron)
         if (!fields) continue
         const entry = { ...(state[trigger.id] ?? {}) }
+        const firedAt = entry.firedAt ? new Date(entry.firedAt) : null
+        if (firedAt && !Number.isNaN(firedAt.getTime()) && (!lastFired || firedAt > lastFired)) lastFired = firedAt
         const checkedAt = entry.checkedAt ? new Date(entry.checkedAt) : null
         entry.checkedAt = now.toISOString()
         state[trigger.id] = entry
@@ -150,20 +200,29 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
         // next due minute on, never retroactively.
         if (!checkedAt || Number.isNaN(checkedAt.getTime())) continue
         const after = checkedAt > catchUpSince ? checkedAt : catchUpSince
-        const due = latestCronMatch(fields, after, now, trigger.tz ?? null)
-        if (!due) continue
-        if (await firingPending(tx, agent, trigger.id)) continue
-        const caughtUp = now.getTime() - due.getTime() > 2 * MIN
+        const at = latestCronMatch(fields, after, now, trigger.tz ?? null)
+        if (!at) continue
+        due.push({ trigger, cron: trigger.cron, tz: trigger.tz ?? null, at, caughtUp: now.getTime() - at.getTime() > 2 * MIN })
+      }
+      if (due.length > 0 && (!lastFired || (await treesChanged(tx, agent, lastFired)))) {
+        const body = due.map((d) => TRIGGER_COPY.schedule(d.cron, d.tz, d.caughtUp)).join(`\n`)
         try {
-          hosts.push(
-            await postFiring(tx, agent, trigger, TRIGGER_COPY.schedule(trigger.cron, trigger.tz ?? null, caughtUp), null)
-          )
-          entry.firedAt = due.toISOString()
-          count += 1
+          const tick = await foldableTick(tx, agent)
+          if (tick) {
+            await tx
+              .update(messages)
+              .set({ body, updatedAt: now, ...(tick.pending ? {} : { consumedAt: null }) })
+              .where(eq(messages.id, tick.id))
+            if (!tick.pending) hosts.push({ ownerId: agent.ownerId, deviceId: agent.deviceId })
+          } else {
+            hosts.push(await postFiring(tx, agent, due[0]!.trigger, body, null))
+          }
+          for (const d of due) state[d.trigger.id] = { ...state[d.trigger.id], firedAt: d.at.toISOString() }
+          count += due.length
         } catch (error) {
           // The agent's device is gone for its owner: nothing can run the
           // firing; the tick moves on (the owner fixes the device).
-          console.warn(`[agent-triggers] schedule ${trigger.id} of agent ${agent.id} not fired:`, error)
+          console.warn(`[agent-triggers] schedules of agent ${agent.id} not fired:`, error)
         }
       }
       // Entries of triggers that no longer exist are dropped.

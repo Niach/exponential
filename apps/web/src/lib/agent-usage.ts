@@ -165,6 +165,8 @@ export function blockedBadgeLabel(
 ): string | null {
   if (!blocked) return null
   const kind = blocked.kind ?? `rate_limit`
+  // S-3: an interruption (offline host, runner restart) is invisible.
+  if (kind === `device_offline` || kind === `restarted`) return null
   // NEW-1: a watchdog flag (device offline, not picked up, stuck) names
   // itself with the session card's word (`copy.blockedKinds`); it has no
   // reset to count down to.

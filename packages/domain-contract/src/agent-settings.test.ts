@@ -1,8 +1,21 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, it, test } from "bun:test"
 
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { agentAccountValue, assigneeOptions, issueActor, triggerSummary, validateAgentForm } from "./agent-settings"
+import {
+  agentAccountValue,
+  ASSISTANT_SCHEDULES,
+  assigneeOptions,
+  assistantScheduleOf,
+  assistantScheduleTriggers,
+  issueActor,
+  orderedAgents,
+  triggerSummary,
+  validateAgentForm,
+  visibleAgent,
+  type AgentRoleLike,
+  type AgentTriggerLike,
+} from "./agent-settings"
 
 describe(`agent settings fixtures (EXP-1291)`, () => {
   test(`every builtin event name has a summary`, () => {
@@ -36,4 +49,27 @@ describe(`agent settings fixtures (EXP-1291)`, () => {
       expect(picked ? { agent: picked.agent, email: picked.email } : null).toEqual(entry.expected as never)
     })
   }
+})
+
+describe(`agent-settings.json assistant`, () => {
+  for (const c of fixture.assistant.scheduleCases) {
+    it(`scheduleCases: ${c.name}`, () => {
+      expect(assistantScheduleOf(c.triggers as AgentTriggerLike[])).toBe(c.expected as never)
+    })
+  }
+  for (const c of fixture.assistant.visibleCases) {
+    it(`visibleCases: ${c.name}`, () => {
+      expect(visibleAgent(c.agent as AgentRoleLike, c.me)).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.orderCases) {
+    it(`orderCases: ${c.name}`, () => {
+      expect(orderedAgents(c.agents, c.me).map((agent) => agent.id)).toEqual(c.expected)
+    })
+  }
+  it(`every preset round-trips`, () => {
+    for (const schedule of ASSISTANT_SCHEDULES) {
+      expect(assistantScheduleOf(assistantScheduleTriggers(schedule.id))).toBe(schedule.id)
+    }
+  })
 })

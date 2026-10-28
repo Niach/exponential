@@ -31,6 +31,9 @@ final class AgentSettingsDraft {
     var cli: String?
     /// The picked profile id; nil = unpinned (the device's last used login).
     var account: String?
+    /// S-3: the pinned model (the Assistant page's Runs on); nil = the
+    /// device's default for the agent.
+    var model: String?
     /// An EXISTING agent's CLI: the page never changes it, so
     /// its Account row only offers that CLI's logins. nil = a new agent (any
     /// login, its agent becomes the CLI) or one created unpinned.
@@ -59,6 +62,7 @@ final class AgentSettingsDraft {
         var deviceId: String?
         var cli: String?
         var account: String?
+        var model: String?
         /// nil until loaded.
         var instructions: String?
     }
@@ -80,6 +84,7 @@ final class AgentSettingsDraft {
         cli = agent.cli
         lockedCli = agent.cli
         account = AccountOptions.wireAccount(agent.account)
+        model = agent.model
         triggers = AgentTrigger.parseList(agent.triggers)
         let instructionsBase = baseline.instructions
         snapshotBaseline()
@@ -102,6 +107,7 @@ final class AgentSettingsDraft {
             deviceId: deviceId,
             cli: cli,
             account: account,
+            model: model,
             instructions: instructionsLoaded ? instructions.currentMarkdown() : nil
         )
     }
@@ -137,6 +143,7 @@ final class AgentSettingsDraft {
         if let deviceId, deviceId != baseline.deviceId { patch.deviceId = deviceId }
         // An explicit null = the device's last used login.
         if cli != baseline.cli || account != baseline.account { patch.account = .some(account) }
+        if model != baseline.model { patch.model = .some(model) }
         if instructionsLoaded, let base = baseline.instructions {
             let markdown = instructions.currentMarkdown()
             if markdown != base { patch.instructions = markdown }
@@ -280,6 +287,16 @@ struct AgentSettingsPage: View {
     }
 
     var body: some View {
+        // S-3: an Assistant (only ever the viewer's own) opens THE Assistant
+        // page wherever an agent page is pushed (settings, chats, thread).
+        if let agentId, agent?.isAssistant == true {
+            AssistantSettingsPage(teamId: teamId, agentId: agentId)
+        } else {
+            agentPage
+        }
+    }
+
+    private var agentPage: some View {
         ZStack {
             AppBackground()
 
@@ -600,78 +617,12 @@ struct AgentSettingsForm: View {
         .disabled(!canEdit)
     }
 
-    /// The shared `DevicePicker` — the composer's rows (glyph, name, owner).
     private var deviceRow: some View {
-        DevicePicker(
-            devices: devices.map(DevicePickerDevice.init),
-            value: draft.deviceId,
-            onChange: { draft.selectDevice($0, devices: devices) },
-            trigger: {
-                GlassPickerRowLabel(
-                    label("device"),
-                    value: device.map(LaunchVocabulary.deviceName) ?? "",
-                    icon: device.map { DeviceIconDisplay.iconName(for: $0) }
-                )
-            }
-        )
-        .disabled(!canEdit)
-        .accessibilityIdentifier("agent-device-row")
+        AgentDeviceRow(draft: draft, devices: devices, canEdit: canEdit, title: label("device"))
     }
 
-    /// The shared `AccountPicker` over the picked machine's logins; a pick
-    /// names the agent (`cli`) too. EXP-1306: the value reads like the
-    /// composer chip (the agent's brand mark + the login's email) and the row
-    /// like the Device row beside it. A lone login is nothing to pick: the
-    /// same line outside the picker (which disables a lone login, and a
-    /// disabled Form row dims). No login reported = `Last used`, muted.
-    /// EXP-1307: every form ends in the chevron, like the rows beside it (web).
-    @ViewBuilder
     private var accountRow: some View {
-        let options = AgentSettingsDraft.accountOptions(on: device, cli: draft.lockedCli)
-        let current = draft.selectedAccount(in: options)
-        if let current, options.count > 1 {
-            AccountPicker(
-                options: options,
-                value: current.key,
-                onChange: { key in
-                    guard let picked = options.first(where: { $0.key == key }) else { return }
-                    draft.selectAccount(picked)
-                },
-                mark: { AgentBrandMark.image($0) },
-                trigger: { accountRowLabel(current) }
-            )
-            .disabled(!canEdit)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("agent-account-row")
-        } else {
-            accountRowLabel(current)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("agent-account-row")
-        }
-    }
-
-    private func accountRowLabel(_ current: AccountOption?) -> some View {
-        HStack(spacing: 8) {
-            Text(label("account"))
-                .foregroundStyle(.white.opacity(TextOpacity.primary))
-            Spacer(minLength: 8)
-            if let current {
-                AccountPickerTriggerLabel(
-                    option: current,
-                    mark: AgentBrandMark.image(current.agent),
-                    chevron: true,
-                    style: .rowValue
-                )
-            } else {
-                HStack(spacing: 6) {
-                    Text(AgentSettings.Copy.accountLastUsed)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                    AppIcon(AppIcons.uiChevronRight, size: 14)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            }
-        }
+        AgentAccountRow(draft: draft, device: device, canEdit: canEdit, title: label("account"))
     }
 
     /// One row per trigger (its summary + switch); none = the agent only
@@ -741,8 +692,122 @@ struct AgentSettingsForm: View {
         .accessibilityIdentifier("trigger-row")
     }
 
-    @ViewBuilder
     private var instructionsEditor: some View {
+        AgentInstructionsEditor(
+            draft: draft,
+            canEdit: canEdit,
+            baseURL: baseURL,
+            accountId: accountId,
+            httpClient: httpClient,
+            onRetry: onRetryInstructions
+        )
+    }
+}
+
+// MARK: - Shared rows (the agent page + the Assistant page)
+
+/// The shared `DevicePicker` — the composer's rows (glyph, name, owner).
+struct AgentDeviceRow: View {
+    @Bindable var draft: AgentSettingsDraft
+    let devices: [SteerDevice]
+    let canEdit: Bool
+    let title: String
+
+    private var device: SteerDevice? {
+        devices.first { $0.deviceId == draft.deviceId }
+    }
+
+    var body: some View {
+        DevicePicker(
+            devices: devices.map(DevicePickerDevice.init),
+            value: draft.deviceId,
+            onChange: { draft.selectDevice($0, devices: devices) },
+            trigger: {
+                GlassPickerRowLabel(
+                    title,
+                    value: device.map(LaunchVocabulary.deviceName) ?? "",
+                    icon: device.map { DeviceIconDisplay.iconName(for: $0) }
+                )
+            }
+        )
+        .disabled(!canEdit)
+        .accessibilityIdentifier("agent-device-row")
+    }
+}
+
+/// The shared `AccountPicker` over the picked machine's logins; a pick
+/// names the agent (`cli`) too. EXP-1306: the value reads like the
+/// composer chip (the agent's brand mark + the login's email) and the row
+/// like the Device row beside it. A lone login is nothing to pick: the
+/// same line outside the picker (which disables a lone login, and a
+/// disabled Form row dims). No login reported = `Last used`, muted.
+/// EXP-1307: every form ends in the chevron, like the rows beside it (web).
+struct AgentAccountRow: View {
+    @Bindable var draft: AgentSettingsDraft
+    let device: SteerDevice?
+    let canEdit: Bool
+    let title: String
+
+    var body: some View {
+        let options = AgentSettingsDraft.accountOptions(on: device, cli: draft.lockedCli)
+        let current = draft.selectedAccount(in: options)
+        if let current, options.count > 1 {
+            AccountPicker(
+                options: options,
+                value: current.key,
+                onChange: { key in
+                    guard let picked = options.first(where: { $0.key == key }) else { return }
+                    draft.selectAccount(picked)
+                },
+                mark: { AgentBrandMark.image($0) },
+                trigger: { label(current) }
+            )
+            .disabled(!canEdit)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("agent-account-row")
+        } else {
+            label(current)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("agent-account-row")
+        }
+    }
+
+    private func label(_ current: AccountOption?) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+            Spacer(minLength: 8)
+            if let current {
+                AccountPickerTriggerLabel(
+                    option: current,
+                    mark: AgentBrandMark.image(current.agent),
+                    chevron: true,
+                    style: .rowValue
+                )
+            } else {
+                HStack(spacing: 6) {
+                    Text(AgentSettings.Copy.accountLastUsed)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                    AppIcon(AppIcons.uiChevronRight, size: 14)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+        }
+    }
+}
+
+/// The instructions' markdown editor (server-only text: a skeleton until
+/// `agents.get` answered, a Retry row when it failed).
+struct AgentInstructionsEditor: View {
+    @Bindable var draft: AgentSettingsDraft
+    let canEdit: Bool
+    var baseURL: URL? = nil
+    var accountId: String = ""
+    var httpClient: HTTPClient? = nil
+    var onRetry: () -> Void = {}
+
+    var body: some View {
         if draft.instructionsLoaded {
             MarkdownEditor(
                 model: draft.instructions,
@@ -760,7 +825,7 @@ struct AgentSettingsForm: View {
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
-                    onRetryInstructions()
+                    onRetry()
                 })
             }
             .frame(maxWidth: .infinity)

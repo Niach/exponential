@@ -67,6 +67,7 @@ import {
   type MoveTarget,
 } from "@/lib/sessions/move"
 import { SHARING_ORDER } from "@/lib/sessions/host"
+import { agentReuseRefusal } from "@/lib/sessions/agent-reuse"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
@@ -377,7 +378,7 @@ export function assertRunnerVocabulary(
 
 type RunnerSource = Pick<
   Session,
-  `cli` | `account` | `model` | `effort` | `planMode` | `computerUse` | `ultracode`
+  `cli` | `account` | `model` | `effort` | `computerUse` | `ultracode`
 >
 
 /** The runner pickers of a new session: the input's, else inherited from
@@ -390,7 +391,6 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
     account: input.account ?? from?.account ?? null,
     model: input.model?.trim() || from?.model || null,
     effort: input.effort?.trim() || from?.effort || null,
-    planMode: input.planMode ?? from?.planMode ?? false,
     computerUse: input.computerUse ?? from?.computerUse ?? false,
     ultracode: input.ultracode ?? from?.ultracode ?? false,
   }
@@ -403,11 +403,13 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
 export interface RunnerPicks {
   model?: string
   effort?: string | null
-  planMode?: boolean
   ultracode?: boolean
   computerUse?: boolean
 }
 
+/** S-3: plan mode is gone (a plan is an `exponential_show {plan}` card, no
+ *  gate): an old client's `planMode` pick is accepted and ignored, and the
+ *  legacy `sessions.plan_mode` column is never written. */
 export function runnerPicks(input: {
   model?: string | null
   effort?: string | null
@@ -419,7 +421,6 @@ export function runnerPicks(input: {
   return {
     ...(model ? { model } : {}),
     ...(input.effort !== undefined ? { effort: input.effort?.trim() || null } : {}),
-    ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
     ...(input.ultracode !== undefined ? { ultracode: input.ultracode } : {}),
     ...(input.computerUse !== undefined ? { computerUse: input.computerUse } : {}),
   }
@@ -610,7 +611,8 @@ export async function sendSession(args: {
   }
   if (outcome.messageId) fireAndForgetSessionMessageNotify({ messageId: outcome.messageId })
   // EXP-1375: a start on a device low on disk says so.
-  const warning = outcome.queued ? await startDiskWarning(outcome.queued) : null
+  const disk = outcome.queued ? await startDiskWarning(outcome.queued) : null
+  const warning = [outcome.warning, disk].filter(Boolean).join(` `)
   return {
     sessionId: outcome.sessionId,
     messageId: outcome.messageId,
@@ -746,6 +748,49 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
   await postMovedMessage(tx, session, movedText(from, target.name))
 }
 
+/** S-3: an agent's message to a thread it may not reuse never fails: it
+ *  starts a FRESH thread on the same device and repository with the same
+ *  message (watched by the caller, `startRoot`), the result's `warning`
+ *  naming why. */
+async function agentFreshThread(
+  userId: string,
+  uploaderIds: string[],
+  input: SessionsSendInput,
+  caller: Session | null,
+  target: Session
+): Promise<SendOutcome | null> {
+  if (!caller || caller.rootId === target.rootId) return null
+  if (target.parentId !== null || target.agentId || target.appId || isPersistent(target)) return null
+  if (input.answer || !(input.text?.trim() || input.attachmentIds?.length)) return null
+  if (!(await callerTreeAgentId(caller))) return null
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessions)
+    .where(and(eq(sessions.rootId, target.id), ne(sessions.id, target.id)))
+  const reason = agentReuseRefusal(target, count, new Date())
+  if (!reason) return null
+  const outcome = await startRoot(
+    userId,
+    uploaderIds,
+    {
+      ...input,
+      sessionId: undefined,
+      teamId: target.teamId,
+      deviceId: input.deviceId ?? target.deviceId ?? undefined,
+      repositoryId: target.repositoryId ?? undefined,
+      cli: target.cli ?? undefined,
+      model: input.model ?? target.model ?? undefined,
+      effort: input.effort ?? target.effort ?? undefined,
+      account: input.account ?? target.account ?? undefined,
+    },
+    caller
+  )
+  return {
+    ...outcome,
+    warning: `Started a fresh thread instead of reusing ${target.id}: ${reason}. You watch the new one.`,
+  }
+}
+
 async function messageSession(
   userId: string,
   uploaderIds: string[],
@@ -760,6 +805,10 @@ async function messageSession(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The session is in another team` })
   }
   const input = modelCommand(sent, viaMcp)
+  if (viaMcp) {
+    const fresh = await agentFreshThread(userId, uploaderIds, input, caller, target)
+    if (fresh) return fresh
+  }
   // EXP-1376: the runner picks apply to the session (never dropped), in the
   // vocabulary of the agent it runs.
   const cli = await effectiveCli(target)
@@ -1246,9 +1295,6 @@ async function startChild(
       userId,
       deviceId,
       ...runnerFields(input, parent),
-      // NEW-6 (N-1): plan mode is the ROOT's stance, never inherited: a
-      // child plans only when its start says so.
-      planMode: input.planMode ?? false,
       // EXP-1341: the parent's `name`, else a suggestion's title; omitted =
       // the session names itself (session-title.json).
       ...((input.name ?? extras.title)?.trim()

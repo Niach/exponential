@@ -507,6 +507,14 @@ async function recipeTypeIssueRef(page: Page): Promise<void> {
  * recipe hovers the row and waits for the search list's rows inside it.
  */
 async function recipeOpenComposerMenuImplement(page: Page): Promise<void> {
+  // S-3 (composer-home.json `agentRow`): the home preselects the Assistant;
+  // the + menu is photographed for a Temporary session (every row).
+  // Wait for the row: it renders once the agents shape is in, after the
+  // composer itself, so a bare count() raced it and photographed the Assistant.
+  const temporary = page.getByTestId(`composer-agent-temporary`).filter({ visible: true })
+  if (await temporary.first().waitFor({ timeout: 20_000 }).then(() => true, () => false)) {
+    await temporary.first().click()
+  }
   const plus = page.getByTestId(`agent-composer-plus-button`)
   await plus.first().waitFor({ timeout: 30_000 })
   await plus.first().click()

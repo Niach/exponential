@@ -1,10 +1,10 @@
-import { useState } from "react"
+import type { ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import {
+  Button,
   conceptIcon,
   FloatingComposer,
-  Pill,
-  toastActionError,
+  SessionXref,
   useIsMobile,
   WORK_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
@@ -12,16 +12,14 @@ import {
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
 import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
-import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { actionErrorDescription, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { sessionCollection } from "@/lib/collections"
-import { trpc } from "@/lib/trpc-client"
 import {
   useSessionCard,
   useSessionRow,
   useSessionThread,
 } from "@/hooks/use-session-tree"
 import { useAgentRow } from "@/hooks/use-agent-row"
+import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
+import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
@@ -32,18 +30,59 @@ import { cn } from "@/lib/utils"
 //
 //   InPlaceSession   the body of the thread page's session chip
 //                    (`?tab=session&session=<id>`) under the thread's own
-//                    header + strip; the header carries its Stop pill
-//                    (EXP-1343: phones too, a page of the thread's pager)
+//                    header + strip (EXP-1343: phones too, a page of the
+//                    thread's pager); S-3: no Stop pill anywhere
 //   SessionScreen    sessions under a team AGENT (`/sessions/$id`): its own header,
 //                    back to the thread (or the agent's channel), the
-//                    session's name (Chats: no Stop pill under an agent)
+//                    session's name
 //
 // The feed always shows the work (no faces, no Show work, no Guide), and the
 // reply box posts to THIS session. Visibility is the shape's. EXP-1323:
 // opening either marks THIS session read (`useOpenedSessionRead`).
 
 const BackIcon = conceptIcon(`ui-back`)
-const StopIcon = conceptIcon(`coding-stop`)
+const PopIcon = conceptIcon(`ui-chevron-left`)
+
+/** S-3: who started the session on show (`SessionThreadView.origin`) as
+ *  THE xref line on top of its raw work. */
+export function SessionOrigin({
+  origin,
+  onOpen,
+  className,
+}: {
+  origin: SessionXrefModel | null | undefined
+  onOpen?: (sessionId: string) => void
+  className?: string
+}) {
+  const xrefAgent = useXrefAgent()
+  if (!origin) return null
+  return (
+    <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `flex shrink-0 pt-3 pb-1`, className)}>
+      <SessionXref
+        xref={origin}
+        agent={origin.agentId ? xrefAgent(origin.agentId) : null}
+        onOpen={onOpen}
+      />
+    </div>
+  )
+}
+
+/** S-3: the header's `‹` popping the route's `back` stack (absent = none). */
+export function BackStackButton({ onPop, className }: { onPop?: () => void; className?: string }) {
+  if (!onPop) return null
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label="Back"
+      data-testid="thread-back"
+      onClick={onPop}
+      className={cn(`shrink-0 text-muted-foreground`, className)}
+    >
+      <PopIcon className="size-4" />
+    </Button>
+  )
+}
 const REPLY_PLACEHOLDER = `Reply…`
 
 /** The reply box under a session's feed. */
@@ -79,19 +118,33 @@ export function InPlaceSession({
   row,
   topInset = 0,
   floating = false,
+  origin = null,
+  onOpenXref,
 }: {
   row: SessionRow
   /** Phones: the overlay header band's height. */
   topInset?: number
   floating?: boolean
+  /** S-3: who started it (the thread view's `origin` with it in focus). */
+  origin?: SessionXrefModel | null
+  onOpenXref?: (sessionId: string) => void
 }) {
   useOpenedSessionRead(row.id)
+  let header: ReactNode = topInset ? <div aria-hidden className="shrink-0" style={{ height: topInset }} /> : undefined
+  if (origin) {
+    header = (
+      <>
+        {header}
+        <SessionOrigin origin={origin} onOpen={onOpenXref} />
+      </>
+    )
+  }
   return (
     <div className="min-h-0 flex-1" data-testid="thread-session-body">
       <AgentSessionView
         key={row.id}
         session={row}
-        header={topInset ? <div aria-hidden className="shrink-0" style={{ height: topInset }} /> : undefined}
+        header={header}
         composerFloats={floating}
         composer={
           floating ? (
@@ -111,7 +164,16 @@ export function InPlaceSession({
 }
 
 /** The session on its own screen (phones; sessions under an agent). */
-export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: SessionRow }) {
+export function SessionScreen({
+  teamSlug,
+  row,
+  back,
+}: {
+  teamSlug: string
+  row: SessionRow
+  /** S-3: the route's `back` stack. */
+  back?: string
+}) {
   useOpenedSessionRead(row.id)
   const isMobile = useIsMobile()
   const rootId = row.rootId ?? row.id
@@ -123,7 +185,8 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
   const rootAgentId = rootRow?.agentId ?? null
   const { agent: rootAgent } = useAgentRow(rootAgentId)
   const card = useSessionCard(row)
-  const { view } = useSessionThread(rootId)
+  const { view } = useSessionThread(rootId, row.id)
+  const nav = useSessionNav({ teamSlug, here: row.id, back })
   const threadTitle = view?.title ?? null
   // EXP-1341: the card's `sessionTitle`, else the thread's; never a generic
   // word (both hold while their shapes load).
@@ -137,6 +200,8 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
       className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
       data-testid="session-header"
     >
+      <div className="flex min-w-0 items-center gap-1">
+      <BackStackButton onPop={nav.pop} className="-ml-1.5" />
       {rootAgentId ? (
         <Link
           to="/t/$teamSlug/agents/$agentId"
@@ -158,6 +223,7 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
           <span className="truncate">{threadTitle ?? `Back`}</span>
         </Link>
       ) : null}
+      </div>
       <div className="mt-3 flex min-w-0 items-center gap-3">
         <CardIcon className="size-5 shrink-0 text-muted-foreground" />
         <h1
@@ -166,12 +232,8 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
         >
           {name}
         </h1>
-        {/* Chats STOP: an agent's tree has no header pill; a thread's
-            ends its root. */}
-        {!rootAgentId && rootRow && rootRow.status !== `ended` ? (
-          <SessionStopPill rootId={rootId} />
-        ) : null}
       </div>
+      {view?.origin ? <SessionOrigin origin={view.origin} onOpen={nav.open} className="px-0" /> : null}
     </div>
   )
 
@@ -196,37 +258,3 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
     />
   )
 }
-
-/** Thread 58cb32df (chats.json STOP): the thread header's Stop pill = the
- *  chat menu's Stop, `sessions.end` on the ROOT (the whole tree ends); shown
- *  while the root is not ended. An agent chat has none (only the composer's
- *  turn stop and the agent menu's). A failure toasts `copy.toasts.stopFailed`. */
-export function SessionStopPill({ rootId }: { rootId: string }) {
-  const [stopping, setStopping] = useState(false)
-  return (
-    <Pill
-      mode="action"
-      className="shrink-0 text-destructive"
-      disabled={stopping}
-      onClick={async () => {
-        setStopping(true)
-        try {
-          const result = await trpc.sessions.end.mutate({ sessionId: rootId }, SKIP_ERROR_TOAST)
-          await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-        } catch (error) {
-          toastActionError(CHATS_COPY.toasts.stopFailed, { description: actionErrorDescription(error) })
-        } finally {
-          setStopping(false)
-        }
-      }}
-      aria-label={STOP_LABEL}
-      title={STOP_LABEL}
-      data-testid="session-stop"
-    >
-      <StopIcon className="size-3.5" />
-      {CHATS_COPY.menu.stop}
-    </Pill>
-  )
-}
-
-const STOP_LABEL = `Stop the chat`

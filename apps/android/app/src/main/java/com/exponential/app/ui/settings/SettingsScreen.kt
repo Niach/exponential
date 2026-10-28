@@ -259,6 +259,8 @@ internal fun SettingsRow(
     trailingCount: Int? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** S-3: a drawn lead instead of [icon] (the Assistant's brand mark). */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -267,12 +269,16 @@ internal fun SettingsRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
+        if (leading != null) {
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) { leading() }
+        } else {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -437,6 +443,8 @@ data class TeamTabState(
     val members: Int = 0,
     val boards: Int = 0,
     val agents: Int = 0,
+    /** S-3: the viewer's own Assistant in the team (null = none yet). */
+    val assistantId: String? = null,
     /** The viewer owns the active team (settings-nav.json `visible: owner`). */
     val manageTeam: Boolean = false,
     /** Teams (of the active account) with an unread notification: an amber dot. */
@@ -477,7 +485,11 @@ class TeamTabViewModel @Inject constructor(
                             team = team,
                             members = memberRows.size,
                             boards = boards.count { it.teamId == teamId },
-                            agents = agentRows.size,
+                            // S-3: other members' Assistants are never counted.
+                            agents = agentRows.count {
+                                com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me)
+                            },
+                            assistantId = agentRows.firstOrNull { it.isAssistant && it.ownerId == me }?.id,
                             manageTeam = me != null && memberRows.any {
                                 it.userId == me && it.role == com.exponential.app.domain.DomainContract.teamRoleOwner
                             },
@@ -518,6 +530,8 @@ fun TeamTabScreen(
     onOpenAbout: () -> Unit,
     onAddServer: () -> Unit,
     onOpenAgentHome: () -> Unit = {},
+    /** S-3: the Agents group's Assistant row opens its page. */
+    onOpenAgentSettings: (agentId: String) -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     teamViewModel: TeamTabViewModel = hiltViewModel(),
     gettingStartedViewModel: GettingStartedViewModel = hiltViewModel(),
@@ -616,23 +630,23 @@ fun TeamTabScreen(
             }
 
             // The team's settings rows: settings-nav.json `phoneRows`, in order,
-            // filtered by the fixture's `visible` rule (`visibleCases`).
+            // filtered by the fixture's `visible` rule (`visibleCases`), ONE
+            // flat group like iOS and web-mobile (S-3: the Assistant is the
+            // Agents page's first row; Devices closes the list).
             Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                 SettingsNav.visiblePhoneRows(isOwner = state.manageTeam).map(SettingsNav::row).forEach { row ->
-                    run {
-                        SettingsRow(
-                            icon = ExpIcons.byConcept(row.icon) ?: ExpIcons.uiChevronRight,
-                            title = row.label,
-                            trailingCount = when (row.count) {
-                                "members" -> state.members
-                                "boards" -> state.boards
-                                "agents" -> state.agents
-                                else -> null
-                            },
-                            onClick = { onOpenTeamSettings(row.id) },
-                            modifier = Modifier.testTag(SettingsNav.ROW_TEST_ID),
-                        )
-                    }
+                    SettingsRow(
+                        icon = ExpIcons.byConcept(row.icon) ?: ExpIcons.uiChevronRight,
+                        title = row.label,
+                        trailingCount = when (row.count) {
+                            "members" -> state.members
+                            "boards" -> state.boards
+                            "agents" -> state.agents
+                            else -> null
+                        },
+                        onClick = { onOpenTeamSettings(row.id) },
+                        modifier = Modifier.testTag(SettingsNav.ROW_TEST_ID),
+                    )
                 }
             }
 

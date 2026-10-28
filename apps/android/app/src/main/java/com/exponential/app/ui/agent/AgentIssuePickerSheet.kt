@@ -111,3 +111,56 @@ internal fun AgentIssuePickerPage(
         }
     }
 }
+
+/**
+ * S-3 (composer-menu.json `implement-issue` on a session's / an agent chat's
+ * composer): THE same issue search list, ONE pick inserts `#IDENT` at the
+ * caret ([onPick]) and closes the menu.
+ */
+@Composable
+internal fun AgentIssueInsertPage(
+    issues: List<IssueOption>,
+    onPick: (IssueOption) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val rows = remember(issues, query) { IssueSearch.rank(issues, query, exclude = emptySet()) }
+    val rowsById = remember(rows) { rows.associateBy { it.id } }
+    val items = remember(rows) {
+        rows.map { PickerItem(value = it.id, label = it.title, keywords = listOf(it.identifier, it.title)) }
+    }
+    Column(modifier = Modifier.fillMaxWidth().testTag("agent-composer-issues-picker")) {
+        SearchListPanel(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = ISSUE_SEARCH_PLACEHOLDER,
+            items = items,
+            value = emptySet(),
+            onPick = { item -> rowsById[item.value]?.let(onPick) },
+            emptyText = "No matching issues",
+            renderItem = { item ->
+                rowsById[item.value]?.let { option ->
+                    IssueSearchRowBody(
+                        option.identifier,
+                        option.title,
+                        remember(option.status) { IssueStatusResolver.resolve(null, option.status, emptyList()) },
+                    )
+                }
+            },
+        )
+    }
+}
+
+/** S-3: `#IDENT ` spliced at [value]'s caret (a space before it when the
+ *  caret sits right after a word). */
+internal fun insertIssueRef(
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    identifier: String,
+): androidx.compose.ui.text.input.TextFieldValue {
+    val start = value.selection.min.coerceIn(0, value.text.length)
+    val end = value.selection.max.coerceIn(0, value.text.length)
+    val before = value.text.substring(0, start)
+    val lead = if (before.isNotEmpty() && !before.last().isWhitespace()) " " else ""
+    val token = "$lead#$identifier "
+    val text = before + token + value.text.substring(end)
+    return androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(start + token.length))
+}

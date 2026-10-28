@@ -41,23 +41,46 @@ struct ChatListSpecimens: View {
 
     private static let counts: [Chats.ChatFilter: Int] = [.needsYou: 1, .running: 1, .unread: 1]
 
-    /// chats.json `bubbleCases[0].expected`: amber = needs you, white =
-    /// unread, a hairline = read.
+    /// chats.json `bubbleCases[0].expected`: the viewer's Assistant first
+    /// (the brand mark), amber = needs you, white = unread, a hairline = read.
     private static let bubbles = [
+        bubble("as", "Assistant", "bot", "#6366f1", .none, assistant: true),
         bubble("ag1", "Triage", "bug", "#a855f7", .needsYou),
         bubble("ag2", "Designer", "bot", "#6366f1", .unread),
         bubble("ag3", "Release", "package", "#22c55e", .none),
     ]
 
     private static func bubble(
-        _ id: String, _ name: String, _ icon: String, _ color: String, _ ring: AgentBubbleItem.Ring
+        _ id: String, _ name: String, _ icon: String, _ color: String, _ ring: AgentBubbleItem.Ring,
+        assistant: Bool = false
     ) -> AgentBubbleItem {
         AgentBubbleItem(
             id: id, name: name,
             icon: BoardTypeDisplay.iconName(for: icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-            color: Color(hex: color) ?? .white, ring: ring
+            color: Color(hex: color) ?? .white, ring: ring, assistant: assistant
         )
     }
+
+    /// S-3 chats.json `agentRowCases[0].expected`: the pinned agent rows,
+    /// the Assistant first (the lead disc always holds the avatar; busy reads
+    /// only in the preview).
+    private static let agentRows = [
+        Chats.AgentChatRow(
+            agentId: "as", sessionId: "c-as", name: "Assistant", icon: "bot", color: "#6366f1",
+            assistant: true, preview: Chats.ChatPreview(kind: .agent, text: "All chats are on track."),
+            time: "09:00", activityAt: "2026-10-23T09:00:00.000Z", unreadCount: 1, needsYou: false, busy: false
+        ),
+        Chats.AgentChatRow(
+            agentId: "ag1", sessionId: "c-ag1", name: "Triage", icon: "bug", color: "#a855f7",
+            assistant: false, preview: Chats.ChatPreview(kind: .working, text: Chats.Copy.Preview.working),
+            time: "08:00", activityAt: "2026-10-23T08:00:00.000Z", unreadCount: 0, needsYou: false, busy: true
+        ),
+        Chats.AgentChatRow(
+            agentId: "ag2", sessionId: "c-ag2", name: "Designer", icon: "bot", color: "#6366f1",
+            assistant: false, preview: Chats.ChatPreview(kind: .question, text: "Question: Which palette?"),
+            time: "09:30", activityAt: "2026-10-23T09:30:00.000Z", unreadCount: 1, needsYou: true, busy: false
+        ),
+    ]
 
     private static let team = TeamEntity(
         id: "t1", name: "Acme", slug: "acme", iconUrl: nil, createdAt: "", updatedAt: ""
@@ -98,6 +121,17 @@ struct ChatListSpecimens: View {
         }
     }
 
+    private var shownAgents: [Chats.AgentChatRow] {
+        Self.agentRows.filter { row in
+            switch filter {
+            case .all: true
+            case .needsYou: row.needsYou
+            case .running: row.busy
+            case .unread: row.unreadCount > 0
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -122,6 +156,26 @@ struct ChatListSpecimens: View {
                         }
                         .padding(.horizontal, -16)
                         .padding(.bottom, 4)
+                        let agentRows = shownAgents
+                        if selection == nil, !agentRows.isEmpty {
+                            GlassSectionHeader(Chats.Copy.Sections.agents)
+                                .padding(.top, 8)
+                            ForEach(agentRows) { row in
+                                ChatRowView(
+                                    title: row.name,
+                                    time: row.time,
+                                    preview: row.preview.text,
+                                    previewLabel: row.preview.kind == .question ? "Question:" : nil,
+                                    previewItalic: row.preview.kind == .working,
+                                    needsYou: row.needsYou,
+                                    unreadCount: row.unreadCount
+                                ) { AgentChatLead(row: row) }
+                            }
+                            if !shown.isEmpty {
+                                GlassSectionHeader(Chats.Copy.Sections.chats)
+                                    .padding(.top, 16)
+                            }
+                        }
                         if selection != nil, filter == .all {
                             ChatArchivedRow(count: Self.archived)
                         }
@@ -491,6 +545,31 @@ struct MentionPillSpecimens: View {
                     context: context,
                     options: [.hardLineBreaks]
                 )
+            }
+        }
+    }
+}
+
+/// S-3 (styleguide `session-xref`, session-thread.json): THE inter-session
+/// link header, once per kind — an agent's tree carries its mark, a
+/// person's session the session glyph.
+struct SessionXrefSpecimens: View {
+    private static let agent = SessionXrefHeader.AgentMark(
+        icon: SessionTree.ListCopy.agentDefaultIcon,
+        color: Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
+    )
+
+    private static let links: [(SessionXref, SessionXrefHeader.AgentMark?)] = [
+        (SessionXref(kind: .message, sessionId: "x1", name: "Triage", agentId: "a1"), agent),
+        (SessionXref(kind: .report, sessionId: "x2", name: "Fix the sign-in redirect", agentId: nil), nil),
+        (SessionXref(kind: .started, sessionId: "x3", name: "Triage", agentId: "a1"), agent),
+        (SessionXref(kind: .reported, sessionId: "x4", name: "Ship the login flow", agentId: nil), nil),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Self.links, id: \.0.sessionId) { xref, mark in
+                SessionXrefHeader(xref: xref, agent: mark) {}
             }
         }
     }

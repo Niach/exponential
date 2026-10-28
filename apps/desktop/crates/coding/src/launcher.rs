@@ -3370,9 +3370,9 @@ mod tests {
             acp_gate(&report, claude, &hostless),
             Some(DisabledReason::AcpUnavailable { .. })
         ));
-        // The mode is no part of the gate (claude's plan default is ON, so
-        // this is the common launch).
-        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Claude).plan_mode);
+        // The mode is no part of the gate (S-3: no plan default, so a
+        // launch never enters plan mode from a UI default).
+        assert!(!LaunchOptions::defaults_for(&deps.settings, CodingAgent::Claude).plan_mode);
     }
 
     /// A stub `claude` that answers `--version` with an ACP-ready version and
@@ -4785,7 +4785,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(names, vec!["codemode"]);
         assert_eq!(prepared.acp.servers[0].token_env.as_deref(), Some(codemode::TOKEN_ENV));
         assert!(!prepared.acp.mcp_secrets.is_empty());
-        assert!(prepared.acp.system_append.contains("# Code mode"));
+        // S-3: the codemode server explains itself; no playbook section.
+        assert!(!prepared.acp.system_append.contains("# Code mode"));
     }
 
     // ---- EXP-1158: the last used stamp ----

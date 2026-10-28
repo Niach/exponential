@@ -288,6 +288,9 @@ export interface DomainContract {
     agentInstructionsMaxBytes: number
     treeMaxDepth: number
     treeMaxSessions: number
+    reuseMaxEndedHours: number
+    reuseMaxIdleHours: number
+    reuseMaxChildren: number
   }
   /**
    * EXP-724: the curated slash commands a steering client may offer in its

@@ -123,20 +123,94 @@ describe.skipIf(!ready.ok)(`agent schedules (NEW-2)`, () => {
     await fireScheduledTriggers(new Date(`2020-01-02T13:00:00Z`))
     expect(await firings(convo.id)).toHaveLength(1)
     // The device consumed it: the next due minute fires again (caught up).
+    // S-3: nobody wrote since, so it folds into the same card, unread again.
     await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
     await fireScheduledTriggers(new Date(`2020-01-03T10:00:00Z`))
     fired = await firings(convo.id)
-    expect(fired).toHaveLength(2)
-    expect(fired[1]!.body).toContain(`caught up`)
+    expect(fired).toHaveLength(1)
+    expect(fired[0]!.body).toContain(`caught up`)
+    expect(fired[0]!.consumedAt).toBeNull()
     // A paused trigger never fires (its bookkeeping waits for a resume); a
     // removed one loses its entry on the next tick.
     await db.update(agents).set({ triggers: [{ ...trigger, enabled: false }] as never }).where(eq(agents.id, bot.id))
     await fireScheduledTriggers(new Date(`2020-01-04T10:00:00Z`))
-    expect(await firings(convo.id)).toHaveLength(2)
+    expect(await firings(convo.id)).toHaveLength(1)
     const other = { id: crypto.randomUUID(), enabled: true, kind: `schedule`, cron: `0 0 1 1 *` }
     await db.update(agents).set({ triggers: [other] as never }).where(eq(agents.id, bot.id))
     await fireScheduledTriggers(new Date(`2020-01-04T10:01:00Z`))
     expect(Object.keys((await db.select().from(agents).where(eq(agents.id, bot.id)))[0]!.triggerState)).toEqual([other.id])
+  })
+})
+
+describe.skipIf(!ready.ok)(`S-3: one tick card per agent conversation`, () => {
+  it(`two schedules due on one tick post ONE card; a read tick nobody answered is re-armed in place; a person message makes the next one new`, async () => {
+    const w = await world()
+    const a = { id: crypto.randomUUID(), enabled: true, kind: `schedule`, cron: `0 * * * *`, tz: `UTC` }
+    const b = { id: crypto.randomUUID(), enabled: true, kind: `schedule`, cron: `0 */2 * * *`, tz: `UTC` }
+    const bot = await w.agent([a, b])
+    await fireScheduledTriggers(new Date(`2020-02-01T09:30:00Z`))
+    await fireScheduledTriggers(new Date(`2020-02-01T10:01:00Z`))
+    const convo = (await conversation(bot.id, w.owner))!
+    let fired = await firings(convo.id)
+    expect(fired).toHaveLength(1)
+    expect(fired[0]!.body).toContain(`0 * * * *`)
+    expect(fired[0]!.body).toContain(`0 */2 * * *`)
+    // Read, nobody answered: the 11:00 tick edits the same card, unread again.
+    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await fireScheduledTriggers(new Date(`2020-02-01T11:01:00Z`))
+    fired = await firings(convo.id)
+    expect(fired).toHaveLength(1)
+    expect(fired[0]!.consumedAt).toBeNull()
+    expect(fired[0]!.body).not.toContain(`0 */2 * * *`)
+    // A person wrote after it: the next tick is a new card.
+    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await db.insert(messages).values({
+      conversationId: sql`(SELECT id FROM conversations WHERE session_id = ${convo.id})`,
+      sessionId: convo.id,
+      rootId: convo.id,
+      teamId: w.teamId,
+      authorKind: `user`,
+      authorId: w.owner,
+      body: `status?`,
+      createdAt: new Date(`2030-01-01T00:00:00Z`),
+    } as never)
+    await fireScheduledTriggers(new Date(`2020-02-01T12:01:00Z`))
+    expect(await firings(convo.id)).toHaveLength(2)
+  })
+
+  it(`skips a tick when nothing moved in the threads the agent started`, async () => {
+    const w = await world()
+    const t = { id: crypto.randomUUID(), enabled: true, kind: `schedule`, cron: `0 * * * *`, tz: `UTC` }
+    const bot = await w.agent([t])
+    await fireScheduledTriggers(new Date(`2020-03-01T09:30:00Z`))
+    await fireScheduledTriggers(new Date(`2020-03-01T10:01:00Z`))
+    const convo = (await conversation(bot.id, w.owner))!
+    // A thread it started, last active before the 10:00 firing.
+    const threadId = crypto.randomUUID()
+    const [thread] = await db
+      .insert(sessions)
+      .values({
+        id: threadId,
+        rootId: threadId,
+        teamId: w.teamId,
+        userId: w.owner,
+        kind: `thread`,
+        deviceId: w.deviceId,
+        startedByAgentId: bot.id,
+        lastActivityAt: new Date(`2020-03-01T09:00:00Z`),
+      } as never)
+      .returning({ id: sessions.id })
+    await db.update(messages).set({ body: `old`, consumedAt: new Date() }).where(eq(messages.sessionId, convo.id))
+    await fireScheduledTriggers(new Date(`2020-03-01T11:01:00Z`))
+    let fired = await firings(convo.id)
+    expect(fired[0]!.body).toBe(`old`)
+    expect(fired[0]!.consumedAt).not.toBeNull()
+    // It moved: the 12:00 tick fires (folded into the read card).
+    await db.update(sessions).set({ lastActivityAt: new Date(`2020-03-01T11:30:00Z`) }).where(eq(sessions.id, thread!.id))
+    await fireScheduledTriggers(new Date(`2020-03-01T12:01:00Z`))
+    fired = await firings(convo.id)
+    expect(fired[0]!.body).toContain(`0 * * * *`)
+    expect(fired[0]!.consumedAt).toBeNull()
   })
 })
 

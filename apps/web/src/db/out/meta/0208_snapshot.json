@@ -1,5 +1,5 @@
 {
-  "id": "3b996bb0-acd2-4182-b570-6e80bfedd416",
+  "id": "c97b68ee-01e5-4a73-8f22-83483d4351a2",
   "prevId": "da186c8a-4373-4609-9863-4552bfcd677a",
   "version": "7",
   "dialect": "postgresql",
@@ -213,6 +213,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "role": {
+          "name": "role",
+          "type": "agent_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'agent'"
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "double precision",
@@ -262,6 +270,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uniq_agents_assistant": {
+          "name": "uniq_agents_assistant",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "role = 'assistant'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -9757,7 +9787,7 @@
           "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
-          "default": "''"
+          "default": "'ctrl+space'"
         },
         "wake_word": {
           "name": "wake_word",
@@ -11384,6 +11414,14 @@
     }
   },
   "enums": {
+    "public.agent_role": {
+      "name": "agent_role",
+      "schema": "public",
+      "values": [
+        "assistant",
+        "agent"
+      ]
+    },
     "public.comment_audience": {
       "name": "comment_audience",
       "schema": "public",

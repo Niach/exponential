@@ -53,7 +53,7 @@ import {
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
-import { answeredOwnCard, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
+import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
@@ -636,9 +636,8 @@ export const sessionsRouter = router({
         // rotation may move it off the row's), so the row says it and a
         // person's later pick of the old one is a real switch.
         account: z.string().min(1).max(64).optional(),
-        // EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
-        // once a plan is approved, or entering it): the row follows the
-        // run, so every client's toggle says the mode it is really in.
+        // S-3: plan mode is gone; an older device still reports it
+        // (accepted, never stored).
         planMode: z.boolean().optional(),
         // EXP-1334: the agent's model as the run reports it (a `/model`
         // switch mid-session), so a resume launches on it. Outside the
@@ -719,15 +718,7 @@ export const sessionsRouter = router({
               updatedAt: now,
             })
             .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
-          if (midTurn && flaggable) {
-            await busLine(
-              tx,
-              session,
-              `session_interrupted`,
-              lost === `process_lost` ? BUS_COPY.session_lost : BUS_COPY.session_interrupted,
-              { waking: false }
-            )
-          }
+          // S-3: the interruption is silent (no bus line ×4).
           return txid
         })
         return { txid }
@@ -819,7 +810,6 @@ export const sessionsRouter = router({
             ...(nextBlocked !== session.blocked ? { blocked: nextBlocked } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
             ...(input.account ? { account: input.account } : {}),
-            ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
             ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
@@ -892,7 +882,15 @@ export const sessionsRouter = router({
       const asks = card?.kind === `question` || card?.kind === `plan`
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        const messageId = await postAgentMessage(tx, session, input.body, card)
+        // S-3: an agent conversation keeps ONE text per person message: a
+        // later turn's text edits it (its bus copies follow), never a new
+        // bubble.
+        const edited =
+          !card && session.agentId !== null && session.id === session.rootId
+            ? await editAgentTurnText(tx, session.id, input.body)
+            : null
+        if (edited) await patchBusCopies(tx, edited.id, edited.before, input.body.trim())
+        const messageId = edited?.id ?? (await postAgentMessage(tx, session, input.body, card))
         // EXP-1374: a message is a sign of life (the stuck rule).
         await tx.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, session.id))
         if (asks) {
@@ -903,9 +901,9 @@ export const sessionsRouter = router({
           // NEW-1: the card reaches the parent and watchers (one row, two
           // views); a parent may answer what it knows.
           await busAsk(tx, session, messageId, card as Extract<MessageCard, { kind: `question` | `plan` }>)
-        } else if (!card) {
+        } else if (!card && !edited) {
           // NEW-1: the turn's reply reaches the parent and watchers.
-          await busRelayTurn(tx, session, input.body)
+          await busRelayTurn(tx, session, input.body, messageId)
         }
         return { messageId, txid }
       })
