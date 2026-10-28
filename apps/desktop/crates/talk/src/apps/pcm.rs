@@ -186,19 +186,21 @@ impl Mixers {
         self.apps.entry(app.to_string()).or_insert_with(|| (label.to_string(), Mixer::default())).1.add(source);
     }
 
-    pub(crate) fn push(&mut self, app: &str, label: &str, source: u32, samples: &[f32]) -> Vec<Chunk> {
+    /// `samples` of `source` captured at `captured_ms` (epoch ms); the
+    /// chunks they complete carry that time.
+    pub(crate) fn push(&mut self, app: &str, label: &str, source: u32, samples: &[f32], captured_ms: u64) -> Vec<Chunk> {
         let (label, mixer) = self.apps.entry(app.to_string()).or_insert_with(|| (label.to_string(), Mixer::default()));
         let label = label.clone();
-        mixer.push(source, samples).into_iter().map(|samples| chunk(app, &label, samples)).collect()
+        mixer.push(source, samples).into_iter().map(|samples| chunk(app, &label, samples, captured_ms)).collect()
     }
 
     /// `source` ended; returns the chunks it unblocked (the app's last
     /// stream leaving drops the app's mixer).
-    pub(crate) fn remove(&mut self, app: &str, source: u32) -> Vec<Chunk> {
+    pub(crate) fn remove(&mut self, app: &str, source: u32, captured_ms: u64) -> Vec<Chunk> {
         let Some((label, mixer)) = self.apps.get_mut(app) else { return Vec::new() };
         let label = label.clone();
         let out: Vec<Chunk> =
-            mixer.remove(source).into_iter().map(|samples| chunk(app, &label, samples)).collect();
+            mixer.remove(source).into_iter().map(|samples| chunk(app, &label, samples, captured_ms)).collect();
         if mixer.is_empty() {
             self.apps.remove(app);
         }
@@ -210,8 +212,8 @@ impl Mixers {
     }
 }
 
-fn chunk(app: &str, label: &str, samples: Vec<f32>) -> Chunk {
-    Chunk { channel: app.to_string(), label: label.to_string(), samples }
+fn chunk(app: &str, label: &str, samples: Vec<f32>, captured_ms: u64) -> Chunk {
+    Chunk { channel: app.to_string(), label: label.to_string(), samples, captured_ms }
 }
 
 /// Splits a mono [`SAMPLE_RATE`] stream (the system channel) into
@@ -374,12 +376,13 @@ mod tests {
     #[test]
     fn mixers_never_mix_across_apps() {
         let mut m = Mixers::default();
-        let a = m.push("firefox", "Firefox", 1, &vec![0.2; CHUNK]);
-        let b = m.push("zoom", "Zoom", 2, &vec![0.4; CHUNK]);
+        let a = m.push("firefox", "Firefox", 1, &vec![0.2; CHUNK], 1_000);
+        let b = m.push("zoom", "Zoom", 2, &vec![0.4; CHUNK], 1_100);
         assert_eq!(a.len(), 1);
+        assert_eq!((a[0].captured_ms, b[0].captured_ms), (1_000, 1_100), "dated by the capture that completed them");
         assert_eq!((a[0].channel.as_str(), a[0].label.as_str(), a[0].samples[0]), ("firefox", "Firefox", 0.2));
         assert_eq!((b[0].channel.as_str(), b[0].samples[0]), ("zoom", 0.4));
-        assert!(m.remove("zoom", 2).is_empty());
+        assert!(m.remove("zoom", 2, 1_200).is_empty());
         assert_eq!(m.apps().collect::<Vec<_>>(), vec!["firefox"]);
     }
 

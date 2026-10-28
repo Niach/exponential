@@ -83,6 +83,14 @@ impl SegmentLog {
         self.conn.execute("DELETE FROM meeting_segments WHERE end_ms < ?1", params![cutoff]).map_err(sql)
     }
 
+    /// meeting.json: a sign-out or an account switch deletes every segment
+    /// (and VACUUMs, so nothing lingers in free pages); answers how many went.
+    pub(crate) fn clear(&self) -> Result<usize, String> {
+        let gone = self.conn.execute("DELETE FROM meeting_segments", []).map_err(sql)?;
+        let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
+        Ok(gone)
+    }
+
     #[cfg(test)]
     fn all(&self) -> Vec<LoggedSegment> {
         let mut statement = self
@@ -135,6 +143,16 @@ mod tests {
         let texts: Vec<String> = log.all().into_iter().map(|row| row.text).collect();
         assert_eq!(texts, ["kept", "fresh"]);
         assert_eq!(log.prune(now, domain::meeting::LOCAL_RETENTION_DAYS).unwrap(), 0);
+    }
+
+    #[test]
+    fn clear_deletes_every_segment() {
+        let log = SegmentLog::with(Connection::open_in_memory().unwrap()).unwrap();
+        log.insert(&segment(5, "one")).unwrap();
+        log.insert(&segment(6, "two")).unwrap();
+        assert_eq!(log.clear().unwrap(), 2);
+        assert!(log.all().is_empty());
+        assert_eq!(log.clear().unwrap(), 0);
     }
 
     #[test]

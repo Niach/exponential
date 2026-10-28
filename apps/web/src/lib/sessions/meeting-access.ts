@@ -1,0 +1,37 @@
+import { and, eq, isNull } from "drizzle-orm"
+import { MEETING_COPY } from "@exp/domain-contract/meeting"
+import { agents, devices, sessions } from "@/db/schema"
+import type { Db } from "@/lib/sessions/tx"
+
+// NEW-57 (meeting.json, `copy.sharedRefused`): a meeting transcript never
+// lands in a team-visible conversation or on another member's machine. The
+// voice agent's device must be the caller's OWN row and not shared with the
+// agent's team (a conversation there is created `shared`, and a shared box
+// may be hosted for teammates), and the caller's conversation with it, if it
+// exists, must not be `shared` (stamped at creation; a later unshare does
+// not clear it). Both `voice.startMeeting` and `sessions.send {meeting}`
+// refuse otherwise.
+
+export const MEETING_SHARED_REFUSED = MEETING_COPY.sharedRefused
+
+/** May `userId` send meeting transcripts to `agentId`? */
+export async function meetingAgentIsPrivate(exec: Db, userId: string, agentId: string): Promise<boolean> {
+  const [agent] = await exec
+    .select({ teamId: agents.teamId, deviceId: agents.deviceId })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+  if (!agent) return false
+  const [device] = await exec
+    .select({ sharedTeamIds: devices.sharedTeamIds })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), eq(devices.deviceId, agent.deviceId)))
+    .limit(1)
+  if (!device || (device.sharedTeamIds ?? []).includes(agent.teamId)) return false
+  const [conversation] = await exec
+    .select({ shared: sessions.shared })
+    .from(sessions)
+    .where(and(eq(sessions.agentId, agentId), eq(sessions.userId, userId), isNull(sessions.parentId)))
+    .limit(1)
+  return conversation?.shared !== true
+}

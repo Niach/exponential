@@ -29,6 +29,7 @@ import { authedProcedure, router } from "@/lib/trpc"
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
+import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 
 type Db = typeof Database
 
@@ -137,6 +138,20 @@ export function withClearOnNone(settings: VoiceSettings): VoiceSettings {
   return settings
 }
 
+/** NEW-57 (meeting.json): an update that CHANGES the meeting's scope (the
+ *  voice device, the agent, Desktop audio or its apps) while one runs stops
+ *  it: a wider scope needs a new consent. */
+export function withMeetingScope(before: VoiceSettings, next: VoiceSettings): VoiceSettings {
+  if (!next.meetingStartedAt) return next
+  const appIds = (settings: VoiceSettings) => settings.desktopAudioApps.map((app) => app.id).join(`\n`)
+  const widened =
+    before.voiceDeviceId !== next.voiceDeviceId ||
+    before.agentId !== next.agentId ||
+    before.desktopAudio !== next.desktopAudio ||
+    appIds(before) !== appIds(next)
+  return widened ? { ...next, meetingStartedAt: null } : next
+}
+
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):
  *  the agents a member can talk to. */
 async function memberAgentExists(database: Db, userId: string, agentId: string): Promise<boolean> {
@@ -217,7 +232,7 @@ export const voiceRouter = router({
       if (input.agentId && !(await memberAgentExists(db, userId, input.agentId))) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `That agent isn't in your teams` })
       }
-      const next = withClearOnNone({
+      const next = withMeetingScope(before, withClearOnNone({
         ...before,
         ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
         wakePhrase: input.wakePhrase === undefined ? before.wakePhrase : input.wakePhrase.trim(),
@@ -230,7 +245,7 @@ export const voiceRouter = router({
             : input.desktopAudioApps.filter(
                 (app, index, apps) => apps.findIndex((other) => other.id === app.id) === index
               ),
-      } as VoiceSettings)
+      } as VoiceSettings))
       await writeSettings(db, userId, next)
       // The old and the new voice device pick the change up at once.
       for (const deviceId of new Set([before.voiceDeviceId, next.voiceDeviceId])) {
@@ -240,7 +255,9 @@ export const voiceRouter = router({
     }),
 
   // NEW-57: THE consent dialog's Start. Refused without `consent: true` (the
-  // zod literal) and without a voice device and an agent; a running meeting
+  // zod literal), without a voice device and an agent, and with
+  // `copy.sharedRefused` unless that agent is private (`meetingAgentIsPrivate`:
+  // the caller's own unshared device, an unshared conversation); a running meeting
   // keeps its start (a second Start from another client is a no-op).
   startMeeting: authedProcedure
     .input(z.object({ consent: z.literal(true) }))
@@ -249,6 +266,10 @@ export const voiceRouter = router({
       const before = await voiceSettingsOf(ctx.db, userId)
       if (!before.voiceDeviceId || !before.agentId) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a voice device and an agent first` })
+      }
+      // Never into a team-visible conversation or onto a shared machine.
+      if (!(await meetingAgentIsPrivate(ctx.db, userId, before.agentId))) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: MEETING_SHARED_REFUSED })
       }
       if (before.meetingStartedAt) return before
       const next: VoiceSettings = { ...before, meetingStartedAt: new Date().toISOString() }

@@ -9,6 +9,8 @@ import {
   FLUSH_START,
   flushStep,
   meetingMessage,
+  meetingMessages,
+  MEETING_FLUSH,
   who,
   type DesktopAudio,
   type DesktopAudioCapability,
@@ -58,4 +60,18 @@ describe(`meeting.json`, () => {
       expect(meetingMessage(c.segments)).toBe(c.expect)
     })
   }
+  for (const c of fixture.splitCases) {
+    it(`split: ${c.name}`, () => {
+      const got = meetingMessages(c.segments, c.maxChars)
+      expect(got).toEqual(c.expect)
+      for (const message of got) expect(message.length).toBeLessThanOrEqual(c.maxChars)
+    })
+  }
+  it(`split: the default is the server's sessions.send text limit`, () => {
+    expect(MEETING_FLUSH.maxMessageChars).toBe(16384)
+    const long = Array.from({ length: 400 }, (_, i) => ({ channel: `you`, label: `You`, text: `word `.repeat(20), startMs: 1793181723000 + i }))
+    const got = meetingMessages(long)
+    expect(got.length).toBeGreaterThan(1)
+    for (const message of got) expect(message.length).toBeLessThanOrEqual(16384)
+  })
 })

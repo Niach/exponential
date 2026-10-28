@@ -28,11 +28,20 @@ const h = vi.hoisted(() => {
       }),
     }),
   }
-  return { state, db, relayPostNudge: vi.fn(async () => ({ delivered: true })) }
+  return {
+    state,
+    db,
+    relayPostNudge: vi.fn(async () => ({ delivered: true })),
+    meetingAgentIsPrivate: vi.fn(async (..._args: unknown[]) => true),
+  }
 })
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
+vi.mock(`@/lib/sessions/meeting-access`, async () => ({
+  MEETING_SHARED_REFUSED: (await import(`@exp/domain-contract/meeting`)).MEETING_COPY.sharedRefused,
+  meetingAgentIsPrivate: h.meetingAgentIsPrivate,
+}))
 vi.mock(`@/lib/steer`, async () => ({
   ...(await vi.importActual<typeof import("@/lib/steer")>(`@/lib/steer`)),
   getSteerRelayConfig: () => ({ url: `https://relay.example`, secret: `relay-secret` }),
@@ -40,8 +49,10 @@ vi.mock(`@/lib/steer`, async () => ({
 }))
 
 import callFixture from "@exp/domain-contract/fixtures/voice-call.json" with { type: "json" }
+import meetingFixture from "@exp/domain-contract/fixtures/meeting.json" with { type: "json" }
+import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import { verifySteerTicket } from "@exp/steer-ticket"
-import { callSpeechOf, voiceRouter, withClearOnNone } from "@/lib/trpc/voice"
+import { callSpeechOf, voiceRouter, withClearOnNone, withMeetingScope } from "@/lib/trpc/voice"
 
 const caller = voiceRouter.createCaller({
   session: { user: { id: `me`, name: `Me`, email: `me@example.com` } },
@@ -71,6 +82,8 @@ beforeEach(() => {
   h.state.selectQueue = []
   h.state.upserts = []
   h.relayPostNudge.mockClear()
+  h.meetingAgentIsPrivate.mockReset()
+  h.meetingAgentIsPrivate.mockResolvedValue(true)
 })
 
 describe(`voice.get`, () => {
@@ -251,12 +264,51 @@ describe(`#NEW-57 meeting mode`, () => {
     }
   })
 
-  it(`switching the voice device or the agent keeps the meeting`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }], [{ kind: `desktop` }]]
-    const next = await caller.update({ voiceDeviceId: `d-other` })
-    expect(next.meetingStartedAt).toBe(STARTED.toISOString())
-    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
-    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-other`)
+  it(`widening the scope mid-meeting (device, agent, desktop audio, apps) stops it`, async () => {
+    const OTHER_AGENT = `4f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
+    const changes: [Record<string, unknown>, unknown[][]][] = [
+      [{ voiceDeviceId: `d-other` }, [[{ kind: `desktop` }]]],
+      [{ agentId: OTHER_AGENT }, [[{ id: OTHER_AGENT }]]],
+      [{ desktopAudio: `all` }, []],
+      [{ desktopAudioApps: [{ id: `z`, name: `Zoom` }] }, []],
+    ]
+    for (const [change, probes] of changes) {
+      h.state.upserts = []
+      h.relayPostNudge.mockClear()
+      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }], ...probes]
+      const next = await caller.update(change as never)
+      expect(next.meetingStartedAt, JSON.stringify(change)).toBeNull()
+      expect(h.state.upserts[0]?.set).toMatchObject({ meetingStartedAt: null })
+      expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+    }
+    // The device side follows: the old and the new device are both nudged.
+    expect(withMeetingScope({ ...stored, meetingStartedAt: `x` } as never, { ...stored, meetingStartedAt: `x`, voiceDeviceId: `d-other` } as never).meetingStartedAt).toBeNull()
+  })
+
+  it(`a same-value update or an unrelated switch keeps the meeting`, async () => {
+    for (const change of [{ desktopAudio: `off` }, { wakeWord: true }, { language: `de` }, { voiceDeviceId: `d-mint` }]) {
+      h.state.upserts = []
+      const probes = `voiceDeviceId` in change ? [[{ kind: `desktop` }]] : []
+      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }], ...probes]
+      const next = await caller.update(change as never)
+      expect(next.meetingStartedAt, JSON.stringify(change)).toBe(STARTED.toISOString())
+    }
+  })
+
+  it(`startMeeting refuses an agent on a shared or foreign device (copy.sharedRefused)`, async () => {
+    h.meetingAgentIsPrivate.mockResolvedValue(false)
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    await expect(caller.startMeeting({ consent: true })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: meetingFixture.copy.sharedRefused,
+    })
+    expect(h.meetingAgentIsPrivate).toHaveBeenCalledWith(h.db, `me`, AGENT)
+    expect(h.state.upserts).toHaveLength(0)
+    expect(h.relayPostNudge).not.toHaveBeenCalled()
+  })
+
+  it(`a flush message fits the server's sessions.send text limit`, () => {
+    expect(meetingFixture.flush.maxMessageChars).toBe(SESSIONS_SEND_TEXT_MAX)
   })
 })
 

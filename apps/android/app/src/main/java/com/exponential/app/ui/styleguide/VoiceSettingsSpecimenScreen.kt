@@ -74,6 +74,7 @@ fun VoiceSettingsSpecimenScreen() {
                     wakePhrase = wakePhrase,
                     wakePhraseError = null,
                     onChange = { settings = Voice.clearOnNone(settings, it) },
+                    onMeeting = {},
                     onWakePhraseChange = { wakePhrase = it },
                     onWakePhraseDone = {},
                     voiceFile = voiceFile,

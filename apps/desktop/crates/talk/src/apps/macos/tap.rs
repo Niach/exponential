@@ -33,7 +33,8 @@ const LINEAR_PCM: u32 = u32::from_be_bytes(*b"lpcm");
 const IS_FLOAT: u32 = 1;
 
 struct Shared {
-    tx: SyncSender<Vec<f32>>,
+    /// A cycle's mono samples and the wall clock (epoch ms) of its callback.
+    tx: SyncSender<(Vec<f32>, u64)>,
 }
 
 pub(super) struct Tap {
@@ -42,7 +43,7 @@ pub(super) struct Tap {
     proc_id: AudioDeviceIOProcID,
     shared: *mut Shared,
     destroy_tap: sys::DestroyTap,
-    pub(super) rx: Receiver<Vec<f32>>,
+    pub(super) rx: Receiver<(Vec<f32>, u64)>,
 }
 
 // The ids are plain integers; `shared` is only touched by the IOProc (on
@@ -207,7 +208,7 @@ unsafe extern "C-unwind" fn io_proc(
             let scale = 1.0 / channels as f32;
             mono.iter_mut().for_each(|sample| *sample *= scale);
         }
-        let _ = shared.tx.try_send(mono);
+        let _ = shared.tx.try_send((mono, super::super::now_ms()));
     }));
     0
 }

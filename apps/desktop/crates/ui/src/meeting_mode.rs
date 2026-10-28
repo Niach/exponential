@@ -177,7 +177,7 @@ mod tests {
         let _ = question;
         assert_eq!(
             body,
-            "You, Zoom and Slack will be transcribed. Everyone in the meeting has to agree first. Audio is never stored; the transcript goes to Ops and is deleted after 7 days."
+            "You, Zoom and Slack will be transcribed. Everyone in the meeting has to agree first. Audio is never stored. The transcript goes to Ops: what it hears is deleted from the server after 7 days, but its replies and anything it creates stay."
         );
         assert!(answers.iter().any(|answer| answer == &MEETING.copy.start), "{answers:?}");
     }

@@ -28,6 +28,9 @@ pub struct MeetingCopy {
     pub and: String,
     pub consent_title: String,
     pub consent_body: String,
+    /// `voice.startMeeting` / a meeting send refused: the agent is not on the
+    /// member's own unshared device (the server's message, toasted).
+    pub shared_refused: String,
     pub start: String,
     pub cancel: String,
     pub pause: String,
@@ -66,6 +69,13 @@ pub struct MeetingFlush {
     pub max_segments: usize,
     pub max_age_ms: i64,
     pub turn_timeout_ms: i64,
+    /// The server's `sessions.send` text limit, UTF-16 units: one message's cap.
+    pub max_message_chars: usize,
+    /// Segments held in memory at most (the oldest go; the local log keeps them).
+    pub max_queued: usize,
+    /// A failed send's first wait, doubling up to `backoff_max_ms`.
+    pub backoff_ms: i64,
+    pub backoff_max_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -385,8 +395,7 @@ fn utc_parts(ms: i64) -> (i64, u32, u32, u32, u32, u32) {
     (year, month, day, rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
-/// The message a flush sends: a header and one fenced line per segment.
-pub fn meeting_message(segments: &[MeetingSegment]) -> String {
+fn ordered(segments: &[MeetingSegment]) -> Vec<&MeetingSegment> {
     let mut ordered: Vec<&MeetingSegment> = segments.iter().collect();
     ordered.sort_by(|a, b| {
         a.start_ms.cmp(&b.start_ms).then_with(|| match (a.channel == "you", b.channel == "you") {
@@ -396,14 +405,86 @@ pub fn meeting_message(segments: &[MeetingSegment]) -> String {
             (false, false) => a.label.cmp(&b.label),
         })
     });
-    let (year, month, day, ..) = utc_parts(ordered.first().map_or(0, |segment| segment.start_ms));
-    let mut lines = vec![MEETING.copy.message_header.replace("{date}", &format!("{year:04}-{month:02}-{day:02}")), "```text".to_string()];
-    for segment in ordered {
-        let (.., hour, minute, second) = utc_parts(segment.start_ms);
-        lines.push(format!("{hour:02}:{minute:02}:{second:02} {}: {}", segment.label, segment.text));
+    ordered
+}
+
+/// A segment's text inside the fence: ``` reads ʼʼʼ, a line break a space.
+fn fenced(text: &str) -> String {
+    text.replace("```", "ʼʼʼ").replace("\r\n", " ").replace(['\r', '\n'], " ")
+}
+
+fn line(segment: &MeetingSegment) -> String {
+    let (.., hour, minute, second) = utc_parts(segment.start_ms);
+    format!("{hour:02}:{minute:02}:{second:02} {}: {}", segment.label, fenced(&segment.text))
+}
+
+fn wrap(start_ms: i64, lines: &[String]) -> String {
+    let (year, month, day, ..) = utc_parts(start_ms);
+    let mut out = MEETING.copy.message_header.replace("{date}", &format!("{year:04}-{month:02}-{day:02}"));
+    out.push_str("\n```text");
+    for line in lines {
+        out.push('\n');
+        out.push_str(line);
     }
-    lines.push("```".to_string());
-    lines.join("\n")
+    out.push_str("\n```");
+    out
+}
+
+/// UTF-16 code units: the server's (zod's) count.
+fn units(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// `text` cut to at most `max` UTF-16 units, ending with `…` (whole chars).
+fn cut(text: &str, max: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in text.chars() {
+        if used + ch.len_utf16() > max.saturating_sub(1) {
+            break;
+        }
+        used += ch.len_utf16();
+        out.push(ch);
+    }
+    out.push('…');
+    out
+}
+
+/// The message a flush sends: a header and one fenced line per segment.
+pub fn meeting_message(segments: &[MeetingSegment]) -> String {
+    let ordered = ordered(segments);
+    let lines: Vec<String> = ordered.iter().map(|segment| line(segment)).collect();
+    wrap(ordered.first().map_or(0, |segment| segment.start_ms), &lines)
+}
+
+/// The flush split (`splitCases`): the ordered lines packed greedily into
+/// messages of at most `max_chars` UTF-16 units, each a full
+/// [`meeting_message`]; a line that alone does not fit is cut to fit.
+pub fn meeting_messages(segments: &[MeetingSegment], max_chars: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut lines: Vec<String> = Vec::new();
+    for segment in ordered(segments) {
+        let mut next = line(segment);
+        if !lines.is_empty() {
+            lines.push(next.clone());
+            if units(&wrap(start, &lines)) <= max_chars {
+                continue;
+            }
+            lines.pop();
+            out.push(wrap(start, &lines));
+        }
+        start = segment.start_ms;
+        let room = max_chars.saturating_sub(units(&wrap(start, &[String::new()])));
+        if units(&next) > room {
+            next = cut(&next, room);
+        }
+        lines = vec![next];
+    }
+    if !lines.is_empty() {
+        out.push(wrap(start, &lines));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -500,6 +581,35 @@ mod tests {
             let segments: Vec<MeetingSegment> = serde_json::from_value(case["segments"].clone()).unwrap();
             assert_eq!(meeting_message(&segments), case["expect"].as_str().unwrap(), "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn split_matches_the_fixture() {
+        for case in fixture()["splitCases"].as_array().unwrap() {
+            let segments: Vec<MeetingSegment> = serde_json::from_value(case["segments"].clone()).unwrap();
+            let max = case["maxChars"].as_u64().unwrap() as usize;
+            let expect: Vec<String> = serde_json::from_value(case["expect"].clone()).unwrap();
+            let got = meeting_messages(&segments, max);
+            assert_eq!(got, expect, "{}", case["name"]);
+            assert!(got.iter().all(|message| units(message) <= max), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn split_at_the_server_limit_never_exceeds_it() {
+        let flush = MEETING.flush;
+        assert_eq!(flush.max_message_chars, 16_384);
+        let long: Vec<MeetingSegment> = (0..400)
+            .map(|i| MeetingSegment { channel: "you".into(), label: "You".into(), text: "wörd 🎙 ".repeat(20), start_ms: 1_793_181_723_000 + i })
+            .collect();
+        let got = meeting_messages(&long, flush.max_message_chars);
+        assert!(got.len() > 1);
+        assert!(got.iter().all(|message| units(message) <= flush.max_message_chars));
+        // One giant line is cut, never split across a surrogate pair.
+        let giant = [MeetingSegment { channel: "you".into(), label: "You".into(), text: "🎙".repeat(20_000), start_ms: 0 }];
+        let got = meeting_messages(&giant, flush.max_message_chars);
+        assert_eq!(got.len(), 1);
+        assert!(units(&got[0]) <= flush.max_message_chars && got[0].contains('…'));
     }
 
     #[test]

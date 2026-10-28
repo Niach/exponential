@@ -158,19 +158,70 @@ function pad(value: number): string {
   return String(value).padStart(2, `0`)
 }
 
-/** The message a flush sends: a header and one fenced line per segment. */
-export function meetingMessage(segments: readonly MeetingSegment[]): string {
-  const ordered = [...segments].sort((a, b) => {
+function ordered(segments: readonly MeetingSegment[]): MeetingSegment[] {
+  return [...segments].sort((a, b) => {
     if (a.startMs !== b.startMs) return a.startMs - b.startMs
     if (a.channel === `you` || b.channel === `you`) return a.channel === `you` ? -1 : 1
     return a.label < b.label ? -1 : a.label > b.label ? 1 : 0
   })
-  const first = ordered[0] ? new Date(ordered[0].startMs) : new Date(0)
+}
+
+/** A segment's text inside the fence: ``` reads ʼʼʼ, a line break a space. */
+function fenced(text: string): string {
+  return text.replaceAll("```", `ʼʼʼ`).replace(/\r\n|\r|\n/g, ` `)
+}
+
+function line(segment: MeetingSegment): string {
+  const at = new Date(segment.startMs)
+  const time = `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`
+  return `${time} ${segment.label}: ${fenced(segment.text)}`
+}
+
+function wrap(startMs: number, lines: readonly string[]): string {
+  const first = new Date(startMs)
   const date = `${first.getUTCFullYear()}-${pad(first.getUTCMonth() + 1)}-${pad(first.getUTCDate())}`
-  const lines = ordered.map((segment) => {
-    const at = new Date(segment.startMs)
-    const time = `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`
-    return `${time} ${segment.label}: ${segment.text}`
-  })
   return [MEETING_COPY.messageHeader.replace(`{date}`, date), "```text", ...lines, "```"].join(`\n`)
+}
+
+/** The message a flush sends: a header and one fenced line per segment. */
+export function meetingMessage(segments: readonly MeetingSegment[]): string {
+  const sorted = ordered(segments)
+  return wrap(sorted[0]?.startMs ?? 0, sorted.map(line))
+}
+
+/** `text` cut to at most `max` UTF-16 units, ending with `…` (whole code
+ *  points only). */
+function cut(text: string, max: number): string {
+  let out = ``
+  for (const char of text) {
+    if (out.length + char.length > max - 1) break
+    out += char
+  }
+  return `${out}…`
+}
+
+/** The flush split: the ordered lines packed greedily into messages of at
+ *  most `maxChars` UTF-16 units, each a full `meetingMessage`; a line that
+ *  alone does not fit is cut to fit. */
+export function meetingMessages(
+  segments: readonly MeetingSegment[],
+  maxChars: number = MEETING_FLUSH.maxMessageChars
+): string[] {
+  const out: string[] = []
+  let start = 0
+  let lines: string[] = []
+  for (const segment of ordered(segments)) {
+    let next = line(segment)
+    if (lines.length > 0 && wrap(start, [...lines, next]).length <= maxChars) {
+      lines.push(next)
+      continue
+    }
+    if (lines.length > 0) out.push(wrap(start, lines))
+    start = segment.startMs
+    const room = maxChars - wrap(start, [``]).length
+    if (next.length > room) next = cut(next, room)
+    lines = [next]
+  }
+  if (lines.length > 0) out.push(wrap(start, lines))
+  return out
 }

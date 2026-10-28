@@ -25,8 +25,10 @@ object Meeting {
         const val AND = "and"
         const val CONSENT_TITLE = "Start meeting mode?"
         const val CONSENT_BODY =
-            "{who} will be transcribed. Everyone in the meeting has to agree first. Audio is never stored; " +
-                "the transcript goes to {agent} and is deleted after {days} days."
+            "{who} will be transcribed. Everyone in the meeting has to agree first. Audio is never stored. " +
+                "The transcript goes to {agent}: what it hears is deleted from the server after {days} days, " +
+                "but its replies and anything it creates stay."
+        const val SHARED_REFUSED = "Meeting mode needs a voice agent on your own device, not a shared one."
         const val START = "Start"
         const val CANCEL = "Cancel"
         const val PAUSE = "Pause listening"
@@ -57,6 +59,7 @@ object Meeting {
             "doctorSystem" to DOCTOR_SYSTEM,
             "doctorNone" to DOCTOR_NONE,
             "messageHeader" to MESSAGE_HEADER,
+            "sharedRefused" to SHARED_REFUSED,
         )
     }
 

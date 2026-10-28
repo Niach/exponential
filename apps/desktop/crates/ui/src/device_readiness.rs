@@ -182,18 +182,43 @@ pub(crate) struct VoiceRows {
     pub voice_device: bool,
     /// NEW-57: ... with Desktop audio not off: the `desktop_audio` row.
     pub desktop_audio: bool,
+    /// NEW-57: `doctor.desktopAudio.apps` names what plays right now
+    /// ([`reports_apps`]); else `[]`.
+    pub apps: bool,
+}
+
+/// meeting.json: the live app names ride the heartbeat only on the voice
+/// device, while Desktop audio picks apps (`include`/`exclude`) AND the box
+/// is shared with no team (teammates read a shared box's doctor).
+pub(crate) fn reports_apps(voice_device: bool, desktop_audio: domain::meeting::DesktopAudio, shared: bool) -> bool {
+    voice_device && desktop_audio.picks_apps() && !shared
+}
+
+/// THIS device's own row is shared with a team; unknown (not synced yet,
+/// no row) reads as shared, so nothing leaks before the row is known.
+fn own_device_shared(device_id: &str, cx: &gpui::App) -> bool {
+    let Some(store) = sync::Store::try_global(cx) else { return true };
+    let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return true };
+    let devices = store.collections().devices.read(cx);
+    devices
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(device_id) && row.user_id.as_deref() == Some(me.as_str()))
+        .is_none_or(|row| !row.shared_team_ids.is_empty())
 }
 
 pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
     let settings = crate::speak_replies::settings(cx);
-    let voice_device = cx.try_global::<crate::session::AuthContext>().is_some_and(|auth| {
-        settings.voice_device_id.as_deref() == Some(steer::persistent_device_id(&auth.data_dir).as_str())
-    });
+    let device_id = cx
+        .try_global::<crate::session::AuthContext>()
+        .map(|auth| steer::persistent_device_id(&auth.data_dir));
+    let voice_device = device_id.as_deref().is_some_and(|id| settings.voice_device_id.as_deref() == Some(id));
+    let shared = device_id.as_deref().is_none_or(|id| own_device_shared(id, cx));
     VoiceRows {
         listening: crate::speak_replies::push_to_talk_here(cx),
         speech: crate::speak_replies::speech_state(cx),
         voice_device,
         desktop_audio: voice_device && settings.desktop_audio != domain::meeting::DesktopAudio::Off,
+        apps: reports_apps(voice_device, settings.desktop_audio, shared),
     }
 }
 
@@ -220,10 +245,14 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
         talk::apps::Capability::System => domain::meeting::DesktopAudioCapability::System,
         talk::apps::Capability::None => domain::meeting::DesktopAudioCapability::None,
     };
-    let apps = talk::apps::live()
-        .into_iter()
-        .map(|app| domain::meeting::AudioApp { id: app.id, name: app.name })
-        .collect();
+    let apps = if rows.apps {
+        talk::apps::live()
+            .into_iter()
+            .map(|app| domain::meeting::AudioApp { id: app.id, name: app.name })
+            .collect()
+    } else {
+        Vec::new()
+    };
     doctor.desktop_audio = Some(device_doctor::DoctorDesktopAudio { capability, apps });
     if !rows.desktop_audio {
         return;
@@ -1211,6 +1240,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// meeting.json: live app names reach the server only from the voice
+    /// device, while Desktop audio picks apps, on a box shared with no team.
+    #[test]
+    fn app_names_ride_the_heartbeat_only_unshared_and_picking() {
+        use domain::meeting::DesktopAudio;
+        assert!(reports_apps(true, DesktopAudio::Include, false));
+        assert!(reports_apps(true, DesktopAudio::Exclude, false));
+        assert!(!reports_apps(true, DesktopAudio::Include, true), "a shared box never names its apps");
+        assert!(!reports_apps(true, DesktopAudio::All, false), "Everything needs no names");
+        assert!(!reports_apps(true, DesktopAudio::Off, false));
+        assert!(!reports_apps(false, DesktopAudio::Include, false), "not the voice device");
     }
 
     #[test]

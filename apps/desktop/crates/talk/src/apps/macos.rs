@@ -32,7 +32,7 @@ mod tap;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -46,7 +46,7 @@ use objc2_core_audio::{
 };
 use objc2_foundation::NSString;
 
-use super::{AppCapture, AudioApp, Capability, Chunk, Selection, SAMPLE_RATE};
+use super::{chunk_queue, AppCapture, AudioApp, Capability, Chunk, ChunkSender, Selection, CAPTURE_QUEUE, SAMPLE_RATE};
 use resample::Resampler;
 use tap::Tap;
 
@@ -137,7 +137,7 @@ pub(super) fn open(selection: Selection) -> Result<AppCapture, String> {
     if sys::Tcc::load().is_some_and(|tcc| state(&tcc) == State::Denied) {
         return Err("The Audio Recording permission is off (System Settings → Privacy & Security → Screen & System Audio Recording).".to_string());
     }
-    let (tx, rx) = channel();
+    let (tx, rx) = chunk_queue(CAPTURE_QUEUE);
     let stop = Arc::new(AtomicBool::new(false));
     let thread = std::thread::Builder::new()
         .name("talk-app-audio".to_string())
@@ -172,7 +172,7 @@ struct Channel {
     quiet_since: Option<Instant>,
 }
 
-fn run(selection: Selection, tx: Sender<Chunk>, stop: &AtomicBool) {
+fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
     let mut scanner = Scanner::default();
     let mut channels: HashMap<String, Channel> = HashMap::new();
     let mut failed: HashMap<String, Instant> = HashMap::new();
@@ -234,14 +234,17 @@ fn run(selection: Selection, tx: Sender<Chunk>, stop: &AtomicBool) {
         }
         for (id, channel) in channels.iter_mut() {
             let mut samples = Vec::new();
-            for cycle in channel.tap.rx.try_iter() {
+            let mut captured_ms = 0;
+            for (cycle, at) in channel.tap.rx.try_iter() {
                 channel.resampler.process(&cycle, &mut samples);
+                captured_ms = at;
             }
             if samples.is_empty() {
                 continue;
             }
-            let chunk = Chunk { channel: id.clone(), label: channel.label.clone(), samples };
-            if tx.send(chunk).is_err() {
+            // Dated by the IO callback that delivered its last cycle.
+            let chunk = Chunk { channel: id.clone(), label: channel.label.clone(), samples, captured_ms };
+            if !tx.send(chunk) {
                 return;
             }
         }

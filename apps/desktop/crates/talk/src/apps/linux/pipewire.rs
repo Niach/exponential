@@ -22,7 +22,7 @@ use pw::spa::pod::Pod;
 use pw::stream::{StreamFlags, StreamState};
 use pw::types::ObjectType;
 
-use super::super::{AppCapture, AudioApp, Chunk, Selection, SAMPLE_RATE};
+use super::super::{chunk_queue, now_ms, AppCapture, AudioApp, ChunkSender, Selection, CAPTURE_QUEUE, SAMPLE_RATE};
 use super::nodes::{self, Own, STREAM_OUTPUT};
 use super::pcm;
 
@@ -137,7 +137,7 @@ impl Drop for Guard {
 }
 
 pub(super) fn open(selection: Selection) -> Result<AppCapture, String> {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = chunk_queue(CAPTURE_QUEUE);
     let (quit, quit_rx) = pw::channel::channel::<()>();
     let (ready_tx, ready_rx) = mpsc::channel();
     let thread = std::thread::Builder::new()
@@ -164,7 +164,7 @@ struct StreamData {
     node: u32,
     converter: Option<pcm::Converter>,
     mixers: Rc<RefCell<pcm::Mixers>>,
-    tx: mpsc::Sender<Chunk>,
+    tx: ChunkSender,
 }
 
 struct Capture {
@@ -178,7 +178,7 @@ struct State {
     core: pw::core::CoreRc,
     selection: Selection,
     own: Own,
-    tx: mpsc::Sender<Chunk>,
+    tx: ChunkSender,
     mixers: Rc<RefCell<pcm::Mixers>>,
     /// Every bound playback node (kept until it leaves the registry).
     bound: RefCell<HashMap<u32, (pw::node::Node, pw::node::NodeListener)>>,
@@ -187,7 +187,7 @@ struct State {
 
 fn run(
     selection: Selection,
-    tx: mpsc::Sender<Chunk>,
+    tx: ChunkSender,
     quit: pw::channel::Receiver<()>,
     ready: &mpsc::Sender<Result<(), String>>,
 ) -> Result<(), String> {
@@ -285,9 +285,9 @@ impl State {
     fn node_removed(&self, id: u32) {
         let capture = self.captures.borrow_mut().remove(&id);
         if let Some(capture) = capture {
-            let chunks = self.mixers.borrow_mut().remove(&capture.app, id);
+            let chunks = self.mixers.borrow_mut().remove(&capture.app, id, now_ms());
             for chunk in chunks {
-                let _ = self.tx.send(chunk);
+                self.tx.send(chunk);
             }
             let _ = capture.stream.disconnect();
             drop(capture);
@@ -350,9 +350,10 @@ impl State {
                 let samples = pcm::f32_le(&bytes[start..end]);
                 let converter = data.converter.get_or_insert_with(|| pcm::Converter::new(SAMPLE_RATE, 1));
                 let mono = converter.convert(&samples);
-                let chunks = data.mixers.borrow_mut().push(&data.app, &data.label, data.node, &mono);
+                // Dated by this process callback's wall clock.
+                let chunks = data.mixers.borrow_mut().push(&data.app, &data.label, data.node, &mono, now_ms());
                 for chunk in chunks {
-                    let _ = data.tx.send(chunk);
+                    data.tx.send(chunk);
                 }
             })
             .register()

@@ -67,6 +67,7 @@ import {
   type MoveTarget,
 } from "@/lib/sessions/move"
 import { SHARING_ORDER } from "@/lib/sessions/host"
+import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -625,7 +626,8 @@ export const MEETING_SEND_REFUSED = `A meeting transcript goes to your voice age
  *  into the CALLER's own conversation with THEIR voice agent
  *  (`user_voice_settings.agent_id`): `agentId` = that agent, or `sessionId`
  *  = that conversation session. Text only (nothing else rides a batch);
- *  never over MCP. */
+ *  never over MCP; never while that agent sits on a shared or foreign
+ *  device or the conversation is `shared` (`meetingAgentIsPrivate`). */
 async function assertMeetingSend(userId: string, input: SessionsSendInput, viaMcp: boolean): Promise<void> {
   const refuse = (): never => {
     throw new TRPCError({ code: `BAD_REQUEST`, message: MEETING_SEND_REFUSED })
@@ -642,15 +644,19 @@ async function assertMeetingSend(userId: string, input: SessionsSendInput, viaMc
   if (!voiceAgentId) refuse()
   if (input.agentId) {
     if (input.agentId !== voiceAgentId) refuse()
-    return
+  } else {
+    if (!input.sessionId) refuse()
+    const [target] = await db
+      .select({ agentId: sessions.agentId, userId: sessions.userId, parentId: sessions.parentId })
+      .from(sessions)
+      .where(eq(sessions.id, input.sessionId!))
+      .limit(1)
+    if (!target || target.agentId !== voiceAgentId || target.userId !== userId || target.parentId !== null) refuse()
   }
-  if (!input.sessionId) refuse()
-  const [target] = await db
-    .select({ agentId: sessions.agentId, userId: sessions.userId, parentId: sessions.parentId })
-    .from(sessions)
-    .where(eq(sessions.id, input.sessionId!))
-    .limit(1)
-  if (!target || target.agentId !== voiceAgentId || target.userId !== userId || target.parentId !== null) refuse()
+  // Never into a team-visible conversation or onto a shared machine.
+  if (!(await meetingAgentIsPrivate(db, userId, voiceAgentId!))) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: MEETING_SHARED_REFUSED })
+  }
 }
 
 /** NEW-57: stamp the send's message to expire with the meeting retention. */

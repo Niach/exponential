@@ -407,22 +407,22 @@ fn close_meeting<H: Hearing>(run: MeetingRun<H>, hearing: &H) {
 /// already hold, then every open segment, transcribed and emitted.
 fn drain_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &Links) -> Result<(), (ListenFailure, String)> {
     let mut emit = |event: Event| (links.emit)(&event);
-    let mut pending: Vec<(String, String, Vec<f32>)> = Vec::new();
+    let mut pending: Vec<(String, String, Vec<f32>, i64)> = Vec::new();
     while let Ok(samples) = run.mic.recv_timeout(Duration::ZERO) {
-        pending.push((talk::YOU_CHANNEL.to_string(), run.you_label.clone(), samples));
+        pending.push((talk::YOU_CHANNEL.to_string(), run.you_label.clone(), samples, epoch_ms()));
     }
     if let Some(apps) = run.apps.as_ref() {
         while let Ok(chunk) = apps.recv_timeout(Duration::ZERO) {
             let channel = if chunk.channel == talk::YOU_CHANNEL { "app-you".to_string() } else { chunk.channel };
-            pending.push((channel, chunk.label, chunk.samples));
+            pending.push((channel, chunk.label, chunk.samples, chunk.captured_ms as i64));
         }
     }
-    for (channel, label, samples) in pending {
+    for (channel, label, samples, captured_ms) in pending {
         if run.meeting.needs(&channel) {
             let vad = hearing.vad()?;
             run.meeting.add(&channel, &label, vad);
         }
-        run.meeting.feed(&channel, &label, &samples, epoch_ms(), hearing.engines(), &mut emit)?;
+        run.meeting.feed(&channel, &label, &samples, captured_ms, hearing.engines(), &mut emit)?;
     }
     run.meeting.finish(hearing.engines(), &mut emit)
 }
@@ -431,17 +431,20 @@ fn drain_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &L
 /// 20 ms), then every app chunk already there, then the idle channels.
 fn hear_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &Links) -> Result<(), (ListenFailure, String)> {
     let mut emit = |event: Event| (links.emit)(&event);
-    let mut feed = |run: &mut MeetingRun<H>, hearing: &mut H, channel: &str, label: &str, samples: &[f32]| {
+    // `captured_ms`: when the samples' last one was captured. The
+    // microphone (a bounded queue read every 20 ms) is dated as it is
+    // read; app chunks carry their capture time (meeting.json CHANNELS).
+    let mut feed = |run: &mut MeetingRun<H>, hearing: &mut H, channel: &str, label: &str, samples: &[f32], captured_ms: i64| {
         if run.meeting.needs(channel) {
             let vad = hearing.vad()?;
             run.meeting.add(channel, label, vad);
         }
-        run.meeting.feed(channel, label, samples, epoch_ms(), hearing.engines(), &mut emit)
+        run.meeting.feed(channel, label, samples, captured_ms, hearing.engines(), &mut emit)
     };
     match run.mic.recv_timeout(Duration::from_millis(20)) {
         Ok(samples) => {
             let label = run.you_label.clone();
-            feed(run, hearing, talk::YOU_CHANNEL, &label, &samples)?;
+            feed(run, hearing, talk::YOU_CHANNEL, &label, &samples, epoch_ms())?;
         }
         Err(RecvTimeoutError::Timeout) => {}
         Err(RecvTimeoutError::Disconnected) => return Err((ListenFailure::NoMicrophone, "the microphone closed".into())),
@@ -452,7 +455,7 @@ fn hear_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &Li
             Ok(chunk) => {
                 // Never the microphone's channel, whatever an app calls itself.
                 let channel = if chunk.channel == talk::YOU_CHANNEL { "app-you".to_string() } else { chunk.channel };
-                feed(run, hearing, &channel, &chunk.label, &chunk.samples)?;
+                feed(run, hearing, &channel, &chunk.label, &chunk.samples, chunk.captured_ms as i64)?;
             }
             Err(RecvTimeoutError::Timeout) => break,
             Err(RecvTimeoutError::Disconnected) => {
@@ -1418,7 +1421,7 @@ pub(crate) mod fake {
         /// NEW-57: play `samples` as app `channel` into the newest capture.
         pub fn play(&self, channel: &str, label: &str, samples: Vec<f32>) {
             let apps = self.apps.lock().unwrap();
-            let chunk = talk::apps::Chunk { channel: channel.into(), label: label.into(), samples };
+            let chunk = talk::apps::Chunk { channel: channel.into(), label: label.into(), samples, captured_ms: talk::apps::now_ms() };
             apps.last().expect("a capture is open").1.send(chunk).unwrap();
         }
 

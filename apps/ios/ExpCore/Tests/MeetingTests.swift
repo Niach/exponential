@@ -57,6 +57,7 @@ final class MeetingTests: XCTestCase {
             "and": Meeting.Copy.and,
             "consentTitle": Meeting.Copy.consentTitle,
             "consentBody": Meeting.Copy.consentBody,
+            "sharedRefused": Meeting.Copy.sharedRefused,
             "start": Meeting.Copy.start,
             "cancel": Meeting.Copy.cancel,
             "pause": Meeting.Copy.pause,

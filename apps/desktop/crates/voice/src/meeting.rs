@@ -45,9 +45,12 @@ struct Channel<V> {
     audio: Vec<f32>,
     base: usize,
     segmenter: Segmenter,
-    /// Epoch ms at which the newest sample arrived (the clock the
+    /// Epoch ms at which the newest sample was CAPTURED (the clock the
     /// segment times are read against).
     last_ms: i64,
+    /// The worker's clock when it was last fed (the idle rule reads this:
+    /// a backlog of old chunks is not silence).
+    heard_ms: i64,
 }
 
 impl<V> Channel<V> {
@@ -75,6 +78,8 @@ pub struct Meeting<V> {
     /// The debug ring per channel (None = off: audio is never kept).
     rings: Option<BTreeMap<String, VecDeque<f32>>>,
     segments: usize,
+    /// The newest `now_ms` [`Self::idle`] was given (the worker's clock).
+    clock: i64,
 }
 
 impl<V: Vad> Meeting<V> {
@@ -87,6 +92,7 @@ impl<V: Vad> Meeting<V> {
             paused: false,
             rings: ring.then(BTreeMap::new),
             segments: 0,
+            clock: 0,
         }
     }
 
@@ -127,13 +133,15 @@ impl<V: Vad> Meeting<V> {
     pub fn add(&mut self, channel: &str, label: &str, vad: V) {
         self.channels.insert(
             channel.to_string(),
-            Channel { label: label.to_string(), vad, audio: Vec::new(), base: 0, segmenter: Segmenter::default(), last_ms: 0 },
+            Channel { label: label.to_string(), vad, audio: Vec::new(), base: 0, segmenter: Segmenter::default(), last_ms: 0, heard_ms: 0 },
         );
     }
 
-    /// `samples` of `channel` (mono 16 kHz) that arrived at `now_ms`; the
-    /// segments they close are transcribed and emitted. Dropped while
-    /// paused, or for a channel never [`Self::add`]ed.
+    /// `samples` of `channel` (mono 16 kHz) whose LAST one was captured at
+    /// `now_ms` (the chunk's capture time, never when the worker read it:
+    /// a backlog does not shift the segment times); the segments they
+    /// close are transcribed and emitted. Dropped while paused, or for a
+    /// channel never [`Self::add`]ed.
     pub fn feed(
         &mut self,
         channel: &str,
@@ -158,6 +166,7 @@ impl<V: Vad> Meeting<V> {
         }
         stream.audio.extend_from_slice(samples);
         stream.last_ms = now_ms;
+        stream.heard_ms = now_ms.max(self.clock);
         let probabilities = stream.vad.push(samples).map_err(|err| (ListenFailure::Failed, err))?;
         let closed: Vec<Segment> = probabilities.into_iter().filter_map(|probability| stream.segmenter.push(probability)).collect();
         for segment in closed {
@@ -177,10 +186,11 @@ impl<V: Vad> Meeting<V> {
     /// A channel silent for [`CHANNEL_IDLE_MS`] closes its open segment
     /// where the speech ended (an app that stopped playing mid-phrase).
     pub fn idle(&mut self, now_ms: i64, transcriber: &mut dyn Transcriber, emit: &mut dyn FnMut(Event)) -> Result<(), (ListenFailure, String)> {
+        self.clock = self.clock.max(now_ms);
         let idle: Vec<(String, Segment)> = self
             .channels
             .iter_mut()
-            .filter(|(_, stream)| now_ms - stream.last_ms >= CHANNEL_IDLE_MS && stream.segmenter.open_start().is_some())
+            .filter(|(_, stream)| now_ms - stream.heard_ms >= CHANNEL_IDLE_MS && stream.segmenter.open_start().is_some())
             .filter_map(|(channel, stream)| Some((channel.clone(), stream.segmenter.finish()?)))
             .collect();
         for (channel, segment) in idle {
@@ -441,6 +451,43 @@ mod tests {
         let got = segments(&events);
         assert_eq!(got.len(), 1);
         assert!((got[0].4 - 10_000).abs() <= 50, "it ends where the audio stopped: {}", got[0].4);
+    }
+
+    /// meeting.json CHANNELS: a segment is dated by its chunks' CAPTURE
+    /// time; a backlog read 30 s late neither shifts it nor reads as
+    /// silence to the idle rule.
+    #[test]
+    fn segment_times_follow_the_capture_time_when_fed_late() {
+        let mut meeting = Meeting::new("m1", "en", "", false);
+        let mut clips = Clips::default();
+        let mut events = Vec::new();
+        meeting.add("app", "App", EnergyVad::default());
+        let captured0 = 1_000_000;
+        let worker_now = captured0 + 30_000;
+        meeting.idle(worker_now, &mut clips, &mut |event| events.push(event)).unwrap();
+        // 0.2 s quiet, 0.8 s speech, 0.5 s quiet, in 20 ms chunks each
+        // stamped with its own capture time; the worker reads them all now.
+        let audio = phrase(0.8, 0.4);
+        let chunk = RATE / 50;
+        let mut at = 0;
+        while at < audio.len() {
+            let end = (at + chunk).min(audio.len());
+            let captured = captured0 + (end * 1000 / RATE) as i64;
+            meeting.feed("app", "App", &audio[at..end], captured, &mut clips, &mut |event| events.push(event)).unwrap();
+            if at == 6 * chunk {
+                // Mid-phrase, the worker's clock ticks on: no idle close.
+                meeting.idle(worker_now + 100, &mut clips, &mut |event| events.push(event)).unwrap();
+                assert!(segments(&events).is_empty(), "a backlog is not silence");
+            }
+            at = end;
+        }
+        let got = segments(&events);
+        assert_eq!(got.len(), 1, "one segment");
+        let (start, end) = (got[0].3, got[0].4);
+        // The speech is captured over [+200, +1000] ms (the segmenter's
+        // padding may widen it a little); the read time is 30 s later.
+        assert!((captured0..=captured0 + 250).contains(&start), "starts at the capture time: {start}");
+        assert!((captured0 + 900..=captured0 + 1_500).contains(&end), "ends at the capture time: {end}");
     }
 
     #[test]

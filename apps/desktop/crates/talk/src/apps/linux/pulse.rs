@@ -6,9 +6,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
 
-use super::super::{AppCapture, Chunk, DESKTOP_CHANNEL, SAMPLE_RATE};
+use super::super::{chunk_queue, now_ms, AppCapture, Chunk, CAPTURE_QUEUE, DESKTOP_CHANNEL, SAMPLE_RATE};
 use super::pcm;
 
 /// The `desktop` channel's label (meeting.json `copy.desktop`).
@@ -77,7 +76,7 @@ pub(super) fn open() -> Result<AppCapture, String> {
         .spawn()
         .map_err(|error| format!("parec: {error}"))?;
     let mut stdout = child.stdout.take().ok_or("parec: no output")?;
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = chunk_queue(CAPTURE_QUEUE);
     std::thread::Builder::new()
         .name("talk-apps-parec".to_string())
         .spawn(move || {
@@ -93,10 +92,17 @@ pub(super) fn open() -> Result<AppCapture, String> {
                 let whole = carry.len() / 4 * 4;
                 let samples = pcm::f32_le(&carry[..whole]);
                 carry.drain(..whole);
+                // Dated by the read's wall clock: parec streams in real
+                // time and this reader never blocks on the worker.
+                let captured_ms = now_ms();
                 for samples in chunker.push(&samples) {
-                    let chunk =
-                        Chunk { channel: DESKTOP_CHANNEL.to_string(), label: DESKTOP_LABEL.to_string(), samples };
-                    if tx.send(chunk).is_err() {
+                    let chunk = Chunk {
+                        channel: DESKTOP_CHANNEL.to_string(),
+                        label: DESKTOP_LABEL.to_string(),
+                        samples,
+                        captured_ms,
+                    };
+                    if !tx.send(chunk) {
                         return;
                     }
                 }

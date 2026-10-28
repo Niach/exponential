@@ -88,8 +88,7 @@ fn main() {
     let mut real: Meeting<voice::listener::SileroVad> = Meeting::new("live", "en", "Hey Studio", voice::meeting::ring_enabled());
     let mut print = |event: talk::Event| println!("{}", serde_json::to_string(&event).unwrap());
     let started = Instant::now();
-    let mut feed = |channel: &str, label: &str, samples: &[f32], engines: &mut Engines| {
-        let now = now_ms();
+    let mut feed = |channel: &str, label: &str, samples: &[f32], now: i64, engines: &mut Engines| {
         match engines {
             Engines::Fake => {
                 if fake.needs(channel) {
@@ -108,11 +107,11 @@ fn main() {
     while started.elapsed() < Duration::from_secs(seconds) {
         if let Some(mic) = mic.as_ref() {
             while let Ok(samples) = mic.recv_timeout(Duration::ZERO) {
-                feed(talk::YOU_CHANNEL, "You", &samples, &mut engines);
+                feed(talk::YOU_CHANNEL, "You", &samples, now_ms(), &mut engines);
             }
         }
         match capture.recv_timeout(Duration::from_millis(20)) {
-            Ok(chunk) => feed(&chunk.channel, &chunk.label, &chunk.samples, &mut engines),
+            Ok(chunk) => feed(&chunk.channel, &chunk.label, &chunk.samples, chunk.captured_ms as i64, &mut engines),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }

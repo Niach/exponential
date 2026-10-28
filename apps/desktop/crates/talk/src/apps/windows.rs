@@ -23,7 +23,7 @@ use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::{AppCapture, AudioApp, Capability, Chunk, Selection, DESKTOP_CHANNEL};
+use super::{chunk_queue, now_ms, AppCapture, AudioApp, Capability, Chunk, ChunkSender, Selection, CAPTURE_QUEUE, DESKTOP_CHANNEL};
 
 /// The first build with process loopback (meeting.json CAPABILITY).
 const PROCESS_LOOPBACK_BUILD: u32 = 20_348;
@@ -110,7 +110,7 @@ impl Drop for Guard {
 }
 
 fn system() -> Result<AppCapture, String> {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = chunk_queue(CAPTURE_QUEUE);
     let (ready_tx, ready_rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
@@ -134,13 +134,16 @@ fn system() -> Result<AppCapture, String> {
                             let _ = ready.send(Ok(()));
                         }
                         let result = loopback.pump(&thread_stop, |samples| {
+                            // Dated by this packet's wall clock (read as it is captured).
+                            let captured_ms = now_ms();
                             chunker.push(&samples).into_iter().all(|samples| {
                                 let chunk = Chunk {
                                     channel: DESKTOP_CHANNEL.to_string(),
                                     label: DESKTOP_LABEL.to_string(),
                                     samples,
+                                    captured_ms,
                                 };
-                                tx.send(chunk).is_ok()
+                                tx.send(chunk)
                             })
                         });
                         if let Err(error) = result {
@@ -180,11 +183,12 @@ impl Running {
     }
 }
 
-/// Samples of one root process, on their way to that app's mixer.
-type Raw = (String, u32, Vec<f32>);
+/// Samples of one root process (and their capture time, epoch ms), on
+/// their way to that app's mixer.
+type Raw = (String, u32, Vec<f32>, u64);
 
 fn per_app(selection: Selection) -> Result<AppCapture, String> {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = chunk_queue(CAPTURE_QUEUE);
     let (ready_tx, ready_rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
@@ -213,10 +217,11 @@ fn per_app(selection: Selection) -> Result<AppCapture, String> {
 /// The session poller: starts a loopback per wanted app root, ends those
 /// whose app went quiet or whose process exited, and folds every root's
 /// samples into its app's channel.
-fn manage(selection: Selection, stop: &AtomicBool, tx: &mpsc::Sender<Chunk>) {
+fn manage(selection: Selection, stop: &AtomicBool, tx: &ChunkSender) {
     let own_pid = std::process::id();
     let own = pcm::own_stem();
-    let (raw_tx, raw_rx) = mpsc::channel::<Raw>();
+    // Bounded like the chunks: a full queue drops the packet.
+    let (raw_tx, raw_rx) = mpsc::sync_channel::<Raw>(CAPTURE_QUEUE);
     let mut running: HashMap<u32, Running> = HashMap::new();
     let mut names: HashMap<String, String> = HashMap::new();
     let mut mixers = pcm::Mixers::default();
@@ -263,24 +268,24 @@ fn manage(selection: Selection, stop: &AtomicBool, tx: &mpsc::Sender<Chunk>) {
                     }
                     drop(capture.guard);
                     // Samples of this root still queued go first.
-                    while let Ok((app, source, samples)) = raw_rx.try_recv() {
-                        if !send(tx, mixers.push(&app, names.get(&app).map_or(&app, |n| n), source, &samples)) {
+                    while let Ok((app, source, samples, captured_ms)) = raw_rx.try_recv() {
+                        if !send(tx, mixers.push(&app, names.get(&app).map_or(&app, |n| n), source, &samples, captured_ms)) {
                             break 'outer;
                         }
                     }
-                    if !send(tx, mixers.remove(&capture.app, root)) {
+                    if !send(tx, mixers.remove(&capture.app, root, now_ms())) {
                         break 'outer;
                     }
                 }
             }
         }
         match raw_rx.recv_timeout(Duration::from_millis(100)) {
-            Ok((app, source, samples)) => {
+            Ok((app, source, samples, captured_ms)) => {
                 if !running.contains_key(&source) {
                     continue;
                 }
                 let label = names.get(&app).cloned().unwrap_or_else(|| app.clone());
-                if !send(tx, mixers.push(&app, &label, source, &samples)) {
+                if !send(tx, mixers.push(&app, &label, source, &samples, captured_ms)) {
                     break;
                 }
             }
@@ -292,11 +297,11 @@ fn manage(selection: Selection, stop: &AtomicBool, tx: &mpsc::Sender<Chunk>) {
     running.clear();
 }
 
-fn send(tx: &mpsc::Sender<Chunk>, chunks: Vec<Chunk>) -> bool {
-    chunks.into_iter().all(|chunk| tx.send(chunk).is_ok())
+fn send(tx: &ChunkSender, chunks: Vec<Chunk>) -> bool {
+    chunks.into_iter().all(|chunk| tx.send(chunk))
 }
 
-fn spawn_loopback(app: String, root: u32, raw: mpsc::Sender<Raw>) -> Guard {
+fn spawn_loopback(app: String, root: u32, raw: mpsc::SyncSender<Raw>) -> Guard {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
     let thread = std::thread::Builder::new()
@@ -304,7 +309,11 @@ fn spawn_loopback(app: String, root: u32, raw: mpsc::Sender<Raw>) -> Guard {
         .spawn(move || {
             let result = wasapi::Com::init().and_then(|_com| {
                 let loopback = wasapi::Loopback::process(root)?;
-                loopback.pump(&thread_stop, |samples| raw.send((app.clone(), root, samples)).is_ok())
+                // Dated by this packet's wall clock; a full queue drops it.
+                loopback.pump(&thread_stop, |samples| match raw.try_send((app.clone(), root, samples, now_ms())) {
+                    Ok(()) | Err(mpsc::TrySendError::Full(_)) => true,
+                    Err(mpsc::TrySendError::Disconnected(_)) => false,
+                })
             });
             if let Err(error) = result {
                 log::debug!("[talk] loopback of {app} (pid {root}): {error}");
