@@ -1,8 +1,8 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { devices, messages, sessions } from "@/db/schema"
+import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
@@ -11,7 +11,7 @@ import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
-import { stopExpiredMeetings } from "@/lib/trpc/voice"
+import { MEETING_AUTO_STOP } from "@exp/domain-contract/meeting"
 
 // NEW-1: the server watchdog (every minute; contract `sessionWatchdog`).
 // Nothing waits on a device's good behaviour: what stalls is flagged on
@@ -533,7 +533,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     fired: await fireScheduledTriggers(now),
     pruned: await pruneEvents(now),
     meetingPruned: await pruneExpiredMessages(now),
-    meetingsStopped: await stopExpiredMeetings(db, now),
+    meetingsStopped: await stopExpiredMeetings(now),
   }
 }
 
@@ -558,6 +558,27 @@ export async function pruneExpiredMessages(now: Date = new Date()): Promise<numb
     .where(inArray(messages.id, expired))
     .returning({ id: messages.id })
   return gone.length
+}
+
+/** NEW-57 AUTO-STOP (watchdog): clear every meeting started at least
+ *  `autoStop.afterMs` ago and nudge its voice device (which stops on its own
+ *  clock too). Returns how many stopped. */
+export async function stopExpiredMeetings(now: Date = new Date()): Promise<number> {
+  const stopped = await db
+    .update(userVoiceSettings)
+    .set({ meetingStartedAt: null, updatedAt: now })
+    .where(
+      and(
+        isNotNull(userVoiceSettings.meetingStartedAt),
+        lte(userVoiceSettings.meetingStartedAt, new Date(now.getTime() - MEETING_AUTO_STOP.afterMs))
+      )
+    )
+    .returning({ userId: userVoiceSettings.userId, voiceDeviceId: userVoiceSettings.voiceDeviceId })
+  const config = getSteerRelayConfig()
+  for (const row of stopped) {
+    if (config && row.voiceDeviceId) void relayPostNudge(config, row.userId, row.voiceDeviceId).catch(() => {})
+  }
+  return stopped.length
 }
 
 let started = false

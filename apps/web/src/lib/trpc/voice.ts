@@ -17,13 +17,12 @@
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNotNull, lte } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS, wakePhraseError } from "@exp/domain-contract/voice"
 import { callAvailability } from "@exp/domain-contract/voice-call"
 import {
   DESKTOP_AUDIO_VALUES,
-  MEETING_AUTO_STOP,
   MEETING_LIMITS,
   meetingExpired,
   type AudioApp,
@@ -164,26 +163,6 @@ export function withMeetingScope(before: VoiceSettings, next: VoiceSettings): Vo
     before.desktopAudio !== next.desktopAudio ||
     appIds(before) !== appIds(next)
   return widened ? { ...next, meetingStartedAt: null } : next
-}
-
-/** NEW-57 AUTO-STOP (watchdog): clear every meeting started at least
- *  `autoStop.afterMs` ago and nudge its voice device (which stops on its own
- *  clock too). Returns how many stopped. */
-export async function stopExpiredMeetings(database: Db, now: Date = new Date()): Promise<number> {
-  const stopped = await database
-    .update(userVoiceSettings)
-    .set({ meetingStartedAt: null, updatedAt: now })
-    .where(
-      and(
-        isNotNull(userVoiceSettings.meetingStartedAt),
-        lte(userVoiceSettings.meetingStartedAt, new Date(now.getTime() - MEETING_AUTO_STOP.afterMs))
-      )
-    )
-    .returning({ userId: userVoiceSettings.userId, voiceDeviceId: userVoiceSettings.voiceDeviceId })
-  for (const row of stopped) {
-    if (row.voiceDeviceId) nudge(row.userId, row.voiceDeviceId)
-  }
-  return stopped.length
 }
 
 /** NEW-57 (meeting.json SHARING): after a device share, a running meeting

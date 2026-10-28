@@ -34,13 +34,13 @@ if (!ready.ok) console.info(`[meeting.real-db] skipped: ${ready.reason}`)
 
 const { sendSession, MEETING_SEND_REFUSED } = await import(`@/lib/sessions/send`)
 const { MEETING_SHARED_REFUSED } = await import(`@/lib/sessions/meeting-access`)
-const { voiceRouter, stopExpiredMeetings, stopMeetingUnlessPrivate } = await import(`@/lib/trpc/voice`)
+const { voiceRouter, stopMeetingUnlessPrivate } = await import(`@/lib/trpc/voice`)
 const { buildSessionVisibleWhere } = await import(`@/lib/auth/shape-where`)
 const { loadSessionForUser } = await import(`@/lib/sessions/access`)
 
 const voice = (userId: string) =>
   voiceRouter.createCaller({ session: { user: { id: userId } }, db, request: new Request(`http://x.test`) } as never)
-const { pruneExpiredMessages } = await import(`@/lib/sessions/watchdog`)
+const { pruneExpiredMessages, stopExpiredMeetings } = await import(`@/lib/sessions/watchdog`)
 
 const DAY = 24 * 60 * 60 * 1000
 const id8 = () => crypto.randomUUID().slice(0, 8)
@@ -238,7 +238,7 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
       { userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId, meetingStartedAt: new Date(NOW.getTime() - afterMs) },
       { userId: fresh.owner, agentId: fresh.ops, voiceDeviceId: fresh.deviceId, meetingStartedAt: new Date(NOW.getTime() - afterMs + 1) },
     ])
-    expect(await stopExpiredMeetings(db, NOW)).toBe(1)
+    expect(await stopExpiredMeetings(NOW)).toBe(1)
     const started = async (userId: string) =>
       (await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, userId)))[0]!.meetingStartedAt
     expect(await started(w.owner)).toBeNull()
