@@ -1,0 +1,24 @@
+[package]
+name = "screen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# NEW-58: the voice device's screen memory (`fixtures/screen-memory.json`):
+# 1 fps + focus-change capture of every display, a 64x64 perceptual-hash
+# dedupe, WebP frames in hour directories indexed in SQLite, 10 minutes of
+# retention, a denylist pause, and the `get_screenshots` tool on a loopback
+# MCP endpoint of its own (the `computer` crate's topology: per-run bearer,
+# tiny_http, plain JSON). gpui-free.
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"
+uuid = { workspace = true }
+tiny_http = { version = "0.12", default-features = false }
+image = { workspace = true, features = ["png"] }
+rusqlite = { workspace = true }
+# The focused window (app, title, rect) and the display order: the computer
+# crate's backend, so frame numbers match `doctor.displays`.
+computer = { path = "../computer" }
