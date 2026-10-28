@@ -106,8 +106,6 @@ function fakeModel(): LaunchComposerModel {
     setEffortValue: vi.fn(),
     ultracode: false,
     setUltracode: vi.fn(),
-    planMode: false,
-    setPlanMode: vi.fn(),
     mcpServerIds: [],
     setMcpServerIds: vi.fn(),
     toggleMcpServer: vi.fn(),
@@ -117,7 +115,7 @@ function fakeModel(): LaunchComposerModel {
     accountOptions: [],
     accountKey: undefined,
     setAccountKey: vi.fn(),
-    buildOptions: () => ({ agent: `claude`, model: `opus`, effort: ``, ultracode: false, planMode: false }),
+    buildOptions: () => ({ agent: `claude`, model: `opus`, effort: ``, ultracode: false }),
   }
   return {
     teamId: `t1`,

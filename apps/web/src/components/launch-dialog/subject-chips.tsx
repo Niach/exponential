@@ -1,13 +1,12 @@
 import type { Issue } from "@/db/schema"
-import type { ComposerAgent, ComposerPrompt } from "@/hooks/use-launch-composer"
-import { AgentIcon } from "@/components/team/sidebar-agents"
+import type { ComposerPrompt } from "@/hooks/use-launch-composer"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { ChipRemoveButton, Pill, Spinner, conceptIcon, getActionIcon } from "@exp/ui"
 
 // EXP-825: the composer's SUBJECT, as chips in the card's leading row — one
-// per picked issue, ONE prompt chip (NEW-2, picked in the `/` menu) or ONE
-// agent chip (NEW-3, Message an agent › in the "+"). They are how "exclusivity by swap"
+// per picked issue or ONE prompt chip (NEW-2, picked in the `/` menu; S-3:
+// no agent chip, the agent row picks the recipient). They are how "exclusivity by swap"
 // reads: picking the other kind replaces what is here, and the chips show it.
 //
 // EXP-827/EXP-885: an issue chip IS `<IssueChip>` — the one chip the session
@@ -27,11 +26,8 @@ export function SubjectChips({
   pendingIssueCount,
   prompt,
   promptPending,
-  agent,
-  agentPending,
   onRemoveIssue,
   onClearPrompt,
-  onClearAgent,
   disabled,
 }: {
   /** The checked issues that have synced rows. */
@@ -42,39 +38,11 @@ export function SubjectChips({
   prompt: ComposerPrompt | null
   /** The subject is a prompt whose row is not synced (or gone). */
   promptPending: boolean
-  /** NEW-3: the subject agent's row, when the subject is an agent (a DM). */
-  agent?: ComposerAgent | null
-  /** The subject is an agent whose row is not synced (or gone). */
-  agentPending?: boolean
   onRemoveIssue: (issueId: string) => void
   onClearPrompt: () => void
-  onClearAgent?: () => void
   disabled?: boolean
 }) {
   const issueRefs = useIssueRefs()
-
-  // NEW-3: ONE agent chip, the agent's icon in its colour + its name: the
-  // message goes into the caller's DM with it (`sessions.send({agentId})`).
-  if (agent || agentPending) {
-    return (
-      <Pill
-        size="sm"
-        mode="readonly"
-        className="max-w-[20rem] pr-1"
-        data-testid="agent-composer-chip-agent"
-        title={agent?.name}
-      >
-        {agent ? <AgentIcon agent={agent} className="size-3" /> : <Spinner />}
-        <span className="min-w-0 truncate">{agent?.name ?? `Agent…`}</span>
-        <ChipRemoveButton
-          label={`Remove ${agent?.name ?? `agent`}`}
-          testId="agent-composer-chip-agent-remove"
-          disabled={disabled}
-          onRemove={() => onClearAgent?.()}
-        />
-      </Pill>
-    )
-  }
 
   if (prompt || promptPending) {
     const RowIcon = prompt ? getActionIcon(prompt) : IssueRefIcon

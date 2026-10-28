@@ -227,20 +227,22 @@ export function silentMinutes(alive: number, now: Date): number {
   return Math.max(contract.sessionWatchdog.stuckMinutes, minutes)
 }
 
-/** A live session whose host device missed the online window: idle, not
- *  busy, `device_offline` (its next heartbeat clears it). EXP-1374: an
- *  INTERRUPTION, not on a person (`needs_input` untouched: an open card
- *  still waits); a busy one is mid-turn (`resume`): its device continues it
- *  when back (`restoreDeviceSessionsInTx`). */
+/** A BUSY session whose host device missed the online window: idle, not
+ *  busy, `device_offline` + `resume` (its next heartbeat clears it; its
+ *  device continues it when back, `restoreDeviceSessionsInTx`). EXP-1374:
+ *  an INTERRUPTION, not on a person (`needs_input` untouched). S-3: an idle
+ *  session has nothing to interrupt and is never flagged, and the flag is
+ *  silent (no bus line: an interruption is invisible ×4). */
 async function flagOffline(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: sessions.id, parentId: sessions.parentId, busy: sessions.busy })
+      .select({ id: sessions.id })
       .from(sessions)
       .where(
         and(
           inArray(sessions.status, [...LIVE]),
+          eq(sessions.busy, true),
           isNull(sessions.blocked),
           // FEED-148: the resolved host's row only: a decoy row online
           // never keeps a dead host's sessions live.
@@ -255,11 +257,10 @@ async function flagOffline(now: Date): Promise<number> {
           status: `idle`,
           busy: false,
           background: false,
-          blocked: interruption(`device_offline`, now, row.busy, null),
+          blocked: interruption(`device_offline`, now, true, null),
           updatedAt: now,
         })
         .where(eq(sessions.id, row.id))
-      await busLine(tx, row, `device_offline`, BUS_COPY.device_offline, { waking: false })
     }
     return rows.length
   })
@@ -484,8 +485,7 @@ export async function clearLiveStuckInTx(
  *  runs. A `running` + `busy` session on that device that is NOT listed has
  *  a dead process (the daemon lives, the run does not): idle, not busy.
  *  EXP-1374: an INTERRUPTION (`restarted`, mid-turn): its device continues
- *  it (pickup `Continue`), never a person's, said once to its parent
- *  (not waking: nothing for it to do). */
+ *  it (pickup `Continue`), never a person's; S-3: silent (no bus line). */
 export async function flagDeadSessionsInTx(
   tx: Tx,
   device: BeatingDevice & { liveSessionIds: readonly string[] },
@@ -493,7 +493,7 @@ export async function flagDeadSessionsInTx(
 ): Promise<number> {
   const live = cleanLiveSessionIds(device.liveSessionIds).ids
   const rows = await tx
-    .select({ id: sessions.id, parentId: sessions.parentId })
+    .select({ id: sessions.id })
     .from(sessions)
     .where(
       and(
@@ -515,7 +515,6 @@ export async function flagDeadSessionsInTx(
         updatedAt: now,
       })
       .where(eq(sessions.id, row.id))
-    await busLine(tx, row, `session_interrupted`, BUS_COPY.session_interrupted, { waking: false })
   }
   return rows.length
 }

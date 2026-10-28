@@ -3,15 +3,15 @@
 //! a thread and a session view: one card everywhere, case for case with the
 //! web entry. Drawn from the REAL parts the app composes
 //! ([`crate::composer::session_composer_box`]: the card with the "+" and
-//! the inline tools, Send ⇄ Stop; [`crate::composer::SessionComposerControls`]:
-//! the options line UNDER it) and the "+" menu drawn OPEN beside it (a real
-//! `PopupMenu` built row by row off `chat_screen::composer_menu_rows`, the
-//! rows of `composer-menu.json` with every condition met; in a session the
-//! subject rows go). The specimen ([`ComposerSpecimen`], [`options_line`],
-//! [`plus_menu_open`]) is shared with the `composer-options` and
-//! `session-thread` entries, like the web `composer-specimen.tsx`. NEW-3:
-//! a start's "+" carries Message an agent ›, and the agent case shows its
-//! ONE chip (`chat_screen::agent_chip`) with the options line hidden.
+//! its "+", Send ⇄ Stop; a session keeps only its context ring: S-3 removed
+//! the options line under every composer) and the "+" menu drawn OPEN beside
+//! it (a real `PopupMenu` built row by row off
+//! `chat_screen::composer_menu_rows`: a start = the launch surface on
+//! Temporary session, a session = its surface, the model only). The
+//! specimen ([`ComposerSpecimen`], [`plus_menu_open`]) is shared with the
+//! `session-thread` entry, like the web `composer-specimen.tsx`. The agent
+//! case keeps the home placeholder (the agent row above the card picks the
+//! recipient, styleguide `composer-agent-row`).
 
 use gpui::{
     div, px, AnyElement, App, Context, Div, Entity, IntoElement, ParentElement as _, Render,
@@ -21,17 +21,14 @@ use gpui_component::menu::PopupMenu;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::chat_screen::{
-    agent_chip, composer_menu_rows, ComposerMenuConditions, ComposerMenuRow, MENU_ADD_FILE,
-    MENU_COMPUTER_USE, MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_MESSAGE_AGENT, MENU_ULTRACODE,
-    PLUS_TOOLTIP,
+    composer_menu_rows, ComposerMenuConditions, ComposerMenuRow, ComposerSurface, MENU_ADD_FILE,
+    MENU_COMPUTER_USE, MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_ULTRACODE, PLUS_TOOLTIP,
 };
 use crate::composer::{
-    composer_tool, session_composer_card, session_composer_field, session_context_ring, session_model_pin,
+    composer_tool, session_composer_card, session_composer_field, session_context_ring,
     ContextRingProps, SessionComposerBox, SessionComposerControls, SessionComposerSubmit, SubmitKind,
-    PLAN_MODE_FALLBACK,
 };
 use crate::icons::registry;
-use crate::launch_options::{inline_pin_trigger, inline_pin_trigger_with};
 use crate::mention_input::MentionInput;
 use crate::surface::{glass_pill, PillMode, PillSize};
 
@@ -51,19 +48,6 @@ pub(super) enum Phase {
 pub(super) const SAMPLE_DEVICE: &str = "mint · This device";
 pub(super) const SAMPLE_ACCOUNT: &str = "danny@example.dev";
 pub(super) const SAMPLE_REPOSITORY: &str = "Niach/exponential";
-
-/// NEW-3: the agent a message goes to (the agent case's chip).
-fn sample_agent() -> domain::session_tree::AgentRow {
-    domain::session_tree::AgentRow {
-        agent_id: "sg-agent-triage".to_string(),
-        team_id: "sg-team".to_string(),
-        name: "Triage".to_string(),
-        icon: "bug".to_string(),
-        color: "#f59e0b".to_string(),
-        busy: false,
-        needs_you: false,
-    }
-}
 
 /// The model on the line, THE model list's alias: `opus`, `haiku` while idle.
 pub(super) fn sample_model(phase: Phase) -> &'static str {
@@ -88,74 +72,6 @@ fn sample_usage(phase: Phase) -> steer::SessionUsage {
     }
 }
 
-/// The Plan switch: on while running.
-pub(super) fn plan_switch(id: String, phase: Phase, cx: &App) -> AnyElement {
-    h_flex()
-        .gap_1p5()
-        .items_center()
-        .px_1()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(PLAN_MODE_FALLBACK)
-        .child(crate::controls::web_switch(SharedString::from(id)).checked(phase == Phase::Running))
-        .into_any_element()
-}
-
-/// The start line's pins before the model: the device (its glyph), the
-/// account.
-fn start_pins(prefix: &str, cx: &App) -> Vec<AnyElement> {
-    vec![
-        inline_pin_trigger_with(
-            SharedString::from(format!("{prefix}-device")),
-            Some(registry::NAV_COMPUTER),
-            SAMPLE_DEVICE.to_string(),
-            cx,
-        )
-        .into_any_element(),
-        inline_pin_trigger(SharedString::from(format!("{prefix}-account")), SAMPLE_ACCOUNT.to_string(), cx)
-            .into_any_element(),
-    ]
-}
-
-/// EXP-1252 — a session's Device pin (before the model): the launch line's
-/// pin trigger with the session's device. N-12: its glyph alone; the name is
-/// the tooltip.
-pub(super) fn session_device_pin(prefix: &str, cx: &App) -> AnyElement {
-    crate::launch_options::inline_pin_glyph_trigger(SharedString::from(format!("{prefix}-device")), registry::NAV_COMPUTER, cx)
-        .tooltip(SAMPLE_DEVICE)
-        .into_any_element()
-}
-
-/// N-12 (web `ComposerSessionRowSpecimen`): a session composer's in-card
-/// row: the Device glyph · the model pin · the Plan switch.
-pub(super) fn session_row(prefix: &str, phase: Phase, cx: &App) -> Div {
-    h_flex()
-        .min_w_0()
-        .pl_1()
-        .gap(px(10.))
-        .items_center()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(session_device_pin(prefix, cx))
-        .child(inline_pin_trigger(
-            SharedString::from(format!("{prefix}-model")),
-            crate::steer_viewer::model_label(sample_model(phase)),
-            cx,
-        ))
-        .child(plan_switch(format!("{prefix}-plan"), phase, cx))
-}
-
-/// The repository pin, the start line's last word.
-fn repository_pin(prefix: &str, cx: &App) -> AnyElement {
-    inline_pin_trigger_with(
-        SharedString::from(format!("{prefix}-repo")),
-        Some(registry::UI_REPOSITORY),
-        SAMPLE_REPOSITORY.to_string(),
-        cx,
-    )
-    .into_any_element()
-}
-
 /// The context ring at the line's end (its usage sheet on a click).
 pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyElement> {
     session_context_ring(
@@ -175,30 +91,6 @@ pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyEl
     )
 }
 
-/// The options line UNDER the start composer (web
-/// `ComposerOptionsSpecimen`): device · account · model · Plan ·
-/// repository (N-12: a session's pins sit in the card, [`session_row`]). The model pin here is the static word (the live
-/// menu is the whole composer's, [`ComposerSpecimen`]).
-pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
-    let model = inline_pin_trigger(
-        SharedString::from(format!("{prefix}-model")),
-        crate::steer_viewer::model_label(sample_model(phase)),
-        cx,
-    );
-    let mut line = h_flex()
-        .w_full()
-        .min_w_0()
-        .flex_wrap()
-        .gap_1()
-        .items_center()
-        .px_1()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground);
-    line = line.children(start_pins(prefix, cx));
-    line = line.child(model).child(plan_switch(format!("{prefix}-plan"), phase, cx));
-    line.child(repository_pin(prefix, cx))
-}
-
 /// THE whole composer (web `ComposerSpecimen`): the card (the field, the
 /// "+" + the inline tools, Send ⇄ Stop), the options line under it. A view:
 /// the field and the model pin's pick live across frames.
@@ -206,10 +98,9 @@ pub(super) struct ComposerSpecimen {
     prefix: &'static str,
     phase: Phase,
     mention: Entity<MentionInput>,
-    model: String,
     /// EXP-1211: the quick replies above the card (none = the plain box).
     replies: Option<domain::session_tree::ComposerReplies>,
-    /// NEW-3: a message to an agent — the options line hides.
+    /// The agent case (no context ring before a conversation exists).
     to_agent: bool,
 }
 
@@ -226,7 +117,6 @@ impl ComposerSpecimen {
             prefix,
             phase,
             mention,
-            model: sample_model(phase).to_string(),
             replies: None,
             to_agent: false,
         }
@@ -243,56 +133,12 @@ impl Render for ComposerSpecimen {
         } else {
             SubmitKind::Send
         });
-        let model = session_model_pin(
-            id("model"),
-            &self.model,
-            true,
-            true,
-            |this: &mut Self, alias: &str, _, cx| {
-                this.model = alias.to_string();
-                cx.notify();
-            },
-            cx,
-        );
-        let plan = plan_switch(format!("{prefix}-plan"), phase, cx);
-        let device_pin = (phase != Phase::Start).then(|| session_device_pin(prefix, cx));
-        let (model_pin, plan, context_ring) = match phase {
-            // Before a start: device · account · model · Plan · repository.
-            Phase::Start => (
-                Some(
-                    h_flex()
-                        .gap_1()
-                        .items_center()
-                        .children(start_pins(prefix, cx))
-                        .children(model)
-                        .into_any_element(),
-                ),
-                Some(
-                    h_flex()
-                        .gap_1()
-                        .items_center()
-                        .child(plan)
-                        .child(repository_pin(prefix, cx))
-                        .into_any_element(),
-                ),
-                None,
-            ),
-            // In a session: model · Plan … the context ring.
-            _ => (model, Some(plan), context_ring(prefix, phase, cx)),
-        };
-        // NEW-3: a message to an agent runs on the agent's own device and
-        // login: no options line at all.
-        // N-12: before a start the options line sits UNDER the card; in a
-        // session the pins sit IN its tool row, the ring beside Stop.
-        let (controls, under) = if self.to_agent {
-            (SessionComposerControls::default(), None)
-        } else if phase == Phase::Start {
-            (
-                SessionComposerControls::default(),
-                Some(h_flex().w_full().min_w_0().px_1().pt_1p5().gap_2().items_center().children(model_pin).children(plan)),
-            )
+        // S-3: NO options line under any composer (Device, Account, Model
+        // and Repository are "+" rows); a session keeps its context ring.
+        let controls = if self.to_agent || phase == Phase::Start {
+            SessionComposerControls::default()
         } else {
-            (SessionComposerControls { device_pin, model_pin, plan, context_ring }, None)
+            SessionComposerControls { device_pin: None, model_pin: None, context_ring: context_ring(prefix, phase, cx) }
         };
         let replies = self
             .replies
@@ -306,7 +152,7 @@ impl Render for ComposerSpecimen {
                 .controls(controls),
             cx,
         );
-        v_flex().w_full().min_w_0().py_2().child(card).children(under)
+        v_flex().w_full().min_w_0().py_2().child(card)
     }
 }
 
@@ -349,7 +195,7 @@ fn agent_composer_specimen(key: &'static str, window: &mut Window, cx: &mut App)
             ..ComposerSpecimen::new(
                 key,
                 Phase::Start,
-                domain::contract::COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER,
+                crate::home_greeting::HOME_PLACEHOLDER,
                 window,
                 cx,
             )
@@ -387,19 +233,28 @@ impl Render for OpenMenu {
 /// (Implement issue ›, Message an agent ›) go: they exist only before a
 /// start.
 pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
-    composer_menu_rows(Some(ComposerMenuConditions {
-        subagent_model: true,
-        ultracode: true,
-        mcp: true,
-        computer_use: true,
-        agents: true,
-    }))
+    // S-3: a start = the launch surface on Temporary session (every runner
+    // and work row); a session = the session surface (the model only).
+    let (surface, temporary) = match phase {
+        Phase::Start => (ComposerSurface::Launch, true),
+        _ => (ComposerSurface::Session, false),
+    };
+    composer_menu_rows(
+        surface,
+        ComposerMenuConditions {
+            temporary,
+            device: temporary,
+            account: temporary,
+            model: true,
+            repositories: true,
+            subagent_model: true,
+            ultracode: true,
+            mcp: true,
+            computer_use: true,
+        },
+    )
     .into_iter()
     .filter(|row| *row != ComposerMenuRow::Subagents)
-    .filter(|row| {
-        phase == Phase::Start
-            || !matches!(row, ComposerMenuRow::ImplementIssue | ComposerMenuRow::MessageAgent)
-    })
     .collect()
 }
 
@@ -431,9 +286,34 @@ fn plus_menu(
             ComposerMenuRow::Effort => {
                 menu.submenu_with_icon(Some(menu_icon(row)), "Effort · High", window, cx, |sub, _, _| sub)
             }
-            ComposerMenuRow::MessageAgent => {
-                menu.submenu_with_icon(Some(menu_icon(row)), MENU_MESSAGE_AGENT, window, cx, |sub, _, _| sub)
-            }
+            ComposerMenuRow::Device => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {SAMPLE_DEVICE}", row.label()),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            ComposerMenuRow::Account => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {SAMPLE_ACCOUNT}", row.label()),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            ComposerMenuRow::Model => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {}", row.label(), crate::steer_viewer::model_label(sample_model(phase))),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            ComposerMenuRow::Repository => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · {SAMPLE_REPOSITORY}", row.label()),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
             ComposerMenuRow::Subagents => menu,
             ComposerMenuRow::Ultracode => menu.item(
                 pointer_toggle_item(format!("{prefix}-ultracode"), None, MENU_ULTRACODE, false, |_, _, _| {})
@@ -502,14 +382,6 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         window,
         cx,
     );
-    // NEW-3: Message an agent: the agent's ONE chip IS the headline (no
-    // verb), the options line hides, the submit sends.
-    let agent_headline = h_flex()
-        .flex_wrap()
-        .items_center()
-        .gap_2()
-        .px_1()
-        .child(agent_chip(Some(&sample_agent()), |_, _, _| {}, cx));
     let agent_start = agent_composer_specimen("sg-composer-dialog-agent-start", window, cx);
     let start_menu = plus_menu_open("sg-composer-dialog-plus-start", Phase::Start, window, cx);
     let session_menu = plus_menu_open("sg-composer-dialog-plus-session", Phase::Running, window, cx);
@@ -549,7 +421,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                         .w(px(COLUMN_W))
                         .max_w_full()
                         .gap_2()
-                        .child(caption("A running session: Stop, model · Plan … the context ring under the card.", cx))
+                        .child(caption("A running session: Stop, model … the context ring under the card.", cx))
                         .child(running)
                         .child(caption("An idle thread: the same composer (it messages the dispatcher).", cx))
                         .child(idle),
@@ -578,7 +450,6 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .max_w_full()
                 .gap_2()
                 .child(caption("Message an agent: one agent chip, no options line, the submit sends.", cx))
-                .child(agent_headline)
                 .child(agent_start),
         )
 }
@@ -596,9 +467,13 @@ mod tests {
         assert_eq!(
             plus_menu_rows(Phase::Start),
             vec![
-                ImplementIssue,
-                MessageAgent,
                 AddFile,
+                ImplementIssue,
+                Separator,
+                Device,
+                Account,
+                Model,
+                Repository,
                 Separator,
                 Effort,
                 Ultracode,
@@ -607,10 +482,7 @@ mod tests {
                 ComputerUse
             ]
         );
-        assert_eq!(
-            plus_menu_rows(Phase::Running),
-            vec![AddFile, Separator, Effort, Ultracode, Separator, McpServers, ComputerUse]
-        );
+        assert_eq!(plus_menu_rows(Phase::Running), vec![AddFile, ImplementIssue, Separator, Model]);
         assert_eq!(plus_menu_rows(Phase::Idle), plus_menu_rows(Phase::Running));
     }
 

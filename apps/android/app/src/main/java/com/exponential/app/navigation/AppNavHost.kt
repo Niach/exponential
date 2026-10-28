@@ -762,6 +762,7 @@ private fun AuthenticatedNav(
             // switch, the settings rows, the servers, General).
             TeamTabScreen(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
                 // #EXP-1381: every settings row opens its own page.
                 onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },

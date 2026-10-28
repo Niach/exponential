@@ -14,9 +14,15 @@ import UIKit
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
 /// - strip: the pending images (the steer composer's tiles + markers) and,
 ///   since wave D, the pending files (a file tile each);
-/// - tools: EXP-1249 — the ONE "+" (`ComposerPlusMenu`, a bottom sheet:
-///   Implement issue › · Message an agent › (pushed pages) · Add file or
-///   image | Effort › · Ultracode | MCP servers › · Computer use); NEW-2:
+/// - tools: EXP-1249 / S-3 — the ONE "+" (`ComposerPlusMenu`, a bottom
+///   sheet: Photo or file · Issue › | Device › · Account › · Model › ·
+///   Repository › (pushed pages) | Effort › · Subagents › · Ultracode | MCP
+///   servers › · Computer use) and NOTHING else: no options line under the
+///   card, no inline image/file/#/emoji buttons. The agent row above the
+///   card (composer-home.json, the host's) picks the recipient through
+///   `model.pickAgent` / `model.clearAgent`; while an agent is picked
+///   (`model.agentId != nil`) the "+" hides its runner and work rows and
+///   the send is `sessions.send({agentId})` (`AgentComposerModel`); NEW-2:
 ///   prompts are the `/` menu's (the host mounts it under the card); the
 ///   submit is the round send GLYPH (EXP-827: icon-only on every client),
 ///   whose title ("Start chat" / "Start coding" / "Start session" / "Send")
@@ -187,8 +193,8 @@ struct AgentComposerCard: View {
             withTransaction(transaction) { showAttachMenu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        // Implement issue and Message an agent are pages of the sheet itself.
-        case .implementIssue, .messageAgent, .subagents, .ultracode, .computerUse: break
+        // Issue and the runner submenus are pages of the sheet itself.
+        case .implementIssue, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
         }
     }
 
@@ -368,12 +374,12 @@ struct ComposerStartingRow: View {
 /// EXP-1038: the composer's HEADLINE — the run's subject as the page's main
 /// element rather than a chip buried in the card. The contract verb
 /// (`AgentComposerPrompt.headline`, ×4: "Implement") reads straight into the
-/// chips beside it: the checked issues; a prompt's chip (NEW-2) or an
-/// agent's (NEW-3: its icon in its colour + its name) IS the headline. The HOST
+/// chips beside it: the checked issues; a prompt's chip (NEW-2) IS the
+/// headline (S-3: an agent pick is the agent row's, never a chip). The HOST
 /// mounts this only with a subject: a chat's heading would repeat the field's
 /// own "Ask the agent…" placeholder, so there is no row at all (web
 /// `LaunchHeadline` returns null). The chips keep their remove affordances and their
-/// identifiers (`agent-composer-chip-prompt`, `agent-composer-chip-agent`,
+/// identifiers (`agent-composer-chip-prompt`,
 /// `agent-composer-chip-issue-<IDENT>`), so a pick still proves itself where
 /// the screenshot suites look for it; only their place changed.
 struct AgentComposerHeadline: View {
@@ -391,13 +397,12 @@ struct AgentComposerHeadline: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .accessibilityIdentifier("agent-composer-headline-verb")
             }
-            if subject != AgentComposerPrompt.Subject.none {
+            if subject != AgentComposerPrompt.Subject.none, subject != AgentComposerPrompt.Subject.agent {
                 // Several issue chips scroll sideways rather than wrapping —
                 // several issues must not push the field off the first screen.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         switch subject {
-                        case .agent: agentChip
                         case .prompt: promptChip
                         default: ForEach(issues) { issueChip($0) }
                         }
@@ -448,27 +453,6 @@ struct AgentComposerHeadline: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-composer-chip-prompt")
-    }
-
-    /// NEW-3: the ONE agent chip — its icon in its colour · name · ✕.
-    private var agentChip: some View {
-        let agent = model.selectedAgent
-        let name = agent?.name ?? "Agent"
-        return GlassPill(
-            name,
-            mode: .readonly,
-            leading: {
-                AgentRowIcon(icon: agent?.icon ?? "", color: agent?.color ?? "")
-            },
-            trailing: { chipClose }
-        )
-        .overlay(alignment: .trailing) {
-            chipRemoveButton(name: name, identifier: "agent-composer-chip-agent-remove") {
-                model.clearAgent()
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-composer-chip-agent")
     }
 
     /// The ✕ glyph a chip wears in its trailing slot. A readonly pill takes no

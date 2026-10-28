@@ -394,6 +394,8 @@ class SessionTreeTest {
                         put("parentId", nullable(row.parentId))
                         put("rootId", row.rootId)
                         put("unread", row.unread)
+                        // S-3: only the fold row carries `earlier`.
+                        row.earlier?.let { put("earlier", it) }
                     }
                 },
             ),
@@ -408,6 +410,7 @@ class SessionTreeTest {
         put("color", agent.color)
         put("busy", agent.busy)
         put("needsYou", agent.needsYou)
+        put("assistant", agent.assistant)
     }
 
     // ── the cases ───────────────────────────────────────────────────────────
@@ -559,6 +562,8 @@ class SessionTreeTest {
                     icon = it.str("icon"),
                     color = it.str("color"),
                     sortOrder = it.getValue("sortOrder").jsonPrimitive.double,
+                    role = it.str("role"),
+                    ownerId = it.str("ownerId"),
                 )
             }
             val actual = SessionTree.listAgents(
@@ -578,7 +583,17 @@ class SessionTreeTest {
         for (case in cases) {
             val input = case.getValue("input").jsonObject
             val actual = SessionTree.threadRowMarkState(input.bool("needsYou"), input.bool("busy"))
-            assertEquals(case.str("name"), case.str("expected"), actual.wire)
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.threadRowMarkWire(actual))
+        }
+    }
+
+    @Test
+    fun `every chat mode case matches the fixture (S-3)`() {
+        val cases = threadFixture.list("chatModeCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val root = case.getValue("root").jsonObject
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.threadChatMode(root.str("agentId")).wire)
         }
     }
 
@@ -689,26 +704,23 @@ class SessionTreeTest {
         )
         val blockedKinds = cardFixture.getValue("copy").jsonObject.getValue("blockedKinds").jsonObject
         assertEquals(blockedKinds.keys, SessionTree.CardCopy.BLOCKED_KINDS.keys)
-        assertEquals(DomainContract.codingSessionBlockedKinds.toSet(), SessionTree.CardCopy.BLOCKED_KINDS.keys)
+        // S-3: the interruptions (device_offline, restarted) have no word.
+        assertTrue(DomainContract.codingSessionBlockedKinds.toSet().containsAll(SessionTree.CardCopy.BLOCKED_KINDS.keys))
         for ((key, value) in blockedKinds) {
             assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BLOCKED_KINDS[key])
         }
-        // EXP-1374: the interruptions' words + the Dock banner's text.
-        val interrupted = cardFixture.getValue("copy").jsonObject.getValue("interruptedKinds").jsonObject
-        assertEquals(interrupted.keys, SessionTree.CardCopy.INTERRUPTED_KINDS.keys)
-        for ((key, value) in interrupted) {
-            assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.INTERRUPTED_KINDS[key])
-        }
+        assertEquals(setOf("states", "blockedKinds"), cardFixture.getValue("copy").jsonObject.keys)
         val banner = cardFixture.getValue("banner").jsonObject
-        val bannerInterrupted = banner.getValue("interrupted").jsonObject
-        assertEquals(bannerInterrupted.keys, SessionTree.CardCopy.BANNER_INTERRUPTED.keys)
-        for ((key, value) in bannerInterrupted) {
-            assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BANNER_INTERRUPTED[key])
-        }
+        assertEquals(setOf("background", "queued"), banner.keys)
         assertEquals(banner.str("background"), SessionTree.CardCopy.BANNER_BACKGROUND)
         // #EXP-1405: a queued row waits for its device.
         assertEquals(banner.str("queued"), SessionTree.CardCopy.BANNER_QUEUED)
-        assertEquals(cardFixture.getValue("copy").jsonObject.str("queuedKind"), SessionTree.CardCopy.QUEUED_KIND)
+        val bannerIcons = cardFixture.getValue("bannerIcons").jsonObject
+        assertEquals(bannerIcons.keys, SessionTree.CardCopy.BANNER_ICONS.keys)
+        for ((key, value) in bannerIcons) assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BANNER_ICONS[key])
+        val bannerLabels = cardFixture.getValue("bannerLabels").jsonObject
+        assertEquals(bannerLabels.keys, SessionTree.CardCopy.BANNER_LABELS.keys)
+        for ((key, value) in bannerLabels) assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BANNER_LABELS[key])
     }
 
     @Test
@@ -721,7 +733,11 @@ class SessionTreeTest {
         val events = copy.getValue("events").jsonObject
         assertEquals(events.keys, SessionTree.ThreadCopy.EVENTS.keys)
         for ((key, value) in events) assertEquals(value.jsonPrimitive.content, SessionTree.ThreadCopy.EVENTS[key])
-        assertEquals(DomainContract.messageEventKindValues.toSet(), SessionTree.ThreadCopy.EVENTS.keys)
+        // S-3: device_offline and session_interrupted draw nothing.
+        assertEquals(
+            DomainContract.messageEventKindValues.toSet() - setOf("device_offline", "session_interrupted"),
+            SessionTree.ThreadCopy.EVENTS.keys,
+        )
         val testIds = threadFixture.getValue("testIds").jsonObject
         assertEquals(testIds.str("tabs"), SessionTree.ThreadCopy.TEST_ID_TABS)
         assertEquals(testIds.str("conversation"), SessionTree.ThreadCopy.TEST_ID_CONVERSATION)
@@ -787,21 +803,22 @@ class SessionTreeTest {
         val recent = listFixture.getValue("recent").jsonObject
         assertEquals(recent.getValue("hours").jsonPrimitive.int, SessionTree.ListCopy.RECENT_HOURS)
         assertEquals(recent.getValue("max").jsonPrimitive.int, SessionTree.ListCopy.RECENT_MAX)
-        assertEquals(
-            listFixture.getValue("treeState").jsonObject.getValue("staleHours").jsonPrimitive.int,
-            SessionTree.ListCopy.STALE_HOURS,
-        )
-        assertEquals(
-            setOf("needs_you", "running", "done", "stale", "idle"),
-            SessionTree.TreeState.entries.map { it.wire }.toSet(),
-        )
+        assertTrue("treeState.staleHours is gone (S-3)", "treeState" !in listFixture)
+        assertEquals(listFixture.getValue("recentChildMinutes").jsonPrimitive.int, SessionTree.ListCopy.RECENT_CHILD_MINUTES)
+        val earlier = copy.getValue("earlier").jsonObject
+        assertEquals(earlier.str("one"), SessionTree.ListCopy.EARLIER_ONE)
+        assertEquals(earlier.str("other"), SessionTree.ListCopy.EARLIER_OTHER)
+        assertEquals("1 earlier sub-session", SessionTree.earlierLabel(1))
+        assertEquals("3 earlier sub-sessions", SessionTree.earlierLabel(3))
     }
 
-    // NEW-1 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`): a
-    // blocked session's state word names WHY; an unknown kind = "Usage limit".
+    // NEW-1 / S-3 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`):
+    // a flagged session that needs you names WHY; an unknown kind = "Needs you";
+    // an interruption (device_offline, restarted) is invisible (no needsInput).
     private fun blockedSession(kind: String?) = SessionTree.Session(
         id = "s1", teamId = "t1", parentId = null, rootId = "s1", userId = "u1",
-        status = "running", busy = false, needsInput = false, blocked = SessionTree.Blocked(kind = kind),
+        status = "running", busy = false, needsInput = kind != "device_offline" && kind != "restarted",
+        blocked = SessionTree.Blocked(kind = kind),
         shared = true, title = null, guide = null, startedAt = null, endedAt = null,
         createdAt = "2026-10-21T10:00:00.000Z", updatedAt = "2026-10-21T10:00:00.000Z",
     )
@@ -815,14 +832,14 @@ class SessionTreeTest {
     fun blockedKindUsageWallReadsUsageLimit() = assertEquals("Usage limit", blockedWord("rate_limit"))
 
     @Test
-    fun blockedKindMissingReadsUsageLimit() = assertEquals("Usage limit", blockedWord(null))
+    fun blockedKindMissingReadsNeedsYou() = assertEquals("Needs you", blockedWord(null))
 
     @Test
-    // EXP-1374: an offline device INTERRUPTS (its own word, not the blocked one).
-    fun blockedKindDeviceOfflineReadsItsWord() = assertEquals("Interrupted · device offline", blockedWord("device_offline"))
+    // S-3: an offline device is invisible: the session reads idle.
+    fun blockedKindDeviceOfflineReadsIdle() = assertEquals("Idle", blockedWord("device_offline"))
 
     @Test
-    fun blockedKindRestartedReadsItsWord() = assertEquals("Interrupted · runner restarted", blockedWord("restarted"))
+    fun blockedKindRestartedReadsIdle() = assertEquals("Idle", blockedWord("restarted"))
 
     @Test
     fun blockedKindUnclaimedReadsItsWord() = assertEquals("Not picked up", blockedWord("unclaimed"))
@@ -831,5 +848,5 @@ class SessionTreeTest {
     fun blockedKindStuckReadsItsWord() = assertEquals("Stuck", blockedWord("stuck"))
 
     @Test
-    fun blockedKindUnknownKeepsUsageLimit() = assertEquals("Usage limit", blockedWord("quota"))
+    fun blockedKindUnknownReadsNeedsYou() = assertEquals("Needs you", blockedWord("quota"))
 }

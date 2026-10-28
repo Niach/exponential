@@ -75,8 +75,11 @@ struct ThreadStripFold: Identifiable, Equatable {
 struct ThreadStripTabs: View {
     let tabs: [ThreadTab]
     let selection: ThreadPage
-    /// The synced issue behind a tab (its status glyph); nil = anchor default.
+    /// The synced issue behind a tab (its title).
     var issue: (String) -> IssueEntity? = { _ in nil }
+    /// S-3: a tab's status, resolved through the team's statuses; nil = no
+    /// glyph (an unresolved issue never reads as Backlog).
+    var issueStatus: (String) -> ResolvedIssueStatus? = { _ in nil }
     /// Whether an issue tab was just linked (the fade-in ring, once).
     var isFresh: (String) -> Bool = { _ in false }
     let onSelect: (ThreadPage) -> Void
@@ -282,11 +285,12 @@ struct ThreadStripTabs: View {
         if case let .issue(issueId, identifier, nested) = tab {
             let open = openNested(in: tab)
             let selected = isShown(tab) || open != nil
-            let status = IssueStatus.from(issue(issueId)?.status)
             ThreadStripTab(selected: selected, bordered: true, fresh: isFresh(issueId)) {
                 HStack(spacing: ThreadStripMetrics.innerSpacing) {
-                    AppIcon(status.iconName, size: AppIcon.Size.small)
-                        .foregroundStyle(status.color)
+                    if let status = issueStatus(issueId) {
+                        AppIcon(status.iconName, size: AppIcon.Size.small)
+                            .foregroundStyle(status.color)
+                    }
                     Text(identifier)
                         .font(ThreadStripMetrics.identifierFont)
                         .fixedSize()
@@ -437,7 +441,7 @@ enum ThreadStripMetrics {
 
 /// A session chip's lead (`sessionTabMarkState` ×4): the working mark while
 /// it works, the brand mark amber-badged when it needs you, the bare mark
-/// while it waits, dimmed once it ended.
+/// while idle, dimmed once done (S-3).
 struct ThreadSessionChipMark: View {
     let state: SessionState
 
@@ -453,7 +457,7 @@ struct ThreadSessionChipMark: View {
                         .frame(width: 6, height: 6)
                         .offset(x: 2, y: -2)
                 }
-        case .ended:
+        case .done:
             BeatingAgentMark(agent: nil, beating: false)
                 .opacity(0.5)
         default:
@@ -564,7 +568,7 @@ struct ChatHeaderTitle: View {
     var agentIcon: String?
     var agentColor: String?
     var cli: String?
-    var mark: SessionState = .waiting
+    var mark: ThreadRowMark = .waiting
 
     var body: some View {
         HStack(spacing: 10) {

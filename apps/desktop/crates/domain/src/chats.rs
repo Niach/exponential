@@ -31,8 +31,6 @@ const CHATS_JSON: &str = include_str!("../../../../../packages/domain-contract/f
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatsMenuCopy {
-    pub stop: String,
-    pub stop_and_delete: String,
     pub delete: String,
     pub compact: String,
     pub new_conversation: String,
@@ -48,13 +46,21 @@ pub struct ChatsConfirmCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatsToastCopy {
-    pub stop_failed: String,
     pub delete_failed: String,
-    pub stop_not_delivered: String,
     /// #EXP-1388: a selection action that failed for some chat.
     pub selection_failed: String,
-    /// #EXP-1388: Stop / Delete failed for some of the chats (`{n} of {m}`).
+    /// #EXP-1388: a selection action failed for some of the chats (`{n} of {m}`).
     pub selection_partial: String,
+}
+
+/// S-3: `copy.stopTurn`, the composer stop-turn's toasts ×4.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsStopTurnCopy {
+    /// A refused `sessions.stop`.
+    pub failed: String,
+    /// `sessions.stop` returned `delivered: false` (the relay reached no device).
+    pub not_delivered: String,
 }
 
 /// `copy.selection` (#EXP-1388: the Chats multi-selection).
@@ -68,7 +74,6 @@ pub struct ChatsSelectionCopy {
     pub mark_unread: String,
     pub archive: String,
     pub unarchive: String,
-    pub stop: String,
     pub delete: String,
     /// `Delete {n} chats?`.
     pub confirm_delete_many: String,
@@ -161,6 +166,7 @@ pub struct ChatsCopy {
     pub menu: ChatsMenuCopy,
     pub confirm_delete: ChatsConfirmCopy,
     pub toasts: ChatsToastCopy,
+    pub stop_turn: ChatsStopTurnCopy,
     pub dividers: ChatsDividerCopy,
     pub superseded: String,
     pub inbox: String,
@@ -169,6 +175,16 @@ pub struct ChatsCopy {
     pub working: String,
     pub selection: ChatsSelectionCopy,
     pub archived: ChatsArchivedCopy,
+    /// S-3: the section headers while an agent row exists (`Agents`,
+    /// `Chats`).
+    pub sections: ChatsSectionsCopy,
+}
+
+/// S-3: `copy.sections`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatsSectionsCopy {
+    pub agents: String,
+    pub chats: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -281,6 +297,11 @@ pub struct ChatsShell {
     pub archived_glyph: f32,
     pub bubble: f32,
     pub bubble_ring: f32,
+    /// S-3: a DONE chat's row opacity ([`ChatRow::dim`]).
+    pub dim_opacity: f32,
+    /// S-3: the chat row's lead glyph concept (`action-chat`; needs you =
+    /// that glyph + the amber badge). Never the brand mark.
+    pub chat_lead: String,
 }
 
 /// `shell.bar.drag`: the selection lens.
@@ -365,43 +386,35 @@ pub struct AgentHintSpec {
 
 pub static CHATS: LazyLock<ChatsSpec> = LazyLock::new(|| serde_json::from_str(CHATS_JSON).expect("chats.json parses"));
 
-/// A thread row's context-menu entry.
+/// A thread row's context-menu entry (S-3: Delete only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThreadMenuEntry {
-    Stop,
-    StopAndDelete,
     Delete,
 }
 
 impl ThreadMenuEntry {
-    /// The fixture key (`stop` | `stopAndDelete` | `delete`).
+    /// The fixture key (`delete`).
     pub fn key(self) -> &'static str {
         match self {
-            Self::Stop => "stop",
-            Self::StopAndDelete => "stopAndDelete",
             Self::Delete => "delete",
         }
     }
 
     pub fn label(self) -> &'static str {
-        let menu = &CHATS.copy.menu;
         match self {
-            Self::Stop => &menu.stop,
-            Self::StopAndDelete => &menu.stop_and_delete,
-            Self::Delete => &menu.delete,
+            Self::Delete => &CHATS.copy.menu.delete,
         }
     }
 
-    /// The icon concept (`coding-stop` | `ui-delete`).
+    /// The icon concept (`ui-delete`).
     pub fn icon(self) -> &'static str {
         match self {
-            Self::Stop => "coding-stop",
-            Self::StopAndDelete | Self::Delete => "ui-delete",
+            Self::Delete => "ui-delete",
         }
     }
 
     pub fn destructive(self) -> bool {
-        !matches!(self, Self::Stop)
+        true
     }
 
     /// Asks `copy.confirmDelete` first.
@@ -410,19 +423,15 @@ impl ThreadMenuEntry {
     }
 }
 
-/// A thread row's context menu ×4 (`menuCases`): live → Stop, Stop and
-/// delete; ended → Delete; nothing for a viewer who cannot steer it. The
-/// delete entries need `can_delete` (the chat's starter or a team owner, the
-/// server's `sessions.delete` rule).
-pub fn thread_menu_entries(root_status: &str, can_steer: bool, can_delete: bool) -> Vec<ThreadMenuEntry> {
-    if !can_steer {
-        return Vec::new();
-    }
-    match (root_status == "ended", can_delete) {
-        (true, true) => vec![ThreadMenuEntry::Delete],
-        (true, false) => Vec::new(),
-        (false, true) => vec![ThreadMenuEntry::Stop, ThreadMenuEntry::StopAndDelete],
-        (false, false) => vec![ThreadMenuEntry::Stop],
+/// A thread row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28) no
+/// Stop/End anywhere: Delete for a viewer who can steer the chat and may
+/// delete it (the chat's starter or a team owner, the server's
+/// `sessions.delete` rule, which ends what is live first); else nothing.
+pub fn thread_menu_entries(_root_status: &str, can_steer: bool, can_delete: bool) -> Vec<ThreadMenuEntry> {
+    if can_steer && can_delete {
+        vec![ThreadMenuEntry::Delete]
+    } else {
+        Vec::new()
     }
 }
 
@@ -431,7 +440,6 @@ pub fn thread_menu_entries(root_status: &str, can_steer: bool, can_delete: bool)
 pub enum AgentMenuEntry {
     Compact,
     NewConversation,
-    Stop,
     Settings,
 }
 
@@ -440,7 +448,6 @@ impl AgentMenuEntry {
         match self {
             Self::Compact => "compact",
             Self::NewConversation => "newConversation",
-            Self::Stop => "stop",
             Self::Settings => "settings",
         }
     }
@@ -450,7 +457,6 @@ impl AgentMenuEntry {
         match self {
             Self::Compact => &menu.compact,
             Self::NewConversation => &menu.new_conversation,
-            Self::Stop => &menu.stop,
             Self::Settings => &menu.settings,
         }
     }
@@ -460,7 +466,6 @@ impl AgentMenuEntry {
         match self {
             Self::Compact => "coding-compact",
             Self::NewConversation => "ui-clean",
-            Self::Stop => "coding-stop",
             Self::Settings => "nav-settings",
         }
     }
@@ -473,12 +478,9 @@ impl AgentMenuEntry {
 }
 
 /// The agent chat's header menu (and its rail row's right-click) ×4
-/// (`agentMenuCases`).
-pub fn agent_menu_entries(busy: bool, is_owner: bool) -> Vec<AgentMenuEntry> {
+/// (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one).
+pub fn agent_menu_entries(_busy: bool, is_owner: bool) -> Vec<AgentMenuEntry> {
     let mut entries = vec![AgentMenuEntry::Compact, AgentMenuEntry::NewConversation];
-    if busy {
-        entries.push(AgentMenuEntry::Stop);
-    }
     if is_owner {
         entries.push(AgentMenuEntry::Settings);
     }
@@ -665,6 +667,9 @@ pub struct ChatRow {
     pub needs_you: bool,
     pub busy: bool,
     pub word: Option<ThreadRowWord>,
+    /// S-3: the chat is DONE (every PR of the root merged and nothing works
+    /// or needs you): it stays in the list, dimmed (`shell.dimOpacity`).
+    pub dim: bool,
 }
 
 /// The chip counts (All has none).
@@ -961,12 +966,15 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
         .flat_map(|group| group.rows.iter().filter(|row| row.depth == 0).map(move |row| (row, group.key)))
         .map(|(row, group)| {
             let own = by_session.get(row.session_id.as_str()).unwrap_or(&none);
-            let lead = match thread_row_mark_state(row.needs_you, row.busy) {
+            let pr_states: &[String] = input.pr_states.get(&row.session_id).map_or(&[], Vec::as_slice);
+            let mark = thread_row_mark_state(row.needs_you, row.busy);
+            let dim = mark == SessionState::Idle
+                && !pr_states.is_empty()
+                && pr_states.iter().all(|state| state == "merged");
+            let lead = match mark {
                 SessionState::NeedsYou => ChatLead::NeedsYou,
                 SessionState::Working => ChatLead::Working,
-                _ => match thread_row_lead_pr(
-                    input.pr_states.get(&row.session_id).into_iter().flatten().map(String::as_str),
-                ) {
+                _ => match thread_row_lead_pr(pr_states.iter().map(String::as_str)) {
                     Some(PrLead::Open) => ChatLead::Open,
                     Some(PrLead::Merged) => ChatLead::Merged,
                     None => ChatLead::Waiting,
@@ -986,6 +994,7 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
                 needs_you: row.needs_you,
                 busy: row.busy,
                 word: input.words.get(&row.session_id).copied(),
+                dim,
             }
         })
         .collect();
@@ -1004,6 +1013,106 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
         unread: count(ChatFilter::Unread),
     };
     ChatList { rows: all.into_iter().filter(|row| keeps(row, input.filter)).collect(), counts, archived }
+}
+
+/// S-3: an agent row pinned on top of the Chats list (`agentRowCases`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentChatRow {
+    pub agent_id: String,
+    /// The viewer's conversation with the agent; None = none yet.
+    pub session_id: Option<String>,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+    /// The viewer's Assistant: the brand mark instead of icon/color.
+    pub assistant: bool,
+    pub preview: ChatPreview,
+    /// [`chat_time_label`] of `activity_at`; empty without a conversation.
+    pub time: String,
+    /// The newest person/agent message of the conversation, else its
+    /// creation; None without one.
+    pub activity_at: Option<String>,
+    pub unread_count: usize,
+    pub needs_you: bool,
+    pub busy: bool,
+}
+
+/// [`agent_chat_rows`]' input.
+#[derive(Debug, Clone, Copy)]
+pub struct AgentChatRowsInput<'a> {
+    /// `list_agents` rows, in that order.
+    pub agents: &'a [AgentRow],
+    pub sessions: &'a [&'a SessionRow],
+    pub messages: &'a [&'a MessageRow],
+    pub reads: &'a [&'a SessionReadRow],
+    pub me: Option<&'a str>,
+    pub filter: ChatFilter,
+    pub view: ChatListView,
+    pub now: &'a str,
+    pub utc_offset_minutes: i32,
+}
+
+/// S-3 (TS `agentChatRows`): the Chats list's pinned AGENTS section: one row
+/// per `list_agents` row (that order), filtered by the chip like a chat;
+/// none on the Archived page.
+pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
+    if input.view == ChatListView::Archived {
+        return Vec::new();
+    }
+    input
+        .agents
+        .iter()
+        .map(|agent| {
+            let conversation = input.sessions.iter().find(|session| {
+                session.parent_id.as_deref().is_none_or(str::is_empty)
+                    && session.agent_id.as_deref() == Some(agent.agent_id.as_str())
+                    && input.me.is_some()
+                    && session.user_id.as_deref() == input.me
+            });
+            let id = conversation.map(|session| session.id.clone());
+            let newest = id.as_deref().and_then(|id| {
+                input
+                    .messages
+                    .iter()
+                    .filter(|m| m.session_id == id && (is_author(m, "user") || is_author(m, "agent")))
+                    .filter_map(|m| m.created_at.as_deref().map(|at| (ms(Some(at)).unwrap_or(0), at)))
+                    .fold(None::<(i64, &str)>, |best, (at_ms, at)| match best {
+                        Some((best_ms, _)) if best_ms >= at_ms => best,
+                        _ => Some((at_ms, at)),
+                    })
+                    .map(|(_, at)| at.to_string())
+            });
+            let activity_at = newest.or_else(|| conversation.and_then(|session| session.created_at.clone()));
+            let preview = match id.as_deref() {
+                Some(id) => chat_preview(id, input.messages, agent.needs_you, agent.busy, None),
+                None => ChatPreview { kind: ChatPreviewKind::Empty, text: CHATS.copy.preview.empty.clone() },
+            };
+            AgentChatRow {
+                agent_id: agent.agent_id.clone(),
+                session_id: id.clone(),
+                name: agent.name.clone(),
+                icon: agent.icon.clone(),
+                color: agent.color.clone(),
+                assistant: agent.assistant,
+                preview,
+                time: activity_at
+                    .as_deref()
+                    .map(|at| chat_time_label(at, input.now, input.utc_offset_minutes))
+                    .unwrap_or_default(),
+                activity_at,
+                unread_count: id.as_deref().map_or(0, |id| unread_count(id, input.messages, input.reads)),
+                needs_you: agent.needs_you,
+                busy: agent.busy,
+            }
+        })
+        .filter(|row| match input.filter {
+            ChatFilter::All => true,
+            ChatFilter::NeedsYou => row.needs_you,
+            ChatFilter::Running => row.busy,
+            ChatFilter::Unread => row.unread_count > 0,
+        })
+        .collect()
 }
 
 /// The roots the viewer archived (a read with `archived_at`).
@@ -1034,7 +1143,6 @@ pub enum ChatSelectionAction {
     MarkUnread,
     Archive,
     Unarchive,
-    Stop,
     Delete,
 }
 
@@ -1046,7 +1154,6 @@ impl ChatSelectionAction {
             Self::MarkUnread => "markUnread",
             Self::Archive => "archive",
             Self::Unarchive => "unarchive",
-            Self::Stop => "stop",
             Self::Delete => "delete",
         }
     }
@@ -1058,7 +1165,6 @@ impl ChatSelectionAction {
             Self::MarkUnread => &copy.mark_unread,
             Self::Archive => &copy.archive,
             Self::Unarchive => &copy.unarchive,
-            Self::Stop => &copy.stop,
             Self::Delete => &copy.delete,
         }
     }
@@ -1070,7 +1176,6 @@ impl ChatSelectionAction {
             Self::MarkUnread => "ui-mark-unread",
             Self::Archive => "ui-archive",
             Self::Unarchive => "ui-unarchive",
-            Self::Stop => "coding-stop",
             Self::Delete => "ui-delete",
         }
     }
@@ -1093,8 +1198,8 @@ pub struct ChatSelectionRow {
 /// #EXP-1388 (`selectionCases`): the bar's actions in order, each with the
 /// chats it acts on (selection order): Mark read when any chat is unread,
 /// else Mark unread (all); Archive in the list, Unarchive on the Archived
-/// page (all); Stop while any chat is live and steerable (those); Delete
-/// only when the viewer may steer and delete every one (all).
+/// page (all); Delete only when the viewer may steer and delete every one
+/// (all). S-3: no Stop.
 pub fn chat_selection_actions(rows: &[ChatSelectionRow], view: ChatListView) -> Vec<(ChatSelectionAction, Vec<String>)> {
     if rows.is_empty() {
         return Vec::new();
@@ -1110,10 +1215,6 @@ pub fn chat_selection_actions(rows: &[ChatSelectionRow], view: ChatListView) -> 
         ChatListView::List => ChatSelectionAction::Archive,
     };
     let mut out = vec![(read, ids(&mut rows.iter())), (archive, ids(&mut rows.iter()))];
-    let live = ids(&mut rows.iter().filter(|row| row.can_steer && row.root_status != "ended"));
-    if !live.is_empty() {
-        out.push((ChatSelectionAction::Stop, live));
-    }
     if rows.iter().all(|row| row.can_steer && row.can_delete) {
         out.push((ChatSelectionAction::Delete, ids(&mut rows.iter())));
     }
@@ -1435,7 +1536,7 @@ mod tests {
         }
         assert_eq!(AgentMenuEntry::Compact.sends(), Some("/compact"));
         assert_eq!(AgentMenuEntry::NewConversation.sends(), Some("/new"));
-        assert_eq!(AgentMenuEntry::Stop.sends(), None);
+        assert_eq!(AgentMenuEntry::Settings.sends(), None);
     }
 
     #[test]
@@ -1610,7 +1711,7 @@ mod tests {
             if got.archived == 0 {
                 let labels: Vec<String> =
                     ChatFilter::ALL.iter().map(|f| chat_filter_label(*f, &got.counts)).collect();
-                assert_eq!(labels, ["All", "Needs you 1", "Running 1", "Unread 1"]);
+                assert_eq!(labels, ["All", "Needs you 1", "Working 1", "Unread 1"]);
             }
         }
         assert_eq!(chat_filter_label(ChatFilter::Unread, &ChatCounts::default()), "Unread");
@@ -1649,6 +1750,8 @@ mod tests {
         assert_eq!(chat_delete_title(3), "Delete 3 chats?");
         assert_eq!(chat_selection_failed_title(2, 5), "2 of 5 chats couldn't be updated");
         assert_eq!(chat_selection_failed_title(5, 5), CHATS.copy.toasts.selection_failed);
+        assert_eq!(CHATS.copy.stop_turn.failed, "Couldn't stop the turn");
+        assert_eq!(CHATS.copy.stop_turn.not_delivered, "The device didn't get the stop");
         // The bare number, like the issue bar's count (owner on #1283).
         assert_eq!(chat_selection_count(2), "2");
     }
@@ -1688,6 +1791,10 @@ mod tests {
         for case in cases {
             let input = &case["input"];
             let agents: Vec<AgentRow> = serde_json::from_value(input["agents"].clone()).unwrap();
+            // S-3: `assistant` decodes from each input agent (absent = false).
+            for (agent, raw) in agents.iter().zip(input["agents"].as_array().unwrap()) {
+                assert_eq!(agent.assistant, raw["assistant"].as_bool().unwrap_or(false), "{}", case["name"]);
+            }
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let session_refs: Vec<&SessionRow> = sessions.iter().collect();
             let all = messages(&input["messages"]);
@@ -1695,8 +1802,19 @@ mod tests {
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
             let got = agent_bubbles(&agents, &session_refs, &refs, &read_refs, input["me"].as_str());
-            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+            let mut got = serde_json::to_value(&got).unwrap();
+            // TS spreads the input row: an older case's agents carry no
+            // S-3 `assistant` key, so neither do its bubbles.
+            for (bubble, agent) in got.as_array_mut().unwrap().iter_mut().zip(input["agents"].as_array().unwrap()) {
+                if agent.get("assistant").is_none() {
+                    bubble.as_object_mut().unwrap().remove("assistant");
+                }
+            }
+            assert_eq!(got, case["expected"], "{}", case["name"]);
         }
+        // S-3: the first case leads with the viewer's Assistant.
+        let first: Vec<AgentRow> = serde_json::from_value(cases[0]["input"]["agents"].clone()).unwrap();
+        assert!(first[0].assistant && first[1..].iter().all(|agent| !agent.assistant));
     }
 
     #[test]
@@ -1757,4 +1875,40 @@ mod tests {
         // A cell that is not a digest object = no digest.
         assert!(ConversationDigest::decode(Some(&Value::Bool(true))).is_none());
     }
+
+    /// S-3: `agentRowCases` (TS `agentChatRows`), whole rows.
+    #[test]
+    fn agent_row_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["agentRowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let agents: Vec<AgentRow> = serde_json::from_value(input["agents"].clone()).unwrap();
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let session_refs: Vec<&SessionRow> = sessions.iter().collect();
+            let all = messages(&input["messages"]);
+            let refs: Vec<&MessageRow> = all.iter().collect();
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
+            let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
+            let got = agent_chat_rows(AgentChatRowsInput {
+                agents: &agents,
+                sessions: &session_refs,
+                messages: &refs,
+                reads: &read_refs,
+                me: input["me"].as_str(),
+                filter: ChatFilter::parse(input["filter"].as_str().unwrap()).unwrap(),
+                view: match input["view"].as_str() {
+                    Some("archived") => ChatListView::Archived,
+                    _ => ChatListView::List,
+                },
+                now: input["now"].as_str().unwrap(),
+                utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
+            });
+            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+        assert_eq!(CHATS.copy.sections.agents, "Agents");
+        assert_eq!(CHATS.shell.chat_lead, "action-chat");
+    }
+
 }

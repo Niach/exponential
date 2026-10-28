@@ -71,4 +71,71 @@ final class SettingsNavTests: XCTestCase {
         XCTAssertEqual(SettingsNav.rowTestId, ids["row"])
         XCTAssertEqual(SettingsNav.pageTestId, ids["page"])
     }
+    // MARK: - S-3 `nav`
+
+    private func nav() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["nav"] as? [String: Any])
+    }
+
+    func testNavGroupsPagesAndEntriesMatchTheFixture() throws {
+        let nav = try nav()
+        let groups = try XCTUnwrap(nav["groups"] as? [[String: Any]])
+        XCTAssertEqual(groups.count, SettingsNav.groups.count)
+        for (want, group) in zip(groups, SettingsNav.groups) {
+            XCTAssertEqual(want["id"] as? String, group.id)
+            XCTAssertEqual(want["label"] as? String, group.label, group.id)
+            XCTAssertEqual(want["platforms"] as? [String], group.platforms?.map(\.rawValue), group.id)
+            XCTAssertEqual(want["items"] as? [String], group.items, group.id)
+        }
+        XCTAssertEqual(nav["children"] as? [String: [String]], SettingsNav.children)
+        let pages = try XCTUnwrap(nav["pages"] as? [String: [String: Any]])
+        XCTAssertEqual(Set(pages.keys), Set(SettingsNav.pages.keys))
+        for (id, want) in pages {
+            let page = try XCTUnwrap(SettingsNav.pages[id], id)
+            XCTAssertEqual(want["label"] as? String, page.label, id)
+            XCTAssertEqual(want["icon"] as? String, page.icon, id)
+            XCTAssertEqual(want["visible"] as? String, page.visible.rawValue, id)
+            XCTAssertEqual(want["platforms"] as? [String], page.platforms?.map(\.rawValue), id)
+        }
+        let rowPlatforms = try XCTUnwrap(nav["rowPlatforms"] as? [String: [String]])
+        XCTAssertEqual(rowPlatforms, SettingsNav.rowPlatforms.mapValues { $0.map(\.rawValue) })
+        let newEntries = try XCTUnwrap(nav["newEntries"] as? [String: String])
+        XCTAssertEqual(newEntries, SettingsNav.newEntries.mapValues(\.rawValue))
+        // Every page item resolves to a row or a page; children too.
+        for item in SettingsNav.groups.flatMap(\.items) + SettingsNav.children.values.flatMap({ $0 }) where !item.hasPrefix("@") {
+            XCTAssertNotNil(SettingsNav.page(item), item)
+        }
+        XCTAssertEqual(SettingsNav.page("billing")?.platforms, [.web])
+        XCTAssertEqual(SettingsNav.page("labels")?.label, "Labels")
+    }
+
+    func testNavCasesMatchTheFixture() throws {
+        let cases = try XCTUnwrap(try nav()["navCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"] as? String ?? "?"
+            let platform = try XCTUnwrap(SettingsNav.Platform(rawValue: try XCTUnwrap(c["platform"] as? String)), name)
+            let isOwner = try XCTUnwrap(c["role"] as? String, name) == DomainContract.teamRoleOwner
+            let cloud = try XCTUnwrap(c["cloud"] as? Bool, name)
+            let got = SettingsNav.visibleGroups(platform: platform, isOwner: isOwner, cloud: cloud)
+            var byId: [String: [String]] = [:]
+            for group in got { byId[group.id] = group.items }
+            XCTAssertEqual(byId, c["expected"] as? [String: [String]], name)
+        }
+    }
+
+    /// The iOS nav (the phones' Settings): no This device group, no Import,
+    /// no Plan & Billing; About stays; Voice is gone from Personal.
+    func testIosNavForAnOwnerAndAMember() {
+        let owner = SettingsNav.visibleGroups(platform: .ios, isOwner: true)
+        XCTAssertEqual(owner.map(\.id), ["team", "boards", "agents", "apps", "personal"])
+        XCTAssertEqual(owner.first { $0.id == "team" }?.items, [
+            "general", "members", "issues", "repositories", "prompts", "widget", "storage",
+        ])
+        XCTAssertEqual(owner.first { $0.id == "agents" }?.items, ["@assistant", "@agents", "@new-agent", "mcp-servers"])
+        XCTAssertEqual(owner.first { $0.id == "personal" }?.items, ["account", "notifications", "security", "about"])
+        let member = SettingsNav.visibleGroups(platform: .ios, isOwner: false)
+        XCTAssertEqual(member.first { $0.id == "boards" }?.items, ["@boards"])
+        XCTAssertEqual(member.first { $0.id == "agents" }?.items, ["@assistant", "@agents", "mcp-servers"])
+    }
 }

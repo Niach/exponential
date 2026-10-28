@@ -124,11 +124,11 @@ final class LaunchOptionsStateTests: XCTestCase {
     // MCP list, and an untouched computer-use flip stays off the wire.
     func testBuildOptionsIsTheSendForm() {
         let state = LaunchOptionsState()
-        state.planMode = true
         state.ultracode = true
         let claude = state.buildOptions()
         XCTAssertEqual(claude.cli, "claude")
-        XCTAssertEqual(claude.planMode, true)
+        // S-3: plan mode left the launch keys.
+        XCTAssertNil(claude.planMode)
         XCTAssertEqual(claude.ultracode, true)
         XCTAssertNil(claude.mcpServerIds)
         XCTAssertNil(claude.computerUse)

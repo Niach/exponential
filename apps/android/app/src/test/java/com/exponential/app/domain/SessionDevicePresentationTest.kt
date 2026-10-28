@@ -104,10 +104,6 @@ class SessionDevicePresentationTest {
             nowMs,
         )
         assertTrue(offline.offline)
-        assertTrue(offline.isPaused(SessionTree.SessionState.Working))
-        assertTrue(offline.isPaused(SessionTree.SessionState.NeedsYou))
-        assertTrue(offline.isPaused(SessionTree.SessionState.Waiting))
-        assertFalse(offline.isPaused(SessionTree.SessionState.Ended))
 
         val online = resolveSessionDevice(
             session(deviceId = "dev-1", deviceLabel = "macbook"),
@@ -115,7 +111,6 @@ class SessionDevicePresentationTest {
             nowMs,
         )
         assertFalse(online.offline)
-        assertFalse(online.isPaused(SessionTree.SessionState.Working))
     }
 
     // ── EXP-656: presence is unknown while our own devices cursor is stale ───
@@ -133,8 +128,6 @@ class SessionDevicePresentationTest {
         )
         assertEquals(null, resolved.online)
         assertFalse(resolved.offline)
-        assertFalse(resolved.isPaused(SessionTree.SessionState.Working))
-        assertFalse(resolved.isPaused(SessionTree.SessionState.NeedsYou))
         // The label still resolves off the live row — only presence is unknown.
         assertEquals("macbook", resolved.label)
     }
@@ -163,7 +156,6 @@ class SessionDevicePresentationTest {
         )
         assertEquals(false, resolved.online)
         assertTrue(resolved.offline)
-        assertTrue(resolved.isPaused(SessionTree.SessionState.Working))
     }
 
     @Test

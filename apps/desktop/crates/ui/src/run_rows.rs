@@ -36,7 +36,7 @@ pub(crate) fn run_agent(cli: Option<&str>) -> Option<coding::CodingAgent> {
 /// one — working moves the mark itself, the quiet states stay bare. Pure.
 pub(crate) fn mark_badge_tone(state: SessionState) -> Option<&'static str> {
     match state {
-        SessionState::NeedsYou | SessionState::Blocked => Some(state.tone()),
+        SessionState::NeedsYou => Some(state.tone()),
         _ => None,
     }
 }
@@ -98,6 +98,8 @@ pub(crate) struct RunRowSpec {
     pub(crate) guides: domain::tree_guides::Guides,
     /// EXP-1323: news the viewer has not read — a semibold title.
     pub(crate) unread: bool,
+    /// S-3: the tree's fold row (`<root>:earlier`): a muted title.
+    pub(crate) muted: bool,
 }
 
 /// EXP-1248/EXP-1294 — THE session row, small (web `@exp/ui` SessionRow):
@@ -116,6 +118,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         trailing,
         guides,
         unread,
+        muted: muted_title,
     } = spec;
     let depth = guides.depth();
     let theme = cx.theme();
@@ -142,7 +145,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_color(theme.foreground)
+                .text_color(if muted_title { muted } else { theme.foreground })
                 .when(unread, |this| this.font_weight(gpui::FontWeight::SEMIBOLD))
                 .child(title),
         );
@@ -196,13 +199,7 @@ mod tests {
     #[test]
     fn only_states_that_wait_badge_the_mark() {
         assert_eq!(mark_badge_tone(SessionState::NeedsYou), Some("amber"));
-        assert_eq!(mark_badge_tone(SessionState::Blocked), Some("rose"));
-        for state in [
-            SessionState::Queued,
-            SessionState::Working,
-            SessionState::Waiting,
-            SessionState::Ended,
-        ] {
+        for state in [SessionState::Working, SessionState::Idle, SessionState::Done] {
             assert_eq!(mark_badge_tone(state), None, "{state:?}");
         }
     }

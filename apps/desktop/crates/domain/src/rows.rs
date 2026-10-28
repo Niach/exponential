@@ -1104,6 +1104,10 @@ pub struct AgentDefRow {
     pub owner_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
+    /// S-3: contract `agentRole` (`assistant` | `agent`); an old row without
+    /// it is a team agent.
+    #[serde(default = "default_agent_role", deserialize_with = "tolerant_agent_role")]
+    pub role: String,
     /// #EXP-1383: when the instructions TEXT last changed (chats.json
     /// `agentHint`).
     #[serde(default)]
@@ -1114,7 +1118,25 @@ pub struct AgentDefRow {
     pub updated_at: Option<String>,
 }
 
+fn default_agent_role() -> String {
+    crate::contract::AGENT_ROLE_AGENT.to_string()
+}
+
+/// `null` / absent / not a string = a team agent.
+fn tolerant_agent_role<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = <Option<serde_json::Value> as Deserialize>::deserialize(deserializer)?;
+    Ok(match value {
+        Some(serde_json::Value::String(role)) if !role.is_empty() => role,
+        _ => default_agent_role(),
+    })
+}
+
 impl AgentDefRow {
+    /// S-3: the member's Assistant (`role = assistant`).
+    pub fn is_assistant(&self) -> bool {
+        self.role == crate::contract::AGENT_ROLE_ASSISTANT
+    }
+
     /// The agent's triggers (`[]` when absent or not an array).
     pub fn trigger_list(&self) -> Vec<serde_json::Value> {
         match &self.triggers {

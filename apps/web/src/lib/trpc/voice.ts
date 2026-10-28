@@ -36,6 +36,7 @@ import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/stee
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
+import { voiceAssistantOf } from "@/lib/agents/assistant"
 
 type Db = typeof Database
 
@@ -94,13 +95,16 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
     .from(userVoiceSettings)
     .where(eq(userVoiceSettings.userId, userId))
     .limit(1)
-  if (!row) return { ...VOICE_SETTINGS_DEFAULTS }
+  // S-3 (agent-settings.json `assistant`): the voice device and agent are
+  // the member's Assistant's, derived (the stored columns are its mirror).
+  const voice = await voiceAssistantOf(database, userId, row?.agentId ?? null)
+  if (!row) return withClearOnNone({ ...VOICE_SETTINGS_DEFAULTS, ...voice })
   // #NEW-71: a deleted agent nulls `agent_id` (FK set null) but leaves the
   // switches stored as they were; read them through clearOnNone so they never
   // come back on silently when a new agent is picked.
   return withClearOnNone({
-    voiceDeviceId: row.voiceDeviceId,
-    agentId: row.agentId,
+    voiceDeviceId: voice.voiceDeviceId,
+    agentId: voice.agentId,
     speakReplies: row.speakReplies,
     pushToTalk: row.pushToTalk,
     pttShortcut: row.pttShortcut,
@@ -241,25 +245,21 @@ export const voiceRouter = router({
       const tooShort = input.wakePhrase === undefined ? null : wakePhraseError(input.wakePhrase)
       if (tooShort) throw new TRPCError({ code: `BAD_REQUEST`, message: tooShort })
       const before = await voiceSettingsOf(db, userId)
-      // The voice device: one of the member's OWN desktops (phones and
-      // servers never run the voice; `voice.json` voiceDeviceOptions).
-      if (input.voiceDeviceId) {
-        const [device] = await db
-          .select({ kind: devices.kind })
-          .from(devices)
-          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.voiceDeviceId)))
-          .limit(1)
-        if (!device || device.kind !== `desktop`) {
-          throw new TRPCError({ code: `BAD_REQUEST`, message: `That device can't run the voice` })
-        }
-      }
-      // The agent: one of the member's teams' (#NEW-64 folded in).
-      if (input.agentId && !(await memberAgentExists(db, userId, input.agentId))) {
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `That agent isn't in your teams` })
+      // S-3: the voice device is the Assistant's (Runs on): an old client's
+      // `voiceDeviceId` is ignored; `agentId` may pick which of the member's
+      // Assistants (one per team) holds the voice, nothing else.
+      const { voiceDeviceId: _legacyDevice, agentId: pickedAgent, ...changes } = input
+      const voice =
+        pickedAgent === undefined || pickedAgent === null
+          ? { voiceDeviceId: before.voiceDeviceId, agentId: before.agentId }
+          : await voiceAssistantOf(db, userId, pickedAgent)
+      if (pickedAgent && voice.agentId !== pickedAgent) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `That agent isn't your Assistant` })
       }
       const next = withMeetingScope(before, withClearOnNone({
         ...before,
-        ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
+        ...Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)),
+        ...voice,
         wakePhrase: input.wakePhrase === undefined ? before.wakePhrase : input.wakePhrase.trim(),
         voiceFile: input.voiceFile === undefined ? before.voiceFile : input.voiceFile.trim(),
         voiceTranscript: input.voiceTranscript === undefined ? before.voiceTranscript : input.voiceTranscript.trim(),

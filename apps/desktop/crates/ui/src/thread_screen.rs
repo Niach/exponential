@@ -459,18 +459,10 @@ pub(crate) fn strip_tab(id: impl Into<gpui::ElementId>, active: bool, cx: &App) 
     crate::surface::strip_chip_frame(id, active, false, cx)
 }
 
-/// THE issue chip's lead ×4: the issue's STATUS glyph (an unsynced status
-/// reads as the builtin backlog default, never a document glyph).
-pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx: &App) -> Icon {
-    let fallback;
-    let status = match status {
-        Some(status) => status,
-        None => {
-            fallback = domain::statuses::constructed_default(domain::IssueStatus::Backlog);
-            &fallback
-        }
-    };
-    crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0()
+/// THE issue chip's lead ×4: the issue's STATUS glyph. S-3: an unresolved
+/// status (the issue row not synced) draws NO glyph, never a Backlog one.
+pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx: &App) -> Option<Icon> {
+    status.map(|status| crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0())
 }
 
 /// The issue chip's body in the strip: status glyph, mono identifier, title.
@@ -482,8 +474,11 @@ pub(crate) fn strip_issue_body(
     cx: &App,
 ) -> Vec<AnyElement> {
     let theme = cx.theme();
-    vec![
-        issue_glyph(status.as_ref(), cx).into_any_element(),
+    let mut body: Vec<AnyElement> = issue_glyph(status.as_ref(), cx)
+        .map(IntoElement::into_any_element)
+        .into_iter()
+        .collect();
+    body.extend([
         div()
             .flex_shrink_0()
             .text_xs()
@@ -499,7 +494,8 @@ pub(crate) fn strip_issue_body(
             .text_color(if active { theme.foreground } else { theme.muted_foreground })
             .child(SharedString::from(title.to_string()))
             .into_any_element(),
-    ]
+    ]);
+    body
 }
 
 /// The page title (draft 3): the title at the header rung, a lock while the
@@ -828,6 +824,91 @@ pub(crate) fn user_bubble(
                 .child(body),
         )
         .child(caption_row)
+        .into_any_element()
+}
+
+/// S-3 CHAT MODE (chats.json, session-thread.json `chatModeCases`): an
+/// agent conversation's person message = THE user bubble, right-aligned, at
+/// most 80% of the column; `queued` / `own` as [`user_bubble`].
+pub(crate) fn chat_user_bubble(
+    id: &str,
+    body: MarkdownView,
+    caption: String,
+    queued: bool,
+    own: bool,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let unqueue_id = id.to_string();
+    let unqueue = unqueue_offered(queued, own).then(|| {
+        unqueue_button("thread-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
+    });
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .items_end()
+        .gap_1()
+        .child(
+            body_text(div())
+                .min_w_0()
+                .max_w(gpui::relative(0.8))
+                .rounded(px(12.))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
+                .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+                .px_3()
+                .py_2()
+                .when(queued, |bubble| bubble.opacity(0.7))
+                .child(body),
+        )
+        .child(
+            h_flex()
+                .gap_1()
+                .items_center()
+                .text_2xs()
+                .text_color(muted)
+                .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
+                .when(queued, |row| row.child(SharedString::from(format!("· {QUEUED_WORD}"))))
+                .children(unqueue),
+        )
+        .into_any_element()
+}
+
+/// S-3 CHAT MODE: the agent's message = a LEFT bg-card bubble, at most 94%
+/// of the column, its top-left corner 6px, the time at its bottom right.
+pub(crate) fn chat_agent_bubble(body: MarkdownView, time: String, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let radius = px(12.);
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_start()
+        .child(
+            v_flex()
+                .min_w_0()
+                .max_w(gpui::relative(0.94))
+                .rounded_tl(px(6.))
+                .rounded_tr(radius)
+                .rounded_bl(radius)
+                .rounded_br(radius)
+                .bg(theme::tokens::CARD.to_hsla())
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .px_3()
+                .pt_2()
+                .pb_1()
+                .child(body_text(div()).min_w_0().child(body))
+                .when(!time.is_empty(), |bubble| {
+                    bubble.child(
+                        h_flex()
+                            .w_full()
+                            .justify_end()
+                            .text_2xs()
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(time)),
+                    )
+                }),
+        )
         .into_any_element()
 }
 
@@ -1259,10 +1340,17 @@ pub(crate) fn with_xref(
 }
 
 /// S-3: the view's origin (`Started by <chip> ›` / `Reported to <chip> ›`)
-/// at the top of the Conversation and of a session open in place.
-fn origin_line(view: &SessionThreadView, cx: &App) -> Option<AnyElement> {
+/// as its bare xref line (the Conversation's first row carries it, so it
+/// scrolls with the rows like on the other platforms).
+fn origin_xref(view: &SessionThreadView, cx: &App) -> Option<AnyElement> {
     let origin = view.origin.as_ref()?;
     let key = format!("origin-{}", view.focus_id.as_deref().unwrap_or(&view.root_id));
+    Some(crate::session_xref::session_xref(&key, origin, cx))
+}
+
+/// S-3: the origin line on top of a session open in place.
+fn origin_line(view: &SessionThreadView, cx: &App) -> Option<AnyElement> {
+    let line = origin_xref(view, cx)?;
     Some(
         div()
             .w_full()
@@ -1273,7 +1361,7 @@ fn origin_line(view: &SessionThreadView, cx: &App) -> Option<AnyElement> {
                     .mx_auto()
                     .px(px(crate::work_header::WORK_GUTTER))
                     .pt_3()
-                    .child(crate::session_xref::session_xref(&key, origin, cx)),
+                    .child(line),
             )
             .into_any_element(),
     )
@@ -1830,15 +1918,10 @@ pub(crate) fn issue_threads_row(issue_id: &str, cx: &App) -> Option<AnyElement> 
 // EXP-1334: the strip (never scrolls) and the chips' subtree menus
 // ---------------------------------------------------------------------------
 
-/// A chip's mark state as THE session state (the run mark reads it).
+/// A chip's mark state as THE session state (the run mark reads it; S-3:
+/// they are one type, the four display states).
 fn chip_state(mark: domain::session_tree::SessionTabMarkState) -> domain::session_tree::SessionState {
-    use domain::session_tree::{SessionState, SessionTabMarkState};
-    match mark {
-        SessionTabMarkState::NeedsYou => SessionState::NeedsYou,
-        SessionTabMarkState::Working => SessionState::Working,
-        SessionTabMarkState::Waiting => SessionState::Waiting,
-        SessionTabMarkState::Ended => SessionState::Ended,
-    }
+    mark
 }
 
 /// Open `session_id` IN PLACE (its thread hosts the raw work).
@@ -2017,7 +2100,7 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
         .children(crate::tree_guides::guide_layer(guides, 0., 0.));
     row = match item {
         SubtreeItem::Issue { identifier, title, status, .. } => row
-            .child(issue_glyph(status.as_ref(), cx))
+            .children(issue_glyph(status.as_ref(), cx))
             .child(
                 div()
                     .flex_shrink_0()
@@ -2037,9 +2120,7 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
             ),
         SubtreeItem::Session { name, state, cli, .. } => {
             let word_color = match state {
-                domain::session_tree::SessionState::NeedsYou | domain::session_tree::SessionState::Blocked => {
-                    crate::work_card::session_tone_color(state.tone(), cx)
-                }
+                domain::session_tree::SessionState::NeedsYou => crate::work_card::session_tone_color(state.tone(), cx),
                 _ => theme.muted_foreground,
             };
             row.child(crate::run_rows::run_mark(crate::run_rows::run_agent(cli.as_deref()), *state, cx))
@@ -2997,23 +3078,8 @@ impl ThreadScreenView {
                 cx,
             )
         });
-        // EXP-1316 (1b): the open session's Stop while it is live.
-        // NEW-6 (N-1): the thread's ONE session's Stop while it is the body.
-        // Thread 58cb32df (chats.json STOP): the pill = the menu's Stop,
-        // `sessions.end` on the ROOT (the whole tree), shown while the root
-        // is not ended and the viewer may steer the chat.
-        let root_live = crate::chat_actions::chat_entries(&model.root.id, cx)
-            .contains(&domain::chats::ThreadMenuEntry::Stop);
-        let stop = root_live.then(|| {
-            let root_id = model.root.id.clone();
-            crate::session_screen::stop_session_pill(
-                "thread-session-stop",
-                crate::surface::PillSize::Md,
-                cx,
-            )
-            .tooltip(SharedString::from(domain::chats::CHATS.copy.menu.stop.clone()))
-            .on_click(move |_, _, cx| crate::chat_actions::stop_chat(&root_id, cx))
-        });
+        // S-3 (owner 2026-10-28): no Stop pill; the composer's stop-turn
+        // is the one stop.
         let menu = guide_menu(model, cx);
         v_flex()
             .w_full()
@@ -3028,7 +3094,6 @@ impl ThreadScreenView {
                     .items_center()
                     .child(div().flex_1().min_w_0().child(title))
                     .children(merge)
-                    .children(stop)
                     .children(menu),
             )
             .child(self.render_strip(model, window, cx))
@@ -3127,14 +3192,23 @@ impl ThreadScreenView {
                 &self.text,
                 &self.images,
             );
+            // S-3: an agent conversation paints CHAT bubbles on this same
+            // screen (`thread_chat_mode`); a thread its transcript.
+            let bubbles = domain::session_tree::thread_chat_mode(model.root.agent_id.as_deref())
+                == domain::session_tree::ThreadChatMode::Bubbles;
+            let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
             let bubble = match author.as_str() {
                 domain::contract::MESSAGE_AUTHOR_KIND_USER => {
-                    let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
                     let name = member_name(author_id.as_deref(), cx);
                     let own = author_id.is_some()
                         && crate::queries::active_account(cx).map(|me| me.user_id) == *author_id;
-                    user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, own, cx)
+                    if bubbles {
+                        chat_user_bubble(id, markdown, clock(at), *queued, own, cx)
+                    } else {
+                        user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, own, cx)
+                    }
                 }
+                domain::contract::MESSAGE_AUTHOR_KIND_AGENT if bubbles => chat_agent_bubble(markdown, clock(at), cx),
                 domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
                 _ => muted_line(registry::UI_INFO, body.clone(), cx),
             };
@@ -3230,6 +3304,8 @@ impl ThreadScreenView {
         self.conv.start = start;
         self.conv.rows = self.conv.all[start..].to_vec();
         let chip_gen = self.chip_gen;
+        // S-3: the first row carries the view's origin line.
+        let origin = serde_json::to_string(&model.view.origin).unwrap_or_default();
         let mut keys: Vec<RowKey> = self
             .conv
             .rows
@@ -3247,6 +3323,13 @@ impl ThreadScreenView {
                 // The first row carries `Load earlier` while rows hide above.
                 if offset == 0 && start > 0 {
                     fingerprint = fingerprint.rotate_left(1) ^ 1;
+                }
+                if offset == 0 {
+                    use std::hash::{Hash as _, Hasher as _};
+                    let mut hasher = std::hash::DefaultHasher::new();
+                    fingerprint.hash(&mut hasher);
+                    origin.hash(&mut hasher);
+                    fingerprint = hasher.finish();
                 }
                 // Absolute positions: a widened window is a front splice.
                 RowKey { id: (start + offset) as u64, fingerprint }
@@ -3270,9 +3353,16 @@ impl ThreadScreenView {
     /// One Conversation list row: the reading column (the old column's
     /// measure and gutter), the row gap above every row but the first.
     fn render_list_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let mut origin = None;
         let content = match (self.conv.rows.get(ix), self.model.clone()) {
             (Some(&index), Some(model)) => match model.view.rows.get(index) {
-                Some(row) => Some(self.render_row(row, &model, window, cx)),
+                Some(row) => {
+                    // S-3: the origin line heads the first row (it scrolls).
+                    if ix == 0 {
+                        origin = origin_xref(&model.view, cx).map(|line| div().pb_5().child(line));
+                    }
+                    Some(self.render_row(row, &model, window, cx))
+                }
                 None => None,
             },
             // EXP-1323: the live tail after the last row.
@@ -3302,6 +3392,7 @@ impl ThreadScreenView {
                     .px(px(crate::work_header::WORK_GUTTER))
                     .when(ix > 0, |this| this.pt_5())
                     .children(earlier)
+                    .children(origin)
                     .child(content),
             )
             .into_any_element()
@@ -3364,7 +3455,6 @@ impl ThreadScreenView {
             .flex_1()
             .min_h_0()
             .w_full()
-            .children(origin_line(&model.view, cx))
             .child(scroller)
             .into_any_element()
     }
@@ -3434,7 +3524,11 @@ impl Render for ThreadScreenView {
         // NEW-6 (N-1): a thread with ONE session = that session's raw work
         // in place of the Conversation (its composer, Stop in the header).
         let on_conversation = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
-        let main = on_conversation.then(|| model.view.main_session_id.clone()).flatten();
+        // S-3 (chats.json CHAT MODE): an agent conversation always paints
+        // its bubbles, never the root's raw work in place.
+        let bubbles = domain::session_tree::thread_chat_mode(model.root.agent_id.as_deref())
+            == domain::session_tree::ThreadChatMode::Bubbles;
+        let main = (on_conversation && !bubbles).then(|| model.view.main_session_id.clone()).flatten();
         self.sync_main(main.as_deref(), window, cx);
         let header = self.render_header(&model, window, cx);
         // EXP-1323: the live tail's viewer rides the Conversation only.

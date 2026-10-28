@@ -8,6 +8,9 @@ const h = vi.hoisted(() => {
     // probe, then the agent probe (as the mutation reaches them).
     selectQueue: [] as unknown[][],
     upserts: [] as { values: Record<string, unknown>; set: Record<string, unknown> }[],
+    // S-3: the member's Assistants (oldest first) and the voice device each
+    // one yields (null = not one of their own desktops).
+    assistants: [] as { id: string; voiceDeviceId: string | null }[],
   }
   const chain = () => {
     const rows = () => Promise.resolve(state.selectQueue.shift() ?? [])
@@ -33,6 +36,15 @@ const h = vi.hoisted(() => {
     db,
     relayPostNudge: vi.fn(async () => ({ delivered: true })),
     meetingAgentIsPrivate: vi.fn(async (..._args: unknown[]) => true),
+    // S-3: lib/agents/assistant.ts `voiceAssistantOf`, over `state.assistants`
+    // (the stored agent while it is one of them, else the oldest).
+    voiceAssistantOf: vi.fn(async (_exec: unknown, _userId: string, storedAgentId: string | null) => {
+      const assistant =
+        state.assistants.find((row) => row.id === storedAgentId) ?? state.assistants[0]
+      return assistant
+        ? { agentId: assistant.id, voiceDeviceId: assistant.voiceDeviceId }
+        : { agentId: null, voiceDeviceId: null }
+    }),
   }
 })
 
@@ -42,6 +54,7 @@ vi.mock(`@/lib/sessions/meeting-access`, async () => ({
   MEETING_SHARED_REFUSED: (await import(`@exp/domain-contract/meeting`)).MEETING_COPY.sharedRefused,
   meetingAgentIsPrivate: h.meetingAgentIsPrivate,
 }))
+vi.mock(`@/lib/agents/assistant`, () => ({ voiceAssistantOf: h.voiceAssistantOf }))
 vi.mock(`@/lib/steer`, async () => ({
   ...(await vi.importActual<typeof import("@/lib/steer")>(`@/lib/steer`)),
   getSteerRelayConfig: () => ({ url: `https://relay.example`, secret: `relay-secret` }),
@@ -78,17 +91,52 @@ const stored = {
 }
 const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null }
 
+const OTHER_AGENT = `4f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
+const FOREIGN_AGENT = `5f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
+
 beforeEach(() => {
   h.state.selectQueue = []
   h.state.upserts = []
+  // The member's one Assistant, on their desktop `d-mint`.
+  h.state.assistants = [{ id: AGENT, voiceDeviceId: `d-mint` }]
   h.relayPostNudge.mockClear()
   h.meetingAgentIsPrivate.mockReset()
   h.meetingAgentIsPrivate.mockResolvedValue(true)
 })
 
 describe(`voice.get`, () => {
-  it(`a member without a row gets the fixture's defaults`, async () => {
+  it(`a member without a row or an Assistant gets the fixture's defaults`, async () => {
+    h.state.assistants = []
     expect(await caller.get()).toEqual({ ...fixture.defaults, ...MEETING_DEFAULTS })
+  })
+
+  // S-3: the voice device and agent are DERIVED from the member's Assistant.
+  it(`a member without a row reads their Assistant and its desktop, switches off`, async () => {
+    expect(await caller.get()).toEqual({
+      ...fixture.defaults,
+      ...MEETING_DEFAULTS,
+      voiceDeviceId: `d-mint`,
+      agentId: AGENT,
+    })
+  })
+
+  it(`the derived Assistant wins over the stored mirror`, async () => {
+    h.state.assistants = [{ id: OTHER_AGENT, voiceDeviceId: `d-other` }]
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    expect(await caller.get()).toMatchObject({ voiceDeviceId: `d-other`, agentId: OTHER_AGENT })
+    expect(h.voiceAssistantOf).toHaveBeenLastCalledWith(h.db, `me`, AGENT)
+  })
+
+  it(`an Assistant off the member's desktops has no voice device: switches off`, async () => {
+    h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    expect(await caller.get()).toMatchObject({
+      voiceDeviceId: null,
+      agentId: AGENT,
+      speakReplies: false,
+      pushToTalk: false,
+      wakeWord: false,
+    })
   })
 
   it(`returns the stored row`, async () => {
@@ -98,32 +146,54 @@ describe(`voice.get`, () => {
 })
 
 describe(`voice.update`, () => {
-  it(`stores a desktop and an agent of the member's teams, and nudges the device`, async () => {
-    h.state.selectQueue = [[], [{ kind: `desktop` }], [{ id: AGENT }]]
-    const next = await caller.update({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true })
+  it(`stores the switches with the Assistant's mirror, and nudges its device`, async () => {
+    h.state.selectQueue = [[]]
+    const next = await caller.update({ agentId: AGENT, speakReplies: true })
     expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true })
     expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true })
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
   })
 
-  it(`refuses a phone or a foreign device as the voice device`, async () => {
-    h.state.selectQueue = [[], [{ kind: `phone` }]]
-    await expect(caller.update({ voiceDeviceId: `d-phone` })).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    h.state.selectQueue = [[], []]
-    await expect(caller.update({ voiceDeviceId: `d-other` })).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    expect(h.state.upserts).toHaveLength(0)
-  })
-
-  it(`refuses an agent outside the member's teams`, async () => {
-    h.state.selectQueue = [[], []]
-    await expect(caller.update({ agentId: AGENT })).rejects.toMatchObject({ code: `BAD_REQUEST` })
-  })
-
-  it(`choosing None for the agent clears every switch and nudges the old device`, async () => {
+  // S-3: the device is the Assistant's (agents.update moves it).
+  it(`ignores an old client's voiceDeviceId`, async () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored }]]
-    const next = await caller.update({ agentId: null })
-    expect(next).toMatchObject({ agentId: null, speakReplies: false, pushToTalk: false, wakeWord: false })
+    const next = await caller.update({ voiceDeviceId: `d-other`, wakeWord: true })
+    expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, wakeWord: true })
+    expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint` })
+    expect(h.relayPostNudge).not.toHaveBeenCalledWith(expect.anything(), `me`, `d-other`)
+  })
+
+  it(`ignores None for the device or the agent: the Assistant keeps the voice`, async () => {
+    for (const change of [{ voiceDeviceId: null }, { agentId: null }]) {
+      h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+      expect(await caller.update(change)).toMatchObject({
+        voiceDeviceId: `d-mint`,
+        agentId: AGENT,
+        speakReplies: true,
+        pushToTalk: true,
+      })
+    }
+  })
+
+  it(`moves the voice onto another of the member's Assistants`, async () => {
+    h.state.assistants = [
+      { id: AGENT, voiceDeviceId: `d-mint` },
+      { id: OTHER_AGENT, voiceDeviceId: `d-other` },
+    ]
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    const next = await caller.update({ agentId: OTHER_AGENT })
+    expect(next).toMatchObject({ voiceDeviceId: `d-other`, agentId: OTHER_AGENT })
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-other`)
+  })
+
+  it(`refuses an agentId that is not one of the member's Assistants`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    await expect(caller.update({ agentId: FOREIGN_AGENT })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    h.state.assistants = []
+    h.state.selectQueue = [[]]
+    await expect(caller.update({ agentId: AGENT })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.upserts).toHaveLength(0)
   })
 
   it(`trims the wake phrase and refuses an unknown shortcut`, async () => {
@@ -134,15 +204,10 @@ describe(`voice.update`, () => {
 })
 
 describe(`#NEW-71`, () => {
-  it(`a deleted agent (agent_id nulled by the FK) reads with every switch off`, async () => {
+  it(`a member whose Assistant is gone reads with every switch off`, async () => {
+    h.state.assistants = []
     h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }]]
     expect(await caller.get()).toMatchObject({ agentId: null, speakReplies: false, pushToTalk: false, wakeWord: false })
-  })
-
-  it(`picking a new agent after that never turns speaking back on`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }], [{ id: AGENT }]]
-    const next = await caller.update({ agentId: AGENT })
-    expect(next).toMatchObject({ agentId: AGENT, speakReplies: false, pushToTalk: false, wakeWord: false })
   })
 
   it(`refuses a wake phrase with a newline or a control character`, async () => {
@@ -240,6 +305,7 @@ describe(`#NEW-57 meeting mode`, () => {
   })
 
   it(`startMeeting needs a voice device and an agent`, async () => {
+    h.state.assistants = []
     h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }]]
     await expect(caller.startMeeting({ consent: true })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     h.state.selectQueue = [[]]
@@ -269,28 +335,28 @@ describe(`#NEW-57 meeting mode`, () => {
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
   })
 
-  it(`choosing None for the device or the agent stops the meeting (clearOnNone grows meeting)`, async () => {
-    for (const change of [{ voiceDeviceId: null }, { agentId: null }]) {
-      h.state.upserts = []
+  it(`no Assistant (no device, no agent) reads with the meeting stopped (clearOnNone grows meeting)`, async () => {
+    for (const assistants of [[], [{ id: AGENT, voiceDeviceId: null }]]) {
+      h.state.assistants = assistants
       h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
-      const next = await caller.update(change)
-      expect(next.meetingStartedAt).toBeNull()
-      expect(h.state.upserts[0]?.set).toMatchObject({ meetingStartedAt: null })
+      expect((await caller.get()).meetingStartedAt).toBeNull()
     }
   })
 
-  it(`widening the scope mid-meeting (device, agent, desktop audio, apps) stops it`, async () => {
-    const OTHER_AGENT = `4f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
-    const changes: [Record<string, unknown>, unknown[][]][] = [
-      [{ voiceDeviceId: `d-other` }, [[{ kind: `desktop` }]]],
-      [{ agentId: OTHER_AGENT }, [[{ id: OTHER_AGENT }]]],
-      [{ desktopAudio: `all` }, []],
-      [{ desktopAudioApps: [{ id: `z`, name: `Zoom` }] }, []],
+  it(`widening the scope mid-meeting (the voice Assistant, desktop audio, apps) stops it`, async () => {
+    h.state.assistants = [
+      { id: AGENT, voiceDeviceId: `d-mint` },
+      { id: OTHER_AGENT, voiceDeviceId: `d-other` },
     ]
-    for (const [change, probes] of changes) {
+    const changes: Record<string, unknown>[] = [
+      { agentId: OTHER_AGENT },
+      { desktopAudio: `all` },
+      { desktopAudioApps: [{ id: `z`, name: `Zoom` }] },
+    ]
+    for (const change of changes) {
       h.state.upserts = []
       h.relayPostNudge.mockClear()
-      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }], ...probes]
+      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
       const next = await caller.update(change as never)
       expect(next.meetingStartedAt, JSON.stringify(change)).toBeNull()
       expect(h.state.upserts[0]?.set).toMatchObject({ meetingStartedAt: null })
@@ -300,11 +366,10 @@ describe(`#NEW-57 meeting mode`, () => {
     expect(withMeetingScope({ ...stored, meetingStartedAt: `x` } as never, { ...stored, meetingStartedAt: `x`, voiceDeviceId: `d-other` } as never).meetingStartedAt).toBeNull()
   })
 
-  it(`a same-value update or an unrelated switch keeps the meeting`, async () => {
-    for (const change of [{ desktopAudio: `off` }, { wakeWord: true }, { language: `de` }, { voiceDeviceId: `d-mint` }]) {
+  it(`a same-value update, an unrelated switch or an ignored device keeps the meeting`, async () => {
+    for (const change of [{ desktopAudio: `off` }, { wakeWord: true }, { language: `de` }, { voiceDeviceId: `d-other` }, { agentId: AGENT }]) {
       h.state.upserts = []
-      const probes = `voiceDeviceId` in change ? [[{ kind: `desktop` }]] : []
-      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }], ...probes]
+      h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
       const next = await caller.update(change as never)
       expect(next.meetingStartedAt, JSON.stringify(change)).toBe(STARTED.toISOString())
     }
@@ -376,8 +441,10 @@ describe(`voice.startCall`, () => {
   })
 
   it(`refuses with the fixture's reason, first match wins`, async () => {
+    h.state.assistants = []
     h.state.selectQueue = [[{ id: AGENT }], []]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noVoiceDevice))
+    h.state.assistants = [{ id: AGENT, voiceDeviceId: `d-mint` }]
 
     h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored, speakReplies: false }], [deviceRow()]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(refused(reasons.speakOff))
@@ -423,6 +490,7 @@ describe(`voice.callHostTicket`, () => {
   })
 
   it(`refuses a member without a voice device`, async () => {
+    h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
     await expect(caller.callHostTicket({ callId: `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d` })).rejects.toThrow(`No voice device`)
   })
 })

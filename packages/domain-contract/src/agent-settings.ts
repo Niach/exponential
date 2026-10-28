@@ -122,3 +122,66 @@ export function assigneeOptions(input: {
     ...agents.map((agent) => `agent:${agent.id}`),
   ]
 }
+
+// S-3 (owner 2026-10-28): THE ASSISTANT (`assistant` in the fixture; contract
+// `agentRole`). Replayed by every mirror (`scheduleCases`, `visibleCases`,
+// `orderCases`).
+export const ASSISTANT = fixture.assistant
+export const ASSISTANT_COPY = fixture.assistant.copy
+export type AssistantScheduleId = `off` | `15m` | `30m` | `1h` | `daily`
+export const ASSISTANT_SCHEDULES = fixture.assistant.schedules as {
+  id: AssistantScheduleId
+  label: string
+  cron: string | null
+}[]
+
+/** The preset stored triggers stand for; null = not an Assistant's
+ *  (an event, a custom cron, more than one) and `agents.update` refuses it. */
+export function assistantScheduleOf(triggers: AgentTriggerLike[]): AssistantScheduleId | null {
+  if (triggers.length === 0) return `off`
+  if (triggers.length > 1) return null
+  const [trigger] = triggers
+  if (trigger!.kind !== `schedule`) return null
+  const preset = ASSISTANT_SCHEDULES.find((schedule) => schedule.cron !== null && schedule.cron === trigger!.cron)
+  if (!preset) return null
+  return trigger!.enabled === false ? `off` : preset.id
+}
+
+/** The triggers a preset saves as (`off` = none). */
+export function assistantScheduleTriggers(
+  id: AssistantScheduleId,
+  tz?: string | null
+): { kind: `schedule`; cron: string; enabled: true; tz?: string }[] {
+  const cron = ASSISTANT_SCHEDULES.find((schedule) => schedule.id === id)?.cron
+  if (!cron) return []
+  return [{ kind: `schedule`, cron, enabled: true, ...(tz ? { tz } : {}) }]
+}
+
+export interface AgentRoleLike {
+  role?: string | null
+  ownerId: string
+}
+
+/** Another member's Assistant is never listed (settings, composer, chats). */
+export function visibleAgent(agent: AgentRoleLike, me: string | null | undefined): boolean {
+  return agent.role !== `assistant` || agent.ownerId === me
+}
+
+export function isAssistant(agent: { role?: string | null }): boolean {
+  return agent.role === `assistant`
+}
+
+/** The agents a member sees, in order: their Assistant first, then the team
+ *  agents by sortOrder, then name. */
+export function orderedAgents<T extends AgentRoleLike & { name: string; sortOrder: number }>(
+  agents: T[],
+  me: string | null | undefined
+): T[] {
+  const visible = agents.filter((agent) => visibleAgent(agent, me))
+  return [...visible].sort((a, b) => {
+    const rank = Number(!isAssistant(a)) - Number(!isAssistant(b))
+    if (rank !== 0) return rank
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+    return a.name.localeCompare(b.name)
+  })
+}

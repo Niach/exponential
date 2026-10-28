@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
 import { agents, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
+import { ASSISTANT } from "@exp/domain-contract/agent-settings"
 import { deriveSessionTitle } from "@/lib/sessions/title"
 import type { Db } from "@/lib/sessions/tx"
 
@@ -85,7 +86,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     .limit(1)
   const [agent] = root.agentId
     ? await db
-        .select({ instructions: agents.instructions })
+        .select({ instructions: agents.instructions, role: agents.role })
         .from(agents)
         .where(eq(agents.id, root.agentId))
         .limit(1)
@@ -95,7 +96,12 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     brief: composeBrief(input),
     voicePolicy: await isVoiceConversation(session),
     teamPrompt: team?.agentPrompt?.trim() || null,
-    agentInstructions: agent?.instructions?.trim() || null,
+    // S-3: an Assistant's turns run on the server brief first
+    // (agent-settings.json `assistant.brief`), then the member's own text.
+    agentInstructions:
+      [agent?.role === `assistant` ? ASSISTANT.brief : null, agent?.instructions?.trim() || null]
+        .filter(Boolean)
+        .join(`\n\n`) || null,
     parentBranch,
     // #EXP-1383: a conversation's agent, or the agent that started the root.
     rootAgentId: root.agentId ?? root.startedByAgentId ?? null,

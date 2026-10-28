@@ -7,13 +7,25 @@ import SwiftUI
 /// DEFINITION (NEW-2; its glyph tinted with its colour + its name). A row opens the agent
 /// page (`AgentSettingsPage`); members open it read-only. Creating one is the
 /// owner's, like a board.
+///
+/// S-3 (settings-nav.json `nav` Agents group): `@assistant` = the viewer's
+/// OWN Assistant first (the brand mark, `AssistantCopy.title`; it opens the
+/// Assistant page, even before it exists: `copy.noDevice`), then `@agents` =
+/// the team agents (role agent only: another member's Assistant is never
+/// listed), `@new-agent` = the owner's New agent.
 struct TeamAgentsSection: View {
     /// The team's agent definitions (`SessionQueries.agents`), in their sort
-    /// order.
+    /// order. Assistants in it are dropped (the viewer's own is its row).
     let agents: [AgentDefinitionEntity]
     let isOwner: Bool
     /// nil = a new agent.
     let onOpen: (String?) -> Void
+    /// The `@assistant` row; nil hides it (the styleguide specimen).
+    var onOpenAssistant: (() -> Void)? = nil
+
+    private var teamAgents: [AgentDefinitionEntity] {
+        agents.filter { !$0.isAssistant }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -26,7 +38,26 @@ struct TeamAgentsSection: View {
                 }
             }
 
-            ForEach(agents) { agent in
+            if let onOpenAssistant {
+                Button(action: onOpenAssistant) {
+                    HStack(spacing: 10) {
+                        AssistantAvatar(size: 20)
+                        Text(AgentSettings.AssistantCopy.title)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .flatRow()
+                .accessibilityIdentifier("assistant-settings-row")
+            }
+
+            ForEach(teamAgents) { agent in
                 Button {
                     onOpen(agent.id)
                 } label: {

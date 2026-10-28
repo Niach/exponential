@@ -215,4 +215,114 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(draft["assigneeId"] as? String, "U1")
         XCTAssertTrue(draft["assigneeAgentId"] is NSNull)
     }
+    // MARK: - S-3 the Assistant (`assistant`)
+
+    private func assistantBlock() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["assistant"] as? [String: Any])
+    }
+
+    func testAssistantCopySectionsSchedulesAndBriefMatchTheFixture() throws {
+        let block = try assistantBlock()
+        let copy = try XCTUnwrap(block["copy"] as? [String: String])
+        XCTAssertEqual(copy, [
+            "title": AgentSettings.AssistantCopy.title,
+            "name": AgentSettings.AssistantCopy.name,
+            "runsOn": AgentSettings.AssistantCopy.runsOn,
+            "checkIn": AgentSettings.AssistantCopy.checkIn,
+            "voice": AgentSettings.AssistantCopy.voice,
+            "noDevice": AgentSettings.AssistantCopy.noDevice,
+            "deleteRefused": AgentSettings.AssistantCopy.deleteRefused,
+            "scheduleRefused": AgentSettings.AssistantCopy.scheduleRefused,
+        ])
+        XCTAssertEqual(block["sections"] as? [String], AgentSettings.assistantSections)
+        let schedules = try XCTUnwrap(block["schedules"] as? [[String: Any]])
+        XCTAssertEqual(schedules.count, AgentSettings.assistantSchedules.count)
+        for (want, schedule) in zip(schedules, AgentSettings.assistantSchedules) {
+            XCTAssertEqual(want["id"] as? String, schedule.id.rawValue)
+            XCTAssertEqual(want["label"] as? String, schedule.label)
+            XCTAssertEqual(want["cron"] as? String, schedule.cron)
+        }
+        XCTAssertEqual(block["defaultSchedule"] as? String, AgentSettings.assistantDefaultSchedule.rawValue)
+        XCTAssertEqual(block["brief"] as? String, AgentSettings.assistantBrief)
+        XCTAssertEqual(DomainContract.agentRoleValues, ["assistant", "agent"])
+    }
+
+    func testAssistantScheduleOfReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["scheduleCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let triggers = try XCTUnwrap(testCase["triggers"] as? [[String: Any]]).enumerated().map { index, raw in
+                var object = raw
+                object["id"] = "t\(index)"
+                return try XCTUnwrap(AgentTrigger.parse(object: object), name)
+            }
+            XCTAssertEqual(
+                AgentSettings.assistantScheduleOf(triggers)?.rawValue,
+                testCase["expected"] as? String,
+                name
+            )
+        }
+    }
+
+    func testAssistantScheduleTriggersRoundTrip() throws {
+        XCTAssertEqual(AgentSettings.assistantScheduleTriggers(.off), [])
+        for schedule in AgentSettings.assistantSchedules where schedule.id != .off {
+            let saved = AgentSettings.assistantScheduleTriggers(schedule.id, tz: "Europe/Vienna")
+            XCTAssertEqual(saved, [AgentTriggerInput(
+                enabled: true, when: .schedule(ScheduleTrigger(cron: schedule.cron!, tz: "Europe/Vienna"))
+            )])
+            XCTAssertEqual(
+                AgentSettings.assistantScheduleOf(saved.map { (when: $0.when, enabled: $0.enabled) }),
+                schedule.id
+            )
+        }
+        XCTAssertNil(AgentSettings.assistantScheduleTriggers(.hourly, tz: "").first.flatMap {
+            if case let .schedule(s) = $0.when { return s.tz }
+            return nil
+        })
+    }
+
+    func testVisibleAgentReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["visibleCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let agent = try XCTUnwrap(testCase["agent"] as? [String: Any])
+            XCTAssertEqual(
+                AgentSettings.visibleAgent(
+                    role: agent["role"] as? String,
+                    ownerId: agent["ownerId"] as? String,
+                    me: testCase["me"] as? String
+                ),
+                testCase["expected"] as? Bool,
+                name
+            )
+        }
+    }
+
+    func testOrderedAgentsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["orderCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    teamId: "t",
+                    name: try XCTUnwrap(row["name"] as? String),
+                    icon: nil,
+                    color: nil,
+                    sortOrder: try XCTUnwrap((row["sortOrder"] as? NSNumber)?.doubleValue),
+                    role: row["role"] as? String,
+                    ownerId: row["ownerId"] as? String
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.orderedAgents(agents, me: testCase["me"] as? String).map(\.id),
+                testCase["expected"] as? [String],
+                name
+            )
+        }
+    }
 }

@@ -37,14 +37,14 @@ enum PopRects {
     /// The identifiers themselves live on the product views (`issue-description`,
     /// `agent-composer-headline` (EXP-1038: the run's subject moved out of the
     /// card, so the pop-out has to take it in) + `agent-composer` +
-    /// `agent-options-row`, `feed-question` (S-3: the relay's inline ask card),
+    /// `feed-question` (S-3: the relay's inline ask card),
     /// `notification-row`, plus the pre-existing `issue-row-*`,
     /// `action-row`) and are mirrored 1:1 as Android
     /// testTags — see `PopRects.kt`.
     static let identifiers: [String: [String]] = [
         "01_board": ["issue-row-APP-5"],
         "02_issue-detail": ["issue-description"],
-        "03_start-coding": ["agent-composer-headline", "agent-composer", "agent-options-row"],
+        "03_start-coding": ["agent-composer-headline", "agent-composer"],
         "04_steering": ["feed-question"],
         "07_inbox": ["notification-row"],
     ]

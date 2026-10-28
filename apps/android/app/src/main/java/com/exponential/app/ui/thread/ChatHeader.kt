@@ -31,16 +31,13 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.HeaderEdgeChrome
-import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * Thread 58cb32df (chats.json TRANSCRIPT, phones): THE chat header — back ·
- * the lead disc · the title over its subtitle · the Stop pill (a thread
- * while its root is not ended; an agent chat has none) · NEW-69: the
+ * the lead disc · the title over its subtitle (S-3: no Stop pill) · NEW-69: the
  * telephone ([call], an agent chat only, left of `…`) · the `…` menu (the
  * chat's own entries, `threadMenuEntries` / `agentMenuEntries`, then any
  * [menuGroups] after a divider). The thread's tab strip rides under it
@@ -54,7 +51,6 @@ fun ChatHeader(
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
     subtitleColor: Color? = null,
-    onStop: (() -> Unit)? = null,
     menu: List<ChatMenuItem> = emptyList(),
     /** Further menu groups (the Guide's Close PR), divider-separated. */
     menuGroups: List<List<ChatMenuItem>> = emptyList(),
@@ -96,17 +92,6 @@ fun ChatHeader(
                             modifier = Modifier.testTag("thread-subtitle"),
                         )
                     }
-                }
-                if (onStop != null) {
-                    Spacer(Modifier.width(8.dp))
-                    GlassPill(
-                        "Stop",
-                        icon = ExpIcons.codingStop,
-                        size = PillSize.Sm,
-                        tint = MaterialTheme.colorScheme.error,
-                        onClick = onStop,
-                        modifier = Modifier.testTag("stop-run"),
-                    )
                 }
                 if (call != null) {
                     Spacer(Modifier.width(8.dp))

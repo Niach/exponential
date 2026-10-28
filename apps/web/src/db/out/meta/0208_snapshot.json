@@ -1,5 +1,5 @@
 {
-  "id": "418de975-46fe-4f91-bdde-11a786ddc2d1",
+  "id": "c97b68ee-01e5-4a73-8f22-83483d4351a2",
   "prevId": "da186c8a-4373-4609-9863-4552bfcd677a",
   "version": "7",
   "dialect": "postgresql",
@@ -213,6 +213,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "role": {
+          "name": "role",
+          "type": "agent_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'agent'"
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "double precision",
@@ -262,6 +270,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uniq_agents_assistant": {
+          "name": "uniq_agents_assistant",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "role = 'assistant'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6431,12 +6461,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "origin_message_id": {
-          "name": "origin_message_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "body": {
           "name": "body",
           "type": "text",
@@ -6603,22 +6627,6 @@
           "method": "btree",
           "with": {}
         },
-        "idx_messages_origin": {
-          "name": "idx_messages_origin",
-          "columns": [
-            {
-              "expression": "origin_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "origin_message_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "uq_messages_ask_mirror": {
           "name": "uq_messages_ask_mirror",
           "columns": [
@@ -6727,19 +6735,6 @@
           "tableTo": "sessions",
           "columnsFrom": [
             "author_session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "messages_origin_message_id_messages_id_fk": {
-          "name": "messages_origin_message_id_messages_id_fk",
-          "tableFrom": "messages",
-          "tableTo": "messages",
-          "columnsFrom": [
-            "origin_message_id"
           ],
           "columnsTo": [
             "id"
@@ -11419,6 +11414,14 @@
     }
   },
   "enums": {
+    "public.agent_role": {
+      "name": "agent_role",
+      "schema": "public",
+      "values": [
+        "assistant",
+        "agent"
+      ]
+    },
     "public.comment_audience": {
       "name": "comment_audience",
       "schema": "public",

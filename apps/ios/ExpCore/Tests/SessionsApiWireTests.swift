@@ -222,5 +222,17 @@ final class AgentsApiWireTests: XCTestCase {
         XCTAssertEqual(details, AgentDetails(id: "ag-1", instructions: "Keep it tidy"))
         let blank = try JSONDecoder().decode(AgentDetails.self, from: Data(#"{"id":"ag-2"}"#.utf8))
         XCTAssertEqual(blank.instructions, "")
+        XCTAssertEqual(blank.role, "agent")
+    }
+
+    // S-3: `agents.ensureAssistant` answers `{agent}` or `{agent: null}`.
+    func testEnsureAssistantDecodesTheRowOrNull() throws {
+        let made = try JSONDecoder().decode(EnsureAssistantResult.self, from: Data(#"""
+            {"agent":{"id":"as-1","teamId":"t-1","name":"Assistant","role":"assistant","instructions":""}}
+            """#.utf8))
+        XCTAssertEqual(made.agent, AgentDetails(id: "as-1", instructions: "", role: "assistant"))
+        XCTAssertEqual(made.agent?.isAssistant, true)
+        let none = try JSONDecoder().decode(EnsureAssistantResult.self, from: Data(#"{"agent":null}"#.utf8))
+        XCTAssertNil(none.agent)
     }
 }

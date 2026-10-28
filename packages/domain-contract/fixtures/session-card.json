@@ -1,48 +1,29 @@
 {
-  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `interrupted` when blocked.kind is an interruption (`interruptedKinds`), else `blocked` when blocked is set, else `queued` when status queued, else `background` when busy AND background (EXP-1374: the turn is over, background tasks still run on its device and hold its slot), else `working` when busy, else `waiting`. name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working or background. tone = `tones[state]`. NEW-1: `blocked.kind` names why (contract codingSessionBlocked.kinds); `copy.blockedKinds[kind]` is the state word for it (an unknown kind reads `copy.states.blocked`); the server holds needsInput while blocked, so the card reads Needs you first. EXP-1374: an INTERRUPTION (contract codingSessionBlocked: device_offline, restarted) is never on a person: the server keeps needsInput false and the device continues the run by itself when back; kindWord = `copy.interruptedKinds[kind]`. The Dock card of the same state = `sessionBanner(session)` (dock.json `banner` source, one model x4: web agent-session.tsx useSessionDock, desktop steer_viewer, iOS AgentSessionModel, Android AgentSessionScreen): `interrupted` = {id 'interrupted', icon = icons.interrupted, label = copy.states.interrupted, text = `banner.interrupted[kind]`, tone muted, action null}, `background` = {id 'background', icon = icons.background, label = copy.states.background, text = banner.background, tone muted, action null}, #EXP-1405: `queued` = {id 'queued', icon = icons.queued, label = copy.states.queued, text = banner.queued, tone muted, action null}: a queued row is waiting for its device to pick it up (an online device claims it at once, so one that stays queued names an offline or stopped runner); its card kindWord = `copy.queuedKind`. Any other state = null. It REPLACES the host's own offline 'paused' banner while shown; `bannerCases` replay it. #EXP-1405: an IDLE session (started, not busy, not ended) shows its transcript on every device, not only the one that ran it: its viewer ticket names the host device as `live` (web `viewerHistoryClaims`), the relay asks that device to replay its journal and keeps the room up while it is watched; any failure answers the retryable `no_such_session`, never an ending.",
+  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. S-3 (owner 2026-10-28): FOUR states, nothing else ×4 (no running, paused, interrupted, blocked or stale word): state = `done` when status ended, else `needs_you` when needsInput (a card, a usage wall, an unclaimed/stuck watchdog flag), else `working` when status queued or busy (background tasks included), else `idle` (between turns; an INTERRUPTION, blocked.kind device_offline/restarted, is invisible: its row reads by busy). name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). kindWord = `copy.states[state]`, except a `needs_you` session whose blocked.kind is in `copy.blockedKinds` reads that word. elapsed ONLY while working (startedAt → now; null while queued) or done (startedAt → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); idle and needs_you carry none (never 'Waiting 158h'); null without a parsable startedAt. running = state working. tone = `tones[state]`, icon = `icons[state]`. The Dock card = `sessionBanner(session)` (dock.json `banner` source, one model x4: web agent-session.tsx useSessionDock, desktop steer_viewer, iOS AgentSessionModel, Android AgentSessionScreen): null when ended or needsInput; `queued` (status queued: waiting for its device, #EXP-1405) or `background` (busy AND background, EXP-1374) = {id, icon = bannerIcons[id], label = bannerLabels[id], text = banner[id], tone muted, action null}; any other = null (S-3: no interrupted and no paused card ×4); `bannerCases` replay it. #EXP-1405: an IDLE session (started, not busy, not ended) shows its transcript on every device, not only the one that ran it: its viewer ticket names the host device as `live` (web `viewerHistoryClaims`), the relay asks that device to replay its journal and keeps the room up while it is watched; any failure answers the retryable `no_such_session`, never an ending.",
   "copy": {
     "states": {
-      "queued": "Queued",
       "working": "Working",
-      "background": "Background task",
-      "waiting": "Waiting",
       "needs_you": "Needs you",
-      "interrupted": "Interrupted",
-      "blocked": "Usage limit",
-      "ended": "Ended"
+      "idle": "Idle",
+      "done": "Done"
     },
     "blockedKinds": {
       "rate_limit": "Usage limit",
-      "device_offline": "Device offline",
       "unclaimed": "Not picked up",
-      "stuck": "Stuck",
-      "restarted": "Interrupted"
-    },
-    "interruptedKinds": {
-      "device_offline": "Interrupted · device offline",
-      "restarted": "Interrupted · runner restarted"
-    },
-    "queuedKind": "Queued · waiting for the device"
+      "stuck": "Stuck"
+    }
   },
   "icons": {
-    "queued": "ui-clock",
     "working": "coding-running",
-    "background": "trace-background",
-    "waiting": "coding-assistant",
     "needs_you": "coding-needs-input",
-    "interrupted": "run-pause",
-    "blocked": "notification-session-blocked",
-    "ended": "coding-ended"
+    "idle": "coding-assistant",
+    "done": "coding-ended"
   },
   "tones": {
-    "queued": "muted",
     "working": "foreground",
-    "background": "foreground",
-    "waiting": "muted",
     "needs_you": "amber",
-    "interrupted": "muted",
-    "blocked": "rose",
-    "ended": "muted"
+    "idle": "muted",
+    "done": "muted"
   },
   "testIds": {
     "card": "session-card"
@@ -85,7 +66,7 @@
       }
     },
     {
-      "name": "an idle session waits, its stored title wins",
+      "name": "an idle session is Idle without elapsed, its stored title wins",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -112,16 +93,16 @@
         "sessionId": "s2",
         "icon": "coding-assistant",
         "name": "Fix the login race",
-        "kindWord": "Waiting",
-        "state": "waiting",
+        "kindWord": "Idle",
+        "state": "idle",
         "tone": "muted",
-        "elapsed": "12m 34s",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
     },
     {
-      "name": "a queued child has no elapsed",
+      "name": "a queued child is working, no elapsed",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -146,18 +127,18 @@
       },
       "expected": {
         "sessionId": "s3",
-        "icon": "ui-clock",
+        "icon": "coding-running",
         "name": "Speed up cold start",
-        "kindWord": "Queued · waiting for the device",
-        "state": "queued",
-        "tone": "muted",
+        "kindWord": "Working",
+        "state": "working",
+        "tone": "foreground",
         "elapsed": null,
-        "running": false,
+        "running": true,
         "testId": "session-card"
       }
     },
     {
-      "name": "needs input outranks busy and blocked",
+      "name": "needs input outranks busy, no elapsed",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -189,13 +170,13 @@
         "kindWord": "Needs you",
         "state": "needs_you",
         "tone": "amber",
-        "elapsed": "12m 34s",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
     },
     {
-      "name": "a usage wall reads Usage limit",
+      "name": "a usage wall needs you and reads Usage limit",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -203,10 +184,11 @@
           "userId": "u-dana",
           "status": "running",
           "busy": false,
-          "needsInput": false,
+          "needsInput": true,
           "blocked": {
             "window": "weekly",
-            "resetsAt": null
+            "resetsAt": null,
+            "kind": "rate_limit"
           },
           "shared": true,
           "title": null,
@@ -223,18 +205,18 @@
       },
       "expected": {
         "sessionId": "s5",
-        "icon": "notification-session-blocked",
+        "icon": "coding-needs-input",
         "name": "#APP-5 Reduce cold start",
         "kindWord": "Usage limit",
-        "state": "blocked",
-        "tone": "rose",
-        "elapsed": "12m 34s",
+        "state": "needs_you",
+        "tone": "amber",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
     },
     {
-      "name": "an ended session measures to endedAt",
+      "name": "an ended session is done, measured to endedAt",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -261,8 +243,8 @@
         "sessionId": "s6",
         "icon": "coding-ended",
         "name": "Run Tidy up",
-        "kindWord": "Ended",
-        "state": "ended",
+        "kindWord": "Done",
+        "state": "done",
         "tone": "muted",
         "elapsed": "1h 03m",
         "running": false,
@@ -297,8 +279,8 @@
         "sessionId": "s7",
         "icon": "coding-ended",
         "name": "Untitled",
-        "kindWord": "Ended",
-        "state": "ended",
+        "kindWord": "Done",
+        "state": "done",
         "tone": "muted",
         "elapsed": "37s",
         "running": false,
@@ -369,8 +351,8 @@
         "sessionId": "s9",
         "icon": "coding-assistant",
         "name": "Speed up cold start",
-        "kindWord": "Waiting",
-        "state": "waiting",
+        "kindWord": "Idle",
+        "state": "idle",
         "tone": "muted",
         "elapsed": null,
         "running": false,
@@ -378,7 +360,7 @@
       }
     },
     {
-      "name": "EXP-1374: background tasks after the turn read Background task, still spinning",
+      "name": "EXP-1374: background tasks after the turn = working, still spinning",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -404,10 +386,10 @@
       },
       "expected": {
         "sessionId": "s1",
-        "icon": "trace-background",
+        "icon": "coding-running",
         "name": "Fix the login race",
-        "kindWord": "Background task",
-        "state": "background",
+        "kindWord": "Working",
+        "state": "working",
         "tone": "foreground",
         "elapsed": "12m 34s",
         "running": true,
@@ -415,7 +397,7 @@
       }
     },
     {
-      "name": "EXP-1374: an offline device interrupts, never on a person",
+      "name": "S-3: an offline device is invisible: an idle row reads Idle",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -447,18 +429,18 @@
       },
       "expected": {
         "sessionId": "s1",
-        "icon": "run-pause",
+        "icon": "coding-assistant",
         "name": "Fix the login race",
-        "kindWord": "Interrupted · device offline",
-        "state": "interrupted",
+        "kindWord": "Idle",
+        "state": "idle",
         "tone": "muted",
-        "elapsed": "12m 34s",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
     },
     {
-      "name": "EXP-1374: a runner restart interrupts",
+      "name": "S-3: a runner restart is invisible",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -490,12 +472,12 @@
       },
       "expected": {
         "sessionId": "s1",
-        "icon": "run-pause",
+        "icon": "coding-assistant",
         "name": "Fix the login race",
-        "kindWord": "Interrupted · runner restarted",
-        "state": "interrupted",
+        "kindWord": "Idle",
+        "state": "idle",
         "tone": "muted",
-        "elapsed": "12m 34s",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
@@ -538,13 +520,13 @@
         "kindWord": "Needs you",
         "state": "needs_you",
         "tone": "amber",
-        "elapsed": "12m 34s",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
     },
     {
-      "name": "EXP-1374: background without busy is plain waiting",
+      "name": "EXP-1374: background without busy is idle",
       "input": {
         "session": {
           "teamId": "t-team-1",
@@ -572,26 +554,30 @@
         "sessionId": "s1",
         "icon": "coding-assistant",
         "name": "Fix the login race",
-        "kindWord": "Waiting",
-        "state": "waiting",
+        "kindWord": "Idle",
+        "state": "idle",
         "tone": "muted",
-        "elapsed": "12m 34s",
+        "elapsed": null,
         "running": false,
         "testId": "session-card"
       }
     }
   ],
   "banner": {
-    "interrupted": {
-      "device_offline": "Its device went offline. It continues by itself when the device is back.",
-      "restarted": "Its runner restarted mid-turn. It continues by itself."
-    },
     "background": "The turn is over; background tasks still run on its device.",
     "queued": "Waiting for its device to pick it up. It starts by itself once the device is online."
   },
+  "bannerIcons": {
+    "background": "trace-background",
+    "queued": "ui-clock"
+  },
+  "bannerLabels": {
+    "background": "Background task",
+    "queued": "Queued"
+  },
   "bannerCases": [
     {
-      "name": "an offline device",
+      "name": "S-3: an offline device has no card",
       "session": {
         "status": "idle",
         "busy": false,
@@ -606,17 +592,10 @@
         },
         "background": false
       },
-      "expected": {
-        "id": "interrupted",
-        "icon": "run-pause",
-        "label": "Interrupted",
-        "text": "Its device went offline. It continues by itself when the device is back.",
-        "tone": "muted",
-        "action": null
-      }
+      "expected": null
     },
     {
-      "name": "a runner restart",
+      "name": "S-3: a runner restart has no card",
       "session": {
         "status": "idle",
         "busy": false,
@@ -631,14 +610,7 @@
         },
         "background": false
       },
-      "expected": {
-        "id": "interrupted",
-        "icon": "run-pause",
-        "label": "Interrupted",
-        "text": "Its runner restarted mid-turn. It continues by itself.",
-        "tone": "muted",
-        "action": null
-      }
+      "expected": null
     },
     {
       "name": "background tasks",

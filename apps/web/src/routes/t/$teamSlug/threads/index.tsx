@@ -22,6 +22,7 @@ import { StoryRingRow } from "@/components/stories/story-ring-row"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useChatList } from "@/hooks/use-chat-list"
+import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useTeamSessions } from "@/hooks/use-session-tree"
@@ -39,7 +40,8 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 
 // Thread 58cb32df + #EXP-1380 (chats.json LIST + WIDE): the product calls
 // them CHATS, and every form factor paints the SAME list of the ONE active
-// team: the agent bubbles, the filter chips, the flat rows (right-click /
+// team: the agent bubbles, the filter chips, (S-3) the agents pinned on top
+// under their section headers, the flat rows (right-click /
 // long-press = the row's menu through `menuProps`). Phones put the large
 // headline (search + inbox) on top; wide keeps the list in one column at
 // the page's list width (the old Needs you · Running · Recent bands left
@@ -84,7 +86,9 @@ function ThreadsPage() {
   const { data: authSession } = useSession()
   const me = authSession?.user?.id ?? null
   const [filter, setFilter] = useState<ChatFilter>(`all`)
-  const { list, bubbles, cliOf, isReady } = useChatList(team?.id, me, filter, view)
+  const { list, bubbles, agentRows, cliOf, isReady } = useChatList(team?.id, me, filter, view)
+  // S-3: the viewer's Assistant exists once the list mounts (first use).
+  useEnsureAssistant(team?.id)
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
   const unread = useUnreadNotificationCount(team?.id)
   const issueSearch = useIssueSearch()
@@ -181,6 +185,9 @@ function ThreadsPage() {
     })
   }, [selection, sessionRows, list.rows, me, isOwner])
 
+  const openAgent = (agentId: string) =>
+    void navigate({ to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } })
+
   const toChats = () => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug }, search: {} })
 
   return (
@@ -231,15 +238,16 @@ function ThreadsPage() {
           {!archivedView && (
             <AgentBubbles
               bubbles={bubbles}
-              onOpen={(agentId) =>
-                void navigate({ to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } })
-              }
+              // S-3 INTERIM: a bubble opens the agent's chat.
+              onOpen={openAgent}
             />
           )}
           <ChatFilterChips value={filter} counts={list.counts} onChange={setFilter} />
           <div ref={listRef}>
             <ChatList
               rows={list.rows}
+              agentRows={agentRows}
+              onOpenAgent={openAgent}
               agentOf={cliOf}
               loading={!team || !isReady}
               entering={entering}

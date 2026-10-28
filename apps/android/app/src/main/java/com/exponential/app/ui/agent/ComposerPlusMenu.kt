@@ -45,9 +45,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 /**
  * EXP-1249: the composer's ONE "+" menu on a phone (web `composer-plus-menu.tsx`
  * as its sheet arm): the rows of [ComposerMenu.composerMenuLayout] in a
- * bottom sheet — Implement issue ›, Add file or image | Effort ›,
- * Subagents ›, Ultracode | MCP servers ›, Computer use (NEW-2: no Run action;
- * prompts live in the `/` menu). SLOP-28 (EXP-1259 D5): Implement issue
+ * bottom sheet — S-3: Photo or file, Issue › | Device ›, Account ›,
+ * Model ›, Repository › | Effort ›, Subagents ›, Ultracode | MCP servers ›,
+ * Computer use, each only on its surface and while its condition holds. SLOP-28 (EXP-1259 D5): Implement issue
  * PUSHES a page inside this sheet ([issuePage]: THE search list, back
  * returns to the rows); the other submenu
  * rows close it and open their picker sheet (two stacked sheets are a dead
@@ -75,6 +75,12 @@ internal fun ComposerPlusMenuSheet(
     onDismiss: () -> Unit,
     /** The Implement issue › page (the search list); its arg closes the menu. */
     issuePage: @Composable (close: () -> Unit) -> Unit,
+    /** S-3: the runner submenus (Device, Account, Model, Repository) PUSH
+     *  their page inside this sheet: THE existing picker's rows inline (the
+     *  sheet hosts them, N-6); the arg closes the menu. */
+    pages: Map<ComposerMenuRowId, @Composable (close: () -> Unit) -> Unit> = emptyMap(),
+    /** S-3: a submenu row's muted value (the picked label) by row id. */
+    values: Map<ComposerMenuRowId, String?> = emptyMap(),
 ) {
     var page by remember { mutableStateOf<ComposerMenuRowId?>(null) }
     GlassSheet(
@@ -92,7 +98,8 @@ internal fun ComposerPlusMenuSheet(
                 onClick = { page = null },
                 leading = { RowGlyph(ExpIcons.uiBack) },
             )
-            issuePage(onDismiss)
+            val page = pages[pushed]
+            if (page != null) page(onDismiss) else issuePage(onDismiss)
             return@GlassSheet
         }
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -138,7 +145,7 @@ internal fun ComposerPlusMenuSheet(
                                     ComposerMenuRowId.Effort -> effortValue
                                     ComposerMenuRowId.Subagents -> subagentsValue
                                     ComposerMenuRowId.McpServers -> mcpValue
-                                    else -> null
+                                    else -> values[entry.id]
                                 }
                                 val enabled = when (entry.id) {
                                     ComposerMenuRowId.Effort -> effortEnabled && !rowsReadOnly
@@ -153,6 +160,7 @@ internal fun ComposerPlusMenuSheet(
                                         onClick = {
                                             when (entry.id) {
                                                 ComposerMenuRowId.ImplementIssue -> page = entry.id
+                                                in pages -> page = entry.id
                                                 else -> onRow(entry.id)
                                             }
                                         },
@@ -176,8 +184,11 @@ internal fun ComposerPlusMenuSheet(
 /** The row's concept glyph (fixture `rows[].icon`, ×4). */
 internal fun composerMenuGlyph(id: ComposerMenuRowId): ImageVector = when (id) {
     ComposerMenuRowId.ImplementIssue -> ExpIcons.editorIssueRef
-    ComposerMenuRowId.MessageAgent -> ExpIcons.settingsAgents
     ComposerMenuRowId.AddFile -> ExpIcons.uiAttach
+    ComposerMenuRowId.Device -> ExpIcons.navDevices
+    ComposerMenuRowId.Account -> ExpIcons.settingsAccount
+    ComposerMenuRowId.Model -> ExpIcons.codingAssistant
+    ComposerMenuRowId.Repository -> ExpIcons.settingsRepositories
     ComposerMenuRowId.Effort -> ExpIcons.uiEstimate
     ComposerMenuRowId.Subagents -> ExpIcons.codingSubagent
     ComposerMenuRowId.Ultracode -> ExpIcons.actionDefault

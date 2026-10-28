@@ -1324,6 +1324,53 @@ pub(crate) fn typeahead_insert(identifier: &str) -> String {
     format!("#{identifier} ")
 }
 
+/// S-3 (composer-menu.json `implement-issue` on a session / agent chat):
+/// THE issue search list over `team_id`'s open issues; a pick hands
+/// `#IDENT ` ([`typeahead_insert`]) to `insert` (at the caret) and closes the
+/// menu.
+pub(crate) fn issue_ref_source(team_id: String, insert: Rc<dyn Fn(String, &mut Window, &mut App)>) -> MenuListSource {
+    let rows_team = team_id.clone();
+    let pick_team = team_id;
+    MenuListSource {
+        placeholder: ISSUE_SEARCH_PLACEHOLDER,
+        rows: Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
+            let query = query.trim().to_lowercase();
+            crate::picker::issue_picker::snapshot_rows(cx, &rows_team, &Default::default())
+                .into_iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row.identifier.to_lowercase().contains(&query)
+                        || row.title.to_lowercase().contains(&query)
+                })
+                .map(|row| MenuListRow {
+                    id: row.issue_id.clone(),
+                    body: issue_row_body(
+                        Some(crate::icons::resolved_status_icon(&row.resolved, cx).xsmall().into_any_element()),
+                        row.identifier.clone(),
+                        row.title.clone(),
+                        None,
+                        cx,
+                    ),
+                    disabled: false,
+                })
+                .collect()
+        }),
+        pick: Rc::new(move |issue_id: &str, window: &mut Window, cx: &mut App| {
+            let identifier = crate::picker::issue_picker::snapshot_rows(cx, &pick_team, &Default::default())
+                .into_iter()
+                .find(|row| row.issue_id == issue_id)
+                .map(|row| row.identifier);
+            if let Some(identifier) = identifier {
+                insert(typeahead_insert(&identifier), window, cx);
+            }
+            true
+        }),
+        empty: Rc::new(|_query: &str, _cx: &App| "No matches. Only open issues are shown.".into()),
+        loading: Rc::new(|_: &App| false),
+        footer: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -269,6 +269,143 @@ pub fn assignee_options(member_ids: &[String], agents: &[(String, String, f64)])
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// S-3 (owner 2026-10-28): THE ASSISTANT (`assistant` in the fixture; contract
+// `agentRole`). Replays `scheduleCases`, `visibleCases`, `orderCases`.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantCopy {
+    pub title: String,
+    pub name: String,
+    pub runs_on: String,
+    pub check_in: String,
+    pub voice: String,
+    pub no_device: String,
+    pub delete_refused: String,
+    pub schedule_refused: String,
+}
+
+/// One Check in preset (`off` = no trigger, `cron` None).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantSchedule {
+    pub id: String,
+    pub label: String,
+    pub cron: Option<String>,
+}
+
+/// `fixtures/agent-settings.json` `assistant` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantSpec {
+    pub copy: AssistantCopy,
+    /// The Assistant page's sections top to bottom.
+    pub sections: Vec<String>,
+    pub schedules: Vec<AssistantSchedule>,
+    pub default_schedule: String,
+    pub brief: String,
+}
+
+/// The Assistant page's copy, sections and Check in presets.
+pub static ASSISTANT: LazyLock<AssistantSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses");
+    serde_json::from_value(fixture["assistant"].clone()).expect("agent-settings.json assistant parses")
+});
+
+/// TS `assistantScheduleOf`: the preset id stored triggers stand for
+/// (`off` = none or a paused preset); None = not an Assistant's (an event,
+/// a custom cron, more than one) and `agents.update` refuses it.
+pub fn assistant_schedule_of(triggers: &[Value]) -> Option<String> {
+    match triggers {
+        [] => Some("off".to_string()),
+        [trigger] => {
+            if trigger["kind"].as_str() != Some("schedule") {
+                return None;
+            }
+            let cron = trigger["cron"].as_str()?;
+            let preset = ASSISTANT
+                .schedules
+                .iter()
+                .find(|schedule| schedule.cron.as_deref() == Some(cron))?;
+            if trigger["enabled"].as_bool() == Some(false) {
+                Some("off".to_string())
+            } else {
+                Some(preset.id.clone())
+            }
+        }
+        _ => None,
+    }
+}
+
+/// TS `assistantScheduleTriggers`: the triggers a preset saves as (`off` =
+/// none).
+pub fn assistant_schedule_triggers(id: &str, tz: Option<&str>) -> Vec<Value> {
+    let Some(cron) = ASSISTANT
+        .schedules
+        .iter()
+        .find(|schedule| schedule.id == id)
+        .and_then(|schedule| schedule.cron.clone())
+    else {
+        return Vec::new();
+    };
+    let mut trigger = serde_json::json!({ "kind": "schedule", "cron": cron, "enabled": true });
+    if let Some(tz) = tz.filter(|tz| !tz.is_empty()) {
+        trigger["tz"] = Value::String(tz.to_string());
+    }
+    vec![trigger]
+}
+
+/// TS `isAssistant`.
+pub fn is_assistant_role(role: Option<&str>) -> bool {
+    role == Some(crate::contract::AGENT_ROLE_ASSISTANT)
+}
+
+/// TS `visibleAgent`: another member's Assistant is never listed
+/// (settings, composer, chats).
+pub fn visible_agent(role: Option<&str>, owner_id: Option<&str>, me: Option<&str>) -> bool {
+    !is_assistant_role(role) || (owner_id.is_some() && owner_id == me)
+}
+
+/// TS `orderedAgents` over synced rows: the viewer's Assistant first, then
+/// the team agents by sortOrder, then name; others' Assistants dropped.
+pub fn ordered_agents<'a>(
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    me: Option<&str>,
+) -> Vec<&'a crate::rows::AgentDefRow> {
+    let mut visible: Vec<&crate::rows::AgentDefRow> = agents
+        .into_iter()
+        .filter(|agent| visible_agent(Some(agent.role.as_str()), agent.owner_id.as_deref(), me))
+        .collect();
+    visible.sort_by(|a, b| {
+        (!a.is_assistant())
+            .cmp(&!b.is_assistant())
+            .then_with(|| {
+                a.sort_order
+                    .unwrap_or(0.0)
+                    .partial_cmp(&b.sort_order.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                let (an, bn) = (a.name.as_deref().unwrap_or(""), b.name.as_deref().unwrap_or(""));
+                an.to_lowercase().cmp(&bn.to_lowercase()).then_with(|| an.cmp(bn))
+            })
+    });
+    visible
+}
+
+/// The viewer's own Assistant among synced rows (one per team).
+pub fn my_assistant<'a>(
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    team_id: &str,
+    me: Option<&str>,
+) -> Option<&'a crate::rows::AgentDefRow> {
+    let me = me?;
+    agents.into_iter().find(|agent| {
+        agent.is_assistant() && agent.team_id.as_deref() == Some(team_id) && agent.owner_id.as_deref() == Some(me)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,4 +531,76 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn assistant_schedule_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["scheduleCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let triggers = case["triggers"].as_array().unwrap();
+            let expected = case["expected"].as_str().map(str::to_string);
+            assert_eq!(assistant_schedule_of(triggers), expected, "{}", case["name"]);
+        }
+        assert_eq!(ASSISTANT.default_schedule, "1h");
+        assert_eq!(ASSISTANT.copy.check_in, "Check in");
+        assert_eq!(ASSISTANT.sections, ["identity", "runs-on", "check-in", "voice", "instructions"]);
+    }
+
+    #[test]
+    fn assistant_schedule_triggers_round_trip() {
+        assert!(assistant_schedule_triggers("off", None).is_empty());
+        for schedule in &ASSISTANT.schedules {
+            let triggers = assistant_schedule_triggers(&schedule.id, Some("Europe/Vienna"));
+            assert_eq!(assistant_schedule_of(&triggers).as_deref(), Some(schedule.id.as_str()));
+        }
+    }
+
+    #[test]
+    fn assistant_visible_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["visibleCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let agent = &case["agent"];
+            let actual = visible_agent(agent["role"].as_str(), agent["ownerId"].as_str(), case["me"].as_str());
+            assert_eq!(actual, case["expected"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn assistant_order_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["orderCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<crate::rows::AgentDefRow> = case["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": agent["id"], "role": agent["role"], "owner_id": agent["ownerId"],
+                        "name": agent["name"], "sort_order": agent["sortOrder"], "team_id": "t",
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            let ids: Vec<&str> = ordered_agents(&rows, case["me"].as_str()).iter().map(|row| row.id.as_str()).collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
+            assert_eq!(my_assistant(&rows, "t", case["me"].as_str()).map(|row| row.id.as_str()), Some("me"));
+        }
+    }
+
+    #[test]
+    fn a_row_without_a_role_is_a_team_agent() {
+        let row: crate::rows::AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a" })).unwrap();
+        assert_eq!(row.role, "agent");
+        assert!(!row.is_assistant());
+        let row: crate::rows::AgentDefRow =
+            serde_json::from_value(serde_json::json!({ "id": "a", "role": null })).unwrap();
+        assert_eq!(row.role, "agent");
+    }
+
 }

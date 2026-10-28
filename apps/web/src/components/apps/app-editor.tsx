@@ -28,6 +28,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
+  ThreadConversation,
   toast,
   useIsMobile,
   UserAvatar,
@@ -39,7 +40,8 @@ import { AppPreview } from "@/components/apps/app-preview"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
-import { AgentChannel, AgentComposer, useAgentChannelRows } from "@/components/thread/agent-channel"
+import { renderThreadText } from "@/components/thread/thread-markdown"
+import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
 import { useTreeMessages } from "@/hooks/use-session-tree"
@@ -54,7 +56,8 @@ import { cn } from "@/lib/utils"
 
 // VAPP-110 (fixtures/apps.json): THE EDITOR. Header = glyph + name + the
 // version pill + Versions (+ count) + …; body on md+ = two panes, the chat
-// (the member's editor session: AgentChannel rows + the composer) beside
+// (the member's editor session: THE thread conversation rows + THE session
+// composer) beside
 // the live preview; on phones a Chat | Preview | Versions segmented control
 // and one pane. Leaving the editor ENDS the member's live editor session
 // (the tree); the next send revives it. Versions preview read-only with
@@ -306,18 +309,31 @@ export function AppEditor({
   // VAPP-129: md+: the chat floats in THE Dock.
   const floating = !isMobile && layout === `floating`
 
-  const { rows: channelRows } = useAgentChannelRows({ conversation: root, messages, teamSessions })
+  const { rows: channelRows } = useConversationRows({ conversation: root, messages, teamSessions })
+  const { answer, pending } = useAnswerMessage()
+  const messageAt = (id: string) => {
+    const message = messages.find((row) => row.id === id)
+    return message ? new Date(message.createdAt) : null
+  }
   const channel =
     root && messages.length > 0 ? (
-      <AgentChannel
-        agent={{ name: app.name, icon: app.icon, color: app.color }}
-        conversation={root}
-        allRows={channelRows}
-        messages={messages}
-        teamSessions={teamSessions}
-        users={users as User[]}
-        canAnswer={isMember}
-        onOpenSession={openSession}
+      <ThreadConversation
+        rows={channelRows}
+        renderText={renderThreadText}
+        attachmentSrc={attachmentSrc}
+        messageCaption={(row) =>
+          userMessageCaption({
+            name: row.authorId ? users.find((user) => user.id === row.authorId)?.name : null,
+            at: messageAt(row.id),
+          })
+        }
+        onOpenSession={(sessionId) => {
+          const target = teamSessions.find((row) => row.id === sessionId)
+          if (target) openSession(target)
+        }}
+        onAnswer={isMember ? (id, input) => void answer(id, input) : undefined}
+        onDecide={isMember ? (id, input) => void answer(id, input) : undefined}
+        pending={pending}
       />
     ) : (
       <div className="flex flex-1 items-center justify-center py-12">
@@ -326,29 +342,19 @@ export function AppEditor({
     )
 
   const composer = isMember ? (
-    root ? (
-      <SessionComposer
-        teamId={teamId}
-        sessionId={root.id}
-        placeholder={APPS_COPY.composerPlaceholder}
-        users={users as User[]}
-        busy={root.busy}
-        canStop
-        testId="app-composer"
-        className={floating ? undefined : `mx-auto max-w-3xl`}
-      />
-    ) : (
-      <AgentComposer
-        teamId={teamId}
-        appId={app.id}
-        deviceId={deviceId ?? undefined}
-        disabled={!deviceId}
-        placeholder={deviceId ? APPS_COPY.composerPlaceholder : APPS_COPY.noDevice}
-        users={users as User[]}
-        testId="app-composer"
-        className={floating ? undefined : `mx-auto max-w-3xl`}
-      />
-    )
+    <SessionComposer
+      teamId={teamId}
+      sessionId={root?.id ?? null}
+      appId={app.id}
+      deviceId={deviceId ?? undefined}
+      disabled={!root && !deviceId}
+      placeholder={root || deviceId ? APPS_COPY.composerPlaceholder : APPS_COPY.noDevice}
+      users={users as User[]}
+      busy={root?.busy ?? false}
+      canStop
+      testId="app-composer"
+      className={floating ? undefined : `mx-auto max-w-3xl`}
+    />
   ) : null
 
   const chat = (
@@ -508,3 +514,5 @@ export function AppEditor({
     </div>
   )
 }
+
+const attachmentSrc = (id: string) => `/api/attachments/${id}`

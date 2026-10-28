@@ -578,7 +578,7 @@ describe(`session tree`, () => {
   it(`lists every session depth-first with the open one washed`, () => {
     const rows = [
       { sessionId: `r`, parentId: null, name: `Session 1`, agent: `claude`, markState: `working` as const },
-      { sessionId: `b`, parentId: `r`, name: `B`, agent: `claude`, markState: `ended` as const },
+      { sessionId: `b`, parentId: `r`, name: `B`, agent: `claude`, markState: `done` as const },
       {
         sessionId: `a`,
         parentId: `r`,
@@ -588,7 +588,7 @@ describe(`session tree`, () => {
         stateWord: `Needs you`,
         stateTone: `amber`,
       },
-      { sessionId: `a1`, parentId: `a`, name: `A1`, agent: `claude`, markState: `waiting` as const },
+      { sessionId: `a1`, parentId: `a`, name: `A1`, agent: `claude`, markState: `idle` as const },
     ]
     expect(threadTreeRows(rows).map((entry) => [entry.row.sessionId, entry.depth])).toEqual([
       [`r`, 0],
@@ -599,9 +599,9 @@ describe(`session tree`, () => {
     // A parent cycle reaches no root: its rows still list (promoted), once.
     const cyclic = [
       ...rows,
-      { sessionId: `x`, parentId: `y`, name: `X`, agent: null, markState: `waiting` as const },
-      { sessionId: `y`, parentId: `x`, name: `Y`, agent: null, markState: `waiting` as const },
-      { sessionId: `y1`, parentId: `y`, name: `Y1`, agent: null, markState: `waiting` as const },
+      { sessionId: `x`, parentId: `y`, name: `X`, agent: null, markState: `idle` as const },
+      { sessionId: `y`, parentId: `x`, name: `Y`, agent: null, markState: `idle` as const },
+      { sessionId: `y1`, parentId: `y`, name: `Y1`, agent: null, markState: `idle` as const },
     ]
     expect(threadTreeRows(cyclic).map((entry) => [entry.row.sessionId, entry.depth])).toEqual([
       [`r`, 0],

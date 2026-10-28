@@ -5,12 +5,12 @@
 //! through THE [`crate::controls::PointerContextMenuExt`]) and the thread
 //! header's `…`; the agent row's right-click and the agent chat header's `…`.
 //!
-//!   Stop             `sessions.end` on the ROOT (the whole tree ends)
-//!   Stop and delete  `sessions.delete` (the server ends what is live first)
-//!   Delete           `sessions.delete` (an ended chat)
+//!   Delete           `sessions.delete` (the server ends what is live first)
 //!   Compact / New    SEND `/compact` / `/new` (one path with the typed ones)
-//!   Stop (agent)     `sessions.stop`, the TURN interrupt
 //!   Agent settings   the agent's settings page (owners)
+//!
+//! S-3 (owner 2026-10-28): no Stop/End entry anywhere; the composer's
+//! stop-turn is the one stop.
 //!
 //! A delete asks first (`copy.confirmDelete`); after it the chat's tab and
 //! screen close back to the list. Failures toast `copy.toasts.*`.
@@ -74,12 +74,7 @@ pub(crate) fn chat_entry_items(mut menu: PopupMenu, root_id: &str, entries: &[Th
     for entry in entries.iter().copied() {
         let root_id = root_id.to_string();
         menu = match entry {
-            ThreadMenuEntry::Stop => menu.item(
-                crate::controls::pointer_menu_item(Some(registry::CODING_STOP), entry.label(), |_| None, move |_, cx| {
-                    stop_chat(&root_id, cx);
-                }),
-            ),
-            ThreadMenuEntry::StopAndDelete | ThreadMenuEntry::Delete => menu.item(
+            ThreadMenuEntry::Delete => menu.item(
                 crate::controls::danger_pointer_menu_item(registry::UI_DELETE, entry.label(), move |window, cx| {
                     confirm_delete(&root_id, window, cx)
                 }),
@@ -96,27 +91,6 @@ fn failed(title: &str, err: Option<&api::ApiError>, cx: &mut App) {
         toast = toast.description(description);
     }
     crate::toast::show_in_active_window(toast, cx);
-}
-
-/// Stop = `sessions.end` on the ROOT (the whole tree ends; a later message
-/// still resumes it).
-pub(crate) fn stop_chat(root_id: &str, cx: &mut App) {
-    let Some(trpc) = crate::queries::trpc_client(cx) else {
-        failed(&CHATS.copy.toasts.stop_failed, None, cx);
-        return;
-    };
-    let root_id = root_id.to_string();
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { api::sessions::end(&trpc, &root_id) })
-            .await;
-        if let Err(err) = result {
-            log::warn!("[chats] stop failed: {err}");
-            let _ = cx.update(|cx| failed(&CHATS.copy.toasts.stop_failed, Some(&err), cx));
-        }
-    })
-    .detach();
 }
 
 /// Delete asks first ×4: `copy.confirmDelete`, the destructive confirm =
@@ -257,14 +231,9 @@ fn spawn_selection(action: domain::chats::ChatSelectionAction, ids: Vec<String>,
                             record(chunk, result);
                         }
                     }
-                    A::Stop | A::Delete => {
+                    A::Delete => {
                         for id in &ids {
-                            let result = if action == A::Stop {
-                                api::sessions::end(&trpc, id)
-                            } else {
-                                api::sessions::delete(&trpc, id)
-                            };
-                            record(std::slice::from_ref(id), result);
+                            record(std::slice::from_ref(id), api::sessions::delete(&trpc, id));
                         }
                     }
                 }
@@ -346,8 +315,8 @@ pub(crate) fn agent_entries(agent_id: &str, cx: &App) -> Vec<AgentMenuEntry> {
 }
 
 /// Append the agent's entries to `menu` (the rail row's right-click, the
-/// agent chat header's `…`): the conversation pair, a rule, then Stop and
-/// Agent settings.
+/// agent chat header's `…`): the conversation pair, a rule, then Agent
+/// settings.
 pub(crate) fn agent_menu_items(menu: PopupMenu, agent_id: &str, cx: &App) -> PopupMenu {
     let entries = agent_entries(agent_id, cx);
     agent_entry_items(menu, agent_id, &entries)
@@ -356,7 +325,7 @@ pub(crate) fn agent_menu_items(menu: PopupMenu, agent_id: &str, cx: &App) -> Pop
 /// THE agent menu's rows for `entries` (the styleguide's specimen too).
 pub(crate) fn agent_entry_items(mut menu: PopupMenu, agent_id: &str, entries: &[AgentMenuEntry]) -> PopupMenu {
     for (index, entry) in entries.iter().copied().enumerate() {
-        if index > 0 && matches!(entry, AgentMenuEntry::Stop | AgentMenuEntry::Settings) && entries[index - 1] != AgentMenuEntry::Stop {
+        if index > 0 && entry == AgentMenuEntry::Settings {
             menu = menu.separator();
         }
         let agent_id = agent_id.to_string();
@@ -374,11 +343,6 @@ fn run_agent_entry(entry: AgentMenuEntry, agent_id: &str, window: &mut Window, c
         return;
     }
     match entry {
-        AgentMenuEntry::Stop => {
-            if let Some(conversation) = crate::session_data::my_conversation(agent_id, cx) {
-                crate::steer_viewer::stop_session(&conversation.id, cx);
-            }
-        }
         AgentMenuEntry::Settings => {
             crate::sidebar::select_settings_section(
                 window,
@@ -462,9 +426,9 @@ mod tests {
     /// The entries' words and icons are the fixture's.
     #[test]
     fn the_entries_read_the_fixture_copy() {
-        assert_eq!(ThreadMenuEntry::StopAndDelete.label(), "Stop and delete");
+        assert_eq!(ThreadMenuEntry::Delete.label(), "Delete");
         assert_eq!(AgentMenuEntry::NewConversation.label(), "New conversation");
-        for entry in [AgentMenuEntry::Compact, AgentMenuEntry::NewConversation, AgentMenuEntry::Stop, AgentMenuEntry::Settings] {
+        for entry in [AgentMenuEntry::Compact, AgentMenuEntry::NewConversation, AgentMenuEntry::Settings] {
             assert!(registry::concept_by_name(entry.icon()).is_some(), "{entry:?}");
         }
     }

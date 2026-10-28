@@ -401,7 +401,7 @@ mod tests {
             Some("session") => ThreadTab::Session {
                 session_id: s(tab, "sessionId"),
                 name: s(tab, "name"),
-                mark_state: SessionTabMarkState::Waiting,
+                mark_state: SessionTabMarkState::Idle,
                 nested: tab["nested"]
                     .as_array()
                     .unwrap()
@@ -409,7 +409,7 @@ mod tests {
                     .map(|item| ThreadTabNestedSession {
                         session_id: s(item, "sessionId"),
                         name: s(item, "name"),
-                        mark_state: SessionTabMarkState::Waiting,
+                        mark_state: SessionTabMarkState::Idle,
                         depth: item["depth"].as_u64().unwrap() as usize,
                     })
                     .collect(),

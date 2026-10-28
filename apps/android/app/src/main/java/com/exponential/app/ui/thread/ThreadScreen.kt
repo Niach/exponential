@@ -163,7 +163,6 @@ fun ThreadScreen(
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
-    var stopConfirmFor by remember { mutableStateOf<String?>(null) }
     val tree by viewModel.tree.collectAsStateWithLifecycle()
 
     // THE session composer's state = the ROOT session's view model (the same
@@ -204,6 +203,7 @@ fun ThreadScreen(
             name = def?.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS,
             icon = def?.icon,
             color = def?.color,
+            assistant = def?.isAssistant == true,
         )
     } else {
         null
@@ -230,7 +230,14 @@ fun ThreadScreen(
                     .androidxClipCircle()
                     .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted, androidx.compose.foundation.shape.CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { AgentGlyph(icon = agent.icon, color = agent.color, size = 22.dp) }
+            ) {
+                // S-3: the viewer's Assistant wears the brand mark.
+                if (agent.assistant) {
+                    com.exponential.app.ui.components.ExponentialMark(size = 22.dp, tint = MaterialTheme.colorScheme.onSurface)
+                } else {
+                    AgentGlyph(icon = agent.icon, color = agent.color, size = 22.dp)
+                }
+            }
         } else {
             com.exponential.app.ui.components.ChatLeadDisc(lead = chatLead, agent = rootRow?.cli, size = 44.dp)
         }
@@ -250,7 +257,6 @@ fun ThreadScreen(
                 com.exponential.app.domain.Chats.AgentMenuEntry.Compact,
                 com.exponential.app.domain.Chats.AgentMenuEntry.NewConversation ->
                     com.exponential.app.domain.Chats.agentMenuSend(entry)?.let { viewModel.send(it) }
-                com.exponential.app.domain.Chats.AgentMenuEntry.Stop -> viewModel.stop(viewModel.rootId)
                 com.exponential.app.domain.Chats.AgentMenuEntry.Settings ->
                     rootRow?.agentId?.let { id -> onOpenAgentSettings?.invoke(id) }
             }
@@ -258,7 +264,6 @@ fun ThreadScreen(
     } else if (rootRow != null) {
         com.exponential.app.ui.components.chatMenuItems(
             com.exponential.app.domain.Chats.threadMenuEntries(rootRow.status, canSteer, rootRow.userId == me || isOwner),
-            onStop = { viewModel.stopChat() },
             onDelete = { deleteConfirm = true },
         )
     } else {
@@ -358,6 +363,13 @@ fun ThreadScreen(
                         onExpandedChange = onExpandedChange,
                         placeholder = placeholder,
                         capsuleTestTag = "thread-composer-capsule",
+                        // S-3: an agent chat's composer = surface `agent`
+                        // (its + carries Model ›).
+                        surface = if (agent != null) {
+                            com.exponential.app.domain.ComposerMenuSurface.Agent
+                        } else {
+                            com.exponential.app.domain.ComposerMenuSurface.Session
+                        },
                         // Queued rows already sit in the Conversation (EXP-1317).
                         showQueue = false,
                         onOpenUsage = { usageSheetOpen = true },
@@ -400,12 +412,6 @@ fun ThreadScreen(
                 headerLead = headerLead,
                 headerSubtitle = headerSubtitle,
                 headerSubtitleColor = headerSubtitleColor,
-                // chats.json STOP: the pill ends the chat (the root's tree).
-                onStop = if (agent == null && rootRow != null && !rootEnded && canSteer) {
-                    { stopConfirmFor = viewModel.rootId }
-                } else {
-                    null
-                },
                 menu = chatMenu,
                 menuGroups = listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
@@ -471,20 +477,6 @@ fun ThreadScreen(
             onDismiss = { linkPickerOpen = false },
         )
     }
-    stopConfirmFor?.let { sessionId ->
-        com.exponential.app.ui.components.PromptAlert(
-            prompt = Prompts.StopRun.prompt(),
-            onDismiss = { stopConfirmFor = null },
-            handlers = mapOf(
-                "stop" to {
-                    stopConfirmFor = null
-                    // chats.json STOP: the header pill = the menu's Stop,
-                    // `sessions.end` on the ROOT (the whole tree ends).
-                    if (sessionId == viewModel.rootId) viewModel.stopChat() else viewModel.stop(sessionId)
-                },
-            ),
-        )
-    }
     if (deleteConfirm) {
         com.exponential.app.ui.components.ChatDeleteConfirm(
             onConfirm = {
@@ -538,13 +530,14 @@ internal fun chatLeadOf(view: SessionTree.ThreadView?, pullRequests: List<PullRe
     }
 }
 
-/** The chat header's state word: needs you, working…, ended, else waiting. */
+/** The chat header's state word (S-3's four): done, needs you, working…,
+ *  else idle. */
 internal fun chatStateWord(view: SessionTree.ThreadView?, ended: Boolean): String? = when {
     view == null -> null
-    ended -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Ended)
+    ended -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Done)
     view.needsYou -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.NeedsYou)
     view.busy -> com.exponential.app.domain.Chats.Copy.PREVIEW_WORKING
-    else -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Waiting)
+    else -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Idle)
 }
 
 /** A wire timestamp as the local `HH:mm` a message row shows. */
@@ -587,13 +580,11 @@ fun ThreadContent(
      *  composer (the session view's body, no own header). */
     sessionPage: @Composable (sessionId: String, padding: PaddingValues) -> Unit = { _, _ -> },
     /** Thread 58cb32df (chats.json): THE chat header — its lead disc, the
-     *  subtitle (state · device; an agent: `Agent` · its model), the Stop
-     *  pill (a thread while the root is not ended; null = none) and the `…`
-     *  entries (the chat's menu, then the Guide's Close PR). */
+     *  subtitle (state · device; an agent: `Agent` · its model) and the `…`
+     *  entries (the chat's menu, then the Guide's Close PR). S-3: no Stop. */
     headerLead: @Composable () -> Unit = {},
     headerSubtitle: String? = null,
     headerSubtitleColor: Color? = null,
-    onStop: (() -> Unit)? = null,
     menu: List<com.exponential.app.ui.components.ChatMenuItem> = emptyList(),
     menuGroups: List<List<com.exponential.app.ui.components.ChatMenuItem>> = emptyList(),
     /** A surface card's `reply` → the person's next message. */
@@ -658,7 +649,6 @@ fun ThreadContent(
                 subtitleColor = headerSubtitleColor,
                 lead = headerLead,
                 onBack = onBack,
-                onStop = onStop,
                 menu = menu,
                 menuGroups = menuGroups,
                 call = headerCall,
@@ -821,7 +811,7 @@ internal fun threadMainPages(
     mainSessionId: String?,
 ): List<SessionTree.ThreadTab> {
     if (mainSessionId == null) return pages
-    val main = SessionTree.ThreadTab.SessionTab(mainSessionId, name = "", markState = SessionTree.SessionState.Waiting)
+    val main = SessionTree.ThreadTab.SessionTab(mainSessionId, name = "", markState = SessionTree.SessionState.Idle)
     return pages.map { if (it == SessionTree.ThreadTab.Conversation) main else it }.distinctBy(::threadTabKey)
 }
 

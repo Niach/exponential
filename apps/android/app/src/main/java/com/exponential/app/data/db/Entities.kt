@@ -728,7 +728,12 @@ data class AgentDefinitionEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
     // #EXP-1383: stamped only when the instructions TEXT changes.
     @ColumnInfo(name = "instructions_updated_at") @SerialName("instructions_updated_at") @JsonNames("instructionsUpdatedAt") val instructionsUpdatedAt: String? = null,
-)
+    // S-3: contract `agentRole` (assistant | agent); tolerant: missing = agent.
+    @ColumnInfo(name = "role") val role: String? = null,
+) {
+    /** S-3: the member's own Assistant (brand mark, orchestrator + voice). */
+    val isAssistant: Boolean get() = role == com.exponential.app.domain.DomainContract.agentRoleAssistant
+}
 
 // NEW-2: an event (free-text `name`, raw jsonb `payload`), team-scoped;
 // `emitted_by` = contract `eventEmitter` (session | user | server).

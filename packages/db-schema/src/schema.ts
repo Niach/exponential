@@ -34,6 +34,8 @@ import {
   messageAuthorKindSchema,
   messageAuthorKindValues,
   conversationKindValues,
+  agentRoleValues,
+  type AgentRole,
   conversationKindSchema,
   type ConversationKind,
   sessionIssueSourceSchema,
@@ -156,6 +158,7 @@ export const messageAuthorKindEnum = pgEnum(
 )
 // NEW-3: conversations.kind.
 export const conversationKindEnum = pgEnum(`conversation_kind`, conversationKindValues)
+export const agentRoleEnum = pgEnum(`agent_role`, agentRoleValues)
 
 // EXP-741: who posted a comment (a person, or an agent over MCP).
 export const commentSourceEnum = pgEnum(`comment_source`, commentSourceValues)
@@ -2136,12 +2139,19 @@ export const agents = pgTable(
     ownerId: text(`owner_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
+    // S-3 (agent-settings.json `assistant`): `assistant` = the owner's ONE
+    // personal Assistant in this team (only they read it in lists and edit
+    // it; never deleted); `agent` = a team agent. SYNCED.
+    role: agentRoleEnum(`role`).notNull().default(`agent`).$type<AgentRole>(),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index(`idx_agents_team`).on(table.teamId),
     index(`idx_agents_device`).on(table.deviceId),
+    uniqueIndex(`uniq_agents_assistant`)
+      .on(table.teamId, table.ownerId)
+      .where(sql`role = 'assistant'`),
   ]
 )
 

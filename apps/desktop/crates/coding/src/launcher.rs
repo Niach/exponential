@@ -3370,9 +3370,9 @@ mod tests {
             acp_gate(&report, claude, &hostless),
             Some(DisabledReason::AcpUnavailable { .. })
         ));
-        // The mode is no part of the gate (claude's plan default is ON, so
-        // this is the common launch).
-        assert!(LaunchOptions::defaults_for(&deps.settings, CodingAgent::Claude).plan_mode);
+        // The mode is no part of the gate (S-3: no plan default, so a
+        // launch never enters plan mode from a UI default).
+        assert!(!LaunchOptions::defaults_for(&deps.settings, CodingAgent::Claude).plan_mode);
     }
 
     /// A stub `claude` that answers `--version` with an ACP-ready version and

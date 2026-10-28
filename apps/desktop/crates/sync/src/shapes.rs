@@ -755,6 +755,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "model",
             "owner_id",
             "sort_order",
+            // S-3: assistant | agent (an Assistant lists for its owner only).
+            "role",
             // #EXP-1383: when the instructions text last changed.
             "instructions_updated_at",
             "created_at",
@@ -986,7 +988,7 @@ mod tests {
     fn the_new2_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("agents").unwrap().columns,
-            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "owner_id", "sort_order", "instructions_updated_at", "created_at", "updated_at"]
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
         );
         assert_eq!(
             shape_by_name("events").unwrap().columns,

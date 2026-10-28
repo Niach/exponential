@@ -2837,10 +2837,28 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v85 (S-3 stories.json): `session_reads.story_seen_at`, the
+        // v85 (S-3): `agents.role` (contract `agentRole`; existing rows =
+        // `agent`). Rows already synced lack it, so the agents cursor resets
+        // and they re-arrive with it (the viewer's Assistant included).
+        migrator.registerMigration("v85_agent_role") { db in
+            guard try db.tableExists("agents") else { return }
+            guard try db.columns(in: "agents").contains(where: { $0.name == "role" }) == false else { return }
+            try db.alter(table: "agents") { t in
+                t.add(column: "role", .text).notNull().defaults(to: DomainContract.agentRoleAgent)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'agents'
+                    """)
+            }
+        }
+
+        // v86 (S-3 stories.json): `session_reads.story_seen_at`, the
         // viewer's story mark beside read_at. Rows already synced lack it, so
         // the session-reads cursor resets and they re-arrive with it.
-        migrator.registerMigration("v85_session_read_story_seen_at") { db in
+        migrator.registerMigration("v86_session_read_story_seen_at") { db in
             guard try db.tableExists("session_reads") else { return }
             guard try db.columns(in: "session_reads").contains(where: { $0.name == "story_seen_at" }) == false else { return }
             try db.alter(table: "session_reads") { t in

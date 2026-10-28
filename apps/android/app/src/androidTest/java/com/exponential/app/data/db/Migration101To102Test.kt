@@ -42,12 +42,12 @@ class Migration101To102Test {
         createVersion101()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_101_102, MIGRATION_102_103)
+            .addMigrations(MIGRATION_101_102, MIGRATION_102_103, MIGRATION_103_104)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(103, sql.version)
+            assertEquals(104, sql.version)
 
             val reads = db.sessionReadDao()
             val read = runBlocking { reads.observeAll().first() }.single()

@@ -14,7 +14,7 @@ use gpui::{
 };
 use gpui_component::{input::InputState, ActiveTheme as _};
 
-use crate::chat_screen::{ComposerMenuRow, MENU_ADD_FILE, MENU_IMPLEMENT_ISSUE, MENU_MESSAGE_AGENT};
+use crate::chat_screen::{ComposerMenuRow, MENU_ADD_FILE, MENU_DEVICE, MENU_IMPLEMENT_ISSUE};
 use crate::picker::search_list::{action_row_body, row, surface, SearchList};
 
 pub(crate) const ID: &str = "menu-submenu";
@@ -33,9 +33,10 @@ pub(super) const AGENTS: [(&str, &str); 4] = [
 
 fn plus_rows(cx: &App) -> Div {
     let rows = [
-        (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE, true),
-        (ComposerMenuRow::MessageAgent, MENU_MESSAGE_AGENT, true),
+        // S-3: the "+" menu's first rows (`message-agent` is gone).
         (ComposerMenuRow::AddFile, MENU_ADD_FILE, false),
+        (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE, true),
+        (ComposerMenuRow::Device, MENU_DEVICE, true),
     ];
     let mut column = surface(cx).w(px(260.)).p_1();
     for (index, (row_kind, label, chevron)) in rows.into_iter().enumerate() {
@@ -43,7 +44,7 @@ fn plus_rows(cx: &App) -> Div {
         let mut item = crate::controls::menu_row(row_kind.icon(), label, trailing, false, cx)
             .px_2()
             .rounded(cx.theme().radius);
-        // The Message an agent row is the open one.
+        // The Issue row is the open one.
         if index == 1 {
             item = item.bg(cx.theme().accent);
         }

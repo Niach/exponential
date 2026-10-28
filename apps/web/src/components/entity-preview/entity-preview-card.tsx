@@ -268,14 +268,10 @@ function CommentCard({ comment }: { comment: Comment }) {
 // EXP-1293: THE session card's model (`sessionCard()`): its name and state
 // word under the agent's mark. No device, account or branch caption.
 const SESSION_TONE: Record<SessionState, LiveDotTone> = {
-  queued: `muted`,
   working: `live`,
-  background: `live`,
-  waiting: `live`,
   needs_you: `attention`,
-  interrupted: `muted`,
-  blocked: `attention`,
-  ended: `muted`,
+  idle: `idle`,
+  done: `muted`,
 }
 
 function SessionPreviewCard({ session }: { session: SessionRow }) {

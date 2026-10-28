@@ -116,9 +116,6 @@ internal fun LaunchOptionsSection(
     noDeviceNote: String? = null,
     ultracode: Boolean = false,
     onUltracodeChange: (Boolean) -> Unit = {},
-    planMode: Boolean = false,
-    onPlanModeChange: (Boolean) -> Unit = {},
-    planModeHidden: Boolean = false,
     /**
      * EXP-1005: claude's "Auto-rotate accounts" device toggle, offered only
      * with a change handler (a machine's launch defaults). Null = the stored
@@ -195,7 +192,6 @@ internal fun LaunchOptionsSection(
     // ── The agent card ───────────────────────────────────────────────────────
     // EXP-694: tabs + model/effort + toggles + account are ONE inset-grouped
     // card on all four clients.
-    val showsPlanMode = !binding && supportsPlanMode(agent) && !planModeHidden
     OptionGroup {
         if (accountRow != null) {
             // EXP-995: THE account picker leads the card; a pick implies the
@@ -274,16 +270,8 @@ internal fun LaunchOptionsSection(
                     onCheckedChange = onUltracodeChange,
                 )
             }
-            if (showsPlanMode) {
-                GroupDivider()
-                SwitchRow(
-                    title = "Plan mode",
-                    checked = planMode,
-                    onCheckedChange = onPlanModeChange,
-                )
-            }
-            // EXP-1005: the device-level rotation switch, under Plan mode as
-            // on web, desktop and iOS; claude only, null reads as ON.
+            // EXP-1005: the device-level rotation switch (S-3: no Plan mode
+            // above it any more); claude only, null reads as ON.
             if (onAutoRotateAccountsChange != null && supportsAccountRotation(agent)) {
                 GroupDivider()
                 SwitchRow(
@@ -335,7 +323,6 @@ internal data class AgentSeed(
     val subagentModel: String,
     val effort: String,
     val ultracode: Boolean,
-    val planMode: Boolean,
 )
 
 /**
@@ -368,7 +355,6 @@ internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
             DomainContract.deviceAgentDefaultsSubagentModel,
             CLI_DEFAULT_EFFORT,
             false,
-            false,
         )
     return AgentSeed(
         // Every model is explicit: a blank or unknown stored value reads as
@@ -384,6 +370,5 @@ internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
-        planMode = defaults.planMode && supportsPlanMode(agent),
     )
 }

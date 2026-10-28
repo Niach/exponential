@@ -5,11 +5,6 @@ import { contract } from "@exp/domain-contract"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import type { SteerDevice } from "@/lib/steer-devices"
 
-// EXP-772: plan mode is a per-surface DEFAULT, not just a hidden row. A
-// surface that starts in build mode (the chat page) must also SEND
-// `planMode: false` — the old `planModeHidden` prop hid the switch while the
-// device's advertised default still rode out with the start.
-
 const device: SteerDevice = {
   deviceId: `dev-1`,
   deviceLabel: `buildbox`,
@@ -17,29 +12,17 @@ const device: SteerDevice = {
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
-    agents: { claude: { planMode: true } },
+    agents: { claude: { planMode: true } as never },
   },
 }
 
+// S-3: no plan switch anywhere; a device's stale plan default never rides out.
 describe(`useLaunchOptions plan mode`, () => {
-  it(`seeds the device's plan default by default`, () => {
+  it(`never sends planMode, whatever the device advertises`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [device] })
     )
-    expect(result.current.planMode).toBe(true)
-    expect(result.current.buildOptions().planMode).toBe(true)
-  })
-
-  it(`planModeOff starts in build mode and sends false`, () => {
-    const { result } = renderHook(() =>
-      useLaunchOptions({ open: true, devices: [device], planModeOff: true })
-    )
-    expect(result.current.planMode).toBe(false)
-    expect(result.current.buildOptions().planMode).toBe(false)
-
-    // The user can still flip it — the default is a default, not a lock.
-    act(() => result.current.setPlanMode(true))
-    expect(result.current.buildOptions().planMode).toBe(true)
+    expect(`planMode` in result.current.buildOptions()).toBe(false)
   })
 })
 

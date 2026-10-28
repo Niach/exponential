@@ -527,16 +527,23 @@ val MIGRATION_101_102: Migration = object : Migration(101, 102) {
 }
 
 /**
- * v103 (S-3 stories): `session_reads.story_seen_at`, the greatest story
- * createdAt the viewer was shown in the root's tree (stories.json SEEN).
- * Only the session_reads shape refetches so synced rows re-arrive with it.
+ * v103 (S-3): `agents.role` (contract `agentRole`; null reads as `agent`).
+ * Only the agents shape refetches so already-synced rows re-arrive carrying
+ * it (the migrated Assistants among them).
  */
 val MIGRATION_102_103: Migration = object : Migration(102, 103) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE `session_reads` ADD COLUMN `story_seen_at` TEXT")
+        // Idempotent: a file that already carries the column keeps it.
+        val present = db.query("PRAGMA table_info(`agents`)").use { cursor ->
+            val name = cursor.getColumnIndex("name")
+            var found = false
+            while (cursor.moveToNext()) if (cursor.getString(name) == "role") found = true
+            found
+        }
+        if (!present) db.execSQL("ALTER TABLE `agents` ADD COLUMN `role` TEXT")
         db.execSQL(
             "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
-                "`needs_refetch` = 1 WHERE `shape` = 'session_reads'",
+                "`needs_refetch` = 1 WHERE `shape` = 'agents'",
         )
     }
 }
@@ -807,3 +814,18 @@ private val SESSION_TREE_V87 = listOf(
     "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_issue_id` ON `pull_request_issues` (`issue_id`)",
     "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_team_id` ON `pull_request_issues` (`team_id`)",
 )
+
+/**
+ * v104 (S-3 stories): `session_reads.story_seen_at`, the greatest story
+ * createdAt the viewer was shown in the root's tree (stories.json SEEN).
+ * Only the session_reads shape refetches so synced rows re-arrive with it.
+ */
+val MIGRATION_103_104: Migration = object : Migration(103, 104) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `session_reads` ADD COLUMN `story_seen_at` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'session_reads'",
+        )
+    }
+}

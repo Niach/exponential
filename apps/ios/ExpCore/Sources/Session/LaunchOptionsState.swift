@@ -33,7 +33,6 @@ public final class LaunchOptionsState {
     public var model = LaunchVocabulary.defaultModel(for: "claude")
     public var effort = LaunchVocabulary.cliDefault
     public var ultracode = false
-    public var planMode = false
     /// EXP-825: the picked login profile id, sent verbatim (`system` = the
     /// ambient login); `""` = unnamed, the machine's last used login (sent as
     /// no account). Reset on every agent change and on a device change, unless
@@ -143,7 +142,6 @@ public final class LaunchOptionsState {
         model = Self.seedModel(advertised?.model, for: value)
         effort = Self.seedEffort(advertised?.effort, for: value)
         ultracode = advertised?.ultracode ?? false
-        planMode = advertised?.planMode ?? false
         account = ""
         clampToggles()
     }
@@ -151,9 +149,6 @@ public final class LaunchOptionsState {
     private func clampToggles() {
         if agent != "claude" {
             ultracode = false
-        }
-        if !LaunchVocabulary.supportsPlanMode(agent) {
-            planMode = false
         }
     }
 
@@ -239,7 +234,7 @@ public final class LaunchOptionsState {
             effort: LaunchVocabulary.wireEffort(effort),
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
-            planMode: LaunchVocabulary.supportsPlanMode(agent) ? planMode : nil,
+            // S-3: no plan mode (contract `launchKeys`).
             // EXP-1249: set only after the person FLIPPED it (web M12 rule);
             // the composer clears the flip on every device change, and the
             // row exists only on a device with `codingSessionComputerUseCap`.

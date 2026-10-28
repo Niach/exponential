@@ -754,7 +754,7 @@ private fun ThreadSubtreeSheet(
                             )
                         }
                     } else {
-                        val mark = row.mark ?: SessionTree.SessionState.Waiting
+                        val mark = row.mark ?: SessionTree.SessionState.Idle
                         SessionTabMark(mark)
                         Text(
                             row.label,
@@ -937,7 +937,7 @@ data class ThreadRowMeta(
 )
 
 /** The agent a channel belongs to (its rows' avatar + name). */
-data class ThreadAgent(val name: String, val icon: String?, val color: String?)
+data class ThreadAgent(val name: String, val icon: String?, val color: String?, val assistant: Boolean = false)
 
 /**
  * The Conversation page: the model's rows in order. A thread draws a

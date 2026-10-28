@@ -94,7 +94,11 @@ const CARDS = [
   sessionCard({ ...BASE, title: `Profile the launch path`, needsInput: true }, `Profile the launch path`, NOW),
   sessionCard({ ...BASE, title: `Review the fix` }, `Review the fix`, NOW),
   sessionCard({ ...BASE, status: `queued`, startedAt: null }, `Deploy the staging build`, NOW),
-  sessionCard({ ...BASE, blocked: { window: `5h` } }, `Why does the cart badge lag a tap behind?`, NOW),
+  sessionCard(
+    { ...BASE, needsInput: true, blocked: { kind: `rate_limit`, window: `5h` } },
+    `Why does the cart badge lag a tap behind?`,
+    NOW
+  ),
   sessionCard({ ...BASE, status: `ended`, endedAt: `2026-10-13T09:51:10.000Z` }, `Bump the CLI floor to 0.14.72`, NOW),
 ]
 
@@ -387,8 +391,8 @@ const CLAUDE = new Map(
   [...LIST, ...NESTED].flatMap((group) => group.rows.map((row) => [row.sessionId, `claude`] as const))
 )
 const AGENTS = [
-  { agentId: `ag1`, teamId: `t`, name: `Triage`, icon: `bug`, color: `#a78bfa`, busy: false, needsYou: true },
-  { agentId: `ag2`, teamId: `t`, name: `Designer`, icon: `palette`, color: `#f472b6`, busy: false, needsYou: false },
+  { agentId: `ag1`, teamId: `t`, name: `Triage`, icon: `bug`, color: `#a78bfa`, busy: false, needsYou: true, assistant: false },
+  { agentId: `ag2`, teamId: `t`, name: `Designer`, icon: `palette`, color: `#f472b6`, busy: false, needsYou: false, assistant: false },
 ]
 const deviceGlyph = (deviceId: string | null | undefined) => (deviceId ? DEVICE : null)
 

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -86,6 +87,7 @@ class ChatsTest {
         color = json.str("color")!!,
         busy = json.bool("busy"),
         needsYou = json.bool("needsYou"),
+        assistant = (json["assistant"] as? JsonPrimitive)?.boolean ?: false,
     )
 
     private fun groupKey(wire: String) = SessionTree.ThreadsGroupKey.entries.first { it.wire == wire }
@@ -123,6 +125,7 @@ class ChatsTest {
         put("needsYou", row.needsYou)
         put("busy", row.busy)
         put("word", nullable(row.word?.wire))
+        put("dim", row.dim)
     }
 
     private fun filterOf(wire: String) = Chats.ChatFilter.entries.first { it.wire == wire }
@@ -224,12 +227,54 @@ class ChatsTest {
                         put("color", bubble.agent.color)
                         put("busy", bubble.agent.busy)
                         put("needsYou", bubble.agent.needsYou)
+                        put("assistant", bubble.agent.assistant)
                         put("ring", nullable(bubble.ring?.wire))
                     }
                 },
             )
             assertEquals(case.str("name"), case.getValue("expected"), encoded)
         }
+    }
+
+    @Test
+    fun `every agent row case matches the fixture (S-3)`() {
+        for (case in cases("agentRowCases")) {
+            val input = case.getValue("input").jsonObject
+            val actual = Chats.agentChatRows(
+                agents = input.list("agents").map(::agent),
+                sessions = input.list("sessions").map(::session),
+                messages = input.list("messages").map(::message),
+                reads = input.list("reads").map(::read),
+                me = input.str("me"),
+                filter = filterOf(input.str("filter")!!),
+                view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") },
+                now = input.str("now")!!,
+                utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
+            )
+            val encoded = JsonArray(
+                actual.map { row ->
+                    buildJsonObject {
+                        put("agentId", row.agentId)
+                        put("sessionId", nullable(row.sessionId))
+                        put("name", row.name)
+                        put("icon", row.icon)
+                        put("color", row.color)
+                        put("assistant", row.assistant)
+                        put("preview", encode(row.preview))
+                        put("time", row.time)
+                        put("activityAt", nullable(row.activityAt))
+                        put("unreadCount", row.unreadCount)
+                        put("needsYou", row.needsYou)
+                        put("busy", row.busy)
+                    }
+                },
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
+        val copy = fixture.getValue("copy").jsonObject.getValue("sections").jsonObject
+        assertEquals(copy.str("agents"), Chats.Copy.SECTION_AGENTS)
+        assertEquals(copy.str("chats"), Chats.Copy.SECTION_CHATS)
+        assertEquals(fixture.getValue("shell").jsonObject.str("chatLead"), Chats.Shell.CHAT_LEAD)
     }
 
     @Test
@@ -427,31 +472,30 @@ class ChatsTest {
         assertEquals(time.getValue("weekdaysShort").jsonArray.map { it.jsonPrimitive.content }, Chats.Copy.WEEKDAYS_SHORT)
         assertEquals(time.getValue("monthsShort").jsonArray.map { it.jsonPrimitive.content }, Chats.Copy.MONTHS_SHORT)
         val menu = copy.getValue("menu").jsonObject
-        assertEquals(menu.str("stop"), Chats.Copy.MENU_STOP)
-        assertEquals(menu.str("stopAndDelete"), Chats.Copy.MENU_STOP_AND_DELETE)
         assertEquals(menu.str("delete"), Chats.Copy.MENU_DELETE)
         assertEquals(menu.str("compact"), Chats.Copy.MENU_COMPACT)
         assertEquals(menu.str("newConversation"), Chats.Copy.MENU_NEW_CONVERSATION)
         assertEquals(menu.str("settings"), Chats.Copy.MENU_SETTINGS)
-        assertEquals(6, menu.size)
+        assertEquals(4, menu.size)
         for (entry in Chats.ThreadMenuEntry.entries) assertEquals(menu.str(entry.wire), Chats.threadMenuLabel(entry))
         for (entry in Chats.AgentMenuEntry.entries) assertEquals(menu.str(entry.wire), Chats.agentMenuLabel(entry))
         val confirm = copy.getValue("confirmDelete").jsonObject
         assertEquals(confirm.str("title"), Chats.Copy.CONFIRM_DELETE_TITLE)
         assertEquals(confirm.str("body"), Chats.Copy.CONFIRM_DELETE_BODY)
         val toasts = copy.getValue("toasts").jsonObject
-        assertEquals(toasts.str("stopFailed"), Chats.Copy.TOAST_STOP_FAILED)
         assertEquals(toasts.str("deleteFailed"), Chats.Copy.TOAST_DELETE_FAILED)
-        assertEquals(toasts.str("stopNotDelivered"), Chats.Copy.TOAST_STOP_NOT_DELIVERED)
         assertEquals(toasts.str("selectionFailed"), Chats.Copy.TOAST_SELECTION_FAILED)
         assertEquals(toasts.str("selectionPartial"), Chats.Copy.TOAST_SELECTION_PARTIAL)
-        assertEquals(5, toasts.size)
+        val stopTurn = copy.getValue("stopTurn").jsonObject
+        assertEquals(stopTurn.str("failed"), Chats.Copy.STOP_TURN_FAILED)
+        assertEquals(stopTurn.str("notDelivered"), Chats.Copy.STOP_TURN_NOT_DELIVERED)
+        assertEquals(3, toasts.size)
         val selection = copy.getValue("selection").jsonObject
         assertEquals(selection.str("select"), Chats.Copy.SELECTION_SELECT)
         assertEquals(selection.str("count"), Chats.Copy.SELECTION_COUNT)
         assertEquals(selection.str("confirmDeleteMany"), Chats.Copy.SELECTION_CONFIRM_DELETE_MANY)
         for (action in Chats.ChatSelectionAction.entries) assertEquals(selection.str(action.wire), Chats.chatSelectionLabel(action))
-        assertEquals(9, selection.size)
+        assertEquals(8, selection.size)
         val archived = copy.getValue("archived").jsonObject
         assertEquals(archived.str("entry"), Chats.Copy.ARCHIVED_ENTRY)
         assertEquals(archived.str("title"), Chats.Copy.ARCHIVED_TITLE)
@@ -479,10 +523,9 @@ class ChatsTest {
         assertEquals(1, copy.getValue("boardMenu").jsonObject.size)
         assertEquals(
             setOf(
-                "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete",
+                "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "stopTurn",
                 "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
-                "selection", "archived",
-            ),
+                "selection", "archived", "sections"),
             copy.keys,
         )
 
@@ -526,6 +569,7 @@ class ChatsTest {
         assertEquals(shell.getValue("archivedGlyph").jsonPrimitive.int, Chats.Shell.ARCHIVED_GLYPH)
         assertEquals(shell.getValue("bubble").jsonPrimitive.int, Chats.Shell.BUBBLE)
         assertEquals(shell.getValue("bubbleRing").jsonPrimitive.int, Chats.Shell.BUBBLE_RING)
+        assertEquals(shell.getValue("dimOpacity").jsonPrimitive.double.toFloat(), Chats.Shell.DIM_OPACITY)
         assertEquals(fixture.getValue("filters").jsonArray.map { it.jsonPrimitive.content }, Chats.FILTERS.map { it.wire })
 
         val ids = fixture.getValue("testIds").jsonObject

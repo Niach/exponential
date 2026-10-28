@@ -32,12 +32,11 @@ import { RunSteerComposer } from "./run-steer"
 // the report as the Guide through the real `SessionResultsView` (pictures
 // resolved to signed URLs first: `/api/attachments` needs a session the
 // sandboxed frame has not), the PR's diff through the real `FileDiffList`,
-// and — while the run is live — Stop plus a steer composer; an ended run
+// and — while the run is live — a steer composer (S-3: no Stop); an ended run
 // offers Resume and switches to the new run. A live run re-reads itself
 // every 8s.
 const BackIcon = conceptIcon(`ui-back`)
 const ExternalIcon = conceptIcon(`ui-external-link`)
-const StopIcon = conceptIcon(`coding-stop`)
 const ResumeIcon = conceptIcon(`run-resume`)
 
 export function RunView({
@@ -145,19 +144,8 @@ export function RunView({
     requestAnimationFrame(() => setFocusPath(path))
   }
 
-  // Stop (confirmed inline) / Resume.
-  const [confirmStop, setConfirmStop] = useState(false)
+  // Resume an ended run.
   const [busy, setBusy] = useState(false)
-  const stop = async () => {
-    setBusy(true)
-    setActionError(null)
-    const result = await call(`exponential_sessions_kill`, { id: run.id })
-    if (!mounted.current) return
-    setBusy(false)
-    setConfirmStop(false)
-    if (result.kind === `error`) setActionError(result.message)
-    else await refresh(run.id)
-  }
   const resume = async () => {
     if (!run.deviceId) return
     setBusy(true)
@@ -227,23 +215,6 @@ export function RunView({
               <ExternalIcon />
             </Button>
           )}
-          {live &&
-            (confirmStop ? (
-              <span className="flex items-center gap-1">
-                <Button variant="ghost" size="xs" disabled={busy} onClick={() => setConfirmStop(false)}>
-                  Cancel
-                </Button>
-                <Button variant="glass" size="xs" disabled={busy} onClick={() => void stop()}>
-                  <StopIcon />
-                  {busy ? `Stopping…` : `Stop run`}
-                </Button>
-              </span>
-            ) : (
-              <Button variant="ghost" size="xs" onClick={() => setConfirmStop(true)}>
-                <StopIcon />
-                Stop
-              </Button>
-            ))}
           {!live && run.deviceId && (
             <Button variant="ghost" size="xs" disabled={busy} onClick={() => void resume()}>
               <ResumeIcon />

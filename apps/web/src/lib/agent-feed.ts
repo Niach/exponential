@@ -1639,35 +1639,6 @@ export function planModeChipLabel(
   return chip && chip.value === `plan` ? chip.valueLabel : null
 }
 
-/** EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
- *  That shape (claude) draws a "Plan" switch instead of a two-value chip;
- *  anything else falls back to the chip. `null` when the run is not that
- *  shape. */
-export interface PlanModeToggle {
-  /** The mode to switch to when turning plan ON. */
-  planId: string
-  /** The mode to switch back to when turning it OFF. */
-  buildId: string
-  /** Plan mode is in force right now. */
-  active: boolean
-}
-
-export const PLAN_MODE_ID = `plan`
-
-export function planModeToggle(
-  config: SessionConfigState | null | undefined
-): PlanModeToggle | null {
-  if (!config || config.modes.length !== 2) return null
-  const plan = config.modes.find((m) => m.id === PLAN_MODE_ID)
-  const build = config.modes.find((m) => m.id !== PLAN_MODE_ID)
-  if (!plan || !build) return null
-  return {
-    planId: plan.id,
-    buildId: build.id,
-    active: config.currentMode === plan.id,
-  }
-}
-
 // ── EXP-788: the composer answers the pending card ──────────────────────────
 
 /** The option key a free-text answer rides when the card offers no free-text

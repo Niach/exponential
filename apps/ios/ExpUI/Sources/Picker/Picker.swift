@@ -597,7 +597,12 @@ public struct GlassPickerContent<Value: Hashable & Sendable>: View {
     let emptyText: String?
     let title: String?
     let searchPlaceholder: String?
+    let renderMark: ((PickerItem<Value>) -> AnyView?)?
+    let renderItem: ((PickerItem<Value>) -> AnyView?)?
 
+    /// `renderMark` / `renderItem` = the typed pickers' own row art (an
+    /// account's brand mark and limit bars, a repository's row body), so a
+    /// host pushing a picker's rows as a PAGE draws them exactly as its sheet.
     public init(
         items: [PickerItem<Value>],
         mode: PickerMode,
@@ -606,7 +611,9 @@ public struct GlassPickerContent<Value: Hashable & Sendable>: View {
         search: Bool = false,
         emptyText: String? = nil,
         title: String? = nil,
-        searchPlaceholder: String? = nil
+        searchPlaceholder: String? = nil,
+        renderMark: ((PickerItem<Value>) -> AnyView?)? = nil,
+        renderItem: ((PickerItem<Value>) -> AnyView?)? = nil
     ) {
         self.items = items
         self.mode = mode
@@ -616,6 +623,8 @@ public struct GlassPickerContent<Value: Hashable & Sendable>: View {
         self.emptyText = emptyText
         self.title = title
         self.searchPlaceholder = searchPlaceholder
+        self.renderMark = renderMark
+        self.renderItem = renderItem
     }
 
     public var body: some View {
@@ -633,8 +642,8 @@ public struct GlassPickerContent<Value: Hashable & Sendable>: View {
             panel: nil,
             footer: nil,
             footerReplacesEmpty: true,
-            renderMark: nil,
-            renderItem: nil
+            renderMark: renderMark,
+            renderItem: renderItem
         )
     }
 }

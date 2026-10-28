@@ -15,9 +15,8 @@
 //!
 //! EXP-1294: this screen owns the CHROME around the transcript — a
 //! `← <thread title>` back link to the session's thread (its tree root), the
-//! session's own title beside the agent's mark, and Stop (`sessions.stop`)
-//! top-right, shown only to a reader who may steer it (a shared session: any
-//! member; a private one: its starter). No face toggle, no issue tray, no
+//! session's own title beside the agent's mark (S-3: no Stop pill; the
+//! composer's stop-turn is the one stop). No face toggle, no issue tray, no
 //! Resume: a message resumes a session (the composer). The transcript view
 //! renders headerless.
 //!
@@ -33,7 +32,7 @@ use gpui::{
     Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::coding_flow::LocalSessions;
 use crate::icons::registry;
@@ -318,11 +317,6 @@ impl SessionScreenView {
         &self.inner
     }
 
-    /// EXP-1316: whether a reader may Stop it now (the header's rule).
-    pub(crate) fn stoppable(&self, cx: &App) -> bool {
-        !self.ended && self.inner.read(cx).killable()
-    }
-
     /// The tab closed. Drops the feed (the relay socket, the engine drain) —
     /// deliberately NOT the session: an agent keeps working when its tab goes
     /// away.
@@ -347,15 +341,13 @@ impl SessionScreenView {
     }
 
     /// EXP-1294 — the header: the back link to the thread over the
-    /// session's title (the agent's mark beside it) and Stop.
+    /// session's title (the agent's mark beside it). S-3: no Stop pill (the
+    /// composer's stop-turn is the one stop).
     fn render_header(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let now_ms = crate::session_data::now_ms();
         let card = crate::session_data::session_card_of(&self.session_id, now_ms, cx);
-        let (row, killable) = {
-            let inner = self.inner.read(cx);
-            (inner.session_row().cloned(), inner.killable())
-        };
+        let row = self.inner.read(cx).session_row().cloned();
         let back = back_target(&self.session_id, cx)
             .map(|(screen, title)| back_link(screen, title, cx));
         let mark = row.as_ref().map(|row| {
@@ -381,16 +373,6 @@ impl SessionScreenView {
                 ))
                 .into_any_element(),
         };
-        let stop = (killable && !self.ended).then(|| {
-            let session_id = self.session_id.clone();
-            stop_session_pill(
-                "session-stop",
-                crate::work_header::header_action_size(false),
-                cx,
-            )
-            .on_click(move |_, _window, cx| crate::steer_viewer::stop_session(&session_id, cx))
-            .into_any_element()
-        });
         let column = v_flex()
             .w_full()
             .min_w_0()
@@ -406,8 +388,7 @@ impl SessionScreenView {
                     .items_center()
                     .min_h(px(crate::work_header::BAR_H))
                     .children(mark)
-                    .child(title)
-                    .children(stop),
+                    .child(title),
             );
         v_flex()
             .w_full()
@@ -415,24 +396,6 @@ impl SessionScreenView {
             .child(crate::steer_viewer::work_column_row(column.into_any_element()))
             .into_any_element()
     }
-}
-
-/// EXP-818: the session header's Stop — a small glass pill with the stop
-/// glyph in the danger tint and the word "Stop". The SAME element on every
-/// session surface; the caller wires the click (`sessions.stop`).
-pub(crate) fn stop_session_pill(
-    id: impl Into<gpui::ElementId>,
-    size: crate::surface::PillSize,
-    cx: &App,
-) -> Button {
-    crate::surface::glass_pill_button(id, size, cx)
-        .icon(
-            gpui_component::Icon::new(registry::CODING_STOP)
-                .with_size(gpui::px(size.glyph()))
-                .text_color(cx.theme().danger),
-        )
-        .label("Stop")
-        .tooltip("Stop the agent's current turn")
 }
 
 impl Focusable for SessionScreenView {

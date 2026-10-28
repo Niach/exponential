@@ -387,11 +387,11 @@ export function ThreadTabs({
 }
 
 /** A session chip's mark state ×4 (`sessionTabMarkState`) in the run
- *  marks' words (waiting = the bare mark). */
+ *  marks' words (idle = the bare mark). */
 export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | undefined {
   if (state === `needs_you`) return `needs_input`
   if (state === `working`) return `working`
-  if (state === `ended`) return `ended`
+  if (state === `done`) return `ended`
   return undefined
 }
 
@@ -658,7 +658,8 @@ export interface ThreadIssueTreeRow {
   issueId: string
   identifier: string
   title: string
-  status: StatusGlyphProps
+  /** S-3: null = the issue row is not synced: no glyph (never Backlog). */
+  status: StatusGlyphProps | null
   /** 0 = the chip's own issue. */
   depth: number
 }
@@ -695,10 +696,14 @@ export function ThreadIssueTree({
             style={{ paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px` }}
           >
             <TreeGuides guide={guides[index]} />
-            <StatusGlyph
-              {...row.status}
-              className={cn(`size-3.5 shrink-0`, row.status.className)}
-            />
+            {row.status ? (
+              <StatusGlyph
+                {...row.status}
+                className={cn(`size-3.5 shrink-0`, row.status.className)}
+              />
+            ) : (
+              <span aria-hidden className="size-3.5 shrink-0" />
+            )}
             <span className="shrink-0 font-mono text-xs text-muted-foreground">
               {row.identifier}
             </span>
@@ -782,6 +787,16 @@ export interface ThreadConversationProps {
   tail?: ReactNode
   className?: string
 }
+
+/** S-3: the card rows a `bubbles` conversation keeps in the agent column. */
+const AGENT_COLUMN_ROWS = new Set<ThreadRow[`type`]>([
+  `session`,
+  `question`,
+  `plan`,
+  `picture`,
+  `report`,
+  `suggestions`,
+])
 
 /** EXP-1317: the queued row's X (tooltip + accessible name). */
 export const THREAD_UNQUEUE_LABEL = `Remove from queue`
@@ -989,6 +1004,17 @@ export function ThreadConversation(props: ThreadConversationProps) {
         return null
     }
   }
+  // S-3 (chats.json CHAT MODE): in `bubbles` the agent's cards sit in the
+  // agent column (left, max 94%), beside the person's right-hand bubbles.
+  const renderInColumn = (row: ThreadRow): ReactNode => {
+    const node = renderRow(row)
+    if (!bubbles || node === null || !AGENT_COLUMN_ROWS.has(row.type)) return node
+    return (
+      <div data-slot="thread-agent-column" className="w-full max-w-[94%] self-start">
+        {node}
+      </div>
+    )
+  }
   return (
     <div
       data-testid="thread-conversation"
@@ -1000,7 +1026,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
         <StableRow
           key={row.id}
           row={row}
-          render={renderRow}
+          render={renderInColumn}
           deps={[
             bubbles,
             isLive(row.id),

@@ -107,7 +107,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         apps: apps_control(&settings, &[], None, window, cx),
         on_meeting: None,
     };
-    for row in voice_rows(&settings, &devices, &agents, inputs, meeting, None, cx) {
+    for row in voice_rows(&settings, &devices, &agents, inputs, meeting, None, false, cx) {
         body = body.child(row);
     }
     div().w_full().max_w(px(560.)).child(body).child(div().mt_8().child(rail_voice_specimen(window, cx))).child(div().mt_8().child(rail_meeting_specimen(window, cx)))

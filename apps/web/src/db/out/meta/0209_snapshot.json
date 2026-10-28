@@ -1,6 +1,6 @@
 {
-  "id": "45591a6b-8044-40dd-b23c-b062ea21e049",
-  "prevId": "418de975-46fe-4f91-bdde-11a786ddc2d1",
+  "id": "ffc0c057-8989-4e6e-8d6c-ca67d48a7239",
+  "prevId": "c97b68ee-01e5-4a73-8f22-83483d4351a2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -213,6 +213,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "role": {
+          "name": "role",
+          "type": "agent_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'agent'"
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "double precision",
@@ -262,6 +270,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uniq_agents_assistant": {
+          "name": "uniq_agents_assistant",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "role = 'assistant'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -7717,12 +7747,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "not_run": {
-          "name": "not_run",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -8405,12 +8429,6 @@
         },
         "archived_at": {
           "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "story_seen_at": {
-          "name": "story_seen_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -11431,6 +11449,14 @@
     }
   },
   "enums": {
+    "public.agent_role": {
+      "name": "agent_role",
+      "schema": "public",
+      "values": [
+        "assistant",
+        "agent"
+      ]
+    },
     "public.comment_audience": {
       "name": "comment_audience",
       "schema": "public",
