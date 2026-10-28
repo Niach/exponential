@@ -23,7 +23,11 @@ function doctorFor(speech: CallAvailabilityInput[`speech`]): DeviceDoctor {
 }
 
 function rowsFor(input: CallAvailabilityInput) {
-  const settings = { voiceDeviceId: input.device === null ? null : `dev-1`, speakReplies: input.speakReplies }
+  const settings = {
+    voiceDeviceId: input.device === null ? null : `dev-1`,
+    speakReplies: input.speakReplies,
+    meetingStartedAt: input.meeting ? NOW.toISOString() : null,
+  }
   const device: CallDeviceRowLike | null =
     input.device === null
       ? null
@@ -39,12 +43,12 @@ describe(`web call availability (voice-call.json availabilityCases)`, () => {
     const input = c.input as CallAvailabilityInput
     const { settings, device } = rowsFor(input)
     // A phone case reads the same on web: only `desktop` has `notHere`.
-    expect(webCallInput(settings, device, NOW)).toEqual({ ...input, platform: `web` })
+    expect(webCallInput(settings, device, NOW)).toEqual({ meeting: false, ...input, platform: `web` })
     expect(webCallAvailability(settings, device, NOW)).toEqual(c.expected)
   })
 
   it(`covers every reason a web caller can see`, () => {
-    for (const key of [`noVoiceDevice`, `speakOff`, `offline`, `preparing`, `noGpu`] as const) {
+    for (const key of [`noVoiceDevice`, `speakOff`, `offline`, `meeting`, `preparing`, `noGpu`] as const) {
       const hit = WEB_CASES.some((c) => c.expected.reason === fixture.copy.reasons[key].replace(`{device}`, c.input.device ?? ``))
       expect(hit, key).toBe(true)
     }

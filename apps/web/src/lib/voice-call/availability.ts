@@ -24,6 +24,8 @@ export function callSpeechOf(doctor: DeviceDoctor | null | undefined): CallSpeec
 export interface CallSettingsLike {
   voiceDeviceId: string | null
   speakReplies: boolean
+  /** #NEW-57: a meeting runs on the voice device (the telephone is off). */
+  meetingStartedAt?: string | null
 }
 
 export interface CallDeviceRowLike {
@@ -50,6 +52,7 @@ export function webCallInput(
     here: false,
     speech: row ? callSpeechOf(row.doctor) : null,
     busy: false,
+    meeting: Boolean(settings?.meetingStartedAt),
   }
 }
 
