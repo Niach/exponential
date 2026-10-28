@@ -65,6 +65,7 @@ final class MeetingTests: XCTestCase {
             "doctorPerApp": Meeting.Copy.doctorPerApp,
             "doctorSystem": Meeting.Copy.doctorSystem,
             "doctorNone": Meeting.Copy.doctorNone,
+            "autoStopped": Meeting.Copy.autoStopped,
             "messageHeader": Meeting.Copy.messageHeader,
         ])
         XCTAssertEqual(fixture["testIds"] as? [String: String], [

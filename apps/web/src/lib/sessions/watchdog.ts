@@ -11,6 +11,7 @@ import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
+import { stopExpiredMeetings } from "@/lib/trpc/voice"
 
 // NEW-1: the server watchdog (every minute; contract `sessionWatchdog`).
 // Nothing waits on a device's good behaviour: what stalls is flagged on
@@ -43,6 +44,8 @@ export interface WatchdogRun {
   pruned: number
   /** NEW-57: expired meeting transcript batches deleted this tick. */
   meetingPruned: number
+  /** NEW-57: meetings stopped by `autoStop` this tick. */
+  meetingsStopped: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -530,6 +533,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     fired: await fireScheduledTriggers(now),
     pruned: await pruneEvents(now),
     meetingPruned: await pruneExpiredMessages(now),
+    meetingsStopped: await stopExpiredMeetings(db, now),
   }
 }
 
@@ -568,7 +572,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped`,
         })
       )
       .catch((error: unknown) => {

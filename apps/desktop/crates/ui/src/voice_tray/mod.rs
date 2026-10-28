@@ -614,11 +614,14 @@ impl VoiceTray {
         let status = crate::push_to_talk::status(cx);
         let device_is_voice_device = settings.voice_device_id.as_deref() == Some(self.device_id.as_str());
         let wake_listening = crate::push_to_talk::wake_listening(cx);
-        let icon = tray_icon(device_is_voice_device, wake_listening, self.muted);
+
         self.sync_screen(device_is_voice_device, cx);
         // NEW-57: the meeting's item, and the pause while a meeting runs or
         // screen memory is on (its keys grabbed exactly then).
         let meeting_state = crate::meeting::state(cx);
+        // NEW-57: a meeting holding the microphone shows the dot too.
+        let meeting_listening = meeting_state.running && meeting_state.listening && !meeting_state.paused;
+        let icon = tray_icon(device_is_voice_device, wake_listening, meeting_listening, self.muted);
         let meeting_on = settings.meeting();
         let who = if meeting_state.running && !meeting_state.who.is_empty() {
             meeting_state.who.clone()
@@ -645,7 +648,7 @@ impl VoiceTray {
         };
         let menu = tray_menu(&settings, &context);
         // #NEW-97: no answer yet = no button.
-        let rail = self.hosted.and_then(|hosted| rail_voice(&settings, &context, wake_listening, hosted));
+        let rail = self.hosted.and_then(|hosted| rail_voice(&settings, &context, wake_listening, meeting_listening, hosted));
         if rail != self.rail {
             self.rail = rail;
             cx.notify();

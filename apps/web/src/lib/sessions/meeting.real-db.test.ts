@@ -34,7 +34,7 @@ if (!ready.ok) console.info(`[meeting.real-db] skipped: ${ready.reason}`)
 
 const { sendSession, MEETING_SEND_REFUSED } = await import(`@/lib/sessions/send`)
 const { MEETING_SHARED_REFUSED } = await import(`@/lib/sessions/meeting-access`)
-const { voiceRouter } = await import(`@/lib/trpc/voice`)
+const { voiceRouter, stopExpiredMeetings, stopMeetingUnlessPrivate } = await import(`@/lib/trpc/voice`)
 const { buildSessionVisibleWhere } = await import(`@/lib/auth/shape-where`)
 const { loadSessionForUser } = await import(`@/lib/sessions/access`)
 
@@ -226,5 +226,34 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     expect(JSON.stringify(after!.digest)).toContain(`kept forever`)
     // Nothing left to prune at that clock.
     expect(await pruneExpiredMessages(NOW)).toBe(0)
+  })
+
+  it(`AUTO-STOP: the watchdog clears a meeting autoStop.afterMs old, a younger one runs on`, async () => {
+    const w = await world()
+    const fresh = await world()
+    // Started in 1999 (nobody else's row is that old); swept at 2000-01-01.
+    const NOW = new Date(`2000-01-01T00:00:00.000Z`)
+    const afterMs = 4 * 60 * 60 * 1000
+    await db.insert(userVoiceSettings).values([
+      { userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId, meetingStartedAt: new Date(NOW.getTime() - afterMs) },
+      { userId: fresh.owner, agentId: fresh.ops, voiceDeviceId: fresh.deviceId, meetingStartedAt: new Date(NOW.getTime() - afterMs + 1) },
+    ])
+    expect(await stopExpiredMeetings(db, NOW)).toBe(1)
+    const started = async (userId: string) =>
+      (await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, userId)))[0]!.meetingStartedAt
+    expect(await started(w.owner)).toBeNull()
+    expect(await started(fresh.owner)).not.toBeNull()
+    // The read guard: a 1999 meeting reads as none even before a sweep.
+    expect((await voice(fresh.owner).get()).meetingStartedAt).toBeNull()
+  })
+
+  it(`SHARING: sharing the voice agent's box with its team stops the meeting`, async () => {
+    const w = await world()
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId })
+    expect((await voice(w.owner).startMeeting({ consent: true })).meetingStartedAt).not.toBeNull()
+    expect(await stopMeetingUnlessPrivate(db, w.owner)).toBe(false)
+    await db.update(devices).set({ sharedTeamIds: [w.teamId] }).where(eq(devices.deviceId, w.deviceId))
+    expect(await stopMeetingUnlessPrivate(db, w.owner)).toBe(true)
+    expect((await voice(w.owner).get()).meetingStartedAt).toBeNull()
   })
 })

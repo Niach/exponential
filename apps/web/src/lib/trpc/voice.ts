@@ -17,11 +17,18 @@
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, lte } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS, wakePhraseError } from "@exp/domain-contract/voice"
 import { callAvailability } from "@exp/domain-contract/voice-call"
-import { DESKTOP_AUDIO_VALUES, MEETING_LIMITS, type AudioApp, type DesktopAudio } from "@exp/domain-contract/meeting"
+import {
+  DESKTOP_AUDIO_VALUES,
+  MEETING_AUTO_STOP,
+  MEETING_LIMITS,
+  meetingExpired,
+  type AudioApp,
+  type DesktopAudio,
+} from "@exp/domain-contract/meeting"
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
@@ -107,7 +114,12 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
       ? (row.desktopAudio as DesktopAudio)
       : `off`,
     desktopAudioApps: storedApps(row.desktopAudioApps),
-    meetingStartedAt: row.meetingStartedAt ? new Date(row.meetingStartedAt).toISOString() : null,
+    // NEW-57 AUTO-STOP: an expired meeting reads as none everywhere, even
+    // before the watchdog clears the row.
+    meetingStartedAt:
+      row.meetingStartedAt && !meetingExpired(new Date(row.meetingStartedAt).toISOString(), Date.now())
+        ? new Date(row.meetingStartedAt).toISOString()
+        : null,
   })
 }
 
@@ -143,13 +155,47 @@ export function withClearOnNone(settings: VoiceSettings): VoiceSettings {
  *  it: a wider scope needs a new consent. */
 export function withMeetingScope(before: VoiceSettings, next: VoiceSettings): VoiceSettings {
   if (!next.meetingStartedAt) return next
-  const appIds = (settings: VoiceSettings) => settings.desktopAudioApps.map((app) => app.id).join(`\n`)
+  // The apps scope is a set: reordering the same apps widens nothing.
+  const appIds = (settings: VoiceSettings) =>
+    [...new Set(settings.desktopAudioApps.map((app) => app.id))].sort().join(`\n`)
   const widened =
     before.voiceDeviceId !== next.voiceDeviceId ||
     before.agentId !== next.agentId ||
     before.desktopAudio !== next.desktopAudio ||
     appIds(before) !== appIds(next)
   return widened ? { ...next, meetingStartedAt: null } : next
+}
+
+/** NEW-57 AUTO-STOP (watchdog): clear every meeting started at least
+ *  `autoStop.afterMs` ago and nudge its voice device (which stops on its own
+ *  clock too). Returns how many stopped. */
+export async function stopExpiredMeetings(database: Db, now: Date = new Date()): Promise<number> {
+  const stopped = await database
+    .update(userVoiceSettings)
+    .set({ meetingStartedAt: null, updatedAt: now })
+    .where(
+      and(
+        isNotNull(userVoiceSettings.meetingStartedAt),
+        lte(userVoiceSettings.meetingStartedAt, new Date(now.getTime() - MEETING_AUTO_STOP.afterMs))
+      )
+    )
+    .returning({ userId: userVoiceSettings.userId, voiceDeviceId: userVoiceSettings.voiceDeviceId })
+  for (const row of stopped) {
+    if (row.voiceDeviceId) nudge(row.userId, row.voiceDeviceId)
+  }
+  return stopped.length
+}
+
+/** NEW-57 (meeting.json SHARING): after a device share, a running meeting
+ *  whose voice agent is no longer private stops (a shared machine never
+ *  holds a meeting; every batch would be refused while it kept listening). */
+export async function stopMeetingUnlessPrivate(database: Db, userId: string): Promise<boolean> {
+  const before = await voiceSettingsOf(database, userId)
+  if (!before.meetingStartedAt || !before.agentId) return false
+  if (await meetingAgentIsPrivate(database, userId, before.agentId)) return false
+  await writeSettings(database, userId, { ...before, meetingStartedAt: null })
+  if (before.voiceDeviceId) nudge(userId, before.voiceDeviceId)
+  return true
 }
 
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):

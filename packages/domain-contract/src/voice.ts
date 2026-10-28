@@ -470,6 +470,8 @@ export interface TrayIconContext {
   deviceIsVoiceDevice: boolean
   /** The speech worker reported the wake word's microphone open. */
   wakeListening: boolean
+  /** #NEW-57: a meeting runs here, its channels listen, not paused. */
+  meetingListening?: boolean
   muted: boolean
 }
 
@@ -477,7 +479,7 @@ export interface TrayIconContext {
  *  null = no tray on this device. */
 export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
   if (!context.deviceIsVoiceDevice) return null
-  return context.wakeListening && !context.muted ? `listening` : `app`
+  return (context.wakeListening && !context.muted) || context.meetingListening === true ? `listening` : `app`
 }
 
 /** #NEW-86: the IDE's Wake word row detail on the voice device itself
@@ -493,6 +495,8 @@ export function wakeDetail(context: { here: boolean; wakeWord: boolean; wakeList
 export interface RailVoiceContext extends TrayContext {
   /** The speech worker reported the wake word's microphone open. */
   wakeListening: boolean
+  /** #NEW-57: trayIcon's `meetingListening`. */
+  meetingListening?: boolean
   /** A tray host shows the tray (Linux: the StatusNotifierItem registered). */
   trayHosted: boolean
 }
@@ -508,13 +512,18 @@ export interface RailVoice {
 /** #NEW-97: the IDE rail's voice button while no tray host shows the tray;
  *  null = no button. */
 export function railVoice(settings: TraySettings, context: RailVoiceContext): RailVoice | null {
-  if (context.trayHosted || !clearOnNone(settings, {}).wakeWord) return null
+  const meeting = context.meeting?.available && context.meeting.on ? context.meeting : null
+  if (context.trayHosted || !(clearOnNone(settings, {}).wakeWord || meeting)) return null
   const tray = trayMenu(settings, context)
   if (tray === null) return null
   const phrase = settings.wakePhrase.trim() || wakePhrasePlaceholder(context.agent ?? `…`)
   return {
     badge: trayIcon(context) === `listening`,
-    tooltip: context.muted ? fixture.pttCopy.overlayMuted : fixture.pttCopy.railListening.replace(`{phrase}`, phrase),
+    tooltip: meeting
+      ? `${meetingFixture.copy.meeting} · ${meeting.who}`
+      : context.muted
+        ? fixture.pttCopy.overlayMuted
+        : fixture.pttCopy.railListening.replace(`{phrase}`, phrase),
     menu: tray.filter((item) => item.kind !== `separator` && item.id !== `open` && item.id !== `quit`),
   }
 }

@@ -181,7 +181,22 @@ describe(`#NEW-73 language and custom voice`, () => {
 
 // NEW-57: meeting mode (fixtures/meeting.json).
 describe(`#NEW-57 meeting mode`, () => {
-  const STARTED = new Date(`2026-10-28T10:00:00.000Z`)
+  // A minute ago (whole seconds): never old enough for autoStop.
+  const STARTED = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000)
+
+  it(`AUTO-STOP: a meeting autoStop.afterMs old reads as none`, async () => {
+    const old = new Date(Date.now() - meetingFixture.autoStop.afterMs - 1)
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: old }]]
+    expect((await caller.get()).meetingStartedAt).toBeNull()
+  })
+
+  it(`the apps scope is a set: reordering the same apps keeps the meeting`, () => {
+    const zoom = { id: `z`, name: `Zoom` }
+    const slack = { id: `s`, name: `Slack` }
+    const before = { ...stored, meetingStartedAt: `x`, desktopAudio: `include`, desktopAudioApps: [zoom, slack] } as never
+    const next = { ...stored, meetingStartedAt: `x`, desktopAudio: `include`, desktopAudioApps: [slack, zoom] } as never
+    expect(withMeetingScope(before, next).meetingStartedAt).toBe(`x`)
+  })
 
   it(`reads the stored desktop audio, apps and the running meeting`, async () => {
     const apps = [{ id: `us.zoom.xos`, name: `zoom.us` }]

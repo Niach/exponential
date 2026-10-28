@@ -39,6 +39,8 @@ pub struct MeetingCopy {
     pub doctor_system: String,
     pub doctor_none: String,
     pub message_header: String,
+    /// The auto-stop's toast line ({hours}).
+    pub auto_stopped: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -85,6 +87,13 @@ pub struct MeetingPause {
     pub label: String,
 }
 
+/// AUTO-STOP: how long a meeting may run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingAutoStop {
+    pub after_ms: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingSpec {
@@ -94,6 +103,7 @@ pub struct MeetingSpec {
     pub limits: MeetingLimits,
     pub flush: MeetingFlush,
     pub pause: MeetingPause,
+    pub auto_stop: MeetingAutoStop,
 }
 
 /// `fixtures/meeting.json` minus its cases.
@@ -415,7 +425,7 @@ fn fenced(text: &str) -> String {
 
 fn line(segment: &MeetingSegment) -> String {
     let (.., hour, minute, second) = utc_parts(segment.start_ms);
-    format!("{hour:02}:{minute:02}:{second:02} {}: {}", segment.label, fenced(&segment.text))
+    format!("{hour:02}:{minute:02}:{second:02} {}: {}", fenced(&segment.label), fenced(&segment.text))
 }
 
 fn wrap(start_ms: i64, lines: &[String]) -> String {
@@ -487,10 +497,36 @@ pub fn meeting_messages(segments: &[MeetingSegment], max_chars: usize) -> Vec<St
     out
 }
 
+/// AUTO-STOP: a set `meetingStartedAt` at least `autoStop.afterMs` old at
+/// `now_ms` (an unreadable stamp counts as expired).
+pub fn meeting_expired(started_at: Option<&str>, now_ms: i64) -> bool {
+    let Some(started_at) = started_at.filter(|at| !at.is_empty()) else { return false };
+    match chrono::DateTime::parse_from_rfc3339(started_at) {
+        Ok(at) => now_ms - at.timestamp_millis() >= MEETING.auto_stop.after_ms,
+        Err(_) => true,
+    }
+}
+
+/// The auto-stop's toast line (`copy.autoStopped`).
+pub fn auto_stopped(after_ms: i64) -> String {
+    MEETING.copy.auto_stopped.replace("{hours}", &((after_ms + 1_800_000) / 3_600_000).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn auto_stop_matches_the_fixture() {
+        for case in fixture()["autoStopCases"].as_array().unwrap() {
+            let got = meeting_expired(case["startedAt"].as_str(), case["nowMs"].as_i64().unwrap());
+            assert_eq!(got, case["expect"].as_bool().unwrap(), "{}", case["name"]);
+        }
+        for case in fixture()["autoStoppedCases"].as_array().unwrap() {
+            assert_eq!(auto_stopped(case["afterMs"].as_i64().unwrap()), case["expect"].as_str().unwrap());
+        }
+    }
 
     fn fixture() -> Value {
         serde_json::from_str(MEETING_JSON).unwrap()

@@ -56,6 +56,10 @@ pub struct MeetingState {
     pub running: bool,
     /// The pause hotkey holds every channel (and screen memory) paused.
     pub paused: bool,
+    /// The worker reported the meeting's channels listening and the pause
+    /// does not hold them (the tray's and the rail's dot, voice.json
+    /// `trayIcon` `meetingListening`).
+    pub listening: bool,
     /// `domain::meeting::who(...)` for the running meeting (the tray label).
     pub who: String,
 }
@@ -81,12 +85,13 @@ struct Wanted {
     app_ids: Vec<String>,
 }
 
-fn wanted_for(settings: &VoiceSettings, device_id: &str) -> Option<Wanted> {
+fn wanted_for(settings: &VoiceSettings, device_id: &str, now_ms: i64) -> Option<Wanted> {
     if settings.voice_device_id.as_deref() != Some(device_id) {
         return None;
     }
     let settings = settings.clone().clear_on_none();
-    if !settings.meeting() {
+    // AUTO-STOP: on this device's own clock (an offline device stops too).
+    if !settings.meeting() || domain::meeting::meeting_expired(settings.meeting_started_at.as_deref(), now_ms) {
         return None;
     }
     Some(Wanted {
@@ -146,8 +151,10 @@ fn backoff_ms(failures: u32) -> i64 {
 
 /// A send's answer the batch can never pass (4xx: the server refused it):
 /// dropped, never requeued.
+/// A 401 (an expired token, `Unauthorized` or a bare `Http 401`) is a failed
+/// send, never a refusal: the batch waits for the refreshed token.
 fn refused(err: &api::ApiError) -> bool {
-    matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && *status != 408 && *status != 429)
+    matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && !matches!(*status, 401 | 408 | 429))
 }
 
 impl Batcher {
@@ -281,6 +288,8 @@ pub(crate) struct MeetingHost {
     running: Option<Running>,
     stopping: Option<Stopping>,
     paused: bool,
+    /// The worker's last `MeetingListening` for the running meeting.
+    listening: bool,
     last_prune_ms: i64,
     tick_generation: u64,
     /// The account signed in when last looked at ([`purges_log`]).
@@ -324,6 +333,7 @@ pub fn init(cx: &mut App) {
             running: None,
             stopping: None,
             paused: false,
+            listening: false,
             last_prune_ms: 0,
             tick_generation: 0,
             account: crate::speak_replies::session_account(cx),
@@ -355,6 +365,9 @@ pub fn set_paused(paused: bool, cx: &mut App) {
     }
     let mut next = state(cx);
     next.paused = paused;
+    if let Some(entity) = host(cx) {
+        next.listening = next.running && entity.read(cx).listening && !paused;
+    }
     cx.set_global(next);
 }
 
@@ -415,11 +428,15 @@ impl MeetingHost {
             self.client = crate::speak_replies::client(cx);
         }
         let settings = crate::speak_replies::settings(cx);
-        let wanted = wanted_for(&settings, &self.device_id);
+        let wanted = wanted_for(&settings, &self.device_id, crate::session_data::now_ms());
         let current = self.running.as_ref().map(|running| running.wanted.clone());
         if wanted == current {
             return;
         }
+        // AUTO-STOP: the running meeting is still the stored one, only too old.
+        let auto_stopped = wanted.is_none()
+            && current.as_ref().is_some_and(|current| settings.meeting_started_at.as_deref() == Some(current.id.as_str()))
+            && settings.voice_device_id.as_deref() == Some(self.device_id.as_str());
         match (current, wanted) {
             (Some(old), Some(new)) if old.id == new.id => {
                 // The same meeting with other apps, agent or language.
@@ -438,10 +455,18 @@ impl MeetingHost {
             }
         }
         self.publish(&settings, cx);
+        if auto_stopped {
+            ::log::info!("[meeting] stopped after {} ms (autoStop)", MEETING.auto_stop.after_ms);
+            cx.defer(|cx| {
+                crate::meeting_mode::stop(cx);
+                crate::meeting_mode::notify_auto_stopped(cx);
+            });
+        }
     }
 
     fn start(&mut self, wanted: Wanted, cx: &mut Context<Self>) {
         let capability = talk::apps::capability();
+        self.listening = false;
         ::log::info!("[meeting] started on this device ({:?} desktop audio, {:?})", wanted.desktop_audio, capability);
         self.running = Some(Running {
             account: crate::speak_replies::session_account(cx),
@@ -464,6 +489,13 @@ impl MeetingHost {
                     return false;
                 }
                 this.step(FlushEvent::Tick, None, cx);
+                // AUTO-STOP: the tick is the clock that ends a too-old meeting.
+                if this.running.as_ref().is_some_and(|running| {
+                    domain::meeting::meeting_expired(Some(&running.wanted.id), crate::session_data::now_ms())
+                }) {
+                    this.follow(cx);
+                    return false;
+                }
                 if crate::session_data::now_ms() - this.last_prune_ms >= PRUNE_EVERY_MS {
                     this.prune();
                 }
@@ -499,6 +531,7 @@ impl MeetingHost {
 
     fn stop(&mut self, cx: &mut Context<Self>) {
         let Some(running) = self.running.take() else { return };
+        self.listening = false;
         let drain = stop_drains(running.account.as_deref(), crate::speak_replies::session_account(cx).as_deref());
         if let Some(client) = self.client.as_ref() {
             client.meeting_stop(running.wanted.id.clone(), drain);
@@ -575,7 +608,8 @@ impl MeetingHost {
             .as_ref()
             .map(|running| domain::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability_of(running.capability)))
             .unwrap_or_default();
-        let next = MeetingState { running: self.running.is_some(), paused: self.paused && self.running.is_some(), who };
+        let running = self.running.is_some();
+        let next = MeetingState { running, paused: self.paused && running, listening: running && self.listening && !self.paused, who };
         if cx.try_global::<MeetingState>() != Some(&next) {
             cx.set_global(next);
             cx.refresh_windows();
@@ -613,6 +647,8 @@ impl MeetingHost {
             talk::Event::MeetingWake { id } if ours(&id, &self.running) => self.step(FlushEvent::Wake, None, cx),
             talk::Event::MeetingFlushNow { id } if ours(&id, &self.running) => self.step(FlushEvent::Ptt, None, cx),
             talk::Event::MeetingListening { id, listening, reason } if ours(&id, &self.running) => {
+                self.listening = listening;
+                self.publish(&crate::speak_replies::settings(cx), cx);
                 if listening {
                     ::log::info!("[meeting] listening");
                 } else if let Some(reason) = reason {
@@ -791,17 +827,24 @@ mod tests {
         }
     }
 
+    /// An hour after `settings()`'s meeting started.
+    const NOW: i64 = 1_793_181_600_000;
+
     #[test]
     fn a_meeting_runs_only_on_the_voice_device_while_started() {
-        let wanted = wanted_for(&settings(), "mint").expect("this device holds it");
+        let wanted = wanted_for(&settings(), "mint", NOW).expect("this device holds it");
         assert_eq!(wanted.id, "2026-10-28T09:00:00Z");
         assert_eq!((wanted.agent_id.as_str(), wanted.language.as_str()), ("a1", "de"));
         assert_eq!(selection_of(wanted.desktop_audio, &wanted.app_ids), talk::MeetingApps::Include(vec!["us.zoom.xos".into()]));
-        assert_eq!(wanted_for(&settings(), "laptop"), None, "another device");
-        assert_eq!(wanted_for(&VoiceSettings { meeting_started_at: None, ..settings() }, "mint"), None, "stopped");
-        assert_eq!(wanted_for(&VoiceSettings { meeting_started_at: Some(String::new()), ..settings() }, "mint"), None);
-        assert_eq!(wanted_for(&VoiceSettings { agent_id: None, ..settings() }, "mint"), None, "clearOnNone");
-        assert_eq!(wanted_for(&VoiceSettings::default(), "mint"), None, "signed out: the defaults");
+        assert_eq!(wanted_for(&settings(), "laptop", NOW), None, "another device");
+        assert_eq!(wanted_for(&VoiceSettings { meeting_started_at: None, ..settings() }, "mint", NOW), None, "stopped");
+        assert_eq!(wanted_for(&VoiceSettings { meeting_started_at: Some(String::new()), ..settings() }, "mint", NOW), None);
+        assert_eq!(wanted_for(&VoiceSettings { agent_id: None, ..settings() }, "mint", NOW), None, "clearOnNone");
+        assert_eq!(wanted_for(&VoiceSettings::default(), "mint", NOW), None, "signed out: the defaults");
+        // AUTO-STOP: four hours after its start the meeting is wanted nowhere.
+        let after = MEETING.auto_stop.after_ms;
+        assert!(wanted_for(&settings(), "mint", NOW - 3_600_000 + after - 1).is_some());
+        assert_eq!(wanted_for(&settings(), "mint", NOW - 3_600_000 + after), None, "auto-stopped");
         assert_eq!(selection_of(DesktopAudio::Off, &[]), talk::MeetingApps::Off);
         assert_eq!(selection_of(DesktopAudio::Exclude, &["x".into()]), talk::MeetingApps::Exclude(vec!["x".into()]));
     }
@@ -869,6 +912,7 @@ mod tests {
         let http = |status| api::ApiError::Http { status, message: "x".into() };
         assert!(refused(&http(400)) && refused(&http(403)) && refused(&http(413)));
         assert!(!refused(&http(408)) && !refused(&http(429)) && !refused(&http(500)) && !refused(&http(503)));
+        assert!(!refused(&http(401)) && !refused(&api::ApiError::Unauthorized), "an expired token retries");
         assert!(!refused(&api::ApiError::Transport { message: "down".into(), offline: true }));
 
         let mut batcher = Batcher::default();

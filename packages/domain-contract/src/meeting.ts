@@ -12,6 +12,7 @@ export const MEETING_LIMITS = fixture.limits
 export const MEETING_FLUSH = fixture.flush
 export const MEETING_PAUSE = fixture.pause
 export const DESKTOP_AUDIO_VALUES = fixture.desktopAudioValues
+export const MEETING_AUTO_STOP = fixture.autoStop
 
 export type DesktopAudio = `off` | `all` | `include` | `exclude`
 export type DesktopAudioCapability = `none` | `system` | `per_app`
@@ -174,7 +175,7 @@ function fenced(text: string): string {
 function line(segment: MeetingSegment): string {
   const at = new Date(segment.startMs)
   const time = `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`
-  return `${time} ${segment.label}: ${fenced(segment.text)}`
+  return `${time} ${fenced(segment.label)}: ${fenced(segment.text)}`
 }
 
 function wrap(startMs: number, lines: readonly string[]): string {
@@ -224,4 +225,17 @@ export function meetingMessages(
   }
   if (lines.length > 0) out.push(wrap(start, lines))
   return out
+}
+
+/** AUTO-STOP: a set `meetingStartedAt` at least `autoStop.afterMs` old (an
+ * unreadable stamp counts as expired). */
+export function meetingExpired(startedAt: string | null, nowMs: number): boolean {
+  if (!startedAt) return false
+  const at = Date.parse(startedAt)
+  return !Number.isFinite(at) || nowMs - at >= fixture.autoStop.afterMs
+}
+
+/** The auto-stop's toast line (`copy.autoStopped`). */
+export function autoStopped(afterMs: number = fixture.autoStop.afterMs): string {
+  return MEETING_COPY.autoStopped.replace(`{hours}`, String(Math.round(afterMs / 3_600_000)))
 }

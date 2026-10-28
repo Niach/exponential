@@ -120,6 +120,16 @@ fn write(on: bool, cx: &mut App) {
     .detach();
 }
 
+/// AUTO-STOP said on the feedback path: an info toast in the active IDE
+/// window and, with OS notifications on for this machine, a system
+/// notification (the IDE may live in the tray with no window) that opens
+/// Settings → Voice.
+pub(crate) fn notify_auto_stopped(cx: &mut App) {
+    let line = domain::meeting::auto_stopped(MEETING.auto_stop.after_ms);
+    crate::toast::show_in_active_window(crate::toast::Toast::info(line.clone()), cx);
+    crate::os_notifications::raise_settings(crate::settings::SettingsSection::Voice, &MEETING.copy.meeting, &line, cx);
+}
+
 /// The portal shortcut id the pause hotkey binds.
 const PAUSE_ID: &str = "pause-listening";
 

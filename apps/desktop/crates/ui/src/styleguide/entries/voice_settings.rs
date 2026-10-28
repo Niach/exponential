@@ -33,6 +33,9 @@
 //! button listening (the dot on) with its menu open: the rows
 //! `rail_voice` derives with Push to talk and Wake word on, the microphone
 //! up and Screen memory paused by a private window, as the web entry.
+//! #NEW-57: a second specimen under it pictures the button while a meeting
+//! runs with the wake word off (the dot, the meeting's row as the tooltip,
+//! Meeting mode checked, Pause listening).
 
 use gpui::{div, prelude::FluentBuilder as _, px, App, IntoElement, ParentElement as _, Styled as _, Window};
 use gpui_component::{
@@ -107,7 +110,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
     for row in voice_rows(&settings, &devices, &agents, inputs, meeting, None, cx) {
         body = body.child(row);
     }
-    div().w_full().max_w(px(560.)).child(body).child(div().mt_8().child(rail_voice_specimen(window, cx)))
+    div().w_full().max_w(px(560.)).child(body).child(div().mt_8().child(rail_voice_specimen(window, cx))).child(div().mt_8().child(rail_meeting_specimen(window, cx)))
 }
 
 /// #NEW-97 / #NEW-58: the rail's voice button (`sidebar::rail_voice_entry`)
@@ -140,15 +143,65 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
         meeting: None,
         pause: None,
     };
-    let Some(rail) = rail_voice(&settings, &context, true, false) else { return div() };
+    let Some(rail) = rail_voice(&settings, &context, true, false, false) else { return div() };
+    let caption = format!(
+        "The rail's voice button while no tray host shows the tray: listening (the destructive dot), its menu open (rail_voice), Screen memory paused by a private window. Tooltip: \"{}\".",
+        rail.tooltip
+    );
+    rail_specimen("sg-voice-settings-rail-menu", "sg-rail-voice", rail, caption, window, cx)
+}
+
+/// #NEW-57: the same button while a meeting runs with the wake word off
+/// (voice.json `railVoice`: a running meeting shows it too): the dot while
+/// its channels listen, the tooltip the tray's Meeting mode row, Meeting
+/// mode checked and Pause listening in its menu.
+fn rail_meeting_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
+    let settings = VoiceSettings {
+        voice_device_id: Some("d-mint".into()),
+        agent_id: Some("a1".into()),
+        speak_replies: true,
+        ptt_shortcut: "ctrl+space".into(),
+        language: "en".into(),
+        meeting_started_at: Some("2026-10-28T10:00:00.000Z".into()),
+        ..Default::default()
+    };
+    let context = TrayContext {
+        agent: Some("Studio"),
+        muted: false,
+        call_available: false,
+        mic_available: false,
+        device_is_voice_device: true,
+        shortcut_unavailable: false,
+        shortcut_label: None,
+        screen_memory: None,
+        meeting: Some(domain::voice::MeetingTrayState { on: true, who: "You, Zoom and Slack" }),
+        pause: Some(false),
+    };
+    let Some(rail) = rail_voice(&settings, &context, false, true, false) else { return div() };
+    let caption = format!(
+        "While a meeting runs (the wake word off): the dot while its channels listen, Meeting mode checked and Pause listening in the menu. Tooltip: \"{}\".",
+        rail.tooltip
+    );
+    rail_specimen("sg-voice-settings-rail-meeting-menu", "sg-rail-voice-meeting", rail, caption, window, cx)
+}
+
+/// One rail voice button with its pointer menu drawn open above it.
+fn rail_specimen(
+    menu_key: &'static str,
+    button_id: &'static str,
+    rail: domain::voice::RailVoice,
+    caption: String,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::Div {
     let rows = rail.menu.clone();
-    let menu = window.use_keyed_state("sg-voice-settings-rail-menu", cx, move |window, cx| {
+    let menu = window.use_keyed_state(menu_key, cx, move |window, cx| {
         OpenMenu::new(window, cx, move |mut menu, _, _| {
             menu = menu.min_w(px(240.));
             for item in rows {
                 let row = match item {
                     TrayItem::Check { id, label, checked, .. } => crate::controls::pointer_toggle_item(
-                        format!("sg-rail-voice-{id:?}"),
+                        format!("{button_id}-{id:?}"),
                         None,
                         label,
                         checked,
@@ -167,7 +220,7 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
     let button = div()
         .relative()
         .flex_shrink_0()
-        .child(Button::new("sg-rail-voice").ghost().small().icon(registry::SETTINGS_VOICE).tooltip(rail.tooltip.clone()))
+        .child(Button::new(button_id).ghost().small().icon(registry::SETTINGS_VOICE).tooltip(rail.tooltip.clone()))
         .when(rail.badge, |this| {
             // The rail's destructive dot (`RailBadge::Dot`), placed as the rail places it.
             this.child(
@@ -178,10 +231,6 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
                     .child(div().size_1p5().rounded_full().bg(theme::tokens::DESTRUCTIVE.to_hsla())),
             )
         });
-    let caption = format!(
-        "The rail's voice button while no tray host shows the tray: listening (the destructive dot), its menu open (rail_voice), Screen memory paused by a private window. Tooltip: \"{}\".",
-        rail.tooltip
-    );
     v_flex()
         .w_full()
         .gap_2()

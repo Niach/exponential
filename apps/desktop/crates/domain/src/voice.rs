@@ -366,12 +366,14 @@ pub enum TrayIcon {
     Listening,
 }
 
-/// #NEW-56: the tray icon; None = no tray on this device.
-pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, muted: bool) -> Option<TrayIcon> {
+/// #NEW-56: the tray icon; None = no tray on this device. #NEW-57:
+/// `meeting_listening` (a meeting's channels listen, not paused) shows the
+/// dot too, muted or not (Mute never pauses a meeting).
+pub fn tray_icon(device_is_voice_device: bool, wake_listening: bool, meeting_listening: bool, muted: bool) -> Option<TrayIcon> {
     if !device_is_voice_device {
         return None;
     }
-    Some(if wake_listening && !muted { TrayIcon::Listening } else { TrayIcon::App })
+    Some(if (wake_listening && !muted) || meeting_listening { TrayIcon::Listening } else { TrayIcon::App })
 }
 
 /// #NEW-86: the IDE's Wake word row detail on the voice device itself
@@ -525,9 +527,12 @@ pub fn rail_voice(
     settings: &VoiceSettings,
     context: &TrayContext<'_>,
     wake_listening: bool,
+    meeting_listening: bool,
     tray_hosted: bool,
 ) -> Option<RailVoice> {
-    if tray_hosted || !settings.clone().clear_on_none().wake_word {
+    // #NEW-57: a running meeting shows the button too (wake word or not).
+    let meeting = context.meeting.filter(|meeting| meeting.on);
+    if tray_hosted || !(settings.clone().clear_on_none().wake_word || meeting.is_some()) {
         return None;
     }
     let menu = tray_menu(settings, context)?;
@@ -536,8 +541,11 @@ pub fn rail_voice(
         phrase => phrase.to_string(),
     };
     Some(RailVoice {
-        badge: tray_icon(context.device_is_voice_device, wake_listening, context.muted) == Some(TrayIcon::Listening),
-        tooltip: if context.muted {
+        badge: tray_icon(context.device_is_voice_device, wake_listening, meeting_listening, context.muted)
+            == Some(TrayIcon::Listening),
+        tooltip: if let Some(meeting) = meeting {
+            format!("{} · {}", crate::meeting::MEETING.copy.meeting, meeting.who)
+        } else if context.muted {
             VOICE.ptt_copy.overlay_muted.clone()
         } else {
             VOICE.ptt_copy.rail_listening.replace("{phrase}", &phrase)
@@ -1566,6 +1574,7 @@ mod tests {
             let icon = tray_icon(
                 context["deviceIsVoiceDevice"].as_bool().unwrap(),
                 context["wakeListening"].as_bool().unwrap(),
+                context["meetingListening"].as_bool().unwrap_or(false),
                 context["muted"].as_bool().unwrap(),
             );
             let expected: Option<TrayIcon> = serde_json::from_value(case["icon"].clone()).unwrap();
@@ -1607,6 +1616,7 @@ mod tests {
                     pause: pause_of(&context["pause"]),
                 },
                 context["wakeListening"].as_bool().unwrap(),
+                context["meetingListening"].as_bool().unwrap_or(false),
                 context["trayHosted"].as_bool().unwrap(),
             );
             let expected: Option<RailVoice> = serde_json::from_value(case["rail"].clone()).unwrap();

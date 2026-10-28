@@ -67,7 +67,7 @@ import {
   type DeviceUsageWindow,
 } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/team-membership"
-import { voiceSettingsOf } from "@/lib/trpc/voice"
+import { stopMeetingUnlessPrivate, voiceSettingsOf } from "@/lib/trpc/voice"
 import { versionPayload } from "@/lib/client-version"
 import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
@@ -1746,6 +1746,8 @@ export const devicesRouter = router({
         return { txid: id, ending }
       })
       await endHostedSessions(ending, { actorId: ctx.session.user.id, deviceLabel: row.label, cause: `unshared` })
+      // NEW-57: a share can make the voice agent's machine team-visible.
+      if (added.length > 0) await stopMeetingUnlessPrivate(ctx.db, ctx.session.user.id)
       return { ok: true, txid }
     }),
 

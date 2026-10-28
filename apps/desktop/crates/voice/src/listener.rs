@@ -1425,6 +1425,13 @@ pub(crate) mod fake {
             apps.last().expect("a capture is open").1.send(chunk).unwrap();
         }
 
+        /// NEW-57: [`Probe::play`] with an explicit capture time.
+        pub fn play_at(&self, channel: &str, label: &str, samples: Vec<f32>, captured_ms: u64) {
+            let apps = self.apps.lock().unwrap();
+            let chunk = talk::apps::Chunk { channel: channel.into(), label: label.into(), samples, captured_ms };
+            apps.last().expect("a capture is open").1.send(chunk).unwrap();
+        }
+
         /// Speak into the newest microphone.
         pub fn say(&self, samples: Vec<f32>) {
             let mics = self.mics.lock().unwrap();
@@ -2065,6 +2072,35 @@ mod tests {
         wait("one microphone open", || open_mics(&harness) == 1);
         let events = harness.close();
         assert!(events.iter().any(|event| matches!(event, Event::MeetingListening { listening: false, reason: None, .. })));
+    }
+
+    /// NEW-57 (meeting.json CHANNELS): an app segment is dated by its
+    /// chunks' CAPTURE time, never by when the worker read them (the feed
+    /// site in `hear_meeting`; `epoch_ms()` there fails this).
+    #[test]
+    fn an_app_segment_is_dated_by_its_capture_time() {
+        let harness = Harness::new();
+        meeting(&harness, "m1", Some(talk::apps::Selection::All));
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the meeting opens the microphone");
+        wait("the meeting's desktop audio opens", || !harness.probe.apps.lock().unwrap().is_empty());
+        // Captured an hour ago (a stalled queue), 20 ms per chunk.
+        let base = talk::apps::now_ms() - 3_600_000;
+        for (n, chunk) in phrase(0.8).chunks(320).enumerate() {
+            harness.probe.play_at("us.zoom.xos", "Zoom", chunk.to_vec(), base + 20 * n as u64);
+            harness.probe.say(vec![0.0; 320]);
+        }
+        let events = harness.until(|events| meeting_segments(events).iter().any(|(channel, ..)| channel == "us.zoom.xos"));
+        let start = events
+            .iter()
+            .find_map(|event| match event {
+                Event::MeetingSegment { channel, start_ms, .. } if channel == "us.zoom.xos" => Some(*start_ms),
+                _ => None,
+            })
+            .unwrap();
+        assert!(start >= base as i64 && start < base as i64 + 60_000, "dated {start}, captured from {base}");
+        harness.listening.end_meeting("m1");
+        harness.send(Job::MeetingStop { id: "m1".into(), drain: false });
+        harness.close();
     }
 
     /// NEW-57: a meeting asked for during a call waits for its Hangup (one

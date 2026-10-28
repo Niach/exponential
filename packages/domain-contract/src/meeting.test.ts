@@ -3,12 +3,14 @@ import { describe, expect, it } from "bun:test"
 import fixture from "../fixtures/meeting.json" with { type: "json" }
 import {
   appOptions,
+  autoStopped,
   channels,
   consentBody,
   desktopAudioOptions,
   FLUSH_START,
   flushStep,
   meetingMessage,
+  meetingExpired,
   meetingMessages,
   MEETING_FLUSH,
   who,
@@ -18,6 +20,12 @@ import {
 } from "./meeting.ts"
 
 describe(`meeting.json`, () => {
+  for (const c of fixture.autoStopCases) {
+    it(`auto-stop: ${c.name}`, () => expect(meetingExpired(c.startedAt, c.nowMs)).toBe(c.expect))
+  }
+  for (const c of fixture.autoStoppedCases) {
+    it(`auto-stopped ${c.afterMs}`, () => expect(autoStopped(c.afterMs)).toBe(c.expect))
+  }
   for (const c of fixture.desktopAudioOptionCases) {
     it(`desktop audio: ${c.name}`, () => {
       expect(desktopAudioOptions(c.capability as DesktopAudioCapability)).toEqual(c.expect as DesktopAudio[])

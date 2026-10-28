@@ -31,7 +31,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Your voice agent follows a meeting you start, with everyone's consent.`,
     body: `- **Meeting mode**: start it in Settings → Voice or the tray; after you confirm that everyone agrees, your voice device transcribes you and the apps you pick (Zoom, Slack…) on separate channels and hands the transcript to your voice agent in short batches.
 - **Nothing kept longer than needed**: audio is never stored, the transcript is deleted from the server after 7 days and from your device after 30.
-- **Pause listening**: Ctrl + Alt + P pauses the meeting and screen memory at once.`,
+- **Pause listening**: Ctrl + Alt + P pauses the meeting and screen memory at once.
+- **Never forgotten on**: a meeting stops by itself after 4 hours and tells you so, and while it listens the tray icon carries the microphone dot.`,
   },
   {
     id: `2026-10-28-screen-memory`,
