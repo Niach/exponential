@@ -188,7 +188,7 @@ struct AgentComposerCard: View {
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
         // Implement issue and Message an agent are pages of the sheet itself.
-        case .implementIssue, .messageAgent, .subagents, .ultracode, .computerUse: break
+        case .implementIssue, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
         }
     }
 

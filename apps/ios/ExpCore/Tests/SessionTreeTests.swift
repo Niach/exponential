@@ -310,6 +310,7 @@ final class SessionTreeTests: XCTestCase {
             "color": agent.color,
             "busy": agent.busy,
             "needsYou": agent.needsYou,
+            "assistant": agent.assistant,
         ]
     }
 
@@ -686,7 +687,9 @@ final class SessionTreeTests: XCTestCase {
                     name: try XCTUnwrap(string(row["name"])),
                     icon: string(row["icon"]),
                     color: string(row["color"]),
-                    sortOrder: try XCTUnwrap(row["sortOrder"] as? Double)
+                    sortOrder: try XCTUnwrap(row["sortOrder"] as? Double),
+                    role: string(row["role"]),
+                    ownerId: string(row["ownerId"])
                 )
             }
             let agents = SessionTree.listAgents(
@@ -696,6 +699,21 @@ final class SessionTreeTests: XCTestCase {
                 me: string(input["me"])
             )
             assertJSON(agents.map(json), testCase["expected"], name)
+        }
+    }
+
+    // S-3: an agent conversation paints bubbles on THE thread screen.
+    func testThreadChatModeReplaysEveryCase() throws {
+        let modes = try cases(try fixture("session-thread.json"), "chatModeCases")
+        XCTAssertFalse(modes.isEmpty)
+        for testCase in modes {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let root = try XCTUnwrap(testCase["root"] as? [String: Any])
+            XCTAssertEqual(
+                SessionTree.threadChatMode(agentId: string(root["agentId"])).rawValue,
+                testCase["expected"] as? String,
+                name
+            )
         }
     }
 

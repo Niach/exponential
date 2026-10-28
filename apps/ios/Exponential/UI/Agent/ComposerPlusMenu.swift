@@ -34,11 +34,11 @@ struct ComposerPlusMenu: View {
     /// model (EXP-1291), so the Subagents row has nothing to set.
     private var conditions: ComposerMenu.Conditions {
         ComposerMenu.Conditions(
+            temporary: model.selectedAgent == nil,
             subagentModel: false,
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
-            computerUse: model.device?.canToggleComputerUse == true,
-            agents: !model.agents.isEmpty
+            computerUse: model.device?.canToggleComputerUse == true
         )
     }
 
@@ -58,7 +58,7 @@ struct ComposerPlusMenu: View {
     private var rows: some View {
         GlassSheetChrome(title: nil) {
             VStack(spacing: 0) {
-                ForEach(Array(ComposerMenu.composerMenuLayout(conditions).enumerated()), id: \.offset) { _, entry in
+                ForEach(Array(ComposerMenu.composerMenuLayout(conditions, surface: .launch).enumerated()), id: \.offset) { _, entry in
                     switch entry {
                     case .separator:
                         GlassDivider()
@@ -91,7 +91,7 @@ struct ComposerPlusMenu: View {
             let disabled = row.id == .effort && launch.agent == "claude" && launch.ultracode
                 || row.id == .addFile && (model.attachFull || model.sending)
             Button {
-                if row.id == .implementIssue || row.id == .messageAgent {
+                if row.id == .implementIssue {
                     page = row.id
                 } else {
                     onPick(row.id)
@@ -144,11 +144,7 @@ struct ComposerPlusMenu: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             .accessibilityIdentifier("agent-composer-submenu-back")
-            if id == .messageAgent {
-                AgentPickerPage(model: model, onClose: onClose)
-            } else {
-                AgentIssuePickerPage(model: model, onClose: onClose)
-            }
+            AgentIssuePickerPage(model: model, onClose: onClose)
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .presentationDetents([.large])
@@ -181,8 +177,6 @@ struct ComposerPlusMenu: View {
             launch.effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(launch.effort)
         case .mcpServers:
             McpServers.pickedValue(launch.mcpServerIds)
-        case .messageAgent:
-            model.selectedAgent?.name
         default:
             nil
         }

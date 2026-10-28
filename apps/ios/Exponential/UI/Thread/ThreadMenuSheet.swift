@@ -150,6 +150,8 @@ struct ThreadFoldSheet: View {
 /// sheet and the host opens its picker once it has dismissed.
 struct ThreadComposerPlusMenu: View {
     let conditions: ComposerMenu.Conditions
+    /// S-3: a session's "+" or an agent chat's (composer-menu.json `surface`).
+    var surface: ComposerMenu.Surface = .session
     /// The session's agent (codex words Effort as Reasoning).
     let agent: String
     /// The Effort row's value, the MCP row's value.
@@ -168,7 +170,7 @@ struct ThreadComposerPlusMenu: View {
 
     private var entries: [ComposerMenu.Entry] {
         var out: [ComposerMenu.Entry] = []
-        for entry in ComposerMenu.composerMenuLayout(conditions) {
+        for entry in ComposerMenu.composerMenuLayout(conditions, surface: surface) {
             if entry == .separator, out.last == nil || out.last == .separator { continue }
             out.append(entry)
         }
@@ -224,8 +226,7 @@ struct ThreadComposerPlusMenu: View {
                         .foregroundStyle(.white)
                     Spacer(minLength: 8)
                     if let value = row.id == .effort ? effortValue
-                        : row.id == .mcpServers ? mcpValue
-                        : row.id == .messageAgent ? agentValue : nil {
+                        : row.id == .mcpServers ? mcpValue : nil {
                         Text(value)
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))

@@ -1804,10 +1804,7 @@ struct ThreadComposer: View {
             subagentModel: false,
             ultracode: agent == "claude" && !ended,
             mcp: !mcpServers.isEmpty && !ended,
-            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended,
-            // NEW-7: Message an agent › while the team has agents, like the
-            // launch composer (composer-menu.json).
-            agents: !teamAgents.isEmpty
+            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended
         )
     }
 
@@ -1855,8 +1852,7 @@ struct ThreadComposer: View {
             withTransaction(transaction) { attach.menu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        case .messageAgent: showAgentPicker = true
-        case .subagents, .ultracode, .computerUse: break
+        case .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
         }
     }
 
@@ -1934,7 +1930,7 @@ struct ThreadComposer: View {
                 draft?.agentId = id
                 expanded = true
             },
-            title: ComposerMenu.allRows.first { $0.id == .messageAgent }?.label,
+            title: "Message an agent",
             open: $showAgentPicker,
             hideTrigger: true,
             sheetIdentifier: "thread-agent-picker",
