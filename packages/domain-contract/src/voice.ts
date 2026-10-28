@@ -475,13 +475,17 @@ export interface TrayIconContext {
   wakeListening: boolean
   /** #NEW-57: a meeting runs here, its channels listen, not paused. */
   meetingListening?: boolean
+  /** #FEED-163: a meeting runs on this device, paused or not. */
+  meetingRunning?: boolean
   muted: boolean
 }
 
 /** #NEW-56: the tray icon; `listening` = the always-on microphone dot,
+ *  `recording` (#FEED-163) = the red record dot for a meeting's whole run,
  *  null = no tray on this device. */
-export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
+export function trayIcon(context: TrayIconContext): `app` | `listening` | `recording` | null {
   if (!context.deviceIsVoiceDevice) return null
+  if (context.meetingRunning === true) return `recording`
   return (context.wakeListening && !context.muted) || context.meetingListening === true ? `listening` : `app`
 }
 
@@ -537,7 +541,7 @@ export function railVoice(settings: TraySettings, context: RailVoiceContext): Ra
   if (tray === null) return null
   const phrase = settings.wakePhrase.trim() || wakePhrasePlaceholder(context.agent ?? `…`)
   return {
-    badge: trayIcon(context) === `listening`,
+    badge: trayIcon(context) === `listening` || trayIcon(context) === `recording`,
     tooltip: meeting
       ? `${meetingFixture.copy.meeting} · ${meeting.who}`
       : context.muted

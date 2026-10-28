@@ -227,15 +227,55 @@ export function meetingMessages(
   return out
 }
 
-/** AUTO-STOP: a set `meetingStartedAt` at least `autoStop.afterMs` old (an
- * unreadable stamp counts as expired). */
-export function meetingExpired(startedAt: string | null, nowMs: number): boolean {
+export type MeetingStopReason = `autoStop` | `restart`
+
+/** #FEED-163: `hours` as the server and the devices read it: one of
+ *  `autoStop.hoursValues`, anything else = `autoStop.defaultHours`. */
+export function autoStopHours(hours: number | null | undefined): number {
+  return typeof hours === `number` && fixture.autoStop.hoursValues.includes(hours)
+    ? hours
+    : fixture.autoStop.defaultHours
+}
+
+/** AUTO-STOP: a set `meetingStartedAt` at least `hours` h old (an unreadable
+ * stamp counts as expired; `hours` outside `hoursValues` = the default). */
+export function meetingExpired(
+  startedAt: string | null,
+  nowMs: number,
+  hours: number = fixture.autoStop.defaultHours
+): boolean {
   if (!startedAt) return false
   const at = Date.parse(startedAt)
-  return !Number.isFinite(at) || nowMs - at >= fixture.autoStop.afterMs
+  return !Number.isFinite(at) || nowMs - at >= autoStopHours(hours) * 3_600_000
+}
+
+/** #FEED-163: one Stop after option's label (`1 hour`, `{hours} hours`). */
+export function autoStopOption(hours: number): string {
+  return hours === 1
+    ? MEETING_COPY.autoStopHour
+    : MEETING_COPY.autoStopHours.replace(`{hours}`, String(hours))
+}
+
+/** #FEED-163: the Stop after row's options, one per `hoursValues`. */
+export function autoStopOptions(): { value: number; label: string }[] {
+  return fixture.autoStop.hoursValues.map((hours) => ({ value: hours, label: autoStopOption(hours) }))
 }
 
 /** The auto-stop's toast line (`copy.autoStopped`). */
-export function autoStopped(afterMs: number = fixture.autoStop.afterMs): string {
-  return MEETING_COPY.autoStopped.replace(`{hours}`, String(Math.round(afterMs / 3_600_000)))
+export function autoStopped(hours: number = fixture.autoStop.defaultHours): string {
+  return MEETING_COPY.autoStopped.replace(`{duration}`, autoStopOption(autoStopHours(hours)))
+}
+
+/** #FEED-163 NOTE: the system row an automatic stop posts into the member's
+ *  conversation with the voice agent; null = a manual stop, nothing. */
+export function stopNote(reason: MeetingStopReason | null | undefined, hours: number): string | null {
+  if (reason === `autoStop`) return `${autoStopped(hours)}.`
+  if (reason === `restart`) return MEETING_COPY.restartStopped
+  return null
+}
+
+/** #FEED-163 RESTART: the IDE process started while the meeting it listened
+ *  to still runs: ask for consent again instead of listening. */
+export function meetingResumeAsks(listened: string | null, startedAt: string | null): boolean {
+  return listened != null && startedAt != null && listened === startedAt
 }

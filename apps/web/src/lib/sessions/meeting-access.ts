@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm"
-import { MEETING_COPY } from "@exp/domain-contract/meeting"
+import { MEETING_COPY, stopNote, type MeetingStopReason } from "@exp/domain-contract/meeting"
 import { agents, devices, sessions } from "@/db/schema"
+import { insertMessage } from "@/lib/sessions/messages"
 import type { Db } from "@/lib/sessions/tx"
 
 // NEW-57 (meeting.json, `copy.sharedRefused`): a meeting transcript never
@@ -34,4 +35,29 @@ export async function meetingAgentIsPrivate(exec: Db, userId: string, agentId: s
     .where(and(eq(sessions.agentId, agentId), eq(sessions.userId, userId), isNull(sessions.parentId)))
     .limit(1)
   return conversation?.shared !== true
+}
+
+/** FEED-163 (meeting.json NOTE): an automatic stop's ONE system row in the
+ *  member's conversation with the voice agent: plain text, pre-consumed so
+ *  it NEVER wakes the agent (no turn starts). No conversation yet = no note.
+ *  The caller posts it only after its conditional clear actually cleared the
+ *  meeting, so it lands once per meeting. Returns the message id, or null. */
+export async function postMeetingStopNote(
+  exec: Db,
+  userId: string,
+  agentId: string,
+  reason: MeetingStopReason,
+  hours: number
+): Promise<string | null> {
+  const body = stopNote(reason, hours)
+  if (!body) return null
+  const [conversation] = await exec
+    .select({ id: sessions.id, rootId: sessions.rootId, teamId: sessions.teamId, shared: sessions.shared, userId: sessions.userId })
+    .from(sessions)
+    .where(and(eq(sessions.agentId, agentId), eq(sessions.userId, userId), isNull(sessions.parentId)))
+    .limit(1)
+  if (!conversation) return null
+  return exec.transaction((tx) =>
+    insertMessage(tx, conversation, { authorKind: `system`, body, consumedAt: new Date() })
+  )
 }

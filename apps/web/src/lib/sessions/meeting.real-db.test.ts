@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { agents, conversations, devices, messages, teamMembers, teams, userVoiceSettings } from "@/db/schema"
+import { agents, conversations, devices, messages, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
+import { stopNote } from "@exp/domain-contract/meeting"
 import { probeRealDb } from "@/test/real-db"
 
 // NEW-57 (meeting.json RESIDENCY) against the REAL migrated Postgres:
@@ -247,6 +248,75 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     expect(await started(fresh.owner)).not.toBeNull()
     // The read guard: a 1999 meeting reads as none even before a sweep.
     expect((await voice(fresh.owner).get()).meetingStartedAt).toBeNull()
+  })
+
+  it(`FEED-163 AUTO-STOP: the member's hours decide, and each cleared meeting posts ONE non-waking note`, async () => {
+    const short = await world()
+    const long = await world()
+    // Before every other case's stamps (the sweep scans the whole table).
+    const NOW = new Date(`1998-01-01T00:00:00.000Z`)
+    const HOUR = 60 * 60 * 1000
+    // The short one already has a conversation with Ops; the long one none.
+    const convo = await sendSession({ userId: short.owner, input: { agentId: short.ops, text: `hello` } })
+    const statusBefore = (await db.select().from(sessions).where(eq(sessions.id, convo.sessionId)))[0]!.status
+    await db.insert(userVoiceSettings).values([
+      { userId: short.owner, agentId: short.ops, voiceDeviceId: short.deviceId, meetingAutoStopHours: 1, meetingStartedAt: new Date(NOW.getTime() - HOUR) },
+      { userId: long.owner, agentId: long.ops, voiceDeviceId: long.deviceId, meetingAutoStopHours: 8, meetingStartedAt: new Date(NOW.getTime() - 5 * HOUR) },
+    ])
+    expect(await stopExpiredMeetings(NOW)).toBe(1)
+    // A second sweep (or a racing device stop) finds nothing to clear.
+    expect(await stopExpiredMeetings(NOW)).toBe(0)
+    const notes = await db.select().from(messages).where(and(eq(messages.sessionId, convo.sessionId), eq(messages.authorKind, `system`)))
+    expect(notes.map((note) => note.body)).toEqual([stopNote(`autoStop`, 1)])
+    expect(notes[0]!.consumedAt).not.toBeNull()
+    expect(notes[0]!.card).toBeNull()
+    // Never waking: the conversation's state is what the plain send left.
+    expect((await db.select().from(sessions).where(eq(sessions.id, convo.sessionId)))[0]!.status).toBe(statusBefore)
+    const longRow = (await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, long.owner)))[0]!
+    expect(longRow.meetingStartedAt).not.toBeNull()
+  })
+
+  it(`FEED-163: stopMeeting {reason} posts the note once; the watchdog after it and a manual stop post none`, async () => {
+    const w = await world()
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId, meetingAutoStopHours: 2 })
+    const convo = await sendSession({ userId: w.owner, input: { agentId: w.ops, text: `hello` } })
+    const notes = async () =>
+      (await db.select().from(messages).where(and(eq(messages.sessionId, convo.sessionId), eq(messages.authorKind, `system`)))).map((note) => note.body)
+
+    // The device's auto-stop on an expired stamp (it already reads as none).
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000 - 123)
+    await db.update(userVoiceSettings).set({ meetingStartedAt: old }).where(eq(userVoiceSettings.userId, w.owner))
+    expect((await voice(w.owner).get()).meetingStartedAt).toBeNull()
+    expect((await voice(w.owner).stopMeeting({ reason: `autoStop` })).meetingStartedAt).toBeNull()
+    expect((await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner)))[0]!.meetingStartedAt).toBeNull()
+    await voice(w.owner).stopMeeting({ reason: `autoStop` })
+    expect(await notes()).toEqual([stopNote(`autoStop`, 2)])
+
+    // Restart: the IDE came back to the meeting it listened to.
+    await voice(w.owner).startMeeting({ consent: true })
+    await voice(w.owner).stopMeeting({ reason: `restart` })
+    expect(await notes()).toEqual([stopNote(`autoStop`, 2), stopNote(`restart`, 2)])
+
+    // A manual stop posts nothing.
+    await voice(w.owner).startMeeting({ consent: true })
+    await voice(w.owner).stopMeeting()
+    expect((await voice(w.owner).get()).meetingStartedAt).toBeNull()
+    expect(await notes()).toHaveLength(2)
+  })
+
+  it(`FEED-163: voice.update writes meetingAutoStopHours (one of hoursValues) and leaves an expired stamp to the clear`, async () => {
+    const w = await world()
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId })
+    expect((await voice(w.owner).get()).meetingAutoStopHours).toBe(4)
+    await expect(voice(w.owner).update({ meetingAutoStopHours: 5 })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    await db.update(userVoiceSettings).set({ meetingStartedAt: old }).where(eq(userVoiceSettings.userId, w.owner))
+    expect((await voice(w.owner).get()).meetingStartedAt).not.toBeNull()
+    // A shorter value applies to the running meeting at once.
+    expect((await voice(w.owner).update({ meetingAutoStopHours: 1 })).meetingStartedAt).toBeNull()
+    const row = (await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner)))[0]!
+    expect(row.meetingAutoStopHours).toBe(1)
+    expect(row.meetingStartedAt?.getTime()).toBe(old.getTime())
   })
 
   it(`SHARING: sharing the voice agent's box with its team stops the meeting`, async () => {

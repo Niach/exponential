@@ -11,6 +11,9 @@ const h = vi.hoisted(() => {
     // S-3: the member's Assistants (oldest first) and the voice device each
     // one yields (null = not one of their own desktops).
     assistants: [] as { id: string; voiceDeviceId: string | null }[],
+    // FEED-163: one entry per update…returning (the conditional meeting clear).
+    updateQueue: [] as unknown[][],
+    updates: [] as Record<string, unknown>[],
   }
   const chain = () => {
     const rows = () => Promise.resolve(state.selectQueue.shift() ?? [])
@@ -22,6 +25,16 @@ const h = vi.hoisted(() => {
   }
   const db = {
     select: () => chain(),
+    update: () => ({
+      set: (set: Record<string, unknown>) => ({
+        where: () => ({
+          returning: () => {
+            state.updates.push(set)
+            return Promise.resolve(state.updateQueue.shift() ?? [])
+          },
+        }),
+      }),
+    }),
     insert: () => ({
       values: (values: Record<string, unknown>) => ({
         onConflictDoUpdate: ({ set }: { set: Record<string, unknown> }) => {
@@ -45,6 +58,7 @@ const h = vi.hoisted(() => {
         ? { agentId: assistant.id, voiceDeviceId: assistant.voiceDeviceId }
         : { agentId: null, voiceDeviceId: null }
     }),
+    postMeetingStopNote: vi.fn(async (..._args: unknown[]) => `note-1` as string | null),
   }
 })
 
@@ -53,6 +67,7 @@ vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/sessions/meeting-access`, async () => ({
   MEETING_SHARED_REFUSED: (await import(`@exp/domain-contract/meeting`)).MEETING_COPY.sharedRefused,
   meetingAgentIsPrivate: h.meetingAgentIsPrivate,
+  postMeetingStopNote: h.postMeetingStopNote,
 }))
 vi.mock(`@/lib/agents/assistant`, () => ({ voiceAssistantOf: h.voiceAssistantOf }))
 vi.mock(`@/lib/steer`, async () => ({
@@ -88,8 +103,9 @@ const stored = {
   desktopAudio: `off`,
   desktopAudioApps: [] as { id: string; name: string }[],
   meetingStartedAt: null as string | null,
+  meetingAutoStopHours: 4,
 }
-const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null }
+const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null, meetingAutoStopHours: 4 }
 // S-3: the legacy shims old clients read (speak-back always on, push to
 // talk = a key bound).
 const LEGACY_DEFAULTS = { speakReplies: true, pushToTalk: false }
@@ -102,7 +118,10 @@ beforeEach(() => {
   h.state.upserts = []
   // The member's one Assistant, on their desktop `d-mint`.
   h.state.assistants = [{ id: AGENT, voiceDeviceId: `d-mint` }]
+  h.state.updateQueue = []
+  h.state.updates = []
   h.relayPostNudge.mockClear()
+  h.postMeetingStopNote.mockClear()
   h.meetingAgentIsPrivate.mockReset()
   h.meetingAgentIsPrivate.mockResolvedValue(true)
 })
@@ -344,7 +363,8 @@ describe(`#NEW-57 meeting mode`, () => {
       desktopAudioApps: [{ id: `z`, name: `Zoom` }, { id: `s`, name: `Slack` }],
       meetingStartedAt: null,
     })
-    expect(h.state.upserts[0]?.set).toMatchObject({ desktopAudio: `include`, meetingStartedAt: null })
+    expect(h.state.upserts[0]?.set).toMatchObject({ desktopAudio: `include` })
+    expect(h.state.upserts[0]?.set).not.toHaveProperty(`meetingStartedAt`)
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
   })
 
@@ -387,11 +407,59 @@ describe(`#NEW-57 meeting mode`, () => {
     expect(h.state.upserts).toHaveLength(0)
   })
 
-  it(`stopMeeting clears it and nudges the voice device`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
+  it(`stopMeeting clears it and nudges the voice device; a manual stop posts no note`, async () => {
+    h.state.selectQueue = [[{ meetingStartedAt: STARTED }], [{ userId: `me`, ...stored }]]
+    h.state.updateQueue = [[{ agentId: AGENT, voiceDeviceId: `d-mint`, hours: 4 }]]
     expect((await caller.stopMeeting()).meetingStartedAt).toBeNull()
-    expect(h.state.upserts[0]?.set).toMatchObject({ meetingStartedAt: null })
+    expect(h.state.updates[0]).toMatchObject({ meetingStartedAt: null })
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+    expect(h.postMeetingStopNote).not.toHaveBeenCalled()
+  })
+
+  it(`FEED-163: stopMeeting {reason} posts ONE note at the member's hours, only when it cleared the stamp`, async () => {
+    for (const reason of [`autoStop`, `restart`] as const) {
+      h.postMeetingStopNote.mockClear()
+      h.state.selectQueue = [[{ meetingStartedAt: STARTED }], [{ userId: `me`, ...stored }]]
+      h.state.updateQueue = [[{ agentId: AGENT, voiceDeviceId: `d-mint`, hours: 2 }]]
+      await caller.stopMeeting({ reason })
+      expect(h.postMeetingStopNote).toHaveBeenCalledTimes(1)
+      expect(h.postMeetingStopNote).toHaveBeenCalledWith(h.db, `me`, AGENT, reason, 2)
+    }
+    // The watchdog (or another call) cleared it first: nothing to post.
+    h.postMeetingStopNote.mockClear()
+    h.state.selectQueue = [[{ meetingStartedAt: STARTED }], [{ userId: `me`, ...stored }]]
+    h.state.updateQueue = [[]]
+    await caller.stopMeeting({ reason: `autoStop` })
+    expect(h.postMeetingStopNote).not.toHaveBeenCalled()
+    // No stored meeting at all: no clear, no note.
+    h.state.selectQueue = [[], [{ userId: `me`, ...stored }]]
+    await caller.stopMeeting({ reason: `autoStop` })
+    expect(h.state.updates).toHaveLength(3)
+    expect(h.postMeetingStopNote).not.toHaveBeenCalled()
+    await expect(caller.stopMeeting({ reason: `sharing` } as never)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`FEED-163: the member's hours decide the read guard; a value outside hoursValues = the default`, async () => {
+    const hourOld = new Date(Date.now() - 60 * 60 * 1000 - 1)
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingAutoStopHours: 1, meetingStartedAt: hourOld }]]
+    expect(await caller.get()).toMatchObject({ meetingStartedAt: null, meetingAutoStopHours: 1 })
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingAutoStopHours: 8, meetingStartedAt: hourOld }]]
+    expect((await caller.get()).meetingStartedAt).toBe(hourOld.toISOString())
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingAutoStopHours: 5 }]]
+    expect((await caller.get()).meetingAutoStopHours).toBe(meetingFixture.autoStop.defaultHours)
+  })
+
+  it(`FEED-163: update stores meetingAutoStopHours (one of hoursValues), the meeting keeps running`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: STARTED }]]
+    const next = await caller.update({ meetingAutoStopHours: 8 })
+    expect(next).toMatchObject({ meetingAutoStopHours: 8, meetingStartedAt: STARTED.toISOString() })
+    expect(h.state.upserts[0]?.set).toMatchObject({ meetingAutoStopHours: 8 })
+    // Never rewrites the stamp it did not change (an expired one is the clear's).
+    expect(h.state.upserts[0]?.set).not.toHaveProperty(`meetingStartedAt`)
+    for (const bad of [0, 5, 2.5, 24]) {
+      h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+      await expect(caller.update({ meetingAutoStopHours: bad })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
   })
 
   it(`no Assistant (no device, no agent) reads with the meeting stopped (clearOnNone grows meeting)`, async () => {
