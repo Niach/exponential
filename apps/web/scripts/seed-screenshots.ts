@@ -1255,6 +1255,34 @@ async function seedSessionTree(ctx: {
         body: `Add an assignee grouping mode next to the status grouping. Remember the last choice per board.`,
         at: minutesAgo(25),
       },
+      // S-3 stories.json: a DRAFT story waiting on a choice (the chat
+      // list's second ring; the story-viewer's draft).
+      {
+        sessionId: ids.groupByAssignee,
+        author: `agent`,
+        authorSessionId: ids.groupByAssignee,
+        card: {
+          kind: `question`,
+          question: `Use this grouping menu?`,
+          options: [`Ship it`, `Try a segmented control`],
+          custom: true,
+          surface: {
+            root: {
+              id: `menu`,
+              component: `Card`,
+              children: [
+                { id: `menu-title`, component: `Heading`, props: { text: `Group by` } },
+                { id: `menu-status`, component: `Row`, props: { title: `Status`, value: `` } },
+                { id: `menu-assignee`, component: `Row`, props: { title: `Assignee`, value: `✓` } },
+                { id: `menu-label`, component: `Row`, props: { title: `Label`, value: `` } },
+              ],
+            },
+            data: {},
+          },
+          answer: null,
+        },
+        at: minutesAgo(6),
+      },
       {
         sessionId: ids.sortReports,
         author: `agent`,
