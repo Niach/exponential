@@ -551,6 +551,9 @@ struct StorySpecimensScreen: View {
         ),
     ]
 
+    /// The chat sessions' CLI (`specimen.input.sessions[].cli`).
+    private static let clis: [String: String] = ["board": "claude", "ship": "claude"]
+
     private static let agents: [(Stories.AgentInput, StoryRingAvatar)] = [
         (Stories.AgentInput(id: "a-triage", name: "Triage", assistant: false), .agent(icon: "bug", color: "#a855f7")),
         (Stories.AgentInput(id: "a-designer", name: "Designer", assistant: false), .agent(icon: "palette", color: "#ec4899")),
@@ -596,10 +599,11 @@ struct StorySpecimensScreen: View {
         messages.first { $0.id == storyId }?.card
     }
 
-    /// An agent ring = its icon in its colour; a chat ring = the bare brand mark.
+    /// An agent ring = its icon in its colour; a chat ring = the bare brand
+    /// mark of its root's CLI.
     static func avatar(_ ring: Stories.StoryRing) -> StoryRingAvatar {
         guard let agentId = ring.agentId, let avatar = agents.first(where: { $0.0.id == agentId })?.1 else {
-            return .chat(cli: nil)
+            return .chat(cli: ring.rootId.flatMap { clis[$0] })
         }
         guard case let .agent(icon, color) = avatar else { return avatar }
         return .agent(icon: BoardTypeDisplay.iconName(for: icon) ?? icon, color: color)
