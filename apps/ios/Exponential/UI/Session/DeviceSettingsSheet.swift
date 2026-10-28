@@ -29,6 +29,9 @@ import SwiftUI
 //              screen-driving subagents run on, default Haiku) is that
 //              group's last row, shown only while the switch is on, and rides
 //              the same save beside it as `computerUseModel`.
+//              NEW-59: "Work screen" (the display agents drive, fixture
+//              `work-screen.json`) sits right under it under the same rule
+//              and rides the same save as `computerUseDisplay` (null = Auto).
 //              EXP-862 took the ACCOUNT and USAGE rows back out (×4). A login
 //              is a flow, not a setting: signing in lives on the account chips
 //              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
@@ -115,6 +118,9 @@ struct DeviceSettingsSheet: View {
     /// seeded through `LaunchVocabulary.seedComputerUseModel` (contract
     /// default when the row has none).
     @State private var computerUseModel = DomainContract.deviceComputerUseDefaultsModel
+    /// NEW-59: the device-level `launchDefaults.computerUseDisplay` draft
+    /// (1-based; nil = Auto), sent explicitly on every defaults save.
+    @State private var computerUseDisplay: Int?
     @State private var savingDefaults = false
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
@@ -269,6 +275,7 @@ struct DeviceSettingsSheet: View {
         drafts = next
         computerUse = device.launchDefaults?.computerUse ?? false
         computerUseModel = LaunchVocabulary.seedComputerUseModel(device.launchDefaults?.computerUseModel)
+        computerUseDisplay = device.launchDefaults?.computerUseDisplay
     }
 
     /// The advertised per-agent defaults as a draft, contract-validated with
@@ -528,6 +535,10 @@ struct DeviceSettingsSheet: View {
                     }
                 ),
                 computerUseModel: computerUseModelBinding,
+                workScreen: computerUseDisplayBinding,
+                workScreenOptions: WorkScreen.options(
+                    displays: doctor.displays, stored: computerUseDisplay
+                ),
                 busyActions: updatingAgents,
                 onAction: { row in runReadinessAction(row, device: device) },
                 onImport: { row in
@@ -546,6 +557,18 @@ struct DeviceSettingsSheet: View {
             get: { computerUseModel },
             set: { newValue in
                 computerUseModel = newValue
+                defaultsPending = true
+                scheduleDefaultsAutosave()
+            }
+        )
+    }
+
+    /// NEW-59: the Work screen draft's binding, saved the same way.
+    private var computerUseDisplayBinding: Binding<Int?> {
+        Binding(
+            get: { computerUseDisplay },
+            set: { newValue in
+                computerUseDisplay = newValue
                 defaultsPending = true
                 scheduleDefaultsAutosave()
             }
@@ -572,6 +595,12 @@ struct DeviceSettingsSheet: View {
             if computerUse {
                 ModelPickerRow("Computer use model", selection: computerUseModelBinding)
                 .accessibilityIdentifier("device-computer-use-model")
+                // NEW-59: no doctor = no reported displays: Auto (+ a stored
+                // one as Not connected).
+                WorkScreenPickerRow(
+                    selection: computerUseDisplayBinding,
+                    options: WorkScreen.options(displays: nil, stored: computerUseDisplay)
+                )
             }
         }
         .listRowBackground(glassFormRowFill)
@@ -710,7 +739,9 @@ struct DeviceSettingsSheet: View {
         let payload = DeviceLaunchDefaultsInput(
             agents: agents,
             computerUse: computerUse,
-            computerUseModel: computerUseModel
+            computerUseModel: computerUseModel,
+            // NEW-59: explicit, Auto = null (clears the stored display).
+            computerUseDisplay: .init(computerUseDisplay)
         )
         defaultsPending = false
         savingDefaults = true

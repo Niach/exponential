@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-28-work-screen",
+    date: "2026-10-28",
+    title: "Work screen",
+    summary: "Pick the display agents drive with computer use, and fullscreen apps stay yours.",
+    body: r#"- **Work screen**: Device settings → Computer use has a Work screen row: Auto (every display without a fullscreen app) or one display. Agents only see and drive that display.
+- **Fullscreen stays yours**: while you are in a fullscreen app (a game, a video) on another display, agents don't click or type; the voice overlay never opens over a fullscreen app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_106: ChangelogEntry = ChangelogEntry {
     id: "2026-10-28-sessions-never-stall",
     date: "2026-10-28",
     title: "Sessions that never stall, and a disk check on every device",

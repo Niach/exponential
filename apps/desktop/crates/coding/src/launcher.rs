@@ -1389,6 +1389,9 @@ fn attach_computer_use(
     if !options.computer_use_on(deps.settings.computer_use) {
         return false;
     }
+    // NEW-59: the run drives the device's Work screen as of its start (the
+    // hosts also set it whenever the converged value moves).
+    computer::set_work_display(deps.settings.computer_use_display);
     match computer::grant(session_id, label) {
         Ok(grant) => {
             crate::mcp_servers::attach_computer(team_mcp, &grant);

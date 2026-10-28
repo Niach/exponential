@@ -68,6 +68,12 @@ fun DeviceReadinessBlock(
     computerUseModel: String? = null,
     onComputerUseModelChange: ((String) -> Unit)? = null,
     onImport: ((DoctorRow) -> Unit)? = null,
+    /** NEW-59: the device's reported displays (`doctor.displays`). */
+    workScreenDisplays: List<com.exponential.app.domain.WorkScreenDisplay>? = null,
+    /** NEW-59: the stored Work screen (null = Auto). */
+    computerUseDisplay: Int? = null,
+    /** NEW-59: adds the Work screen row under the model row; null = no row. */
+    onComputerUseDisplayChange: ((Int?) -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("device-readiness")) {
         groups.forEachIndexed { index, group ->
@@ -118,6 +124,15 @@ fun DeviceReadinessBlock(
                         value = computerUseModel,
                         onSelect = onComputerUseModelChange,
                     )
+                    // NEW-59: the Work screen, directly under the model row.
+                    if (onComputerUseDisplayChange != null) {
+                        GroupDivider()
+                        WorkScreenPickerRow(
+                            displays = workScreenDisplays,
+                            value = computerUseDisplay,
+                            onSelect = onComputerUseDisplayChange,
+                        )
+                    }
                 }
             }
         }

@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
@@ -576,6 +577,39 @@ internal fun ModelPickerRow(
         PickerValueRow(label = label, value = modelLabel(value), enabled = enabled, onClick = open)
     }
 }
+
+/**
+ * NEW-59: the Work screen row under the Computer use model row (only while
+ * computer use is on): THE [PickerRow], its options
+ * `WorkScreen.options(displays, value)` (`work-screen.json`); [value] = the
+ * stored 1-based display number, null = Auto.
+ */
+@Composable
+internal fun WorkScreenPickerRow(
+    displays: List<com.exponential.app.domain.WorkScreenDisplay>?,
+    value: Int?,
+    onSelect: (Int?) -> Unit,
+    enabled: Boolean = true,
+) {
+    val options = com.exponential.app.domain.WorkScreen.options(displays, value)
+    val key: (Int?) -> String = { it?.toString() ?: WORK_SCREEN_AUTO_KEY }
+    val labels = options.associate { key(it.value) to it.label }
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier.testTag(com.exponential.app.domain.WorkScreen.ROW_TEST_ID),
+    ) {
+        PickerRow(
+            label = com.exponential.app.domain.WorkScreen.Copy.ROW,
+            value = labels[key(value)] ?: com.exponential.app.domain.WorkScreen.Copy.AUTO,
+            options = options.map { key(it.value) },
+            selected = key(value),
+            optionLabel = { labels[it] ?: it },
+            onSelect = { picked -> onSelect(picked.toIntOrNull()) },
+            enabled = enabled,
+        )
+    }
+}
+
+private const val WORK_SCREEN_AUTO_KEY = "auto"
 
 internal fun agentLabel(value: String): String = when (value) {
     "claude" -> "Claude Code"

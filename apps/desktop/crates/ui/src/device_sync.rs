@@ -1382,6 +1382,7 @@ fn adopt_disk_settings(cx: &mut App) {
     let hub = CodingHub::global(cx);
     hub.update(cx, |hub, cx| {
         if hub.settings != settings {
+            coding::computer::set_work_display(settings.computer_use_display);
             hub.settings = settings;
             cx.notify();
         }
@@ -1394,6 +1395,7 @@ fn reload_hub_settings(cx: &mut App) {
     let hub = CodingHub::global(cx);
     hub.update(cx, |hub, cx| {
         hub.settings = coding::Settings::load(&settings_path);
+        coding::computer::set_work_display(hub.settings.computer_use_display);
         cx.notify();
     });
     // Doctor refresh re-derives the advertisement → the relay re-dials with

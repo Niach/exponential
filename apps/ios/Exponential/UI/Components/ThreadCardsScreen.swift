@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice|device-readiness>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice|device-readiness|work-screen>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice", "device-readiness", "work-screen"]
 
     var body: some View {
         if kind == "settings-voice" {
@@ -60,6 +60,7 @@ struct ThreadCardsScreen: View {
                     case "mention-pill": MentionPillSpecimens()
                     case "voice-call": VoiceCallSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()
+                    case "work-screen": WorkScreenSpecimens()
                     default: workCards
                     }
                 }
@@ -842,5 +843,37 @@ private struct DeviceReadinessSpecimens: View {
         Text(text)
             .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+}
+
+/// NEW-59: device settings' computer-use card with the Work screen row
+/// (computer use on, two reported displays, display 2 picked), THE real
+/// readiness block over a doctor report.
+private struct WorkScreenSpecimens: View {
+    @State private var computerUse = true
+    @State private var model = DomainContract.deviceComputerUseDefaultsModel
+    @State private var display: Int? = 2
+
+    private static let doctor = DeviceDoctor(
+        items: [
+            .init(key: "computer_use", group: "computer_use", state: "ok"),
+            .init(key: "screen_recording", group: "computer_use", parent: "computer_use", state: "ok", detail: "Granted"),
+            .init(key: "accessibility", group: "computer_use", parent: "computer_use", state: "ok", detail: "Granted"),
+        ],
+        displays: [
+            WorkScreen.Display(number: 1, width: 2560, height: 1440, primary: false),
+            WorkScreen.Display(number: 2, width: 3024, height: 1964, primary: true),
+        ]
+    )
+
+    var body: some View {
+        DeviceReadinessView(
+            groups: DeviceReadiness.groups(Self.doctor, remote: true, computerUseOn: computerUse),
+            computerUse: $computerUse,
+            computerUseModel: $model,
+            workScreen: $display,
+            workScreenOptions: WorkScreen.options(displays: Self.doctor.displays, stored: display),
+            onAction: { _ in }
+        )
     }
 }

@@ -68,6 +68,37 @@ pub fn import_title(email: &str) -> String {
 pub struct DeviceDoctor {
     pub checked_at: String,
     pub items: Vec<DoctorItem>,
+    /// NEW-59: the device's displays (`doctor.displays`,
+    /// `fixtures/work-screen.json`) in the OS's order, pixels; omitted when
+    /// none are reported (a display-less daemon). The Work screen row's
+    /// options come from here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub displays: Vec<DoctorDisplay>,
+}
+
+/// NEW-59: one entry of `doctor.displays`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoctorDisplay {
+    /// 1-based, the OS's order (`launch_defaults.computerUseDisplay`).
+    pub number: u32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub primary: bool,
+}
+
+impl From<&crate::computer::Display> for DoctorDisplay {
+    fn from(display: &crate::computer::Display) -> Self {
+        // Physical pixels (work-screen.json DISPLAYS): macOS rects are points.
+        let (width, height) = crate::computer::pixel_size(display);
+        DoctorDisplay {
+            number: display.number,
+            width,
+            height,
+            primary: display.primary,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,6 +450,7 @@ pub fn build(report: &DoctorReport, settings: &Settings, computer: ComputerState
     DeviceDoctor {
         checked_at: crate::agent_accounts::now_iso(),
         items,
+        displays: Vec::new(),
     }
 }
 
@@ -460,6 +492,9 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
         crate::worktree_lifecycle::free_bytes(&settings.repos_root_path()),
         &crate::worktree_lifecycle::kept_rows(data_dir),
     );
+    // NEW-59: the displays ride every doctor (register + heartbeat), so the
+    // Work screen row can offer them before the switch is on.
+    doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
     doctor
 }
 

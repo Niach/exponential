@@ -68,7 +68,35 @@ pub struct DefaultsPatch {
     /// switch; same carry-forward contract as `computer_use`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_model: Option<String>,
+    /// NEW-59: `Settings.computer_use_display`, the Work screen
+    /// (`fixtures/work-screen.json`). Tri-state, unlike its neighbours: an
+    /// ABSENT key keeps the stored value (carry-forward), an explicit `null`
+    /// clears it to Auto, a number picks that display. So the device states
+    /// Auto as `null` (the one null on its wire; the server accepts it).
+    #[serde(
+        default,
+        deserialize_with = "present_or_null",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub computer_use_display: Option<Option<u32>>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
+}
+
+/// A present key (null included) deserializes to `Some`, so `null` and
+/// absent stay apart ([`DefaultsPatch::computer_use_display`]). A value
+/// that is not a positive integer reads as absent (ignore-invalid).
+fn present_or_null<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<u32>>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value {
+        serde_json::Value::Null => Some(None),
+        other => other
+            .as_u64()
+            .and_then(|number| u32::try_from(number).ok())
+            .filter(|number| *number >= 1)
+            .map(Some),
+    })
 }
 
 /// Apply `patch` onto `settings`, FIELD-wise and ignore-invalid: a value
@@ -104,6 +132,12 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
     if let Some(model) = &patch.computer_use_model {
         if crate::settings::MODEL_ALIASES.contains(&model.as_str()) {
             set_string(&mut settings.computer_use_model, model, &mut changed);
+        }
+    }
+    if let Some(display) = patch.computer_use_display {
+        if settings.computer_use_display != display {
+            settings.computer_use_display = display;
+            changed = true;
         }
     }
     for (agent_id, entry) in &patch.agents {
@@ -201,6 +235,7 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.auto_rotate_accounts = from.auto_rotate_accounts;
     onto.computer_use = from.computer_use;
     onto.computer_use_model = from.computer_use_model.clone();
+    onto.computer_use_display = from.computer_use_display;
 }
 
 /// The PUSH direction: this machine's launch defaults as the full wire
@@ -234,6 +269,7 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
         computer_use: Some(settings.computer_use),
         computer_use_model: Some(settings.computer_use_model.clone()),
+        computer_use_display: Some(settings.computer_use_display),
         agents,
     }
 }
@@ -339,6 +375,33 @@ mod tests {
         }
     }
 
+    /// NEW-59: the Work screen rides the top of the wire; absent keeps it,
+    /// null clears it to Auto, garbage changes nothing.
+    #[test]
+    fn computer_use_display_carries_forward_and_null_clears_it() {
+        let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        assert!(wire.as_object().unwrap().contains_key("computerUseDisplay"));
+        let mut settings = Settings::default();
+        let patch: DefaultsPatch =
+            serde_json::from_value(serde_json::json!({ "computerUseDisplay": 2 })).unwrap();
+        assert!(apply_defaults_patch(&mut settings, &patch));
+        assert_eq!(settings.computer_use_display, Some(2));
+        assert_eq!(serde_json::to_value(defaults_wire(&settings)).unwrap()["computerUseDisplay"], 2);
+        for silent in [
+            serde_json::json!({ "agents": {} }),
+            serde_json::json!({ "computerUseDisplay": 0 }),
+            serde_json::json!({ "computerUseDisplay": "2" }),
+        ] {
+            let patch: DefaultsPatch = serde_json::from_value(silent).unwrap();
+            assert!(!apply_defaults_patch(&mut settings, &patch));
+            assert_eq!(settings.computer_use_display, Some(2));
+        }
+        let clear: DefaultsPatch =
+            serde_json::from_value(serde_json::json!({ "computerUseDisplay": null })).unwrap();
+        assert!(apply_defaults_patch(&mut settings, &clear));
+        assert_eq!(settings.computer_use_display, None);
+    }
+
     /// Every model is explicit: a blank model, subagent or thread model on
     /// the wire is never applied, for any agent.
     #[test]
@@ -420,7 +483,10 @@ mod tests {
         // EXP-495: capability-masked toggles must be OMITTED, not null —
         // the server's zod schema 400'd explicit nulls, silently failing
         // `devices.register` on every 0.14.10 daemon.
-        let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        let mut wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        // NEW-59: Auto is the one stated null (it clears the stored pick).
+        assert_eq!(wire["computerUseDisplay"], serde_json::Value::Null);
+        wire.as_object_mut().unwrap().remove("computerUseDisplay");
         let rendered = serde_json::to_string(&wire).unwrap();
         assert!(!rendered.contains("null"), "no nulls on the wire: {rendered}");
         let codex = &wire["agents"]["codex"];
@@ -487,6 +553,7 @@ mod tests {
             auto_rotate_accounts: false,
             computer_use: true,
             computer_use_model: "opus".into(),
+            computer_use_display: Some(2),
             terminal_shell: Some("/bin/zsh".into()),
             changelog_seen_id: Some("2026-09-24".into()),
             app_editor_layout: Some("docked".into()),

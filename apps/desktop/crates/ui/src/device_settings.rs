@@ -323,6 +323,39 @@ pub(crate) fn parse_agent_map<T: serde::de::DeserializeOwned>(
     out
 }
 
+/// EXP-1236 / NEW-59: the Computer use band's tail while the switch is on:
+/// the Computer use model row, then the Work screen row (`fixtures/
+/// work-screen.json`: the same picker row, directly under it). Shared with
+/// the styleguide twin.
+pub(crate) fn computer_use_rows(
+    model: &ChoiceSelect,
+    work_screen: &ChoiceSelect,
+    cx: &App,
+) -> Vec<gpui::AnyElement> {
+    let work_screen_row = surface::glass_picker_row(
+        SharedString::from(domain::work_screen::WORK_SCREEN.copy.row.clone()),
+        None,
+        surface::glass_picker_select(Select::new(work_screen), cx).into_any_element(),
+        cx,
+    );
+    vec![
+        surface::glass_picker_row(
+            "Computer use model",
+            None,
+            surface::glass_picker_select(Select::new(model), cx).into_any_element(),
+            cx,
+        )
+        .into_any_element(),
+        gpui::InteractiveElement::id(
+            gpui::div(),
+            SharedString::from(domain::work_screen::WORK_SCREEN.test_ids.row.clone()),
+        )
+        .w_full()
+        .child(work_screen_row)
+        .into_any_element(),
+    ]
+}
+
 /// A REMOTE row's defaults baseline: its `launch_defaults` clamped onto a
 /// default Settings (remote_admin's apply, the same clamp the device itself
 /// runs). Plan mode reads OFF until the row says otherwise (web `agentSeed`:
@@ -375,6 +408,12 @@ pub struct DeviceSettingsView {
     /// screen-driving subagents run on; the picker row under the switch,
     /// shown only while it is on, saved through the same defaults write.
     computer_use_model_select: ChoiceSelect,
+    /// NEW-59: `Settings.computer_use_display` — the Work screen picker row
+    /// under the model row (same group, same picker row, only while the
+    /// switch is on). Its options follow the machine's reported displays
+    /// (`doctor.displays`); [`Self::work_screen_options`] = the listed ones.
+    work_screen_select: ChoiceSelect,
+    work_screen_options: Vec<domain::work_screen::WorkScreenOption>,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -515,6 +554,15 @@ impl DeviceSettingsView {
             crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_subagent_model, window, cx);
         let computer_use_model_select =
             crate::coding_selects::model_select(CodingAgent::Claude, &seeded.computer_use_model, window, cx);
+        let work_screen_displays = Self::displays_for(Some(&row), own, cx);
+        let work_screen_options =
+            domain::work_screen::work_screen_options(&work_screen_displays, seeded.computer_use_display);
+        let work_screen_select = crate::coding_selects::work_screen_select(
+            &work_screen_displays,
+            seeded.computer_use_display,
+            window,
+            cx,
+        );
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -547,6 +595,7 @@ impl DeviceSettingsView {
             &codex_thread_model_select,
             &subagent_model_select,
             &computer_use_model_select,
+            &work_screen_select,
         ] {
             // EXP-694 autosave: a picked value IS the save (the guard in
             // `save_defaults` swallows the programmatic rewrites).
@@ -592,6 +641,8 @@ impl DeviceSettingsView {
             claude_auto_rotate: seeded.auto_rotate_accounts,
             computer_use: seeded.computer_use,
             computer_use_model_select,
+            work_screen_select,
+            work_screen_options,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -671,6 +722,58 @@ impl DeviceSettingsView {
         (seeded, editor_agents)
     }
 
+    /// NEW-59: the machine's reported displays (`doctor.displays`): own =
+    /// the live local doctor, remote = the synced row's.
+    fn displays_for(
+        row: Option<&domain::rows::DeviceRow>,
+        own: bool,
+        cx: &mut App,
+    ) -> Vec<domain::work_screen::WorkScreenDisplay> {
+        let doctor = if own {
+            CodingHub::global(cx).read(cx).doctor.device.clone()
+        } else {
+            device_readiness::parse(row.and_then(|row| row.doctor.as_ref()))
+        };
+        doctor
+            .map(|doctor| {
+                doctor
+                    .displays
+                    .iter()
+                    .map(|display| domain::work_screen::WorkScreenDisplay {
+                        number: display.number,
+                        width: display.width,
+                        height: display.height,
+                        primary: display.primary,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// NEW-59: re-list the Work screen options when the reported displays
+    /// (or the pick a gone display keeps listed) moved, and select `pick`.
+    fn refresh_work_screen(
+        &mut self,
+        row: Option<&domain::rows::DeviceRow>,
+        pick: Option<u32>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let displays = Self::displays_for(row, self.own, cx);
+        let options = domain::work_screen::work_screen_options(&displays, pick);
+        let value = crate::coding_selects::work_screen_value(pick);
+        let listed = self.work_screen_select.read(cx).selected_value().cloned();
+        if options == self.work_screen_options && listed.as_ref() == Some(&value) {
+            return;
+        }
+        let items = crate::coding_selects::work_screen_items(&displays, pick);
+        self.work_screen_options = options;
+        self.work_screen_select.update(cx, |select, cx| {
+            select.set_items(items, window, cx);
+            select.set_selected_value(&value, window, cx);
+        });
+    }
+
     /// EXP-490: mirror the live baseline into the open dialog — the name
     /// input and (EXP-696) the defaults controls re-seed only while the user
     /// has NOT diverged from the previous baseline, so a background delta can
@@ -710,6 +813,11 @@ impl DeviceSettingsView {
             }
             self.seeded_label = label;
         }
+
+        // NEW-59: the reported displays move with the doctor, not the
+        // baseline: re-list them around the current pick first.
+        let pick = crate::coding_selects::selected_work_screen(&self.work_screen_select, cx);
+        self.refresh_work_screen(Some(&row), pick, window, cx);
 
         let (baseline, editor_agents) = Self::baseline_for(&row, self.own, cx);
         if baseline == self.seeded && editor_agents == self.editor_agents {
@@ -760,6 +868,7 @@ impl DeviceSettingsView {
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.claude_auto_rotate = baseline.auto_rotate_accounts;
         self.computer_use = baseline.computer_use;
+        self.refresh_work_screen(Some(&row), baseline.computer_use_display, window, cx);
         if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
         }
@@ -785,24 +894,21 @@ impl DeviceSettingsView {
         drafted.auto_rotate_accounts = self.claude_auto_rotate;
         drafted.computer_use = self.computer_use;
         drafted.computer_use_model = selected(&self.computer_use_model_select, cx);
+        drafted.computer_use_display =
+            crate::coding_selects::selected_work_screen(&self.work_screen_select, cx);
         drafted
     }
 
-    /// EXP-1236: the Computer use model picker row — the last row of the
-    /// readiness block's Computer use band (under the switch and its
-    /// permission rows), drawn only while the switch is on. The select's
-    /// observer saves a pick through the launch defaults, like the switch.
-    fn computer_use_model_row(&self, cx: &App) -> Option<gpui::AnyElement> {
-        self.computer_use.then(|| {
-            surface::glass_picker_row(
-                "Computer use model",
-                None,
-                surface::glass_picker_select(Select::new(&self.computer_use_model_select), cx)
-                    .into_any_element(),
-                cx,
-            )
-            .into_any_element()
-        })
+    /// EXP-1236: the Computer use model picker row — under the readiness
+    /// block's Computer use band (the switch and its permission rows) — and
+    /// NEW-59 the Work screen picker row under it, drawn only while the
+    /// switch is on. The selects' observers save a pick through the launch
+    /// defaults, like the switch.
+    fn computer_use_rows(&self, cx: &App) -> Vec<gpui::AnyElement> {
+        if !self.computer_use {
+            return Vec::new();
+        }
+        computer_use_rows(&self.computer_use_model_select, &self.work_screen_select, cx)
     }
 
     fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>, cx: &mut App) {
@@ -1780,7 +1886,7 @@ impl DeviceSettingsView {
                                 cx.notify();
                             });
                         })),
-                        computer_use_tail: self.computer_use_model_row(cx),
+                        computer_use_tail: self.computer_use_rows(cx),
                         ..device_readiness::BlockProps::default()
                     };
                     let row = device_readiness::bare_switch_row(self.computer_use);
@@ -1839,7 +1945,7 @@ impl DeviceSettingsView {
                 cx.notify();
             });
         }));
-        props.computer_use_tail = self.computer_use_model_row(cx);
+        props.computer_use_tail = self.computer_use_rows(cx);
         for agent in CodingAgent::ALL {
             let key = format!("update {}", agent.id());
             if let Some(line) = self.note_line(&key, cx) {

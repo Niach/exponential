@@ -206,6 +206,14 @@ pub fn displays() -> Vec<Display> {
     work_screen::displays()
 }
 
+/// NEW-59: `display`'s size in physical pixels (the doctor's `displays`
+/// and the Work screen labels): macOS reports [`Display`] in points, so a
+/// Retina panel reads its native pixels here; elsewhere the rect already is
+/// pixels.
+pub fn pixel_size(display: &Display) -> (u32, u32) {
+    backend::pixel_size(display.x, display.y, display.width, display.height)
+}
+
 /// NEW-59: the displays, their fullscreen windows and the work displays now;
 /// `None` without a display. Reads the OS (a few ms): call it when the
 /// overlay opens, not per frame.

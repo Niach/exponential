@@ -12,6 +12,7 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Stateful, Styled,
     Transformation,
 };
+use gpui::prelude::FluentBuilder as _;
 use gpui_component::input::Input;
 use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_component::select::Select;
@@ -370,8 +371,11 @@ pub fn glass_picker_row(
             v_flex()
                 // `min_w_0`: gpui measures min-content text UNWRAPPED, so
                 // without it the column could never shrink below the hint's
-                // single-line width and nothing would ever wrap.
+                // single-line width and nothing would ever wrap. Without a
+                // hint the label never shrinks (picker-presentation.json (3):
+                // only the value gives way).
                 .min_w_0()
+                .when(description.is_none(), |column| column.flex_shrink_0())
                 .gap_0p5()
                 .text_sm()
                 .text_color(foreground)

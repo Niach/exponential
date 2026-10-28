@@ -9,7 +9,8 @@
 //!
 //! EXP-1063: the demo is drawn by the dialog's OWN parts, in the dialog's
 //! order — the glass rows, the readiness block (EXP-1236: its Computer use
-//! band with the switch on and the Computer use model picker under it, off
+//! band with the switch on and the Computer use model picker under it, NEW-59
+//! the Work screen picker under that, off
 //! the contract fixture's "computer use on" case), `AgentDefaultsGroup` with
 //! real selects (Model, then Thread model, then claude's Subagent model —
 //! every model row the ONE `coding_selects::model_select` over all the
@@ -28,7 +29,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
-    select::Select,
     v_flex, ActiveTheme as _, Icon,
 };
 
@@ -52,7 +52,7 @@ const DOCTOR_FIXTURE: &str =
 /// EXP-1236: the fixture case whose Computer use switch is ON — the one that
 /// shows the model picker under it. `None` only if the fixture has no such
 /// case (the block is then left out, never faked).
-fn computer_use_on_doctor() -> Option<DeviceDoctor> {
+pub(super) fn computer_use_on_doctor() -> Option<DeviceDoctor> {
     let fixture: serde_json::Value = serde_json::from_str(DOCTOR_FIXTURE).ok()?;
     fixture["cases"]
         .as_array()?
@@ -90,6 +90,9 @@ struct DeviceSettingsDemo {
     doctor: Option<DeviceDoctor>,
     computer_use: bool,
     computer_use_model: ChoiceSelect,
+    /// NEW-59: the Work screen row under the model row (the `work-screen`
+    /// entry's demo displays, Auto picked).
+    work_screen: ChoiceSelect,
 }
 
 impl DeviceSettingsDemo {
@@ -141,12 +144,19 @@ impl DeviceSettingsDemo {
                 window,
                 cx,
             ),
+            work_screen: crate::coding_selects::work_screen_select(
+                &super::work_screen::DEMO_DISPLAYS,
+                settings.computer_use_display,
+                window,
+                cx,
+            ),
         }
     }
 
     /// The dialog's readiness block: the fixture's "computer use on" case,
-    /// the switch live, the Computer use model row as the band's last row
-    /// while it is on (`device_settings::computer_use_model_row`'s twin).
+    /// the switch live, the Computer use model row and (NEW-59) the Work
+    /// screen row under it as the band's last rows while it is on (the
+    /// dialog's own `device_settings::computer_use_rows`).
     fn readiness_block(&self, cx: &mut Context<Self>) -> Option<Div> {
         let doctor = self.doctor.as_ref()?;
         let view = cx.entity().downgrade();
@@ -158,16 +168,11 @@ impl DeviceSettingsDemo {
                     cx.notify();
                 });
             })),
-            computer_use_tail: self.computer_use.then(|| {
-                surface::glass_picker_row(
-                    "Computer use model",
-                    None,
-                    surface::glass_picker_select(Select::new(&self.computer_use_model), cx)
-                        .into_any_element(),
-                    cx,
-                )
-                .into_any_element()
-            }),
+            computer_use_tail: if self.computer_use {
+                crate::device_settings::computer_use_rows(&self.computer_use_model, &self.work_screen, cx)
+            } else {
+                Vec::new()
+            },
             ..device_readiness::BlockProps::default()
         };
         Some(device_readiness::render_sections(

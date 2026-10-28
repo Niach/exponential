@@ -5,6 +5,11 @@
 //! maps it back to the OS's units. A run works on one display at a time
 //! (the primary until a `screenshot {display}` picks another); its windows
 //! on the others list with coordinates outside the frame.
+//!
+//! NEW-59: every call passes the work-screen gate first ([`work_screen`]):
+//! agents drive only the work displays (the device's pick, else every
+//! display without a fullscreen app), and a refused call never touches the
+//! screen or the person's input.
 
 use std::io::Cursor;
 use std::time::Duration;
@@ -13,6 +18,7 @@ use serde_json::{json, Value};
 
 use crate::backend::{Backend, Button, DisplayInfo, Image, WindowInfo};
 use crate::keys::{parse_combo, Key, Named};
+use crate::work_screen;
 
 /// The frame's ceiling: what the vision models read best.
 pub(crate) const MAX_WIDTH: u32 = 1280;
@@ -91,8 +97,8 @@ pub(crate) fn list() -> Value {
     };
     let none = json!({ "type": "object", "properties": {} });
     json!([
-        { "name": "screenshot", "description": format!("The current display now, as a PNG fitted to at most {MAX_WIDTH}x{MAX_HEIGHT}. Every coordinate of every other tool is in THIS image's pixels. Take one before you act and one after. `display` switches the run to another display (the indexes list_windows reports); it stays until the next switch."), "inputSchema": { "type": "object", "properties": { "display": { "type": "integer", "description": "A display index from list_windows (default: the current one, the primary at first)", "minimum": 0 } } } },
-        { "name": "list_windows", "description": "Every top-level window, top first: id, title, app, display, frame (pixels of the CURRENT display's screenshot; a window on another display lies outside it), active; plus the displays.", "inputSchema": none },
+        { "name": "screenshot", "description": format!("The current display now, as a PNG fitted to at most {MAX_WIDTH}x{MAX_HEIGHT}. Every coordinate of every other tool is in THIS image's pixels. Take one before you act and one after. `display` switches the run to another work-screen display (the indexes list_windows reports); it stays until the next switch."), "inputSchema": { "type": "object", "properties": { "display": { "type": "integer", "description": "A display index from list_windows (default: the current one, the primary at first)", "minimum": 0 } } } },
+        { "name": "list_windows", "description": "Every top-level window on the work screen, top first: id, title, app, display, frame (pixels of the CURRENT display's screenshot; a window on another display lies outside it), active; plus the work-screen displays.", "inputSchema": none },
         { "name": "activate_window", "description": "Bring a window to the front and give it the keyboard.", "inputSchema": { "type": "object", "properties": { "id": { "type": "integer", "description": "A list_windows id" } }, "required": ["id"] } },
         { "name": "cursor_position", "description": "Where the pointer is, in screenshot pixels.", "inputSchema": none },
         { "name": "mouse_move", "description": "Move the pointer (a hover).", "inputSchema": point("Target") },
@@ -135,75 +141,158 @@ fn point(args: &Value, frame: Frame, x: &str, y: &str) -> Result<(i32, i32), Str
 }
 
 /// What one call runs with: the run's abort flag (the person's Esc, read
-/// between the steps of a long action) and its display, remembered across
-/// calls.
+/// between the steps of a long action), its display, remembered across
+/// calls, the device's Work screen pick and the lease on the person's input.
 pub(crate) struct CallContext<'a> {
     pub interrupted: &'a dyn Fn() -> bool,
     pub display: &'a mut Option<usize>,
+    /// `launch_defaults.computerUseDisplay` (1-based; `None` = Auto).
+    pub picked: Option<u32>,
+    /// Takes the person's input; runs once the call passed the gate, so a
+    /// refused call never locks them out. `Err` = the answer.
+    pub engage: &'a dyn Fn() -> Result<(), String>,
 }
 
-/// One call.
+/// The screen one call reads (NEW-59): the displays, the window list (read
+/// only when the gate needs it, else empty) and the work displays.
+struct Screen {
+    displays: Vec<DisplayInfo>,
+    windows: Result<Vec<WindowInfo>, String>,
+    state: work_screen::State,
+    work: Vec<usize>,
+}
+
+impl Screen {
+    fn read(backend: &dyn Backend, name: &str, picked: Option<u32>) -> Result<Screen, String> {
+        let displays = backend.displays()?;
+        if displays.is_empty() {
+            return Err("No display.".to_string());
+        }
+        // A connected pick is the work screen whatever is fullscreen: only
+        // the input tools (the focus rules) and list_windows read windows.
+        let pinned = picked.is_some_and(|number| number >= 1 && number as usize <= displays.len());
+        let windows = if !pinned || work_screen::is_input(name) || name == "list_windows" {
+            backend.list_windows()
+        } else {
+            Ok(Vec::new())
+        };
+        if let Err(reason) = &windows {
+            log::debug!("[computer] no window list for the work screen ({reason})");
+        }
+        let state = work_screen::state_of(&displays, windows.as_deref().unwrap_or_default(), picked);
+        let work = work_screen::work_displays(&state);
+        Ok(Screen { displays, windows, state, work })
+    }
+
+    fn primary(&self) -> usize {
+        self.displays.iter().position(|display| display.primary).unwrap_or(0)
+    }
+
+    fn displays_json(&self, current: usize) -> Value {
+        Value::Array(
+            self.work
+                .iter()
+                .filter_map(|&index| self.displays.get(index).map(|display| (index, display)))
+                .map(|(index, display)| json!({ "index": index, "name": display.name, "width": display.width, "height": display.height, "primary": display.primary, "current": index == current }))
+                .collect(),
+        )
+    }
+}
+
+/// The `wrong_display` answer (`work-screen.json`).
+fn refusal(refusal: work_screen::Refusal, work: &[usize]) -> Value {
+    let work: Vec<usize> = work.iter().map(|index| index + 1).collect();
+    json!({
+        "content": [{ "type": "text", "text": refusal.text }],
+        "isError": true,
+        "structuredContent": { "refusal": "wrong_display", "kind": refusal.kind, "work": work }
+    })
+}
+
+/// One call: the work-screen gate, the lease, the tool.
 pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut CallContext<'_>) -> Value {
-    match dispatch(backend, name, args, ctx) {
+    let screen = match Screen::read(backend, name, ctx.picked) {
+        Ok(screen) => screen,
+        Err(text) => return error(text),
+    };
+    let mut shown = None;
+    if name == "screenshot" {
+        if let Some(index) = args.get("display").and_then(Value::as_u64) {
+            let index = usize::try_from(index).unwrap_or(usize::MAX);
+            if index >= screen.displays.len() {
+                return error(format!("There is no display {index}; list_windows names {}.", screen.displays.len()));
+            }
+            shown = Some(index);
+        }
+    }
+    let window_display = match (name, args.get("id").and_then(Value::as_u64), &screen.windows) {
+        ("activate_window", Some(id), Ok(windows)) => windows
+            .iter()
+            .find(|window| window.id == id)
+            .and_then(|window| work_screen::window_display(&screen.displays, window)),
+        _ => None,
+    };
+    let verdict = work_screen::gate(&screen.state, work_screen::Call { tool: name, display: shown, window_display });
+    if let Err(refused) = verdict {
+        return refusal(refused, &screen.work);
+    }
+    if shown.is_some() {
+        *ctx.display = shown;
+    }
+    let current = work_screen::current(&screen.work, screen.primary(), *ctx.display);
+    if current.is_some() {
+        *ctx.display = current;
+        work_screen::set_banner(current);
+    }
+    if let Err(text) = (ctx.engage)() {
+        return error(text);
+    }
+    match dispatch(backend, name, args, ctx, &screen, current) {
         Ok(result) => result,
         Err(text) => error(text),
     }
 }
 
-/// The run's display among `displays`: the one it picked, else the primary.
-fn current_display(displays: &[DisplayInfo], picked: &mut Option<usize>) -> Result<usize, String> {
-    if displays.is_empty() {
-        return Err("No display.".to_string());
-    }
-    match *picked {
-        Some(index) if index < displays.len() => Ok(index),
-        _ => {
-            let primary = displays.iter().position(|display| display.primary).unwrap_or(0);
-            *picked = Some(primary);
-            Ok(primary)
-        }
-    }
-}
-
-fn displays_json(displays: &[DisplayInfo], current: usize) -> Value {
-    Value::Array(
-        displays
-            .iter()
-            .enumerate()
-            .map(|(index, display)| json!({ "index": index, "name": display.name, "width": display.width, "height": display.height, "primary": display.primary, "current": index == current }))
-            .collect(),
-    )
-}
-
-fn dispatch(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut CallContext<'_>) -> Result<Value, String> {
+fn dispatch(
+    backend: &dyn Backend,
+    name: &str,
+    args: &Value,
+    ctx: &mut CallContext<'_>,
+    screen: &Screen,
+    current: Option<usize>,
+) -> Result<Value, String> {
     let interrupted = ctx.interrupted;
-    let displays = backend.displays()?;
-    if name == "screenshot" {
-        if let Some(index) = args.get("display").and_then(Value::as_u64) {
-            let index = usize::try_from(index).unwrap_or(usize::MAX);
-            if index >= displays.len() {
-                return Err(format!("There is no display {index}; list_windows names {}.", displays.len()));
+    if name == "wait" {
+        let seconds = args.get("seconds").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.0, WAIT_MAX_SECONDS);
+        let until = std::time::Instant::now() + Duration::from_secs_f64(seconds);
+        while std::time::Instant::now() < until {
+            if interrupted() {
+                return Err(ABORTED.to_string());
             }
-            *ctx.display = Some(index);
+            std::thread::sleep(Duration::from_millis(50));
         }
+        // The screen after the wait: a fullscreen app may have closed.
+        let screen = Screen::read(backend, "screenshot", ctx.picked)?;
+        let Some(current) = work_screen::current(&screen.work, screen.primary(), *ctx.display) else {
+            let text = work_screen::gate(&screen.state, work_screen::Call { tool: "screenshot", ..Default::default() })
+                .err()
+                .map(|refused| refused.text)
+                .unwrap_or_default();
+            return Ok(ok(text, json!({ "work": [] })));
+        };
+        *ctx.display = Some(current);
+        work_screen::set_banner(Some(current));
+        return screenshot(backend, &screen, current, Frame::fit(&screen.displays[current]));
     }
-    let current = current_display(&displays, ctx.display)?;
+    // Every other tool passed the gate, so a work display exists.
+    let current = current.ok_or("No work screen.")?;
+    let displays = &screen.displays;
     let frame = Frame::fit(&displays[current]);
     match name {
-        "screenshot" => screenshot(backend, &displays, current, frame),
-        "wait" => {
-            let seconds = args.get("seconds").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.0, WAIT_MAX_SECONDS);
-            let until = std::time::Instant::now() + Duration::from_secs_f64(seconds);
-            while std::time::Instant::now() < until {
-                if interrupted() {
-                    return Err(ABORTED.to_string());
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            screenshot(backend, &displays, current, frame)
-        }
+        "screenshot" => screenshot(backend, screen, current, frame),
         "list_windows" => {
-            let windows: Vec<Value> = backend.list_windows()?.iter().map(|w| window_json(w, frame, &displays)).collect();
+            let on_work = |w: &&WindowInfo| work_screen::window_display(displays, w).is_some_and(|index| screen.work.contains(&index));
+            let windows: Vec<Value> = screen.windows.clone()?.iter().filter(on_work).map(|w| window_json(w, frame, displays)).collect();
             let mut lines: Vec<String> = windows
                 .iter()
                 .map(|w| format!("{} {}{} ({}, display {})", w["id"], w["title"], if w["active"] == true { " [active]" } else { "" }, w["app"], w["display"]))
@@ -212,9 +301,10 @@ fn dispatch(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut CallConte
                 lines.push("No windows.".to_string());
             }
             if displays.len() > 1 {
-                lines.push(format!("Displays: {} (current: {current}).", displays.len()));
+                let work: Vec<String> = screen.work.iter().map(usize::to_string).collect();
+                lines.push(format!("Displays: {} (current: {current}).", work.join(", ")));
             }
-            Ok(ok(lines.join("\n"), json!({ "windows": windows, "displays": displays_json(&displays, current) })))
+            Ok(ok(lines.join("\n"), json!({ "windows": windows, "displays": screen.displays_json(current) })))
         }
         "activate_window" => {
             let id = args.get("id").and_then(Value::as_u64).ok_or("`id` must be a list_windows id.")?;
@@ -352,16 +442,16 @@ fn window_json(w: &WindowInfo, frame: Frame, displays: &[DisplayInfo]) -> Value 
     json!({ "id": w.id, "title": w.title, "app": w.app, "pid": w.pid, "display": display, "x": x, "y": y, "width": width, "height": height, "active": w.active })
 }
 
-fn screenshot(backend: &dyn Backend, displays: &[DisplayInfo], current: usize, frame: Frame) -> Result<Value, String> {
-    let shot = backend.screenshot(&displays[current])?;
+fn screenshot(backend: &dyn Backend, screen: &Screen, current: usize, frame: Frame) -> Result<Value, String> {
+    let shot = backend.screenshot(&screen.displays[current])?;
     let png = encode_png(&shot, frame.image)?;
-    let which = if displays.len() > 1 { format!(" of display {current} ({} displays)", displays.len()) } else { String::new() };
+    let which = if screen.displays.len() > 1 { format!(" of display {current} ({} work displays)", screen.work.len()) } else { String::new() };
     Ok(json!({
         "content": [
             { "type": "text", "text": format!("Screenshot {}x{}{} (its pixels are {}x{}); coordinates are in this image's pixels.", frame.image.0, frame.image.1, which, frame.screen.0, frame.screen.1) },
             { "type": "image", "data": base64(&png), "mimeType": "image/png" }
         ],
-        "structuredContent": { "width": frame.image.0, "height": frame.image.1, "display": current, "displays": displays_json(displays, current) }
+        "structuredContent": { "width": frame.image.0, "height": frame.image.1, "display": current, "displays": screen.displays_json(current) }
     }))
 }
 
@@ -409,6 +499,8 @@ pub(crate) mod tests {
     pub(crate) struct FakeBackend {
         pub log: Mutex<Vec<String>>,
         pub fail_lock: bool,
+        /// A fullscreen game focused on display B.
+        pub gaming: bool,
     }
 
     impl Backend for FakeBackend {
@@ -426,7 +518,13 @@ pub(crate) mod tests {
             Ok((1000, 500))
         }
         fn list_windows(&self) -> Result<Vec<WindowInfo>, String> {
-            Ok(vec![WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: true }])
+            let brave = WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: !self.gaming, fullscreen: false };
+            if !self.gaming {
+                return Ok(vec![brave]);
+            }
+            // The person's game, fullscreen and focused on display B.
+            let game = WindowInfo { id: 9, title: "Game".into(), app: "game".into(), pid: Some(43), x: 2000, y: 0, width: 1000, height: 1000, active: true, fullscreen: true };
+            Ok(vec![game, brave])
         }
         fn activate_window(&self, id: u64) -> Result<(), String> {
             self.log.lock().unwrap().push(format!("activate {id}"));
@@ -467,10 +565,14 @@ pub(crate) mod tests {
         false
     }
 
+    fn engaged() -> Result<(), String> {
+        Ok(())
+    }
+
     /// A call with a fresh display memory.
     fn one(backend: &dyn Backend, name: &str, args: Value) -> Value {
         let mut display = None;
-        call(backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display })
+        call(backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engaged })
     }
 
     #[test]
@@ -525,13 +627,13 @@ pub(crate) mod tests {
     fn a_run_switches_display_with_the_screenshot_and_keeps_it() {
         let backend = FakeBackend::default();
         let mut display = None;
-        let mut ctx = CallContext { interrupted: &never, display: &mut display };
+        let mut ctx = CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engaged };
         let shot = call(&backend, "screenshot", &json!({ "display": 1 }), &mut ctx);
         assert_eq!(shot["structuredContent"]["width"], 800);
         assert_eq!(shot["structuredContent"]["display"], 1);
         call(&backend, "left_click", &json!({ "x": 0, "y": 0 }), &mut ctx);
         assert_eq!(display, Some(1));
-        let mut ctx = CallContext { interrupted: &never, display: &mut display };
+        let mut ctx = CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engaged };
         let missing = call(&backend, "screenshot", &json!({ "display": 9 }), &mut ctx);
         assert_eq!(missing["isError"], true);
         assert_eq!(backend.log.lock().unwrap().as_slice(), ["shot B", "move 2000,0", "Left down", "Left up"]);
@@ -547,7 +649,7 @@ pub(crate) mod tests {
         );
         backend.log.lock().unwrap().clear();
         let mut display = None;
-        let reply = call(&backend, "type", &json!({ "text": "abc" }), &mut CallContext { interrupted: &|| true, display: &mut display });
+        let reply = call(&backend, "type", &json!({ "text": "abc" }), &mut CallContext { interrupted: &|| true, display: &mut display, picked: None, engage: &engaged });
         assert_eq!(reply["isError"], true);
         assert!(backend.log.lock().unwrap().is_empty());
         let too_long = one(&backend, "type", json!({ "text": "x".repeat(TYPE_MAX_CHARS + 1) }));
@@ -568,6 +670,42 @@ pub(crate) mod tests {
         assert_eq!(one(&backend, "scroll", json!({ "x": 10, "y": 10, "direction": "sideways" }))["isError"], true);
         assert_eq!(one(&backend, "nope", json!({}))["isError"], true);
         assert_eq!(one(&backend, "left_click", json!({ "x": "ten" }))["isError"], true);
+    }
+
+    #[test]
+    fn a_fullscreen_game_refuses_input_without_locking_and_hides_its_display() {
+        let backend = FakeBackend { gaming: true, ..Default::default() };
+        let engaged = std::cell::Cell::new(0);
+        let engage = || {
+            engaged.set(engaged.get() + 1);
+            Ok(())
+        };
+        let mut display = None;
+        let mut run = |name: &str, args: Value, picked: Option<u32>| {
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked, engage: &engage })
+        };
+        let click = run("left_click", json!({ "x": 1, "y": 1 }), None);
+        assert_eq!(click["isError"], true);
+        assert_eq!(click["structuredContent"], json!({ "refusal": "wrong_display", "kind": "gaming", "work": [1] }));
+        assert!(click["content"][0]["text"].as_str().unwrap().starts_with("The person is in a fullscreen app on display 2."));
+        let shot = run("screenshot", json!({ "display": 1 }), None);
+        assert_eq!(shot["structuredContent"]["kind"], "notWorkScreen");
+        let activate = run("activate_window", json!({ "id": 9 }), None);
+        assert_eq!(activate["structuredContent"]["kind"], "windowElsewhere");
+        assert_eq!(engaged.get(), 0, "a refusal never locks the person out");
+        assert!(backend.log.lock().unwrap().is_empty());
+        // list_windows: only display A and its windows.
+        let windows = run("list_windows", json!({}), None);
+        assert_eq!(windows["structuredContent"]["windows"].as_array().unwrap().len(), 1);
+        assert_eq!(windows["structuredContent"]["windows"][0]["id"], 7);
+        assert_eq!(windows["structuredContent"]["displays"].as_array().unwrap().len(), 1);
+        assert_eq!(windows["structuredContent"]["displays"][0]["index"], 0);
+        // The device picked display 2: its fullscreen app is the agent's own.
+        let click = run("left_click", json!({ "x": 0, "y": 0 }), Some(2));
+        assert_eq!(click["isError"], Value::Null, "{click}");
+        assert_eq!(engaged.get(), 2);
+        assert_eq!(display, Some(1));
+        assert_eq!(backend.log.lock().unwrap().first().map(String::as_str), Some("move 2000,0"));
     }
 
     #[test]

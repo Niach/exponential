@@ -139,6 +139,7 @@ impl Host {
         lock.last_used = None;
         drop(lock);
         log::info!("[computer] input unlocked");
+        crate::work_screen::set_banner(None);
         self.announce(None);
         Some((guard, users))
     }
@@ -221,12 +222,22 @@ impl ToolHost for Host {
             Ok(backend) => backend,
             Err(reason) => return tools::error(reason),
         };
-        if let Err(reason) = self.lease(session_id, label, &*backend) {
-            return tools::error(format!("Could not lock the person's input ({reason}); nothing was done. Tell them and try again."));
-        }
+        // NEW-59: the lock engages only once the work-screen gate let the
+        // call through: a refusal leaves the person's input alone.
+        let engage = || {
+            self.lease(session_id, label, &*backend).map_err(|reason| {
+                format!("Could not lock the person's input ({reason}); nothing was done. Tell them and try again.")
+            })
+        };
         let interrupted = || self.aborted(session_id);
         let mut display = self.runs.lock().unwrap().get(session_id).and_then(|run| run.display);
-        let result = tools::call(&*backend, name, &arguments, &mut tools::CallContext { interrupted: &interrupted, display: &mut display });
+        let mut ctx = tools::CallContext {
+            interrupted: &interrupted,
+            display: &mut display,
+            picked: crate::work_screen::picked(),
+            engage: &engage,
+        };
+        let result = tools::call(&*backend, name, &arguments, &mut ctx);
         self.runs.lock().unwrap().entry(session_id.to_string()).or_default().display = display;
         // Esc during the action: what it did is moot, the answer is the abort.
         if interrupted() {

@@ -31,6 +31,8 @@ pub(crate) mod session_row;
 pub(crate) mod pr_row;
 pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
+// NEW-59: the Work screen picker.
+pub(crate) mod work_screen;
 pub(crate) mod stack_merge_choice_dialog;
 pub(crate) mod draft_leave_dialog;
 pub(crate) mod readiness_checklist;
@@ -128,6 +130,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: pr_row::ID, owner: pr_row::OWNER, render: pr_row::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
+    Entry { id: work_screen::ID, owner: work_screen::OWNER, render: work_screen::render },
     Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },
     Entry { id: draft_leave_dialog::ID, owner: draft_leave_dialog::OWNER, render: draft_leave_dialog::render },
     Entry { id: readiness_checklist::ID, owner: readiness_checklist::OWNER, render: readiness_checklist::render },
