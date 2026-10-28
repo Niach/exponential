@@ -18,7 +18,6 @@ export const ALWAYS_LOAD_TOOLS = [
   `exponential_issues`,
   `exponential_comments`,
   `exponential_sessions_send`,
-  `exponential_guide_write`,
   `exponential_pr`,
   // S-3: show / ask / plan, the card every turn may end with.
   `exponential_show`,

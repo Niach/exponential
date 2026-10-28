@@ -7,10 +7,10 @@ import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
 
-// NEW-4 (plan 3.11): the MCP surface is 17 tools, the SAME set for every
+// NEW-4 (plan 3.11): the MCP surface is 16 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
 // that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); three
-// verbs stay whole (`sessions_send`, `guide_write`, S-3's `show`: 17 tools). The 79 per-operation
+// verbs stay whole (`sessions_send`, S-3's `show`: 16 tools; `guide_write` retired by stories). The 79 per-operation
 // tools of EXP-988 become the ops: `registerExponentialTools` still defines
 // every one of them (their zod schemas, access checks and handlers are
 // untouched), a recorder captures them instead of the server, and each noun
@@ -188,7 +188,6 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       report_bug: `report_bug`,
     },
   },
-  { name: `guide_write`, blurb: ``, verb: `guide_write`, alwaysLoad: true },
   // S-3: show / ask / plan = ONE card verb, always loaded.
   { name: `show`, blurb: ``, verb: `show`, alwaysLoad: true },
   {

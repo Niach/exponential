@@ -100,11 +100,11 @@ import {
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
-  // NEW-4: the surface is the 17 tools, the same for every caller.
+  // NEW-4: the surface is the 16 tools, the same for every caller.
   expect(defs.map((def) => def.name).sort()).toEqual(
     NOUN_TOOLS.map((spec) => `exponential_${spec.name}`).sort()
   )
-  expect(defs).toHaveLength(17)
+  expect(defs).toHaveLength(16)
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -124,12 +124,12 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   // (cards, ask, plan) is, since every turn may end with one.
   expect(flagged).not.toContain(`exponential_session_self`)
   expect(flagged).toContain(`exponential_show`)
-  expect(flagged).toHaveLength(6)
+  expect(flagged).toHaveLength(5)
 })
 
-// NEW-4 (plan 3.11): NO conditional registration — the 17 register for
+// NEW-4 (plan 3.11): NO conditional registration — the 16 register for
 // every caller; an op the caller cannot use errors when called.
-it(`registers the same 17 tools for every caller`, () => {
+it(`registers the same 16 tools for every caller`, () => {
   const headerless = serializeToolDefs({
     inSession: false,
     unattended: false,
@@ -141,7 +141,7 @@ it(`registers the same 17 tools for every caller`, () => {
     agent: false,
   }).map((def) => def.name)
   expect([...headerless].sort()).toEqual([...inSession].sort())
-  expect(headerless).toHaveLength(17)
+  expect(headerless).toHaveLength(16)
   // EXP-1291 / NEW-4: the retired surface is gone.
   for (const name of [
     `exponential_sessions_start`,
@@ -261,9 +261,9 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     agent: false,
     reportBug: true,
   })
-  expect(noSession).not.toContain(`Close out with a Guide`)
+  expect(noSession).not.toContain(`Show your work as stories`)
   expect(noSession).not.toContain(`op: "end"`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`Close out with a Guide`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`Show your work as stories`)
   // EXP-1291: people are pinged by @email, never a notify tool.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`@email`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`notifications_send`)
@@ -313,7 +313,6 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_session_self`,
     `exponential_issues`,
     `exponential_pr`,
-    `exponential_guide_write`,
     `exponential_events`,
     `exponential_show`,
   ]) {

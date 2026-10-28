@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-// NEW-4: the noun router — 17 tools, `op` routes to the per-operation
+// NEW-4: the noun router — 16 tools, `op` routes to the per-operation
 // definitions, their STRICT schemas validate the flat arguments, an op the
 // caller lacks errors instead of vanishing, the display rows are the
 // contract's. The per-operation handlers themselves are tools.test.ts's.
@@ -48,11 +48,6 @@ vi.mock(`./tools`, () => ({
         async () => ({ content: [{ type: `text`, text: `compacted` }] })
       )
       server.registerTool(
-        `exponential_guide_write`,
-        { description: `Guide.`, inputSchema: z.strictObject({ topic: z.string() }) },
-        async () => ({ content: [{ type: `text`, text: `written` }] })
-      )
-      server.registerTool(
         `exponential_show`,
         { description: `Show.`, inputSchema: z.strictObject({ replace: z.boolean().optional() }) },
         async () => ({ content: [{ type: `text`, text: `shown` }] })
@@ -96,10 +91,10 @@ function surface(gates = ALL_MCP_TOOL_GATES) {
 const text = (result: { content: { text?: string }[] }) => result.content[0]?.text ?? ``
 
 describe(`registerNounTools`, () => {
-  it(`registers the 17 tools, every caller alike`, () => {
+  it(`registers the 16 tools, every caller alike`, () => {
     const names = [...surface().keys()]
     expect(names).toEqual(NOUN_TOOLS.map((spec) => `exponential_${spec.name}`))
-    expect(names).toHaveLength(17)
+    expect(names).toHaveLength(16)
     const headerless = [...surface({ inSession: false, unattended: false, agent: false }).keys()]
     expect(headerless).toEqual(names)
   })
@@ -140,11 +135,11 @@ describe(`registerNounTools`, () => {
     const compact = await self.handler({ op: `compact` })
     expect(compact.isError).toBe(true)
     expect(text(compact)).toContain(`only works inside a session`)
-    const guide = headerless.get(`exponential_guide_write`)!
-    expect(guide.def.description).toBe(`Guide.`)
-    expect(text(await guide.handler({ topic: `Summary` }))).toContain(`only works inside a session`)
+    const show = headerless.get(`exponential_show`)!
+    expect(show.def.description).toBe(`Show.`)
+    expect(text(await show.handler({}))).toContain(`only works inside a session`)
     // In a session the verb is the recorded tool itself.
-    expect(text(await surface().get(`exponential_guide_write`)!.handler({ topic: `Summary` }))).toBe(`written`)
+    expect(text(await surface().get(`exponential_show`)!.handler({}))).toBe(`shown`)
     expect(text(await surface().get(`exponential_session_self`)!.handler({ op: `compact` }))).toBe(`compacted`)
   })
 

@@ -73,7 +73,7 @@ describe(`missingPlatformPictures`, () => {
   it(`the refusal names the platforms and the next step`, () => {
     const message = missingPicturesMessage([`ios`, `android`])
     expect(message).toMatch(/ios, android/)
-    expect(message).toMatch(/exponential_guide_write \{topic, label: '<platform> …'\}/)
+    expect(message).toMatch(/exponential_show \{surface, pictures: \[\{label: '<platform> …'\}\]\}/)
     expect(message).toMatch(/notRun/)
   })
 })
