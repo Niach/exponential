@@ -364,7 +364,11 @@ struct AgentSessionView: View {
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.stopError) { _, message in
                 guard let message else { return }
-                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: message)
+                toaster.error(Chats.Copy.StopTurn.failed, description: message)
+            }
+            .onChange(of: model?.stopNotDeliveredAt) { _, at in
+                guard at != nil else { return }
+                toaster.warning(Chats.Copy.StopTurn.notDelivered)
             }
             .onChange(of: model?.sendError) { _, message in
                 guard let message else { return }

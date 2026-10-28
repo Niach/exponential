@@ -2138,12 +2138,15 @@ struct ThreadComposer: View {
         let ids = busySessionIds
         Task {
             do {
-                for id in ids { _ = try await api.stop(accountId: accountId, sessionId: id) }
+                var undelivered = false
+                for id in ids {
+                    let result = try await api.stop(accountId: accountId, sessionId: id)
+                    if result.delivered == false { undelivered = true }
+                }
+                // chats.json `copy.stopTurn`: a stop no device got toasts.
+                if undelivered { toaster.warning(Chats.Copy.StopTurn.notDelivered) }
             } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "stop", thing: "the turn"),
-                    description: error.userFacingMessage
-                )
+                toaster.error(Chats.Copy.StopTurn.failed, description: error.userFacingMessage)
             }
         }
     }

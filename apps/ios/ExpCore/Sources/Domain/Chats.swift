@@ -75,6 +75,12 @@ public enum Chats {
             public static let selectionFailed = "Couldn't update every chat"
             public static let selectionPartial = "{n} of {m} chats couldn't be updated"
         }
+        /// S-3: the composer stop-turn's toasts (`copy.stopTurn`): a refused
+        /// `sessions.stop` → `failed`, `delivered == false` → `notDelivered`.
+        public enum StopTurn {
+            public static let failed = "Couldn't stop the turn"
+            public static let notDelivered = "The device didn't get the stop"
+        }
         public enum Dividers {
             public static let new = "New conversation"
             public static let compact = "Conversation compacted"

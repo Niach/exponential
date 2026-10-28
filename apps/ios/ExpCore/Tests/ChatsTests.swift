@@ -450,6 +450,9 @@ final class ChatsTests: XCTestCase {
             "deleteFailed": C.Toasts.deleteFailed, "selectionFailed": C.Toasts.selectionFailed,
             "selectionPartial": C.Toasts.selectionPartial,
         ])
+        XCTAssertEqual(copy["stopTurn"] as? [String: String], [
+            "failed": C.StopTurn.failed, "notDelivered": C.StopTurn.notDelivered,
+        ])
         XCTAssertEqual(copy["dividers"] as? [String: String], ["new": C.Dividers.new, "compact": C.Dividers.compact])
         XCTAssertEqual(copy["superseded"] as? String, C.superseded)
         XCTAssertEqual(copy["boardChips"] as? [String: String], [
@@ -470,7 +473,7 @@ final class ChatsTests: XCTestCase {
             "entry": C.Archived.entry, "title": C.Archived.title, "empty": C.Archived.empty,
         ])
         XCTAssertEqual(Set(copy.keys), [
-            "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
+            "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "stopTurn", "dividers",
             "superseded", "boardChips", "team", "inbox", "loadEarlier", "working", "selection", "archived",
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
