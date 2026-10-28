@@ -4,7 +4,7 @@
 // the unique (team_id, owner_id) WHERE role = 'assistant' index) on their
 // newest own desktop, null without a device; edited by its owner only (a
 // team owner gets NOT_FOUND), one schedule preset only, never deleted; and
-// migration 0209's data step (a member's own voice agent -> their Assistant,
+// migration 0208's data step (a member's own voice agent -> their Assistant,
 // the voice mirror re-derived).
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -190,14 +190,14 @@ describe.skipIf(!ready.ok)(`agents.update / delete on an Assistant (S-3)`, () =>
   })
 })
 
-// Migration 0209's DATA statements (everything after the DDL), replayed in
+// Migration 0208's DATA statements (everything after the DDL), replayed in
 // a rolled-back transaction over rows shaped like before it.
-const MIGRATION = readFileSync(join(__dirname, `../../db/out/0209_s3_assistant.sql`), `utf8`)
+const MIGRATION = readFileSync(join(__dirname, `../../db/out/0208_s3_assistant.sql`), `utf8`)
   .split(`--> statement-breakpoint`)
   .map((statement) => statement.trim())
   .filter((statement) => /^(--[^\n]*\n)*UPDATE/.test(statement))
 
-describe.skipIf(!ready.ok)(`migration 0209 data step (S-3)`, () => {
+describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
   it(`has the data statements`, () => {
     expect(MIGRATION.length).toBe(4)
   })

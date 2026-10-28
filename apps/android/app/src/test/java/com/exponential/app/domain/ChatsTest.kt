@@ -227,6 +227,7 @@ class ChatsTest {
                         put("color", bubble.agent.color)
                         put("busy", bubble.agent.busy)
                         put("needsYou", bubble.agent.needsYou)
+                        put("assistant", bubble.agent.assistant)
                         put("ring", nullable(bubble.ring?.wire))
                     }
                 },

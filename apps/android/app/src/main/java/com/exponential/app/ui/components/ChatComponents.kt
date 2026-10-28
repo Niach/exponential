@@ -264,17 +264,35 @@ fun AgentChatRowItem(
             .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AgentBubbleDisc(
-            icon = row.icon,
-            color = row.color,
-            assistant = row.assistant,
-            size = Chats.Shell.LEAD_DISC.dp,
-            ring = Color.Transparent,
-            ringWidth = 0.dp,
-            ringGap = 0.dp,
-            glyph = (Chats.Shell.LEAD_DISC * 0.5f).dp,
-            busy = row.busy,
-        )
+        // chats.json AGENT ROWS: the avatar ALWAYS (busy reads in the
+        // preview, never as the working mark); needs you = the chat lead's
+        // amber badge on it (web `ChatLeadDisc` `run-mark-badge`).
+        Box(modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp)) {
+            AgentBubbleDisc(
+                icon = row.icon,
+                color = row.color,
+                assistant = row.assistant,
+                size = Chats.Shell.LEAD_DISC.dp,
+                ring = Color.Transparent,
+                ringWidth = 0.dp,
+                ringGap = 0.dp,
+                glyph = (Chats.Shell.LEAD_DISC * 0.5f).dp,
+            )
+            if (row.needsYou) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-8).dp, y = 8.dp)
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(DiscFill, CircleShape)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(NeedsInputAmber, CircleShape)
+                        .testTag("chat-agent-row-needs-you"),
+                )
+            }
+        }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Column(modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp)) {

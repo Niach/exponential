@@ -12,6 +12,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
@@ -22,6 +23,7 @@ import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -34,6 +36,7 @@ import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AgentSettings
+import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.SessionTree
@@ -64,8 +67,6 @@ import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
 import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
-import com.exponential.app.ui.styleguide.VoiceSettingsSpecimenScreen
-import com.exponential.app.ui.styleguide.VoiceSettingsSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
@@ -125,7 +126,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_voice-call · sg_settings-voice · sg_device-readiness
+ *   sg_app-export · sg_app-import · sg_voice-call · sg_settings-assistant · sg_device-readiness
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -209,8 +210,6 @@ class StyleguideScreenshotsTest {
             "sg_app-consent",
             // NEW-69: the in-call card's four states.
             "sg_voice-call",
-            // NEW-71: THE Voice settings page over the seed's rows.
-            "sg_settings-voice",
             // EXP-1375: the Storage band + the composer's low-disk row.
             "sg_device-readiness",
         )
@@ -400,8 +399,12 @@ class StyleguideScreenshotsTest {
                 (hasText(TEAM_NAME) and hasAnyAncestor(hasTestTag(Chats.TestIds.TAB_TEAM))),
             SYNC_TIMEOUT,
         )
+        // S-3: THE agent row over the composer, the viewer's Assistant (the
+        // brand mark, first) preselected: its label reads `To <name>`, never
+        // `Temporary session`. The device lives inside the + menu now.
+        flow.waitFor(hasTestTag(ComposerAgentRow.TEST_ID_ROW), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag(ComposerAgentRow.TEST_ID_LABEL) and hasText("To ", substring = true), SYNC_TIMEOUT)
         flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
-        flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agent-home")
 
@@ -726,10 +729,26 @@ class StyleguideScreenshotsTest {
         // issue › PUSHES THE search list inside the same sheet, whose
         // `Implement N issues` button closes the menu with the picks as the
         // subject: two issue chips. Nothing is submitted.
+        // S-3: Temporary session first (the web recipe's step): the full
+        // menu, its Device / Account / Model rows carrying the picks, the
+        // demo device's name as the Device row's value.
+        val temporaryCircle = ComposerAgentRow.optionTestId(ComposerAgentRow.TEMPORARY_PICK)
+        flow.waitFor(hasTestTag(temporaryCircle), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag(temporaryCircle)).performClick()
+        flow.waitFor(
+            hasTestTag(ComposerAgentRow.TEST_ID_LABEL) and hasText(ComposerAgentRow.COPY_TEMPORARY),
+            NAV_TIMEOUT,
+        )
+        flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
         composeRule.onNode(hasTestTag(ComposerMenu.PLUS_TEST_ID)).performClick()
         flow.waitFor(hasTestTag(ComposerMenu.MENU_TEST_ID), NAV_TIMEOUT)
         val implementRow = ComposerMenu.rowTestId(ComposerMenuRowId.ImplementIssue)
         flow.waitFor(hasTestTag(implementRow), NAV_TIMEOUT)
+        flow.waitFor(
+            hasText(DEMO_DEVICE_NAME, substring = true) and
+                hasAnyAncestor(hasTestTag(ComposerMenu.rowTestId(ComposerMenuRowId.Device))),
+            NETWORK_TIMEOUT,
+        )
         flow.settle()
         flow.screenshot("sg_composer-menu")
         composeRule.onNode(hasTestTag(implementRow)).performClick()
@@ -786,9 +805,25 @@ class StyleguideScreenshotsTest {
         // agent bubbles, the chips and one flat row per root chat.
         composeRule.onNode(hasTestTag("tab-threads")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
-        flow.waitFor(hasText(RECENT_THREAD_TITLE, substring = true), SYNC_TIMEOUT)
+        // S-3: the pinned Agents section (the Assistant first) pushes the
+        // chats below the fold of the lazy list, so scroll to each gated row
+        // (an off-screen lazy row has no node), then back to the top.
         val threadRow = hasTestTag(Chats.TestIds.CHAT_ROW)
-        flow.waitFor(threadRow and hasText(PRIVATE_THREAD_TITLE, substring = true), SYNC_TIMEOUT)
+        for ((title, row) in listOf(
+            RECENT_THREAD_TITLE to hasText(RECENT_THREAD_TITLE, substring = true),
+            PRIVATE_THREAD_TITLE to (threadRow and hasText(PRIVATE_THREAD_TITLE, substring = true)),
+        )) {
+            val deadline = System.currentTimeMillis() + SYNC_TIMEOUT
+            while (runCatching {
+                    composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToNode(row)
+                }.isFailure
+            ) {
+                assertTrue("no chat row \"$title\"", System.currentTimeMillis() < deadline)
+                flow.settle()
+            }
+        }
+        composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToIndex(0)
+        flow.settle()
         val agentRow = hasTestTag(Chats.TestIds.AGENT_BUBBLE) and hasText(AGENT_NAME)
         flow.waitFor(agentRow, SYNC_TIMEOUT)
         flow.settle()
@@ -881,7 +916,11 @@ class StyleguideScreenshotsTest {
         // → a "+N" per zone), so the gate is the laid-out strip with its pins.
         val coldStartRow = hasTestTag(Chats.TestIds.CHAT_ROW) and
             hasText(COLD_START_THREAD_TITLE, substring = true)
-        composeRule.onAllNodes(coldStartRow).onFirst().performClick()
+        // S-3: the pinned Agents section pushes the row down the lazy list
+        // (and under the floating bar): scroll it in, tap it clear of the bar.
+        composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToNode(coldStartRow)
+        flow.settle()
+        tapClearOfBar(coldStartRow)
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
         flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
         // N-12: THE Dock: the seeded question + the child's plan as DockCards above the composer.
@@ -979,6 +1018,31 @@ class StyleguideScreenshotsTest {
         Espresso.pressBack()
         flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
         flow.settle()
+
+        // --- sg_settings-assistant (S-3, agent-settings.json `assistant`):
+        // the Team page's Agents row → the Assistant (the agents list's first
+        // row, the brand mark) = the viewer's OWN Assistant (seeded):
+        // identity, Runs on, Check in, the Voice block, the instructions
+        // (fetched: the gate). A detour: nothing is edited.
+        if (ScreenshotFlow.anyRequested("sg_settings-assistant")) {
+            tapClearOfBar(teamSettingsRow("Agents"))
+            val assistantRow = hasTestTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW) and
+                hasText(AgentSettings.Assistant.NAME)
+            flow.waitFor(assistantRow, SYNC_TIMEOUT)
+            tapClearOfBar(assistantRow)
+            flow.waitFor(hasTestTag(AgentSettings.TEST_ID_PAGE), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("assistant-check-in"), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag("agent-settings-instructions") and isEnabled(), NETWORK_TIMEOUT)
+            flow.settle(longer = true)
+            flow.screenshot("sg_settings-assistant")
+            Espresso.closeSoftKeyboard()
+            Espresso.pressBack()
+            flow.waitFor(assistantRow, NAV_TIMEOUT)
+            Espresso.closeSoftKeyboard()
+            Espresso.pressBack()
+            flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+            flow.settle()
+        }
 
         // --- sg_settings-prompts / sg_settings-prompt (NEW-7): the Team page's
         // Prompts row (the band with the owner's New prompt pill over one row
@@ -1244,10 +1308,6 @@ class StyleguideScreenshotsTest {
         // live call screen draws, once per `surfaceSpecimens` row.
         show(VoiceCallSpecimenTestId) { VoiceCallSpecimenScreen() }
         flow.screenshot("sg_voice-call")
-        // --- sg_settings-voice (NEW-71, voice.json): THE Voice settings page
-        // (chrome + form) over the seed's rows, the tray group showing.
-        show(VoiceSettingsSpecimenTestId) { VoiceSettingsSpecimenScreen() }
-        flow.screenshot("sg_settings-voice")
         // --- sg_device-readiness (EXP-1375, device-doctor.json): the low-disk
         // case's block and the composer's low-disk row.
         show(DeviceReadinessSpecimenTestId) { DeviceReadinessSpecimenScreen() }

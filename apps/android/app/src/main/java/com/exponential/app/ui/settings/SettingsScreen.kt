@@ -3,7 +3,6 @@ package com.exponential.app.ui.settings
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SettingsNav
-import com.exponential.app.domain.SettingsNavGroups
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -438,10 +437,6 @@ private fun TeamGroupBlock(
 
 // ── The Team tab (thread 58cb32df, chats.json `shell`) ──────────────────────
 
-/** S-3: the `nav` groups the Team tab draws (Apps = its own tab; Personal =
- *  the servers + General blocks). */
-private val TEAM_TAB_NAV_GROUPS = setOf("team", "boards", "agents")
-
 /** What the Team tab reads about the ACTIVE team. */
 data class TeamTabState(
     val team: com.exponential.app.data.db.TeamEntity? = null,
@@ -634,60 +629,24 @@ fun TeamTabScreen(
                 )
             }
 
-            // S-3: the team's settings rows = settings-nav.json `nav` for
-            // android (`SettingsNavGroups`): Team, Boards, Agents — each item
-            // with a phone page (`phoneRows`), `issues` flattened into its
-            // children, the injected lists as their pages, the Devices row
-            // closing the Team group; Personal = the servers + General below.
-            val navGroups = SettingsNavGroups.groups(isOwner = state.manageTeam)
-            navGroups.filterKeys { it in TEAM_TAB_NAV_GROUPS }.forEach { (groupId, items) ->
-                val rowIds = buildList {
-                    items.forEach { item ->
-                        when (item) {
-                            "issues" -> addAll(SettingsNavGroups.CHILDREN[item].orEmpty())
-                            SettingsNavGroups.BOARDS -> add(SettingsNav.BOARDS)
-                            SettingsNavGroups.AGENTS -> add(SettingsNav.AGENTS)
-                            SettingsNavGroups.ASSISTANT -> if (state.assistantId != null) add(item)
-                            else -> add(item)
-                        }
-                    }
-                    if (groupId == "team") add(SettingsNav.DEVICES)
-                }.filter { it == SettingsNavGroups.ASSISTANT || it in SettingsNav.visiblePhoneRows(isOwner = state.manageTeam) }
-                if (rowIds.isEmpty()) return@forEach
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader(SettingsNavGroups.groupLabel(groupId))
-                    Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                        rowIds.forEach { id ->
-                            if (id == SettingsNavGroups.ASSISTANT) {
-                                SettingsRow(
-                                    icon = ExpIcons.settingsAgents,
-                                    title = com.exponential.app.domain.AgentSettings.Assistant.TITLE,
-                                    leading = {
-                                        com.exponential.app.ui.components.ExponentialMark(
-                                            size = 18.dp,
-                                            tint = MaterialTheme.colorScheme.onSurface,
-                                        )
-                                    },
-                                    onClick = { state.assistantId?.let(onOpenAgentSettings) },
-                                    modifier = Modifier.testTag("settings-assistant-row"),
-                                )
-                            } else {
-                                val row = SettingsNav.row(id)
-                                SettingsRow(
-                                    icon = ExpIcons.byConcept(row.icon) ?: ExpIcons.uiChevronRight,
-                                    title = row.label,
-                                    trailingCount = when (row.count) {
-                                        "members" -> state.members
-                                        "boards" -> state.boards
-                                        "agents" -> state.agents
-                                        else -> null
-                                    },
-                                    onClick = { onOpenTeamSettings(row.id) },
-                                    modifier = Modifier.testTag(SettingsNav.ROW_TEST_ID),
-                                )
-                            }
-                        }
-                    }
+            // The team's settings rows: settings-nav.json `phoneRows`, in order,
+            // filtered by the fixture's `visible` rule (`visibleCases`), ONE
+            // flat group like iOS and web-mobile (S-3: the Assistant is the
+            // Agents page's first row; Devices closes the list).
+            Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                SettingsNav.visiblePhoneRows(isOwner = state.manageTeam).map(SettingsNav::row).forEach { row ->
+                    SettingsRow(
+                        icon = ExpIcons.byConcept(row.icon) ?: ExpIcons.uiChevronRight,
+                        title = row.label,
+                        trailingCount = when (row.count) {
+                            "members" -> state.members
+                            "boards" -> state.boards
+                            "agents" -> state.agents
+                            else -> null
+                        },
+                        onClick = { onOpenTeamSettings(row.id) },
+                        modifier = Modifier.testTag(SettingsNav.ROW_TEST_ID),
+                    )
                 }
             }
 
