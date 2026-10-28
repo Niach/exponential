@@ -35,7 +35,7 @@ import com.exponential.app.ui.session.ComposerRepliesRow
 import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
 import com.exponential.app.ui.thread.SessionCard
-import com.exponential.app.ui.thread.ThreadReportLine
+import com.exponential.app.ui.components.SessionXref
 import com.exponential.app.ui.thread.ThreadSuggestionActions
 import com.exponential.app.ui.thread.ThreadSuggestionsCard
 import com.exponential.app.ui.theme.AppBackground
@@ -51,6 +51,8 @@ enum class ThreadCardsKind(val testId: String) {
     Suggestions("thread-suggestions-screen"),
     /** EXP-1280: THE rich plan / question card (plan-card.json, shot sg_plan-card). */
     PlanCard("plan-card-screen"),
+    /** S-3: THE inter-session link line in its four kinds (shot sg_session-xref). */
+    SessionXref("session-xref-screen"),
 }
 
 /**
@@ -79,6 +81,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     ThreadCardsKind.Comment -> CommentCardSpecimens()
                     ThreadCardsKind.Suggestions -> SuggestionsSpecimens()
                     ThreadCardsKind.PlanCard -> PlanCardSpecimens()
+                    ThreadCardsKind.SessionXref -> SessionXrefSpecimens()
                 }
             }
         }
@@ -92,6 +95,35 @@ private fun Caption(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
     )
+}
+
+/** S-3 (styleguide entry `session-xref`): the four kinds — an agent's
+ *  conversation (its mark) and plain sessions (the session glyph) — the
+ *  last one with a name long enough to ellipsize. */
+@Composable
+private fun SessionXrefSpecimens() {
+    val agent = com.exponential.app.data.db.AgentDefinitionEntity(
+        id = "a1",
+        teamId = "t-team-1",
+        name = "Big Brother",
+        icon = "eye",
+        color = "#8b5cf6",
+    )
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.exponential.app.ui.components.LocalAgentMarks provides mapOf(agent.id to agent),
+    ) {
+        Caption("Message from")
+        SessionXref(SessionTree.SessionXref("message", "ac1", "Big Brother", "a1"), onOpen = {})
+        Caption("Report from")
+        SessionXref(SessionTree.SessionXref("report", "c1", "Batch 2", null), onOpen = {})
+        Caption("Started by")
+        SessionXref(SessionTree.SessionXref("started", "ac1", "Big Brother", "a1"), onOpen = {})
+        Caption("Reported to")
+        SessionXref(
+            SessionTree.SessionXref("reported", "t1", "Fix the checkout flow on the mobile web and the native apps", null),
+            onOpen = {},
+        )
+    }
 }
 
 @Composable
@@ -261,7 +293,10 @@ private fun SuggestionsSpecimens() {
         onOpenSession = {},
     )
     Caption("Report")
-    ThreadReportLine(text = "Report from Lazy-load product images", onOpen = {})
+    SessionXref(
+        SessionTree.SessionXref("report", "c2", "Lazy-load product images", null),
+        onOpen = {},
+    )
     // EXP-1211: the quick replies above the session composer.
     Caption(SessionTree.RepliesCopy.LABEL)
     ComposerRepliesRow(

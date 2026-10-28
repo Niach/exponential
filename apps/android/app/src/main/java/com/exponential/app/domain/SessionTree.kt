@@ -70,6 +70,9 @@ object SessionTree {
         val agentId: String? = null,
         /** VAPP-110: the app this root is a member's editor session of (null = none). */
         val appId: String? = null,
+        /** NEW-2: the agent whose conversation started this root (null = none);
+         *  S-3: names the root's `origin` (Started by <that conversation>). */
+        val startedByAgentId: String? = null,
         /** EXP-1374: busy only because background tasks still run after the
          *  turn (absent = false). */
         val background: Boolean = false,
@@ -211,7 +214,27 @@ object SessionTree {
         const val TEST_ID_GUIDE_MENU = "thread-guide-menu"
         /** EXP-1323: a child's report row. */
         const val REPORT = "Report from {session}"
+        /** S-3: the inter-session link's lead by [SessionXref.kind]. */
+        val XREF: Map<String, String> = mapOf(
+            "message" to "Message from",
+            "report" to "Report from",
+            "started" to "Started by",
+            "reported" to "Reported to",
+        )
+        const val TEST_ID_XREF = "thread-xref"
     }
+
+    /** S-3 inter-session links: a compact header naming ANOTHER session (the
+     *  lead [ThreadCopy.XREF], the agent's mark, the session's name, `›`); a
+     *  tap opens that session on the back stack. [kind] = `message` |
+     *  `report` | `started` | `reported`; [agentId] = the agent whose tree
+     *  the session belongs to (its mark), else null. */
+    data class SessionXref(
+        val kind: String,
+        val sessionId: String,
+        val name: String,
+        val agentId: String?,
+    )
 
     /** EXP-1323 `copy.suggestions`. */
     object SuggestionsCopy {
@@ -536,6 +559,8 @@ object SessionTree {
             val queued: Boolean,
             /** EXP-1323: the session that posted it (a child asking its parent). */
             val authorSessionId: String? = null,
+            /** S-3: posted by ANOTHER (synced) session = its `message` link. */
+            val xref: SessionXref? = null,
         ) : ThreadRow
 
         data class SessionRow(override val id: String, val card: SessionCard) : ThreadRow
@@ -546,6 +571,8 @@ object SessionTree {
             val sessionId: String,
             val text: String,
             val summary: String,
+            /** S-3: renders AS the `Report from <chip> ›` header line. */
+            val xref: SessionXref,
         ) : ThreadRow
 
         /** EXP-1323: ONE suggestions card; [sessionId] = the posting session. */
@@ -669,6 +696,10 @@ object SessionTree {
          *  session's raw work as the main thing: its id, and no Conversation
          *  tab. Null once a second session exists. */
         val mainSessionId: String? = null,
+        /** S-3: who started the viewed session (the focus, else the root):
+         *  its parent, else the agent conversation that started the root;
+         *  `reported` once the viewed session ended. Null = a person. */
+        val origin: SessionXref? = null,
     )
 
     private fun JsonObject.str(key: String): String? =
@@ -964,6 +995,16 @@ object SessionTree {
         val linked = treeIssues(tree, sessionIssues, issues)
         val issueMap = issues.associateBy { it.id }
         val prMap = pullRequests.associateBy { it.id }
+        // S-3: a link to another session = its name + its agent's mark; an
+        // unsynced session (the viewer may not see it) never links.
+        fun agentOf(s: Session): String? {
+            val top = byId[s.rootId] ?: s
+            return s.agentId ?: top.agentId ?: top.startedByAgentId
+        }
+        fun xref(kind: String, id: String?): SessionXref? {
+            val target = id?.let { byId[it] } ?: return null
+            return SessionXref(kind, target.id, sessionCard(target, titles[target.id] ?: "", now).name, agentOf(target))
+        }
         val own = messages.filter { it.sessionId == root.id }.sortedWith(messageOrder)
         val title = titles.getValue(root.id)
         val focused = focus?.let { id -> tree.firstOrNull { it.id == id } }
@@ -1028,6 +1069,9 @@ object SessionTree {
                         body = message.body,
                         queued = author == DomainContract.messageAuthorKindUser && message.consumedAt == null,
                         authorSessionId = message.authorSessionId,
+                        xref = message.authorSessionId
+                            ?.takeIf { it.isNotEmpty() && it != root.id }
+                            ?.let { xref("message", it) },
                     ),
                 )
                 continue
@@ -1065,6 +1109,7 @@ object SessionTree {
                                 sessionCard(target, titles[target.id] ?: "", now).name,
                             ),
                             summary = card.str("summary") ?: message.body,
+                            xref = xref("report", target.id)!!,
                         ),
                     )
                 }
@@ -1108,6 +1153,17 @@ object SessionTree {
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
         // NEW-6 (N-1): the root alone = the thread IS that session.
         val single = tree.all { it.id == root.id }
+        val viewed = focused ?: root
+        val starter = viewed.parentId
+            ?: if (viewed.id == root.id && root.startedByAgentId != null) {
+                byId.values.firstOrNull {
+                    it.agentId == root.startedByAgentId && it.id == it.rootId && it.userId == root.userId
+                }?.id
+            } else null
+        val origin = xref(
+            if (viewed.status == DomainContract.sessionStatusEnded) "reported" else "started",
+            starter,
+        )
         return ThreadView(
             rootId = root.id,
             title = title,
@@ -1129,6 +1185,7 @@ object SessionTree {
             needsYou = live.any { it.needsInput },
             liveSessionId = if (root.status == DomainContract.sessionStatusEnded) null else root.id,
             mainSessionId = if (single) root.id else null,
+            origin = origin,
         )
     }
 
@@ -1685,6 +1742,7 @@ object SessionTree {
         deviceId = row.deviceId.ifBlank { null },
         agentId = row.agentId,
         appId = row.appId,
+        startedByAgentId = row.startedByAgentId,
         background = row.background,
     )
 
