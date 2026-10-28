@@ -594,17 +594,15 @@
           "id": 1,
           "kind": "tool",
           "name": "mcp__exponential__exponential_session_self_ask",
-          "settled": true
+          "settled": true,
+          "failed": false
         },
         {
           "id": 2,
           "kind": "tool",
           "name": "mcp__exponential__exponential_show",
-          "settled": true
-        },
-        {
-          "id": 3,
-          "kind": "text"
+          "settled": true,
+          "failed": false
         },
         {
           "id": 4,
@@ -617,7 +615,8 @@
           "id": 5,
           "kind": "tool",
           "name": "exponential_show",
-          "settled": true
+          "settled": true,
+          "failed": false
         }
       ],
       "cards": [
