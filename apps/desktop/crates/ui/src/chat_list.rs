@@ -457,9 +457,11 @@ pub(crate) fn agent_bubble(bubble: &AgentBubble, cx: &App) -> Div {
 /// S-3 — one AGENT row pinned on top of the Chats list (chats.json
 /// `agentChatRows`): THE chat row with the agent's avatar in the lead disc
 /// (the brand mark for the viewer's Assistant), its name, the
-/// conversation's preview, time and unread badge.
+/// conversation's preview, time and unread badge. AGENT ROWS: the disc
+/// ALWAYS holds the avatar (never the working mark or a PR glyph); needs
+/// you = the amber badge on it, busy reads only in the preview.
 pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div {
-    let lead_glyph = agent_avatar_glyph(&row.icon, &row.color, row.assistant, row.busy, GLYPH_PX, cx);
+    let lead_glyph = agent_avatar_glyph(&row.icon, &row.color, row.assistant, false, GLYPH_PX, cx);
     let lead = div()
         .relative()
         .size(px(CHATS.shell.lead_disc))
@@ -517,7 +519,7 @@ pub(crate) fn chat_section_header(label: &str, cx: &App) -> AnyElement {
         .pt_2()
         .pb_1()
         .text_xs()
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(cx.theme().muted_foreground)
         .child(SharedString::from(label.to_string()))
         .into_any_element()
