@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-28-quieter-agents`,
+    date: `2026-10-28`,
+    title: `Quieter agents, linked chats`,
+    summary: `Agents show one card instead of many messages, and chats link to each other.`,
+    body: `- **One card, kept up to date**: agents show results, questions and plans as a card that updates in place, and in an agent chat a newer reply replaces the earlier one until you write again.
+- **Fewer wake-ups**: an agent hears from the chats it started only when they ask, hit a limit, open a PR or finish, and its scheduled check-ins fold into one card that is skipped when nothing changed.
+- **Linked chats**: a message from another chat says where it came from (Message from, Report from, Started by); tap it to jump there and back.
+- **No plan mode**: plans are cards you answer; nothing waits on a switch.`,
+  },
+  {
     id: `2026-10-28-meeting-mode`,
     date: `2026-10-28`,
     title: `Meeting mode`,

@@ -52,6 +52,11 @@ vi.mock(`./tools`, () => ({
         { description: `Guide.`, inputSchema: z.strictObject({ topic: z.string() }) },
         async () => ({ content: [{ type: `text`, text: `written` }] })
       )
+      server.registerTool(
+        `exponential_show`,
+        { description: `Show.`, inputSchema: z.strictObject({ replace: z.boolean().optional() }) },
+        async () => ({ content: [{ type: `text`, text: `shown` }] })
+      )
     }
     server.registerTool(
       `exponential_sessions_send`,

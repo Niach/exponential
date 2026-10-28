@@ -43,7 +43,7 @@ const { insertMessage } = await import(`@/lib/sessions/messages`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const { getSessionTree } = await import(`@/lib/sessions/tree`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
-const { chatPreview, PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } = await import(
+const { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } = await import(
   `@exp/domain-contract/chats`
 )
 
@@ -138,19 +138,6 @@ const fromSession = (sessionId: string, from: string) =>
 
 const kindOf = (m: { card: unknown }) => (m.card as { kind?: string } | null)?.kind ?? null
 const eventOf = (m: { card: unknown }) => (m.card as { event?: string } | null)?.event ?? null
-
-const preview = (rootId: string, rows: (typeof messages.$inferSelect)[]) =>
-  chatPreview({
-    rootId,
-    messages: rows.map((m) => ({
-      ...m,
-      createdAt: m.createdAt.toISOString(),
-      answeredAt: m.answeredAt?.toISOString() ?? null,
-      consumedAt: m.consumedAt?.toISOString() ?? null,
-    })) as never,
-    needsYou: false,
-    busy: false,
-  })
 
 async function openPr(w: Awaited<ReturnType<typeof managed>>, sessionId: string, number: number) {
   const fullName = `o/bus-${id8()}`

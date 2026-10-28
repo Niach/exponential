@@ -46,14 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-10-28-meeting-mode",
+    id: "2026-10-28-quieter-agents",
     date: "2026-10-28",
-    title: "Meeting mode",
-    summary: "Your voice agent follows a meeting you start, with everyone's consent.",
-    body: r#"- **Meeting mode**: start it in Settings → Voice or the tray; after you confirm that everyone agrees, your voice device transcribes you and the apps you pick (Zoom, Slack…) on separate channels and hands the transcript to your voice agent in short batches.
-- **Nothing kept longer than needed**: audio is never stored, the transcript is deleted from the server after 7 days and from your device after 30.
-- **Pause listening**: Ctrl + Alt + P pauses the meeting and screen memory at once.
-- **Never forgotten on**: a meeting stops by itself after 4 hours and tells you so, and while it listens the tray icon carries the microphone dot."#,
+    title: "Quieter agents, linked chats",
+    summary: "Agents show one card instead of many messages, and chats link to each other.",
+    body: r#"- **One card, kept up to date**: agents show results, questions and plans as a card that updates in place, and in an agent chat a newer reply replaces the earlier one until you write again.
+- **Fewer wake-ups**: an agent hears from the chats it started only when they ask, hit a limit, open a PR or finish, and its scheduled check-ins fold into one card that is skipped when nothing changed.
+- **Linked chats**: a message from another chat says where it came from (Message from, Report from, Started by); tap it to jump there and back.
+- **No plan mode**: plans are cards you answer; nothing waits on a switch."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
