@@ -27,12 +27,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.Stories
-import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.theme.TextEmphasis
 
 // S-3 STORIES ×4 (fixtures/stories.json `ring` + `progress`, styleguide
 // `story-ring` / `story-viewer`; web, desktop and iOS draw the same two
@@ -140,27 +138,19 @@ fun StoryProgress(count: Int, index: Int, fraction: Float, modifier: Modifier = 
     }
 }
 
-/** A ring's avatar: an agent's mark ([AgentAvatar]: its glyph in its colour
- *  on the muted disc), else (a root chat, [color] null) the session glyph
- *  muted on the same disc. Fills the ring's inner circle. */
+/** A ring's avatar (stories.json AVATARS ×4): an agent ring = its mark
+ *  ([AgentAvatar]: its glyph in its colour on the muted disc, the bubble's
+ *  look); a root chat ring ([color] null) = the chat row's BARE brand mark
+ *  ([ChatLeadDisc] `Waiting`: no badge, no PR glyph; [cli] = the root's CLI)
+ *  on the same disc. Fills the ring's inner circle. */
 @Composable
-fun StoryAvatarMark(icon: String?, color: String?, modifier: Modifier = Modifier) {
+fun StoryAvatarMark(icon: String?, color: String?, modifier: Modifier = Modifier, cli: String? = null) {
     BoxWithConstraints(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val side = maxWidth
         if (color != null) {
             AgentAvatar(icon = icon, color = color, size = side)
         } else {
-            Box(
-                Modifier.fillMaxSize().clip(CircleShape).background(DesignTokens.Palette.Muted, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                androidx.compose.material3.Icon(
-                    icon?.let { ExpIcons.byName(it) } ?: ExpIcons.codingAssistant,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.size(side * 0.42f),
-                )
-            }
+            ChatLeadDisc(lead = Chats.ChatLead.Waiting, agent = cli, size = side)
         }
     }
 }

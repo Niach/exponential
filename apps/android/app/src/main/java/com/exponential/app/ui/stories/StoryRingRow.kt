@@ -116,7 +116,7 @@ fun StoryRingStrip(
                     .semantics { contentDescription = ring.title },
             ) {
                 val mark = avatar(ring)
-                StoryRing(stories = ring.stories, size = size) { StoryAvatarMark(mark.icon, mark.color) }
+                StoryRing(stories = ring.stories, size = size) { StoryAvatarMark(mark.icon, mark.color, cli = mark.cli) }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     ring.title,

@@ -1,98 +1,157 @@
-//! S-3: `story-ring` (`fixtures/stories.json` STORY RING; web entry
-//! `story-ring`): THE story ring ([`crate::story_ring`]) case for case with
-//! the web entry: the Assistant's ring (a waiting plan + an unseen result),
-//! a chat waiting on a question, an unseen result and a seen one, each in
-//! the Chats page's row footprint with its state word under it.
+//! S-3: `story-ring` (`fixtures/stories.json` SPECIMEN; web entry
+//! `story-ring`, iOS + Android twins): the rings of
+//! `stories(specimen.input)` in fold order at the bubble size with their
+//! titles under them, then the same rings at `smallRing` px without titles,
+//! then a StoryProgress (4 segments, the second at 0.4). No state words.
+//! The input is hardcoded identically ×4 (the fixture's last case replays
+//! it).
 
-use gpui::{div, App, Div, ParentElement as _, Styled as _, Window};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _};
+use gpui::{App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
+use gpui_component::{h_flex, v_flex};
+use serde_json::{json, Value};
 
-use domain::stories::{Story, StoryFooter, StoryKind, StoryRing};
+use domain::chats::CHATS;
+use domain::stories::{stories, StoriesInput, StoryRing};
 
-use crate::story_ring::{ring_avatar, ring_state, story_ring_button, RingArc, RING_GLYPH_PX};
+use crate::story_ring::{ring_avatar, story_ring, story_ring_button, RingArc, RING_GLYPH_PX};
+use crate::story_viewer::story_progress;
 
 pub(crate) const ID: &str = "story-ring";
 pub(crate) const OWNER: &str = "S-3";
 
-/// A demo story (only the arc's facts matter here).
-pub(crate) fn story(id: &str, kind: StoryKind, waiting: bool, seen: bool) -> Story {
-    Story {
-        id: id.into(),
-        session_id: "sg-story-session".into(),
-        root_id: "sg-story-root".into(),
-        session_name: "Checkout redesign".into(),
-        kind,
-        waiting,
-        seen,
-        created_at: 0,
-        meta: format!("{} · 5m", kind.label()),
-        title: None,
-        pictures: Vec::new(),
-        surface: kind == StoryKind::Result,
-        text: None,
-        footer: match kind {
-            StoryKind::Plan => StoryFooter::Plan,
-            StoryKind::Question => StoryFooter::Choices,
-            StoryKind::Result => StoryFooter::None,
-        },
-        auto_advance_ms: (kind == StoryKind::Result).then_some(domain::stories::STORIES.constants.auto_advance_ms),
-    }
+/// stories.json `specimen.smallRing`.
+const SMALL_RING: f32 = 36.;
+
+/// stories.json `specimen.input`, verbatim.
+pub(crate) fn specimen_input() -> Value {
+    let text = |text: &str| json!({ "root": { "id": "r", "component": "Text", "props": { "text": text } } });
+    json!({
+        "now": 1_800_000_000_000_i64,
+        "sessions": [
+            { "id": "triage", "rootId": "triage", "name": "Triage", "agentId": "a-triage", "startedByAgentId": null },
+            { "id": "board", "rootId": "board", "name": "Board header polish", "agentId": null, "startedByAgentId": null },
+            { "id": "designer", "rootId": "designer", "name": "Designer", "agentId": "a-designer", "startedByAgentId": null },
+            { "id": "ship", "rootId": "ship", "name": "Ship the launch checklist", "agentId": null, "startedByAgentId": null }
+        ],
+        "agents": [
+            { "id": "a-triage", "name": "Triage", "assistant": false, "icon": "bug", "color": "#a855f7" },
+            { "id": "a-designer", "name": "Designer", "assistant": false, "icon": "palette", "color": "#ec4899" }
+        ],
+        "messages": [
+            {
+                "id": "triage-plan", "sessionId": "triage", "authorSessionId": "triage",
+                "createdAt": 1_799_999_460_000_i64, "answeredAt": null,
+                "card": {
+                    "kind": "plan",
+                    "plan": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
+                    "decision": null
+                }
+            },
+            {
+                "id": "triage-result", "sessionId": "triage", "authorSessionId": "triage",
+                "createdAt": 1_799_998_200_000_i64, "answeredAt": null,
+                "card": { "kind": "surface", "story": true, "title": "Today's triage", "surface": text("3 labelled") }
+            },
+            {
+                "id": "board-question", "sessionId": "board", "authorSessionId": "board",
+                "createdAt": 1_799_999_760_000_i64, "answeredAt": null,
+                "card": board_question_card()
+            },
+            {
+                "id": "designer-result", "sessionId": "designer", "authorSessionId": "designer",
+                "createdAt": 1_799_996_400_000_i64, "answeredAt": null,
+                "card": { "kind": "surface", "story": true, "title": "Spacing review", "surface": text("No drift") }
+            },
+            {
+                "id": "ship-result", "sessionId": "ship", "authorSessionId": "ship",
+                "createdAt": 1_799_992_800_000_i64, "answeredAt": null,
+                "card": { "kind": "surface", "story": true, "title": "Checklist done", "surface": text("12 of 12") }
+            }
+        ],
+        "reads": [
+            { "sessionId": "ship", "readAt": 1_799_996_400_000_i64, "storySeenAt": null }
+        ]
+    })
 }
 
-pub(crate) fn ring(key: &str, title: &str, agent: bool, stories: Vec<Story>) -> StoryRing {
-    let waiting = stories.iter().filter(|story| story.waiting).count();
-    let unseen = stories.iter().any(|story| story.waiting || !story.seen);
-    StoryRing {
-        key: key.into(),
-        agent_id: agent.then(|| format!("{key}-agent")),
-        root_id: (!agent).then(|| format!("{key}-root")),
-        title: title.into(),
-        assistant: key == "assistant",
-        waiting,
-        unseen,
-        stories,
-    }
+/// The board's waiting question (the viewer specimen's story).
+pub(crate) fn board_question_card() -> Value {
+    json!({
+        "kind": "question",
+        "question": "Which accent for the board header?",
+        "options": ["Indigo", "Emerald"],
+        "optionDescriptions": ["The brand accent", "Matches the merged state"],
+        "custom": false,
+        "surface": {
+            "root": {
+                "id": "root",
+                "component": "Stack",
+                "props": { "gap": "md" },
+                "children": [
+                    { "id": "title", "component": "Text", "props": { "text": "Board header" }, "children": [] },
+                    { "id": "accent", "component": "ChoiceTiles", "props": {
+                        "name": "accent",
+                        "options": [{ "label": "Indigo", "value": "indigo" }, { "label": "Emerald", "value": "emerald" }],
+                        "value": { "path": "/accent" }
+                    }, "children": [] },
+                    { "id": "stat", "component": "StatTile", "props": {
+                        "label": "Header height", "value": "48 px", "delta": "\u{2212}8 px", "tone": "success"
+                    }, "children": [] }
+                ]
+            },
+            "data": { "accent": "indigo" }
+        }
+    })
 }
 
-/// The four rings of the entry.
-pub(crate) fn rings() -> Vec<(StoryRing, Option<(&'static str, &'static str)>)> {
-    vec![
-        (
-            ring(
-                "assistant",
-                "Assistant",
-                true,
-                vec![story("a1", StoryKind::Plan, true, false), story("a2", StoryKind::Result, false, false)],
-            ),
-            Some(("sparkles", "#8b5cf6")),
-        ),
-        (ring("waiting", "Fix the checkout", false, vec![story("w1", StoryKind::Question, true, false)]), None),
-        (
-            ring(
-                "unseen",
-                "Big Brother",
-                true,
-                vec![
-                    story("u1", StoryKind::Result, false, false),
-                    story("u2", StoryKind::Result, false, false),
-                    story("u3", StoryKind::Result, false, true),
-                ],
-            ),
-            Some(("bot", "#22c55e")),
-        ),
-        (ring("seen", "Batch 2", false, vec![story("s1", StoryKind::Result, false, true)]), None),
-    ]
+/// The specimen's rings: `stories(specimen.input)`.
+pub(crate) fn specimen_rings() -> Vec<StoryRing> {
+    let input: StoriesInput = serde_json::from_value(specimen_input()).expect("the specimen input deserializes");
+    stories(&input)
+}
+
+/// A specimen ring's avatar: an agent ring = its agent's icon + colour, a
+/// chat ring = the chat row's bare brand mark (no CLI = Claude's).
+pub(crate) fn specimen_avatar(ring: &StoryRing, glyph: f32, cx: &App) -> gpui::AnyElement {
+    let input = specimen_input();
+    let agent = ring.agent_id.as_deref().and_then(|id| {
+        input["agents"].as_array()?.iter().find(|agent| agent["id"] == id).cloned()
+    });
+    match agent {
+        Some(agent) => ring_avatar(Some((agent["icon"].as_str(), agent["color"].as_str())), None, glyph, cx),
+        None => ring_avatar(None, None, glyph, cx),
+    }
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
-    let muted = cx.theme().muted_foreground;
-    h_flex().gap_6().items_start().children(rings().into_iter().map(|(ring, agent)| {
-        let arcs: Vec<RingArc> = ring.stories.iter().map(RingArc::from).collect();
-        let avatar = ring_avatar(agent.map(|(icon, color)| (Some(icon), Some(color))), None, RING_GLYPH_PX, cx);
-        v_flex()
-            .items_center()
-            .gap_2()
-            .child(story_ring_button(&ring, avatar, cx))
-            .child(div().text_xs().text_color(muted).child(ring_state(&arcs)))
-    }))
+    let rings = specimen_rings();
+    let small_glyph = RING_GLYPH_PX * SMALL_RING / CHATS.shell.bubble;
+    v_flex()
+        .gap_6()
+        .child(h_flex().gap_3().items_start().children(
+            rings.iter().map(|ring| story_ring_button(ring, specimen_avatar(ring, RING_GLYPH_PX, cx), cx)),
+        ))
+        .child(h_flex().gap_3().items_center().children(rings.iter().map(|ring| {
+            let arcs: Vec<RingArc> = ring.stories.iter().map(RingArc::from).collect();
+            story_ring(&arcs, SMALL_RING, specimen_avatar(ring, small_glyph, cx), cx).into_any_element()
+        })))
+        .child(v_flex().w(gpui::px(280.)).child(story_progress(4, 1, 0.4, cx)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The hardcoded input IS stories.json's specimen and folds to its
+    /// replay case, in fold order.
+    #[test]
+    fn the_specimen_is_the_fixture() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../../../../../../packages/domain-contract/fixtures/stories.json"))
+                .unwrap();
+        assert_eq!(specimen_input(), fixture["specimen"]["input"]);
+        let titles: Vec<String> = specimen_rings().into_iter().map(|ring| ring.title).collect();
+        assert_eq!(titles, ["Board header polish", "Triage", "Designer", "Ship the launch checklist"]);
+        assert_eq!(fixture["specimen"]["smallRing"].as_f64(), Some(SMALL_RING as f64));
+    }
 }

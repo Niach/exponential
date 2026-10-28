@@ -71,17 +71,6 @@ fn arc_look(arc: RingArc, cx: &App) -> (Hsla, f32) {
     }
 }
 
-/// The ring's state word (web `data-state`): waiting · unseen · seen.
-pub(crate) fn ring_state(arcs: &[RingArc]) -> &'static str {
-    if arcs.iter().any(|arc| arc.waiting) {
-        "waiting"
-    } else if arcs.iter().any(|arc| !arc.seen) {
-        "unseen"
-    } else {
-        "seen"
-    }
-}
-
 /// THE story ring: `avatar` (sized by the caller to fill) inside the
 /// segmented ring of outer diameter `size`.
 pub(crate) fn story_ring(arcs: &[RingArc], size: f32, avatar: AnyElement, cx: &App) -> Div {
@@ -165,13 +154,14 @@ fn paint_arc(
     }
 }
 
-/// A ring's avatar (web `StoryAvatar`): an agent ring = the agent's mark
-/// (its icon + colour), a root ring = the session's brand mark (its CLI),
-/// both on the muted disc.
+/// A ring's avatar (web `StoryAvatar`, stories.json AVATARS): an agent ring
+/// = the agent's icon in its colour (the bubble's look), a chat ring = the
+/// chat row's BARE brand mark (its CLI; no badge, no PR glyph), both on the
+/// muted disc.
 pub(crate) fn ring_avatar(agent: Option<(Option<&str>, Option<&str>)>, cli: Option<coding::CodingAgent>, glyph: f32, cx: &App) -> AnyElement {
     let mark = match agent {
         Some((icon, color)) => crate::icons::agent_icon(icon, color).with_size(px(glyph)).into_any_element(),
-        None => crate::coding_selects::agent_mark(cli.unwrap_or_default()).with_size(px(glyph)).into_any_element(),
+        None => crate::chat_list::chat_brand_mark(cli, glyph),
     };
     div()
         .size_full()
@@ -427,13 +417,5 @@ mod tests {
         assert_eq!(story_arcs(1, 6.), vec![(0., 360.)]);
         assert_eq!(story_arcs(2, 6.), vec![(3., 174.), (183., 174.)]);
         assert_eq!(story_arcs(3, 6.).len(), 3);
-    }
-
-    #[test]
-    fn the_state_word_follows_the_arcs() {
-        let arc = |waiting, seen| RingArc { kind: StoryKind::Result, waiting, seen };
-        assert_eq!(ring_state(&[arc(false, true), arc(true, false)]), "waiting");
-        assert_eq!(ring_state(&[arc(false, true), arc(false, false)]), "unseen");
-        assert_eq!(ring_state(&[arc(false, true)]), "seen");
     }
 }

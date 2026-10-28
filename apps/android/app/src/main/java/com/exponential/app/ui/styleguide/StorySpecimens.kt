@@ -26,91 +26,103 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 /*
- * S-3 STORIES (stories.json, styleguide `story-ring` / `story-viewer`; the
- * web `StoryRingSpecimen` / `StoryViewerSpecimen` islands): the ring row over
- * static rings (the Assistant's, a waiting chat, an unseen result, a seen
- * one) with single rings and THE progress under it, and THE viewer opened on
- * a draft question carrying an Exponential UI surface and two choices.
- * Capture only (StyleguideScreenshotsTest `captureOnlyScreens`).
+ * S-3 STORIES (stories.json `specimen`, its `$comment` is the spec; styleguide
+ * `story-ring` / `story-viewer`, hardcoded identically on web, desktop and
+ * iOS; `cases` replays the same input as "the styleguide specimen"): the
+ * rings of [Stories.rings] over [SPECIMEN_INPUT] at the bubble size with
+ * their titles, the same rings at `smallRing` px without titles, THE
+ * progress mid-story; and THE viewer open on ring 0, story 0 (the waiting
+ * question over its Exponential UI surface), the progress frozen at 0.
+ * Avatars: an agent ring = its icon in its colour on the muted disc; a chat
+ * ring = the chat row's bare brand mark. Capture only
+ * (StyleguideScreenshotsTest `captureOnlyScreens`).
  */
 
 const val StoryRingSpecimenTestId = "story-ring-specimen"
 const val StoryViewerSpecimenTestId = "story-viewer-specimen"
 
-private fun story(
-    id: String,
-    session: String,
-    kind: Stories.Kind,
-    age: String,
-    title: String?,
-    waiting: Boolean = false,
-    seen: Boolean = false,
-    surface: Boolean = false,
-    text: String? = null,
-    footer: Stories.Footer = when (kind) {
-        Stories.Kind.Plan -> Stories.Footer.Plan
-        Stories.Kind.Question -> Stories.Footer.Reply
-        Stories.Kind.Result -> Stories.Footer.None
-    },
-) = Stories.Story(
-    id = id,
-    sessionId = "s-$id",
-    rootId = "r-$id",
-    sessionName = session,
-    kind = kind,
-    waiting = waiting,
-    seen = seen,
-    createdAt = 0,
-    meta = "${Stories.Copy.kind(kind)} · $age",
-    title = title,
-    pictures = emptyList(),
-    surface = surface,
-    text = text,
-    footer = footer,
-    autoAdvanceMs = if (kind == Stories.Kind.Result) Stories.Constants.AUTO_ADVANCE_MS else null,
+/** `specimen.smallRing`. */
+private const val SMALL_RING = 36
+
+private const val DRAFT_SURFACE_JSON = """
+{"root": {"id": "root", "component": "Stack", "props": {"gap": "md"}, "children": [
+      {"id": "title", "component": "Text", "props": {"text": "Board header"}, "children": []},
+      {"id": "accent", "component": "ChoiceTiles", "props": {"name": "accent", "options": [
+        {"label": "Indigo", "value": "indigo"}, {"label": "Emerald", "value": "emerald"}],
+        "value": {"path": "/accent"}}, "children": []},
+      {"id": "stat", "component": "StatTile", "props": {"label": "Header height", "value": "48 px",
+        "delta": "−8 px", "tone": "success"}, "children": []}
+    ]}, "data": {"accent": "indigo"}}
+    """
+
+private val DRAFT_SURFACE: CardSurface = Json.parseToJsonElement(DRAFT_SURFACE_JSON)
+    .jsonObject.let { CardSurface(it.getValue("root").jsonObject, it["data"] as? JsonObject) }
+
+private fun card(json: String): JsonObject = Json.parseToJsonElement(json).jsonObject
+
+/** `specimen.input`, verbatim. */
+private const val NOW = 1_800_000_000_000L
+
+private val SESSIONS = listOf(
+    Stories.SessionInput(id = "triage", rootId = "triage", name = "Triage", agentId = "a-triage", startedByAgentId = null),
+    Stories.SessionInput(id = "board", rootId = "board", name = "Board header polish", agentId = null, startedByAgentId = null),
+    Stories.SessionInput(id = "designer", rootId = "designer", name = "Designer", agentId = "a-designer", startedByAgentId = null),
+    Stories.SessionInput(id = "ship", rootId = "ship", name = "Ship the launch checklist", agentId = null, startedByAgentId = null),
 )
 
-private val RINGS: List<Stories.StoryRing> = listOf(
-    Stories.StoryRing(
-        key = "agent:assistant", agentId = "assistant", rootId = null, title = "Assistant", assistant = true,
-        waiting = 1, unseen = true,
-        stories = listOf(
-            story(
-                "p1", "Fix the sign-in redirect", Stories.Kind.Plan, "4m",
-                title = "Move the redirect into the auth callback", waiting = true,
-                text = "Move the redirect into the auth callback\n\n1. Read the `next` param in `/auth/callback`.\n2. Drop the client-side redirect.",
-            ),
-            story("r1", "Fix the sign-in redirect", Stories.Kind.Result, "12m", title = "Sign-in on the iPad"),
+private val AGENTS = listOf(
+    Stories.AgentInput("a-triage", "Triage", assistant = false),
+    Stories.AgentInput("a-designer", "Designer", assistant = false),
+)
+
+/** The agents' marks (`agents[].icon` / `color`). */
+private val AGENT_MARKS = mapOf(
+    "a-triage" to StoryAvatar("bug", "#a855f7"),
+    "a-designer" to StoryAvatar("palette", "#ec4899"),
+)
+
+private fun result(title: String, text: String) =
+    card("""{"kind": "surface", "story": true, "title": "$title", "surface": {"root": {"id": "r", "component": "Text", "props": {"text": "$text"}}}}""")
+
+private val MESSAGES = listOf(
+    Stories.MessageInput(
+        id = "triage-plan", sessionId = "triage", authorSessionId = "triage", createdAt = 1_799_999_460_000L, answeredAt = null,
+        card = card("""{"kind": "plan", "plan": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.", "decision": null}"""),
+    ),
+    Stories.MessageInput(
+        id = "triage-result", sessionId = "triage", authorSessionId = "triage", createdAt = 1_799_998_200_000L, answeredAt = null,
+        card = result("Today's triage", "3 labelled"),
+    ),
+    Stories.MessageInput(
+        id = "board-question", sessionId = "board", authorSessionId = "board", createdAt = 1_799_999_760_000L, answeredAt = null,
+        card = card(
+            """{"kind": "question", "question": "Which accent for the board header?", "options": ["Indigo", "Emerald"],
+            "optionDescriptions": ["The brand accent", "Matches the merged state"], "custom": false,
+            "surface": $DRAFT_SURFACE_JSON}""",
         ),
     ),
-    Stories.StoryRing(
-        key = "root:r2", agentId = null, rootId = "r2", title = "Board header polish", assistant = false,
-        waiting = 1, unseen = true,
-        stories = listOf(story("q1", "Board header polish", Stories.Kind.Question, "1h", title = "Which accent for the header?", waiting = true)),
+    Stories.MessageInput(
+        id = "designer-result", sessionId = "designer", authorSessionId = "designer", createdAt = 1_799_996_400_000L, answeredAt = null,
+        card = result("Spacing review", "No drift"),
     ),
-    Stories.StoryRing(
-        key = "agent:ag2", agentId = "ag2", rootId = null, title = "Designer", assistant = false,
-        waiting = 0, unseen = true,
-        stories = listOf(story("r2", "Empty states", Stories.Kind.Result, "2h", title = "New empty states", surface = true)),
-    ),
-    Stories.StoryRing(
-        key = "root:r3", agentId = null, rootId = "r3", title = "Ship the login flow", assistant = false,
-        waiting = 0, unseen = false,
-        stories = listOf(
-            story("r3", "Ship the login flow", Stories.Kind.Result, "3h", title = "Login flow shipped", seen = true),
-            story("r4", "Ship the login flow", Stories.Kind.Result, "2h", title = "Release notes", seen = true),
-        ),
+    Stories.MessageInput(
+        id = "ship-result", sessionId = "ship", authorSessionId = "ship", createdAt = 1_799_992_800_000L, answeredAt = null,
+        card = result("Checklist done", "12 of 12"),
     ),
 )
 
-private fun avatar(ring: Stories.StoryRing): StoryAvatar = when (ring.agentId) {
-    "assistant" -> StoryAvatar(SessionTree.ListCopy.AGENT_DEFAULT_ICON, SessionTree.ListCopy.AGENT_DEFAULT_COLOR)
-    "ag2" -> StoryAvatar("bot", "#6366f1")
-    else -> StoryAvatar(null, null)
-}
+private val READS = listOf(Stories.ReadInput("ship", readAt = 1_799_996_400_000L, storySeenAt = null))
 
-/** `story-ring`: the ring row, the rings alone at the header's size, THE
- *  progress mid-story. */
+/** `stories(specimen.input)`: Board header polish, Triage, Designer, Ship the launch checklist. */
+private val RINGS: List<Stories.StoryRing> =
+    Stories.rings(now = NOW, sessions = SESSIONS, agents = AGENTS, messages = MESSAGES, reads = READS)
+
+/** Agent ring = its mark; chat ring = the bare brand mark (no CLI = the default). */
+private fun avatar(ring: Stories.StoryRing): StoryAvatar =
+    ring.agentId?.let { AGENT_MARKS[it] } ?: StoryAvatar(null, null, cli = null)
+
+/** `story-ring`: the rings with their titles, the same rings small, THE
+ *  progress (`specimen.progress`). No state words. */
 @Composable
 fun StoryRingSpecimenScreen() {
     AppBackground {
@@ -122,7 +134,7 @@ fun StoryRingSpecimenScreen() {
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 RINGS.forEach { ring ->
                     val mark = avatar(ring)
-                    StoryRing(stories = ring.stories, size = 36.dp) { StoryAvatarMark(mark.icon, mark.color) }
+                    StoryRing(stories = ring.stories, size = SMALL_RING.dp) { StoryAvatarMark(mark.icon, mark.color, cli = mark.cli) }
                 }
             }
             Box(Modifier.padding(horizontal = 16.dp)) { StoryProgress(count = 4, index = 1, fraction = 0.4f) }
@@ -130,22 +142,10 @@ fun StoryRingSpecimenScreen() {
     }
 }
 
-private val DRAFT_SURFACE: CardSurface = Json.parseToJsonElement(
-    """
-    {"root": {"id": "root", "component": "Stack", "props": {"gap": "md"}, "children": [
-      {"id": "title", "component": "Text", "props": {"text": "Board header"}, "children": []},
-      {"id": "accent", "component": "ChoiceTiles", "props": {"name": "accent", "options": [
-        {"label": "Indigo", "value": "indigo"}, {"label": "Emerald", "value": "emerald"}],
-        "value": {"path": "/accent"}}, "children": []},
-      {"id": "stat", "component": "StatTile", "props": {"label": "Header height", "value": "48 px",
-        "delta": "−8 px", "tone": "success"}, "children": []}
-    ]}, "data": {"accent": "indigo"}}
-    """.trimIndent(),
-).jsonObject.let { CardSurface(it.getValue("root").jsonObject, it["data"] as? JsonObject) }
-
+/** The waiting question's card as THE thread row (the viewer's body + footer). */
 private val DRAFT_QUESTION = SessionTree.ThreadRow.Question(
-    id = "q-draft",
-    sessionId = "s-draft",
+    id = "board-question",
+    sessionId = "board",
     question = "Which accent for the board header?",
     options = listOf(
         SessionTree.ThreadRow.QuestionChoice("Indigo", "The brand accent"),
@@ -157,28 +157,15 @@ private val DRAFT_QUESTION = SessionTree.ThreadRow.Question(
     surface = DRAFT_SURFACE,
 )
 
-private val VIEWER_RINGS: List<Stories.StoryRing> = listOf(
-    Stories.StoryRing(
-        key = "agent:ag2", agentId = "ag2", rootId = null, title = "Designer", assistant = false,
-        waiting = 1, unseen = true,
-        stories = listOf(
-            story(
-                "q-draft", "Board header polish", Stories.Kind.Question, "4m",
-                title = DRAFT_QUESTION.question, waiting = true, surface = true, footer = Stories.Footer.Choices,
-            ),
-            story("r5", "Board header polish", Stories.Kind.Result, "1h", title = "Header spacing"),
-        ),
-    ),
-)
-
-/** `story-viewer`: THE viewer on a draft question (its surface through the
- *  surface card renderer, its two choices in the footer), timer frozen. */
+/** `story-viewer`: THE viewer on ring 0, story 0 (`specimen.viewer`), its
+ *  surface through the surface card renderer, its two choices in the footer,
+ *  the progress frozen at 0. */
 @Composable
 fun StoryViewerSpecimenScreen() {
     Box(Modifier.fillMaxSize().testTag(StoryViewerSpecimenTestId)) {
         StoryViewer(
-            rings = VIEWER_RINGS,
-            startKey = VIEWER_RINGS[0].key,
+            rings = RINGS,
+            startKey = RINGS[0].key,
             rows = mapOf(DRAFT_QUESTION.id to DRAFT_QUESTION),
             avatar = ::avatar,
             onAnswer = { _, _, settled -> settled(false) },

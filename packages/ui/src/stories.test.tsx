@@ -1,9 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { STORIES_TEST_IDS } from "@exp/domain-contract/stories"
+import fixture from "@exp/domain-contract/fixtures/stories.json"
 
 import {
   STORY_RING_SPECIMEN,
+  STORY_SPECIMEN_INPUT,
+  STORY_SPECIMEN_PROGRESS,
+  STORY_SPECIMEN_SMALL_RING,
   STORY_VIEWER_SPECIMEN_CARD,
   STORY_VIEWER_SPECIMEN_RING,
   StoryRingSpecimen,
@@ -33,13 +37,22 @@ describe(`storyArcs`, () => {
 describe(`stepStory`, () => {
   const rings = STORY_RING_SPECIMEN
   it(`walks a ring, then the next ring; past the last ring closes`, () => {
-    expect(stepStory(rings, { ringKey: rings[0]!.key, storyId: `a1` }, 1)).toEqual({ ringKey: rings[0]!.key, storyId: `a2` })
-    expect(stepStory(rings, { ringKey: rings[0]!.key, storyId: `a2` }, 1)).toEqual({ ringKey: rings[1]!.key, storyId: `q1` })
-    expect(stepStory(rings, { ringKey: rings[3]!.key, storyId: `s1` }, 1)).toBeNull()
+    expect(stepStory(rings, { ringKey: rings[1]!.key, storyId: `triage-plan` }, 1)).toEqual({
+      ringKey: rings[1]!.key,
+      storyId: `triage-result`,
+    })
+    expect(stepStory(rings, { ringKey: rings[1]!.key, storyId: `triage-result` }, 1)).toEqual({
+      ringKey: rings[2]!.key,
+      storyId: `designer-result`,
+    })
+    expect(stepStory(rings, { ringKey: rings[3]!.key, storyId: `ship-result` }, 1)).toBeNull()
   })
   it(`back from a ring's first story = the previous ring's last; the very first stays`, () => {
-    expect(stepStory(rings, { ringKey: rings[1]!.key, storyId: `q1` }, -1)).toEqual({ ringKey: rings[0]!.key, storyId: `a2` })
-    expect(stepStory(rings, { ringKey: rings[0]!.key, storyId: `a1` }, -1)).toBe(`stay`)
+    expect(stepStory(rings, { ringKey: rings[2]!.key, storyId: `designer-result` }, -1)).toEqual({
+      ringKey: rings[1]!.key,
+      storyId: `triage-result`,
+    })
+    expect(stepStory(rings, { ringKey: rings[0]!.key, storyId: `board-question` }, -1)).toBe(`stay`)
   })
 })
 
@@ -54,19 +67,38 @@ describe(`StoryProgress`, () => {
 })
 
 describe(`specimens`, () => {
-  it(`the ring row draws one ring per ring, an arc per story`, () => {
-    render(<StoryRingSpecimen />)
-    const rings = screen.getAllByTestId(STORIES_TEST_IDS.ring)
-    expect(rings.map((ring) => ring.getAttribute(`data-key`))).toEqual(STORY_RING_SPECIMEN.map((ring) => ring.key))
-    expect(rings[0]!.querySelectorAll(`[data-slot="story-arc"]`)).toHaveLength(2)
+  it(`the specimen = the fold of stories.json specimen.input, in fold order`, () => {
+    expect(STORY_SPECIMEN_INPUT).toEqual(fixture.specimen.input as never)
+    expect(STORY_RING_SPECIMEN.map((ring) => ring.title)).toEqual([
+      `Board header polish`,
+      `Triage`,
+      `Designer`,
+      `Ship the launch checklist`,
+    ])
+    expect(STORY_SPECIMEN_SMALL_RING).toBe(fixture.specimen.smallRing)
+    expect(STORY_SPECIMEN_PROGRESS).toEqual(fixture.specimen.progress)
   })
 
-  it(`the viewer opens on the draft question: progress, header, the two choices`, () => {
+  it(`the ring row draws one ring per ring, an arc per story; then the small rings and a progress; no state words`, () => {
+    const { container } = render(<StoryRingSpecimen />)
+    const rings = screen.getAllByTestId(STORIES_TEST_IDS.ring)
+    expect(rings.map((ring) => ring.getAttribute(`data-key`))).toEqual(STORY_RING_SPECIMEN.map((ring) => ring.key))
+    expect(rings[1]!.querySelectorAll(`[data-slot="story-arc"]`)).toHaveLength(2)
+    const small = container.querySelector(`[data-slot="story-ring-specimen-small"]`)!
+    expect(small.querySelectorAll(`[data-slot="story-ring"]`)).toHaveLength(4)
+    expect(small.textContent).toBe(``)
+    expect(screen.getByTestId(STORIES_TEST_IDS.progress).getAttribute(`data-index`)).toBe(`1`)
+    expect(container.textContent).not.toMatch(/waiting|unseen|seen/)
+  })
+
+  it(`the viewer opens on ring 0, story 0: the board question, progress at 0, the two choices`, () => {
     render(<StoryViewerSpecimen />)
     const viewer = screen.getByTestId(STORIES_TEST_IDS.viewer)
     expect(viewer.getAttribute(`data-kind`)).toBe(`question`)
-    expect(screen.getByTestId(STORIES_TEST_IDS.progress)).toBeTruthy()
-    expect(screen.getByTestId(STORIES_TEST_IDS.header).textContent).toContain(`Redesign the header`)
+    const fills = [...screen.getByTestId(STORIES_TEST_IDS.progress).querySelectorAll(`[data-slot="story-progress-segment"] > span`)]
+    expect(fills.map((node) => (node as HTMLElement).style.width)).toEqual([`0%`])
+    expect(screen.getByTestId(STORIES_TEST_IDS.header).textContent).toContain(`Board header polish`)
+    expect(viewer.textContent).toContain(`Which accent for the board header?`)
     expect(viewer.querySelector(`[data-footer="choices"]`)).toBeTruthy()
   })
 
@@ -86,7 +118,7 @@ describe(`specimens`, () => {
         onClose={onClose}
       />
     )
-    fireEvent.click(screen.getByText(`Redesign the header`))
+    fireEvent.click(screen.getByText(`Board header polish`))
     expect(onOpenSession).toHaveBeenCalledWith(ring.stories[0]!.sessionId)
     fireEvent.click(screen.getByLabelText(`Close`))
     expect(onClose).toHaveBeenCalled()

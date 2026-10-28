@@ -1,79 +1,51 @@
-//! S-3: `story-viewer` (`fixtures/stories.json` STORY VIEWER; web entry
-//! `story-viewer`): THE story viewer's panel ([`crate::story_viewer`]) as
-//! the IDE's centred modal over a scrim, on a draft QUESTION story whose
-//! card carries an Exponential UI surface and two choices: the progress
-//! (the second of three), the header, the surface through THE card's
-//! renderer and the choices + Answer through THE card's controls. No
-//! `sync::Store` here: the card is built inline.
+//! S-3: `story-viewer` (`fixtures/stories.json` SPECIMEN; web entry
+//! `story-viewer`, iOS + Android twins): THE story viewer's panel
+//! ([`crate::story_viewer`]) as the IDE's centred modal over a scrim, open
+//! on ring `viewer.ring` (0), story `viewer.story` (0) of
+//! `stories(specimen.input)`: the board's waiting question over its
+//! Exponential UI surface (Text, ChoiceTiles, StatTile) with two described
+//! options, the progress frozen at `viewer.fraction` (0). No `sync::Store`
+//! here: the card is built inline from the same hardcoded input.
 
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::v_flex;
 use serde_json::json;
 
 use domain::rows::MessageRow;
-use domain::stories::{StoryFooter, StoryKind, STORIES};
+use domain::stories::STORIES;
 
+use super::story_ring::{board_question_card, specimen_avatar, specimen_rings};
 use crate::markdown::ImageCache;
-use crate::story_ring::{ring_avatar, RING_GLYPH_PX};
+use crate::story_ring::RING_GLYPH_PX;
 use crate::story_viewer::{story_content, story_panel, PanelHandlers};
 use crate::thread_screen::ThreadText;
 
 pub(crate) const ID: &str = "story-viewer";
 pub(crate) const OWNER: &str = "S-3";
 
-const MESSAGE_ID: &str = "sg-story-question";
-
+/// The open story's row (stories.json `specimen.input` board-question).
 fn message() -> MessageRow {
     serde_json::from_value(json!({
-        "id": MESSAGE_ID,
-        "conversation_id": "c-sg-story",
-        "session_id": "sg-story-session",
-        "author_session_id": "sg-story-session",
-        "created_at": "2026-10-28T10:00:00.000Z",
-        "card": {
-            "kind": "question",
-            "question": "Which accent ships?",
-            "options": ["Blue", "Green"],
-            "custom": false,
-            "surface": {
-                "root": {
-                    "id": "s",
-                    "component": "Stack",
-                    "props": { "direction": "vertical", "gap": "sm" },
-                    "children": [
-                        { "id": "t", "component": "Text", "props": { "text": "Checkout button, both accents" } },
-                        { "id": "c", "component": "ChoiceTiles", "props": {
-                            "name": "accent",
-                            "options": [{ "label": "Blue", "value": "blue" }, { "label": "Green", "value": "green" }],
-                            "value": { "path": "/accent" }
-                        } }
-                    ]
-                },
-                "data": { "accent": "blue" }
-            }
-        }
+        "id": "board-question",
+        "conversation_id": "c-board",
+        "session_id": "board",
+        "author_session_id": "board",
+        "created_at": "2027-01-15T07:56:00.000Z",
+        "card": board_question_card()
     }))
-    .expect("the demo message deserializes")
+    .expect("the specimen message deserializes")
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    use super::story_ring::{ring, story};
     let images = window.use_keyed_state("sg-story-viewer-images", cx, |_, _| ImageCache::new(None)).clone();
-    let mut question = story(MESSAGE_ID, StoryKind::Question, true, false);
-    question.title = Some("Which accent ships?".into());
-    question.footer = StoryFooter::Choices;
-    question.meta = format!("{} · 5m", StoryKind::Question.label());
-    let demo = ring(
-        "sg-viewer",
-        "Fix the checkout",
-        false,
-        vec![story("v1", StoryKind::Plan, true, false), question.clone(), story("v3", StoryKind::Result, false, false)],
-    );
+    let rings = specimen_rings();
+    let ring = &rings[0];
+    let story = &ring.stories[0];
     let message = message();
-    let content = story_content(&question, Some(&message), 0, &ThreadText::default(), &images, window, cx);
-    let avatar = ring_avatar(None, None, RING_GLYPH_PX * 0.75, cx);
+    let content = story_content(story, Some(&message), 0, &ThreadText::default(), &images, window, cx);
+    let avatar = specimen_avatar(ring, RING_GLYPH_PX * 0.75, cx);
     let spec = &STORIES.viewer;
-    let panel = story_panel(&demo, &question, 1, 1., avatar, content, PanelHandlers::default(), cx)
+    let panel = story_panel(ring, story, 0, 0., avatar, content, PanelHandlers::default(), cx)
         .w(px(spec.width))
         .h(px(spec.height))
         .rounded(px(spec.radius))
@@ -86,4 +58,19 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .items_center()
         .bg(gpui::black().opacity(0.6))
         .child(div().child(panel))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_viewer_opens_on_the_board_question() {
+        let rings = specimen_rings();
+        let story = &rings[0].stories[0];
+        assert_eq!(story.id, "board-question");
+        assert_eq!(story.title.as_deref(), Some("Which accent for the board header?"));
+        assert!(story.surface);
+        assert_eq!(message().id, story.id);
+    }
 }
