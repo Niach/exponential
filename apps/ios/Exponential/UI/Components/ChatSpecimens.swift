@@ -549,3 +549,28 @@ struct MentionPillSpecimens: View {
         }
     }
 }
+
+/// S-3 (styleguide `session-xref`, session-thread.json): THE inter-session
+/// link header, once per kind — an agent's tree carries its mark, a
+/// person's session the session glyph.
+struct SessionXrefSpecimens: View {
+    private static let agent = SessionXrefHeader.AgentMark(
+        icon: SessionTree.ListCopy.agentDefaultIcon,
+        color: Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
+    )
+
+    private static let links: [(SessionXref, SessionXrefHeader.AgentMark?)] = [
+        (SessionXref(kind: .message, sessionId: "x1", name: "Triage", agentId: "a1"), agent),
+        (SessionXref(kind: .report, sessionId: "x2", name: "Fix the sign-in redirect", agentId: nil), nil),
+        (SessionXref(kind: .started, sessionId: "x3", name: "Triage", agentId: "a1"), agent),
+        (SessionXref(kind: .reported, sessionId: "x4", name: "Ship the login flow", agentId: nil), nil),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Self.links, id: \.0.sessionId) { xref, mark in
+                SessionXrefHeader(xref: xref, agent: mark) {}
+            }
+        }
+    }
+}

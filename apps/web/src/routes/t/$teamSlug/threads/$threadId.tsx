@@ -91,6 +91,7 @@ function ThreadPage() {
       <Navigate
         to="/t/$teamSlug/agents/$agentId"
         params={{ teamSlug, agentId: thread.root.agentId }}
+        search={search.back ? { back: search.back } : {}}
         replace
       />
     )

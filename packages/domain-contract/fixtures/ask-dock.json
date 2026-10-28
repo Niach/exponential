@@ -1,5 +1,5 @@
 {
-  "$comment": "THE ask cards x4 (web packages/ui session-thread-view.tsx + ask-card.tsx + dock.tsx, desktop crates/ui ask_dock.rs + dock.rs, iOS ExpUI AskDock.swift + Dock.swift, Android ui/session/AskDock.kt + ui/components/Dock.kt). N-12: a question or plan card WAITING on the viewer is a DockCard of THE Dock (fixtures/dock.json): the collapsed row = the kind icon (`icons`), the tinted `label` (`copy.planReady` / `copy.question`), the asking session's name as the caption (a thread: `threadPendingAsks` + `threadSessionNames`, nested tabs included, the root = null; the session view: null), a plan's question count as the meta, the first plain line of the text (`askDockTitle`) as the title and the open chevron; the composer stays under it. A tap opens THE sheet (dock.json `sheet`): the card's whole body scrolls inside it, the footer carries the decision (plan-card.json `stepper`). THE plan options x4 (`planOptions`, the claude adapter's ExitPlanMode menu): Yes (`approve`, the primary footer button) / Yes, and start with a fresh context (`approve-fresh`, in the primary button's menu) / No, keep planning (`reject`, the secondary footer button; picking it opens the feedback field, `feedbackPlaceholder`, and `copy.cancel` takes it back); `sessions.answer` carries `decision` + `fresh` (+ EXP-1280 `answers` + `surfaceData`); a decided card names `planDecisionLabel`. Answered cards stay in the transcript CLOSED. Model = pure `askDockTitle`, `askDockLabel`, `planDecisionLabel`, `threadPendingAsks` (every plan row with no decision + every unanswered question row of ANY session in the tree, Conversation order, `questions` = a plan's question count), `threadSessionNames` (src/ask-dock.ts); mirrors compare the WHOLE expected object. The dock itself (the pile, the sheet, the order) is dock.json. FEED-140 (thread 58cb32df): decision `superseded` = a waiting plan the agent replaced with a newer `plan` call (the server resolves the old card, never refuses the new one); planDecisionLabel reads `copy.superseded`, the card paints closed and collapsed to that line; a superseded card never sits in the dock. EXP-1398 THE SESSION VIEW's cards x4 (web agent-session.tsx, desktop steer_viewer.rs + surface_card.rs, iOS AgentSessionView.swift, Android AgentSessionScreen.kt; the view a ONE-session thread opens on): `sessionCards(messages)` = the session's own conversation cards a TOOL posted, oldest first (createdAt, then id): every `plan` / `question` card with no `questionId` (an engine-posted card is the relay's own ask) and every `surface` card; `ask` mirrors and every other kind drop. `waiting` = a plan with no decision (a `superseded` plan is decided) or an unanswered question (`answeredAt` null); a surface never waits. EVERY card draws INLINE in the transcript (answered ones closed, waiting ones answerable) and a waiting one ALSO sits in the Dock while the session can be answered (FEED-140). `anchorSessionCards(feed, cards)` = where each card draws: right after the SETTLED, unfailed call that posted it, paired newest back PER KIND (plan = `session_self_plan`, question = `session_self_ask`, surface = `session_self_show`; the call's display row = the contract `expToolDisplay` name rule), so a question never anchors on a plan call; a card with no call left in the feed is `unanchored` (card order) and draws at the transcript's HEAD. `anchors` keys = feed item ids as strings, each list oldest first. Mirrors compare the WHOLE expected object.",
+  "$comment": "THE ask cards x4 (web packages/ui session-thread-view.tsx + ask-card.tsx + dock.tsx, desktop crates/ui ask_dock.rs + dock.rs, iOS ExpUI AskDock.swift + Dock.swift, Android ui/session/AskDock.kt + ui/components/Dock.kt). N-12: a question or plan card WAITING on the viewer is a DockCard of THE Dock (fixtures/dock.json): the collapsed row = the kind icon (`icons`), the tinted `label` (`copy.planReady` / `copy.question`), the asking session's name as the caption (a thread: `threadPendingAsks` + `threadSessionNames`, nested tabs included, the root = null; the session view: null), a plan's question count as the meta, the first plain line of the text (`askDockTitle`) as the title and the open chevron; the composer stays under it. A tap opens THE sheet (dock.json `sheet`): the card's whole body scrolls inside it, the footer carries the decision (plan-card.json `stepper`). THE plan options x4 (`planOptions`, the claude adapter's ExitPlanMode menu): Yes (`approve`, the primary footer button) / Yes, and start with a fresh context (`approve-fresh`, in the primary button's menu) / No, keep planning (`reject`, the secondary footer button; picking it opens the feedback field, `feedbackPlaceholder`, and `copy.cancel` takes it back); `sessions.answer` carries `decision` + `fresh` (+ EXP-1280 `answers` + `surfaceData`); a decided card names `planDecisionLabel`. Answered cards stay in the transcript CLOSED. Model = pure `askDockTitle`, `askDockLabel`, `planDecisionLabel`, `threadPendingAsks` (every plan row with no decision + every unanswered question row of ANY session in the tree, Conversation order, `questions` = a plan's question count), `threadSessionNames` (src/ask-dock.ts); mirrors compare the WHOLE expected object. The dock itself (the pile, the sheet, the order) is dock.json. FEED-140 (thread 58cb32df): decision `superseded` = a waiting plan the agent replaced with a newer `plan` call (the server resolves the old card, never refuses the new one); planDecisionLabel reads `copy.superseded`, the card paints closed and collapsed to that line; a superseded card never sits in the dock. EXP-1398 THE SESSION VIEW's cards x4 (web agent-session.tsx, desktop steer_viewer.rs + surface_card.rs, iOS AgentSessionView.swift, Android AgentSessionScreen.kt; the view a ONE-session thread opens on): `sessionCards(messages)` = the session's own conversation cards a TOOL posted, oldest first (createdAt, then id): every `plan` / `question` card with no `questionId` (an engine-posted card is the relay's own ask) and every `surface` card; `ask` mirrors and every other kind drop. `waiting` = a plan with no decision (a `superseded` plan is decided) or an unanswered question (`answeredAt` null); a surface never waits. EVERY card draws INLINE in the transcript (answered ones closed, waiting ones answerable) and a waiting one ALSO sits in the Dock while the session can be answered (FEED-140). `anchorSessionCards(feed, cards)` = where each card draws: right after the SETTLED, unfailed call that posted it, paired newest back PER KIND (plan = `session_self_plan`, question = `session_self_ask`, surface = `session_self_show`; the call's display row = the contract `expToolDisplay` name rule), so a question never anchors on a plan call; S-3: one verb posts every kind now (`exponential_show`, row `show`): a card with no legacy call of its kind left takes the newest unused `show` call (one pool shared by every kind, newest back); a card with no call left in the feed is `unanchored` (card order) and draws at the transcript's HEAD. `anchors` keys = feed item ids as strings, each list oldest first. Mirrors compare the WHOLE expected object.",
   "copy": {
     "planReady": "Plan ready",
     "question": "Question",
@@ -583,6 +583,73 @@
         "anchors": {},
         "unanchored": [
           "p1",
+          "q1"
+        ]
+      }
+    },
+    {
+      "name": "S-3: a legacy call still anchors its kind first; then show calls anchor any kind newest back; a failed show call posted nothing",
+      "feed": [
+        {
+          "id": 1,
+          "kind": "tool",
+          "name": "mcp__exponential__exponential_session_self_ask",
+          "settled": true,
+          "failed": false
+        },
+        {
+          "id": 2,
+          "kind": "tool",
+          "name": "mcp__exponential__exponential_show",
+          "settled": true,
+          "failed": false
+        },
+        {
+          "id": 4,
+          "kind": "tool",
+          "name": "mcp__exponential__exponential_show",
+          "settled": true,
+          "failed": true
+        },
+        {
+          "id": 5,
+          "kind": "tool",
+          "name": "exponential_show",
+          "settled": true,
+          "failed": false
+        }
+      ],
+      "cards": [
+        {
+          "id": "q1",
+          "kind": "question"
+        },
+        {
+          "id": "p1",
+          "kind": "plan"
+        },
+        {
+          "id": "s1",
+          "kind": "surface"
+        },
+        {
+          "id": "q2",
+          "kind": "question"
+        }
+      ],
+      "expected": {
+        "anchors": {
+          "1": [
+            "q2"
+          ],
+          "2": [
+            "p1"
+          ],
+          "5": [
+            "s1"
+          ]
+        },
+        "unanchored": [
           "q1"
         ]
       }

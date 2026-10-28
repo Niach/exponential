@@ -983,6 +983,8 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                // S-3: an inter-session link pushes that session.
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
             )
         }
         composable(

@@ -67,6 +67,7 @@ class SessionTreeTest {
         updatedAt = json.str("updatedAt")!!,
         deviceId = json.str("deviceId"),
         agentId = json.str("agentId"),
+        startedByAgentId = json.str("startedByAgentId"),
         background = (json["background"] as? JsonPrimitive)?.booleanOrNull ?: false,
     )
 
@@ -209,6 +210,7 @@ class SessionTreeTest {
             put("body", row.body)
             put("queued", row.queued)
             put("authorSessionId", nullable(row.authorSessionId))
+            put("xref", encode(row.xref))
         }
         is SessionTree.ThreadRow.SessionRow -> buildJsonObject {
             put("type", "session")
@@ -221,6 +223,7 @@ class SessionTreeTest {
             put("sessionId", row.sessionId)
             put("text", row.text)
             put("summary", row.summary)
+            put("xref", encode(row.xref))
         }
         is SessionTree.ThreadRow.Suggestions -> buildJsonObject {
             put("type", "suggestions")
@@ -364,7 +367,17 @@ class SessionTreeTest {
         put("busy", view.busy)
         put("needsYou", view.needsYou)
         put("mainSessionId", nullable(view.mainSessionId))
+        put("origin", encode(view.origin))
     }
+
+    private fun encode(xref: SessionTree.SessionXref?): JsonElement = xref?.let {
+        buildJsonObject {
+            put("kind", it.kind)
+            put("sessionId", it.sessionId)
+            put("name", it.name)
+            put("agentId", nullable(it.agentId))
+        }
+    } ?: JsonNull
 
     private fun encode(group: SessionTree.ThreadsListGroup): JsonObject = buildJsonObject {
         put("key", group.key.wire)
@@ -738,6 +751,10 @@ class SessionTreeTest {
         assertEquals(testIds.str("guideMenu"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU)
         assertEquals(copy.str("stack"), SessionTree.ThreadCopy.STACK)
         assertEquals(copy.str("report"), SessionTree.ThreadCopy.REPORT)
+        val xref = copy.getValue("xref").jsonObject
+        assertEquals(xref.keys, SessionTree.ThreadCopy.XREF.keys)
+        for ((key, value) in xref) assertEquals(value.jsonPrimitive.content, SessionTree.ThreadCopy.XREF[key])
+        assertEquals(testIds.str("xref"), SessionTree.ThreadCopy.TEST_ID_XREF)
         val suggestions = copy.getValue("suggestions").jsonObject
         val embedded = mapOf(
             "one" to SessionTree.SuggestionsCopy.ONE,

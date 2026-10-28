@@ -576,6 +576,9 @@ private fun AppEditorConversation(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 16.dp, bottom = bandClearance + 12.dp),
             jumpBottomInset = bandClearance,
             onOpenSession = { id -> openSession(id) },
+            // S-3: a report / another session's line links that session.
+            origin = v.origin,
+            onOpenXref = { id -> openSession(id) },
             dockedIds = remember(askPending) { askPending.mapTo(mutableSetOf()) { it.id } },
         )
         FloatingBarEdge(

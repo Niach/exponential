@@ -67,7 +67,8 @@ final class SessionTreeTests: XCTestCase {
             updatedAt: try XCTUnwrap(string(row["updatedAt"])),
             deviceId: string(row["deviceId"]),
             agentId: string(row["agentId"]),
-            background: (row["background"] as? Bool) ?? false
+            background: (row["background"] as? Bool) ?? false,
+            startedByAgentId: string(row["startedByAgentId"])
         )
     }
 
@@ -208,12 +209,12 @@ final class SessionTreeTests: XCTestCase {
 
     private func json(_ row: ThreadRow) -> [String: Any] {
         switch row {
-        case let .message(id, author, authorId, body, queued, authorSessionId):
-            ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued, "authorSessionId": json(authorSessionId)]
+        case let .message(id, author, authorId, body, queued, authorSessionId, xref):
+            ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued, "authorSessionId": json(authorSessionId), "xref": json(xref)]
         case let .session(id, card):
             ["type": "session", "id": id, "card": json(card)]
-        case let .report(id, sessionId, text, summary):
-            ["type": "report", "id": id, "sessionId": sessionId, "text": text, "summary": summary]
+        case let .report(id, sessionId, text, summary, xref):
+            ["type": "report", "id": id, "sessionId": sessionId, "text": text, "summary": summary, "xref": json(xref)]
         case let .suggestions(id, sessionId, header, startAll, items):
             [
                 "type": "suggestions", "id": id, "sessionId": sessionId, "header": header, "startAll": startAll,
@@ -259,6 +260,11 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    private func json(_ xref: SessionXref?) -> Any {
+        guard let xref else { return NSNull() }
+        return ["kind": xref.kind.rawValue, "sessionId": xref.sessionId, "name": xref.name, "agentId": json(xref.agentId)] as [String: Any]
+    }
+
     private func json(_ view: SessionThreadView) -> [String: Any] {
         [
             "rootId": view.rootId,
@@ -273,6 +279,7 @@ final class SessionTreeTests: XCTestCase {
             "busy": view.busy,
             "needsYou": view.needsYou,
             "mainSessionId": json(view.mainSessionId),
+            "origin": json(view.origin),
         ]
     }
 
@@ -438,6 +445,8 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(testIds["guideMerge"], SessionTree.ThreadCopy.guideMergeTestId)
         XCTAssertEqual(testIds["guideMenu"], SessionTree.ThreadCopy.guideMenuTestId)
         XCTAssertEqual(copy["report"] as? String, SessionTree.ThreadCopy.report)
+        XCTAssertEqual(copy["xref"] as? [String: String], SessionTree.ThreadCopy.xref)
+        XCTAssertEqual(testIds["xref"], SessionTree.ThreadCopy.xrefTestId)
         typealias S = SessionTree.SuggestionsCopy
         XCTAssertEqual(copy["suggestions"] as? [String: String], [
             "one": S.one, "many": S.many, "started": S.started, "startAll": S.startAll,

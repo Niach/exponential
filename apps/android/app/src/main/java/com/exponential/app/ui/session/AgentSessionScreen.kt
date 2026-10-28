@@ -441,6 +441,9 @@ fun RunFace(
     /** EXP-933: switches the host to its Guide face — the inline
      *  `sessions_guide` card's `Open Guide` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
+    /** S-3: the feed's `Started by` / `Reported to` link pushes that session
+     *  ([root] = open it as its thread); null = no origin line. */
+    onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
     // `exponential_sessions_show` row to draw its picture; live, so the tile
@@ -450,7 +453,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin)
     }
 }
 
@@ -471,6 +474,8 @@ fun AgentSessionScreen(
     onOpenIssue: (issueId: String) -> Unit,
     /** The session's thread (its ROOT), `thread/{rootId}`. */
     onOpenThread: (rootSessionId: String) -> Unit,
+    /** S-3: an inter-session link to a non-root session (its view, pushed). */
+    onOpenSession: (sessionId: String) -> Unit = {},
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
@@ -493,12 +498,16 @@ fun AgentSessionScreen(
             )
         },
     ) { padding ->
+        val agentMarks by viewModel.agentMarks.collectAsStateWithLifecycle()
+        CompositionLocalProvider(com.exponential.app.ui.components.LocalAgentMarks provides agentMarks) {
         RunFace(
             viewModel = viewModel,
             padding = padding,
             onOpenIssue = onOpenIssue,
             trailingBarSlot = null,
+            onOpenOrigin = { id, root -> if (root) onOpenThread(id) else onOpenSession(id) },
         )
+        }
     }
 }
 
@@ -515,6 +524,8 @@ fun SessionPage(
     sessionId: String,
     padding: PaddingValues,
     onOpenIssue: (issueId: String) -> Unit,
+    /** S-3: the page's origin link pushes that session (null = inert line). */
+    onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
@@ -524,6 +535,7 @@ fun SessionPage(
         padding = padding,
         onOpenIssue = onOpenIssue,
         trailingBarSlot = null,
+        onOpenOrigin = onOpenOrigin ?: { _, _ -> },
     )
 }
 
@@ -615,8 +627,11 @@ private fun RunFaceContent(
     onOpenIssue: (String) -> Unit,
     trailingBarSlot: (@Composable () -> Unit)?,
     mergeBarSlot: (@Composable () -> Unit)?,
+    onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
+    // S-3: who started this session, the feed's first line.
+    val origin by viewModel.origin.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     // Whether the socket is actually up (EXP-621). The banners read the
     // PHASE — a silent redial must not flicker them — but the composer
@@ -1120,7 +1135,16 @@ private fun RunFaceContent(
                     // band's height clears the head.
                     bottomInset = bandClearance,
                     topInset = topInset,
-                    header = {},
+                    header = {
+                        val link = origin
+                        if (onOpenOrigin != null && link != null) {
+                            com.exponential.app.ui.components.SessionXref(
+                                link.xref,
+                                onOpen = { id -> onOpenOrigin(id, link.root) },
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                            )
+                        }
+                    },
                     docked = dockedRow,
                     sessionCards = cardSlots,
                     renderCard = { row ->

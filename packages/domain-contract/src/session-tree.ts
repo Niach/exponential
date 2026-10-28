@@ -39,6 +39,9 @@ export interface TreeSession {
   guide: { text?: string | null; label?: string | null }[] | null
   /** NEW-2: the agent this root is a conversation of (absent = null). */
   agentId?: string | null
+  /** NEW-2: the agent whose conversation started this root (absent = null);
+   *  S-3: names the root's `origin` (Started by <that conversation>). */
+  startedByAgentId?: string | null
   /** VAPP-110: the app this root is a member's editor session of (absent = null). */
   appId?: string | null
   startedAt: string | null
@@ -461,6 +464,17 @@ function stringList(raw: unknown): string[] | null {
   return raw.filter((entry): entry is string => typeof entry === `string`)
 }
 
+/** S-3 inter-session links: a compact header naming ANOTHER session (the
+ *  lead `copy.xref[kind]`, the agent's mark, the session's name, `›`); a
+ *  tap opens that session on the back stack. */
+export interface SessionXref {
+  kind: `message` | `report` | `started` | `reported`
+  sessionId: string
+  name: string
+  /** The agent whose tree the session belongs to (its mark), else null. */
+  agentId: string | null
+}
+
 export type ThreadRow =
   | {
       type: `message`
@@ -471,9 +485,11 @@ export type ThreadRow =
       queued: boolean
       /** EXP-1323: the session that posted it (a child asking its parent). */
       authorSessionId: string | null
+      /** S-3: posted by ANOTHER (synced) session = its `message` link. */
+      xref: SessionXref | null
     }
   | { type: `session`; id: string; card: SessionCard }
-  | { type: `report`; id: string; sessionId: string; text: string; summary: string }
+  | { type: `report`; id: string; sessionId: string; text: string; summary: string; xref: SessionXref }
   | {
       type: `suggestions`
       id: string
@@ -657,6 +673,10 @@ export interface SessionThreadView {
    *  strip carries no Conversation tab. Null once a second session exists
    *  (the Conversation tab appears, the chips name the children). */
   mainSessionId: string | null
+  /** S-3: who started the viewed session (the focus, else the root): its
+   *  parent, else the agent conversation that started the root; `reported`
+   *  once the viewed session ended. Null = a person started it. */
+  origin: SessionXref | null
 }
 
 function eventText(
@@ -854,6 +874,17 @@ export function buildSessionThread(input: {
   const issues = treeIssues(tree, input.sessionIssues, input.issues)
   const issueMap = new Map(input.issues.map((issue) => [issue.id, issue]))
   const prMap = new Map(input.pullRequests.map((pr) => [pr.id, pr]))
+  // S-3: a link to another session = its name + its agent's mark; an
+  // unsynced session (the viewer may not see it) never links.
+  const agentOf = (s: TreeSession): string | null => {
+    const top = byId.get(s.rootId) ?? s
+    return s.agentId ?? top.agentId ?? top.startedByAgentId ?? null
+  }
+  const xref = (kind: SessionXref[`kind`], id: string | null | undefined): SessionXref | null => {
+    const target = id ? byId.get(id) : undefined
+    if (!target) return null
+    return { kind, sessionId: target.id, name: sessionCard(target, titles.get(target.id) ?? ``, now).name, agentId: agentOf(target) }
+  }
   const own = input.messages
     .filter((m) => m.sessionId === root.id)
     .sort(
@@ -940,6 +971,10 @@ export function buildSessionThread(input: {
         body: message.body,
         queued: author === `user` && message.consumedAt === null,
         authorSessionId: message.authorSessionId ?? null,
+        xref:
+          message.authorSessionId && message.authorSessionId !== root.id
+            ? xref(`message`, message.authorSessionId)
+            : null,
       })
       continue
     }
@@ -1002,6 +1037,7 @@ export function buildSessionThread(input: {
             sessionCard(target, titles.get(target.id) ?? ``, now).name
           ),
           summary: typeof card.summary === `string` ? card.summary : message.body,
+          xref: xref(`report`, target.id)!,
         })
         break
       }
@@ -1050,6 +1086,15 @@ export function buildSessionThread(input: {
   // second session turns the tab into the dispatcher's conversation and
   // brings the chips. NEW-46: the tab itself is ALWAYS in the strip.
   const single = tree.every((s) => s.id === root.id)
+  const viewed = focus ?? root
+  const starter =
+    viewed.parentId ??
+    (viewed.id === root.id && root.startedByAgentId
+      ? [...byId.values()].find(
+          (s) => s.agentId === root.startedByAgentId && s.id === s.rootId && s.userId === root.userId
+        )?.id
+      : null)
+  const origin = xref(viewed.status === `ended` ? `reported` : `started`, starter)
   return {
     rootId: root.id,
     title,
@@ -1069,6 +1114,7 @@ export function buildSessionThread(input: {
     busy: live.some((s) => s.busy),
     needsYou: live.some((s) => s.needsInput),
     mainSessionId: single ? root.id : null,
+    origin,
   }
 }
 

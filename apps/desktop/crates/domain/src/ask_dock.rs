@@ -216,7 +216,8 @@ impl SessionCardKind {
         }
     }
 
-    /// The `session_self_*` display row of the call that posts this kind.
+    /// The LEGACY `session_self_*` display row of the call that posted this
+    /// kind (old transcripts; S-3 retired the three ops for `show`).
     pub fn posting_call(self) -> &'static str {
         match self {
             Self::Plan => "session_self_plan",
@@ -258,8 +259,25 @@ pub fn session_cards(messages: &[MessageRow]) -> Vec<SessionCard> {
     cards.into_iter().map(|(_, _, card)| card).collect()
 }
 
+/// S-3: THE call that posts every kind now (`exponential_show`).
+pub const SHOW_CARD_CALL: &str = "show";
+
+/// The row a card-posting call NAME resolves to: a contract row (`show`,
+/// any other Exponential tool), else a retired legacy row by the same prefix
+/// rule, else None (another server's tool).
+pub fn card_call_row(name: &str) -> Option<&'static str> {
+    let name = name.trim();
+    let legacy = [SessionCardKind::Plan, SessionCardKind::Question, SessionCardKind::Surface].map(SessionCardKind::posting_call);
+    crate::contract::EXP_TOOL_NAMES.iter().copied().chain(legacy).find(|row| {
+        name.len() > row.len()
+            && name.ends_with(row)
+            && name[..name.len() - row.len()].ends_with(crate::contract::EXP_TOOL_PREFIX)
+    })
+}
+
 /// Where each session card draws: right after the SETTLED, unfailed call
-/// that posted it, paired newest back PER KIND; a card with no call left is
+/// that posted it, paired newest back PER KIND over the legacy calls, then
+/// over the shared `show` calls (S-3); a card with no call left is
 /// unanchored (card order, the transcript's head). `calls` = the feed's
 /// settled, unfailed Exponential calls in feed order: (feed item id, display
 /// row). Returns card INDICES into `kinds`.
@@ -270,11 +288,16 @@ pub fn anchor_session_cards(
     let mut anchors: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut unanchored = Vec::new();
     let mut used: HashMap<&str, usize> = HashMap::new();
-    for (index, kind) in kinds.iter().enumerate().rev() {
-        let row = kind.posting_call();
+    let mut take = |row: &'static str| {
         let skip = used.entry(row).or_default();
         let call = calls.iter().rev().filter(|(_, name)| *name == row).nth(*skip);
-        *skip += 1;
+        if call.is_some() {
+            *skip += 1;
+        }
+        call
+    };
+    for (index, kind) in kinds.iter().enumerate().rev() {
+        let call = take(kind.posting_call()).or_else(|| take(SHOW_CARD_CALL));
         match call {
             Some((id, _)) => anchors.entry(*id).or_default().insert(0, index),
             None => unanchored.insert(0, index),
@@ -413,15 +436,6 @@ mod tests {
 
     /// The contract's tool-name rule (steer `exp_tool_row`, which depends on
     /// this crate), for the replay only.
-    fn exp_tool_row(name: &str) -> Option<&'static str> {
-        let name = name.trim();
-        crate::contract::EXP_TOOL_NAMES.iter().copied().find(|row| {
-            name.len() > row.len()
-                && name.ends_with(row)
-                && name[..name.len() - row.len()].ends_with(crate::contract::EXP_TOOL_PREFIX)
-        })
-    }
-
     fn kind_of(wire: &str) -> SessionCardKind {
         [SessionCardKind::Plan, SessionCardKind::Question, SessionCardKind::Surface]
             .into_iter()
@@ -462,7 +476,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|item| item["kind"] == "tool" && item["settled"] == true && item["failed"] != true)
-                .filter_map(|item| Some((item["id"].as_u64()?, exp_tool_row(item["name"].as_str()?)?)))
+                .filter_map(|item| Some((item["id"].as_u64()?, card_call_row(item["name"].as_str()?)?)))
                 .collect();
             let cards = case["cards"].as_array().unwrap();
             let kinds: Vec<SessionCardKind> = cards.iter().map(|card| kind_of(card["kind"].as_str().unwrap())).collect();

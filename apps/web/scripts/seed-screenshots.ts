@@ -1020,7 +1020,14 @@ async function seedSessionTree(ctx: {
     ),
   ]
   await db.insert(sessions).values([
-    root(ids.coldStart, { ...liveState(ids.coldStart), branch: `exp/APP-5`, guide: coldStartGuide }),
+    root(ids.coldStart, {
+      ...liveState(ids.coldStart),
+      branch: `exp/APP-5`,
+      guide: coldStartGuide,
+      // S-3: the Triage agent's conversation started it (the Conversation
+      // opens with `Started by Triage ›`).
+      startedByAgentId: DEMO_AGENT_IDS.triage,
+    }),
     root(ids.groupByAssignee, {
       ...liveState(ids.groupByAssignee),
       cli: `codex`,
@@ -1481,6 +1488,13 @@ async function seedSessionTree(ctx: {
         ],
       },
     }),
+    // S-3: the profiling child's relayed turn (`Message from Profile the
+    // launch path ›` over its bubble).
+    thread({
+      at: minutesAgo(30),
+      authorSessionId: DEMO_SESSION_ID,
+      body: `The sync bootstrap blocks the first frame for 410 ms; deferring the shape subscribe now.`,
+    }),
     thread({
       at: minutesAgo(20),
       authorSessionId: DEMO_REPORT_SESSION_ID,
@@ -1489,6 +1503,27 @@ async function seedSessionTree(ctx: {
         kind: `report`,
         sessionId: DEMO_REPORT_SESSION_ID,
         summary: `740 ms cold start on the Galaxy A54, under the 800 ms target. The snapshot cache paints in 210 ms.`,
+      },
+    }),
+    // S-3 / Chats `surfaceCard`: the agent's inline show card.
+    thread({
+      at: minutesAgo(9),
+      card: {
+        kind: `surface`,
+        title: `Launch timings`,
+        surface: {
+          root: {
+            id: `timings`,
+            component: `Box`,
+            style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm` },
+            children: [
+              { id: `timings-pixel`, component: `Row`, props: { title: `Pixel 6a`, value: `760 ms` } },
+              { id: `timings-a54`, component: `Row`, props: { title: `Galaxy A54`, value: `740 ms` } },
+              { id: `timings-target`, component: `Row`, props: { title: `Target`, value: `800 ms` } },
+            ],
+          },
+          data: {},
+        },
       },
     }),
   ])

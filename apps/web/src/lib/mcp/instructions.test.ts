@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
-import { mcpServerInstructions } from "./instructions"
+import { mcpServerInstructions, SHOW_SENTENCE } from "./instructions"
 
-// EXP-1280: every in-session caller is told how to ask (a planning one gets
-// the plan-mode gate first); outside a session there is no one to ask.
+// S-3: every in-session caller is told to show (one exponential_show card
+// per turn: results, ask, plan); plan mode and its gate are gone; outside a
+// session there is no one to show to.
 
 const base = {
   inSession: true,
@@ -11,20 +11,22 @@ const base = {
   agent: false,
   reportBug: false,
 }
-const ask = `Ask a person with exponential_session_self {op: "ask"}.`
 
-describe(`mcpServerInstructions — the ask sentence`, () => {
-  it(`says the ask in a session, and the gate while planning`, () => {
+describe(`mcpServerInstructions — the show sentence`, () => {
+  it(`says show in a session, never plan mode`, () => {
     const plain = mcpServerInstructions(base)
-    expect(plain).toContain(ask)
-    expect(plain).not.toContain(PLAN_CARD_COPY.planModeGate)
-    const planning = mcpServerInstructions({ ...base, planMode: true })
-    expect(planning).toContain(`${PLAN_CARD_COPY.planModeGate} ${ask}`)
+    expect(plain).toContain(SHOW_SENTENCE)
+    expect(plain).not.toContain(`plan mode`)
+    expect(plain).not.toContain(`exponential_session_self {op: "ask"}`)
   })
 
-  it(`says neither outside a session`, () => {
-    const text = mcpServerInstructions({ ...base, inSession: false, planMode: true })
-    expect(text).not.toContain(`exponential_session_self {op: "ask"}`)
-    expect(text).not.toContain(PLAN_CARD_COPY.planModeGate)
+  it(`says nothing of it outside a session, where the verb is spelled out`, () => {
+    const text = mcpServerInstructions({ ...base, inSession: false })
+    expect(text).not.toContain(`exponential_show`)
+    expect(text).toContain(`exponential_sessions_send is the one session verb`)
+  })
+
+  it(`keeps a launched session's variant short (the runbook says the rest)`, () => {
+    expect(mcpServerInstructions(base)).not.toContain(`exponential_sessions_send is the one session verb`)
   })
 })

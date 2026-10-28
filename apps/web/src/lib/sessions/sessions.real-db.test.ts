@@ -335,11 +335,13 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
         text: `build it`,
       },
     })
+    // S-3: plan mode is gone: an old client's planMode is accepted and
+    // never stored (the legacy column stays false).
     const picks = {
       cli: `claude`,
       model: `opus`,
       effort: `high`,
-      planMode: true,
+      planMode: false,
       ultracode: true,
       computerUse: true,
     }
@@ -347,8 +349,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
     expect(await row(root.sessionId)).toMatchObject({ ...picks, dispatch: false, spawnedBySessionId: null })
 
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
-    // NEW-6 (N-1): everything but plan mode: a child plans only when told.
-    expect(await row(child.sessionId)).toMatchObject({ ...picks, planMode: false, dispatch: false })
+    expect(await row(child.sessionId)).toMatchObject({ ...picks, dispatch: false })
     // The child's own picks win over the inherited ones.
     const picked = await sendSession({
       userId: w.owner,
@@ -1521,7 +1522,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect(out.txid).toBeTypeOf(`number`)
     expect(await row(child.sessionId)).toMatchObject({
       model: `sonnet`,
-      planMode: true,
+      planMode: false,
       effort: `high`,
       ultracode: true,
       computerUse: true,
@@ -1530,7 +1531,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect(await owner.mcpPicks({ sessionId: child.sessionId })).toEqual({ mcpServerIds: [server!.id] })
     // Omitted = unchanged; a null effort = the agent's default; [] = none.
     await owner.configure({ sessionId: child.sessionId, effort: null, mcpServerIds: [] })
-    expect(await row(child.sessionId)).toMatchObject({ planMode: true, effort: null, mcpServerIds: null })
+    expect(await row(child.sessionId)).toMatchObject({ planMode: false, effort: null, mcpServerIds: null })
     expect(await owner.mcpPicks({ sessionId: child.sessionId })).toEqual({ mcpServerIds: [] })
 
     // Validation: the agent's own effort set, ultracode on claude only, the
@@ -1556,7 +1557,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
 
     // NEW-1: a root runs on its own picks: configure moves them like a child's.
     await owner.configure({ sessionId: root.sessionId, model: `opus`, planMode: true, effort: `low` })
-    expect(await row(root.sessionId)).toMatchObject({ dispatch: false, model: `opus`, planMode: true, effort: `low` })
+    expect(await row(root.sessionId)).toMatchObject({ dispatch: false, model: `opus`, planMode: false, effort: `low` })
 
     // The steer rule: a private session refuses a teammate; the device-only
     // read refuses anyone but the host.
@@ -1570,7 +1571,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
   })
 
-  it(`EXP-1334: the device reports the agent's own plan-mode move onto the row`, async () => {
+  it(`S-3: the device's plan-mode report is accepted and never stored; the model follows`, async () => {
     const w = await world()
     const root = await sendSession({
       userId: w.owner,
@@ -1581,15 +1582,9 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       input: { parentId: root.sessionId, planMode: true, text: `plan first` },
     })
     const host = caller(w.owner)
-    expect((await row(child.sessionId)).planMode).toBe(true)
-    // The plan was approved: claude left plan mode, the row follows.
-    await host.report({ sessionId: child.sessionId, planMode: false })
-    expect((await row(child.sessionId)).planMode).toBe(false)
-    // Omitted = unchanged; a root follows its run like any session.
-    await host.report({ sessionId: child.sessionId, busy: true })
     expect((await row(child.sessionId)).planMode).toBe(false)
     await host.report({ sessionId: root.sessionId, planMode: true })
-    expect((await row(root.sessionId)).planMode).toBe(true)
+    expect((await row(root.sessionId)).planMode).toBe(false)
 
     // The model the run reports (a `/model` switch) follows onto the row; a
     // value outside the agent's vocabulary is ignored, never refused.
@@ -2313,7 +2308,7 @@ describe.skipIf(!ready.ok)(`sessions.delete (Chats)`, async () => {
 // EXP-1280 custom plan mode: the card a session posts on ITSELF
 // (`exponential_plan_propose` / `exponential_sessions_ask`), its pictures,
 // the answer (approval leaves plan mode) and the device's consume.
-describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
+describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async () => {
   const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
   const { buildPlanCard, buildQuestionCard, postAskCard, publishCardPicture, assertCardPictureOpen } =
     await import(`@/lib/sessions/plan`)
@@ -2397,9 +2392,9 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
     const host = caller(w.owner)
     await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
 
-    // The brief carries the Plan section for a planning worker.
+    // S-3: plan mode is gone: even a legacy plan_mode row gets no Plan section.
     const { brief } = await host.brief({ sessionId: sent.sessionId })
-    expect(brief).toContain(`## Plan`)
+    expect(brief).not.toContain(`## Plan`)
 
     const card = buildPlanCard({
       plan: `1. Tiles\n\n![Grid](upload:grid)`,
@@ -2471,7 +2466,7 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
       answers: { layout: [`Grid`] },
       surfaceData: { name: `Ada` },
     })
-    expect(await row(sent.sessionId)).toMatchObject({ planMode: false, needsInput: false })
+    expect(await row(sent.sessionId)).toMatchObject({ needsInput: false })
 
     // Only the host device consumes it, once the answer text was delivered.
     await expect(
@@ -2484,7 +2479,7 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
     await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     const second = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `2. Again` }) })
     await caller(w.mate).answer({ messageId: second.messageId, decision: `rejected` })
-    expect(await row(sent.sessionId)).toMatchObject({ planMode: true, needsInput: false })
+    expect(await row(sent.sessionId)).toMatchObject({ needsInput: false })
   })
 
   it(`asks questions (several may wait) and stamps the picked labels`, async () => {
@@ -2518,3 +2513,84 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
 })
 
 type MessageCardRow = import("@exp/db-schema/domain").MessageCard
+
+describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`, async () => {
+  const { buildPlanCard, buildSurfaceCard, postShowCard } = await import(`@/lib/sessions/plan`)
+  const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+  const caller = (userId: string) =>
+    sessionsRouter.createCaller({
+      session: { user: { id: userId } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+  const texts = async (sessionId: string) =>
+    (await db.select().from(messages).where(eq(messages.sessionId, sessionId)))
+      .filter((m) => m.authorKind === `agent` && m.card === null)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((m) => m.body)
+  const surface = (text: string) => buildSurfaceCard({ surface: { root: { id: `t`, component: `Text`, props: { text } } } })
+
+  it(`an agent conversation's later turn text edits the one since the last person message; a person message starts a new one`, async () => {
+    const w = await world()
+    const [bot] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Bot`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const convo = await sendSession({ userId: w.owner, input: { agentId: bot!.id, text: `watch it` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: convo.sessionId, deviceId: w.deviceId })
+    const first = await host.reply({ sessionId: convo.sessionId, body: `Started.` })
+    const second = await host.reply({ sessionId: convo.sessionId, body: `Half done.` })
+    expect(second.messageId).toBe(first.messageId)
+    expect(await texts(convo.sessionId)).toEqual([`Half done.`])
+    await sendSession({ userId: w.owner, input: { sessionId: convo.sessionId, text: `and now?` } })
+    await host.reply({ sessionId: convo.sessionId, body: `Done.` })
+    expect(await texts(convo.sessionId)).toEqual([`Half done.`, `Done.`])
+  })
+
+  it(`a thread's turn texts stay separate bubbles; its relayed copy in the parent follows an edit of the origin`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: child.sessionId, deviceId: w.deviceId })
+    await host.reply({ sessionId: child.sessionId, body: `One.` })
+    const two = await host.reply({ sessionId: child.sessionId, body: `Two.` })
+    expect(await texts(child.sessionId)).toEqual([`One.`, `Two.`])
+    const copies = (await db.select().from(messages).where(eq(messages.originMessageId, two.messageId)))
+    expect(copies).toMatchObject([{ sessionId: root.sessionId, body: `Two.` }])
+    const { patchBusCopies } = await import(`@/lib/sessions/messages`)
+    await db.transaction((tx) => patchBusCopies(tx, two.messageId, `Two.`, `Two, edited.`))
+    expect((await db.select().from(messages).where(eq(messages.id, copies[0]!.id)))[0]!.body).toBe(`Two, edited.`)
+  })
+
+  it(`replace edits this turn's card, inserts after the next delivered input, and refuses an answered one`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `show it` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
+    const first = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`1/3`), replace: true })
+    expect(first.replaced).toBe(false)
+    const again = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`2/3`), replace: true })
+    expect(again).toMatchObject({ messageId: first.messageId, replaced: true })
+    const row = (await db.select().from(messages).where(eq(messages.id, first.messageId)))[0]!
+    expect(JSON.stringify(row.card)).toContain(`2/3`)
+    // A plan is the other family: a new card, then replace edits IT.
+    const plan = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. A` }), replace: true })
+    expect(plan.replaced).toBe(false)
+    const plan2 = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. B` }), replace: true })
+    expect(plan2).toMatchObject({ messageId: plan.messageId, replaced: true })
+    await caller(w.mate).answer({ messageId: plan.messageId, decision: `approved` })
+    await expect(
+      postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. C` }), replace: true })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+    // The person's next message delivered: a new turn, a new card.
+    await sendSession({ userId: w.mate, input: { sessionId: sent.sessionId, text: `next` } })
+    const pending = (await db.select().from(messages).where(eq(messages.sessionId, sent.sessionId))).filter(
+      (m) => m.authorKind === `user` && m.consumedAt === null
+    )
+    await host.consume({ sessionId: sent.sessionId, messageIds: pending.map((m) => m.id) })
+    const fresh = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`3/3`), replace: true })
+    expect(fresh.replaced).toBe(false)
+  })
+})

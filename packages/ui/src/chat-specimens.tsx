@@ -252,6 +252,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   {
     type: `plan`,
@@ -274,6 +275,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   { type: `surface`, id: `s1`, sessionId: `r`, title: `Launch path`, surface: LAUNCH_SURFACE },
   { type: `divider`, id: `d1`, kind: `compact`, at: `2026-10-23T18:20:00` },
@@ -285,6 +287,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Anything new overnight?`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   {
     type: `message`,
@@ -294,6 +297,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     body: `Three reports, all about the iPad sign-in. I linked them to #APP-19.`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   { type: `divider`, id: `d2`, kind: `new`, at: `2026-10-24T09:30:00` },
 ]

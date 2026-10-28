@@ -59,7 +59,9 @@ import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu
 import { useChatActions } from "@/components/thread/chat-menu"
 import { ChatHeaderTitle } from "@/components/thread/chat-header"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
-import { InPlaceSession } from "@/components/thread/session-body"
+import { BackStackButton, InPlaceSession } from "@/components/thread/session-body"
+import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
+import { backSearch } from "@/lib/session-back"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import { primeTabEnter, TAB_BODY_TOUCH_CLASS, useFaceSwipe } from "@/hooks/use-face-swipe"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
@@ -107,6 +109,9 @@ export type ThreadSearch = {
   file?: string
   /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
   from?: string
+  /** S-3: the inter-session back stack (`lib/session-back.ts`); the
+   *  header's `‹` pops it. */
+  back?: string
 }
 
 /** The `?tab=` search the thread screen reads (the agent chat's too). */
@@ -124,6 +129,7 @@ export function validateThreadSearch(search: Record<string, unknown>): ThreadSea
     ...(section !== undefined ? { section } : {}),
     ...(section !== undefined && pick(search.file) ? { file: pick(search.file) } : {}),
     ...(pick(search.from) ? { from: pick(search.from) } : {}),
+    ...backSearch(search.back),
   }
 }
 
@@ -252,10 +258,19 @@ export function ThreadScreen({
             : { kind: `conversation` as const }
   const sessionInPlace = tab.kind === `session` ? (focused?.id === tab.sessionId ? focused : mainSession) : null
 
-  const go = (next: ThreadSearch) => onNavigate(next, { replace: true })
+  // S-3: the back stack rides along every tab switch; an xref pushes it.
+  const keepBack = search.back ? { back: search.back } : {}
+  const go = (next: ThreadSearch) => onNavigate({ ...next, ...keepBack }, { replace: true })
 
   /** A session opens IN PLACE (a pushed history entry: Back returns). */
-  const openSession = (sessionId: string) => onNavigate({ tab: `session`, session: sessionId })
+  const openSession = (sessionId: string) =>
+    onNavigate({ tab: `session`, session: sessionId, ...keepBack })
+  /** S-3: the session on show (an xref pushes it; `‹` pops back to it). */
+  const nav = useSessionNav({
+    teamSlug,
+    here: tab.kind === `session` ? tab.sessionId : root.id,
+    back: search.back,
+  })
   // EXP-1343: phones page through every strip tab (swipe AND tap, in strip
   // order); a tap slides the new page in from the side it sits on.
   const pages = useMemo(() => threadPages(view.tabs), [view.tabs])
@@ -478,7 +493,15 @@ export function ThreadScreen({
   // ── The bodies ─────────────────────────────────────────────────────────────
   let body: ReactNode
   if (tab.kind === `session` && sessionInPlace) {
-    body = <InPlaceSession row={sessionInPlace} topInset={topInset} floating={isMobile} />
+    body = (
+      <InPlaceSession
+        row={sessionInPlace}
+        topInset={topInset}
+        floating={isMobile}
+        origin={view.origin}
+        onOpenXref={nav.open}
+      />
+    )
   } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
@@ -542,6 +565,7 @@ export function ThreadScreen({
         canReply={permissions.isMember}
         busy={root.busy}
         onOpenSession={openSession}
+        onOpenXref={nav.open}
         agentFor={agentFor}
         topInset={topInset}
         messagePage={messagePage}
@@ -662,7 +686,7 @@ export function ThreadScreen({
                 needsYouWord={THREAD_ROW_WORDS.needsInput ?? ``}
               />
             }
-            onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
+            onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } }))}
             menu={
               <span className="flex shrink-0 items-center gap-1">{trailing}</span>
             }
@@ -690,6 +714,7 @@ export function ThreadScreen({
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
         <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
           <div className="flex items-center gap-3">
+            <BackStackButton onPop={nav.pop} className="-ml-2" />
             <div className="min-w-0 flex-1">{title}</div>
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
             {headerMenu(`shrink-0 text-muted-foreground`)}
@@ -713,6 +738,7 @@ function ConversationBody({
   canReply,
   busy,
   onOpenSession,
+  onOpenXref,
   agentFor,
   topInset = 0,
   messagePage,
@@ -727,6 +753,8 @@ function ConversationBody({
   busy: boolean
   /** A session card opens that session in place (EXP-1316). */
   onOpenSession: (sessionId: string) => void
+  /** S-3: an xref opens its session on the back stack. */
+  onOpenXref: (sessionId: string) => void
   /** The agent CLI of a session of the tree (the suggestions' models). */
   agentFor: (sessionId: string) => string | null | undefined
   /** Phones: the overlay header band's height (the scroller pads by it). */
@@ -753,6 +781,7 @@ function ConversationBody({
   // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
   const transcript = useTranscriptWindow(view.rows, follow.scrollRef, { resetKey: view.rootId, ...messagePage })
   const isMobile = useIsMobile()
+  const xrefAgent = useXrefAgent()
   // S-3 (session-thread.json `chatModeCases`, chats.json CHAT MODE): an
   // agent conversation paints chat bubbles on every form factor; a thread
   // keeps its transcript (phones: the bubbles of thread 58cb32df).
@@ -828,6 +857,9 @@ function ConversationBody({
               return row.queued ? [caption, `queued`].filter(Boolean).join(` · `) : caption
             }}
             onOpenSession={onOpenSession}
+            onOpenXref={onOpenXref}
+            xrefAgent={xrefAgent}
+            origin={view.origin}
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
             pending={pending}

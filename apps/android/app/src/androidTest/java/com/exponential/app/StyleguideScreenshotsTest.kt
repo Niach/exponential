@@ -122,7 +122,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
@@ -200,6 +200,8 @@ class StyleguideScreenshotsTest {
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
+            // S-3: THE inter-session link line.
+            "sg_session-xref",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
@@ -1264,6 +1266,11 @@ class StyleguideScreenshotsTest {
         // surface) and the answered multi question — by the real ThreadAskCard.
         showThreadCards(ThreadCardsKind.PlanCard)
         flow.screenshot("sg_plan-card")
+
+        // --- sg_session-xref: THE inter-session link (S-3) in its four
+        // kinds, by the real SessionXref.
+        showThreadCards(ThreadCardsKind.SessionXref)
+        flow.screenshot("sg_session-xref")
 
         // --- Thread 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as

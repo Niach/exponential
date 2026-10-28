@@ -6,7 +6,7 @@
 // `AskDock.swift`, Android `domain/AskDock.kt` replay `fixtures/ask-dock.json`.
 
 import fixture from "../fixtures/ask-dock.json" with { type: "json" }
-import { expToolRowName } from "./exp-tool-group"
+import { EXP_TOOL_PREFIX, expToolRowName } from "./exp-tool-group"
 
 export type AskDockKind = `plan` | `question`
 
@@ -166,17 +166,32 @@ export function sessionCards(
   return cards.map(({ id, kind, waiting }) => ({ id, kind, waiting }))
 }
 
-/** The display row of the call that posts a card of `kind`. */
+/** The display row of the LEGACY call that posted a card of `kind` (old
+ *  transcripts; S-3 retired the three ops). */
 export const SESSION_CARD_CALLS: Readonly<Record<SessionCardKind, string>> = {
   plan: `session_self_plan`,
   question: `session_self_ask`,
   surface: `session_self_show`,
 }
 
+/** S-3: THE call that posts every kind now (`exponential_show`). */
+export const SHOW_CARD_CALL = `show`
+
+/** The row a card-posting call resolves to: a contract row (`show`), else
+ *  a retired legacy row by the same prefix rule (`exponential_` right in
+ *  front), else null (another server's tool). */
+function cardCallRow(name: string | null | undefined): string | null {
+  const row = expToolRowName(name)
+  if (row !== null) return row
+  const trimmed = (name ?? ``).trim()
+  return Object.values(SESSION_CARD_CALLS).find((legacy) => trimmed.endsWith(`${EXP_TOOL_PREFIX}${legacy}`)) ?? null
+}
+
 /** Where each session card draws: right after the SETTLED, unfailed call
- *  that posted it, paired newest back PER KIND; a card with no call left =
- *  `unanchored` (card order, the transcript's head). `anchors` keys = feed
- *  item ids, each list oldest first. */
+ *  that posted it, paired newest back PER KIND over the legacy calls, then
+ *  over the shared `show` calls (S-3: one verb posts every kind); a card
+ *  with no call left = `unanchored` (card order, the transcript's head).
+ *  `anchors` keys = feed item ids, each list oldest first. */
 export function anchorSessionCards(
   feed: readonly { id: number; kind: string; name?: string | null; settled?: boolean; failed?: boolean }[],
   cards: readonly { id: string; kind: SessionCardKind }[]
@@ -184,20 +199,23 @@ export function anchorSessionCards(
   const calls = new Map<string, number[]>()
   for (const item of feed) {
     if (item.kind !== `tool` || item.settled !== true || item.failed === true) continue
-    const row = expToolRowName(item.name)
+    const row = cardCallRow(item.name)
     if (row === null) continue
     calls.set(row, [...(calls.get(row) ?? []), item.id])
   }
   const used = new Map<string, number>()
   const anchors = new Map<number, string[]>()
   const unanchored: string[] = []
-  for (let i = cards.length - 1; i >= 0; i--) {
-    const card = cards[i]!
-    const row = SESSION_CARD_CALLS[card.kind]
+  const take = (row: string): number | undefined => {
     const skip = used.get(row) ?? 0
-    used.set(row, skip + 1)
     const ids = calls.get(row) ?? []
     const call = ids[ids.length - 1 - skip]
+    if (call !== undefined) used.set(row, skip + 1)
+    return call
+  }
+  for (let i = cards.length - 1; i >= 0; i--) {
+    const card = cards[i]!
+    const call = take(SESSION_CARD_CALLS[card.kind]) ?? take(SHOW_CARD_CALL)
     if (call === undefined) unanchored.unshift(card.id)
     else anchors.set(call, [card.id, ...(anchors.get(call) ?? [])])
   }

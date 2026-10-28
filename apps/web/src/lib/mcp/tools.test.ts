@@ -305,12 +305,10 @@ const yoloEdge = vi.hoisted(() => vi.fn())
 vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge }))
 // EXP-1280: the card builders stay real (the validation under test); only
 // the DB write is stubbed.
-const postAskCard = vi.hoisted(() => vi.fn())
-const postSurfaceCard = vi.hoisted(() => vi.fn())
+const postShowCard = vi.hoisted(() => vi.fn())
 vi.mock(`@/lib/sessions/plan`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/sessions/plan")>()),
-  postAskCard,
-  postSurfaceCard,
+  postShowCard,
 }))
 
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
@@ -2692,17 +2690,11 @@ describe(`pull request tools (EXP-1291)`, () => {
     expect(inside.isError).toBeFalsy()
   })
 
-  it(`EXP-1280: pr_open refuses while the caller session plans`, async () => {
+  it(`S-3: pr_open has no plan gate (plan mode is gone)`, async () => {
     dbRows.current = [callerRow({ planMode: true })]
-    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({ title: `Fix it` })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]!.text).toBe(PLAN_CARD_COPY.planModeGate)
-    expect(prs.openPullRequest).not.toHaveBeenCalled()
-
-    dbRows.current = [callerRow({ planMode: false })]
     prs.openPullRequest.mockResolvedValue({ pullRequestId: PR_ID })
-    const approved = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({ title: `Fix it` })
-    expect(approved.isError).toBeFalsy()
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({ title: `Fix it` })
+    expect(result.isError).toBeFalsy()
   })
 
   it(`pr_merge defaults to the caller session's PR and passes stack`, async () => {
@@ -2856,10 +2848,10 @@ describe(`exponential_attachments_get — a message's file (EXP-1291)`, () => {
   })
 })
 
-// EXP-1280 custom plan mode: the plan / question card the session posts on
-// itself. The builders (lib/sessions/plan.ts) run for real; postAskCard (the
-// DB write + upload minting) is stubbed.
-describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () => {
+// S-3: `exponential_show {plan | ask}` = the plan / question card the
+// session posts on itself. The builders (lib/sessions/plan.ts) run for real;
+// postShowCard (the DB write, replace + upload minting) is stubbed.
+describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
   const POSTED = {
     messageId: MSG,
     uploads: [{ label: `grid`, uploadUrl: `https://x.test/u`, curl: `curl -F file=@grid.png "https://x.test/u"` }],
@@ -2869,15 +2861,19 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
     root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Hi` } }] },
     data: { name: `x` },
   }
-  const propose = (args: Record<string, unknown>) =>
-    collectTools(USER, SESSION).get(`exponential_plan_propose`)!(args)
-  const ask = (args: Record<string, unknown>) =>
-    collectTools(USER, SESSION).get(`exponential_sessions_ask`)!(args)
+  const showTool = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_show`)!(args)
+  const propose = ({ plan, questions, ...rest }: Record<string, unknown>) =>
+    showTool({ plan: { text: plan, ...(questions ? { questions } : {}) }, ...rest })
+  const ask = ({ question, options, multi, custom, ...rest }: Record<string, unknown>) =>
+    showTool({
+      ask: { question, options, ...(multi !== undefined ? { multi } : {}), ...(custom !== undefined ? { custom } : {}) },
+      ...rest,
+    })
 
   beforeEach(() => {
     dbRows.current = [callerRow()]
-    postAskCard.mockReset()
-    postAskCard.mockResolvedValue(POSTED)
+    postShowCard.mockReset()
+    postShowCard.mockResolvedValue(POSTED)
   })
 
   it(`posts the normalised plan card on the caller's own session`, async () => {
@@ -2890,9 +2886,10 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
       surface,
     })
     expect(parseOk(result)).toEqual(POSTED)
-    expect(postAskCard).toHaveBeenCalledWith({
+    expect(postShowCard).toHaveBeenCalledWith({
       userId: USER.id,
       sessionId: SESSION,
+      replace: false,
       card: {
         kind: `plan`,
         plan: `1. Tiles\n\n![Grid](upload:grid)`,
@@ -2964,27 +2961,41 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
     const result = await propose({ plan: `1. x`, ...args })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain(message)
-    expect(postAskCard).not.toHaveBeenCalled()
+    expect(postShowCard).not.toHaveBeenCalled()
   })
 
   it(`refuses unknown keys, over-cap lists and bad labels at the schema`, () => {
-    const schema = collectToolDefs().get(`exponential_plan_propose`)!.inputSchema!
-    expect(schema.safeParse({ plan: `1. x` }).success).toBe(true)
-    expect(schema.safeParse({ plan: `1. x`, extra: 1 }).success).toBe(false)
+    const schema = collectToolDefs().get(`exponential_show`)!.inputSchema!
+    const plan = { text: `1. x` }
+    expect(schema.safeParse({ plan }).success).toBe(true)
+    expect(schema.safeParse({ plan, extra: 1 }).success).toBe(false)
     expect(
-      schema.safeParse({ plan: `1. x`, pictures: Array.from({ length: 11 }, (_, i) => ({ label: `p${i}` })) }).success
+      schema.safeParse({ plan, pictures: Array.from({ length: 11 }, (_, i) => ({ label: `p${i}` })) }).success
     ).toBe(false)
-    expect(schema.safeParse({ plan: `1. x`, pictures: [{ label: `bad label` }] }).success).toBe(false)
+    expect(schema.safeParse({ plan, pictures: [{ label: `bad label` }] }).success).toBe(false)
     expect(
-      schema.safeParse({ plan: `1. x`, questions: [{ id: `q`, prompt: `Q?`, options: [{ label: `A`, extra: 1 }] }] }).success
+      schema.safeParse({ plan: { ...plan, questions: [{ id: `q`, prompt: `Q?`, options: [{ label: `A`, extra: 1 }] }] } }).success
     ).toBe(false)
-    const askSchema = collectToolDefs().get(`exponential_sessions_ask`)!.inputSchema!
-    expect(askSchema.safeParse({ question: `Q?`, options: [{ label: `A` }] }).success).toBe(true)
-    expect(askSchema.safeParse({ question: `Q?` }).success).toBe(false)
+    expect(schema.safeParse({ ask: { question: `Q?`, options: [{ label: `A` }] } }).success).toBe(true)
+    expect(schema.safeParse({ ask: { question: `Q?` } }).success).toBe(false)
+  })
+
+  it(`refuses ask and plan together, and nothing at all`, async () => {
+    const both = await showTool({ plan: { text: `1. x` }, ask: { question: `Q?`, options: [{ label: `A` }] } })
+    expect(both.isError).toBe(true)
+    expect(both.content[0]!.text).toContain(`not both`)
+    const none = await showTool({})
+    expect(none.isError).toBe(true)
+    expect(postShowCard).not.toHaveBeenCalled()
+  })
+
+  it(`passes replace through`, async () => {
+    await showTool({ plan: { text: `1. x` }, replace: true })
+    expect(postShowCard).toHaveBeenLastCalledWith(expect.objectContaining({ replace: true }))
   })
 
   it(`surfaces a refused post`, async () => {
-    postAskCard.mockRejectedValue(
+    postShowCard.mockRejectedValue(
       new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     )
     const result = await propose({ plan: `1. x` })
@@ -2996,14 +3007,15 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
     dbRows.current = []
     const result = await propose({ plan: `1. x` })
     expect(result.isError).toBe(true)
-    expect(postAskCard).not.toHaveBeenCalled()
+    expect(postShowCard).not.toHaveBeenCalled()
   })
 
   it(`posts one question with the sidecars only when an option carries one`, async () => {
     await ask({ question: ` Which? `, options: [{ label: `A` }, { label: `B` }] })
-    expect(postAskCard).toHaveBeenLastCalledWith({
+    expect(postShowCard).toHaveBeenLastCalledWith({
       userId: USER.id,
       sessionId: SESSION,
+      replace: false,
       card: {
         kind: `question`,
         question: `Which?`,
@@ -3026,9 +3038,10 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
       surface,
     })
     expect(parseOk(result)).toEqual(POSTED)
-    expect(postAskCard).toHaveBeenLastCalledWith({
+    expect(postShowCard).toHaveBeenLastCalledWith({
       userId: USER.id,
       sessionId: SESSION,
+      replace: false,
       card: {
         kind: `question`,
         question: `Which look?`,
@@ -3054,34 +3067,33 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
 
   it(`registers only inside a session`, () => {
     const headerless = collectToolDefs({ inSession: false, unattended: false, agent: false })
-    expect(headerless.has(`exponential_plan_propose`)).toBe(false)
-    expect(headerless.has(`exponential_sessions_ask`)).toBe(false)
-    const defs = collectToolDefs()
-    expect(defs.has(`exponential_plan_propose`)).toBe(true)
-    expect(defs.has(`exponential_sessions_ask`)).toBe(true)
+    expect(headerless.has(`exponential_show`)).toBe(false)
+    expect(collectToolDefs().has(`exponential_show`)).toBe(true)
   })
 })
 
 // Chats (fixtures/chats.json `surfaceCard`): `session_self {op: "show"}`
 // posts an inline preview in the caller's own chat, validated like a plan
 // card's surface (the builder runs for real; the DB write is stubbed).
-describe(`exponential_surface_show (Chats)`, () => {
+describe(`exponential_show {surface} (Chats)`, () => {
   const surface = {
     root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Hi` } }] },
   }
-  const show = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_surface_show`)!(args)
+  const show = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_show`)!(args)
 
   beforeEach(() => {
     dbRows.current = [callerRow()]
-    postSurfaceCard.mockReset()
-    postSurfaceCard.mockResolvedValue({ messageId: MSG })
+    postShowCard.mockReset()
+    postShowCard.mockResolvedValue({ messageId: MSG })
   })
 
   it(`posts a surface card on the caller's own session`, async () => {
     const result = await show({ surface, title: `  Login screen ` })
     expect(parseOk(result)).toEqual({ messageId: MSG })
-    expect(postSurfaceCard).toHaveBeenCalledWith({
+    expect(postShowCard).toHaveBeenCalledWith({
+      userId: USER.id,
       sessionId: SESSION,
+      replace: false,
       card: { kind: `surface`, surface: { root: surface.root, data: null }, title: `Login screen` },
     })
   })
@@ -3094,19 +3106,18 @@ describe(`exponential_surface_show (Chats)`, () => {
     const result = await show({ surface: bad })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain(message)
-    expect(postSurfaceCard).not.toHaveBeenCalled()
+    expect(postShowCard).not.toHaveBeenCalled()
   })
 
-  it(`needs a surface and refuses unknown keys`, () => {
-    const schema = collectToolDefs().get(`exponential_surface_show`)!.inputSchema!
+  it(`refuses unknown keys`, () => {
+    const schema = collectToolDefs().get(`exponential_show`)!.inputSchema!
     expect(schema.safeParse({ surface }).success).toBe(true)
-    expect(schema.safeParse({ title: `x` }).success).toBe(false)
     expect(schema.safeParse({ surface, extra: 1 }).success).toBe(false)
   })
 
   it(`only works inside a session`, async () => {
     dbRows.current = []
-    const result = await collectTools(USER, null).get(`exponential_surface_show`)!({ surface })
+    const result = await collectTools(USER, null).get(`exponential_show`)!({ surface })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain(`No session`)
   })

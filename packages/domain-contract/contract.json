@@ -877,6 +877,17 @@
         "result": "results"
       },
       {
+        "name": "show",
+        "title": "Show a card",
+        "blurb": "Posts or updates the session's one card: an Exponential UI surface, a question or a plan a person answers in the card.",
+        "progressive": "Showing a card",
+        "done": "Showed a card",
+        "progressiveMany": "Showing {n} cards",
+        "doneMany": "Showed {n} cards",
+        "subjectKey": "title",
+        "result": "none"
+      },
+      {
         "name": "people_invites_create",
         "title": "Create invite",
         "blurb": "Creates an invite link for a team, optionally mailed to an address.",
@@ -1207,17 +1218,6 @@
         "result": "none"
       },
       {
-        "name": "session_self_plan",
-        "title": "Propose a plan",
-        "blurb": "Posts the plan card: markdown with pictures, choice questions and an optional surface; a person approves it in the card.",
-        "progressive": "Proposing a plan",
-        "done": "Proposed a plan",
-        "progressiveMany": "Proposing {n} plans",
-        "doneMany": "Proposed {n} plans",
-        "subjectKey": "plan",
-        "result": "none"
-      },
-      {
         "name": "pr_close",
         "title": "Close pull request",
         "blurb": "Closes an open pull request without merging it.",
@@ -1381,28 +1381,6 @@
         "doneMany": "Listed repositories {n} times",
         "subjectKey": "",
         "result": "list"
-      },
-      {
-        "name": "session_self_ask",
-        "title": "Ask a question",
-        "blurb": "Posts one question card with text or picture options, single or multiple choice; a person answers in the card.",
-        "progressive": "Asking a question",
-        "done": "Asked a question",
-        "progressiveMany": "Asking {n} questions",
-        "doneMany": "Asked {n} questions",
-        "subjectKey": "question",
-        "result": "none"
-      },
-      {
-        "name": "session_self_show",
-        "title": "Show a preview",
-        "blurb": "Draws an inline Exponential UI preview in the chat; a reply button sends its text as the person's reply.",
-        "progressive": "Showing a preview",
-        "done": "Showed a preview",
-        "progressiveMany": "Showing {n} previews",
-        "doneMany": "Showed {n} previews",
-        "subjectKey": "title",
-        "result": "none"
       },
       {
         "name": "session_self_compact",
@@ -1690,6 +1668,7 @@
       { "name": "events_emit", "refs": "" },
       { "name": "events_list", "refs": "list:event@events" },
       { "name": "guide_write", "refs": "" },
+      { "name": "show", "refs": "" },
       { "name": "people_invites_create", "refs": "invite@invite" },
       { "name": "people_invites_list", "refs": "list:invite@" },
       { "name": "people_invites_revoke", "refs": "" },
@@ -1720,7 +1699,6 @@
       { "name": "people_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },
-      { "name": "session_self_plan", "refs": "" },
       { "name": "pr_close", "refs": "issue@$issueId" },
       { "name": "pr_files", "refs": "issue@$issueId" },
       { "name": "pr_merge", "refs": "issue@$issueId" },
@@ -1736,9 +1714,7 @@
       { "name": "team_config_prompts_update", "refs": "prompt@" },
       { "name": "team_config_repositories_add", "refs": "repository@" },
       { "name": "team_config_repositories_list", "refs": "list:repository@" },
-      { "name": "session_self_ask", "refs": "" },
       { "name": "session_self_compact", "refs": "" },
-      { "name": "session_self_show", "refs": "" },
       { "name": "sessions_configure", "refs": "session@" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_escalate", "refs": "session@" },

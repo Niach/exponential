@@ -128,10 +128,10 @@ export function frameMs(step: number): number {
 
 export function scene(step: number): { rows: Rows; working: boolean; draft: string } {
   const rows: Rows = []
-  if (step >= ASKED) rows.push({ type: `message`, id: `ask`, author: `user`, authorId: `you`, body: PROMPT, queued: false, authorSessionId: null })
-  if (step >= ANSWERED) rows.push({ type: `message`, id: `answer`, author: `agent`, authorId: null, body: ANSWER, queued: false, authorSessionId: null })
+  if (step >= ASKED) rows.push({ type: `message`, id: `ask`, author: `user`, authorId: `you`, body: PROMPT, queued: false, authorSessionId: null, xref: null })
+  if (step >= ANSWERED) rows.push({ type: `message`, id: `answer`, author: `agent`, authorId: null, body: ANSWER, queued: false, authorSessionId: null, xref: null })
   if (step >= SURFACED) rows.push({ type: `surface`, id: `week`, sessionId: `sloppy`, title: `Shipped this week`, surface: { root: SURFACE, data: {} } })
-  if (step >= TAPPED) rows.push({ type: `message`, id: `tap`, author: `user`, authorId: `you`, body: TAP, queued: false, authorSessionId: null })
+  if (step >= TAPPED) rows.push({ type: `message`, id: `tap`, author: `user`, authorId: `you`, body: TAP, queued: false, authorSessionId: null, xref: null })
   if (step >= LAST_STEP) {
     rows.push({
       type: `session`,

@@ -5732,6 +5732,44 @@
       }
     },
     {
+      "id": "session-xref",
+      "group": "coding",
+      "title": "Session link",
+      "blurb": "THE inter-session link ×4 (S-3, session-thread.json copy.xref): one compact line naming another session (Message from · Report from · Started by · Reported to), the agent's avatar or the session glyph, the name, a chevron; a tap pushes that session on the back stack.",
+      "order": 46,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=session-xref",
+        "anchor": {
+          "testId": "session-xref-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_session-xref",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session-xref",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:session-xref"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=session-xref` on the Agent route: `@exp/ui` `SessionXrefSpecimen`, the four kinds.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_session-xref.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:session-xref`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web."
+      }
+    },
+    {
       "id": "chat-menus",
       "group": "coding",
       "title": "Chat menus",

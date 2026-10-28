@@ -43,6 +43,7 @@ const ROWS: ThreadRow[] = [
     body: `Do it`,
     queued: true,
     authorSessionId: null,
+    xref: null,
   },
   {
     type: `message`,
@@ -52,6 +53,7 @@ const ROWS: ThreadRow[] = [
     body: `On it`,
     queued: false,
     authorSessionId: null,
+    xref: null,
   },
   {
     type: `question`,
@@ -183,8 +185,8 @@ describe(`ThreadConversation`, () => {
 
   it(`chats.json: dividers, a surface card and the phone bubbles`, () => {
     const rows: ThreadRow[] = [
-      { type: `message`, id: `u`, author: `user`, authorId: `x`, body: `Hi`, queued: false, authorSessionId: null },
-      { type: `message`, id: `a`, author: `agent`, authorId: null, body: `Hello`, queued: false, authorSessionId: null },
+      { type: `message`, id: `u`, author: `user`, authorId: `x`, body: `Hi`, queued: false, authorSessionId: null, xref: null },
+      { type: `message`, id: `a`, author: `agent`, authorId: null, body: `Hello`, queued: false, authorSessionId: null, xref: null },
       { type: `divider`, id: `d`, kind: `compact`, at: `2026-10-23T18:20:00.000Z` },
       { type: `divider`, id: `n`, kind: `new`, at: `2026-10-23T18:30:00.000Z` },
       {
@@ -295,8 +297,8 @@ describe(`ThreadConversation`, () => {
   it(`puts the X only on the viewer's own queued row, and its tooltip leaves with it`, async () => {
     const onUnqueue = vi.fn()
     const rows: ThreadRow[] = [
-      { type: `message`, id: `m1`, author: `user`, authorId: `u1`, body: `Mine`, queued: true, authorSessionId: null },
-      { type: `message`, id: `m3`, author: `user`, authorId: `u2`, body: `Theirs`, queued: true, authorSessionId: null },
+      { type: `message`, id: `m1`, author: `user`, authorId: `u1`, body: `Mine`, queued: true, authorSessionId: null, xref: null },
+      { type: `message`, id: `m3`, author: `user`, authorId: `u2`, body: `Theirs`, queued: true, authorSessionId: null, xref: null },
     ]
     const { rerender } = renderRows(rows, { viewerId: `u1`, onUnqueue })
     const buttons = screen.getAllByTestId(`thread-unqueue`)
@@ -698,7 +700,7 @@ describe(`ThreadConversation EXP-1323`, () => {
     const card = document.querySelector(`[data-slot="thread-suggestions"]`)!
     expect(card.textContent).toContain(`6 suggested tasks · 3 started`)
     // A started item IS the child's session card.
-    fireEvent.click(screen.getByText(`Add width and height to cart thumbnails`))
+    fireEvent.click(within(card as HTMLElement).getByText(`Add width and height to cart thumbnails`))
     expect(onOpenSession).toHaveBeenCalledWith(`c1`)
     expect(card.textContent).toContain(`Sent here`)
     expect(screen.getByTestId(`issue-ref`).textContent).toBe(`EXP-9`)
@@ -710,10 +712,10 @@ describe(`ThreadConversation EXP-1323`, () => {
     expect(conversation.lastElementChild?.getAttribute(`data-testid`)).toBe(`live-tail`)
   })
 
-  it(`a report is one line opening the child, the summary not repeated`, () => {
+  it(`a report is one xref line opening the child, the summary not repeated`, () => {
     const { onOpenSession } = renderCase(rowsOf(DISPATCHER))
-    const report = document.querySelector(`[data-slot="thread-report"]`)!
-    expect(report.textContent).toBe(`Report from Lazy-load product images`)
+    const report = document.querySelector(`[data-slot="thread-xref"][data-kind="report"]`)!
+    expect(report.getAttribute(`aria-label`)).toBe(`Report from Lazy-load product images`)
     expect(screen.queryByText(`Lazy-loading is in; PR #12 is open.`)).toBeNull()
     fireEvent.click(report)
     expect(onOpenSession).toHaveBeenCalledWith(`c2`)
@@ -1003,5 +1005,49 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
       answers: [`Web`, `iOS`],
       surfaceData: { size: `lg` },
     })
+  })
+})
+
+// S-3: the fixture's inter-session links: another session's line heads its
+// bubble with `Message from …`, a report IS its line, the view's origin
+// opens the Conversation; a tap goes through `onOpenXref` (the back stack).
+const XREF = fixture.cases.find((entry) => entry.name.startsWith(`S-3: inter-session links`))!
+
+describe(`ThreadConversation S-3 xrefs`, () => {
+  it(`paints the origin first, a message's link above its bubble, the report as its line`, () => {
+    const view = buildSessionThread(XREF.input as unknown as Input)
+    const onOpenXref = vi.fn()
+    const onOpenSession = vi.fn()
+    render(
+      <TooltipProvider>
+        <ThreadConversation
+          rows={view.rows}
+          origin={view.origin}
+          renderText={(text) => <p>{text}</p>}
+          attachmentSrc={(id) => `/api/attachments/${id}`}
+          onOpenSession={onOpenSession}
+          onOpenXref={onOpenXref}
+          xrefAgent={(id) => (id === `a1` ? { icon: `bot`, color: `#8b5cf6` } : null)}
+        />
+      </TooltipProvider>
+    )
+    const links = screen.getAllByTestId(`thread-xref`)
+    expect(links.map((link) => link.getAttribute(`data-kind`))).toEqual([
+      `started`,
+      `message`,
+      `message`,
+      `report`,
+    ])
+    expect(links[0]!.getAttribute(`aria-label`)).toBe(`Started by Big Brother`)
+    // The agent's mark through the root's startedByAgentId; a child's own
+    // tree (no agent) also reads through its root.
+    expect(links[0]!.querySelector(`[data-slot="agent-avatar"]`)).not.toBeNull()
+    const childLine = links[2]!
+    expect(childLine.getAttribute(`aria-label`)).toBe(`Message from Batch 2`)
+    expect(childLine.parentElement!.textContent).toContain(`Half the tests pass.`)
+    expect(screen.queryByText(`Batch 2 is in; PR #12 is open.`)).toBeNull()
+    fireEvent.click(links[3]!)
+    expect(onOpenXref).toHaveBeenCalledWith(`c1`)
+    expect(onOpenSession).not.toHaveBeenCalled()
   })
 })

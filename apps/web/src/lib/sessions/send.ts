@@ -378,7 +378,7 @@ export function assertRunnerVocabulary(
 
 type RunnerSource = Pick<
   Session,
-  `cli` | `account` | `model` | `effort` | `planMode` | `computerUse` | `ultracode`
+  `cli` | `account` | `model` | `effort` | `computerUse` | `ultracode`
 >
 
 /** The runner pickers of a new session: the input's, else inherited from
@@ -391,7 +391,6 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
     account: input.account ?? from?.account ?? null,
     model: input.model?.trim() || from?.model || null,
     effort: input.effort?.trim() || from?.effort || null,
-    planMode: input.planMode ?? from?.planMode ?? false,
     computerUse: input.computerUse ?? from?.computerUse ?? false,
     ultracode: input.ultracode ?? from?.ultracode ?? false,
   }
@@ -404,11 +403,13 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
 export interface RunnerPicks {
   model?: string
   effort?: string | null
-  planMode?: boolean
   ultracode?: boolean
   computerUse?: boolean
 }
 
+/** S-3: plan mode is gone (a plan is an `exponential_show {plan}` card, no
+ *  gate): an old client's `planMode` pick is accepted and ignored, and the
+ *  legacy `sessions.plan_mode` column is never written. */
 export function runnerPicks(input: {
   model?: string | null
   effort?: string | null
@@ -420,7 +421,6 @@ export function runnerPicks(input: {
   return {
     ...(model ? { model } : {}),
     ...(input.effort !== undefined ? { effort: input.effort?.trim() || null } : {}),
-    ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
     ...(input.ultracode !== undefined ? { ultracode: input.ultracode } : {}),
     ...(input.computerUse !== undefined ? { computerUse: input.computerUse } : {}),
   }
@@ -1295,9 +1295,6 @@ async function startChild(
       userId,
       deviceId,
       ...runnerFields(input, parent),
-      // NEW-6 (N-1): plan mode is the ROOT's stance, never inherited: a
-      // child plans only when its start says so.
-      planMode: input.planMode ?? false,
       // EXP-1341: the parent's `name`, else a suggestion's title; omitted =
       // the session names itself (session-title.json).
       ...((input.name ?? extras.title)?.trim()

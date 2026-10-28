@@ -34,6 +34,8 @@ import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { THREADS_LIST_COPY } from "@/lib/session-tree"
+import { useSessionNav } from "@/hooks/use-session-nav"
+import { BackStackButton } from "@/components/thread/session-body"
 
 // EXP-1293 / NEW-2 / S-3 (chats.json CHAT MODE): a team agent's chat. The
 // route id IS the `agents` row; the page is THE thread screen
@@ -92,6 +94,9 @@ function AgentChannelPage() {
     search.tab === `session` ? (search.session ?? null) : null
   )
   const { users } = useTeamUsers(team?.id)
+  // S-3: the back stack while no conversation exists yet (the thread screen
+  // keeps its own once it does).
+  const nav = useSessionNav({ teamSlug, here: null, back: search.back })
   // NEW-70 (voice-call.json): THE telephone left of `…`, the call card over the chat.
   const callAvailability = useVoiceCallAvailability()
   const voiceCall = useVoiceCall(agentId)
@@ -217,11 +222,12 @@ function AgentChannelPage() {
       {isMobile ? (
         <MobileDetailHeader
           title={parts.mobileTitle}
-          onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
+          onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } }))}
           menu={parts.headerMenu(HEADER_BUTTON_CLASS)}
         />
       ) : (
         <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 pt-6 pb-5 md:px-10">
+          <BackStackButton onPop={nav.pop} className="-ml-2" />
           {parts.glyph}
           <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold tracking-tight">{name}</h1>
           {parts.headerMenu(`shrink-0 text-muted-foreground`)}

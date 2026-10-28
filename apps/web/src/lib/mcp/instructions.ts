@@ -17,8 +17,6 @@
 // instance has a feedback widget, i.e. cloud) — `reportBug` is per-instance,
 // not per-caller, so it is a plain flag next to the gates.
 
-import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
-
 export function mcpServerInstructions(gates: {
   /** The caller runs inside a session of its own. */
   inSession: boolean
@@ -26,15 +24,19 @@ export function mcpServerInstructions(gates: {
   unattended: boolean
   /** That session's root is a team agent. */
   agent: boolean
-  /** EXP-1280: that session is still planning (`sessions.plan_mode`). */
-  planMode?: boolean
   reportBug: boolean
 }): string {
   const paragraphs = [
-    // NEW-4: 16 tools, one per noun, each with an `op`; statuses change
+    // NEW-4: 17 tools, one per noun (+ 3 verbs), each with an `op`; statuses change
     // AUTOMATICALLY on PR open/merge; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and a Guide. 16 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, exponential_guide_write, exponential_pr {op: "open"}. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
-    `exponential_sessions_send is the one session verb: sessionId messages a session (stop: true interrupts it), agentId a team agent (your conversation), parentId starts a child, neither starts a thread. exponential_sessions {op: "get"} (no id) reads your thread. Ping a person with @email. exponential_pr ops take pullRequestId, issueId or repositoryId + prNumber (default: your newest open PR); merge a tree root first.`,
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and a Guide. 17 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, exponential_guide_write, exponential_pr {op: "open"}. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
+    // S-3: a launched session (the header) also carries the runbook, which
+    // says this at length; only an outside client needs the verb spelled out.
+    ...(gates.inSession
+      ? [`Ping a person with @email.`]
+      : [
+          `exponential_sessions_send is the one session verb: sessionId messages a session (stop: true interrupts it), agentId a team agent (your conversation), parentId starts a child, neither starts a thread. exponential_sessions {op: "get"} (no id) reads your thread. Ping a person with @email. exponential_pr ops take pullRequestId, issueId or repositoryId + prNumber (default: your newest open PR); merge a tree root first.`,
+        ]),
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
     `Team MCP servers live in exponential_team_config (mcp_servers_*), never .mcp.json.`,
@@ -46,7 +48,7 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && gates.agent) {
     paragraphs.push(
-      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start threads with exponential_sessions_send (they report back here); answer in your reply.`
+      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start threads with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else end your turn silently; update your card (exponential_show replace: true) rather than posting again.`
     )
   }
   if (gates.inSession && !gates.agent && gates.unattended) {
@@ -59,12 +61,10 @@ export function mcpServerInstructions(gates: {
       `exponential_sessions {op: "end"} ends this session; call it only when the person asks you to end the session. Never wait or poll: end your turn, messages wake you.`
     )
   }
-  // EXP-1280: plan mode is Exponential's (a card + the pr open gate): a
-  // planning session gets THE gate sentence (plan-card.json `planModeGate`,
-  // the device's plan-mode line says the same), every session the ask.
+  // S-3: plan mode is gone; results, questions and plans are ONE show card
+  // (`exponential_show`, always loaded), edited in place.
   if (gates.inSession) {
-    const ask = `Ask a person with exponential_session_self {op: "ask"}.`
-    paragraphs.push(gates.planMode === true ? `${PLAN_CARD_COPY.planModeGate} ${ask}` : ask)
+    paragraphs.push(SHOW_SENTENCE)
   }
   // EXP-879/1251: LAST, so it is what a truncating client keeps least — but
   // present, because a session never asked for its Guide never writes one.
@@ -76,11 +76,13 @@ export function mcpServerInstructions(gates: {
   return paragraphs.join(`\n\n`)
 }
 
+/** S-3: the one sentence every launched session gets about showing. */
+export const SHOW_SENTENCE = `Show, don't tell: results, questions (ask) and plans (plan) go in ONE exponential_show card per turn; replace: true updates it.`
+
 /** The full variant — what the context budget measures. */
 export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
   inSession: true,
   unattended: true,
   agent: false,
-  planMode: true,
   reportBug: true,
 })

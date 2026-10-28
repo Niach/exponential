@@ -62,6 +62,7 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
     agent: { id: `agent-1`, teamId: `t1`, name: `Triage`, icon: null, color: null },
     isReady: true,
   }),
+  useAllAgentRows: () => [],
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useTeamSessions: () => ({ rows: mocks.conversation.current ? [mocks.conversation.current] : [] }),

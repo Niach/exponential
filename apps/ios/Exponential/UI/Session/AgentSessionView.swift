@@ -181,6 +181,9 @@ struct AgentSessionView: View {
     @State private var sessionCards: [AskDock.SessionCard] = []
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: ThreadRow] = [:]
+    /// S-3: the view's `origin` link (session-thread.json), its mark and
+    /// the route its tap pushes; nil = a person started it.
+    @State private var origin: (xref: SessionXref, mark: SessionXrefHeader.AgentMark?, route: AppRoute)?
     @State private var toolAnsweringId: String?
     /// N-12: THE Dock's open sheet (a card id).
     @State private var dockOpenId: String?
@@ -358,6 +361,7 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
+            .task(id: session.id) { await observeOrigin() }
             .task(id: session.teamId) {
                 slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
             }
@@ -692,6 +696,13 @@ struct AgentSessionView: View {
                             // rendered as a window; "Load earlier" grows it
                             // upward (and, past the feed's own first row, asks
                             // the device for the page below it).
+                            // S-3: who started this session, atop its view.
+                            if let origin {
+                                SessionXrefHeader(xref: origin.xref, agent: origin.mark) {
+                                    pushRoute(origin.route)
+                                }
+                                .padding(.bottom, 8)
+                            }
                             if model.canLoadEarlier {
                                 TranscriptLoadEarlierButton { model.loadEarlier() }
                             }
@@ -1129,6 +1140,30 @@ struct AgentSessionView: View {
                 .accessibilityIdentifier("session-tool-card")
             }
         }
+    }
+
+    /// S-3: this session's `origin` (`buildSessionThread` focused on it),
+    /// re-read only when its root's digest moves (`ThreadRows.signature`).
+    private func observeOrigin() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let rootId = session.rootId.isEmpty ? session.id : session.rootId
+        let id = session.id
+        let accountId = accountId
+        let observation = ValueObservation
+            .tracking { db in try ThreadRows.signature(db: db, rootId: rootId) }
+            .removeDuplicates()
+        do {
+            for try await _ in observation.values(in: pool) {
+                guard let rows = try await pool.read({ db in try ThreadRows.load(db: db, rootId: rootId) }) else {
+                    origin = nil
+                    continue
+                }
+                let link = await Task.detached(priority: .utility) {
+                    rows.view(now: Date(), focus: id == rows.root.id ? nil : id).origin
+                }.value
+                origin = link.map { ($0, rows.xrefMark($0), rows.xrefRoute($0, accountId: accountId)) }
+            }
+        } catch {}
     }
 
     /// EXP-1280: observe this session's own synced card messages; keep its

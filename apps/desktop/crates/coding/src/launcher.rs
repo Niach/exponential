@@ -4785,7 +4785,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(names, vec!["codemode"]);
         assert_eq!(prepared.acp.servers[0].token_env.as_deref(), Some(codemode::TOKEN_ENV));
         assert!(!prepared.acp.mcp_secrets.is_empty());
-        assert!(prepared.acp.system_append.contains("# Code mode"));
+        // S-3: the codemode server explains itself; no playbook section.
+        assert!(!prepared.acp.system_append.contains("# Code mode"));
     }
 
     // ---- EXP-1158: the last used stamp ----

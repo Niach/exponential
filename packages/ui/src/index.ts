@@ -132,6 +132,7 @@ export * from "./phone-board-menu"
 export * from "./page-header"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
+export * from "./session-xref"
 export * from "./run-status-row"
 export * from "./sheet"
 export * from "./sidebar"

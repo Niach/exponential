@@ -7,10 +7,10 @@ import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
 
-// NEW-4 (plan 3.11): the MCP surface is 16 tools, the SAME set for every
+// NEW-4 (plan 3.11): the MCP surface is 17 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
-// that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); two
-// verbs stay whole (`sessions_send`, `guide_write`). The 79 per-operation
+// that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); three
+// verbs stay whole (`sessions_send`, `guide_write`, S-3's `show`: 17 tools). The 79 per-operation
 // tools of EXP-988 become the ops: `registerExponentialTools` still defines
 // every one of them (their zod schemas, access checks and handlers are
 // untouched), a recorder captures them instead of the server, and each noun
@@ -57,7 +57,7 @@ export interface NounSpec {
 
 const PREFIX = `exponential_`
 
-/** The 16. Order = the order the tools list. */
+/** The 17. Order = the order the tools list. */
 export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `issues`,
@@ -181,17 +181,16 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   },
   {
     name: `session_self`,
-    blurb: `Your own session: ask a person one question (card), plan (plan mode's card), suggest replies or tasks, compact your context, report_bug when Exponential itself misbehaves, show an inline Exponential UI preview in the chat (a Button whose press event is {name:"reply", context:{text}} sends that text as the user's reply).`,
+    blurb: `Your own session: suggest replies or tasks, compact your context, report_bug when Exponential itself misbehaves (cards, questions and plans: exponential_show).`,
     ops: {
-      ask: `sessions_ask`,
-      plan: `plan_propose`,
-      show: `surface_show`,
       suggest: `sessions_suggest`,
       compact: `sessions_compact`,
       report_bug: `report_bug`,
     },
   },
   { name: `guide_write`, blurb: ``, verb: `guide_write`, alwaysLoad: true },
+  // S-3: show / ask / plan = ONE card verb, always loaded.
+  { name: `show`, blurb: ``, verb: `show`, alwaysLoad: true },
   {
     name: `pr`,
     blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files.`,

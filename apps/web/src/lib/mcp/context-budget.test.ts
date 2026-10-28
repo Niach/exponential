@@ -1,4 +1,3 @@
-import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { expect, it, vi } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -101,11 +100,11 @@ import {
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
-  // NEW-4: the surface is the 16 noun tools, the same for every caller.
+  // NEW-4: the surface is the 17 tools, the same for every caller.
   expect(defs.map((def) => def.name).sort()).toEqual(
     NOUN_TOOLS.map((spec) => `exponential_${spec.name}`).sort()
   )
-  expect(defs).toHaveLength(16)
+  expect(defs).toHaveLength(17)
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -120,15 +119,17 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect([...flagged].sort()).toEqual(
     [...ALWAYS_LOAD_TOOLS, ...GATED_ALWAYS_LOAD_TOOLS].sort()
   )
-  // The self tools (ask, plan, suggest, compact, report_bug) are deliberately
-  // NOT always-loaded: an agent that needs them searches for them.
+  // The self tools (suggest, compact, report_bug) are deliberately NOT
+  // always-loaded: an agent that needs them searches for them. S-3: show
+  // (cards, ask, plan) is, since every turn may end with one.
   expect(flagged).not.toContain(`exponential_session_self`)
-  expect(flagged).toHaveLength(5)
+  expect(flagged).toContain(`exponential_show`)
+  expect(flagged).toHaveLength(6)
 })
 
-// NEW-4 (plan 3.11): NO conditional registration — the 16 register for
+// NEW-4 (plan 3.11): NO conditional registration — the 17 register for
 // every caller; an op the caller cannot use errors when called.
-it(`registers the same 16 tools for every caller`, () => {
+it(`registers the same 17 tools for every caller`, () => {
   const headerless = serializeToolDefs({
     inSession: false,
     unattended: false,
@@ -140,7 +141,7 @@ it(`registers the same 16 tools for every caller`, () => {
     agent: false,
   }).map((def) => def.name)
   expect([...headerless].sort()).toEqual([...inSession].sort())
-  expect(headerless).toHaveLength(16)
+  expect(headerless).toHaveLength(17)
   // EXP-1291 / NEW-4: the retired surface is gone.
   for (const name of [
     `exponential_sessions_start`,
@@ -150,6 +151,8 @@ it(`registers the same 16 tools for every caller`, () => {
     `exponential_issues_get`,
     `exponential_report_bug`,
     `exponential_plan_propose`,
+    `exponential_sessions_ask`,
+    `exponential_surface_show`,
   ]) {
     expect(inSession, name).not.toContain(name)
   }
@@ -188,8 +191,12 @@ it(`keeps the serialized MCP tool context within budget`, () => {
   expect(JSON.stringify(defs).length).toBeLessThan(60_000)
   for (const def of defs) {
     // No single tool may reintroduce a fat inline enum or a novella — a
-    // searched-for definition still lands verbatim in the window.
-    expect(JSON.stringify(def).length, `${def.name}`).toBeLessThan(1_800)
+    // searched-for definition still lands verbatim in the window. S-3: the
+    // ONE exception is exponential_show: its schema is real (surface, ask,
+    // plan, pictures) and its description teaches the node syntax, an
+    // example and the component names, so agents never guess a surface.
+    const cap = def.name === `exponential_show` ? 3_400 : 1_800
+    expect(JSON.stringify(def).length, `${def.name}`).toBeLessThan(cap)
   }
 })
 
@@ -223,11 +230,10 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     `exponential_sessions {op: "end"} ends this session; call it only when the person asks you to end the session.`
   )
   expect(person).not.toContain(`This session is unattended`)
-  // EXP-1280: only a planning session is told it is in plan mode (the
-  // fixture's gate sentence); every session gets the ask.
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(PLAN_CARD_COPY.planModeGate)
-  expect(person).not.toContain(PLAN_CARD_COPY.planModeGate)
-  expect(person).toContain(`exponential_session_self {op: "ask"}`)
+  // S-3: plan mode is gone; every session is told to show (ask and plan
+  // included) with exponential_show.
+  expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`plan mode`)
+  expect(person).toContain(`exponential_show`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions {op: "end", summary} LAST`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)
   // A team agent never ends and writes no Guide of its own.
@@ -309,6 +315,7 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_pr`,
     `exponential_guide_write`,
     `exponential_events`,
+    `exponential_show`,
   ]) {
     expect(playbook, `playbook names ${name}`).toContain(name)
   }

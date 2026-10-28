@@ -82,6 +82,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -734,6 +735,61 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             }
         }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** S-3: the synced agent definitions by id (the origin link's mark). */
+    val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
+            .map { rows -> rows.associateBy { it.id } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** S-3: the session page's `origin` link ([root] = the target is a
+     *  root: it opens as its thread, else as its session view). */
+    data class OriginLink(val xref: SessionTree.SessionXref, val root: Boolean)
+
+    /**
+     * S-3 (session-thread.json "S-3 INTER-SESSION LINKS"): who started THIS
+     * session = the view's `origin` with this session focused: its parent,
+     * else (a root) the conversation of the agent that started it; null = a
+     * person started it.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val origin: StateFlow<OriginLink?> = rootId
+        .flatMapLatest { root ->
+            if (root == null) {
+                flowOf(null)
+            } else {
+                combine(
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() },
+                    dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
+                        db.keyedMessages(db.messageDao().observeByRoot(root))
+                    },
+                    dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
+                    issues,
+                ) { tree, agentRoots, messages, links, linked ->
+                    val rootRow = tree.firstOrNull { it.id == root } ?: return@combine null
+                    if (tree.none { it.id == codingSessionId }) return@combine null
+                    val starters = rootRow.startedByAgentId?.takeIf { it.isNotEmpty() }?.let { agentId ->
+                        agentRoots.filter { it.agentId == agentId && it.userId == rootRow.userId }
+                    }.orEmpty()
+                    val rows = (tree + starters).distinctBy { it.id }
+                    val xref = SessionTree.buildSessionThread(
+                        root = SessionTree.session(rootRow),
+                        sessions = rows.map(SessionTree::session),
+                        sessionIssues = links.map(SessionTree::sessionIssue),
+                        issues = linked.map { SessionTree.issue(it) },
+                        messages = messages,
+                        pullRequests = emptyList(),
+                        now = SessionTree.nowIso(),
+                        focus = codingSessionId,
+                    ).origin ?: return@combine null
+                    val target = rows.firstOrNull { it.id == xref.sessionId }
+                    OriginLink(xref, root = target != null && target.rootId.ifEmpty { target.id } == target.id)
+                }.flowOn(kotlinx.coroutines.Dispatchers.Default)
+            }
+        }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**

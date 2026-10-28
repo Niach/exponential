@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
-// EXP-1280: `exponential_plan_propose` / `exponential_sessions_ask` post a
-// card the session answers itself, so they register only inside a session.
+// S-3: `exponential_show` (a surface, ONE question or a plan) posts a card
+// on the caller's own session, so it registers only inside a session; the
+// three retired ops (plan_propose, sessions_ask, surface_show) are gone.
 // Release train 2026-10-23: the host-version `cards` gate is gone (every
 // desktop/CLI at the 0.14.75 floor feeds a session its own cards).
 
@@ -84,16 +85,17 @@ function registered(gates: McpToolGates): Set<string> {
   return names
 }
 
-const ASK_TOOLS = [`exponential_plan_propose`, `exponential_sessions_ask`]
+const RETIRED = [`exponential_plan_propose`, `exponential_sessions_ask`, `exponential_surface_show`]
 
-describe(`the ask tools' registration (EXP-1280)`, () => {
-  it(`registers both inside a session`, () => {
+describe(`the show tool's registration (S-3)`, () => {
+  it(`registers show inside a session, never the retired ops`, () => {
     const names = registered(ALL_MCP_TOOL_GATES)
-    for (const tool of ASK_TOOLS) expect(names.has(tool), tool).toBe(true)
+    expect(names.has(`exponential_show`)).toBe(true)
+    for (const tool of RETIRED) expect(names.has(tool), tool).toBe(false)
   })
 
-  it(`registers neither outside a session`, () => {
+  it(`does not register show outside a session`, () => {
     const names = registered({ ...ALL_MCP_TOOL_GATES, inSession: false })
-    for (const tool of ASK_TOOLS) expect(names.has(tool), tool).toBe(false)
+    expect(names.has(`exponential_show`)).toBe(false)
   })
 })
