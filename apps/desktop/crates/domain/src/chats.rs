@@ -1791,6 +1791,10 @@ mod tests {
         for case in cases {
             let input = &case["input"];
             let agents: Vec<AgentRow> = serde_json::from_value(input["agents"].clone()).unwrap();
+            // S-3: `assistant` decodes from each input agent (absent = false).
+            for (agent, raw) in agents.iter().zip(input["agents"].as_array().unwrap()) {
+                assert_eq!(agent.assistant, raw["assistant"].as_bool().unwrap_or(false), "{}", case["name"]);
+            }
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let session_refs: Vec<&SessionRow> = sessions.iter().collect();
             let all = messages(&input["messages"]);
@@ -1808,6 +1812,9 @@ mod tests {
             }
             assert_eq!(got, case["expected"], "{}", case["name"]);
         }
+        // S-3: the first case leads with the viewer's Assistant.
+        let first: Vec<AgentRow> = serde_json::from_value(cases[0]["input"]["agents"].clone()).unwrap();
+        assert!(first[0].assistant && first[1..].iter().all(|agent| !agent.assistant));
     }
 
     #[test]
