@@ -4930,8 +4930,8 @@
         "file": "shots/settings-voice/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 28490,
-        "sha256": "e669dc46f3ffb7b8339365253a4af753067342a351005d25d157e45f074e7037"
+        "bytes": 28240,
+        "sha256": "87464fe6c94410dd30c8d9279f573ab420101108d6904a7f2ed4c45061977e66"
       },
       "desktop": {
         "file": "shots/settings-voice/desktop.webp",
@@ -4951,15 +4951,15 @@
         "file": "shots/settings-voice/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 45440,
-        "sha256": "1c0d9c109b87f755b55e917531483710ad8c8342f5389d35f1b97ad8439a120f"
+        "bytes": 45910,
+        "sha256": "5be948346d88b6eb9ce7c7aafbcf87369945c6046b24d712d02802be51931523"
       },
       "web-mobile": {
         "file": "shots/settings-voice/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 32754,
-        "sha256": "ce1c049f06490eada12464e8c50b16637067ea8ab1afee181d20f489fb526abf"
+        "bytes": 32610,
+        "sha256": "9ef196ebf48de12dd47bd77425391c267423ab9614e5109e54d690c7f501f8da"
       }
     },
     "settings-widget": {
