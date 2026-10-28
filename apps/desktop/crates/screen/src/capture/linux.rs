@@ -139,7 +139,7 @@ impl RootReader {
             (visual.red_mask, visual.green_mask, visual.blue_mask),
             (width as usize) * (height as usize),
         )?;
-        Ok(Frame { display: number, width, height, rgba })
+        Ok(Frame::rgba(number, width, height, rgba))
     }
 }
 

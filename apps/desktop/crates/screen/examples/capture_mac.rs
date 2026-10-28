@@ -1,7 +1,7 @@
 //! NEW-58 live check of the macOS capturer: opens it, waits 2 s, grabs every
 //! display, prints each frame and saves display 1 as a PNG. `--bench <secs>`
 //! then grabs all displays once a second for that long (CPU measurement);
-//! `--force` also converts display 1 every tick (a busy screen).
+//! `--force` also lends display 1 every tick (a busy screen).
 //!
 //! cargo run -p screen --example capture_mac [-- --bench 20]
 
@@ -30,16 +30,24 @@ fn main() {
     println!("grab_all: {} frame(s)", frames.len());
     for frame in &frames {
         println!(
-            "display {}: {}x{} ({} bytes)",
+            "display {}: {}x{} ({} bytes, stride {}, bgra {})",
             frame.display,
             frame.width,
             frame.height,
-            frame.rgba.len()
+            frame.bytes().len(),
+            frame.stride,
+            frame.bgra
         );
     }
     if let Some(frame) = frames.first() {
         let path = out.join("mac-capture.png");
-        image::save_buffer(&path, &frame.rgba, frame.width, frame.height, image::ColorType::Rgba8)
+        let rgba: Vec<u8> = frame
+            .bytes()
+            .chunks(frame.stride)
+            .take(frame.height as usize)
+            .flat_map(|row| row[..frame.width as usize * 4].chunks_exact(4).flat_map(|px| [px[2], px[1], px[0], 255]))
+            .collect();
+        image::save_buffer(&path, &rgba, frame.width, frame.height, image::ColorType::Rgba8)
             .expect("png");
         println!("saved {}", path.display());
     }
@@ -62,7 +70,7 @@ fn main() {
         while begin.elapsed() < Duration::from_secs(secs) {
             let tick = Instant::now();
             got += capturer.grab_all().expect("grab_all").len();
-            // `--force`: also convert display 1's latest every tick, the
+            // `--force`: also lend display 1's latest every tick, the
             // cost of a screen that changes every second.
             if args.iter().any(|a| a == "--force") {
                 got += capturer.grab(1).expect("grab").is_some() as usize;

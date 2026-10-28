@@ -1,8 +1,12 @@
 //! The capture loop (its own thread): every `capture.intervalMs` every
 //! display, every `capture.focusPollMs` a look at the focused window (and
 //! its display at once when the app or title changed), nothing while
-//! paused; each frame hashed and deduplicated per display, a kept one
-//! encoded to WebP and stored. The retention sweep runs every tick.
+//! paused; each frame hashed and deduplicated per display. Kept frames go
+//! to ONE low-priority encode worker (cut, fit, WebP, store) as a batch;
+//! while it still works on the last batch or rests after it (the encode
+//! budget) a new one is dropped and the dedupe does not advance, so the
+//! next tick retries the change, re-grabbing those displays' latest frame
+//! (SKIP IF BUSY). The retention sweep runs every tick.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +19,7 @@ use computer::FocusedWindow;
 
 use crate::capture::{Capturer, Frame};
 use crate::store::{self, Rect, Row, Store};
-use crate::{fixture, hash, ring, Status};
+use crate::{fixture, hash, ring, shrink, Status};
 
 /// The focused window now (`computer::focused_window`; a fake in tests).
 pub(crate) type FocusSource = Box<dyn FnMut() -> Option<FocusedWindow> + Send>;
@@ -26,6 +30,9 @@ pub(crate) type StatusSink = Arc<dyn Fn(Status) + Send + Sync>;
 pub(crate) struct Timing {
     pub interval: Duration,
     pub poll: Duration,
+    /// `store.encodePercent`: the share of a core the encode worker may
+    /// take on average (100 = no rest).
+    pub encode_percent: u32,
 }
 
 impl Timing {
@@ -33,6 +40,7 @@ impl Timing {
         Timing {
             interval: Duration::from_millis(fixture::interval_ms()),
             poll: Duration::from_millis(fixture::focus_poll_ms()),
+            encode_percent: fixture::encode_percent(),
         }
     }
 }
@@ -51,6 +59,9 @@ pub(crate) struct Memory {
     pub store: Arc<Mutex<Store>>,
     stop: mpsc::Sender<()>,
     thread: Option<JoinHandle<()>>,
+    worker: Option<JoinHandle<()>>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    worker_state: Arc<Worker>,
 }
 
 impl Memory {
@@ -68,6 +79,15 @@ impl Memory {
         store.remove_orphans()?;
         let store = Arc::new(Mutex::new(store));
         let (stop, stopped) = mpsc::channel();
+        let worker_state = Arc::new(Worker::default());
+        let (jobs, inbox) = mpsc::channel::<Vec<Job>>();
+        let worker = {
+            let (store, state, percent) = (store.clone(), worker_state.clone(), timing.encode_percent);
+            std::thread::Builder::new()
+                .name("screen-memory-encode".into())
+                .spawn(move || work(inbox, &store, &state, percent))
+                .map_err(|err| format!("Could not start screen memory: {err}"))?
+        };
         let mut looper = Loop {
             capturer,
             focus,
@@ -75,22 +95,41 @@ impl Memory {
             hotkey,
             status,
             store: store.clone(),
-            dedupe: ring::Dedupe::default(),
+            gate: Gate { dedupe: ring::Dedupe::default(), worker: worker_state.clone() },
+            jobs,
             shown: None,
             last_focus: None,
+            retry: Vec::new(),
         };
         let thread = std::thread::Builder::new()
             .name("screen-memory".into())
             .spawn(move || looper.run(stopped))
             .map_err(|err| format!("Could not start screen memory: {err}"))?;
-        Ok(Memory { data_dir: data_dir.to_path_buf(), store, stop, thread: Some(thread) })
+        Ok(Memory { data_dir: data_dir.to_path_buf(), store, stop, thread: Some(thread), worker: Some(worker), worker_state })
     }
 
-    /// Stop the loop and wait for it; `forget` deletes every frame and row.
+    /// Hold the encode worker resting for `rest` from now.
+    #[cfg(test)]
+    pub(crate) fn rest(&self, rest: Duration) {
+        *self.worker_state.rest_until.lock().unwrap() = Some(Instant::now() + rest);
+    }
+
+    /// Whether the encode worker still works on a batch.
+    #[cfg(test)]
+    pub(crate) fn encoding(&self) -> bool {
+        self.worker_state.busy.load(Ordering::Acquire)
+    }
+
+    /// Stop the loop and the worker (it finishes its batch) and wait for
+    /// both; `forget` deletes every frame and row.
     pub(crate) fn stop(mut self, forget: bool) {
         let _ = self.stop.send(());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+        // The loop held the worker's only sender: it ends after its batch.
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
         let data_dir = self.data_dir.clone();
         drop(self);
@@ -107,10 +146,14 @@ struct Loop {
     hotkey: Arc<AtomicBool>,
     status: StatusSink,
     store: Arc<Mutex<Store>>,
-    dedupe: ring::Dedupe,
+    gate: Gate,
+    jobs: mpsc::Sender<Vec<Job>>,
     shown: Option<Status>,
     /// The (app, title) of the last poll, for the focus-change capture.
     last_focus: Option<(String, String)>,
+    /// Displays whose frame the busy worker skipped: the next tick grabs
+    /// their latest frame even when the capturer has no newer one.
+    retry: Vec<u32>,
 }
 
 impl Loop {
@@ -126,6 +169,7 @@ impl Loop {
                 // Nothing, not even the tick; the next tick after the
                 // focus leaves runs at once.
                 self.last_focus = None;
+                self.retry.clear();
             } else if now >= next_tick {
                 self.tick(focus.as_ref());
                 next_tick += self.timing.interval;
@@ -137,7 +181,7 @@ impl Loop {
                 if key.is_some() && key != self.last_focus {
                     let window = focus.as_ref().expect("a focused window");
                     match self.capturer.grab(window.display) {
-                        Ok(Some(frame)) => self.keep(frame, focus.as_ref(), now_ms()),
+                        Ok(Some(frame)) => self.keep(vec![frame], focus.as_ref(), now_ms()),
                         Ok(None) => {}
                         Err(reason) => log::debug!("[screen] no focus-change frame: {reason}"),
                     }
@@ -163,11 +207,15 @@ impl Loop {
 
     fn tick(&mut self, focus: Option<&FocusedWindow>) {
         match self.capturer.grab_all() {
-            Ok(frames) => {
-                let at = now_ms();
-                for frame in frames {
-                    self.keep(frame, focus, at);
+            Ok(mut frames) => {
+                for display in std::mem::take(&mut self.retry) {
+                    if !frames.iter().any(|frame| frame.display == display) {
+                        if let Ok(Some(frame)) = self.capturer.grab(display) {
+                            frames.push(frame);
+                        }
+                    }
                 }
+                self.keep(frames, focus, now_ms());
             }
             Err(reason) => log::debug!("[screen] no frames this tick: {reason}"),
         }
@@ -176,35 +224,188 @@ impl Loop {
         }
     }
 
-    /// Hash, dedupe, and store a kept frame.
-    fn keep(&mut self, frame: Frame, focus: Option<&FocusedWindow>, at: i64) {
-        if frame.width == 0 || frame.height == 0 || frame.rgba.len() < frame.width as usize * frame.height as usize * 4 {
+    /// Hash and dedupe the frames; the kept ones go to the worker as one
+    /// batch unless it is still busy.
+    fn keep(&mut self, frames: Vec<Frame>, focus: Option<&FocusedWindow>, at: i64) {
+        // Busy: not even the hash (the gate would skip them all anyway).
+        if !self.gate.worker.ready() {
+            self.skip(frames.iter().map(|frame| frame.display));
             return;
         }
         let (app, title) = focus.map(|window| (window.app.as_str(), window.title.as_str())).unwrap_or(("", ""));
-        let hash = hash::hash(frame.width, frame.height, &frame.rgba);
-        if !self.dedupe.keep(frame.display, app, title, hash) {
+        let frames: Vec<(Frame, u64)> = frames
+            .into_iter()
+            .filter(Frame::valid)
+            .map(|frame| {
+                let hash = hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes());
+                (frame, hash)
+            })
+            .collect();
+        let keys: Vec<(u32, u64)> = frames.iter().map(|(frame, hash)| (frame.display, *hash)).collect();
+        let Some(admitted) = self.gate.admit(&keys, app, title) else {
+            self.skip(keys.into_iter().map(|(display, _)| display));
             return;
-        }
-        let focus_rect = focus.filter(|window| window.display == frame.display).and_then(|window| clip(window.rect, frame.width, frame.height));
-        let webp = encode(&frame);
-        if webp.is_empty() {
-            return;
-        }
-        let row = Row {
-            at,
-            display: frame.display,
-            app: app.to_string(),
-            title: title.to_string(),
-            hash: hash::hex(hash),
-            path: store::relative_path(at, frame.display),
-            width: frame.width,
-            height: frame.height,
-            focus: focus_rect,
         };
-        if let Err(reason) = self.store.lock().unwrap().insert(&row, &webp) {
-            log::warn!("[screen] {reason}");
+        let batch: Vec<Job> = frames
+            .into_iter()
+            .zip(admitted)
+            .filter(|(_, admitted)| *admitted)
+            .map(|((frame, hash), _)| {
+                let focus = focus.filter(|window| window.display == frame.display).and_then(|window| clip(window.rect, frame.width, frame.height));
+                let row = Row {
+                    at,
+                    display: frame.display,
+                    app: app.to_string(),
+                    title: title.to_string(),
+                    hash: hash::hex(hash),
+                    path: store::relative_path(at, frame.display),
+                    width: frame.width,
+                    height: frame.height,
+                    focus,
+                };
+                Job { frame, row }
+            })
+            .collect();
+        if !batch.is_empty() && self.jobs.send(batch).is_err() {
+            self.gate.worker.busy.store(false, Ordering::Release);
         }
+    }
+}
+
+impl Loop {
+    /// SKIP IF BUSY: the next tick grabs these displays again.
+    fn skip(&mut self, displays: impl Iterator<Item = u32>) {
+        for display in displays {
+            if !self.retry.contains(&display) {
+                self.retry.push(display);
+            }
+        }
+    }
+}
+
+/// One kept frame for the worker: its pixels and its index row.
+struct Job {
+    frame: Frame,
+    row: Row,
+}
+
+/// The encode worker's state, shared with the [`Gate`].
+#[derive(Default)]
+pub(crate) struct Worker {
+    /// A batch is queued or being encoded.
+    pub busy: AtomicBool,
+    /// BUDGET: the worker rests until then after its last batch.
+    pub rest_until: Mutex<Option<Instant>>,
+}
+
+impl Worker {
+    pub(crate) fn ready(&self) -> bool {
+        !self.busy.load(Ordering::Acquire) && self.rest_until.lock().unwrap().is_none_or(|until| Instant::now() >= until)
+    }
+}
+
+/// SKIP IF BUSY in front of the dedupe.
+pub(crate) struct Gate {
+    pub dedupe: ring::Dedupe,
+    pub worker: Arc<Worker>,
+}
+
+impl Gate {
+    /// Which of one grab's frames ((display, hash), the same focused app
+    /// and title) go to the worker. While it still works on a batch or
+    /// rests after one: `None`, and the dedupe stays where it was, so the
+    /// next tick retries the change. Else the ones the dedupe keeps, now
+    /// its last kept ones, and the worker counts as busy when any go.
+    pub(crate) fn admit(&mut self, frames: &[(u32, u64)], app: &str, title: &str) -> Option<Vec<bool>> {
+        if !self.worker.ready() {
+            return None;
+        }
+        let admitted: Vec<bool> = frames.iter().map(|&(display, hash)| self.dedupe.kept(display, app, title, hash)).collect();
+        for (&(display, hash), _) in frames.iter().zip(&admitted).filter(|(_, admitted)| **admitted) {
+            self.dedupe.remember(display, app, title, hash);
+        }
+        if admitted.contains(&true) {
+            self.worker.busy.store(true, Ordering::Release);
+        }
+        Some(admitted)
+    }
+}
+
+/// The encode worker: below normal priority, one batch at a time (cut,
+/// fit, WebP, store), then a rest so that its average stays within
+/// `percent` of a core: a batch that took t of CPU rests t x (100 -
+/// percent) / percent.
+fn work(inbox: mpsc::Receiver<Vec<Job>>, store: &Mutex<Store>, state: &Worker, percent: u32) {
+    lower_priority();
+    let percent = f64::from(percent.clamp(1, 100));
+    for batch in inbox {
+        let started = thread_cpu();
+        for job in batch {
+            let webp = shrink::encode(&shrink::prepare(&job.frame, job.row.focus));
+            drop(job.frame);
+            if webp.is_empty() {
+                continue;
+            }
+            if let Err(reason) = store.lock().unwrap().insert(&job.row, &webp) {
+                log::warn!("[screen] {reason}");
+            }
+        }
+        let rest = thread_cpu().saturating_sub(started).mul_f64((100. - percent) / percent);
+        *state.rest_until.lock().unwrap() = Some(Instant::now() + rest);
+        state.busy.store(false, Ordering::Release);
+    }
+}
+
+/// The calling thread's CPU time (wall time where the OS has no clock).
+fn thread_cpu() -> Duration {
+    #[cfg(unix)]
+    {
+        // SAFETY: plain integers; zero is a valid timespec.
+        let mut now: libc::timespec = unsafe { std::mem::zeroed() };
+        if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) } == 0 {
+            return Duration::new(now.tv_sec as u64, now.tv_nsec as u32);
+        }
+    }
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        #[derive(Default)]
+        struct FileTime(u32, u32);
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentThread() -> isize;
+            fn GetThreadTimes(thread: isize, creation: *mut FileTime, exit: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
+        }
+        let (mut creation, mut exit, mut kernel, mut user) = (FileTime::default(), FileTime::default(), FileTime::default(), FileTime::default());
+        if unsafe { GetThreadTimes(GetCurrentThread(), &mut creation, &mut exit, &mut kernel, &mut user) } != 0 {
+            let ticks = |time: &FileTime| u64::from(time.1) << 32 | u64::from(time.0);
+            return Duration::from_nanos((ticks(&kernel) + ticks(&user)) * 100);
+        }
+    }
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
+}
+
+/// The calling thread below normal priority: macOS QoS utility, Linux nice
+/// 10 (`setpriority` on 0 = this thread there), Windows below normal.
+fn lower_priority() {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentThread() -> isize;
+            fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+        }
+        const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
+        unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) };
     }
 }
 
@@ -216,23 +417,4 @@ fn clip(rect: computer::ScreenRect, width: u32, height: u32) -> Option<Rect> {
     let right = (i64::from(rect.x) + i64::from(rect.width)).clamp(0, i64::from(width));
     let bottom = (i64::from(rect.y) + i64::from(rect.height)).clamp(0, i64::from(height));
     (right > left && bottom > top).then(|| Rect { x: left as i32, y: top as i32, width: (right - left) as u32, height: (bottom - top) as u32 })
-}
-
-/// Lossy WebP at `store.webpQuality`, full resolution. `method` 0 of 0-6
-/// (the default is 4): a kept frame is the loop's one real cost, and 0
-/// encodes a real 3456x2234 screen in ~77 ms against ~130 ms at method 2,
-/// for ~13 % larger files, which ten minutes of retention can afford.
-pub(crate) fn encode(frame: &Frame) -> Vec<u8> {
-    let encoder = webp::Encoder::from_rgba(&frame.rgba, frame.width, frame.height);
-    let mut config = webp::WebPConfig::new().expect("libwebp config");
-    config.lossless = 0;
-    config.quality = fixture::webp_quality();
-    config.method = 0;
-    match encoder.encode_advanced(&config) {
-        Ok(memory) => memory.to_vec(),
-        Err(err) => {
-            log::warn!("[screen] WebP encoding failed: {err:?}");
-            Vec::new()
-        }
-    }
 }

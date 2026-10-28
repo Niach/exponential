@@ -1,5 +1,6 @@
-//! STORE + RETENTION: kept frames as lossy WebP files in one directory per
-//! UTC hour (`<data dir>/screen/<yyyyMMdd-HH>/<at ms>-<display>.webp`),
+//! STORE + RETENTION: kept frames (cut + fitted, `crate::shrink`) as lossy
+//! WebP files in one directory per UTC hour
+//! (`<data dir>/screen/<yyyyMMdd-HH>/<at ms>-<display>.webp`),
 //! indexed in `<data dir>/screen.sqlite` (`screen_frames`). The sweep drops
 //! rows older than `retentionMs` with their files and empty hour
 //! directories; at start-up files without a row (and rows without a file)
@@ -39,9 +40,12 @@ pub(crate) struct Row {
     pub hash: String,
     /// Relative to the data dir, `/`-separated.
     pub path: String,
+    /// The captured frame's size (the display's physical pixels); the file
+    /// holds the stored picture, cut to `focus` and fitted to `tool.maxEdge`.
     pub width: u32,
     pub height: u32,
-    /// The focused window's rect when it lies on this display.
+    /// The focused window's rect within the frame when it lies on this
+    /// display.
     pub focus: Option<Rect>,
 }
 

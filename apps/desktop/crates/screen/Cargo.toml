@@ -30,6 +30,10 @@ webp = { version = "0.3", default-features = false }
 # the domain, coding and cli crates.
 chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 
+[target.'cfg(unix)'.dependencies]
+# The encode worker's lower priority (macOS QoS utility, Linux nice).
+libc = { workspace = true }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 # Windows Graphics Capture, one session per monitor (border + cursor off
 # where the OS allows); already in the lock through gpui.

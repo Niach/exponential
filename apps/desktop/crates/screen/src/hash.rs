@@ -14,15 +14,34 @@ fn span(index: usize, len: usize) -> (usize, usize) {
     (start, ((index + 1) * len / SIDE).max(start + 1))
 }
 
+/// Integer luma of one pixel whose red is byte `R` and blue byte `2 - R`.
 #[inline]
-fn luma(pixel: &[u8]) -> u32 {
-    (299 * u32::from(pixel[0]) + 587 * u32::from(pixel[1]) + 114 * u32::from(pixel[2])) / 1000
+fn luma<const R: usize>(pixel: &[u8]) -> u32 {
+    (299 * u32::from(pixel[R]) + 587 * u32::from(pixel[1]) + 114 * u32::from(pixel[2 - R])) / 1000
 }
 
 /// The hash of a tightly packed RGBA8 image; 0 for an empty one.
+#[cfg(test)]
 pub(crate) fn hash(width: u32, height: u32, rgba: &[u8]) -> u64 {
+    if rgba.len() < width as usize * height as usize * 4 {
+        return 0;
+    }
+    hash_rows(width, height, width as usize * 4, false, rgba)
+}
+
+/// The hash of a frame as the OS lends it: rows `stride` bytes apart, RGBA
+/// or (`bgra`) BGRA; 0 for an empty one.
+pub(crate) fn hash_rows(width: u32, height: u32, stride: usize, bgra: bool, bytes: &[u8]) -> u64 {
+    if bgra {
+        hash_with::<2>(width, height, stride, bytes)
+    } else {
+        hash_with::<0>(width, height, stride, bytes)
+    }
+}
+
+fn hash_with<const R: usize>(width: u32, height: u32, stride: usize, bytes: &[u8]) -> u64 {
     let (width, height) = (width as usize, height as usize);
-    if width == 0 || height == 0 || rgba.len() < width * height * 4 {
+    if width == 0 || height == 0 || stride < width * 4 || bytes.len() < stride * (height - 1) + width * 4 {
         return 0;
     }
     let columns: Vec<(usize, usize)> = (0..SIDE).map(|i| span(i, width)).collect();
@@ -31,9 +50,9 @@ pub(crate) fn hash(width: u32, height: u32, rgba: &[u8]) -> u64 {
         let (top, bottom) = span(j, height);
         let mut sums = [0u64; SIDE];
         for y in top..bottom {
-            let row = &rgba[y * width * 4..(y + 1) * width * 4];
+            let row = &bytes[y * stride..y * stride + width * 4];
             for (sum, &(left, right)) in sums.iter_mut().zip(&columns) {
-                let part: u32 = row[left * 4..right * 4].chunks_exact(4).map(luma).sum();
+                let part: u32 = row[left * 4..right * 4].chunks_exact(4).map(luma::<R>).sum();
                 *sum += u64::from(part);
             }
         }
@@ -127,5 +146,20 @@ pub(crate) mod tests {
         assert_eq!(distance(0, u64::MAX), 64);
         assert_eq!(hex(parse("00000000ffffffff").unwrap()), "00000000ffffffff");
         assert_eq!(hash(0, 0, &[]), 0);
+    }
+
+    #[test]
+    fn a_padded_bgra_frame_hashes_like_its_rgba() {
+        for case in fixture()["hashCases"].as_array().unwrap() {
+            let (width, height, rgba) = pattern(&case["image"]);
+            let stride = width as usize * 4 + 12;
+            let mut bgra = vec![7u8; stride * height as usize];
+            for (y, row) in rgba.chunks_exact(width as usize * 4).enumerate() {
+                for (x, px) in row.chunks_exact(4).enumerate() {
+                    bgra[y * stride + x * 4..y * stride + x * 4 + 4].copy_from_slice(&[px[2], px[1], px[0], 0]);
+                }
+            }
+            assert_eq!(hex(hash_rows(width, height, stride, true, &bgra)), case["hash"].as_str().unwrap(), "{}", case["image"]);
+        }
     }
 }

@@ -15,14 +15,25 @@ pub(crate) struct Dedupe {
 
 impl Dedupe {
     /// Whether the frame is kept (and becomes the display's last kept one).
+    #[cfg(test)]
     pub(crate) fn keep(&mut self, display: u32, app: &str, title: &str, hash: u64) -> bool {
-        if let Some((last_app, last_title, last_hash)) = self.last.get(&display) {
-            if last_app == app && last_title == title && distance(*last_hash, hash) <= fixture::max_distance() {
-                return false;
-            }
+        let kept = self.kept(display, app, title, hash);
+        if kept {
+            self.remember(display, app, title, hash);
         }
+        kept
+    }
+
+    /// Whether the frame would be kept, without remembering it.
+    pub(crate) fn kept(&self, display: u32, app: &str, title: &str, hash: u64) -> bool {
+        !self.last.get(&display).is_some_and(|(last_app, last_title, last_hash)| {
+            last_app == app && last_title == title && distance(*last_hash, hash) <= fixture::max_distance()
+        })
+    }
+
+    /// The frame was stored: it is the display's last kept one now.
+    pub(crate) fn remember(&mut self, display: u32, app: &str, title: &str, hash: u64) {
         self.last.insert(display, (app.to_string(), title.to_string(), hash));
-        true
     }
 }
 
@@ -86,8 +97,8 @@ fn spread(items: &[usize], max: usize) -> Vec<usize> {
 }
 
 /// The size a frame of `width` x `height` (cropped to `crop` = (width,
-/// height) of the crop when it has one) goes out at: long edge at most
-/// `tool.maxEdge`, rounded to nearest, never scaled up.
+/// height) of the crop when it has one) is stored and goes out at: long
+/// edge at most `tool.maxEdge`, rounded to nearest, never scaled up.
 pub(crate) fn fit(width: u32, height: u32, crop: Option<(u32, u32)>) -> (u32, u32) {
     let (width, height) = crop.unwrap_or((width, height));
     let long = width.max(height);

@@ -40,6 +40,11 @@ pub(crate) fn webp_quality() -> f32 {
     number(&["store", "webpQuality"]) as f32
 }
 
+/// `store.encodePercent`: the encode worker's average share of a core.
+pub(crate) fn encode_percent() -> u32 {
+    number(&["store", "encodePercent"]) as u32
+}
+
 pub(crate) fn retention_ms() -> i64 {
     number(&["retentionMs"]) as i64
 }

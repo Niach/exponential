@@ -172,7 +172,7 @@ impl Session {
         if latest.width == 0 || latest.height == 0 || latest.rgba.is_empty() {
             return None;
         }
-        Some(Frame { display, width: latest.width, height: latest.height, rgba: latest.rgba.clone() })
+        Some(Frame::rgba(display, latest.width, latest.height, latest.rgba.clone()))
     }
 
     /// The latest frame only when it arrived after the one `grab_all` last
@@ -184,7 +184,7 @@ impl Session {
             return None;
         }
         self.handed = latest.seq;
-        Some(Frame { display, width: latest.width, height: latest.height, rgba: latest.rgba.clone() })
+        Some(Frame::rgba(display, latest.width, latest.height, latest.rgba.clone()))
     }
 
     fn stop(&mut self) {

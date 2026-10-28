@@ -13,6 +13,7 @@ mod fixture;
 mod hash;
 mod ring;
 mod server;
+mod shrink;
 mod store;
 mod tool;
 

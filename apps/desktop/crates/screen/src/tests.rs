@@ -43,7 +43,7 @@ impl FakeCapturer {
                 rgba.extend([v, v, v, 255]);
             }
         }
-        Frame { display, width: SIDE, height: SIDE, rgba }
+        Frame::rgba(display, SIDE, SIDE, rgba)
     }
 }
 
@@ -87,7 +87,7 @@ fn rig(dir: &TempDir, interval_ms: u64) -> Rig {
         &dir.0,
         Box::new(FakeCapturer { seed: 7, displays: 2, grabs: grabs.clone() }),
         Box::new(move || source.lock().unwrap().clone()),
-        Timing { interval: Duration::from_millis(interval_ms), poll: Duration::from_millis(10) },
+        Timing { interval: Duration::from_millis(interval_ms), poll: Duration::from_millis(10), encode_percent: 100 },
         hotkey.clone(),
         Arc::new(move |status| heard.lock().unwrap().push(status)),
     )
@@ -151,6 +151,8 @@ fn a_title_change_grabs_its_display_at_once_between_ticks() {
     let dir = TempDir::new();
     let rig = rig(&dir, 60_000);
     wait_until(|| count(&rig.memory) == 2);
+    // The worker is done with the first batch (else the change is skipped).
+    wait_until(|| !rig.memory.encoding());
     assert_eq!(rig.grabs.lock().unwrap().as_slice(), ["all"]);
     *rig.focus.lock().unwrap() = Some(window("Zed", "lib.rs"));
     wait_until(|| count(&rig.memory) == 3);
@@ -162,7 +164,7 @@ fn a_title_change_grabs_its_display_at_once_between_ticks() {
 }
 
 #[test]
-fn a_frame_is_cropped_to_its_focused_window_on_its_own_display() {
+fn a_frame_is_stored_cut_to_its_focused_window_on_its_own_display() {
     let dir = TempDir::new();
     let rig = rig(&dir, 40);
     wait_until(|| count(&rig.memory) >= 2);
@@ -171,19 +173,99 @@ fn a_frame_is_cropped_to_its_focused_window_on_its_own_display() {
     let on_two = rows.iter().find(|row| row.display == 2).unwrap();
     assert_eq!(on_one.focus, Some(store::Rect { x: 10, y: 20, width: 240, height: 210 }));
     assert_eq!(on_two.focus, None);
+    // The row keeps the frame's size; the file holds the cut, which the
+    // tool returns as it is.
+    assert_eq!((on_one.width, on_one.height), (SIDE, SIDE));
     for (row, size) in [(on_one, (240, 210)), (on_two, (SIDE, SIDE))] {
         let webp = std::fs::read(dir.0.join(&row.path)).unwrap();
-        let png = tool::picture(row, &webp).unwrap();
+        let png = tool::picture(&webp).unwrap();
         let image = image::load_from_memory(&png).unwrap();
         assert_eq!((image.width(), image.height()), size);
     }
-    // `tool.minCrop`: a focused strip (a tab-hover bar) keeps the whole frame.
-    let strip = store::Row { focus: Some(store::Rect { x: 0, y: 0, width: SIDE, height: 34 }), ..on_one.clone() };
-    let png = tool::picture(&strip, &std::fs::read(dir.0.join(&on_one.path)).unwrap()).unwrap();
-    let image = image::load_from_memory(&png).unwrap();
-    assert_eq!((image.width(), image.height()), (SIDE, SIDE));
     rig.memory.stop(false);
     assert!(dir.0.join(store::INDEX_FILE).exists());
+}
+
+#[test]
+fn a_busy_worker_skips_the_batch_and_the_next_tick_retries_the_change() {
+    let worker = Arc::new(engine::Worker::default());
+    let busy = &worker.busy;
+    let mut gate = engine::Gate { dedupe: Default::default(), worker: worker.clone() };
+    let (still, changed) = (0x0f0f_0f0f_0f0f_0f0f, 0xffff_0f0f_0f0f_0f0f);
+    assert_eq!(gate.admit(&[(1, still), (2, still)], "Zed", "main.rs"), Some(vec![true, true]));
+    assert!(busy.load(Ordering::Acquire));
+    // Still encoding: the change is skipped and not remembered.
+    assert_eq!(gate.admit(&[(1, changed), (2, still)], "Zed", "main.rs"), None);
+    busy.store(false, Ordering::Release);
+    // The next tick: the change is still one; the still display stays out.
+    assert_eq!(gate.admit(&[(1, changed), (2, still)], "Zed", "main.rs"), Some(vec![true, false]));
+    busy.store(false, Ordering::Release);
+    // Nothing kept = the worker stays idle.
+    assert_eq!(gate.admit(&[(1, changed), (2, still)], "Zed", "main.rs"), Some(vec![false, false]));
+    assert!(!busy.load(Ordering::Acquire));
+    // BUDGET: resting after a batch counts as busy too.
+    *worker.rest_until.lock().unwrap() = Some(std::time::Instant::now() + Duration::from_secs(60));
+    assert_eq!(gate.admit(&[(1, still)], "Zed", "main.rs"), None);
+    *worker.rest_until.lock().unwrap() = Some(std::time::Instant::now());
+    assert_eq!(gate.admit(&[(1, still)], "Zed", "main.rs"), Some(vec![true]));
+}
+
+/// Like ScreenCaptureKit: `grab_all` hands each display's frame once per
+/// change (`version`), `grab` its latest regardless.
+struct OnceCapturer {
+    version: Arc<std::sync::atomic::AtomicU64>,
+    handed: [u64; 2],
+    grabs: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl OnceCapturer {
+    fn latest(&self, display: u32) -> Frame {
+        let mut fake = FakeCapturer { seed: self.version.load(Ordering::Acquire) * 2 + u64::from(display), displays: 2, grabs: Default::default() };
+        fake.frame(display)
+    }
+}
+
+impl Capturer for OnceCapturer {
+    fn grab_all(&mut self) -> Result<Vec<Frame>, String> {
+        let version = self.version.load(Ordering::Acquire) + 1;
+        let fresh: Vec<u32> = (1..=2).filter(|display| self.handed[*display as usize - 1] != version).collect();
+        for display in &fresh {
+            self.handed[*display as usize - 1] = version;
+        }
+        Ok(fresh.into_iter().map(|display| self.latest(display)).collect())
+    }
+
+    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        self.grabs.lock().unwrap().push("one");
+        Ok(Some(self.latest(display)))
+    }
+}
+
+#[test]
+fn a_change_skipped_while_the_worker_rests_is_stored_once_it_is_ready() {
+    let dir = TempDir::new();
+    let version = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let grabs = Arc::new(Mutex::new(Vec::new()));
+    let memory = Memory::start(
+        &dir.0,
+        Box::new(OnceCapturer { version: version.clone(), handed: [0; 2], grabs: grabs.clone() }),
+        Box::new(|| Some(window("Zed", "main.rs"))),
+        Timing { interval: Duration::from_millis(30), poll: Duration::from_millis(10), encode_percent: 100 },
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(|_| {}),
+    )
+    .unwrap();
+    wait_until(|| count(&memory) == 2);
+    wait_until(|| !memory.encoding());
+    // The worker rests; the screen changes once and then holds still.
+    memory.rest(Duration::from_millis(300));
+    version.store(1, Ordering::Release);
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(count(&memory), 2, "skipped while resting");
+    // The next ticks re-grab the skipped displays: the change lands.
+    wait_until(|| count(&memory) == 4);
+    assert!(grabs.lock().unwrap().contains(&"one"));
+    memory.stop(true);
 }
 
 /// Wait (up to 5 s) until `done`; the loop's pace varies under load.
@@ -203,6 +285,7 @@ fn a_denylisted_window_or_the_hotkey_pauses_capture_and_the_next_tick_resumes() 
     wait_until(|| count(&rig.memory) > 0);
     *rig.focus.lock().unwrap() = Some(window("1Password", "Vault"));
     wait_until(|| heard(2));
+    wait_until(|| !rig.memory.encoding());
     let paused_at = count(&rig.memory);
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(count(&rig.memory), paused_at, "no frame while a password manager is focused");
@@ -210,6 +293,7 @@ fn a_denylisted_window_or_the_hotkey_pauses_capture_and_the_next_tick_resumes() 
     wait_until(|| count(&rig.memory) > paused_at);
     rig.hotkey.store(true, Ordering::Release);
     wait_until(|| heard(4));
+    wait_until(|| !rig.memory.encoding());
     let held_at = count(&rig.memory);
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(count(&rig.memory), held_at, "no frame while the hotkey holds it");
@@ -231,16 +315,12 @@ fn a_grant_needs_screen_memory_on() {
     assert_eq!(heard.lock().unwrap().as_slice(), [Status::Off]);
 }
 
-/// The CPU budget (< 2 % of a core at 1 fps on two displays), by part:
-/// `cargo test --release -p screen -- --ignored --nocapture cpu_budget`.
-#[test]
-#[ignore]
-fn cpu_budget() {
-    use std::time::Instant;
-    // A text-like 5K frame: a white page with dark glyph cells.
-    let (width, height) = (5120u32, 2880u32);
-    let mut seed = 1u64;
+/// A text-like `width` x `height` frame (a white page of dark glyph cells)
+/// with a dark band at `variant`'s height: every variant hashes apart.
+fn page(width: u32, height: u32, variant: u32) -> Vec<u8> {
+    let mut seed = u64::from(variant) + 1;
     let mut rgba = vec![255u8; (width * height * 4) as usize];
+    let band = (variant * 7 % 10) * height / 10;
     for line in 0..(height / 24) {
         for glyph in 0..(width / 12) {
             if splitmix(&mut seed) % 3 == 0 {
@@ -254,7 +334,70 @@ fn cpu_budget() {
             }
         }
     }
-    let frame = Frame { display: 1, width, height, rgba };
+    for y in band..(band + height / 5).min(height) {
+        for x in 0..width {
+            let at = ((y * width + x) * 4) as usize;
+            rgba[at..at + 3].copy_from_slice(&[40, 60, 90]);
+        }
+    }
+    rgba
+}
+
+/// This process's CPU time (user + system, every thread), seconds.
+#[cfg(unix)]
+fn cpu_seconds() -> f64 {
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+    let seconds = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
+    seconds(usage.ru_utime) + seconds(usage.ru_stime)
+}
+
+/// Pixels lent without a copy, as ScreenCaptureKit's are.
+struct Shared(Arc<Vec<u8>>);
+
+impl crate::capture::Pixels for Shared {
+    fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Two displays whose content changes on every grab (a page scrolling),
+/// lent like the macOS capturer's buffers.
+struct ChangingCapturer {
+    width: u32,
+    height: u32,
+    variants: Vec<Arc<Vec<u8>>>,
+    next: usize,
+}
+
+impl ChangingCapturer {
+    fn frame(&mut self, display: u32) -> Frame {
+        self.next += 1;
+        let source = self.variants[self.next % self.variants.len()].clone();
+        Frame::lent(display, self.width, self.height, self.width as usize * 4, false, Box::new(Shared(source)))
+    }
+}
+
+impl Capturer for ChangingCapturer {
+    fn grab_all(&mut self) -> Result<Vec<Frame>, String> {
+        Ok((1..=2).map(|display| self.frame(display)).collect())
+    }
+
+    fn grab(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        Ok(Some(self.frame(display)))
+    }
+}
+
+/// The CPU budget (< 2 % of a core at 1 fps on two displays, also while the
+/// screen changes every second), by part and then end to end:
+/// `cargo test --release -p screen --lib -- --ignored --nocapture cpu_budget`
+/// (`SCREEN_BENCH_SECONDS`, default 20; `SCREEN_BENCH_PNG=<png>` adds a real
+/// screenshot's parts).
+#[test]
+#[ignore]
+#[cfg(unix)]
+fn cpu_budget() {
+    use std::time::Instant;
     let time = |runs: u32, mut f: Box<dyn FnMut() + '_>| {
         let start = Instant::now();
         for _ in 0..runs {
@@ -262,39 +405,71 @@ fn cpu_budget() {
         }
         start.elapsed().as_secs_f64() * 1000. / f64::from(runs)
     };
-    let hash_ms = time(50, Box::new(|| {
-        std::hint::black_box(crate::hash::hash(frame.width, frame.height, &frame.rgba));
-    }));
-    let mut size = 0;
-    let encode_ms = time(5, Box::new(|| size = engine::encode(&frame).len()));
-    // A real screenshot when given (`SCREEN_BENCH_PNG=/path/to.png`).
+    let parts = |name: &str, frame: &Frame| {
+        let window = store::Rect { x: frame.width as i32 / 10, y: frame.height as i32 / 10, width: frame.width * 8 / 10, height: frame.height * 8 / 10 };
+        let hash_ms = time(20, Box::new(|| {
+            std::hint::black_box(crate::hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes()));
+        }));
+        for (label, focus) in [("whole", None), ("window", Some(window))] {
+            let picture = crate::shrink::prepare(frame, focus);
+            let fit_ms = time(10, Box::new(|| {
+                std::hint::black_box(crate::shrink::prepare(frame, focus));
+            }));
+            let mut bytes = 0;
+            let encode_ms = time(10, Box::new(|| bytes = crate::shrink::encode(&picture).len()));
+            println!(
+                "{name} {}x{} {label}: hash {hash_ms:.2} ms, cut+fit {fit_ms:.1} ms to {}x{}, WebP {encode_ms:.1} ms ({} KB)",
+                frame.width, frame.height, picture.width, picture.height, bytes / 1024
+            );
+        }
+    };
     if let Ok(path) = std::env::var("SCREEN_BENCH_PNG") {
         let shot = image::open(path).unwrap().to_rgba8();
-        let real = Frame { display: 1, width: shot.width(), height: shot.height(), rgba: shot.into_raw() };
-        let mut bytes = 0;
-        let real_hash = time(20, Box::new(|| {
-            std::hint::black_box(crate::hash::hash(real.width, real.height, &real.rgba));
-        }));
-        let real_encode = time(5, Box::new(|| bytes = engine::encode(&real).len()));
-        println!("real {}x{}: hash {real_hash:.2} ms, WebP encode {real_encode:.1} ms ({} KB)", real.width, real.height, bytes / 1024);
+        parts("real", &Frame::rgba(1, shot.width(), shot.height(), shot.into_raw()));
     }
     let focus_ms = time(200, Box::new(|| {
         std::hint::black_box(computer::focused_window());
     }));
-    let dir = TempDir::new();
-    let store = crate::store::Store::open(&dir.0).unwrap();
-    let sweep_ms = time(100, Box::new(|| {
-        store.sweep(engine::now_ms()).unwrap();
-    }));
-    let polls = 1000. / crate::fixture::focus_poll_ms() as f64;
-    let still = 2. * hash_ms + polls * focus_ms + sweep_ms;
-    println!(
-        "5K hash {hash_ms:.2} ms, WebP encode {encode_ms:.1} ms ({} KB), focus poll {focus_ms:.2} ms, sweep {sweep_ms:.3} ms",
-        size / 1024
-    );
-    println!(
-        "a still screen, two 5K displays at 1 fps: {still:.1} ms/s = {:.2} % of a core; each kept 5K frame adds {:.1} %",
-        still / 10.,
-        encode_ms / 10.
-    );
+    println!("focus poll {focus_ms:.2} ms");
+    let seconds: u64 = std::env::var("SCREEN_BENCH_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(20);
+    for (width, height) in [(3456u32, 2234u32), (5120, 2880)] {
+        let variants: Vec<Arc<Vec<u8>>> = (0..5).map(|variant| Arc::new(page(width, height, variant))).collect();
+        parts("page", &Frame::rgba(1, width, height, variants[0].to_vec()));
+        for percent in [100, crate::fixture::encode_percent()] {
+            // End to end: the real loop, worker and store, 1 fps, two displays
+            // changing on every grab, the real focus poll.
+            let dir = TempDir::new();
+            let window = computer::FocusedWindow {
+                app: "Safari".into(),
+                title: "A long page".into(),
+                display: 1,
+                rect: computer::ScreenRect { x: width as i32 / 10, y: 0, width: width * 8 / 10, height },
+            };
+            let memory = Memory::start(
+                &dir.0,
+                Box::new(ChangingCapturer { width, height, variants: variants.clone(), next: 0 }),
+                Box::new(move || {
+                    std::hint::black_box(computer::focused_window());
+                    Some(window.clone())
+                }),
+                Timing { encode_percent: percent, ..Timing::from_fixture() },
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(|_| {}),
+            )
+            .unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            let (cpu, start) = (cpu_seconds(), Instant::now());
+            let before = count(&memory);
+            std::thread::sleep(Duration::from_secs(seconds));
+            let used = cpu_seconds() - cpu;
+            let wall = start.elapsed().as_secs_f64();
+            let stored = count(&memory) - before;
+            memory.stop(true);
+            println!(
+                "two {width}x{height} displays changing every second, encodePercent {percent}, {wall:.0} s: {:.2} % of a core, {stored} frames stored of {} grabbed",
+                used / wall * 100.,
+                2. * wall.round()
+            );
+        }
+    }
 }

@@ -3,8 +3,10 @@
 //! `capture.intervalMs`, the IDE's own app excluded from every filter.
 //!
 //! Each stream's output keeps only its LATEST pixel buffer (retained, never
-//! copied on the callback queue); a grab converts BGRA → RGBA under a
-//! read-only lock. ScreenCaptureKit delivers a new buffer only when the
+//! copied on the callback queue); a grab LENDS it as a BGRA frame under a
+//! read-only lock (released when the frame drops), never copied: the ring
+//! hashes it in place and only a kept frame's window is copied, on the
+//! encode worker. ScreenCaptureKit delivers a new buffer only when the
 //! display changed, so a static screen costs nothing between grabs.
 //!
 //! `grab_all` hands out each display's latest frame ONCE: a display without a
@@ -45,7 +47,7 @@ use objc2_screen_capture_kit::{
     SCStreamConfiguration, SCStreamDelegate, SCStreamOutput, SCStreamOutputType,
 };
 
-use super::{Capturer, Frame};
+use super::{Capturer, Frame, Pixels};
 
 /// screen-memory.json `capture.intervalMs`.
 const INTERVAL_MS: i64 = 1000;
@@ -337,8 +339,10 @@ impl DisplayStream {
             config.setPixelFormat(kCVPixelFormatType_32BGRA);
             config.setMinimumFrameInterval(CMTime::new(INTERVAL_MS, 1000));
             config.setShowsCursor(false);
-            // The fewest surfaces ScreenCaptureKit allows: we hold one.
-            config.setQueueDepth(3);
+            // The fewest surfaces ScreenCaptureKit allows (3) plus one: the
+            // slot holds the latest, a kept frame lends one to the encode
+            // worker while it is cut.
+            config.setQueueDepth(4);
         }
 
         let slot = Arc::new(Mutex::new(Slot::default()));
@@ -396,7 +400,7 @@ impl DisplayStream {
             slot.taken = slot.seq;
             slot.latest.as_ref()?.0.clone()
         };
-        to_frame(&buffer, self.number)
+        to_frame(buffer, self.number)
     }
 }
 
@@ -412,40 +416,48 @@ impl Drop for DisplayStream {
     }
 }
 
-/// BGRA (rows padded to `bytesPerRow`) → tightly packed RGBA, opaque.
-fn to_frame(buffer: &CVPixelBuffer, display: u32) -> Option<Frame> {
-    if CVPixelBufferGetPixelFormatType(buffer) != kCVPixelFormatType_32BGRA {
+/// A pixel buffer locked read-only while a frame borrows its bytes.
+struct Locked {
+    buffer: CFRetained<CVPixelBuffer>,
+    base: *const u8,
+    len: usize,
+}
+
+// SAFETY: the buffer is retained and locked for the value's life;
+// CoreVideo's lock count and CoreFoundation's reference count are
+// thread-safe, so it may unlock and release on another thread.
+unsafe impl Send for Locked {}
+
+impl Pixels for Locked {
+    fn bytes(&self) -> &[u8] {
+        // SAFETY: locked; base..base + len = bytesPerRow * height bytes.
+        unsafe { std::slice::from_raw_parts(self.base, self.len) }
+    }
+}
+
+impl Drop for Locked {
+    fn drop(&mut self) {
+        unsafe { CVPixelBufferUnlockBaseAddress(&self.buffer, READ_ONLY) };
+    }
+}
+
+const READ_ONLY: CVPixelBufferLockFlags = CVPixelBufferLockFlags(1);
+
+/// The buffer lent as a BGRA frame (rows padded to `bytesPerRow`).
+fn to_frame(buffer: CFRetained<CVPixelBuffer>, display: u32) -> Option<Frame> {
+    if CVPixelBufferGetPixelFormatType(&buffer) != kCVPixelFormatType_32BGRA {
         return None;
     }
-    let read_only = CVPixelBufferLockFlags(1);
-    if unsafe { CVPixelBufferLockBaseAddress(buffer, read_only) } != 0 {
+    if unsafe { CVPixelBufferLockBaseAddress(&buffer, READ_ONLY) } != 0 {
         return None;
     }
-    let width = CVPixelBufferGetWidth(buffer);
-    let height = CVPixelBufferGetHeight(buffer);
-    let stride = CVPixelBufferGetBytesPerRow(buffer);
-    let base = CVPixelBufferGetBaseAddress(buffer) as *const u8;
-    let rgba = if base.is_null() || width == 0 || height == 0 || stride < width * 4 {
-        None
-    } else {
-        let mut rgba = Vec::with_capacity(width * height * 4);
-        for y in 0..height {
-            // SAFETY: the buffer is locked; row y spans stride bytes from
-            // base + y * stride, of which width * 4 are pixels.
-            let row = unsafe { std::slice::from_raw_parts(base.add(y * stride), width * 4) };
-            rgba.extend_from_slice(row);
-        }
-        for px in rgba.chunks_exact_mut(4) {
-            px.swap(0, 2);
-            px[3] = 255;
-        }
-        Some(rgba)
-    };
-    unsafe { CVPixelBufferUnlockBaseAddress(buffer, read_only) };
-    Some(Frame {
-        display,
-        width: width as u32,
-        height: height as u32,
-        rgba: rgba?,
-    })
+    let width = CVPixelBufferGetWidth(&buffer);
+    let height = CVPixelBufferGetHeight(&buffer);
+    let stride = CVPixelBufferGetBytesPerRow(&buffer);
+    let base = CVPixelBufferGetBaseAddress(&buffer) as *const u8;
+    let locked = Locked { len: stride * height, base, buffer };
+    if base.is_null() || width == 0 || height == 0 || stride < width * 4 {
+        return None;
+    }
+    Some(Frame::lent(display, width as u32, height as u32, stride, true, Box::new(locked)))
 }

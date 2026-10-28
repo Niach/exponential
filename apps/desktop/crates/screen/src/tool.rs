@@ -1,7 +1,8 @@
 //! TOOL: `get_screenshots` (the fixture's `tool` block): the kept frames
 //! between `from` and `to` matching `filter`, spread to `tool.maxFrames`,
-//! each cropped to its focused window, fitted to `tool.maxEdge` and sent as
-//! a PNG after its `{at} · {app} — {title}` line.
+//! each the stored picture (cut to its focused window and fitted to
+//! `tool.maxEdge` when it was kept) sent as a PNG after its
+//! `{at} · {app} — {title}` line.
 
 use std::io::Cursor;
 use std::sync::Mutex;
@@ -9,7 +10,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde_json::{json, Value};
 
-use crate::store::{Row, Store};
+use crate::store::Store;
 use crate::{fixture, ring};
 
 /// The `tools/list` array: the one tool.
@@ -72,7 +73,7 @@ pub(crate) fn call(store: Option<&Mutex<Store>>, name: &str, arguments: &Value, 
     for index in picked {
         let row = &rows[index];
         let file = store.lock().unwrap().file(row);
-        match std::fs::read(&file).map_err(|err| err.to_string()).and_then(|webp| picture(row, &webp)) {
+        match std::fs::read(&file).map_err(|err| err.to_string()).and_then(|webp| picture(&webp)) {
             Ok(png) => {
                 content.push(json!({ "type": "text", "text": format!("{} · {} — {}", rfc3339(row.at), row.app, row.title) }));
                 content.push(json!({ "type": "image", "data": base64(&png), "mimeType": "image/png" }));
@@ -86,28 +87,15 @@ pub(crate) fn call(store: Option<&Mutex<Store>>, name: &str, arguments: &Value, 
     json!({ "content": content })
 }
 
-/// Decode the stored WebP, crop it to the focused window, fit it, PNG.
-pub(crate) fn picture(row: &Row, webp: &[u8]) -> Result<Vec<u8>, String> {
+/// The stored picture (already cut to the focused window and fitted to
+/// `tool.maxEdge` when it was kept) as a PNG.
+pub(crate) fn picture(webp: &[u8]) -> Result<Vec<u8>, String> {
     let decoded = webp::Decoder::new(webp).decode().ok_or("not a WebP image")?;
     let (width, height) = (decoded.width(), decoded.height());
     let image = if decoded.is_alpha() {
         image::DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, decoded.to_vec()).ok_or("short WebP buffer")?)
     } else {
         image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(width, height, decoded.to_vec()).ok_or("short WebP buffer")?)
-    };
-    let crop = row
-        .focus
-        .filter(|rect| rect.x >= 0 && rect.y >= 0 && rect.x as u32 + rect.width <= width && rect.y as u32 + rect.height <= height)
-        .filter(|rect| rect.width >= fixture::min_crop() && rect.height >= fixture::min_crop());
-    let image = match crop {
-        Some(rect) => image.crop_imm(rect.x as u32, rect.y as u32, rect.width, rect.height),
-        None => image,
-    };
-    let size = ring::fit(image.width(), image.height(), None);
-    let image = if size == (image.width(), image.height()) {
-        image
-    } else {
-        image.resize_exact(size.0, size.1, image::imageops::FilterType::Triangle)
     };
     let mut png = Cursor::new(Vec::new());
     image.write_to(&mut png, image::ImageFormat::Png).map_err(|err| format!("PNG: {err}"))?;

@@ -7470,6 +7470,7 @@ dependencies = [
  "computer",
  "dispatch2",
  "image",
+ "libc",
  "log",
  "objc2 0.6.4",
  "objc2-core-foundation",

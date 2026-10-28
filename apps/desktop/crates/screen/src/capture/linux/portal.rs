@@ -157,7 +157,7 @@ impl Capturer for Portal {
         for (index, answer) in answers.into_iter().enumerate() {
             let Some((width, height, rgba)) = answer.image else { continue };
             self.seen[index] = answer.seq;
-            frames.push(Frame { display: self.numbers[index], width, height, rgba });
+            frames.push(Frame::rgba(self.numbers[index], width, height, rgba));
         }
         Ok(frames)
     }
@@ -173,7 +173,7 @@ impl Capturer for Portal {
             return if answer.ended { Err(ENDED.to_string()) } else { Ok(None) };
         };
         self.seen[index] = answer.seq;
-        Ok(Some(Frame { display, width, height, rgba }))
+        Ok(Some(Frame::rgba(display, width, height, rgba)))
     }
 }
 
