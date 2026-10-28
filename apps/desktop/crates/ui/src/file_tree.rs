@@ -275,6 +275,10 @@ pub struct FileTreeView {
     ignored: Vec<String>,
     /// Shared render metadata (`Rc` captured by the tree closures per render).
     meta: Rc<RefCell<HashMap<SharedString, NodeMeta>>>,
+    /// The right-pressed row, for THE IDE context menu. Held on the view so
+    /// a re-render between the press and the menu build (a selection change,
+    /// a hover notify) cannot hand the menu a fresh, empty slot.
+    pressed: Rc<RefCell<Option<TreeEntry>>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -341,6 +345,7 @@ impl FileTreeView {
             status: HashMap::new(),
             ignored: Vec::new(),
             meta: Rc::new(RefCell::new(HashMap::new())),
+            pressed: Rc::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -796,7 +801,7 @@ impl Render for FileTreeView {
             // clears it in the capture phase and the row sets it in the
             // bubble phase; the menu builds on the next frame, so a press
             // below the rows reads `None` and opens nothing.
-            let pressed: Rc<RefCell<Option<TreeEntry>>> = Rc::default();
+            let pressed = self.pressed.clone();
             let row_pressed = pressed.clone();
             let clear_pressed = pressed.clone();
             let tree = tree(&self.tree_state, move |ix, entry, _selected, _window, cx| {
