@@ -31,8 +31,8 @@ pub const RUN_SKILL: &str = include_str!("runbook.md");
 pub const DISPATCH_HEADING: &str = "## Agents";
 
 /// The coding-work sections a dispatcher never reads: it hands that work
-/// (EXP-1280: planning included) to children instead.
-pub const CODING_ONLY_HEADINGS: [&str; 4] = ["## Fan out", "## Plan", "## Pull requests", "## Guide"];
+/// to children instead (S-3: `## Show` is everyone's).
+pub const CODING_ONLY_HEADINGS: [&str; 3] = ["## Fan out", "## Pull requests", "## Guide"];
 
 /// The playbook ONE run gets: a dispatcher's swaps the coding-work sections
 /// ([`CODING_ONLY_HEADINGS`]) for [`DISPATCH_HEADING`]; every other run
@@ -166,35 +166,14 @@ pub fn computer_use_section(model: &str) -> String {
     COMPUTER_USE_SECTION.replace("{model}", model)
 }
 
-/// EXP-1236 — what a run is told when the launcher wired the `codemode`
-/// MCP server: one script instead of a call per item, parallel screen work,
-/// and that only the script's output comes back.
-pub const CODE_MODE_SECTION: &str = "# Code mode
-
-The `codemode` MCP server runs JavaScript that calls this session's OTHER MCP tools: `exec({script})`, \
-where `await tools.<server>.<tool>(args)` (or `tools.mcp__<server>__<tool>`) is any tool of \
-`exponential`, `computer` and the team's HTTP servers; `Promise.all([...])` runs them at once (16 in \
-flight), `sleep(ms)` waits, `console.log` lines and the `return` value come back as JSON (64 KB cap) \
-and nothing else does. `describe({names})` gives input schemas; `ALL_TOOLS` lists the names inside a \
-script.
-
-- Use it when one step is many calls (every issue of a board, a dozen windows): one script, one \
-result in your context, instead of a call per item. A single call stays a direct tool call.
-- Computer use: one `tools.computer.*` chain per window inside `Promise.all` drives several windows \
-at once; verify each effect in the script as you would a direct call, and print what you learned.
-- Stdio team servers are direct-call only; a refusal rejects (`Promise.allSettled` tolerates it).
-";
-
 /// The fixed text every run of a device gets before the team prompt: the
-/// playbook, plus [`COMPUTER_USE_SECTION`] and [`CODE_MODE_SECTION`] as the
-/// launch carries them.
+/// playbook, plus [`COMPUTER_USE_SECTION`] as the launch carries it. S-3:
+/// code mode adds nothing here: the `codemode` server's own instructions
+/// already say it (the old section duplicated them).
 pub fn fixed_append(extras: &Extras) -> String {
     let mut text = playbook(extras.dispatch).to_string();
     if let Some(model) = &extras.computer_use {
         text = format!("{}\n\n{}", text.trim_end(), computer_use_section(model));
-    }
-    if extras.code_mode {
-        text = format!("{}\n\n{CODE_MODE_SECTION}", text.trim_end());
     }
     text
 }
@@ -295,28 +274,12 @@ mod tests {
         assert!(COMPUTER_USE_SECTION.len() < 1900, "{} bytes", COMPUTER_USE_SECTION.len());
     }
 
-    /// EXP-1236: the code-mode section follows the computer-use one (when
-    /// both are carried) and precedes the team prompt; alone it follows the
-    /// playbook directly.
+    /// S-3: code mode adds no section (the codemode server says it itself).
     #[test]
-    fn the_code_mode_section_rides_after_computer_use_and_before_the_team_prompt() {
+    fn code_mode_adds_no_section() {
         let code = Extras { code_mode: true, ..Extras::NONE };
-        let alone = system_append_with(None, &code);
-        assert!(alone.starts_with(playbook(false).trim_end()));
-        assert!(alone.ends_with(CODE_MODE_SECTION));
-        assert!(!alone.contains("# Computer use"));
-        let all = Extras { computer_use: Some("haiku".into()), code_mode: true, dispatch: false };
-        let everything = system_append_with(Some("Rules"), &all);
-        let computer = everything.find("# Computer use").unwrap();
-        let code_mode = everything.find("# Code mode").unwrap();
-        let team = everything.find(TEAM_PROMPT_HEADING).unwrap();
-        assert!(computer < code_mode && code_mode < team);
-        assert!(everything.ends_with("\n\nRules\n"));
-        assert!(!CODE_MODE_SECTION.contains('\u{2014}'));
-        assert!(CODE_MODE_SECTION.len() < 1100, "{} bytes", CODE_MODE_SECTION.len());
-        for name in ["`exec({script})`", "`describe({names})`", "Promise.all", "ALL_TOOLS", "tools.computer."] {
-            assert!(CODE_MODE_SECTION.contains(name), "the section never says {name}");
-        }
+        assert_eq!(system_append_with(None, &code), system_append_with(None, &Extras::NONE));
+        assert!(!system_append_with(Some("Rules"), &code).contains("# Code mode"));
     }
 
     /// EXP-1025: no team prompt = the playbook, byte for byte.
@@ -362,7 +325,6 @@ run `bun test`.\n"
         )));
         let alone = system_append_layers(None, Some("Watch the inbox."), &Extras { code_mode: true, ..Extras::NONE });
         assert!(!alone.contains(TEAM_PROMPT_HEADING));
-        assert!(alone.find("# Code mode").unwrap() < alone.find(AGENT_INSTRUCTIONS_HEADING).unwrap());
         assert!(!AGENT_INSTRUCTIONS_LEAD.contains('\u{2014}'));
     }
 
@@ -382,6 +344,7 @@ run `bun test`.\n"
             "exponential_guide_write",
             "exponential_pr",
             "exponential_events",
+            "exponential_show",
         ] {
             assert!(tools.contains(&name), "playbook never names {name}");
         }
@@ -462,8 +425,8 @@ run `bun test`.\n"
             "`exponential_sessions_send {teamId, deviceId, issueIds?, text}`",
             "no `parentId`",
             "self-contained brief",
-            "one or two lines",
-            "never narrate",
+            "Reuse a recent thread",
+            "update your card",
             "Never wait for a child",
         ] {
             assert!(section.contains(words), "the Dispatch section never says {words}");
@@ -474,25 +437,19 @@ run `bun test`.\n"
             .starts_with(dispatch.trim_end()));
     }
 
-    /// EXP-1280: plan mode is Exponential's, so the playbook IS how a run
-    /// learns it: propose with the tool as the last call, stop, and the
-    /// standalone rich ask. Workers only.
+    /// S-3: plan mode is gone; every run (dispatchers too) learns to SHOW:
+    /// one card per turn, edited in place, ask and plan as cards.
     #[test]
-    fn the_playbook_teaches_exponential_plan_mode() {
-        let coding = playbook(false);
-        let section = coding.split("## Plan\n").nth(1).unwrap().split("\n## ").next().unwrap();
-        for words in [
-            "`plan_mode`",
-            "no commits, pushes or PRs until a person approves",
-            "`exponential_session_self {op: \"plan\", plan, pictures?, questions?, surface?}`",
-            "LAST call of your turn and stop",
-            "upload:<label>",
-            "rejected = keep planning",
-            "`exponential_session_self {op: \"ask\", question, options, multi?, custom?}`",
-        ] {
-            assert!(section.contains(words), "the Plan section never says {words}");
+    fn the_playbook_teaches_show() {
+        for dispatch in [false, true] {
+            let book = playbook(dispatch);
+            let section = book.split("## Show\n").nth(1).unwrap().split("\n## ").next().unwrap();
+            for words in ["Show, don't tell", "`exponential_show`", "`replace: true`", "`ask`", "`plan`", "upload:<label>", "end your turn after one"] {
+                assert!(section.contains(words), "the Show section never says {words}");
+            }
         }
-        assert!(!playbook(true).contains("## Plan\n"), "a dispatcher hands planning to children");
+        assert!(!RUN_SKILL.contains("## Plan\n"));
+        assert!(!RUN_SKILL.contains("plan_mode"));
     }
 
     #[test]

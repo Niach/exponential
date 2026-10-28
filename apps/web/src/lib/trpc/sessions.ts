@@ -53,7 +53,7 @@ import {
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
-import { answeredOwnCard, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
+import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
@@ -890,7 +890,15 @@ export const sessionsRouter = router({
       const asks = card?.kind === `question` || card?.kind === `plan`
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        const messageId = await postAgentMessage(tx, session, input.body, card)
+        // S-3: an agent conversation keeps ONE text per person message: a
+        // later turn's text edits it (its bus copies follow), never a new
+        // bubble.
+        const edited =
+          !card && session.agentId !== null && session.id === session.rootId
+            ? await editAgentTurnText(tx, session.id, input.body)
+            : null
+        if (edited) await patchBusCopies(tx, edited.id, edited.before, input.body.trim())
+        const messageId = edited?.id ?? (await postAgentMessage(tx, session, input.body, card))
         // EXP-1374: a message is a sign of life (the stuck rule).
         await tx.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, session.id))
         if (asks) {
@@ -901,9 +909,9 @@ export const sessionsRouter = router({
           // NEW-1: the card reaches the parent and watchers (one row, two
           // views); a parent may answer what it knows.
           await busAsk(tx, session, messageId, card as Extract<MessageCard, { kind: `question` | `plan` }>)
-        } else if (!card) {
+        } else if (!card && !edited) {
           // NEW-1: the turn's reply reaches the parent and watchers.
-          await busRelayTurn(tx, session, input.body)
+          await busRelayTurn(tx, session, input.body, messageId)
         }
         return { messageId, txid }
       })

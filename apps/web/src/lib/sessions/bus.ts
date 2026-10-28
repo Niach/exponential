@@ -52,6 +52,8 @@ export type BusSession = Pick<
 
 interface Listener {
   id: string
+  /** S-3: a team agent's conversation (its root's agent). */
+  agentId: string | null
   rootId: string
   teamId: string
   shared: boolean
@@ -61,6 +63,7 @@ interface Listener {
 
 const LISTENER = {
   id: sessions.id,
+  agentId: sessions.agentId,
   rootId: sessions.rootId,
   teamId: sessions.teamId,
   shared: sessions.shared,
@@ -106,9 +109,14 @@ async function deliver(
     waking: boolean
     /** With no listener: post on the child itself (pre-consumed). */
     fallbackToSelf?: boolean
+    /** S-3: the child's own row this line copies (an edit patches it). */
+    originMessageId?: string | null
+    /** S-3: listeners this line skips (still counted as listening). */
+    skip?: (listener: Listener) => boolean
   }
 ): Promise<string[]> {
-  const listeners = await busListeners(tx, child)
+  const all = await busListeners(tx, child)
+  const listeners = message.skip ? all.filter((listener) => !message.skip!(listener)) : all
   const origin = message.hidden && listeners.length > 0 ? await busOrigin(tx, child.id) : null
   const now = new Date()
   const ids: string[] = []
@@ -121,10 +129,11 @@ async function deliver(
         body: line.body,
         card: line.card,
         consumedAt: message.waking && listener.status !== `ended` ? null : now,
+        originMessageId: message.originMessageId ?? null,
       })
     )
   }
-  if (listeners.length === 0 && message.fallbackToSelf) {
+  if (all.length === 0 && message.fallbackToSelf) {
     ids.push(
       await insertMessage(tx, child.id, {
         authorKind: message.authorKind,
@@ -156,11 +165,15 @@ export function privateText(child: Pick<Session, `id`>, lead: string): string {
 }
 
 /** A turn of `child` ended with a reply: the reply reaches its listeners
- *  as the child's own message. Blank = nothing. */
+ *  as the child's own message. Blank = nothing. S-3: a team agent's
+ *  conversation that WATCHES the child (not its parent) is not woken per
+ *  turn: it hears the child's ask, wall, PR and report only, so a busy
+ *  thread never spams its agent. */
 export async function busRelayTurn(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>,
-  body: string
+  body: string,
+  originMessageId: string | null = null
 ): Promise<string[]> {
   const text = body.trim()
   if (!text) return []
@@ -170,6 +183,8 @@ export async function busRelayTurn(
     card: null,
     hidden: { body: privateText(child, PRIVATE_REPLY_LEAD), card: null },
     waking: true,
+    originMessageId,
+    skip: (listener) => listener.agentId !== null && listener.id !== child.parentId,
   })
 }
 

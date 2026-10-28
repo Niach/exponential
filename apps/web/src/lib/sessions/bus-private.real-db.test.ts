@@ -177,18 +177,11 @@ async function openPr(w: Awaited<ReturnType<typeof managed>>, sessionId: string,
 }
 
 describe.skipIf(!ready.ok)(`#EXP-1408: a private chat's bus lines into a shared conversation`, () => {
-  it(`a turn reply arrives as the neutral line (waking), its preview the lead; the thread's own parent keeps the text`, async () => {
+  it(`S-3: a turn reply never reaches the watching agent conversation; the thread's own parent keeps the text`, async () => {
     const w = await managed(true)
     await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
     await w.host.reply({ sessionId: w.thread, body: SECRET })
-    const [relayed] = (await fromSession(w.conversation, w.thread)).filter((m) => m.card === null)
-    expect(relayed).toMatchObject({
-      authorKind: `agent`,
-      body: privateText({ id: w.thread }, PRIVATE_REPLY_LEAD),
-      consumedAt: null,
-    })
-    expect(relayed!.body).toContain(w.thread)
-    expect(preview(w.conversation, [relayed!])).toEqual({ kind: `agent`, text: PRIVATE_REPLY_LEAD })
+    expect((await fromSession(w.conversation, w.thread)).filter((m) => m.card === null)).toEqual([])
     // Inside the private tree (same reader) the child's reply reaches its parent whole.
     await w.host.claim({ sessionId: w.childId, deviceId: w.deviceId })
     await w.host.reply({ sessionId: w.childId, body: SECRET })
@@ -263,9 +256,8 @@ describe.skipIf(!ready.ok)(`#EXP-1408: a visible origin keeps its text`, () => {
     const pr = await openPr(w, w.thread, 13)
     await endSession({ userId: w.owner, sessionId: w.thread, summary: SECRET })
     const rows = await fromSession(w.conversation, w.thread)
-    const relayed = rows.find((m) => m.card === null && m.authorKind === `agent`)
-    expect(relayed).toMatchObject({ body: SECRET })
-    expect(preview(w.conversation, [relayed!])).toEqual({ kind: `agent`, text: SECRET })
+    // S-3: no turn relay into a watching agent conversation.
+    expect(rows.find((m) => m.card === null && m.authorKind === `agent`)).toBeUndefined()
     expect(rows.find((m) => kindOf(m) === `report`)).toMatchObject({
       body: SECRET,
       card: { kind: `report`, summary: SECRET },
