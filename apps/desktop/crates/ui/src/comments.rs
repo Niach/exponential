@@ -13,6 +13,7 @@
 //! submits). The §4.6 caret-anchored `@`-autocomplete layers onto the same
 //! `InputState` when the markdown-editor track lands it.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, px, Div, ElementId, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled,
@@ -20,7 +21,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
@@ -334,7 +334,7 @@ fn comment_card_content(
                         .ghost()
                         .web_icon_xs()
                         .icon(Icon::new(registry::UI_MORE_VERTICAL))
-                        .dropdown_menu({
+                        .pointer_menu({
                             let timeline = cx.entity();
                             move |menu, _, cx| {
                                 let timeline_edit = timeline.clone();

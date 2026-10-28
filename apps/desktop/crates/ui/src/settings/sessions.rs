@@ -9,12 +9,12 @@
 //! prunes right away on the background executor instead of waiting for the
 //! next start.
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::path::PathBuf;
 
 use gpui::{IntoElement, ParentElement, Render, SharedString, Styled, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    menu::DropdownMenu as _,
     ActiveTheme as _,
 };
 
@@ -124,7 +124,7 @@ impl Render for SessionsPane {
                 // EXP-697: NOT `.label()` — see notifications_prefs.
                 .child(picker_value_label(choice_label(current)))
                 .child(crate::surface::picker_row_chevron(cx))
-                .dropdown_menu({
+                .pointer_menu({
                     let entity = cx.entity();
                     move |mut menu, _, _| {
                         menu = crate::pickers::single_select_menu(menu);

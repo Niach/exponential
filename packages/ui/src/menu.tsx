@@ -970,7 +970,7 @@ export function MenuPanel({
       style={density ? menuDensityStyle(density) : undefined}
       className={cn(
         look === `dropdown`
-          ? cn(MENU_SURFACE_CLASS, MENU_CONTENT_CLASS, `w-(--menu-max-width)`)
+          ? cn(MENU_SURFACE_CLASS, MENU_CONTENT_CLASS, `w-max`)
           : `flex w-full flex-col rounded-t-3xl border-t border-glass-stroke-card bg-glass-bottom px-(--menu-surface-padding) pt-2 pb-4`,
         className
       )}

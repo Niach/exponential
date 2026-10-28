@@ -32,6 +32,7 @@ use std::sync::Once;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, Action, App, AppContext as _, ClickEvent, Entity, FontWeight, Global, IntoElement,
+    InteractiveElement as _, MouseButton,
     ParentElement, Render, SharedString, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
@@ -48,6 +49,7 @@ use sync::Store;
 use coding::scm::{self, FileStatus};
 
 use crate::coding_flow::CodingHub;
+use crate::controls::PointerContextMenuExt as _;
 use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::icons::registry;
@@ -788,14 +790,36 @@ impl Render for FileTreeView {
                     .read(cx)
                     .selected_file()
                     .map(|path| SharedString::from(path.to_string()));
-            tree(&self.tree_state, move |ix, entry, _selected, _window, cx| {
-                render_tree_item(&meta, &trunk, active_file.as_deref(), ix, entry, cx)
+            // The right-pressed row, for THE IDE context menu
+            // (`pointer_context_menu`: the tokens' menu type, not the
+            // crate's `Tree::context_menu` at the IDE's 12.25px). The press
+            // clears it in the capture phase and the row sets it in the
+            // bubble phase; the menu builds on the next frame, so a press
+            // below the rows reads `None` and opens nothing.
+            let pressed: Rc<RefCell<Option<TreeEntry>>> = Rc::default();
+            let row_pressed = pressed.clone();
+            let clear_pressed = pressed.clone();
+            let tree = tree(&self.tree_state, move |ix, entry, _selected, _window, cx| {
+                let row_pressed = row_pressed.clone();
+                let row_entry = entry.clone();
+                render_tree_item(&meta, &trunk, active_file.as_deref(), ix, entry, cx).on_mouse_down(
+                    MouseButton::Right,
+                    move |_, _, _| *row_pressed.borrow_mut() = Some(row_entry.clone()),
+                )
             })
-            .context_menu(move |_ix, entry, menu, _window, _cx| {
-                build_context_menu(&ctx_meta, &ctx_trunk, entry, menu)
-            })
-            .size_full()
-            .into_any_element()
+            .size_full();
+            div()
+                .id("file-tree-context-menu")
+                .size_full()
+                .capture_any_mouse_down(move |_, _, _| *clear_pressed.borrow_mut() = None)
+                .child(tree)
+                .pointer_context_menu(move |menu, _window, _cx| {
+                    match pressed.borrow().as_ref().filter(|entry| !entry.is_disabled()) {
+                        Some(entry) => build_context_menu(&ctx_meta, &ctx_trunk, entry, menu),
+                        None => menu,
+                    }
+                })
+                .into_any_element()
         };
 
         // The switcher is a fixed-height sibling, so the tree gets an

@@ -21,6 +21,7 @@
 //! editor, and the validator refuses a bad name at submit with the server's
 //! own sentence.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, px, size, App, AppContext as _, Div, Entity, InteractiveElement as _, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
@@ -30,7 +31,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::DropdownMenu as _,
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _,
 };
@@ -466,7 +466,7 @@ impl McpServerDialogView {
         let current = current.to_string();
         let view = cx.entity().downgrade();
         let control = crate::trigger_editor::picker_trigger(id.into(), picked, cx)
-            .dropdown_menu(move |mut menu, _window, _cx| {
+            .pointer_menu(move |mut menu, _window, _cx| {
                 menu = crate::pickers::single_select_menu(menu);
                 for (value, label) in &options {
                     let view = view.clone();

@@ -26,13 +26,15 @@ struct VoiceSettingsPage: View {
     /// rows instead of `voice.get` + the account's database; a change stays local.
     var specimen: Specimen? = nil
 
-    /// The rows the page otherwise loads and observes.
+    /// The rows the page otherwise loads and observes; `consentOpen` opens
+    /// THE consent prompt (`ThreadCardsScreen`).
     struct Specimen {
-        let userId: String
+        var userId: String? = nil
         let settings: Voice.Settings
         let devices: [DeviceEntity]
         let agents: [AgentDefinitionEntity]
         let teams: [TeamEntity]
+        var consentOpen = false
     }
 
     @Environment(AppDependencies.self) private var deps
@@ -56,18 +58,6 @@ struct VoiceSettingsPage: View {
     @State private var teams: [TeamEntity] = []
     /// #NEW-57: THE consent prompt is open (Meeting mode turned on).
     @State private var meetingConsent = false
-    /// Capture only (`ThreadCardsScreen`): a fixed page, no load, no sync.
-    private let specimen: Specimen?
-
-    /// The styleguide capture's fixed inputs.
-    struct Specimen {
-        let settings: Voice.Settings
-        let devices: [DeviceEntity]
-        let agents: [AgentDefinitionEntity]
-        let teams: [TeamEntity]
-        let consentOpen: Bool
-    }
-
     init(accountId: String, specimen: Specimen? = nil) {
         self.accountId = accountId
         self.specimen = specimen

@@ -20,6 +20,7 @@
 //! could not authenticate. The tile shows a busy state while the download
 //! runs.
 
+use crate::controls::PointerContextMenuExt as _;
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
@@ -30,7 +31,6 @@ use gpui::{
 };
 use gpui_component::{
     h_flex,
-    menu::ContextMenuExt as _,
     spinner::Spinner,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -444,7 +444,7 @@ pub(crate) fn render_media_tile(
     let menu_tile = tile.clone();
     let menu_images = images.cloned();
     crate::controls::claim_right_click(clickable)
-        .context_menu(move |menu, _window, _cx| {
+        .pointer_context_menu(move |menu, _window, _cx| {
             let mut menu = menu.item(
                 crate::controls::pointer_label_item("Open in player", false)
                     .icon(Icon::from(ExpIcon::Play))

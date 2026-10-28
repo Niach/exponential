@@ -15,6 +15,7 @@
 //! switches, flushing a pending rename for the previous board first (blur
 //! doesn't fire on unmount — same caveat the web dialog has on close).
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, px, AppContext as _, ElementId, Entity, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, Window,
@@ -23,7 +24,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Icon,
 };
 use sync::Store;
@@ -431,7 +431,7 @@ impl BoardDetailPane {
         let board_id = board.id.clone();
         let pane = cx.entity().clone();
         button
-            .dropdown_menu(move |menu, _window, cx| {
+            .pointer_menu(move |menu, _window, cx| {
                 // Read LIVE state at open time — the component caches the
                 // built menu until dismiss, so a render-time snapshot would
                 // pin whatever the list looked like when the row last drew.

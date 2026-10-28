@@ -63,7 +63,7 @@ impl Render for MenusDemo {
                 .flex_col()
                 .gap_2()
                 .child(div().text_xs().text_color(muted).child(*caption))
-                .child(menu.clone())
+                .child(crate::controls::with_pointer_layer(menu.clone()))
         }))
     }
 }

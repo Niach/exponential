@@ -18,6 +18,7 @@
 //! [`TriggerEditorState::to_trigger`] is the only place the WIRE when-part is
 //! built.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Div, Entity, InteractiveElement as _, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
@@ -25,7 +26,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::InputState,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _,
 };
 use serde_json::{json, Value};
@@ -362,7 +362,7 @@ impl TriggerEditorState {
             .unwrap_or_else(|| AGENT_SETTINGS.copy.event.replacen("{name}", current.trim(), 1));
         let name = self.name.clone();
         let control = picker_trigger(format!("{prefix}-event").into(), label, cx)
-            .dropdown_menu(move |mut menu, _window, _cx| {
+            .pointer_menu(move |mut menu, _window, _cx| {
                 for builtin in domain::contract::EVENT_BUILTIN_NAMES {
                     let label = AGENT_SETTINGS.copy.events.get(*builtin).cloned().unwrap_or_default();
                     let name = name.clone();

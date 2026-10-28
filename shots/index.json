@@ -572,8 +572,8 @@
         "file": "shots/chat-menus/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 41046,
-        "sha256": "317d21db8951882a2964bbdea3a6f502bb83ab9030f6915faa5c1ec2d37f1434"
+        "bytes": 41826,
+        "sha256": "cc624bfc7c82c5610eef84f5f9296e7a307c1e5a3454e22e92a57bd3d9ce02fb"
       },
       "ios": {
         "file": "shots/chat-menus/ios.webp",
@@ -586,15 +586,15 @@
         "file": "shots/chat-menus/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 52386,
-        "sha256": "f6370703e30cd872cf08633eaad2b818f5637cd70623660390374f2d73ab421b"
+        "bytes": 51570,
+        "sha256": "c7ac19ad5af2fea390db93314bcc9e14f042f9cf983bbe0a2e7700b5dd681f61"
       },
       "web-mobile": {
         "file": "shots/chat-menus/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 37576,
-        "sha256": "4d1989ac5599eac464755aef0358e6035e6f4be1e9b5342af34579e090a9af55"
+        "bytes": 36894,
+        "sha256": "815fe5ab4709490854f211d35960b80543f11cc74ca4f036c00d9b72a20b55f5"
       }
     },
     "chat-selection": {
@@ -750,8 +750,8 @@
         "file": "shots/composer-dialog-menu/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 58380,
-        "sha256": "9cba832dd77673d965f9be0c59b8549e043c398d316e09aafa2584961181ecab"
+        "bytes": 63616,
+        "sha256": "8377a58dd4e7ad3f72566c63ba6e2c644131c8625a9538e7a8d869cdeba9de77"
       }
     },
     "composer-menu": {
@@ -766,8 +766,8 @@
         "file": "shots/composer-menu/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 48640,
-        "sha256": "1a725dcf287603dfc6fe1a26d05c0b5790f161e9a4e6a0164753d07798b55baa"
+        "bytes": 55692,
+        "sha256": "b2ce0aac02560698f36b412f1571eaea7ac137f73706a97edbb24cb297c86263"
       },
       "ios": {
         "file": "shots/composer-menu/ios.webp",

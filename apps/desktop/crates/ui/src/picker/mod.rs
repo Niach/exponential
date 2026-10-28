@@ -37,7 +37,7 @@ use gpui::{
 use gpui_component::{
     h_flex,
     input::InputState,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::PopupMenuItem,
     popover::Popover,
     v_flex, ActiveTheme as _, Icon, Selectable,
 };
@@ -540,8 +540,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         } = self;
         let current = value.into_iter().next();
         let empty_text = empty_text.unwrap_or_else(|| SharedString::from("No options"));
-        PickerTrigger::new(id, trigger)
-            .dropdown_menu(move |menu, _window, _cx| {
+        crate::controls::PointerMenu::new(
+            id.clone(),
+            PickerTrigger::new(id, trigger),
+            move |menu, _window, _cx| {
                 let mut menu = crate::pickers::single_select_menu(
                     menu.min_w(px(PICKER_MENU_MIN_WIDTH))
                         .max_h(px(PICKER_MENU_MAX_HEIGHT))
@@ -579,8 +581,9 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     );
                 }
                 menu
-            })
-            .into_any_element()
+            },
+        )
+        .into_any_element()
     }
 
     /// The searchable popover: the filter field, a hairline, the rows. The

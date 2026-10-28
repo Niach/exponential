@@ -25,6 +25,7 @@
 //! Writes are member-level (`mutate_resources`, like labels — NOT owner-only).
 //! Reads come from the synced `issue_statuses` collection.
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::collections::HashMap;
 
 use gpui::{
@@ -36,7 +37,6 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::DropdownMenu as _,
     popover::Popover,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -814,7 +814,7 @@ impl StatusesPane {
                 cx,
             )
             .tooltip(SharedString::from(format!("Status actions for {}", row.name)))
-            .dropdown_menu(move |mut menu, _, cx| {
+            .pointer_menu(move |mut menu, _, cx| {
                 for (label, icon, direction, disabled) in [
                     (
                         "Move up",

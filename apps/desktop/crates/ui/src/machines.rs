@@ -53,6 +53,7 @@
 //! signed in badges nothing ([`device_attention`]). Online rows lead, the
 //! offline ones follow dimmed under a muted "Offline" label.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::prelude::FluentBuilder as _;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -62,7 +63,7 @@ use gpui::{
     Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::{PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -1274,7 +1275,7 @@ fn login_chip(
             let menu_limits = limits.clone();
             crate::surface::glass_pill_button(("machine-login", id), crate::surface::PillSize::Sm, cx)
                 .children(body(cx))
-                .dropdown_menu(move |menu, _window, cx| {
+                .pointer_menu(move |menu, _window, cx| {
                     let mut menu = menu;
                     // The same bars the hover previews, at the menu's top.
                     if let Some(limits) = menu_limits.clone() {

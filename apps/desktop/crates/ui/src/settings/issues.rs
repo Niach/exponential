@@ -7,6 +7,7 @@
 //! web page: the PR automation pickers are member-managed, the scale is
 //! owner-only (`teams.update`) and reads as plain text for everyone else.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, px, App, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
@@ -14,7 +15,6 @@ use gpui::{
 use gpui_component::{
     button::Button,
     h_flex,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -134,7 +134,7 @@ impl IssuesPane {
                                 .text_color(cx.theme().muted_foreground),
                         ),
                 )
-                .dropdown_menu(move |mut menu, _window, _cx| {
+                .pointer_menu(move |mut menu, _window, _cx| {
                     menu = crate::pickers::single_select_menu(menu);
                     for (wire, label, hint) in ESTIMATION_OPTIONS {
                         let text: SharedString = if hint.is_empty() {

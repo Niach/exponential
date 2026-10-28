@@ -377,7 +377,7 @@ impl OpenMenu {
 
 impl Render for OpenMenu {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        self.menu.clone()
+        crate::controls::with_pointer_layer(self.menu.clone())
     }
 }
 
