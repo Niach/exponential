@@ -357,7 +357,6 @@ function AgentConversationDock({
       composer={composer}
       phoneClearance={phoneClearance}
       onHeight={onHeight}
-      autoOpenReady={rows.length > 0}
     />
   )
 }

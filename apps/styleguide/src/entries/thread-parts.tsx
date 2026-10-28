@@ -35,7 +35,7 @@ import type { StyleguideEntry } from "./types.ts"
 // EXP-1293 Threads v2: the THREAD's parts, the REAL `@exp/ui` components
 // (`session-thread-view.tsx`, `work-card.tsx`) painted from the contract's
 // own models: the header (title + ONE tab strip, EXP-1334: "+" ·
-// Conversation | issue chips … +X | session chips … +Y | Guide, nothing
+// Conversation | issue chips … +X | session chips … +Y, nothing
 // scrolls; folded chips open their subtree on a click), THE session card at every state (`session-card.json`) and
 // the Threads list (`partitionThreads`, `threads-list.json`) in the Reviews
 // list language. The web app binds them to the synced rows
@@ -292,12 +292,11 @@ function Strip({
   tabs: typeof THREAD.tabs
   open?: string | null
   width?: string
-  /** The zone's px between Conversation and Guide (the estimate). */
+  /** The zone's px after Conversation (the estimate). */
   zone?: number
   pager?: boolean
 }) {
   const { issues, sessions } = stripItems(tabs, open)
-  const guide = tabs.find((tab) => tab.kind === `guide`)
   return (
     <div style={width ? { width } : undefined}>
       <ThreadTabs
@@ -307,12 +306,6 @@ function Strip({
         issues={issues}
         sessions={sessions}
         add={<ThreadTabsAddButton />}
-        guide={{
-          label: threadFixture.copy.guide,
-          active: false,
-          dot: guide?.kind === `guide` && guide.dot,
-          onSelect: noop,
-        }}
       />
     </div>
   )
@@ -346,7 +339,7 @@ function FoldedStrips() {
       <Strip tabs={FOLDED_TABS} width="54rem" zone={640} />
       <Caption>Narrow: each zone folds into its own "+N"; the open chip (a nested session) stays</Caption>
       <Strip tabs={FOLDED_TABS} open="g2" width="36rem" zone={340} />
-      <Caption>Phone pager: Conversation and Guide icon-only, identifiers only, the same zones</Caption>
+      <Caption>Phone pager: Conversation icon-only, identifiers only, the same zones</Caption>
       <Strip tabs={FOLDED_TABS} open="i-3" width="28rem" zone={200} pager />
       <div className="mt-2 flex flex-wrap items-start gap-8">
         <div className="flex flex-col gap-2">
@@ -429,7 +422,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Thread`,
-  blurb: `A thread IS a root session. Header: the title (THE \`sessionTitle()\` chain: its stored title (an explicit name or the agent's own), \`#IDENT title\`, the first prompt; nobody renames it; a lock when private) and ONE tab strip that never scrolls (EXP-1334): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left, Guide pinned right (a green dot while the root's Guide holds anything); between them the TOP-LEVEL issue chips then the dispatcher's DIRECT child sessions, THE strip chip (\`StripChip\`, shared with the work tabs strip): everything full → issues identifier-only → each zone folds into its own "+N" (\`partitionThreadStrip\`), the open chip always drawn. A chip with sub-issues / deeper sessions wears a chevron and a CLICK opens its subtree (THE tree rows with guides; phones: the bottom sheet); it reads \`<chip> › <open one>\` while a nested item is open. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (the same \`sessionTitle()\` chain, never a number), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged thread shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ThreadsList\`; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\`, \`sessionTitle()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\`, \`session-title.json\` ×4).`,
+  blurb: `A thread IS a root session. Header: the title (THE \`sessionTitle()\` chain: its stored title (an explicit name or the agent's own), \`#IDENT title\`, the first prompt; nobody renames it; a lock when private) and ONE tab strip that never scrolls (EXP-1334): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left (S-3: no Guide tab, stories replace it); then the TOP-LEVEL issue chips then the dispatcher's DIRECT child sessions, THE strip chip (\`StripChip\`, shared with the work tabs strip): everything full → issues identifier-only → each zone folds into its own "+N" (\`partitionThreadStrip\`), the open chip always drawn. A chip with sub-issues / deeper sessions wears a chevron and a CLICK opens its subtree (THE tree rows with guides; phones: the bottom sheet); it reads \`<chip> › <open one>\` while a nested item is open. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; while the thread's PR is open the header's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) and the \`…\` on every form factor, phones included; phones use the strip as the pager. THE session card = the Work card's header row: the state icon, the name (the same \`sessionTitle()\` chain, never a number), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged thread shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ThreadsList\`; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\`, \`sessionTitle()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\`, \`session-title.json\` ×4).`,
   status: {
     web: {
       state: `ok`,

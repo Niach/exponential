@@ -319,21 +319,17 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     settled: true,
   }
 
-  it(`a waiting card docks and answers through sessions.answer, never the relay`, () => {
+  it(`S-3: a waiting card never docks; it answers inline through sessions.answer, never the relay`, () => {
     messages = [planMessage()]
     snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `Planned.` }, proposeCall] })
     render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
-    // N-12: the card is a DockCard above the composer (which stays); its
-    // sheet carries the question and the decision footer.
-    const dock = screen.getByTestId(`dock`)
+    // stories.json: the plan is a story, not a DockCard; the composer stays.
+    expect(screen.queryByTestId(`dock-card`)).toBeNull()
     expect(screen.getByTestId(`composer`)).toBeTruthy()
-    const card = within(dock).getByTestId(`dock-card`)
-    expect(card.dataset.kind).toBe(`plan`)
-    fireEvent.click(card)
-    const sheet = screen.getByTestId(`dock-sheet`)
-    expect(sheet.textContent).toContain(`Which layout?`)
-    fireEvent.click(within(sheet).getByTestId(`plan-card-question`).querySelector(`[data-testid="plan-card-option"]`)!)
-    fireEvent.click(sheet.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!)
+    const card = screen.getByTestId(`session-tool-card`)
+    expect(card.textContent).toContain(`Which layout?`)
+    fireEvent.click(within(card).getByTestId(`plan-card-question`).querySelector(`[data-testid="plan-card-option"]`)!)
+    fireEvent.click(card.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!)
     expect(answerMutate).toHaveBeenCalledWith(
       { messageId: `m-plan`, decision: `approved`, answers: { q: [`Two`] } },
       expect.anything()
