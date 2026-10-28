@@ -3,11 +3,13 @@ package com.exponential.app.domain
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,7 +17,8 @@ import org.junit.Test
 /**
  * NEW-57: [Meeting] replays `meeting.json` (copy, testIds, limits,
  * desktopAudioValues, desktopAudioOptionCases, appOptionCases, whoCases,
- * consentCases) and locks the retention against `contract.json`.
+ * consentCases; #FEED-163 autoStop, autoStopCases, autoStoppedCases,
+ * autoStopOptionCases, stopNoteCases) and locks the retention against `contract.json`.
  */
 class MeetingTest {
 
@@ -96,6 +99,55 @@ class MeetingTest {
         }
     }
 
+    private fun JsonObject.str(key: String): String? =
+        get(key)?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
+
+    @Test
+    fun autoStopMatchesTheFixture() {
+        val autoStop = fixture.getValue("autoStop").jsonObject
+        assertEquals(autoStop.getValue("afterMs").jsonPrimitive.long, Meeting.AutoStop.AFTER_MS)
+        assertEquals(autoStop.getValue("defaultHours").jsonPrimitive.int, Meeting.AutoStop.DEFAULT_HOURS)
+        assertEquals(autoStop.getValue("hoursValues").jsonArray.map { it.jsonPrimitive.int }, Meeting.AutoStop.HOURS_VALUES)
+    }
+
+    @Test
+    fun everyAutoStopCaseReplays() {
+        for (case in cases("autoStopCases")) {
+            val nowMs = case.getValue("nowMs").jsonPrimitive.long
+            val hours = case["hours"]?.jsonPrimitive?.int
+            val got = if (hours == null) {
+                Meeting.meetingExpired(case.str("startedAt"), nowMs)
+            } else {
+                Meeting.meetingExpired(case.str("startedAt"), nowMs, hours)
+            }
+            assertEquals(case.s("name"), case.getValue("expect").jsonPrimitive.content.toBoolean(), got)
+        }
+    }
+
+    @Test
+    fun everyAutoStoppedCaseReplays() {
+        for (case in cases("autoStoppedCases")) {
+            assertEquals(case.s("expect"), Meeting.autoStopped(case.getValue("hours").jsonPrimitive.int))
+        }
+    }
+
+    @Test
+    fun everyAutoStopOptionCaseReplays() {
+        for (case in cases("autoStopOptionCases")) {
+            val expect = case.getValue("expect").jsonArray.map { it.jsonObject }
+                .map { Meeting.AutoStopOption(it.getValue("value").jsonPrimitive.int, it.s("label")) }
+            assertEquals(case.s("name"), expect, Meeting.autoStopOptions())
+        }
+    }
+
+    @Test
+    fun everyStopNoteCaseReplays() {
+        for (case in cases("stopNoteCases")) {
+            val got = Meeting.stopNote(case.str("reason"), case.getValue("hours").jsonPrimitive.int)
+            assertEquals(case.s("name"), case.str("expect"), got)
+        }
+    }
+
     @Test
     fun doctorDesktopAudioDecodesLeniently() {
         val doctor = parseDeviceDoctor(
@@ -126,6 +178,12 @@ class MeetingTest {
         val legacy = Json.decodeFromString(Voice.Settings.serializer(), "{}")
         assertEquals("off", legacy.desktopAudio)
         assertEquals(null, legacy.meetingStartedAt)
+        // #FEED-163: Stop after defaults to 4 h and round-trips.
+        assertEquals(4, legacy.meetingAutoStopHours)
+        val hours = Json { ignoreUnknownKeys = true }.decodeFromString(Voice.Settings.serializer(), """{"meetingAutoStopHours":8}""")
+        assertEquals(8, hours.meetingAutoStopHours)
+        assertEquals("""{"meetingAutoStopHours":1}""", Voice.Change(meetingAutoStopHours = 1).toJson().toString())
+        assertEquals(1, Voice.clearOnNone(row, Voice.Change(meetingAutoStopHours = 1)).meetingAutoStopHours)
         // The wire input never carries meetingStartedAt.
         val change = Voice.Change(desktopAudio = "include", desktopAudioApps = listOf(AudioApp("z", "Zoom")))
         assertEquals(

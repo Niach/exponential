@@ -681,6 +681,18 @@ private fun MeetingRows(
             modifier = Modifier.testTag(Meeting.TestIds.MEETING),
         )
         GroupDivider()
+        // #FEED-163: Stop after, right under the toggle, shown whether or not a meeting runs.
+        val autoStopHours = Meeting.autoStopHours(settings.meetingAutoStopHours)
+        OptionPickerRow(
+            label = Meeting.Copy.AUTO_STOP_AFTER,
+            options = Meeting.autoStopOptions().map { Voice.Option(id = it.value.toString(), label = it.label) },
+            selected = autoStopHours.toString(),
+            noneLabel = Meeting.autoStopOption(autoStopHours),
+            onSelect = { picked -> picked?.toIntOrNull()?.let { onChange(Voice.Change(meetingAutoStopHours = it)) } },
+            testTag = Meeting.TestIds.AUTO_STOP,
+            enabled = armed,
+        )
+        GroupDivider()
         OptionPickerRow(
             label = Meeting.Copy.DESKTOP_AUDIO,
             options = audioOptions.map { Voice.Option(id = it.wire, label = it.label) },
@@ -778,6 +790,8 @@ private fun OptionPickerRow(
     testTag: String,
     /** The sheet's rows when they carry more than a label (the device glyphs). */
     items: List<PickerItem<String>> = remember(options) { options.map { PickerItem(value = it.id ?: NONE, label = it.label) } },
+    /** #FEED-163: Stop after is disabled while the device or the agent is None. */
+    enabled: Boolean = true,
 ) {
     val value = options.firstOrNull { it.id == selected }?.label ?: noneLabel
     Picker(
@@ -792,6 +806,7 @@ private fun OptionPickerRow(
             value = value,
             onClick = open,
             modifier = Modifier.testTag(testTag),
+            enabled = enabled,
         )
     }
 }

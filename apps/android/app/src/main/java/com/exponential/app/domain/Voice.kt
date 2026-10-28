@@ -306,6 +306,8 @@ object Voice {
         @SerialName("desktopAudioApps") val desktopAudioApps: List<AudioApp> = emptyList(),
         /** NEW-57: ISO; null = no meeting (written only by `voice.startMeeting` / `voice.stopMeeting`). */
         @SerialName("meetingStartedAt") val meetingStartedAt: String? = null,
+        /** #FEED-163: a meeting stops after this many hours (`Meeting.AutoStop.HOURS_VALUES`). */
+        @SerialName("meetingAutoStopHours") val meetingAutoStopHours: Int = Meeting.AutoStop.DEFAULT_HOURS,
     )
 
     /** The row a member without one reads (`defaults`). */
@@ -330,6 +332,8 @@ object Voice {
         /** NEW-57: the Desktop audio row's value (`Meeting.DesktopAudio.wire`). */
         val desktopAudio: String? = null,
         val desktopAudioApps: List<AudioApp>? = null,
+        /** #FEED-163: the Stop after row's hours. */
+        val meetingAutoStopHours: Int? = null,
     ) {
         /** The wire input: None travels as an explicit `null`; an untouched
          *  field writes no key. */
@@ -349,6 +353,7 @@ object Voice {
                     JsonArray(apps.map { buildJsonObject { put("id", JsonPrimitive(it.id)); put("name", JsonPrimitive(it.name)) } }),
                 )
             }
+            meetingAutoStopHours?.let { put("meetingAutoStopHours", JsonPrimitive(it)) }
         }
     }
 
@@ -369,6 +374,7 @@ object Voice {
             voiceTranscript = change.voiceTranscript ?: before.voiceTranscript,
             desktopAudio = change.desktopAudio ?: before.desktopAudio,
             desktopAudioApps = change.desktopAudioApps ?: before.desktopAudioApps,
+            meetingAutoStopHours = change.meetingAutoStopHours ?: before.meetingAutoStopHours,
         )
         // NEW-57: None for the device or the agent also stops a meeting.
         if (after.voiceDeviceId == null || after.agentId == null) {
