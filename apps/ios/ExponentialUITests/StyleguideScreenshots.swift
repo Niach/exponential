@@ -934,13 +934,14 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_phone-page-header · sg_chat-transcript ·
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
+        // sg_call-controls (S-3, the round call buttons) ·
         // sg_settings-voice (NEW-71, voice.json: THE Voice page over the
         // seed's rows) · sg_device-readiness (EXP-1375): the styleguide entries'
         // specimens.
         for entry in [
             "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
             "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-            "settings-voice", "device-readiness",
+            "call-controls", "settings-voice", "device-readiness",
         ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
@@ -954,6 +955,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "chat-selection": snapshot("sg_chat-selection", settle: 2)
             case "mention-pill": snapshot("sg_mention-pill", settle: 2)
             case "voice-call": snapshot("sg_voice-call", settle: 2)
+            case "call-controls": snapshot("sg_call-controls", settle: 2)
             case "settings-voice": snapshot("sg_settings-voice", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)

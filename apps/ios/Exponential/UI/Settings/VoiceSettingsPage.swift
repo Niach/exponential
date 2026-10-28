@@ -5,12 +5,15 @@ import SwiftUI
 
 // NEW-67 (voice plan v3, V1): Settings → Personal → Voice (`voice.json`, the
 // same page on web, the IDE and Android; on iOS it hangs off the account
-// page, the phone's Personal settings). ONE group (Voice device, Agent, Speak
-// replies, Language read through `languageLabel`, and while a voice device is
-// picked Voice file + Transcript, #NEW-73), then while a voice device is
-// picked the tray group under `trayHeader` (Push to talk, Shortcut, Wake
-// word, Wake phrase). Every switch reads off and is disabled while the device
-// or the agent is None. Each change saves at once with `voice.update`
+// page, the phone's Personal settings). ONE group (Voice device, Agent,
+// Language read through `languageLabel`, and while a voice device is picked
+// Voice file + Transcript, #NEW-73), then while a voice device is picked the
+// tray group under `trayHeader` (Push to talk, Wake word, Wake phrase). S-3:
+// Push to talk is READ-ONLY here (the binding's `shortcutLabel`, None while
+// empty: keys are recorded on the voice device's IDE); the Wake word row's
+// detail says why it is or is not listening (the voice device's doctor row
+// `wake`, else `wakeDetail`). Every switch reads off and is disabled while
+// the device or the agent is None. Each change saves at once with `voice.update`
 // (optimistic; a refusal reverts and toasts, feedback-states.json). #NEW-56:
 // a wake phrase failing `wakePhraseError` is never sent; leaving or
 // submitting the field shows the line inline under it until the next edit.
@@ -160,8 +163,6 @@ struct VoiceSettingsPage: View {
                     label: { id in agentOptions.first { $0.id == id }?.label ?? Voice.Copy.agentNone }
                 )
                 .accessibilityIdentifier(Voice.TestIds.agent)
-                toggle(.speakReplies, on: armed && settings.speakReplies, enabled: armed)
-                .accessibilityIdentifier(Voice.TestIds.speakReplies)
                 languageRow(settings)
                 if settings.voiceDeviceId != nil {
                     textRow(.voiceFile)
@@ -172,19 +173,16 @@ struct VoiceSettingsPage: View {
 
             if let deviceId = settings.voiceDeviceId {
                 Section {
-                    toggle(.pushToTalk, on: armed && settings.pushToTalk, enabled: armed)
-                    .accessibilityIdentifier(Voice.TestIds.pushToTalk)
-                    GlassPickerRow(
-                        Voice.Copy.shortcut,
-                        selection: Binding(
-                            get: { settings.pttShortcut },
-                            set: { save(Voice.Change(pttShortcut: $0)) }
-                        ),
-                        options: Voice.shortcuts.map(\.value),
-                        label: { value in Voice.shortcuts.first { $0.value == value }?.label ?? value }
+                    // S-3: read-only; the voice device's IDE records the key.
+                    GlassPickerRowLabel(Voice.Copy.pushToTalk, value: Voice.shortcutLabel(settings.pttShortcut))
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier(Voice.TestIds.shortcut)
+                    GlassToggleRow(
+                        Voice.Copy.wakeWord,
+                        description: wakeDetail(settings, armed: armed),
+                        isOn: Binding(get: { armed && settings.wakeWord }, set: { save(Voice.Change(wakeWord: $0)) })
                     )
-                    .accessibilityIdentifier(Voice.TestIds.shortcut)
-                    toggle(.wakeWord, on: armed && settings.wakeWord, enabled: armed)
+                    .disabled(!armed)
                     .accessibilityIdentifier(Voice.TestIds.wakeWord)
                     textRow(.wakePhrase)
                 } header: {
@@ -216,29 +214,20 @@ struct VoiceSettingsPage: View {
         .tint(DesignTokens.Palette.primary)
     }
 
-    private enum Switch {
-        case speakReplies, pushToTalk, wakeWord
-
-        var title: String {
-            switch self {
-            case .speakReplies: Voice.Copy.speakReplies
-            case .pushToTalk: Voice.Copy.pushToTalk
-            case .wakeWord: Voice.Copy.wakeWord
-            }
-        }
-
-        func change(_ on: Bool) -> Voice.Change {
-            switch self {
-            case .speakReplies: Voice.Change(speakReplies: on)
-            case .pushToTalk: Voice.Change(pushToTalk: on)
-            case .wakeWord: Voice.Change(wakeWord: on)
-            }
-        }
-    }
-
-    private func toggle(_ field: Switch, on: Bool, enabled: Bool) -> some View {
-        GlassToggleRow(field.title, isOn: Binding(get: { on }, set: { save(field.change($0)) })) { EmptyView() }
-            .disabled(!enabled)
+    /// S-3: the Wake word row's detail: the voice device's doctor row
+    /// `wake` (its own `wakeDetail` text) verbatim, else `wakeDetail` with
+    /// no worker state (noAgent / offline / starting).
+    private func wakeDetail(_ settings: Voice.Settings, armed: Bool) -> String? {
+        let device = settings.voiceDeviceId.flatMap { id in devices.first { $0.deviceId == id } }
+        let context = Voice.WakeDetailContext(
+            wakeWord: armed && settings.wakeWord,
+            agent: settings.agentId != nil,
+            online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: Date()),
+            device: device?.label ?? "",
+            state: nil
+        )
+        guard context.wakeWord, context.agent, context.online else { return Voice.wakeDetail(context) }
+        return Voice.wakeDoctorDetail(ofJSON: device?.doctor) ?? Voice.wakeDetail(context)
     }
 
     // MARK: - Meeting mode (#NEW-57)
@@ -612,7 +601,8 @@ struct VoiceSettingsPage: View {
 /// Styleguide capture only (`-uiTestingStyleguide settings-voice`,
 /// `sg_settings-voice`): THE Voice page as pushed off the account page, over
 /// the seed's rows (seed-screenshots.ts: Alex's MacBook Pro as the voice
-/// device, Triage as the agent, Speak replies + Push to talk on, German).
+/// device, Triage as the agent, Ctrl + Space bound, the wake word on and
+/// listening (the device's doctor row `wake`), German).
 struct VoiceSettingsSpecimen: View {
     private static let userId = "specimen-user"
     private static let deviceId = "screenshot-demo-desktop"
@@ -624,15 +614,18 @@ struct VoiceSettingsSpecimen: View {
         settings: Voice.Settings(
             voiceDeviceId: deviceId,
             agentId: "specimen-agent-triage",
-            speakReplies: true,
-            pushToTalk: true,
             pttShortcut: "ctrl+space",
-            wakeWord: false,
+            wakeWord: true,
             wakePhrase: "",
             language: "de"
         ),
         devices: [
-            DeviceEntity(id: "specimen-device", userId: userId, deviceId: deviceId, label: "Alex's MacBook Pro", kind: "desktop"),
+            DeviceEntity(
+                id: "specimen-device", userId: userId, deviceId: deviceId, label: "Alex's MacBook Pro", kind: "desktop",
+                doctor: #"{"items":[{"key":"wake","group":"voice","state":"ok","detail":"Listening"}]}"#,
+                // Online at capture time (the Wake word row reads the doctor).
+                lastSeenAt: ISO8601DateFormatter().string(from: Date())
+            ),
         ],
         agents: [
             AgentDefinitionEntity(id: "specimen-agent-triage", teamId: teamId, name: "Triage", createdAt: stamp, updatedAt: stamp),

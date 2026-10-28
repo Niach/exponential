@@ -268,7 +268,10 @@ struct ThreadScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if editor == nil, let rows, rows.root.isAgent, rows.root.appId == nil,
                    let agentId = rows.root.agentId {
-                    AgentCallButton(agentId: agentId, agentName: rows.agentName)
+                    AgentCallButton(
+                        agentId: agentId, agentName: rows.agentName,
+                        agentIcon: BoardTypeDisplay.iconName(for: rows.agent?.icon), agentColor: rows.agent?.color
+                    )
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {

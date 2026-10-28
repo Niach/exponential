@@ -12,21 +12,26 @@ import Foundation
 public enum VoiceCall {
     public enum Copy {
         public static let call = "Call {agent}"
-        public static let connecting = "Connecting"
+        public static let calling = "Calling…"
+        public static let gettingReady = "Getting ready…"
+        public static let noSound = "Can't hear your microphone"
         public static let listening = "Listening"
         public static let thinking = "Thinking"
         public static let speaking = "Speaking"
         public static let muted = "Microphone muted"
-        public static let mutedLine = "Unmute to talk"
         public static let mute = "Mute"
         public static let unmute = "Unmute"
+        public static let speaker = "Speaker"
+        public static let speakerOff = "Speaker off"
         public static let endCall = "End call"
+        public static let cancel = "Cancel"
         public static let queued = "{count} queued · {text}"
+        /// S-3: what the voice device says once the call is answered.
+        public static let greeting: [String: String] = ["en": "Hello?", "de": "Hallo?"]
 
         /// Why the telephone is disabled (`callAvailability`, in order).
         public enum Reasons {
             public static let noVoiceDevice = "Pick a voice device in Settings → Voice"
-            public static let speakOff = "Turn on Speak replies in Settings → Voice"
             public static let offline = "{device} is offline"
             public static let notHere = "Calls run on {device}"
             public static let preparing = "{device} is getting its voice ready"
@@ -47,6 +52,7 @@ public enum VoiceCall {
             "busy": "{device} is in another call",
             "unsupported": "This browser can't make calls",
             "meeting": "{device} is transcribing a meeting",
+            "unavailable": "{device} couldn't get its voice ready",
         ]
 
         /// `call` for one agent (the telephone's label).
@@ -60,16 +66,32 @@ public enum VoiceCall {
         public static let surface = "voice-call"
         public static let mute = "voice-call-mute"
         public static let end = "voice-call-end"
+        public static let speaker = "voice-call-speaker"
+        public static let panel = "voice-call-panel"
+        public static let pill = "voice-call-pill"
+        public static let timer = "voice-call-timer"
     }
 
+    /// Icon concepts (`AppIcons.voiceCall`, `AppIcons.callMute`, …).
     public enum Icons {
-        /// The telephone's icon concept (`AppIcons.voiceCall`).
+        /// The telephone's icon concept.
         public static let call = "voice-call"
+        public static let mute = "call-mute"
+        public static let unmute = "call-unmute"
+        public static let speaker = "call-speaker"
+        public static let speakerOff = "call-speaker-off"
+        public static let end = "call-end"
     }
 
     public enum Constants {
+        /// S-3: how long the caller's ring plays before `rang`.
+        public static let ringMs = 3_000
+        /// A voice still not ready after this fails the call `unavailable`.
+        public static let maxRingMs = 300_000
+        /// The ring's mic check: a frame at or above this level = sound.
+        public static let noSoundLevel = 0.1
         public static let ringTimeoutMs = 10_000
-        public static let minSilenceMs = 250
+        public static let minSilenceMs = 700
         public static let bargeInMs = 250
         public static let frameMs = 20
         public static let upRate = 16_000
@@ -238,7 +260,6 @@ public enum VoiceCall {
         public var platform: Platform
         /// The voice device's name; nil = none picked (or its row is gone).
         public var device: String?
-        public var speakReplies: Bool
         public var online: Bool
         /// THIS client is the voice device.
         public var here: Bool
@@ -250,12 +271,11 @@ public enum VoiceCall {
         public var meeting: Bool
 
         public init(
-            platform: Platform, device: String?, speakReplies: Bool, online: Bool,
+            platform: Platform, device: String?, online: Bool,
             here: Bool, speech: Speech?, busy: Bool, meeting: Bool = false
         ) {
             self.platform = platform
             self.device = device
-            self.speakReplies = speakReplies
             self.online = online
             self.here = here
             self.speech = speech
@@ -275,17 +295,17 @@ public enum VoiceCall {
     }
 
     /// Whether the telephone is enabled, and the reason when it is not
-    /// (first match wins).
+    /// (first match wins). S-3: a voice that is still downloading rings
+    /// until it is ready.
     public static func callAvailability(_ input: AvailabilityInput) -> Availability {
         func off(_ reason: String) -> Availability {
             Availability(enabled: false, reason: reason.replacingOccurrences(of: "{device}", with: input.device ?? ""))
         }
         guard input.device != nil else { return off(Copy.Reasons.noVoiceDevice) }
-        if !input.speakReplies { return off(Copy.Reasons.speakOff) }
         if !input.online { return off(Copy.Reasons.offline) }
         if input.meeting { return off(Copy.Reasons.meeting) }
         if input.platform == .desktop && !input.here { return off(Copy.Reasons.notHere) }
-        if input.speech == nil || input.speech == .preparing { return off(Copy.Reasons.preparing) }
+        if input.speech == nil { return off(Copy.Reasons.preparing) }
         if input.speech == .noGpu { return off(Copy.Reasons.noGpu) }
         if input.busy { return off(Copy.Reasons.busy) }
         return Availability(enabled: true, reason: nil)
@@ -311,32 +331,54 @@ public enum VoiceCall {
 
     // MARK: - Flow
 
-    public enum Phase: String, Sendable { case hidden, connecting, listening, thinking, speaking }
+    public enum Phase: String, Sendable { case hidden, ringing, listening, thinking, speaking }
 
     public struct State: Equatable, Sendable {
         public var phase: Phase
         public var muted: Bool
+        /// Phones: the loudspeaker (false = the earpiece).
+        public var speaker: Bool
         public var device: String
+        /// The greeting the device says once answered.
+        public var greeting: String
+        /// The ring's `ringMs` ran out.
+        public var rang: Bool
+        /// The worker confirmed it listens (`CallListening`).
+        public var ready: Bool
+        /// The microphone stayed silent during the ring.
+        public var noSound: Bool
         /// The last utterance, quoted (what Thinking shows).
         public var said: String
         public var line: String
         public var toast: String?
 
-        public init(phase: Phase, muted: Bool, device: String, said: String, line: String, toast: String?) {
+        public init(
+            phase: Phase, muted: Bool = false, speaker: Bool = true, device: String = "",
+            greeting: String = "", rang: Bool = false, ready: Bool = false, noSound: Bool = false,
+            said: String = "", line: String = "", toast: String? = nil
+        ) {
             self.phase = phase
             self.muted = muted
+            self.speaker = speaker
             self.device = device
+            self.greeting = greeting
+            self.rang = rang
+            self.ready = ready
+            self.noSound = noSound
             self.said = said
             self.line = line
             self.toast = toast
         }
     }
 
-    /// One flow event (`flowCases`; the host sends partial, said, queued,
-    /// replyStarted, replyFinished and speechStarted as `call_event`).
+    /// One flow event (`flowCases`; the host sends rang, ready, noSound,
+    /// partial, said, queued, replyStarted, replyFinished and speechStarted
+    /// as `call_event`).
     public enum Event: Equatable, Sendable {
-        case start(device: String)
-        case connected
+        case start(device: String, language: String? = nil)
+        case rang
+        case ready
+        case noSound
         case partial(text: String)
         case said(text: String)
         case speechStarted
@@ -345,6 +387,7 @@ public enum VoiceCall {
         case replyFinished
         case mute
         case unmute
+        case speaker(on: Bool)
         case end
         case hungUp(reason: String?)
         case failed(code: String)
@@ -353,8 +396,10 @@ public enum VoiceCall {
         public init?(json: [String: Any]) {
             let text = json["text"] as? String ?? ""
             switch json["t"] as? String {
-            case "start": self = .start(device: json["device"] as? String ?? "")
-            case "connected": self = .connected
+            case "start": self = .start(device: json["device"] as? String ?? "", language: json["language"] as? String)
+            case "rang": self = .rang
+            case "ready": self = .ready
+            case "noSound": self = .noSound
             case "partial": self = .partial(text: text)
             case "said": self = .said(text: text)
             case "speechStarted": self = .speechStarted
@@ -363,6 +408,7 @@ public enum VoiceCall {
             case "replyFinished": self = .replyFinished
             case "mute": self = .mute
             case "unmute": self = .unmute
+            case "speaker": self = .speaker(on: json["on"] as? Bool ?? true)
             case "end": self = .end
             case "hungUp": self = .hungUp(reason: json["reason"] as? String)
             case "failed": self = .failed(code: json["code"] as? String ?? "")
@@ -371,17 +417,22 @@ public enum VoiceCall {
         }
 
         /// The events a HOST may send in a `call_event` frame; the caller
-        /// owns start, connected, mute, unmute, end, hungUp and failed itself.
+        /// owns start, mute, unmute, speaker, end, hungUp and failed itself.
         public var isHostEvent: Bool {
             switch self {
-            case .partial, .said, .queued, .replyStarted, .replyFinished, .speechStarted: true
+            case .rang, .ready, .noSound, .partial, .said, .queued, .replyStarted, .replyFinished, .speechStarted: true
             default: false
             }
         }
     }
 
     /// No call (`CALL_IDLE`).
-    public static let idle = State(phase: .hidden, muted: false, device: "", said: "", line: "", toast: nil)
+    public static let idle = State(phase: .hidden)
+
+    /// The greeting in `language` (English for an unknown one).
+    public static func callGreeting(_ language: String?) -> String {
+        Copy.greeting[language ?? "en"] ?? Copy.greeting["en"] ?? ""
+    }
 
     private static func quoted(_ text: String) -> String { "“\(text)”" }
 
@@ -389,35 +440,59 @@ public enum VoiceCall {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Rang and ready: the device speaks its greeting (not an agent turn).
+    private static func answered(_ state: State) -> State {
+        var next = state
+        next.phase = .speaking
+        next.line = state.greeting
+        next.toast = nil
+        return next
+    }
+
     /// One step of the call (the same machine on the voice device and a caller).
     public static func callStep(_ state: State, _ event: Event) -> State {
-        func at(_ phase: Phase, _ line: String, said: String? = nil) -> State {
+        func at(_ phase: Phase, _ line: String, said: String? = nil, noSound: Bool? = nil) -> State {
             var next = state
             next.phase = phase
             next.line = line
             next.toast = nil
             if let said { next.said = said }
+            if let noSound { next.noSound = noSound }
             return next
         }
-        if case let .start(device) = event {
+        if case let .start(device, language) = event {
             var next = idle
-            next.phase = .connecting
+            next.phase = .ringing
             next.device = device
+            next.greeting = callGreeting(language)
             return next
         }
         if state.phase == .hidden { return state }
+        let ringing = state.phase == .ringing
         switch event {
         case .start:
             return state
-        case .connected:
-            return state.phase == .connecting ? at(.listening, "") : state
+        case .rang:
+            guard ringing else { return state }
+            var next = state
+            next.rang = true
+            return state.ready ? answered(next) : next
+        case .ready:
+            guard ringing else { return state }
+            var next = state
+            next.ready = true
+            return state.rang ? answered(next) : next
+        case .noSound:
+            var next = state
+            next.noSound = true
+            return next
         case let .partial(text):
             let text = trimmed(text)
-            return state.phase == .listening && !text.isEmpty ? at(.listening, quoted(text)) : state
+            return state.phase == .listening && !text.isEmpty ? at(.listening, quoted(text), noSound: false) : state
         case let .said(text):
             let text = trimmed(text)
-            guard !text.isEmpty else { return state }
-            return at(.thinking, quoted(text), said: quoted(text))
+            guard !ringing, !text.isEmpty else { return state }
+            return at(.thinking, quoted(text), said: quoted(text), noSound: false)
         case .speechStarted:
             return state.phase == .speaking ? at(.listening, "") : state
         case let .queued(count, text):
@@ -430,7 +505,7 @@ public enum VoiceCall {
                     .replacingOccurrences(of: "{text}", with: quoted(trimmed(text)))
             )
         case let .replyStarted(text):
-            return at(.speaking, trimmed(text))
+            return ringing ? state : at(.speaking, trimmed(text))
         case .replyFinished:
             return state.phase == .speaking ? at(.listening, "") : state
         case .mute:
@@ -440,6 +515,10 @@ public enum VoiceCall {
         case .unmute:
             var next = state
             next.muted = false
+            return next
+        case let .speaker(on):
+            var next = state
+            next.speaker = on
             return next
         case .end:
             return idle
@@ -453,73 +532,130 @@ public enum VoiceCall {
         }
     }
 
-    /// The call surface's activity (the VoiceWave activities it uses).
-    public enum Activity: String, Sendable { case listening, thinking, speaking, muted }
+    /// The call surface's activity (the avatar ring's animation).
+    public enum Activity: String, Sendable { case ringing, listening, thinking, speaking, muted }
+
+    /// One round call button, in `View.buttons` order.
+    public enum Button: String, Sendable { case mute, speaker, end }
 
     public struct View: Equatable, Sendable {
         public var activity: Activity
-        public var state: String
-        public var line: String
-        /// The mute pill's label (Mute / Unmute); End call is always beside it.
-        public var mute: String
+        /// The line under the name; nil = the call's timer (`callTimer`).
+        public var status: String?
+        public var caption: String
+        public var muted: Bool
+        public var speaker: Bool
+        /// The round buttons, in order.
+        public var buttons: [Button]
+        /// The end button's label (shown under it while ringing).
+        public var end: String
 
-        public init(activity: Activity, state: String, line: String, mute: String) {
+        public init(
+            activity: Activity, status: String?, caption: String, muted: Bool,
+            speaker: Bool, buttons: [Button], end: String
+        ) {
             self.activity = activity
-            self.state = state
-            self.line = line
-            self.mute = mute
+            self.status = status
+            self.caption = caption
+            self.muted = muted
+            self.speaker = speaker
+            self.buttons = buttons
+            self.end = end
         }
     }
 
     /// What the call surface shows; nil = no surface.
-    public static func callView(_ state: State) -> View? {
-        let mute = state.muted ? Copy.unmute : Copy.mute
+    public static func callView(_ state: State, platform: Platform = .phone) -> View? {
         switch state.phase {
         case .hidden:
             return nil
-        case .connecting:
-            return View(activity: .thinking, state: Copy.connecting, line: state.line, mute: mute)
-        case .listening:
-            return state.muted
-                ? View(activity: .muted, state: Copy.muted, line: Copy.mutedLine, mute: mute)
-                : View(activity: .listening, state: Copy.listening, line: state.line, mute: mute)
-        case .thinking:
-            return View(activity: .thinking, state: Copy.thinking, line: state.line, mute: mute)
-        case .speaking:
-            return View(activity: .speaking, state: Copy.speaking, line: state.line, mute: mute)
+        case .ringing:
+            return View(
+                activity: .ringing, status: state.rang ? Copy.gettingReady : Copy.calling, caption: "",
+                muted: state.muted, speaker: state.speaker, buttons: [.end], end: Copy.cancel
+            )
+        case .listening, .thinking, .speaking:
+            let buttons: [Button] = platform == .phone ? [.mute, .speaker, .end] : [.mute, .end]
+            func inCall(_ activity: Activity, _ caption: String) -> View {
+                View(
+                    activity: activity, status: nil, caption: caption, muted: state.muted,
+                    speaker: state.speaker, buttons: buttons, end: Copy.endCall
+                )
+            }
+            switch state.phase {
+            case .listening:
+                if state.muted { return inCall(.muted, Copy.muted) }
+                return inCall(.listening, state.line.isEmpty ? (state.noSound ? Copy.noSound : "") : state.line)
+            case .thinking:
+                return inCall(.thinking, state.line)
+            default:
+                return inCall(.speaking, state.line)
+            }
         }
+    }
+
+    /// The call's timer since it was answered: mm:ss, h:mm:ss from an hour.
+    public static func callTimer(ms: Int) -> String {
+        let total = max(0, ms / 1000)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        func pad(_ n: Int) -> String { n < 10 ? "0\(n)" : "\(n)" }
+        return hours > 0 ? "\(hours):\(pad(minutes)):\(pad(seconds))" : "\(pad(minutes)):\(pad(seconds))"
     }
 
     // MARK: - Surface specimens
 
     /// One styleguide row of the call surface (`surfaceSpecimens`).
     public struct Specimen: Equatable, Sendable {
-        public var activity: Activity
+        public var name: String
+        public var agent: String
+        /// The timer's text in call; nil while ringing.
+        public var timer: String?
         public var level: Double
         public var bands: [Double]
-        public var state: String
-        public var line: String
-        public var mute: String
+        public var view: View
 
-        public init(activity: Activity, level: Double, bands: [Double], state: String, line: String, mute: String) {
-            self.activity = activity
+        public init(name: String, agent: String, timer: String?, level: Double, bands: [Double], view: View) {
+            self.name = name
+            self.agent = agent
+            self.timer = timer
             self.level = level
             self.bands = bands
-            self.state = state
-            self.line = line
-            self.mute = mute
+            self.view = view
         }
-
-        /// The surface's view of this row.
-        public var view: View { View(activity: activity, state: state, line: line, mute: mute) }
     }
 
+    private static let inCallButtons: [Button] = [.mute, .speaker, .end]
+
     public static let surfaceSpecimens: [Specimen] = [
-        Specimen(activity: .listening, level: 0.7, bands: [0.9, 0.6, 1, 0.5], state: "Listening", line: "“what is still open on the voice board”", mute: "Mute"),
-        Specimen(activity: .thinking, level: 0, bands: [], state: "Thinking", line: "1 queued · “and assign them to me”", mute: "Mute"),
-        Specimen(activity: .speaking, level: 0.5, bands: [0.7, 1, 0.5, 0.8], state: "Speaking", line: "Three issues are open: NEW-55, NEW-56 and NEW-79.", mute: "Mute"),
-        Specimen(activity: .muted, level: 0, bands: [], state: "Microphone muted", line: "Unmute to talk", mute: "Unmute"),
+        Specimen(name: "ringing", agent: "Assistant", timer: nil, level: 0, bands: [], view: View(
+            activity: .ringing, status: "Calling…", caption: "", muted: false, speaker: true, buttons: [.end], end: "Cancel"
+        )),
+        Specimen(name: "getting ready", agent: "Assistant", timer: nil, level: 0, bands: [], view: View(
+            activity: .ringing, status: "Getting ready…", caption: "", muted: false, speaker: true, buttons: [.end], end: "Cancel"
+        )),
+        Specimen(name: "in call, speaking", agent: "Assistant", timer: "04:12", level: 0.5, bands: [0.7, 1, 0.5, 0.8], view: View(
+            activity: .speaking, status: nil,
+            caption: "Batch 4 is rebasing; the other two are merged. Want me to merge the last one when it's green?",
+            muted: false, speaker: true, buttons: inCallButtons, end: "End call"
+        )),
+        Specimen(name: "in call, listening", agent: "Assistant", timer: "04:20", level: 0.7, bands: [0.9, 0.6, 1, 0.5], view: View(
+            activity: .listening, status: nil, caption: "“merge it when it's green”",
+            muted: false, speaker: true, buttons: inCallButtons, end: "End call"
+        )),
+        Specimen(name: "muted", agent: "Assistant", timer: "04:31", level: 0, bands: [], view: View(
+            activity: .muted, status: nil, caption: "Microphone muted",
+            muted: true, speaker: true, buttons: inCallButtons, end: "End call"
+        )),
     ]
+
+    /// The floating pill's fixed size (desktop only; mirrored for parity).
+    public enum Pill {
+        public static let width = 320
+        public static let height = 56
+        public static let marginPx = 24
+    }
 
     // MARK: - Transport
 
