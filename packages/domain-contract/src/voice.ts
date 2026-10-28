@@ -9,7 +9,7 @@ import meetingFixture from "../fixtures/meeting.json" with { type: "json" }
 export const VOICE_COPY = fixture.copy
 export const VOICE_TEST_IDS = fixture.testIds
 export const VOICE_MAX_CHARS = fixture.maxChars
-export const VOICE_SHORTCUTS = fixture.shortcuts
+export const VOICE_SHORTCUT_GRAMMAR = fixture.shortcutGrammar
 export const VOICE_DEFAULTS = fixture.defaults
 export const VOICE_LANGUAGES = fixture.languages
 export const VOICE_LIMITS = fixture.limits
@@ -43,7 +43,10 @@ export interface VoiceContext {
   agentSessionId: string | null
   /** THIS device is the member's voice device. */
   isVoiceDevice: boolean
-  speakReplies: boolean
+  /** S-3: the member spoke this turn (a call runs with the voice agent, or a
+   *  push-to-talk / wake turn waits for or plays its reply); a typed
+   *  message is never read aloud. */
+  voiceTurn: boolean
   /** #NEW-73: the language replies are spoken in (`languages`). */
   language: string
   /** The languages THIS device's speech worker reports (empty without a
@@ -57,7 +60,7 @@ export interface VoiceContext {
 
 /** Whether a synced message row is read aloud. */
 export function shouldSpeak(message: VoiceMessageLike, context: VoiceContext): boolean {
-  if (!context.speakReplies || !context.agentSessionId || !context.isVoiceDevice) return false
+  if (!context.voiceTurn || !context.agentSessionId || !context.isVoiceDevice) return false
   if (context.meeting) return false
   if (!context.voices.includes(context.language)) return false
   if (message.authorKind !== `agent`) return false
@@ -299,21 +302,17 @@ export function voiceDeviceOptions(devices: VoiceDeviceLike[]): VoiceOption[] {
 export interface VoiceSwitches {
   voiceDeviceId: string | null
   agentId: string | null
-  speakReplies: boolean
-  pushToTalk: boolean
   wakeWord: boolean
   /** #NEW-57 (meeting.json): the running meeting, null = none. */
   meetingStartedAt?: string | null
 }
 
-/** Apply a change; choosing None for the device or the agent clears every
- *  switch, so picking again never turns listening or speaking on; #NEW-57:
- *  and stops a running meeting. */
+/** Apply a change; choosing None for the device or the agent clears the
+ *  wake word, so picking again never turns the always-on microphone on;
+ *  #NEW-57: and stops a running meeting. S-3: a bound key stays bound. */
 export function clearOnNone<T extends VoiceSwitches>(before: T, change: Partial<T>): T {
   const after = { ...before, ...change }
   if (after.voiceDeviceId === null || after.agentId === null) {
-    after.speakReplies = false
-    after.pushToTalk = false
     after.wakeWord = false
     if (`meetingStartedAt` in after) after.meetingStartedAt = null
   }
@@ -389,6 +388,8 @@ export interface TrayContext {
   meeting?: { available: boolean; on: boolean; who: string }
   /** #NEW-57: Pause listening (shown while a meeting runs or screen memory is on). */
   pause?: { available: boolean; paused: boolean }
+  /** S-3: a call runs on this device (Call reads End call). */
+  inCall?: boolean
 }
 
 /** #NEW-58: the tray's Screen memory switch (device-local, kept). */
@@ -401,7 +402,7 @@ export interface ScreenMemoryContext {
   paused: boolean
 }
 
-export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `meeting` | `screenMemory` | `pause` | `mute` | `settings` | `quit`
+export type TrayItemId = `open` | `call` | `endCall` | `pushToTalk` | `wakeWord` | `meeting` | `screenMemory` | `pause` | `mute` | `settings` | `quit`
 
 export type TrayItem =
   | { kind: `separator` }
@@ -430,15 +431,17 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     enabled: ready,
   })
   const menu: TrayItem[] = [{ kind: `action`, id: `open`, label: copy.trayOpen, enabled: true }]
-  if (context.callAvailable && !context.meeting?.on) {
+  if (context.inCall) {
+    menu.push({ kind: `action`, id: `endCall`, label: copy.trayEndCall, enabled: true })
+  } else if (context.callAvailable && !context.meeting?.on) {
     menu.push({ kind: `action`, id: `call`, label: copy.trayCall.replace(`{agent}`, agent), enabled: ready })
   }
-  menu.push(
-    { kind: `separator` },
-    check(`speakReplies`, copy.speakReplies, settings.speakReplies),
-    check(`pushToTalk`, `${copy.pushToTalk} · ${shortcut}`, settings.pushToTalk),
-    check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord)
-  )
+  menu.push({ kind: `separator` })
+  // S-3: no key bound = push to talk off = no item; the item opens Settings.
+  if (settings.pttShortcut !== ``) {
+    menu.push({ kind: `action`, id: `pushToTalk`, label: `${copy.pushToTalk} · ${shortcut}`, enabled: true })
+  }
+  menu.push(check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord))
   const meeting = context.meeting
   if (meeting?.available) {
     const words = meetingFixture.copy.meeting
@@ -482,13 +485,29 @@ export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
   return (context.wakeListening && !context.muted) || context.meetingListening === true ? `listening` : `app`
 }
 
-/** #NEW-86: the IDE's Wake word row detail on the voice device itself
- *  (desktop only): Microphone muted, Listening while the wake word holds the
- *  microphone, else null. */
-export function wakeDetail(context: { here: boolean; wakeWord: boolean; wakeListening: boolean; muted: boolean }): string | null {
-  if (!context.here || !context.wakeWord) return null
-  if (context.muted) return fixture.pttCopy.overlayMuted
-  return context.wakeListening ? fixture.pttCopy.overlayListening : null
+/** S-3: why the wake word is or is not listening; the voice device's IDE
+ *  reads its worker, every other client the device's doctor row `wake`. */
+export type WakeState = keyof typeof fixture.pttCopy.wakeDetail
+
+export interface WakeDetailContext {
+  wakeWord: boolean
+  /** An agent is picked. */
+  agent: boolean
+  /** The voice device is online. */
+  online: boolean
+  /** The voice device's name. */
+  device: string
+  /** What the worker reported; null = nothing yet. */
+  state: WakeState | null
+}
+
+/** S-3: the Wake word row's trailing detail ×4 (null = none). */
+export function wakeDetail(context: WakeDetailContext): string | null {
+  const words = fixture.pttCopy.wakeDetail
+  if (!context.wakeWord) return null
+  if (!context.agent) return words.noAgent
+  if (!context.online) return words.offline.replace(`{device}`, context.device)
+  return context.state === null ? words.starting : words[context.state].replace(`{device}`, context.device)
 }
 
 /** #NEW-97: what the IDE rail's voice button reads besides the settings. */
@@ -549,9 +568,93 @@ export function downloadProgress(received: number, total: number): string {
     .replace(`{total}`, downloadSize(total, false))
 }
 
-/** #NEW-54: a shortcut's label (`shortcuts`), the value itself when unknown. */
+const GRAMMAR = fixture.shortcutGrammar
+const MODS: readonly string[] = GRAMMAR.mods
+const LABELS: Record<string, string> = GRAMMAR.labels
+
+/** The grammar's key (not a modifier): a letter, digit, f1-f24, a named
+ *  key or mouse3-mouse9. */
+function isShortcutKey(part: string): boolean {
+  if (/^[a-z0-9]$/.test(part)) return true
+  const fn = /^f([1-9][0-9]?)$/.exec(part)
+  if (fn) return Number(fn[1]) >= GRAMMAR.function.min && Number(fn[1]) <= GRAMMAR.function.max
+  const mouse = /^mouse([0-9])$/.exec(part)
+  if (mouse) return Number(mouse[1]) >= GRAMMAR.mouse.min && Number(mouse[1]) <= GRAMMAR.mouse.max
+  return GRAMMAR.named.includes(part)
+}
+
+/** A key that may be bound without a modifier (`bareKeys`). */
+function isBareKey(part: string): boolean {
+  return /^f[0-9]+$/.test(part) || /^mouse[0-9]$/.test(part) || [`insert`, `pause`, `scrolllock`, `printscreen`].includes(part)
+}
+
+/** S-3: the canonical text of a binding (`shortcutGrammar`), or null when
+ *  the grammar refuses it; empty stays empty (no key = off). */
+export function shortcutCanonical(text: string): string | null {
+  if (text === ``) return ``
+  const parts = text.split(`+`)
+  const key = parts.pop() ?? ``
+  if (!isShortcutKey(key)) return null
+  if (parts.some((part) => !MODS.includes(part)) || new Set(parts).size !== parts.length) return null
+  if (parts.length === 0 && !isBareKey(key)) return null
+  const value = [...MODS.filter((mod) => parts.includes(mod)), key].join(`+`)
+  return value.length > GRAMMAR.maxLength ? null : value
+}
+
+function partLabel(part: string): string {
+  const mouse = /^mouse([0-9])$/.exec(part)
+  if (mouse) return LABELS.mouse.replace(`{n}`, mouse[1])
+  return LABELS[part] ?? part.toUpperCase()
+}
+
+/** S-3: a binding's label (`Ctrl + Shift + K`); empty reads None. */
 export function shortcutLabel(value: string): string {
-  return fixture.shortcuts.find((entry) => entry.value === value)?.label ?? value
+  if (value === ``) return fixture.copy.shortcutNone
+  return value.split(`+`).map(partLabel).join(GRAMMAR.separator)
+}
+
+export interface CaptureState {
+  status: `recording` | `done` | `cancelled`
+  /** The binding (the one before recording until a key records). */
+  value: string
+  /** The modifiers held now, in canonical order. */
+  held: string[]
+  error: string | null
+}
+
+export type CaptureEvent = { t: `down`; key: string } | { t: `up`; key: string } | { t: `mouse`; button: number }
+
+export function captureStart(value: string): CaptureState {
+  return { status: `recording`, value, held: [], error: null }
+}
+
+/** S-3: the push-to-talk recorder (`captureCases`). */
+export function captureStep(state: CaptureState, event: CaptureEvent): CaptureState {
+  if (state.status !== `recording`) return state
+  const needsModifier = fixture.pttCopy.shortcutNeedsModifier
+  const record = (key: string): CaptureState => {
+    const value = shortcutCanonical([...state.held, key].join(`+`))
+    return value === null ? { ...state, error: needsModifier } : { status: `done`, value, held: [], error: null }
+  }
+  if (event.t === `mouse`) return event.button < GRAMMAR.mouse.min ? state : record(`mouse${event.button}`)
+  if (MODS.includes(event.key)) {
+    const held = event.t === `down` ? [...new Set([...state.held, event.key])] : state.held.filter((mod) => mod !== event.key)
+    return { ...state, held: MODS.filter((mod) => held.includes(mod)) }
+  }
+  if (event.t === `up`) return state
+  if (state.held.length === 0 && event.key === `escape`) return { ...state, status: `cancelled`, held: [] }
+  if (state.held.length === 0 && (event.key === `backspace` || event.key === `delete`)) {
+    return { status: `done`, value: ``, held: [], error: null }
+  }
+  if (event.key === `escape`) return { ...state, error: needsModifier }
+  if (!isShortcutKey(event.key)) return state
+  return record(event.key)
+}
+
+/** S-3: the held modifiers while recording (`Ctrl + …`; empty = none). */
+export function capturePending(state: CaptureState): string {
+  if (state.status !== `recording` || state.held.length === 0) return ``
+  return `${state.held.map(partLabel).join(GRAMMAR.separator)}${GRAMMAR.separator}…`
 }
 
 export type VoiceOs = `linux` | `macos` | `windows`
@@ -559,7 +662,7 @@ export type VoiceSession = `x11` | `wayland` | null
 export type ShortcutSupport = `global` | `portal` | `focused-only` | `unavailable`
 
 function isMouse(shortcut: string): boolean {
-  return shortcut.startsWith(`mouse`)
+  return /(^|\+)mouse[0-9]$/.test(shortcut)
 }
 
 /** #NEW-54: how the voice device holds a push-to-talk shortcut. */
@@ -569,13 +672,6 @@ export function shortcutSupport(os: VoiceOs, session: VoiceSession, shortcut: st
   if (session !== `wayland`) return `global`
   if (isMouse(shortcut)) return `unavailable`
   return portal ? `portal` : `focused-only`
-}
-
-/** #NEW-54: the Shortcut picker's values on the voice device. */
-export function shortcutOptions(os: VoiceOs, session: VoiceSession): string[] {
-  return fixture.shortcuts
-    .map((entry) => entry.value)
-    .filter((value) => shortcutSupport(os, session, value, true) !== `unavailable`)
 }
 
 export type ShortcutReason = keyof typeof fixture.pttCopy.shortcutReasons

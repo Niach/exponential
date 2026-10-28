@@ -2425,6 +2425,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `ear`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "ear",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `ellipsis`: ImageVector by lazy {
         ImageVector.Builder(
             name = "ellipsis",
@@ -5013,6 +5038,59 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `mic-off`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "mic-off",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 19v3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 9.34V5a3 3 0 0 0-5.68-1.33"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16.95 16.95A7 7 0 0 1 5 12v-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18.89 13.23A7 7 0 0 0 19 12v-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m2 2 20 20"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 9v3a3 3 0 0 0 5.12 2.12"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `microscope`: ImageVector by lazy {
         ImageVector.Builder(
             name = "microscope",
@@ -5671,6 +5749,38 @@ public object ExpIcons {
         ).apply {
             addPath(
                 addPathNodes("M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `phone-off`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "phone-off",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 2 2 22"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -8524,6 +8634,7 @@ public object ExpIcons {
         "download" -> `download`
         "droplet" -> `droplet`
         "dumbbell" -> `dumbbell`
+        "ear" -> `ear`
         "ellipsis" -> `ellipsis`
         "ellipsis-vertical" -> `ellipsis-vertical`
         "external-link" -> `external-link`
@@ -8602,6 +8713,7 @@ public object ExpIcons {
         "message-square-plus" -> `message-square-plus`
         "message-square-reply" -> `message-square-reply`
         "mic" -> `mic`
+        "mic-off" -> `mic-off`
         "microscope" -> `microscope`
         "minimize-2" -> `minimize-2`
         "minus" -> `minus`
@@ -8625,6 +8737,7 @@ public object ExpIcons {
         "pen-tool" -> `pen-tool`
         "pencil" -> `pencil`
         "phone" -> `phone`
+        "phone-off" -> `phone-off`
         "pin" -> `pin`
         "pin-off" -> `pin-off`
         "plane" -> `plane`
@@ -8723,6 +8836,11 @@ public object ExpIcons {
         "action-suggestion" -> `lightbulb`
         "app-editor-chat" -> `message-square`
         "auth-passkey" -> `fingerprint`
+        "call-end" -> `phone-off`
+        "call-mute" -> `mic`
+        "call-speaker" -> `volume-2`
+        "call-speaker-off" -> `ear`
+        "call-unmute" -> `mic-off`
         "coding-assistant" -> `sparkles`
         "coding-command" -> `square-slash`
         "coding-compact" -> `fold-vertical`
@@ -9016,6 +9134,16 @@ public object ExpIcons {
     public val appEditorChat: ImageVector get() = `message-square`
     /** Concept `auth-passkey`. */
     public val authPasskey: ImageVector get() = `fingerprint`
+    /** Concept `call-end`. */
+    public val callEnd: ImageVector get() = `phone-off`
+    /** Concept `call-mute`. */
+    public val callMute: ImageVector get() = `mic`
+    /** Concept `call-speaker`. */
+    public val callSpeaker: ImageVector get() = `volume-2`
+    /** Concept `call-speaker-off`. */
+    public val callSpeakerOff: ImageVector get() = `ear`
+    /** Concept `call-unmute`. */
+    public val callUnmute: ImageVector get() = `mic-off`
     /** Concept `coding-assistant`. */
     public val codingAssistant: ImageVector get() = `sparkles`
     /** Concept `coding-command`. */

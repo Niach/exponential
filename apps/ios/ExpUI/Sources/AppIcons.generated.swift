@@ -214,6 +214,7 @@ public enum AppIcons {
         "download",
         "droplet",
         "dumbbell",
+        "ear",
         "ellipsis",
         "ellipsis-vertical",
         "external-link",
@@ -292,6 +293,7 @@ public enum AppIcons {
         "message-square-plus",
         "message-square-reply",
         "mic",
+        "mic-off",
         "microscope",
         "minimize-2",
         "minus",
@@ -315,6 +317,7 @@ public enum AppIcons {
         "pen-tool",
         "pencil",
         "phone",
+        "phone-off",
         "pin",
         "pin-off",
         "plane",
@@ -418,6 +421,11 @@ public enum AppIcons {
         "action-suggestion": "lightbulb",
         "app-editor-chat": "message-square",
         "auth-passkey": "fingerprint",
+        "call-end": "phone-off",
+        "call-mute": "mic",
+        "call-speaker": "volume-2",
+        "call-speaker-off": "ear",
+        "call-unmute": "mic-off",
         "coding-assistant": "sparkles",
         "coding-command": "square-slash",
         "coding-compact": "fold-vertical",
@@ -716,6 +724,16 @@ public enum AppIcons {
     public static let appEditorChat: String = "message-square"
     /// Concept `auth-passkey`.
     public static let authPasskey: String = "fingerprint"
+    /// Concept `call-end`.
+    public static let callEnd: String = "phone-off"
+    /// Concept `call-mute`.
+    public static let callMute: String = "mic"
+    /// Concept `call-speaker`.
+    public static let callSpeaker: String = "volume-2"
+    /// Concept `call-speaker-off`.
+    public static let callSpeakerOff: String = "ear"
+    /// Concept `call-unmute`.
+    public static let callUnmute: String = "mic-off"
     /// Concept `coding-assistant`.
     public static let codingAssistant: String = "sparkles"
     /// Concept `coding-command`.
