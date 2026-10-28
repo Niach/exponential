@@ -350,13 +350,11 @@ struct AgentMarkdownText: View {
         case .ignore:
             return {}
         case let .session(_, sessionId):
-            // EXP-1291: a root opens its thread (the Guide with
-            // `?view=guide`, the PR body footer's form), a child its session.
+            // EXP-1291: a root opens its thread (S-3: on its Conversation,
+            // `?view=guide` included), a child its session.
             guard let account = deps.auth.accounts.first(where: { $0.id == accountId }) else { return {} }
-            let guide = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first { $0.name == "view" }?.value == "guide"
             return {
-                deps.deepLinkBus.navigateToSessionLink(sessionId, account: account, guide: guide, db: deps.db)
+                deps.deepLinkBus.navigateToSessionLink(sessionId, account: account, db: deps.db)
             }
         case let .thread(_, threadId):
             // EXP-1284: a thread link opens the Thread screen.
