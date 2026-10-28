@@ -311,6 +311,11 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let eventName: String?
     /// NEW-1 / #EXP-1399 `ask` mirror: the origin question / plan message.
     public let messageId: String?
+    /// S-3 (stories.json) plan | question | surface: the explicit story flag
+    /// (nil = absent: ask/plan or a resolved picture make it one).
+    public let story: Bool?
+    /// The card's `pictures` (plan uploads; S-3: a result story's screenshots).
+    public let pictures: [PlanCardPicture]
 
     public init(
         kind: String?,
@@ -342,9 +347,13 @@ public struct TreeMessageCard: Equatable, Sendable {
         summary: String? = nil,
         items: [TreeSuggestionItem]? = nil,
         eventName: String? = nil,
-        messageId: String? = nil
+        messageId: String? = nil,
+        story: Bool? = nil,
+        pictures: [PlanCardPicture] = []
     ) {
         self.kind = kind
+        self.story = story
+        self.pictures = pictures
         self.eventName = eventName
         self.messageId = messageId
         self.summary = summary
@@ -476,7 +485,12 @@ public struct TreeMessageCard: Equatable, Sendable {
                 }
             },
             eventName: text("name"),
-            messageId: text("messageId")
+            messageId: text("messageId"),
+            // `typeof card.story === 'boolean'` in the reference.
+            story: (object["story"] as? NSNumber).flatMap {
+                CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil
+            },
+            pictures: pictures
         )
     }
 
@@ -727,7 +741,8 @@ public struct ThreadTabNestedSession: Equatable, Sendable {
 }
 
 /// The thread header's tab strip (EXP-1334: + · Conversation · issue chips ·
-/// session chips · Guide; nothing scrolls).
+/// session chips; nothing scrolls). S-3: the Guide tab is gone ×4 (stories
+/// replace it).
 public enum ThreadTab: Equatable, Sendable {
     /// The "+" (link/file an issue), LEFT of Conversation.
     case add
@@ -738,8 +753,6 @@ public enum ThreadTab: Equatable, Sendable {
     /// no chip); every deeper session folds into `nested`. `markState` =
     /// `threadRowMarkState` of that session, `.ended` once it ended.
     case session(sessionId: String, name: String, markState: SessionState, nested: [ThreadTabNestedSession])
-    /// `dot` while the root's guide holds any text or picture.
-    case guide(dot: Bool)
 }
 
 /// S-3 inter-session links: a compact header naming ANOTHER session (the
@@ -1730,10 +1743,6 @@ public enum SessionTree {
             }
         }
 
-        let guideDot = (root.guide ?? []).contains { entry in
-            !(entry.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || entry.label != nil
-        }
         let live = tree.filter { $0.status != "ended" }
         // NEW-6 (N-1): the root alone = the thread IS that session (the
         // Conversation tab opens its raw work, `mainSessionId`); NEW-46: the
@@ -1752,7 +1761,7 @@ public enum SessionTree {
             title: title,
             isPrivate: !root.shared,
             focusId: focused?.id,
-            tabs: [.add, .conversation] + issueTabs + sessionTabs + [.guide(dot: guideDot)],
+            tabs: [.add, .conversation] + issueTabs + sessionTabs,
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,

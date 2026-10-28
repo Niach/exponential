@@ -866,6 +866,9 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
     public let readAt: String
     /// #EXP-1388: the viewer archived the chat (nil = not).
     public let archivedAt: String?
+    /// S-3 (stories.json): the greatest story createdAt the viewer was shown
+    /// in this root's tree (nil = none).
+    public let storySeenAt: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -875,6 +878,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
         sessionId: String,
         readAt: String,
         archivedAt: String? = nil,
+        storySeenAt: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -883,6 +887,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
         self.sessionId = sessionId
         self.readAt = readAt
         self.archivedAt = archivedAt
+        self.storySeenAt = storySeenAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -893,6 +898,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
         case sessionId = "session_id"
         case readAt = "read_at"
         case archivedAt = "archived_at"
+        case storySeenAt = "story_seen_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

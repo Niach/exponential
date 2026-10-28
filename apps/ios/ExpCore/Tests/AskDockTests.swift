@@ -140,7 +140,6 @@ final class AskDockTests: XCTestCase {
                         markState: (raw["markState"] as? String).flatMap(SessionState.init(rawValue:)) ?? .waiting,
                         nested: nested
                     )
-                case "guide": return .guide(dot: raw["dot"] as? Bool ?? false)
                 default: return .conversation
                 }
             }
