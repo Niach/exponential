@@ -27,7 +27,6 @@ struct AgentOptionsRow: View {
                     devicePill
                     accountPill
                     modelPill
-                    planPill
                 }
                 .padding(.horizontal, 2)
             }
@@ -128,21 +127,6 @@ struct AgentOptionsRow: View {
             trigger: { OptionPillLabel(text: LaunchVocabulary.modelLabel(state.model)) }
         )
         .accessibilityLabel("Model")
-    }
-
-    /// Plan mode is claude's (EXP-441/EXP-849). EXP-827: a slide switch on
-    /// every platform (web and desktop use one),
-    /// not a lit select pill. EXP-859 rebuilt it without `.fixedSize()` and
-    /// without scaling the app-wide toggle down: a scaled switch reported its
-    /// UNSCALED size, which pushed the caption out of the pill and clipped the
-    /// track. The shared `GlassToggleRow` `.pill` arm draws it at row scale.
-    @ViewBuilder
-    private var planPill: some View {
-        if LaunchVocabulary.supportsPlanMode(launch.agent) {
-            @Bindable var launch = model.launch
-            GlassToggleRow("Plan", isOn: $launch.planMode, style: .pill)
-                .accessibilityLabel("Plan mode")
-        }
     }
 }
 

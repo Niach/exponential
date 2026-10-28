@@ -130,14 +130,14 @@ final class AskDockTests: XCTestCase {
                         ThreadTabNestedSession(
                             sessionId: n["sessionId"] as? String ?? "",
                             name: n["name"] as? String ?? "",
-                            markState: (n["markState"] as? String).flatMap(SessionState.init(rawValue:)) ?? .waiting,
+                            markState: (n["markState"] as? String).flatMap(SessionState.init(rawValue:)) ?? .idle,
                             depth: (n["depth"] as? NSNumber)?.intValue ?? 1
                         )
                     }
                     return .session(
                         sessionId: raw["sessionId"] as? String ?? "",
                         name: raw["name"] as? String ?? "",
-                        markState: (raw["markState"] as? String).flatMap(SessionState.init(rawValue:)) ?? .waiting,
+                        markState: (raw["markState"] as? String).flatMap(SessionState.init(rawValue:)) ?? .idle,
                         nested: nested
                     )
                 case "guide": return .guide(dot: raw["dot"] as? Bool ?? false)
