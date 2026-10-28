@@ -3095,6 +3095,8 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   desktopAudio: varchar(`desktop_audio`, { length: 16 }).notNull().default(`off`),
   desktopAudioApps: jsonb(`desktop_audio_apps`).$type<{ id: string; name: string }[]>().notNull().default(sql`'[]'::jsonb`),
   meetingStartedAt: timestamp(`meeting_started_at`, { withTimezone: true }),
+  // #FEED-163: the meeting's auto-stop in hours (meeting.json `autoStop.hoursValues`).
+  meetingAutoStopHours: integer(`meeting_auto_stop_hours`).notNull().default(4),
   ...timestamps,
 }, (table) => [
   check(`user_voice_settings_language_check`, sql`${table.language} IN ('en', 'de')`),
