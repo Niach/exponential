@@ -496,6 +496,11 @@
     "payloadMaxBytes": 16384,
     "retentionDays": 30
   },
+  "meeting": {
+    "$comment": "NEW-57 (fixtures/meeting.json): meeting-mode transcript batches the server keeps (`sessions.send {meeting: true}` stamps messages.expires_at; the watchdog prunes) and the raw segment log the voice device keeps in its own SQLite.",
+    "retentionDays": 7,
+    "localRetentionDays": 30
+  },
   "actionInputs": {
     "max": 10,
     "maxTextLength": 4096
