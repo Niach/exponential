@@ -23,14 +23,10 @@
     "@exponential_app/ui": "workspace:*",
     "@exponential_app/ui-bench": "workspace:*",
     "@exponential_app/ui-react": "workspace:*",
-    "@remotion/cli": "4.0.484",
-    "@remotion/google-fonts": "4.0.484",
-    "@remotion/player": "4.0.484",
     "lucide-react": "^0.544.0",
     "motion": "^12.39.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "remotion": "4.0.484"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",

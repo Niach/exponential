@@ -281,7 +281,7 @@ describe(`coverage — npm`, () => {
 
   it(`platform-gated packages are attributed on every host`, () => {
     // ~55 packages in the closure are os/cpu-gated (@esbuild/*, @rollup/*,
-    // lightningcss-*, @remotion/compositor-*). Only the current host's copy is
+    // lightningcss-*). Only the current host's copy is
     // ever installed, so a collector that read them off disk would emit a
     // different file on macOS and on ubuntu, and the drift gate would fail
     // forever. Assert the full family is present, not just this host's member.
@@ -529,15 +529,15 @@ describe(`notice sections`, () => {
   })
 
   it(`non-OSS components are separated from the open-source aggregate`, () => {
-    // docs/third-party-licences.md: marketing carries Remotion, iOS and Android
-    // carry Google's closed binaries, and web + desktop carry nothing — the
-    // section must be ABSENT rather than empty.
-    for (const client of [`marketing`, `ios`, `android`] as const) {
+    // docs/third-party-licences.md: iOS and Android carry Google's closed
+    // binaries, and web, marketing and desktop carry nothing — the section must
+    // be ABSENT rather than empty.
+    for (const client of [`ios`, `android`] as const) {
       const commercial = section(notices[client], `Commercially licensed components`)
       expect(commercial, `${client} should have a commercial section`).toBeDefined()
       expect(flat(commercial!)).toContain(`NOT open source`)
     }
-    for (const client of [`desktop`, `web`] as const) {
+    for (const client of [`desktop`, `web`, `marketing`] as const) {
       // docs/third-party-licences.md: "the section should be absent rather
       // than empty". The two web packages that declare no licence at all
       // (@better-fetch/fetch, creem) are both MIT — see curated/overrides.ts.
@@ -546,14 +546,6 @@ describe(`notice sections`, () => {
         `${client} should have no commercial section`
       ).toBeUndefined()
     }
-  })
-
-  it(`marketing reproduces the Remotion licence verbatim`, () => {
-    const commercial = section(notices.marketing, `Commercially licensed components`)!
-    const licence = read(`docs/licences/remotion-LICENSE.txt`)
-    const distinctive = `a for-profit organization with up to 3 employees`
-    expect(licence).toContain(distinctive)
-    expect(commercial).toContain(distinctive)
   })
 
   it(`iOS and Android route Google's closed binaries out of the aggregate`, () => {

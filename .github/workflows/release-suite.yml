@@ -125,9 +125,7 @@ jobs:
     if: needs.dedupe.outputs.run == 'true'
     # REV2-62: nothing else in CI typechecks or builds apps/marketing — its
     # breaks used to surface only at Coolify deploy time. `build` also runs
-    # scripts/prerender.tsx, the Bun SSR canary that hard-fails if remotion
-    # ever enters HomePage's static import graph (the movie must stay in the
-    # lazy LoopMoviePlayer chunk).
+    # scripts/prerender.tsx, the Bun SSR prerender of every page.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

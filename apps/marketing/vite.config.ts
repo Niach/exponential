@@ -89,24 +89,12 @@ export default defineConfig({
   plugins: [react(), uiSection(), shotStore()],
   resolve: {
     alias: {
-      // The site self-hosts Inter/JetBrains Mono (fonts.css) — the movie
-      // surfaces must never fetch from Google. Keep these two exact shims in
-      // lockstep with tsconfig "paths" (and extend both if src/movie ever
-      // imports another @remotion/google-fonts family).
-      "@remotion/google-fonts/Inter": resolve(
-        __dirname,
-        `src/movie/fonts/inter-shim.ts`,
-      ),
-      "@remotion/google-fonts/JetBrainsMono": resolve(
-        __dirname,
-        `src/movie/fonts/jetbrains-shim.ts`,
-      ),
       "@app": resolve(__dirname, `../web/src`),
     },
     // The @app alias reaches across workspaces, so any React copy nested
     // under apps/web would ride into a lazy chunk as a SECOND React instance
-    // — its hooks dispatcher is null (EXP-207: the movie ending slide's
-    // useId crashed the player). Always bundle the one hoisted copy.
+    // — its hooks dispatcher is null (EXP-207: a useId in a lazy chunk
+    // crashed). Always bundle the one hoisted copy.
     dedupe: [`react`, `react-dom`],
   },
   /* Only the site's own pages: the dep scan must not crawl the guide example

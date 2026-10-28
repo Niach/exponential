@@ -81,37 +81,6 @@ export const LICENCE_OVERRIDES: LicenceOverride[] = [
       `Every other gated family has a non-gated parent in the closure that ` +
       `carries the copyright already.`,
   },
-  // Remotion is source-available, not open source. Its packages spell that
-  // five different ways across their manifests — `SEE LICENSE IN LICENSE.md`
-  // (whose target file none of them actually ships), `Remotion License`,
-  // `Remotion License https://remotion.dev/license`, `UNLICENSED`, and nothing
-  // at all on the prebuilt compositor binaries. All of them must read the same
-  // in the notice, and all of them must stay OUT of the open-source aggregate
-  // (empty `licenses`). See docs/third-party-licences.md for the dated
-  // determination and the reproduced licence text.
-  {
-    scope: `marketing`,
-    name: `remotion`,
-    declared: `Remotion License (https://remotion.dev/license)`,
-    licenses: [],
-    reason:
-      `Checked 2026-07-31: declares \`SEE LICENSE IN LICENSE.md\` but ships no ` +
-      `such file. Source-available under the Remotion License, reproduced in ` +
-      `the commercially-licensed section from docs/licences/remotion-LICENSE.txt.`,
-  },
-  {
-    scope: `marketing`,
-    name: `@remotion/*`,
-    declared: `Remotion License (https://remotion.dev/license)`,
-    licenses: [],
-    reason:
-      `Checked 2026-07-31: covers every @remotion/* package in the marketing ` +
-      `closure — the ones declaring \`SEE LICENSE IN LICENSE.md\` without ` +
-      `shipping it, the free-text "Remotion License" ones, \`UNLICENSED\` ` +
-      `(@remotion/web-renderer) and the prebuilt @remotion/compositor-* ` +
-      `binaries that declare nothing at all. All ship under the Remotion ` +
-      `License as part of the same distribution.`,
-  },
   {
     scope: `desktop`,
     name: `rio-vt`,
