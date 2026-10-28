@@ -76,8 +76,11 @@ struct ThreadStripFold: Identifiable, Equatable {
 struct ThreadStripTabs: View {
     let tabs: [ThreadTab]
     let selection: ThreadPage
-    /// The synced issue behind a tab (its status glyph); nil = anchor default.
+    /// The synced issue behind a tab (its title).
     var issue: (String) -> IssueEntity? = { _ in nil }
+    /// S-3: a tab's status, resolved through the team's statuses; nil = no
+    /// glyph (an unresolved issue never reads as Backlog).
+    var issueStatus: (String) -> ResolvedIssueStatus? = { _ in nil }
     /// Whether an issue tab was just linked (the fade-in ring, once).
     var isFresh: (String) -> Bool = { _ in false }
     let onSelect: (ThreadPage) -> Void
@@ -285,11 +288,12 @@ struct ThreadStripTabs: View {
         if case let .issue(issueId, identifier, nested) = tab {
             let open = openNested(in: tab)
             let selected = isShown(tab) || open != nil
-            let status = IssueStatus.from(issue(issueId)?.status)
             ThreadStripTab(selected: selected, bordered: true, fresh: isFresh(issueId)) {
                 HStack(spacing: ThreadStripMetrics.innerSpacing) {
-                    AppIcon(status.iconName, size: AppIcon.Size.small)
-                        .foregroundStyle(status.color)
+                    if let status = issueStatus(issueId) {
+                        AppIcon(status.iconName, size: AppIcon.Size.small)
+                            .foregroundStyle(status.color)
+                    }
                     Text(identifier)
                         .font(ThreadStripMetrics.identifierFont)
                         .fixedSize()

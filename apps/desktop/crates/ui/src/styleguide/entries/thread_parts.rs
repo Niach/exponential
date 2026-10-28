@@ -340,7 +340,7 @@ fn subtree_row(item: &SubtreeRow, guides: &domain::tree_guides::Guides, active: 
             title,
             status,
         } => row
-            .child(issue_glyph(status.as_ref(), cx))
+            .children(issue_glyph(status.as_ref(), cx))
             .child(
                 div()
                     .flex_shrink_0()

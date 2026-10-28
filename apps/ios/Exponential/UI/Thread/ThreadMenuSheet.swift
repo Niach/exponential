@@ -90,6 +90,8 @@ struct ThreadFoldSheet: View {
     let fold: ThreadStripFold
     /// The synced issue behind an issue row (its status glyph and title).
     var issue: (String) -> IssueEntity? = { _ in nil }
+    /// S-3: a row's status through the team's statuses; nil = no glyph.
+    var issueStatus: (String) -> ResolvedIssueStatus? = { _ in nil }
     /// The issue page on screen (its row is the active one).
     var shownIssueId: String?
     let onPick: (ThreadStripFold.Row) -> Void
@@ -120,15 +122,16 @@ struct ThreadFoldSheet: View {
     private func label(_ row: ThreadStripFold.Row, guide: TreeGuide) -> some View {
         switch row {
         case let .issue(issueId, identifier, _):
-            let status = IssueStatus.from(issue(issueId)?.status)
             SessionRow(
                 identifier: identifier,
                 title: issue(issueId)?.title ?? "",
                 guide: guide,
                 active: shownIssueId == issueId
             ) {
-                AppIcon(status.iconName, size: AppIcon.Size.small)
-                    .foregroundStyle(status.color)
+                if let status = issueStatus(issueId) {
+                    AppIcon(status.iconName, size: AppIcon.Size.small)
+                        .foregroundStyle(status.color)
+                }
             }
         case let .session(_, name, markState, _):
             SessionRow(title: name, guide: guide, word: markState.word) {

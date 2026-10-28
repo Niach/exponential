@@ -440,7 +440,23 @@ private struct ThreadStripSpecimens: View {
     }
 
     private func strip(_ tabs: [ThreadTab], selection: ThreadPage) -> some View {
-        ThreadStripTabs(tabs: tabs, selection: selection, onSelect: { _ in }, onAdd: {}, onOpenSession: { _ in })
+        // The demo statuses (the web's and desktop's): in progress, backlog,
+        // by the chip's index among the issue chips.
+        let issueIds = tabs.compactMap { tab -> String? in
+            if case let .issue(issueId, _, _) = tab { return issueId }
+            return nil
+        }
+        return ThreadStripTabs(
+            tabs: tabs,
+            selection: selection,
+            issueStatus: { id in
+                let key: IssueStatus = (issueIds.firstIndex(of: id) ?? 0) % 2 == 0 ? .inProgress : .backlog
+                return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
+            },
+            onSelect: { _ in },
+            onAdd: {},
+            onOpenSession: { _ in }
+        )
             .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }
