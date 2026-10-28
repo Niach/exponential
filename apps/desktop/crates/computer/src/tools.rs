@@ -179,7 +179,9 @@ impl Screen {
         if let Err(reason) = &windows {
             log::debug!("[computer] no window list for the work screen ({reason})");
         }
-        let state = work_screen::state_of(&displays, windows.as_deref().unwrap_or_default(), picked);
+        let mut state = work_screen::state_of(&displays, windows.as_deref().unwrap_or_default(), picked);
+        // Fail closed (#1295 review): no list = no focus or fullscreen read.
+        state.windows_read = windows.is_ok();
         let work = work_screen::work_displays(&state);
         Ok(Screen { displays, windows, state, work })
     }
@@ -201,7 +203,6 @@ impl Screen {
 
 /// The `wrong_display` answer (`work-screen.json`).
 fn refusal(refusal: work_screen::Refusal, work: &[usize]) -> Value {
-    let work: Vec<usize> = work.iter().map(|index| index + 1).collect();
     json!({
         "content": [{ "type": "text", "text": refusal.text }],
         "isError": true,
@@ -232,7 +233,8 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
             .and_then(|window| work_screen::window_display(&screen.displays, window)),
         _ => None,
     };
-    let verdict = work_screen::gate(&screen.state, work_screen::Call { tool: name, display: shown, window_display });
+    let id = args.get("id").and_then(Value::as_u64);
+    let verdict = work_screen::gate(&screen.state, work_screen::Call { tool: name, id, display: shown, window_display });
     if let Err(refused) = verdict {
         return refusal(refused, &screen.work);
     }
@@ -501,6 +503,8 @@ pub(crate) mod tests {
         pub fail_lock: bool,
         /// A fullscreen game focused on display B.
         pub gaming: bool,
+        /// The window list fails (#1295 review: input fails closed).
+        pub no_windows: bool,
     }
 
     impl Backend for FakeBackend {
@@ -518,6 +522,9 @@ pub(crate) mod tests {
             Ok((1000, 500))
         }
         fn list_windows(&self) -> Result<Vec<WindowInfo>, String> {
+            if self.no_windows {
+                return Err("no window list".into());
+            }
             let brave = WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: !self.gaming, fullscreen: false };
             if !self.gaming {
                 return Ok(vec![brave]);
@@ -686,12 +693,18 @@ pub(crate) mod tests {
         };
         let click = run("left_click", json!({ "x": 1, "y": 1 }), None);
         assert_eq!(click["isError"], true);
-        assert_eq!(click["structuredContent"], json!({ "refusal": "wrong_display", "kind": "gaming", "work": [1] }));
-        assert!(click["content"][0]["text"].as_str().unwrap().starts_with("The person is in a fullscreen app on display 2."));
+        assert_eq!(click["structuredContent"], json!({ "refusal": "wrong_display", "kind": "gaming", "work": [0] }));
+        assert!(click["content"][0]["text"].as_str().unwrap().starts_with("The person is in a fullscreen app on display 1."));
         let shot = run("screenshot", json!({ "display": 1 }), None);
         assert_eq!(shot["structuredContent"]["kind"], "notWorkScreen");
         let activate = run("activate_window", json!({ "id": 9 }), None);
         assert_eq!(activate["structuredContent"]["kind"], "windowElsewhere");
+        // An id list_windows never named (a tool window, a stale HWND).
+        let unknown = run("activate_window", json!({ "id": 4242 }), None);
+        assert_eq!(unknown["structuredContent"]["kind"], "unknownWindow");
+        // A picked display that is gone: nothing runs, never Auto.
+        let gone = run("left_click", json!({ "x": 1, "y": 1 }), Some(3));
+        assert_eq!(gone["structuredContent"]["kind"], "pickedGone");
         assert_eq!(engaged.get(), 0, "a refusal never locks the person out");
         assert!(backend.log.lock().unwrap().is_empty());
         // list_windows: only display A and its windows.
@@ -706,6 +719,27 @@ pub(crate) mod tests {
         assert_eq!(engaged.get(), 2);
         assert_eq!(display, Some(1));
         assert_eq!(backend.log.lock().unwrap().first().map(String::as_str), Some("move 2000,0"));
+    }
+
+    #[test]
+    fn an_unreadable_window_list_refuses_input_but_still_shows_the_screen() {
+        let backend = FakeBackend { no_windows: true, ..Default::default() };
+        let never = || false;
+        let engaged = std::cell::Cell::new(0);
+        let engage = || {
+            engaged.set(engaged.get() + 1);
+            Ok(())
+        };
+        let mut display = None;
+        let mut run = |name: &str, args: Value| {
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engage })
+        };
+        for (name, args) in [("type", json!({ "text": "x" })), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({}))] {
+            let refused = run(name, args);
+            assert_eq!(refused["structuredContent"]["kind"], "noWindowList", "{name}");
+        }
+        assert_eq!(engaged.get(), 0);
+        assert_eq!(run("screenshot", json!({}))["isError"], Value::Null);
     }
 
     #[test]

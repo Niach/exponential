@@ -23,20 +23,13 @@ final class WorkScreenTests: XCTestCase {
     func testCopyAndTestIdsMatchTheFixture() throws {
         let fixture = try fixture()
         var copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
-        let refusals = try XCTUnwrap(copy.removeValue(forKey: "refusals") as? [String: String])
+        copy.removeValue(forKey: "refusals")  // desktop-only
         XCTAssertEqual(copy as? [String: String], [
             "row": WorkScreen.Copy.row,
             "auto": WorkScreen.Copy.auto,
             "display": WorkScreen.Copy.display,
             "primary": WorkScreen.Copy.primary,
             "notConnected": WorkScreen.Copy.notConnected,
-        ])
-        XCTAssertEqual(refusals, [
-            "noWorkScreen": WorkScreen.Copy.Refusals.noWorkScreen,
-            "notWorkScreen": WorkScreen.Copy.Refusals.notWorkScreen,
-            "windowElsewhere": WorkScreen.Copy.Refusals.windowElsewhere,
-            "gaming": WorkScreen.Copy.Refusals.gaming,
-            "keysElsewhere": WorkScreen.Copy.Refusals.keysElsewhere,
         ])
         XCTAssertEqual(fixture["testIds"] as? [String: String], ["row": WorkScreen.TestIds.row])
     }

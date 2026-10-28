@@ -38,6 +38,9 @@ pub(crate) fn is_input(tool: &str) -> bool {
 
 /// The refusal kinds (`copy.refusals` keys).
 pub const NO_WORK_SCREEN: &str = "noWorkScreen";
+pub const PICKED_GONE: &str = "pickedGone";
+pub const NO_WINDOW_LIST: &str = "noWindowList";
+pub const UNKNOWN_WINDOW: &str = "unknownWindow";
 pub const NOT_WORK_SCREEN: &str = "notWorkScreen";
 pub const WINDOW_ELSEWHERE: &str = "windowElsewhere";
 pub const GAMING: &str = "gaming";
@@ -54,15 +57,21 @@ pub struct State {
     /// 0-based display of the focused window.
     pub active: Option<usize>,
     pub active_fullscreen: bool,
+    /// The OS window list was read (`windowsRead`); `false` = input fails
+    /// closed.
+    pub windows_read: bool,
 }
 
 /// One tool call as the gate sees it (`gateCases[].calls[].call`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Call<'a> {
     pub tool: &'a str,
+    /// `activate_window`'s window id.
+    pub id: Option<u64>,
     /// `screenshot`'s 0-based `display` argument.
     pub display: Option<usize>,
-    /// `activate_window`: the 0-based display holding the window's centre.
+    /// `activate_window`: the 0-based display holding the LISTED window's
+    /// centre; `None` = list_windows does not name the id.
     pub window_display: Option<usize>,
 }
 
@@ -77,19 +86,31 @@ pub struct Refusal {
 /// else every display without a fullscreen app.
 pub fn work_displays(state: &State) -> Vec<usize> {
     if let Some(picked) = state.picked {
+        // A picked display that is gone = none: a hot-unplug never widens
+        // the set the person allowed.
         let picked = picked as usize;
-        if picked >= 1 && picked <= state.count {
-            return vec![picked - 1];
-        }
+        return if picked >= 1 && picked <= state.count { vec![picked - 1] } else { Vec::new() };
     }
     (0..state.count).filter(|index| !state.fullscreen.contains(index)).collect()
 }
 
-fn refuse(kind: &'static str, number: Option<usize>, work: &[usize]) -> Refusal {
+/// The fields a refusal's copy fills in.
+#[derive(Default)]
+struct Fields {
+    display: Option<usize>,
+    picked: Option<u32>,
+    id: Option<u64>,
+}
+
+fn refuse(kind: &'static str, fields: Fields, work: &[usize]) -> Refusal {
     let template = fixture()["copy"]["refusals"][kind].as_str().expect("work-screen refusal copy");
-    let work = work.iter().map(|index| (index + 1).to_string()).collect::<Vec<_>>().join(", ");
+    let text_of = |value: Option<String>| value.unwrap_or_default();
+    // NUMBERING: the tools' own 0-based display indexes.
+    let work = work.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     let text = template
-        .replace("{number}", &number.map(|number| number.to_string()).unwrap_or_default())
+        .replace("{display}", &text_of(fields.display.map(|display| display.to_string())))
+        .replace("{picked}", &text_of(fields.picked.map(|picked| picked.to_string())))
+        .replace("{id}", &text_of(fields.id.map(|id| id.to_string())))
         .replace("{work}", &work);
     Refusal { kind, text }
 }
@@ -100,27 +121,36 @@ pub fn gate(state: &State, call: Call<'_>) -> Result<(), Refusal> {
     if call.tool == "wait" {
         return Ok(());
     }
+    if state.picked.is_some() && work.is_empty() {
+        return Err(refuse(PICKED_GONE, Fields { picked: state.picked, ..Fields::default() }, &work));
+    }
     if work.is_empty() {
-        return Err(refuse(NO_WORK_SCREEN, None, &work));
+        return Err(refuse(NO_WORK_SCREEN, Fields::default(), &work));
+    }
+    let input = is_input(call.tool);
+    if !state.windows_read && (input || call.tool == "list_windows") {
+        return Err(refuse(NO_WINDOW_LIST, Fields::default(), &work));
     }
     if call.tool == "screenshot" {
         if let Some(display) = call.display.filter(|display| !work.contains(display)) {
-            return Err(refuse(NOT_WORK_SCREEN, Some(display + 1), &work));
+            return Err(refuse(NOT_WORK_SCREEN, Fields { display: Some(display), ..Fields::default() }, &work));
         }
     }
     if call.tool == "activate_window" {
-        if let Some(display) = call.window_display.filter(|display| !work.contains(display)) {
-            return Err(refuse(WINDOW_ELSEWHERE, Some(display + 1), &work));
+        match call.window_display {
+            None => return Err(refuse(UNKNOWN_WINDOW, Fields { id: call.id, ..Fields::default() }, &work)),
+            Some(display) if !work.contains(&display) => {
+                return Err(refuse(WINDOW_ELSEWHERE, Fields { display: Some(display), ..Fields::default() }, &work))
+            }
+            Some(_) => {}
         }
     }
-    if let Some(active) = state.active {
-        if is_input(call.tool) {
-            if state.active_fullscreen && !work.contains(&active) {
-                return Err(refuse(GAMING, Some(active + 1), &work));
-            }
-            if matches!(call.tool, "type" | "key") && !work.contains(&active) {
-                return Err(refuse(KEYS_ELSEWHERE, Some(active + 1), &work));
-            }
+    if let Some(active) = state.active.filter(|_| input) {
+        if state.active_fullscreen && !work.contains(&active) {
+            return Err(refuse(GAMING, Fields { display: Some(active), ..Fields::default() }, &work));
+        }
+        if matches!(call.tool, "type" | "key") && !work.contains(&active) {
+            return Err(refuse(KEYS_ELSEWHERE, Fields { display: Some(active), ..Fields::default() }, &work));
         }
     }
     Ok(())
@@ -189,6 +219,7 @@ pub(crate) fn state_of(displays: &[DisplayInfo], windows: &[WindowInfo], picked:
         fullscreen,
         active: active.and_then(|window| window_display(displays, window)),
         active_fullscreen: active.is_some_and(|window| window.fullscreen),
+        windows_read: true,
     }
 }
 
@@ -272,11 +303,13 @@ mod tests {
                 fullscreen: indexes(&raw["fullscreen"]),
                 active: index(&raw["active"]),
                 active_fullscreen: raw["activeFullscreen"].as_bool().unwrap(),
+                windows_read: raw["windowsRead"].as_bool().unwrap_or(true),
             };
             assert_eq!(work_displays(&state), indexes(&case["work"]), "{name}: work");
             for step in case["calls"].as_array().unwrap() {
                 let call = Call {
                     tool: step["call"]["tool"].as_str().unwrap(),
+                    id: step["call"]["id"].as_u64(),
                     display: index(&step["call"]["display"]),
                     window_display: index(&step["call"]["windowDisplay"]),
                 };
@@ -337,7 +370,7 @@ mod tests {
         // A focused game on display 2, a plain window on display 1, one off-screen.
         let windows = [window(1000, true, true), window(0, false, false), window(5000, false, true)];
         let state = state_of(&displays, &windows, None);
-        assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true });
+        assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true, windows_read: true });
         assert_eq!(work_displays(&state), [0]);
         assert_eq!(state_of(&displays, &[], Some(2)).active, None);
     }

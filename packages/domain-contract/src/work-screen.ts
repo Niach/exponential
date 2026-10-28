@@ -61,12 +61,16 @@ export interface WorkScreenState {
   /** 0-based display of the focused window. */
   active: number | null
   activeFullscreen: boolean
+  /** false = the OS window list could not be read; absent = true. */
+  windowsRead?: boolean
 }
 
-/** The 0-based displays agents may drive. */
+/** The 0-based displays agents may drive: the picked one while connected,
+ * none while the picked one is gone (never a wider set), else (Auto) every
+ * display without a fullscreen app. */
 export function workDisplays(state: WorkScreenState): number[] {
-  if (state.picked != null && state.picked >= 1 && state.picked <= state.count) {
-    return [state.picked - 1]
+  if (state.picked != null) {
+    return state.picked >= 1 && state.picked <= state.count ? [state.picked - 1] : []
   }
   const out: number[] = []
   for (let index = 0; index < state.count; index++) {
@@ -79,22 +83,33 @@ export type WorkScreenRefusalKind = keyof typeof fixture.copy.refusals
 
 export interface WorkScreenCall {
   tool: string
+  /** `activate_window`'s window id. */
+  id?: number
   /** `screenshot`'s 0-based `display` argument. */
   display?: number
-  /** `activate_window`: the 0-based display holding the window's centre. */
-  windowDisplay?: number
+  /** `activate_window`: the 0-based display holding the listed window's
+   * centre; absent/null = list_windows does not name the id. */
+  windowDisplay?: number | null
 }
 
 export type WorkScreenVerdict = `allow` | { kind: WorkScreenRefusalKind; text: string }
 
+interface RefusalFields {
+  display?: number
+  picked?: number | null
+  id?: number
+}
+
 function refuse(
   kind: WorkScreenRefusalKind,
-  number: number | null,
+  fields: RefusalFields,
   work: readonly number[]
 ): WorkScreenVerdict {
   const text = WORK_SCREEN_COPY.refusals[kind]
-    .replace(`{number}`, String(number ?? ``))
-    .replace(`{work}`, work.map((index) => index + 1).join(`, `))
+    .replace(`{display}`, String(fields.display ?? ``))
+    .replace(`{picked}`, String(fields.picked ?? ``))
+    .replace(`{id}`, String(fields.id ?? ``))
+    .replace(`{work}`, work.join(`, `))
   return { kind, text }
 }
 
@@ -102,22 +117,29 @@ function refuse(
 export function workScreenGate(state: WorkScreenState, call: WorkScreenCall): WorkScreenVerdict {
   const work = workDisplays(state)
   if (call.tool === `wait`) return `allow`
-  if (work.length === 0) return refuse(`noWorkScreen`, null, work)
+  if (state.picked != null && work.length === 0) {
+    return refuse(`pickedGone`, { picked: state.picked }, work)
+  }
+  if (work.length === 0) return refuse(`noWorkScreen`, {}, work)
+  const input = WORK_SCREEN_INPUT_TOOLS.includes(call.tool)
+  if (state.windowsRead === false && (input || call.tool === `list_windows`)) {
+    return refuse(`noWindowList`, {}, work)
+  }
   if (call.tool === `screenshot` && call.display != null && !work.includes(call.display)) {
-    return refuse(`notWorkScreen`, call.display + 1, work)
+    return refuse(`notWorkScreen`, { display: call.display }, work)
   }
-  if (
-    call.tool === `activate_window` &&
-    call.windowDisplay != null &&
-    !work.includes(call.windowDisplay)
-  ) {
-    return refuse(`windowElsewhere`, call.windowDisplay + 1, work)
+  if (call.tool === `activate_window`) {
+    if (call.windowDisplay == null) return refuse(`unknownWindow`, { id: call.id }, work)
+    if (!work.includes(call.windowDisplay)) {
+      return refuse(`windowElsewhere`, { display: call.windowDisplay }, work)
+    }
   }
-  if (WORK_SCREEN_INPUT_TOOLS.includes(call.tool) && state.active != null) {
-    const gaming = state.activeFullscreen && !work.includes(state.active)
-    if (gaming) return refuse(`gaming`, state.active + 1, work)
+  if (input && state.active != null) {
+    if (state.activeFullscreen && !work.includes(state.active)) {
+      return refuse(`gaming`, { display: state.active }, work)
+    }
     if ((call.tool === `type` || call.tool === `key`) && !work.includes(state.active)) {
-      return refuse(`keysElsewhere`, state.active + 1, work)
+      return refuse(`keysElsewhere`, { display: state.active }, work)
     }
   }
   return `allow`

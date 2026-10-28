@@ -69,17 +69,23 @@ pub struct DefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_model: Option<String>,
     /// NEW-59: `Settings.computer_use_display`, the Work screen
-    /// (`fixtures/work-screen.json`). Tri-state, unlike its neighbours: an
-    /// ABSENT key keeps the stored value (carry-forward), an explicit `null`
-    /// clears it to Auto, a number picks that display. So the device states
-    /// Auto as `null` (the one null on its wire; the server accepts it).
+    /// (`fixtures/work-screen.json`). The device states Auto as `null` (the
+    /// one null on its wire; the server accepts it and stores NO key). Every
+    /// patch the device applies is the row's full `launch_defaults`
+    /// snapshot, so an ABSENT key here is Auto (#1295 review: a remote Auto
+    /// must reach the device); only an invalid value keeps the stored one.
     #[serde(
-        default,
+        default = "auto_display",
         deserialize_with = "present_or_null",
         skip_serializing_if = "Option::is_none"
     )]
     pub computer_use_display: Option<Option<u32>>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
+}
+
+/// An absent `computerUseDisplay` in a row snapshot = Auto.
+fn auto_display() -> Option<Option<u32>> {
+    Some(None)
 }
 
 /// A present key (null included) deserializes to `Some`, so `null` and
@@ -375,8 +381,9 @@ mod tests {
         }
     }
 
-    /// NEW-59: the Work screen rides the top of the wire; absent keeps it,
-    /// null clears it to Auto, garbage changes nothing.
+    /// NEW-59: the Work screen rides the top of the wire; garbage changes
+    /// nothing, null clears it to Auto, and so does a row snapshot WITHOUT
+    /// the key (a remote client's Auto: the server stores no key).
     #[test]
     fn computer_use_display_carries_forward_and_null_clears_it() {
         let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
@@ -388,7 +395,6 @@ mod tests {
         assert_eq!(settings.computer_use_display, Some(2));
         assert_eq!(serde_json::to_value(defaults_wire(&settings)).unwrap()["computerUseDisplay"], 2);
         for silent in [
-            serde_json::json!({ "agents": {} }),
             serde_json::json!({ "computerUseDisplay": 0 }),
             serde_json::json!({ "computerUseDisplay": "2" }),
         ] {
@@ -399,6 +405,11 @@ mod tests {
         let clear: DefaultsPatch =
             serde_json::from_value(serde_json::json!({ "computerUseDisplay": null })).unwrap();
         assert!(apply_defaults_patch(&mut settings, &clear));
+        assert_eq!(settings.computer_use_display, None);
+        // Display 2 again, then the web picks Auto: the row loses the key.
+        settings.computer_use_display = Some(2);
+        let remote_auto: DefaultsPatch = serde_json::from_value(serde_json::json!({ "agents": {} })).unwrap();
+        assert!(apply_defaults_patch(&mut settings, &remote_auto));
         assert_eq!(settings.computer_use_display, None);
     }
 

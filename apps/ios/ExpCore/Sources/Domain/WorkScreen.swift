@@ -16,13 +16,7 @@ public enum WorkScreen {
         public static let primary = "Primary"
         public static let notConnected = "Not connected"
 
-        public enum Refusals {
-            public static let noWorkScreen = "Every display has a fullscreen app, so there is no work screen right now. Wait, or ask the person to leave fullscreen."
-            public static let notWorkScreen = "Display {number} is not a work screen. Agents work on display {work}."
-            public static let windowElsewhere = "That window is on display {number}, not a work screen. Agents work on display {work}."
-            public static let gaming = "The person is in a fullscreen app on display {number}. Acting now would take their pointer and keyboard; wait until they leave it."
-            public static let keysElsewhere = "The focused window is on display {number}, not a work screen. Activate a window on display {work} first."
-        }
+        // The `wrong_display` refusals are the desktop hub's alone (not mirrored).
     }
 
     public enum TestIds {
