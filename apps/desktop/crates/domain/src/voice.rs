@@ -9,6 +9,24 @@ use regex::{Captures, Regex};
 use serde::Deserialize;
 
 const VOICE_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/voice.json");
+/// #NEW-58: the Screen memory item's words (`screen-memory.json` `copy`).
+const SCREEN_MEMORY_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/screen-memory.json");
+
+/// #NEW-58: `screen-memory.json` `copy`'s tray words.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ScreenMemoryCopy {
+    pub tray: String,
+    pub paused: String,
+}
+
+/// #NEW-58: the Screen memory item's words.
+pub static SCREEN_MEMORY_COPY: LazyLock<ScreenMemoryCopy> = LazyLock::new(|| {
+    #[derive(Deserialize)]
+    struct Spec {
+        copy: ScreenMemoryCopy,
+    }
+    serde_json::from_str::<Spec>(SCREEN_MEMORY_JSON).expect("screen-memory.json parses").copy
+});
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -346,6 +364,8 @@ pub enum TrayItemId {
     SpeakReplies,
     PushToTalk,
     WakeWord,
+    /// #NEW-58: the screen memory switch (device-local, kept).
+    ScreenMemory,
     Mute,
     Settings,
     Quit,
@@ -377,6 +397,18 @@ pub struct TrayContext<'a> {
     pub shortcut_unavailable: bool,
     /// #NEW-54: the portal's trigger description (Wayland).
     pub shortcut_label: Option<&'a str>,
+    /// #NEW-58: the Screen memory switch (None = no row).
+    pub screen_memory: Option<ScreenMemoryState>,
+}
+
+/// #NEW-58: the tray's Screen memory switch (`screenMemory` while
+/// `available`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScreenMemoryState {
+    /// The switch (device-local, kept across restarts).
+    pub on: bool,
+    /// A denylisted window is focused, or the pause hotkey holds it.
+    pub paused: bool,
 }
 
 /// #NEW-68: the tray's OS-native menu; None = no tray on this device.
@@ -402,6 +434,11 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
         check(TrayItemId::PushToTalk, format!("{} · {shortcut}", copy.push_to_talk), settings.push_to_talk),
         check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word),
     ]);
+    if let Some(screen) = context.screen_memory {
+        let words = &*SCREEN_MEMORY_COPY;
+        let label = if screen.on && screen.paused { format!("{} · {}", words.tray, words.paused) } else { words.tray.clone() };
+        menu.push(TrayItem::Check { id: TrayItemId::ScreenMemory, label, checked: screen.on, enabled: true });
+    }
     if context.mic_available {
         menu.push(TrayItem::Check { id: TrayItemId::Mute, label: copy.tray_mute.clone(), checked: context.muted, enabled: true });
     }
@@ -1411,6 +1448,15 @@ mod tests {
         assert_eq!(first_sentence("Version 1.5 shipped. Next."), "Version 1.5 shipped.");
     }
 
+    /// #NEW-58: `screenMemory` {available, on, paused}; absent or not
+    /// available = no row.
+    fn screen_memory_of(value: &Value) -> Option<ScreenMemoryState> {
+        value["available"].as_bool().unwrap_or(false).then(|| ScreenMemoryState {
+            on: value["on"].as_bool().unwrap(),
+            paused: value["paused"].as_bool().unwrap(),
+        })
+    }
+
     #[test]
     fn tray_menu_matches_the_fixture() {
         let fixture: serde_json::Value = serde_json::from_str(VOICE_JSON).unwrap();
@@ -1427,6 +1473,7 @@ mod tests {
                     device_is_voice_device: context["deviceIsVoiceDevice"].as_bool().unwrap(),
                     shortcut_unavailable: context["shortcutUnavailable"].as_bool().unwrap_or(false),
                     shortcut_label: context["shortcutLabel"].as_str(),
+                    screen_memory: screen_memory_of(&context["screenMemory"]),
                 },
             );
             let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
@@ -1477,6 +1524,7 @@ mod tests {
                     device_is_voice_device: context["deviceIsVoiceDevice"].as_bool().unwrap(),
                     shortcut_unavailable: false,
                     shortcut_label: None,
+                    screen_memory: screen_memory_of(&context["screenMemory"]),
                 },
                 context["wakeListening"].as_bool().unwrap(),
                 context["trayHosted"].as_bool().unwrap(),

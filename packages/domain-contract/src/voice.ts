@@ -3,6 +3,7 @@
 // `domain::voice` replays the same cases, the phones mirror `copy`.
 
 import fixture from "../fixtures/voice.json" with { type: "json" }
+import screenMemoryFixture from "../fixtures/screen-memory.json" with { type: "json" }
 
 export const VOICE_COPY = fixture.copy
 export const VOICE_TEST_IDS = fixture.testIds
@@ -373,9 +374,21 @@ export interface TrayContext {
   shortcutUnavailable?: boolean
   /** #NEW-54: the portal's trigger description (Wayland), else null. */
   shortcutLabel?: string | null
+  /** #NEW-58: the Screen memory switch (absent or not available = no row). */
+  screenMemory?: ScreenMemoryContext
 }
 
-export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `mute` | `settings` | `quit`
+/** #NEW-58: the tray's Screen memory switch (device-local, kept). */
+export interface ScreenMemoryContext {
+  /** This IDE captures here. */
+  available: boolean
+  /** The switch. */
+  on: boolean
+  /** A denylisted window is focused, or the pause hotkey holds it. */
+  paused: boolean
+}
+
+export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `screenMemory` | `mute` | `settings` | `quit`
 
 export type TrayItem =
   | { kind: `separator` }
@@ -413,6 +426,12 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     check(`pushToTalk`, `${copy.pushToTalk} · ${shortcut}`, settings.pushToTalk),
     check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord)
   )
+  const screen = context.screenMemory
+  if (screen?.available) {
+    const words = screenMemoryFixture.copy
+    const label = screen.on && screen.paused ? `${words.tray} · ${words.paused}` : words.tray
+    menu.push({ kind: `check`, id: `screenMemory`, label, checked: screen.on, enabled: true })
+  }
   if (context.micAvailable) {
     menu.push({ kind: `check`, id: `mute`, label: copy.trayMute, checked: context.muted, enabled: true })
   }

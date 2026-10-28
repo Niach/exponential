@@ -499,6 +499,25 @@ fn text(entry: &CFDictionary<CFString, CFType>, key: CFString) -> Option<String>
     Some(entry.find(&key)?.downcast::<CFString>()?.to_string())
 }
 
+/// NEW-58: `pid`'s bundle id (`NSRunningApplication`), the last answer
+/// kept: screen memory asks for the focused app 4 times a second.
+pub(crate) fn app_id(pid: u32) -> Option<String> {
+    static LAST: std::sync::Mutex<Option<(u32, Option<String>)>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((cached, id)) = last.as_ref() {
+        if *cached == pid {
+            return id.clone();
+        }
+    }
+    let id = objc2::rc::autoreleasepool(|_| {
+        let pid = Pid::try_from(pid).ok()?;
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
+        app.bundleIdentifier().map(|id| id.to_string())
+    });
+    *last = Some((pid, id.clone()));
+    id
+}
+
 fn frontmost_pid() -> Option<u32> {
     objc2::rc::autoreleasepool(|_| {
         let pid = NSWorkspace::sharedWorkspace().frontmostApplication()?.processIdentifier();

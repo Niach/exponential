@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-28-screen-memory",
+    date: "2026-10-28",
+    title: "Screen memory",
+    summary: "Your voice agent can look at the last 10 minutes of your screen.",
+    body: r#"- **Screen memory**: on your voice device, the tray's Screen memory switch keeps the last 10 minutes of your screen (deduplicated, on this device only). Your voice agent can look at up to 4 screenshots from a moment you talk about.
+- **Paused for private windows**: password managers, private browser windows and online banking are never captured; the tray says Paused while one is focused."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_107: ChangelogEntry = ChangelogEntry {
     id: "2026-10-28-work-screen",
     date: "2026-10-28",
     title: "Work screen",

@@ -125,6 +125,23 @@ pub fn attach_codemode(resolved: &mut ResolvedMcp, grant: &codemode::Grant) {
     resolved.env.push((var, grant.token.clone()));
 }
 
+/// NEW-58: the voice device's screen memory as one more wired entry, the
+/// twin of [`attach_computer`]: loopback HTTP, the run's token behind
+/// [`screen::TOKEN_ENV`].
+pub fn attach_screen(resolved: &mut ResolvedMcp, grant: &screen::Grant) {
+    let var = screen::TOKEN_ENV.to_string();
+    resolved.servers.push(McpServerWire {
+        id: screen::SERVER_NAME.to_string(),
+        name: screen::SERVER_NAME.to_string(),
+        transport: McpWireTransport::Http { url: grant.url.clone() },
+        headers: vec![("Authorization".to_string(), format!("Bearer ${{{var}}}"))],
+        token_env: Some(var.clone()),
+        env: Vec::new(),
+        actor: None,
+    });
+    resolved.env.push((var, grant.token.clone()));
+}
+
 /// EXP-1236: `value` with every `${NAME}` reference replaced by `env`'s
 /// value for NAME. A reference nothing resolves stays verbatim (the host's
 /// call then fails like the agent's would). The result is a SECRET: the
@@ -293,9 +310,14 @@ pub fn resolve_with(resolution: &McpLaunchResolution, ids: Option<&[String]>) ->
         // config; a team server folding to that key would be dropped
         // silently by the renderers, so skip it up front. `computer` is
         // the device's own computer-use server (EXP-1196): a team row may
-        // not pose as it.
+        // not pose as it, nor as code mode (EXP-1236) or screen memory
+        // (NEW-58).
         let key = McpServerWire::config_key(&server.name);
-        if key == RESERVED_CONFIG_KEY || key == computer::SERVER_NAME || key == codemode::SERVER_NAME {
+        if key == RESERVED_CONFIG_KEY
+            || key == computer::SERVER_NAME
+            || key == codemode::SERVER_NAME
+            || key == screen::SERVER_NAME
+        {
             resolved.warnings.push(format!(
                 "MCP server {}: the name is reserved; starting without it.",
                 server.name
@@ -538,6 +560,29 @@ mod tests {
 
         let resolution = McpLaunchResolution {
             servers: vec![http("s1", "Computer", Vec::new())],
+            ..McpLaunchResolution::default()
+        };
+        let resolved = resolve_with(&resolution, Some(&["s1".to_string()]));
+        assert!(resolved.servers.is_empty());
+        assert!(resolved.warnings[0].contains("reserved"));
+    }
+
+    /// NEW-58: the screen-memory entry mirrors the computer one, and a team
+    /// row may not pose as it.
+    #[test]
+    fn the_screen_server_is_wired_behind_its_token_env_and_its_key_is_reserved() {
+        let mut resolved = ResolvedMcp::default();
+        let grant = screen::Grant { url: "http://127.0.0.1:4477/mcp".into(), token: "screen-token".into() };
+        attach_screen(&mut resolved, &grant);
+        let wire = &resolved.servers[0];
+        assert_eq!(wire.name, "screen");
+        assert_eq!(wire.transport, McpWireTransport::Http { url: grant.url.clone() });
+        assert_eq!(wire.headers, vec![("Authorization".to_string(), "Bearer ${EXP_SCREEN_TOKEN}".to_string())]);
+        assert_eq!(wire.token_env.as_deref(), Some("EXP_SCREEN_TOKEN"));
+        assert_eq!(resolved.secret_values(), vec!["screen-token".to_string()]);
+
+        let resolution = McpLaunchResolution {
+            servers: vec![http("s1", "Screen", Vec::new())],
             ..McpLaunchResolution::default()
         };
         let resolved = resolve_with(&resolution, Some(&["s1".to_string()]));

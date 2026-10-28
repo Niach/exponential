@@ -131,6 +131,18 @@ pub(crate) fn request_permissions() -> Vec<(crate::Permission, bool)> {
     Vec::new()
 }
 
+/// NEW-58: the app id of process `pid` where the OS names it cheaply (the
+/// macOS bundle id); `None` elsewhere.
+pub(crate) fn app_id(pid: u32) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return macos::app_id(pid);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
 /// NEW-59: the native pixel size of the display at this rect (screen
 /// units); the rect's own size where the OS already counts pixels.
 pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) {

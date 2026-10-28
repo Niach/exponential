@@ -1,0 +1,121 @@
+{
+  "$comment": "NEW-58 (exponentialTalk (g)): THE screen ring buffer (`screen memory`) of the voice device and its host tool `get_screenshots`. Desktop only, so ONE implementation replays this (apps/desktop/crates/screen, `cargo test -p screen`); voice.json (`trayMenu`, `railVoice`) and voice-policy.json (`tools`) carry its two client-facing bits. SWITCH: device-local, never synced, kept across restarts like the tray's Mute (#NEW-86): the tray's check item `copy.tray` (after Wake word, before Mute; voice.json `trayMenu` with context `screenMemory` {on, paused}) and the rail voice menu's same row; default off; only on the member's voice device (no tray, no capture elsewhere); turning it off deletes the buffer (frames + index rows); another voice device or account turns it off and deletes the buffer; a sign-out or an account change deletes it whether the switch is on or not; at start-up with the switch off a buffer left on disk is deleted; the stops and deletes run off the UI thread, in order. While on and capturing the item reads `copy.tray`; while paused it reads `copy.tray` + ` · ` + `copy.paused`. CAPTURE (in the IDE process, never a helper): every WORK display (work-screen.json: the picked display, or Auto = every display without a fullscreen app; a picked display that is gone or no work display = no capture that tick) once every `capture.intervalMs` plus the focused window's display (when a work display) at once whenever the focused window or its title changes (`capture.focusPollMs` poll, ONE window-list read: the focused window's app id + app name + title + rect, the work displays, each display's top window); a display whose top window matches `denylist` is skipped. LABEL: the frame of the display holding the focused window carries its app name and title; another display's frame its top window's app and title, else empty (the dedupe compares these). STAMP: a frame's `at` = when the OS captured or delivered it (macOS the sample's presentation time, Windows the frame's time, PipeWire the delivery), else the grab. STALE: after ANY resume (the pause ends, a display comes back into capture) only frames DELIVERED at or after the resume + `capture.intervalMs` are taken, so a buffer the OS still holds from before (a vault) is never stored with the new label; a still screen is kept with its next change; macOS ScreenCaptureKit (SCStream per display, minimumFrameInterval = intervalMs, the IDE's own windows excluded), Linux the xdg ScreenCast portal + PipeWire (one session for every monitor, `persist_mode` 2 with the restore token kept in the IDE's settings dir so the portal asks once; X11 without a portal reads the root window like the computer crate), Windows Graphics Capture (one session per monitor, the yellow border off where the OS allows). HASH (`hashCases`, images generated from `pattern`: `solid` = `rgb` everywhere; `split` = black for x < width/2 (integer division), else white; `checker` = black where (x / cell + y / cell) is even, else white; `gradientX` = grey v = 255 * x / (width - 1) (integer); `gradientY` = (v, 0, 255 - v) with v = 255 * y / (height - 1)): luma Y = (299 R + 587 G + 114 B) / 1000 (integer); box-downscale to 64 x 64 (target pixel (i, j) = the integer mean of source x in [i*W/64, max((i+1)*W/64, i*W/64 + 1)) and y likewise, integer division); the 64 x 64 splits into 8 x 8 blocks of 8 x 8; bit k (row-major, the first block is the most significant bit) = 64 * blockSum_k > totalSum; the hash = the 64 bits as 16 lowercase hex digits. DEDUPE (`dedupeCases`): a frame is DROPPED when the last KEPT frame of the same display has the same app id and window title and a Hamming distance <= `dedupe.maxDistance`; every other frame is kept. STORE = what TOOL returns: a kept frame is cut to its focused-window rect when it has one on that display at least `tool.minCrop` pixels each way (a tab-hover strip or a tooltip that holds the focus keeps the whole frame), scaled so its long edge is at most `tool.maxEdge` (never up; `fitCases`), and stored as a lossy WebP (`store.webpQuality`, libwebp method 0) under `<data dir>/screen/<UTC yyyyMMdd-HH>/<at ms>-<display>.webp` (one directory per hour) plus one row in the desktop's SQLite `screen_frames` (at ms, display number (1-based, the computer crate's order), app id, window title, hash, path, the frame's width and height, the focused window's rect within the frame when it lies on that display, else null). ENCODE: the capture thread only hashes; one batch per grab of the kept frames goes to ONE encode worker below normal priority (macOS QoS utility, Linux nice 10, Windows below normal) that cuts, scales, encodes and stores, then rests t x (100 - `store.encodePercent`) / encodePercent after a batch that took t of its CPU. SKIP IF BUSY: while the worker works or rests, a grab's frames are dropped and the dedupe does NOT advance, so the next tick retries the change (grabbing those displays' latest frame again). RETENTION (`retentionCases`): once every `capture.intervalMs`, paused or not, rows with at < now - `retentionMs` are deleted with their files, and an hour directory left empty is removed; at start-up the same sweep runs first, and files without a row are deleted; TOOL never returns a frame older than that (`from` is clamped to now - retentionMs). PAUSE (`pauseCases`): capture stops (no frame, not even the 1 s one) while the focused window matches `denylist` (app id (the macOS bundle id where known, else the app name) or app name contains one of `denylist.apps`, or the title contains one of `denylist.titles`; both case-insensitive), while there is no focused-window reading (no window list, focus off every display; fail closed: on Wayland the computer crate has no window list, so screen memory never captures there) or while the pause hotkey holds it (#NEW-57); it resumes with the next tick after the focus leaves it (STALE); `paused` is what the tray item shows. TOOL: the IDE serves a loopback MCP server `screen` (the computer crate's pattern: one endpoint, a per-run bearer token) with ONE tool `get_screenshots`, attached only to the member's conversation session with the voice agent (`voicePolicy` root) on the voice device while screen memory is on; voice-policy.json tiers `mcp__screen__get_screenshots` `auto` (local and read-only). Arguments (`tool.inputSchema`): `from` and `to` (RFC 3339; `to` defaults to now, `from` to `to` - `tool.defaultSpanSeconds`), optional `filter` (case-insensitive substring of the app id or the title). SELECT (`selectCases`): the kept frames with from <= at <= to of a display that is a work display NOW, matching the filter, by time; more than `tool.maxFrames` = indexes round(i * (n - 1) / (maxFrames - 1)) for i in 0..maxFrames (round half away from zero). Each frame's stored WebP is returned as it is (`image/webp`, never re-encoded to PNG) after a text line `{at} · {app} — {title}` (at = RFC 3339 UTC, seconds); SIZE (counted as base64 characters): a frame over `tool.maxImageBytes` is re-encoded at a lower quality, then smaller, until it fits; while the images together exceed `tool.maxTotalBytes` the middle frame is dropped, and a last text `copy.trimmed` says how many; none = the text `copy.none` with {from} {to}; screen memory off = `copy.off`. The description stays within `tool.descriptionMaxChars` (the per-tool MCP budget). Targets: < 2 % of a core at 1 fps on two displays, also while the screen changes every second (measured, M4 Pro: two 3456 x 2234 displays of dense text changing every second 0.6 %, two 5120 x 2880 0.9 %, 11-13 % without the rest; a Safari page paged every 0.5 s on one 3456 x 2234 display 1.2 %; a still screen 0.2 %). TRADE-OFF (owner decision 2026-10-28, the 2 % budget wins): a screen that changes all the time (video, scrolling) keeps a frame every few seconds instead of every second, while focus and title changes are still grabbed at once.",
+  "copy": {
+    "tray": "Screen memory",
+    "paused": "Paused",
+    "none": "No screenshots between {from} and {to}.",
+    "off": "Screen memory is off on this device.",
+    "trimmed": "{count} more screenshots in this range were left out to keep the reply small."
+  },
+  "capture": { "intervalMs": 1000, "focusPollMs": 250 },
+  "dedupe": { "maxDistance": 5 },
+  "store": { "webpQuality": 80, "encodePercent": 1 },
+  "retentionMs": 600000,
+  "tool": {
+    "server": "screen",
+    "name": "get_screenshots",
+    "description": "Screenshots of the person's screen from the last 10 minutes, up to 4, cropped to the window they were in. Match them to what was said by time.",
+    "descriptionMaxChars": 300,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string", "description": "RFC 3339 start (default: 60 s before `to`)" },
+        "to": { "type": "string", "description": "RFC 3339 end (default: now)" },
+        "filter": { "type": "string", "description": "Only frames whose app or window title contains this" }
+      }
+    },
+    "defaultSpanSeconds": 60,
+    "maxFrames": 4,
+    "maxEdge": 1568,
+    "minCrop": 200,
+    "maxImageBytes": 1000000,
+    "maxTotalBytes": 3000000
+  },
+  "denylist": {
+    "apps": ["1password", "bitwarden", "keepassxc", "keepass", "dashlane", "lastpass", "enpass", "proton pass", "keeper", "keychain access", "com.apple.passwords", "passwords"],
+    "titles": ["private browsing", "inprivate", "incognito", "private window", "online banking", "onlinebanking", "sparkasse", "paypal", "revolut", "george"]
+  },
+  "hashCases": [
+    { "image": { "width": 64, "height": 64, "pattern": "solid", "rgb": [40, 90, 200] }, "hash": "0000000000000000" },
+    { "image": { "width": 128, "height": 64, "pattern": "split" }, "hash": "0f0f0f0f0f0f0f0f" },
+    { "image": { "width": 160, "height": 90, "pattern": "checker", "cell": 20 }, "hash": "5555aaaa55aaaa55" },
+    { "image": { "width": 200, "height": 100, "pattern": "gradientX" }, "hash": "0f0f0f0f0f0f0f0f" },
+    { "image": { "width": 50, "height": 300, "pattern": "gradientY" }, "hash": "00000000ffffffff" }
+  ],
+  "dedupeCases": [
+    {
+      "name": "a still screen keeps its first frame; a title change, another display and a real change are kept",
+      "frames": [
+        { "display": 1, "app": "code", "title": "main.rs", "hash": "0f0f0f0f0f0f0f0f" },
+        { "display": 1, "app": "code", "title": "main.rs", "hash": "0f0f0f0f0f0f0f0e" },
+        { "display": 1, "app": "code", "title": "main.rs", "hash": "0f0f0f0f0f0f0f1f" },
+        { "display": 2, "app": "code", "title": "main.rs", "hash": "0f0f0f0f0f0f0f0f" },
+        { "display": 1, "app": "code", "title": "lib.rs", "hash": "0f0f0f0f0f0f0f0f" },
+        { "display": 1, "app": "code", "title": "lib.rs", "hash": "0f0f0f0f0f0fffff" },
+        { "display": 1, "app": "code", "title": "lib.rs", "hash": "0f0f0f0f0f0f00ff" }
+      ],
+      "kept": [true, false, false, true, true, true, true]
+    },
+    {
+      "name": "the distance is to the last KEPT frame, so a slow drift is kept once it adds up",
+      "frames": [
+        { "display": 1, "app": "a", "title": "t", "hash": "0000000000000000" },
+        { "display": 1, "app": "a", "title": "t", "hash": "0000000000000007" },
+        { "display": 1, "app": "a", "title": "t", "hash": "000000000000003f" },
+        { "display": 1, "app": "a", "title": "t", "hash": "00000000000000ff" }
+      ],
+      "kept": [true, false, true, false]
+    }
+  ],
+  "retentionCases": [
+    { "name": "older than ten minutes go", "now": 1800000000000, "frames": [1799999300000, 1799999399999, 1799999400000, 1800000000000], "kept": [false, false, true, true] }
+  ],
+  "pauseCases": [
+    { "name": "a password manager", "app": "com.1password.1password", "appName": "1Password", "title": "Vault", "paused": true },
+    { "name": "a private browser window", "app": "firefox", "appName": "Firefox", "title": "New Tab — Mozilla Firefox Private Browsing", "paused": true },
+    { "name": "Chrome incognito", "app": "com.google.Chrome", "appName": "Google Chrome", "title": "New Incognito Tab", "paused": true },
+    { "name": "online banking in a normal window", "app": "com.apple.Safari", "appName": "Safari", "title": "George – Erste Bank", "paused": true },
+    { "name": "Apple Passwords by its bundle id", "app": "com.apple.Passwords", "appName": "Passwords", "title": "All Passwords", "paused": true },
+    { "name": "Apple Passwords without a bundle id (its name stands in)", "app": "Passwords", "appName": "Passwords", "title": "Wi-Fi", "paused": true },
+    { "name": "an editor", "app": "dev.zed.Zed", "appName": "Zed", "title": "main.rs — exponential", "paused": false }
+  ],
+  "selectCases": [
+    {
+      "name": "two in range, the filter drops one",
+      "frames": [
+        { "at": "2026-10-28T10:00:00Z", "app": "Zed", "title": "main.rs" },
+        { "at": "2026-10-28T10:00:20Z", "app": "Safari", "title": "Docs" },
+        { "at": "2026-10-28T10:00:40Z", "app": "Zed", "title": "lib.rs" },
+        { "at": "2026-10-28T10:02:00Z", "app": "Zed", "title": "lib.rs" }
+      ],
+      "from": "2026-10-28T10:00:00Z",
+      "to": "2026-10-28T10:01:00Z",
+      "filter": "zed",
+      "picked": [0, 2]
+    },
+    {
+      "name": "ten frames: four spread over the range",
+      "frames": [
+        { "at": "2026-10-28T10:00:00Z", "app": "a", "title": "0" },
+        { "at": "2026-10-28T10:00:01Z", "app": "a", "title": "1" },
+        { "at": "2026-10-28T10:00:02Z", "app": "a", "title": "2" },
+        { "at": "2026-10-28T10:00:03Z", "app": "a", "title": "3" },
+        { "at": "2026-10-28T10:00:04Z", "app": "a", "title": "4" },
+        { "at": "2026-10-28T10:00:05Z", "app": "a", "title": "5" },
+        { "at": "2026-10-28T10:00:06Z", "app": "a", "title": "6" },
+        { "at": "2026-10-28T10:00:07Z", "app": "a", "title": "7" },
+        { "at": "2026-10-28T10:00:08Z", "app": "a", "title": "8" },
+        { "at": "2026-10-28T10:00:09Z", "app": "a", "title": "9" }
+      ],
+      "from": "2026-10-28T10:00:00Z",
+      "to": "2026-10-28T10:00:09Z",
+      "filter": null,
+      "picked": [0, 3, 6, 9]
+    }
+  ],
+  "fitCases": [
+    { "name": "a 5K frame", "width": 5120, "height": 2880, "crop": null, "expect": { "width": 1568, "height": 882 } },
+    { "name": "a window crop under the cap stays", "width": 3024, "height": 1964, "crop": { "x": 100, "y": 50, "width": 1200, "height": 800 }, "expect": { "width": 1200, "height": 800 } },
+    { "name": "a tall crop", "width": 3024, "height": 1964, "crop": { "x": 0, "y": 0, "width": 1000, "height": 1964 }, "expect": { "width": 798, "height": 1568 } }
+  ]
+}
