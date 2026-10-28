@@ -1855,7 +1855,6 @@ mod tests {
         for gated in [
             SettingsSection::General,
             SettingsSection::Storage,
-            SettingsSection::Board("b-1".to_string()),
             SettingsSection::ArchivedBoards,
             // EXP-771: the Features group mirrors the web's
             // `canManageWidgets` gate, which IS `isOwner`.
@@ -1866,6 +1865,12 @@ mod tests {
                 SettingsSection::Members
             );
         }
+        // S-3 (settings-nav.json `nav`): the @boards rows show to every
+        // member (the page reads only for them), like web.
+        assert_eq!(
+            effective_selection(SettingsSection::Board("b-1".to_string()), false, any_board, any_board),
+            SettingsSection::Board("b-1".to_string())
+        );
         // EXP-557: Repositories is member-visible — the selection sticks
         // instead of falling back.
         assert_eq!(
