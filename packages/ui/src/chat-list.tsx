@@ -574,8 +574,8 @@ export const CHAT_AGENT_ROW_TEST_ID = `chat-agent-row`
 
 /** S-3 (chats.json AGENT ROWS): an agent pinned on top of the list: a chat
  *  row whose disc holds the agent's avatar (`AgentAvatar`), its name, the
- *  viewer's conversation's preview / time / unread; amber needs-you, the
- *  working mark while busy; never dim, never selectable. Right-click /
+ *  viewer's conversation's preview / time / unread; the amber needs-you
+ *  badge on the avatar, busy only in the preview; never dim, never selectable. Right-click /
  *  long-press = the agent menu (`menuProps('agent', id)`). */
 export function AgentChatRowButton({
   row,
@@ -590,7 +590,9 @@ export function AgentChatRowButton({
    *  room, so the discs line up. */
   aligned?: boolean
 }) {
-  const lead: ChatLead = row.needsYou ? `needs_you` : row.busy ? `working` : `waiting`
+  // The avatar always (chats.json AGENT ROWS): needs you adds the amber
+  // badge; busy reads in the preview (`working…`), never as the working mark.
+  const lead: ChatLead = row.needsYou ? `needs_you` : `waiting`
   return (
     <button
       type="button"
