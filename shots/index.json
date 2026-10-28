@@ -4999,6 +4999,13 @@
       }
     },
     "story-ring": {
+      "android": {
+        "file": "shots/story-ring/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 21684,
+        "sha256": "ddd040952cc7e2c27eda4e9048e2c28bdb54a2814215a879dcf8f4f045878f40"
+      },
       "desktop": {
         "file": "shots/story-ring/desktop.webp",
         "width": 1800,
@@ -5012,9 +5019,30 @@
         "height": 1800,
         "bytes": 16600,
         "sha256": "806c30a9284a2acff61755d5abf628c3ebfd8e1b254839226cac765b67990797"
+      },
+      "web": {
+        "file": "shots/story-ring/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 34944,
+        "sha256": "e3b8c89119ff6705363503d084db2ced503c8125a5684616c188ab36a75a9e38"
+      },
+      "web-mobile": {
+        "file": "shots/story-ring/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 25272,
+        "sha256": "6e77f3df3edc47ec9c5359f2726761de333947dec34c7be00765e818499005cd"
       }
     },
     "story-viewer": {
+      "android": {
+        "file": "shots/story-viewer/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 22312,
+        "sha256": "bdfb72984ab5150255910238ea9cf1125d6d31af27962da827534c7aa96b0866"
+      },
       "desktop": {
         "file": "shots/story-viewer/desktop.webp",
         "width": 1800,
@@ -5028,6 +5056,20 @@
         "height": 1800,
         "bytes": 30030,
         "sha256": "dfc5ec2fa6928b213f1c55b3463c462a8aa5d822e83ab73e050768713741cb22"
+      },
+      "web": {
+        "file": "shots/story-viewer/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 38432,
+        "sha256": "0239cf8ee6ea43cf8bd31e19854c8ffea3b48da5d33197652a3f56f139f400ee"
+      },
+      "web-mobile": {
+        "file": "shots/story-viewer/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 28194,
+        "sha256": "ac9bec6e50a1fc2f1bd19c0b9a2a02b53d09544252723ba41cdbdbb4486b4f01"
       }
     },
     "support-reporter": {
