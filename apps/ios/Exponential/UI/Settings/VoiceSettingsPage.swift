@@ -16,6 +16,18 @@ import SwiftUI
 // submitting the field shows the line inline under it until the next edit.
 struct VoiceSettingsPage: View {
     let accountId: String
+    /// Styleguide capture only (`sg_settings-voice`): the page over fixture
+    /// rows instead of `voice.get` + the account's database; a change stays local.
+    var specimen: Specimen? = nil
+
+    /// The rows the page otherwise loads and observes.
+    struct Specimen {
+        let userId: String
+        let settings: Voice.Settings
+        let devices: [DeviceEntity]
+        let agents: [AgentDefinitionEntity]
+        let teams: [TeamEntity]
+    }
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.toaster) private var toaster
@@ -38,7 +50,8 @@ struct VoiceSettingsPage: View {
     @State private var teams: [TeamEntity] = []
 
     private var userId: String? {
-        deps.auth.accounts.first { $0.id == accountId }?.userId
+        if let specimen { return specimen.userId }
+        return deps.auth.accounts.first { $0.id == accountId }?.userId
     }
 
     var body: some View {
@@ -352,6 +365,11 @@ struct VoiceSettingsPage: View {
 
     private func load() async {
         loadFailed = false
+        if let specimen {
+            settings = specimen.settings
+            resetDrafts(specimen.settings)
+            return
+        }
         do {
             let loaded = try await deps.voiceApi.get(accountId: accountId)
             settings = loaded
@@ -362,6 +380,12 @@ struct VoiceSettingsPage: View {
     }
 
     private func observe() async {
+        if let specimen {
+            devices = specimen.devices
+            agents = specimen.agents
+            teams = specimen.teams
+            return
+        }
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
             (
@@ -388,6 +412,7 @@ struct VoiceSettingsPage: View {
         let next = Voice.clearOnNone(previous, change)
         guard next != previous else { return }
         settings = next
+        if specimen != nil { return }
         saveSeq += 1
         let seq = saveSeq
         Task {
@@ -429,5 +454,53 @@ struct VoiceSettingsPage: View {
         }
         guard trimmed != input.stored(settings) else { return }
         save(input.change(trimmed), input: input)
+    }
+}
+
+/// Styleguide capture only (`-uiTestingStyleguide settings-voice`,
+/// `sg_settings-voice`): THE Voice page as pushed off the account page, over
+/// the seed's rows (seed-screenshots.ts: Alex's MacBook Pro as the voice
+/// device, Triage as the agent, Speak replies + Push to talk on, German).
+struct VoiceSettingsSpecimen: View {
+    private static let userId = "specimen-user"
+    private static let deviceId = "screenshot-demo-desktop"
+    private static let teamId = "specimen-team"
+    private static let stamp = "2026-10-01T09:00:00Z"
+
+    private static let specimen = VoiceSettingsPage.Specimen(
+        userId: userId,
+        settings: Voice.Settings(
+            voiceDeviceId: deviceId,
+            agentId: "specimen-agent-triage",
+            speakReplies: true,
+            pushToTalk: true,
+            pttShortcut: "ctrl+space",
+            wakeWord: false,
+            wakePhrase: "",
+            language: "de"
+        ),
+        devices: [
+            DeviceEntity(id: "specimen-device", userId: userId, deviceId: deviceId, label: "Alex's MacBook Pro", kind: "desktop"),
+        ],
+        agents: [
+            AgentDefinitionEntity(id: "specimen-agent-triage", teamId: teamId, name: "Triage", createdAt: stamp, updatedAt: stamp),
+            AgentDefinitionEntity(id: "specimen-agent-designer", teamId: teamId, name: "Designer", createdAt: stamp, updatedAt: stamp),
+        ],
+        teams: [
+            TeamEntity(id: teamId, name: "Acme", slug: "acme", iconUrl: nil, createdAt: stamp, updatedAt: stamp),
+        ]
+    )
+
+    var body: some View {
+        // A one-deep path, so the page wears the pushed back chevron.
+        NavigationStack(path: .constant(["voice"])) {
+            Color.clear
+                .navigationDestination(for: String.self) { _ in
+                    VoiceSettingsPage(accountId: "", specimen: Self.specimen)
+                        // A preset path skips the push, so pin the pushed
+                        // page's inline title (else a large one overlaps).
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+        }
     }
 }

@@ -34,10 +34,9 @@ COPY packages/shots/package.json packages/shots/package.json
 # Dockerfile's EXP-380 filter. This image is published PUBLICLY as
 # ghcr.io/niach/exponential-steer-relay and pulled anonymously by the selfhost
 # compose, and the runtime stage below copies this node_modules wholesale — so
-# unfiltered, every recipient received apps/marketing's Remotion (178M), which is
-# source-available, licensed to US on the basis of our headcount, and carries no
-# sublicence clause (see docs/third-party-licences.md). The relay imports none of
-# it. The web image has to install twice because its builder runs a vite build;
+# unfiltered, every recipient received every other workspace's dependencies (see
+# docs/third-party-licences.md). The relay imports none of them. The web image
+# has to install twice because its builder runs a vite build;
 # this one has no build step, so the single scoped install is the whole fix.
 # The stub package.json COPYs above must stay even so — --frozen-lockfile
 # validates the full workspace set and fails if one is absent.

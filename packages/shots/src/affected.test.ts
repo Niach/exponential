@@ -109,6 +109,15 @@ describe(`desktop attribution`, () => {
     expect(views(result, `desktop`)).toEqual([])
   })
 
+  test(`a spike crate is not the desktop app`, () => {
+    // NEW-61: the exponentialTalk spike lives outside the workspace and is
+    // never linked, so it must not widen `pr open` to every desktop view.
+    const result = scope(`apps/desktop/spikes/talk/src/main.rs`, `apps/desktop/spikes/talk/Cargo.toml`)
+    expect(views(result, `desktop`)).toEqual([])
+    expect(result.broad).toEqual([])
+    expect(result.ignored).toHaveLength(2)
+  })
+
   test(`a wrapper suffix still narrows to the pane it draws`, () => {
     // `notifications_prefs` is the notifications pane. Before the suffix strip
     // it matched no view id and widened all ~48 desktop shots for a one-row

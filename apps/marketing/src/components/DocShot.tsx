@@ -1,7 +1,7 @@
 /* ─── DocShot — a real product screenshot from the committed store ───
 
    The docs used to embed the hand-built HTML mockups (src/webui, src/ide).
-   Those stay: the home page and the Remotion movie still need a living,
+   The ones that remain serve pages that need a living,
    clickable app. But a docs page wants the PRODUCT, not a recreation
    of it, so every still embed here resolves through the view catalog
    (packages/view-catalog) and points at the store at /shots/<view>/<platform>.webp.

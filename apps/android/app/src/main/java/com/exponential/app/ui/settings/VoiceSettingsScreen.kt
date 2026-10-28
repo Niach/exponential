@@ -3,6 +3,7 @@ package com.exponential.app.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -361,7 +362,6 @@ private val voiceSettingsFlushScope = CoroutineScope(SupervisorJob() + Dispatche
 /** The pickers carry a String value; None rides as the empty string. */
 private const val NONE = ""
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceSettingsScreen(
     onBack: () -> Unit,
@@ -369,17 +369,7 @@ fun VoiceSettingsScreen(
 ) {
     val vocabulary by viewModel.vocabulary.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(Voice.Copy.GROUP) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-            )
-        },
-        containerColor = Color.Transparent,
-        modifier = Modifier.testTag(Voice.TestIds.PAGE),
-    ) { padding ->
+    VoiceSettingsScaffold(onBack = onBack) { padding ->
         val settings = viewModel.settings
         when {
             settings != null -> VoiceSettingsForm(
@@ -424,8 +414,29 @@ fun VoiceSettingsScreen(
     FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
 }
 
+/** The page's chrome (title + back), shared with the styleguide specimen. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VoiceSettingsForm(
+internal fun VoiceSettingsScaffold(
+    onBack: () -> Unit,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { TopBarTitle(Voice.Copy.GROUP) },
+                navigationIcon = { TopBarBackButton(onClick = onBack) },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            )
+        },
+        containerColor = Color.Transparent,
+        modifier = Modifier.testTag(Voice.TestIds.PAGE),
+        content = content,
+    )
+}
+
+@Composable
+internal fun VoiceSettingsForm(
     settings: Voice.Settings,
     vocabulary: VoiceSettingsViewModel.Vocabulary,
     wakePhrase: String,

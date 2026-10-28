@@ -48,10 +48,9 @@ COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.
 COPY --from=builder /app/apps/styleguide/package.json apps/styleguide/package.json
 COPY --from=builder /app/packages packages
 # EXP-380: scoped to @exp/web on purpose. Unfiltered, this reinstalled the ENTIRE
-# workspace into the published image — including apps/marketing's Remotion, which
-# is source-available, licensed to US on the basis of our headcount, and carries
-# no sublicence clause that would cover whoever pulls the image (see
-# docs/third-party-licences.md). The web app imports none of it; marketing is a
+# workspace into the published image, so every recipient would receive the other
+# apps' dependencies too (and the licence inventory would have to cover them; see
+# docs/third-party-licences.md). The web app imports none of them; marketing is a
 # separately built and separately deployed Vite site. The filter keeps drizzle-kit
 # and the workspace packages the boot-time migrate needs.
 # The marketing/push-relay/steer-relay package.json COPYs above must stay even so

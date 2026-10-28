@@ -196,8 +196,8 @@ function trademarkSection(client: Client): Section | undefined {
 }
 
 /**
- * Section — non-OSS components. Two sources feed it: curated entries (Remotion)
- * and any inventory component a collector emitted with an EMPTY `licenses`
+ * Section — non-OSS components. Two sources feed it: curated entries (`COMMERCIAL`,
+ * empty today) and any inventory component a collector emitted with an EMPTY `licenses`
  * array, which is how the iOS and Android collectors mark something that ships
  * under a vendor's own terms rather than an open-source licence. Neither may
  * ever appear in the open-source aggregate.

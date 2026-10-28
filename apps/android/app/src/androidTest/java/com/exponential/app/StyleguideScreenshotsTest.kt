@@ -64,6 +64,8 @@ import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
 import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
+import com.exponential.app.ui.styleguide.VoiceSettingsSpecimenScreen
+import com.exponential.app.ui.styleguide.VoiceSettingsSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
@@ -121,7 +123,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_voice-call
+ *   sg_app-export · sg_app-import · sg_voice-call · sg_settings-voice
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -205,6 +207,8 @@ class StyleguideScreenshotsTest {
             "sg_app-consent",
             // NEW-69: the in-call card's four states.
             "sg_voice-call",
+            // NEW-71: THE Voice settings page over the seed's rows.
+            "sg_settings-voice",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -1236,6 +1240,10 @@ class StyleguideScreenshotsTest {
         // live call screen draws, once per `surfaceSpecimens` row.
         show(VoiceCallSpecimenTestId) { VoiceCallSpecimenScreen() }
         flow.screenshot("sg_voice-call")
+        // --- sg_settings-voice (NEW-71, voice.json): THE Voice settings page
+        // (chrome + form) over the seed's rows, the tray group showing.
+        show(VoiceSettingsSpecimenTestId) { VoiceSettingsSpecimenScreen() }
+        flow.screenshot("sg_settings-voice")
 
         finished = true
     }

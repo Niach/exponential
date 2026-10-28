@@ -27,7 +27,7 @@
 // ---------------------------------------------------------------------------
 // ~55 packages per scope are `os`/`cpu`-gated prebuilt binaries — today
 // `@esbuild/*`, `@oxc-minify/binding-*`, `@oxc-transform/binding-*`,
-// `@rollup/rollup-*`, `@rspack/binding-*`, `@remotion/compositor-*`,
+// `@rollup/rollup-*`, `@rspack/binding-*`,
 // `@tailwindcss/oxide-*`, `lightningcss-*` and `fsevents`. Only the current
 // host's variant is on disk. Reading them from disk would make every run
 // host-specific. They are handled by four explicit rules:
@@ -58,10 +58,10 @@
 //      packages ship no licence file anyway (the one exception, `fsevents`,
 //      is reported so its copyright line can be curated).
 //   4. HOMEPAGE — omitted for gated packages. Variant manifests routinely
-//      point `repository.url` at their OWN subdirectory (Remotion's
-//      `.../packages/compositor-darwin-arm64`), so a family-elected homepage
+//      point `repository.url` at their OWN subdirectory (e.g.
+//      `.../npm/darwin-arm64`), so a family-elected homepage
 //      would be the host's variant URL stamped onto all seven. The family's
-//      parent package (`esbuild`, `@remotion/renderer`, …) is itself a
+//      parent package (`esbuild`, `rollup`, …) is itself a
 //      component and carries the project URL.
 //
 // Nothing else host-shaped reaches the output: no timestamps, no absolute
@@ -294,7 +294,7 @@ const SPDX_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.+-]*$/
  * `X WITH Y` exceptions, and trailing `+`.
  *
  * Returns `null` for anything that is NOT an SPDX expression — free-text
- * declarations like Remotion's `Remotion License https://remotion.dev/license`
+ * declarations like `Vendor License https://example.com/license`
  * must not be silently truncated to a fake id.
  */
 const parseSpdx = (input: string): Expr | null => {

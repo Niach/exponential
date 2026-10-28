@@ -1,6 +1,6 @@
 /* ─── Pricing page ─── */
 .pricing-hero {
-  /* No hero movie here — undo .hero's viewport-height reservation. */
+  /* Undo .hero's viewport-height reservation. */
   min-height: 0;
   padding-bottom: 40px;
 }

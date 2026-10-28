@@ -459,18 +459,7 @@ export const MPL_STATEMENT = [
 // `licenses` array and the generator routes them into this section
 // automatically.
 
-export const COMMERCIAL: CuratedEntry[] = [
-  {
-    title: `Remotion`,
-    clients: [`marketing`],
-    body: [
-      `The marketing site's hero animation is built with Remotion, which is source-available under the Remotion License rather than an open-source licence. Exponential qualifies under that licence's free tier, and the licence imposes no attribution requirement — this entry exists as our own audit trail. See docs/third-party-licences.md for the dated determination.`,
-    ],
-    reproduce: [
-      { label: `Remotion License`, path: `docs/licences/remotion-LICENSE.txt` },
-    ],
-  },
-]
+export const COMMERCIAL: CuratedEntry[] = []
 
 // ---------------------------------------------------------------------------
 // Components deliberately NOT in this build

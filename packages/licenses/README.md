@@ -103,7 +103,7 @@ records it; `AND` keeps every conjunct, which is why `unicode-ident`
 **Determinism.** Codepoint sort only — never `localeCompare`, whose result
 depends on the host's ICU build. No timestamps, hostnames or absolute paths.
 About 55 npm packages are `os`/`cpu`-gated (`@esbuild/*`, `@rollup/rollup-*`,
-`lightningcss-*`, `@remotion/compositor-*`) and only the host's own copy is ever
+`lightningcss-*`) and only the host's own copy is ever
 installed, so they are never read from disk — otherwise a macOS run and an
 ubuntu run would disagree and the drift gate would fail forever.
 
