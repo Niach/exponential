@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { escapeReporterText } from "@/lib/reporter-text"
-import { stripImageEmbeds, unescapeReporterText } from "./report-text"
+import fixture from "@exp/domain-contract/fixtures/reporter-reply.json"
+import {
+  REPORTER_SUPPORT_LABEL,
+  reporterFacingText,
+  stripImageEmbeds,
+  unescapeReporterText,
+} from "./report-text"
 
 describe(`stripImageEmbeds`, () => {
   it(`drops the widget's image paragraphs and keeps the text`, () => {
@@ -32,5 +38,20 @@ describe(`unescapeReporterText`, () => {
         text.replace(/^(?:\t| {4,})[ \t]*/gm, ``)
       )
     }
+  })
+})
+
+// NEW-85: the reporter-reply.json `reporterView` cases (web only: the
+// reporter view is server-built, no native client renders it).
+describe(`reporterFacingText`, () => {
+  it.each(fixture.reporterView.cases.map((c) => [c.name, c] as const))(
+    `%s`,
+    (_name, c) => {
+      expect(reporterFacingText(c.input, c.reporterEmail)).toBe(c.output)
+    }
+  )
+
+  it(`labels team replies with the fixture's Support label`, () => {
+    expect(REPORTER_SUPPORT_LABEL).toBe(`Support`)
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { chatCard, editorBrief, editorLayout, slugify, sortApps, versionLabel } from "./apps"
+import { appMediaAllowed, chatCard, editorBrief, editorLayout, slugify, sortApps, versionLabel } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -28,5 +28,11 @@ describe(`apps (VAPP-110)`, () => {
     expect(editorLayout(null)).toBe(fixture.layout.default)
     expect(editorLayout(`docked`)).toBe(`docked`)
     expect(editorLayout(`sideways`)).toBe(fixture.layout.default)
+  })
+})
+
+describe(`appMediaAllowed (VAPP-157)`, () => {
+  test.each(fixture.mediaPolicy.cases)(`$src`, (c) => {
+    expect(appMediaAllowed(c.src, fixture.mediaPolicy.origin)).toBe(c.expected)
   })
 })

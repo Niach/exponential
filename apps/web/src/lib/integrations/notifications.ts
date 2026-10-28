@@ -1003,6 +1003,56 @@ export async function notifySessionBlocked(
 }
 
 /**
+ * FEED-154: another account withdrew a member's share of their machine (a
+ * team owner's `devices.dropShare`, an instance admin's drop, or the
+ * machine's key holder proving a squat): the device OWNER is told instead
+ * of the share vanishing silently. One issue-less, team-scoped row
+ * (`agent_message`, the inbox's generic person-readable row; it opens
+ * nothing), push-first like every row. A self-unshare tells nobody. Best
+ * effort, never throws.
+ */
+export async function notifyDeviceShareRemoved(args: {
+  ownerId: string
+  actorId: string
+  teamId: string
+  deviceLabel: string
+  /** How many hosted sessions the withdrawal ended. */
+  endedCount: number
+  /** `key`: the machine's key holder proved the share was not the box's. */
+  cause: `dropped` | `key`
+}): Promise<void> {
+  if (args.ownerId === args.actorId) return
+  try {
+    const [team] = await db
+      .select({ slug: teams.slug, name: teams.name })
+      .from(teams)
+      .where(eq(teams.id, args.teamId))
+      .limit(1)
+    if (!team) return
+    const title =
+      args.cause === `key`
+        ? `Your share of ${args.deviceLabel} with ${team.name} was removed: another account proved it holds this machine`
+        : `${await actorName(args.actorId)} removed your share of ${args.deviceLabel} with ${team.name}`
+    const body =
+      args.endedCount === 0
+        ? null
+        : args.endedCount === 1
+          ? `1 session running on it for a teammate ended.`
+          : `${args.endedCount} sessions running on it for teammates ended.`
+    await deliverToTeam({
+      teamId: args.teamId,
+      recipientIds: [args.ownerId],
+      type: `agent_message`,
+      title,
+      body,
+      pushData: { teamId: args.teamId, teamSlug: team.slug },
+    })
+  } catch (err) {
+    console.error(`[notify] device share removed failed:`, err)
+  }
+}
+
+/**
  * EXP-1291: `@email` mentions inside a Conversation message (a person's or
  * the agent's) notify the mentioned members who can SEE the session (a
  * private session's only reader is its starter). One issue-less row carrying

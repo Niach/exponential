@@ -94,5 +94,54 @@
         "name": "Former member"
       }
     ]
+  },
+  "reporterView": {
+    "_doc": "NEW-85: what the REPORTER sees (server-built; web only: the `/support/$token` page via /api/support/thread, the reply email, the MCP reporter view of `issues get` / `comments list`; no native client renders it, so the natives replay nothing here). Member identities never leave: a team reply's author is `supportLabel`, and every `@<email>` mention token in member-written text the reporter receives (reporter-audience comment bodies, the reply email, the issue title and description) reads `mentionText`, except a mention of the reporter's OWN address (case-insensitive), which stays as typed. The reporter's own escaped text never holds a live token (reporter-text.json escapes `@`), so it passes unchanged. The title and description are the issue's CURRENT ones, same as the magic-link page: a member's later edit shows to the reporter (no reported-as copy is kept; edit with that in mind).",
+    "supportLabel": "Support",
+    "mentionText": "@Support",
+    "cases": [
+      {
+        "name": "member mention",
+        "input": "@ada@vendor.test is on it",
+        "reporterEmail": "emma@x.test",
+        "output": "@Support is on it"
+      },
+      {
+        "name": "several, any case",
+        "input": "cc @Ada@Vendor.test and @bob@vendor.test",
+        "reporterEmail": "emma@x.test",
+        "output": "cc @Support and @Support"
+      },
+      {
+        "name": "the reporter's own address stays",
+        "input": "Thanks @Emma@X.test, @ada@vendor.test fixed it",
+        "reporterEmail": "emma@x.test",
+        "output": "Thanks @Emma@X.test, @Support fixed it"
+      },
+      {
+        "name": "no reporter email",
+        "input": "@ada@vendor.test",
+        "reporterEmail": null,
+        "output": "@Support"
+      },
+      {
+        "name": "a bare email is no mention",
+        "input": "write to ada@vendor.test",
+        "reporterEmail": null,
+        "output": "write to ada@vendor.test"
+      },
+      {
+        "name": "escaped reporter text passes",
+        "input": "ping \\@ada\\@x\\.test",
+        "reporterEmail": null,
+        "output": "ping \\@ada\\@x\\.test"
+      },
+      {
+        "name": "plain text passes",
+        "input": "Fixed in 0.14.80.",
+        "reporterEmail": "emma@x.test",
+        "output": "Fixed in 0.14.80."
+      }
+    ]
   }
 }

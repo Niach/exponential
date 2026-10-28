@@ -194,5 +194,185 @@
       "title": "Heading",
       "caption": null
     }
-  ]
+  ],
+  "mediaPolicy": {
+    "$comment": "VAPP-157 (the 2026-10-28 ruling) THE APP HOSTS' MEDIA RULE ×4: an Exponential app's Image / Avatar / Video / Audio src and markdown image loads ONLY when it is (a) a `data:` url whose mime is image/*, audio/* or video/* except image/svg+xml (scheme and mime case-insensitive), or (b) the instance's own attachment, `/api/attachments/<uuid>` relative or absolute on the instance's exact origin (scheme, host case-insensitive, port), the RAW path exactly that (no dot segments, no percent-encoding, no trailing segment), no query, no fragment, no credentials, no surrounding whitespace. Anything else loads nothing (the SDK's existing denied-src rendering: no request, no new UI), so bound team data can never ride a url to another host. The web, desktop, iOS and Android app hosts narrow the SDK's media policy with it (`appMediaAllowed(src, origin)`; a host narrows, never widens); the SDK's own generic default and the link policy are unchanged. `cases` replay ×4 against `origin`.",
+    "origin": "https://app.exponential.at",
+    "dataMimePrefixes": [
+      "image/",
+      "audio/",
+      "video/"
+    ],
+    "deniedDataMimes": [
+      "image/svg+xml"
+    ],
+    "attachmentPath": "/api/attachments/",
+    "cases": [
+      {
+        "src": "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": true,
+        "$why": "a relative attachment url resolves against the instance"
+      },
+      {
+        "src": "https://app.exponential.at/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": true,
+        "$why": "the instance's own absolute attachment url"
+      },
+      {
+        "src": "https://APP.Exponential.AT/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": true,
+        "$why": "hosts compare case-insensitively"
+      },
+      {
+        "src": "HTTPS://app.exponential.at/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": true,
+        "$why": "the scheme compares case-insensitively"
+      },
+      {
+        "src": "/api/attachments/0B6C1A52-3E1F-4D7A-9C55-2F8E4A1B7C90",
+        "expected": true,
+        "$why": "a uuid compares case-insensitively"
+      },
+      {
+        "src": "https://evil.example/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "any other host"
+      },
+      {
+        "src": "https://app.exponential.at.evil.example/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "a suffix is a different host"
+      },
+      {
+        "src": "//evil.example/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "protocol-relative = another host"
+      },
+      {
+        "src": "http://app.exponential.at/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "another scheme = another origin"
+      },
+      {
+        "src": "https://app.exponential.at:8443/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "another port = another origin"
+      },
+      {
+        "src": "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90/../x",
+        "expected": false,
+        "$why": "dot segments: the raw path must already be the attachment path"
+      },
+      {
+        "src": "/api/attachments/../users/me",
+        "expected": false,
+        "$why": "dot segments"
+      },
+      {
+        "src": "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90%2F..%2Fx",
+        "expected": false,
+        "$why": "encoded slashes"
+      },
+      {
+        "src": "/api/attachments%2F0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "an encoded slash in the prefix"
+      },
+      {
+        "src": "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90?d=secret",
+        "expected": false,
+        "$why": "a query string carries data"
+      },
+      {
+        "src": "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90#secret",
+        "expected": false,
+        "$why": "a fragment carries data"
+      },
+      {
+        "src": "/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90/thumb",
+        "expected": false,
+        "$why": "only the attachment itself"
+      },
+      {
+        "src": "/api/attachments/not-a-uuid",
+        "expected": false,
+        "$why": "the id must be a uuid"
+      },
+      {
+        "src": "/api/users/me",
+        "expected": false,
+        "$why": "any other same-origin path"
+      },
+      {
+        "src": "https://user:pw@app.exponential.at/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "credentials in the url"
+      },
+      {
+        "src": " /api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90",
+        "expected": false,
+        "$why": "no surrounding whitespace"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgo=",
+        "expected": true,
+        "$why": "a data image"
+      },
+      {
+        "src": "DATA:IMAGE/JPEG;base64,/9j/4AAQ",
+        "expected": true,
+        "$why": "data scheme and mime compare case-insensitively"
+      },
+      {
+        "src": "data:image/webp;base64,UklGR",
+        "expected": true,
+        "$why": "a data image"
+      },
+      {
+        "src": "data:audio/mpeg;base64,SUQz",
+        "expected": true,
+        "$why": "a data audio clip (Audio)"
+      },
+      {
+        "src": "data:video/mp4;base64,AAAA",
+        "expected": true,
+        "$why": "a data video clip (Video)"
+      },
+      {
+        "src": "data:image/svg+xml;base64,PHN2Zz4=",
+        "expected": false,
+        "$why": "svg is denied: not every image path sandboxes it"
+      },
+      {
+        "src": "data:image/SVG+XML,<svg/>",
+        "expected": false,
+        "$why": "svg is denied in any case"
+      },
+      {
+        "src": "data:text/html;base64,PGgxPg==",
+        "expected": false,
+        "$why": "only image, audio and video data"
+      },
+      {
+        "src": "data:,hello",
+        "expected": false,
+        "$why": "a data url needs a media mime"
+      },
+      {
+        "src": "javascript:alert(1)",
+        "expected": false,
+        "$why": "another scheme"
+      },
+      {
+        "src": "blob:https://app.exponential.at/0b6c",
+        "expected": false,
+        "$why": "another scheme"
+      },
+      {
+        "src": "",
+        "expected": false,
+        "$why": "empty"
+      }
+    ]
+  }
 }

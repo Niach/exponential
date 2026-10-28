@@ -201,6 +201,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         let voice = cx.update(|cx| crate::device_readiness::voice_rows(cx));
         register_device(
             Arc::clone(&trpc),
+            account_id.clone(),
             device_id.clone(),
             device_label.clone(),
             &advertisement,
@@ -370,6 +371,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
     let caps = device_caps(&desired);
     register_device(
         trpc,
+        account.id.clone(),
         steer::persistent_device_id(&auth.data_dir),
         api::users::hostname(),
         &desired,
@@ -399,8 +401,23 @@ fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
 /// machine's row in the per-user registry, and since EXP-485 the ONLY path the
 /// agent lists and launch defaults take to the server. A failed register must
 /// never break control-channel start, so failures are swallowed.
+/// EXP-1417: the accounts whose register LANDED in this app process. The
+/// first register per account is the launch (the only kind that brings back
+/// a machine its owner removed); every later one, a re-dial or an
+/// advertisement refresh, leaves a removed machine removed.
+static LAUNCH_REGISTERED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+fn launch_registered() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<String>> {
+    match LAUNCH_REGISTERED.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 fn register_device(
     trpc: Arc<api::TrpcClient>,
+    account_id: String,
     device_id: String,
     device_label: String,
     advertisement: &coding::AgentAdvertisement,
@@ -449,7 +466,8 @@ fn register_device(
                 crate::device_readiness::add_voice_rows(&mut doctor, voice);
                 serde_json::to_value(doctor).ok()
             });
-            let _ = api::devices::register(
+            let launch = !launch_registered().contains(&account_id);
+            let result = api::devices::register(
                 &trpc,
                 &api::devices::RegisterDevice {
                     device_id: &device_id,
@@ -464,8 +482,21 @@ fn register_device(
                     agent_accounts: agent_accounts.as_ref(),
                     version: Some(domain::client_version::current_version()),
                     doctor: doctor.as_ref(),
+                    launch,
+                    // FEED-154: a desktop row is never shareable, so it
+                    // proves no machine key.
+                    key: None,
                 },
             );
+            match result {
+                Ok(result) if result.removed => {
+                    log::info!("[steer] this machine was removed in Exponential; it stays removed until the app restarts");
+                }
+                Ok(_) => {
+                    launch_registered().insert(account_id);
+                }
+                Err(_) => {}
+            }
         })
         .detach();
 }

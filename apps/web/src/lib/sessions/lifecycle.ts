@@ -2,13 +2,13 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
-import { agents, attachments, devices, messages, sessions, type Session } from "@/db/schema"
+import { agents, attachments, devices, messages, sessions, users, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
 import { busReport, closeAskMirrorsOf, forgetWatched } from "@/lib/sessions/bus"
-import { postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
+import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
@@ -321,10 +321,39 @@ export async function foreignHostedSessionIds(
   return rows.map((row) => row.id)
 }
 
+/** FEED-154: why a share's hosted runs ended, for their end line. */
+export type HostedEndReason = {
+  /** The account whose action withdrew the share. */
+  actorId: string
+  /** The machine's label, as its owner named it. */
+  deviceLabel: string
+  cause: `unshared` | `removed` | `dropped`
+}
+
+/** FEED-154: the end reason a hosted run's Conversation (a server line) and
+ *  its parent's report read, instead of a silent end. */
+export function hostedEndLine(actor: string, reason: Pick<HostedEndReason, `deviceLabel` | `cause`>): string {
+  const machine = reason.deviceLabel
+  if (reason.cause === `removed`) return `Ended: ${actor} removed ${machine}, the machine this session ran on.`
+  if (reason.cause === `dropped`) return `Ended: ${actor} removed ${machine}'s share with this team.`
+  return `Ended: ${actor} stopped sharing ${machine} with this team.`
+}
+
 /** FEED-149: end the set `foreignHostedSessionIds` read, after the share
- *  write committed (rows that ended meanwhile stay as they are). */
-export async function endHostedSessions(ids: readonly string[]): Promise<string[]> {
+ *  write committed (rows that ended meanwhile stay as they are). FEED-154:
+ *  `reason` posts the end line into each ended session and reports it to
+ *  its parent. */
+export async function endHostedSessions(ids: readonly string[], reason?: HostedEndReason): Promise<string[]> {
   if (ids.length === 0) return []
+  let line: string | null = null
+  if (reason) {
+    const [actor] = await db
+      .select({ name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.id, reason.actorId))
+      .limit(1)
+    line = hostedEndLine(actor?.name || actor?.email || `Someone`, reason)
+  }
   const endedRows = await db.transaction(async (tx) => {
     const rows = await tx
       .select({
@@ -337,7 +366,16 @@ export async function endHostedSessions(ids: readonly string[]): Promise<string[
       .from(sessions)
       .where(and(inArray(sessions.id, [...ids]), ne(sessions.status, `ended`)))
       .orderBy(desc(sessions.depth), asc(sessions.createdAt))
-    const ended = await endRowsInTx(tx, rows)
+    if (!line) {
+      const ended = await endRowsInTx(tx, rows)
+      return rows.filter((row) => ended.includes(row.id))
+    }
+    const ended: string[] = []
+    for (const row of rows) {
+      if (isPersistent(row)) continue
+      await postMovedMessage(tx, row.id, line)
+      ended.push(...(await endRowsInTx(tx, [row], { id: row.id, summary: line })))
+    }
     return rows.filter((row) => ended.includes(row.id))
   })
   const endedIds = endedRows.map((row) => row.id)

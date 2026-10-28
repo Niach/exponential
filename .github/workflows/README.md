@@ -31,13 +31,26 @@ coolify deploy uuid <app-uuid>
 
 Or click "Deploy" in the Coolify UI.
 
+The device-shares gate (FEED-149/FEED-155) is a production deploy step, not
+a CI job: no workflow can reach the production database. It is read-only and
+lists every machine id two accounts share into one team, host row first, with
+each row's id. Settle each pair before deploying: the team's owner removes
+the extra share (Team devices, Remove, which is `devices.dropShare`); when the
+owner does not respond, an instance admin calls `admin.dropDeviceShare({id,
+teamId})` with the row id from the check's output. Rerun the check until it
+exits 0. A machine whose key another account pinned first (FEED-154: its
+owner's share is refused with "Another account holds this machine's key") is
+reset with `admin.clearDeviceKey({deviceId})`; the box's next register pins
+again. The operations runbook (credentials, Coolify app uuids, the target
+database URLs) lives outside this repository.
+
 ## What runs when (2026-10-26)
 
 | When | Workflow | What |
 |---|---|---|
 | pull request | `test.yml` (required check `gate`) | typecheck, web unit tests (4 shards), migrations from scratch + drift + custom triggers, desktop `cargo check` (only when the PR touches it) |
 | master push | `build-web.yml`, `build-steer-relay.yml` | the ghcr images the deploys pull |
-| release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `ui-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` (renderers, conformance, bench), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, push-relay image smoke build |
+| release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `ui-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` (renderers, conformance, bench), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
 | release tags | `build-*.yml`, `release-ui.yml` | the release artifacts |
 | by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml` | fuzzing, re-recording the Compose fixtures |
 

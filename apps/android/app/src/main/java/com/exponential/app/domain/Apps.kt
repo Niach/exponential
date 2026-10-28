@@ -126,4 +126,41 @@ object Apps {
     /** The list order: by name (case-insensitive). Exponential ships no built-in apps. */
     fun <T : ListLike> sortApps(apps: List<T>): List<T> =
         apps.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+
+    /** The fixture's `mediaPolicy` (`AppsTest` locks the copy). */
+    object MediaPolicy {
+        val DATA_MIME_PREFIXES = listOf("image/", "audio/", "video/")
+        val DENIED_DATA_MIMES = listOf("image/svg+xml")
+        const val ATTACHMENT_PATH = "/api/attachments/"
+    }
+
+    private val ATTACHMENT_PATH_RE = Regex(
+        "${Regex.escape(MediaPolicy.ATTACHMENT_PATH)}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** VAPP-157: the app hosts' media rule (fixture `mediaPolicy`), a plain
+     *  string rule so the four hosts agree byte for byte: a `data:` image,
+     *  audio or video (never svg), or the instance's own
+     *  `/api/attachments/<uuid>` (relative or on [origin] exactly) with
+     *  nothing after the id. */
+    fun appMediaAllowed(src: String, origin: String): Boolean {
+        if (src.isEmpty() || src.trim() != src) return false
+        val lower = src.lowercase()
+        if (lower.startsWith("data:")) {
+            val comma = lower.indexOf(',')
+            if (comma < 0) return false
+            val mime = lower.substring(5, comma).split(';')[0]
+            return MediaPolicy.DATA_MIME_PREFIXES.any { mime.startsWith(it) && mime.length > it.length } &&
+                mime !in MediaPolicy.DENIED_DATA_MIMES
+        }
+        val path = if (src.startsWith("/") && !src.startsWith("//")) {
+            src
+        } else {
+            val base = origin.trimEnd('/').lowercase()
+            if (base.isEmpty() || !lower.startsWith("$base/")) return false
+            src.substring(base.length)
+        }
+        return ATTACHMENT_PATH_RE.matches(path)
+    }
 }

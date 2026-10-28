@@ -266,6 +266,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     reject_unknown_flags(&args)?;
 
     let ctx = Arc::new(context::load()?);
+    // EXP-1417: an auto-update re-exec is the same daemon, not a LAUNCH, so
+    // it never brings back a machine its owner removed.
+    let reexec = daemon_pid(&ctx.data_dir) == Some(std::process::id());
     if let Some(pid) = daemon_pid(&ctx.data_dir) {
         // Same pid = US, after an auto-update re-exec (exec keeps the pid
         // and the pidfile) — that's a restart, not a second daemon.
@@ -413,6 +416,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // EXP-414: a failed register (network not up yet at boot) is retried on
     // the heartbeat cadence — otherwise the registry row goes stale (old
     // version/agents, a never-cleared update request) until the next restart.
+    let mut registration = Registration::new(!reexec);
     let mut registered_ok = register_device(
         &ctx,
         &device_id,
@@ -420,6 +424,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         &advertised,
         &doctor,
         &device_worker,
+        &mut registration,
     );
     device_worker.send(DeviceWork::ReportWorktrees).ok();
     // `register` only SEEDS the label (it never stomps a rename); an
@@ -741,8 +746,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     if gated.swap(false, Ordering::SeqCst) {
                         log::info!("devices.heartbeat accepted again — the min-version gate lifted");
                     }
-                    // Row removed in the UI while we run, or an earlier
-                    // register never landed (EXP-414) — re-register.
+                    // EXP-1417: the owner REMOVED this machine — stay
+                    // removed until the next launch.
+                    if result.removed {
+                        registration.mark_removed();
+                    }
+                    // Row gone while we run, or an earlier register never
+                    // landed (EXP-414) — re-register (a no-op once removed).
                     if !result.ok || !registered_ok {
                         registered_ok = register_device(
                             &ctx,
@@ -751,6 +761,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                             &advertised,
                             &doctor,
                             &device_worker,
+                            &mut registration,
                         );
                     }
                     if result.update_requested && pending_update.is_none() {
@@ -947,6 +958,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                                 &advertised,
                                 &doctor,
                                 &device_worker,
+                                &mut registration,
                             );
                         }
                     }
@@ -966,6 +978,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                                 &advertised,
                                 &doctor,
                                 &device_worker,
+                                &mut registration,
                             );
                         }
                     }
@@ -1030,6 +1043,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         &advertised,
                         &doctor,
                         &device_worker,
+                        &mut registration,
                     );
                 }
             }
@@ -1155,6 +1169,31 @@ fn advert_transition(
     AdvertStep::AwaitConfirmation
 }
 
+/// EXP-1417 + FEED-154: what the daemon's registers carry across calls.
+struct Registration {
+    /// The next register is this process's LAUNCH (until one lands): the
+    /// only kind that brings back a machine its owner removed.
+    launch_pending: bool,
+    /// The owner removed this machine in the web UI: no register until the
+    /// daemon is started again.
+    removed: bool,
+}
+
+impl Registration {
+    fn new(launch: bool) -> Self {
+        Self { launch_pending: launch, removed: false }
+    }
+
+    fn mark_removed(&mut self) {
+        if !self.removed {
+            log::warn!(
+                "this machine was removed from your account in Exponential — it stays removed until the daemon is started again"
+            );
+        }
+        self.removed = true;
+    }
+}
+
 /// Best-effort `devices.register` — registered even with no agents so the
 /// UI can show the machine offline with a reason; a failed register must
 /// never break the daemon. Returns whether the register
@@ -1167,8 +1206,19 @@ fn register_device(
     advertised: &coding::AgentAdvertisement,
     doctor: &coding::DoctorReport,
     device_worker: &flume::Sender<DeviceWork>,
+    registration: &mut Registration,
 ) -> bool {
+    // EXP-1417: removed and not a launch — the server would refuse it.
+    if registration.removed && !registration.launch_pending {
+        return true;
+    }
     let caps = device_caps(advertised);
+    // FEED-154: prove the machine key on every register; the server pins the
+    // first proven key per machine id, and only its holder may share it.
+    let key = api::device_identity::cli_device_key(&ctx.data_dir);
+    let proof = key
+        .as_ref()
+        .map(|key| key.proof(&ctx.account.user_id, device_id, &coding::now_iso()));
     // EXP-481: the local defaults ride the register as a FIRST-EVER seed
     // (the server applies them only while its column is NULL); the response
     // carries the authoritative copy either way, reconciled off-loop.
@@ -1203,10 +1253,23 @@ fn register_device(
             version: Some(crate::cli_version()),
             // EXP-1196: the readiness block, always on register.
             doctor: device_doctor.as_ref(),
+            launch: registration.launch_pending,
+            key: proof.as_ref(),
         },
     );
     match result {
+        Ok(result) if result.removed => {
+            registration.mark_removed();
+            true
+        }
         Ok(result) => {
+            registration.launch_pending = false;
+            registration.removed = false;
+            if proof.is_some() && !result.key_accepted {
+                log::warn!(
+                    "another account holds this machine's key in Exponential — sharing it with a team is refused until an instance admin resets the key"
+                );
+            }
             if result.launch_defaults.is_some() || result.launch_defaults_updated_at.is_some() {
                 device_worker
                     .send(DeviceWork::ServerDefaults {

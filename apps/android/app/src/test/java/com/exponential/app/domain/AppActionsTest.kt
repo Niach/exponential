@@ -41,6 +41,7 @@ class AppActionsTest {
         assertEquals(copy["always"]!!.string, AppActions.Copy.ALWAYS)
         assertEquals(fixture["grantRole"]!!.string, AppActions.GRANT_ROLE)
         assertEquals(strings(fixture["destructiveWords"]), AppActions.DESTRUCTIVE_WORDS)
+        assertEquals(strings(fixture["ownerActions"]), AppActions.OWNER_ACTIONS)
         assertEquals(fixture["destructiveArgs"]!!.obj!!.mapValues { strings(it.value) }, AppActions.DESTRUCTIVE_ARGS)
         for (excluded in strings(fixture["excluded"])) {
             assert(AppActions.ALL.none { it.startsWith("${AppActions.PREFIX}$excluded.") }) { excluded }
@@ -74,6 +75,19 @@ class AppActionsTest {
         for (case in cases("grantableCases")) {
             val name = case["name"]!!.string!!
             assertEquals(name, case["expected"] == JsonValue.Bool(true), AppActions.actionGrantable(name))
+        }
+    }
+
+    @Test
+    fun ownerOnlyCases() {
+        for (case in cases("ownerOnlyCases")) {
+            val name = case["name"]!!.string!!
+            assertEquals(name, case["expected"] == JsonValue.Bool(true), AppActions.actionOwnerOnly(name))
+        }
+        // VAPP-158: an owner-only op stays a plain card (not the destructive variant).
+        for (name in AppActions.OWNER_ACTIONS) {
+            assertEquals(name, false, AppActions.callDestructive(name, emptyMap()))
+            assertEquals(name, false, AppActions.actionGrantable(name))
         }
     }
 

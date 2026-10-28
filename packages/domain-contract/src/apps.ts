@@ -100,3 +100,29 @@ export function chatCard(messages: readonly string[], busy: boolean): DockRow {
     action: null,
   }
 }
+
+/** VAPP-157: the app hosts' media rule (fixture `mediaPolicy`), a plain
+ *  string rule so the four hosts agree byte for byte: a `data:` image, audio
+ *  or video (never svg), or the instance's own `/api/attachments/<uuid>`
+ *  (relative or on `origin` exactly) with nothing after the id. */
+export const APP_MEDIA_POLICY = fixture.mediaPolicy
+const ATTACHMENT_PATH = new RegExp(`^${APP_MEDIA_POLICY.attachmentPath}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, `i`)
+
+export function appMediaAllowed(src: string, origin: string): boolean {
+  if (!src || src.trim() !== src) return false
+  const lower = src.toLowerCase()
+  if (lower.startsWith(`data:`)) {
+    const comma = lower.indexOf(`,`)
+    if (comma < 0) return false
+    const mime = lower.slice(5, comma).split(`;`)[0]!
+    return APP_MEDIA_POLICY.dataMimePrefixes.some((p) => mime.startsWith(p) && mime.length > p.length) && !APP_MEDIA_POLICY.deniedDataMimes.includes(mime)
+  }
+  let path: string
+  if (src.startsWith(`/`) && !src.startsWith(`//`)) path = src
+  else {
+    const base = origin.replace(/\/+$/, ``).toLowerCase()
+    if (!base || !lower.startsWith(`${base}/`)) return false
+    path = src.slice(base.length)
+  }
+  return ATTACHMENT_PATH.test(path)
+}

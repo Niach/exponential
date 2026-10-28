@@ -332,7 +332,7 @@ impl AppDetailPane {
         let muted = cx.theme().muted_foreground;
         let mono = cx.theme().mono_font_family.clone();
         let declared = declared_tools(row.package.as_ref());
-        // The ruling: owners grant; a destructive action is never grantable.
+        // The ruling: owners grant; a destructive or owner-only action is never grantable.
         let grant = self.can_grant(row, cx);
         let group = if declared.is_empty() {
             crate::surface::glass_group().child(

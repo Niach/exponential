@@ -61,6 +61,7 @@ import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.AppSources
+import com.exponential.app.domain.Apps
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.DeviceLiveness
@@ -516,6 +517,10 @@ fun rememberAppHost(
                         } else {
                             emptyList()
                         },
+                        // VAPP-157: an app's media loads only a data: image /
+                        // audio / video or the instance's own attachment, so
+                        // bound team data never rides a url to another host.
+                        allow = { src -> Apps.appMediaAllowed(src, origin.orEmpty()) },
                     ),
                 ),
                 theme = themeId?.let(ThemeHandle::builtin) ?: ThemeHandle.builtin(APP_THEME_ID),

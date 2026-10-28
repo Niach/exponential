@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { withProxyAttestedClientIp } from "@/lib/auth/client-ip"
 
 describe(`withProxyAttestedClientIp`, () => {
@@ -46,5 +46,20 @@ describe(`withProxyAttestedClientIp`, () => {
     expect(rewritten.url).toBe(`https://app.test/api/auth/sign-in/email`)
     expect(rewritten.headers.get(`content-type`)).toBe(`application/json`)
     expect(await rewritten.json()).toEqual({ email: `a@b.c` })
+  })
+
+  // NEW-85: behind a second appending proxy the client is one hop further in.
+  it(`honours TRUSTED_PROXY_HOPS`, () => {
+    vi.stubEnv(`TRUSTED_PROXY_HOPS`, `2`)
+    try {
+      const request = new Request(`https://app.test/api/auth/sign-in/email`, {
+        headers: { "x-forwarded-for": `6.6.6.6, 198.51.100.4, 203.0.113.7` },
+      })
+      expect(
+        withProxyAttestedClientIp(request).headers.get(`x-forwarded-for`)
+      ).toBe(`198.51.100.4`)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

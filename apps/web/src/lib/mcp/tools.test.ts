@@ -3295,44 +3295,87 @@ describe(`the reporter's view over MCP (NEW-19)`, () => {
     })
   })
 
-  // SLOP-4 holds for the reporter's own reply too: it reaches the team and
-  // reopens the issue, so a confined grant or an unattended run whose user's
-  // verified email matches a report never posts one.
-  it(`the reporter's reply needs a person: a confined grant and an unattended run are refused`, async () => {
+  // SLOP-4 + NEW-85: the reporter fallback reads and writes outside the
+  // grant's team/board selection, so a board-confined grant, a scoped key, an
+  // agent's clamped access or an unattended run whose user's verified email
+  // matches a report never reaches it: get, list and create all keep the
+  // member gate's error, and the report is never even looked up.
+  it(`the reporter fallback needs a person: confined access and an unattended run get the member error`, async () => {
     membership.resolveTeamAccess.mockRejectedValue(notMember())
     h.reporter.findIssueForReporter.mockResolvedValue(resolved)
-    const confined: McpAccess = {
+    h.reporter.reporterIssueView.mockResolvedValue({ access: `reporter` })
+    h.reporter.listReporterComments.mockResolvedValue([])
+    const ops = [
+      [`exponential_issues_get`, { id: UUID }],
+      [`exponential_comments_list`, { issueId: UUID, limit: 20, offset: 0 }],
+      [`exponential_comments_create`, { issueId: UUID, body: `Still broken` }],
+    ] as const
+    const boardConfined: McpAccess = {
       full: false,
       fullTeamIds: new Set(),
       grantedBoardIds: new Set([`proj-1`]),
       visibleTeamIds: new Set([`ws-1`]),
     }
-    const scoped = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
-      `exponential_comments_create`
-    )!({ issueId: `FEED-144`, body: `Still broken` })
-    expect(scoped.isError).toBe(true)
-    expect(scoped.content[0].text).toContain(`confined`)
+    const scopedKey: McpAccess = { ...SCOPED_TO_WS, origin: `apiKey` }
+    const agent: McpAccess = { ...SCOPED_TO_WS, origin: `agent` }
+    for (const access of [boardConfined, scopedKey, agent]) {
+      const confined = collectTools(USER, null, ALL_MCP_TOOL_GATES, access)
+      for (const [name, args] of ops) {
+        const result = await confined.get(name)!(args)
+        expect(result.isError, name).toBe(true)
+        // The member gate's own error (a grant denial or "Not a member").
+        expect(result.content[0].text).toMatch(/not granted access|Not a member/)
+      }
+    }
 
+    for (const over of [{ parentId: UUID }, { watched: true }]) {
+      dbRows.current = [
+        {
+          id: SESSION,
+          teamId: `ws-1`,
+          rootId: SESSION,
+          parentId: null,
+          userId: `user-1`,
+          hostUserId: null,
+          rootAgentId: null,
+          watched: null,
+          ...over,
+        },
+      ]
+      const unattended = collectTools(USER, SESSION)
+      for (const [name, args] of ops) {
+        const result = await unattended.get(name)!(args)
+        expect(result.isError, name).toBe(true)
+        expect(result.content[0].text).toBe(`Not a member of this team`)
+      }
+    }
+    expect(h.reporter.findIssueForReporter).not.toHaveBeenCalled()
+    expect(h.reporter.reporterIssueView).not.toHaveBeenCalled()
+    expect(h.reporter.listReporterComments).not.toHaveBeenCalled()
+    expect(h.reporter.postReporterReply).not.toHaveBeenCalled()
+    expect(caller.comments.create).not.toHaveBeenCalled()
+  })
+
+  it(`a person's own attended session keeps the reporter fallback`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    h.reporter.reporterIssueView.mockResolvedValue({ access: `reporter` })
     dbRows.current = [
       {
         id: SESSION,
         teamId: `ws-1`,
         rootId: SESSION,
-        parentId: UUID,
+        parentId: null,
         userId: `user-1`,
         hostUserId: null,
         rootAgentId: null,
         watched: null,
       },
     ]
-    const unattended = await collectTools(USER, SESSION).get(`exponential_comments_create`)!({
-      issueId: `FEED-144`,
-      body: `Still broken`,
-    })
-    expect(unattended.isError).toBe(true)
-    expect(unattended.content[0].text).toContain(`unattended`)
-    expect(h.reporter.postReporterReply).not.toHaveBeenCalled()
-    expect(caller.comments.create).not.toHaveBeenCalled()
+    const out = parseOk(
+      await collectTools(USER, SESSION).get(`exponential_issues_get`)!({ id: UUID })
+    )
+    expect(out).toEqual({ access: `reporter` })
   })
 
   it(`refuses threads, attachments and team audience for the reporter`, async () => {

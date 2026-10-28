@@ -6,12 +6,17 @@
 // audience `reporter`. The registry decides WHO is a reporter
 // (lib/reporter/service.ts `findIssueForReporter`, only after the member gate
 // failed); this file owns WHAT they see. Never team comments, labels,
-// assignee, relations or any member's data (team replies read "Support").
+// assignee, relations or any member's data (team replies read "Support",
+// member @mentions read "@Support": reporter-reply.json `reporterView`).
 import { and, asc, desc, eq } from "drizzle-orm"
 import fixture from "@exp/domain-contract/fixtures/reporter-reply.json"
 import { db } from "@/db/connection"
 import { comments } from "@/db/schema"
-import { stripImageEmbeds } from "@/lib/reporter/report-text"
+import {
+  REPORTER_SUPPORT_LABEL,
+  reporterFacingText,
+  stripImageEmbeds,
+} from "@/lib/reporter/report-text"
 import type { ResolvedReporterIssue } from "@/lib/reporter/service"
 
 export interface ReporterComment {
@@ -60,9 +65,11 @@ export async function listReporterComments(
     const fromReporter = row.source === `reporter`
     return {
       id: row.id,
-      author: fromReporter ? ownName : `Support`,
+      author: fromReporter ? ownName : REPORTER_SUPPORT_LABEL,
       fromReporter,
-      body: row.body,
+      body: fromReporter
+        ? row.body
+        : reporterFacingText(row.body, resolved.submission.reporterEmail),
       createdAt: row.createdAt,
     }
   })
@@ -74,11 +81,13 @@ export async function reporterIssueView(
   commentsLimit: number
 ) {
   const { issue } = resolved
+  const facing = (text: string) =>
+    reporterFacingText(text, resolved.submission.reporterEmail)
   return {
     id: issue.id,
     identifier: issue.identifier,
-    title: issue.title,
-    description: stripImageEmbeds(issue.description ?? ``),
+    title: facing(issue.title),
+    description: facing(stripImageEmbeds(issue.description ?? ``)),
     statusCategory: resolved.statusCategory,
     teamName: resolved.teamName,
     createdAt: issue.createdAt,

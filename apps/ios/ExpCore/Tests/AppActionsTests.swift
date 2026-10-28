@@ -5,7 +5,8 @@ import XCTest
 // VAPP-120: typed host actions, replayed ×4 against
 // packages/domain-contract/fixtures/app-actions.json (TS `app-actions.test.ts`,
 // desktop `domain::app_actions`, Android `AppActionsTest`): `parseCases`,
-// `grantCases`, `declaredCases`, `consentCases`, plus the list, the tool map
+// `grantCases`, `grantableCases`, `declaredCases`, `consentCases`, VAPP-158
+// `ownerOnlyCases`, plus the list, the owner-only list, the tool map
 // and the copy.
 final class AppActionsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
@@ -46,6 +47,20 @@ final class AppActionsTests: XCTestCase {
         XCTAssertEqual(fixture["grantRole"] as? String, AppActions.grantRole)
         XCTAssertEqual(Set(try XCTUnwrap(fixture["destructiveWords"] as? [String])), AppActions.destructiveWords)
         XCTAssertEqual(try XCTUnwrap(fixture["destructiveArgs"] as? [String: [String]]), AppActions.destructiveArgs)
+        XCTAssertEqual(Set(try XCTUnwrap(fixture["ownerActions"] as? [String])), AppActions.ownerActions)
+    }
+
+    func testOwnerOnlyCases() throws {
+        for item in try cases("ownerOnlyCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            XCTAssertEqual(AppActions.actionOwnerOnly(name), try XCTUnwrap(item["expected"] as? Bool), name)
+        }
+        // An owner-only action is never destructive: it asks with the plain card.
+        for name in AppActions.ownerActions {
+            XCTAssertNotNil(AppActions.parseActionName(name), name)
+            XCTAssertFalse(AppActions.callDestructive(name, args: [:]), name)
+            XCTAssertFalse(AppActions.actionGrantable(name), name)
+        }
     }
 
     func testParseCases() throws {

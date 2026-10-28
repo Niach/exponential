@@ -12,6 +12,7 @@ import {
   isBoardGranted,
   isTeamFullyGranted,
   isTeamVisible,
+  reporterFallbackAllowed,
 } from "@/lib/mcp/scope"
 
 // FEED-76: the same confinement behind a scoped API key picks its own
@@ -169,5 +170,37 @@ describe(`clampMcpAccessToTeam`, () => {
     // A grant that never reached the team reaches nothing there.
     const none = clampMcpAccessToTeam(buildMcpAccess({ allTeams: false, teamIds: [`ws-b`], boardIds: [] }, new Map()), `ws-a`)
     expect(isTeamVisible(none, `ws-a`)).toBe(false)
+  })
+})
+
+// NEW-85: the widget reporter fallback sits outside every team/board
+// selection, so only the person's own full-access credential in an attended
+// session (or no session header at all) may take it.
+describe(`reporterFallbackAllowed (NEW-85)`, () => {
+  const boardOnly = buildMcpAccess(
+    { allTeams: false, teamIds: [], boardIds: [`b-1`] },
+    new Map([[`b-1`, `ws-a`]])
+  )
+  const scopedKey = buildMcpAccess(
+    { allTeams: false, teamIds: [`ws-a`], boardIds: [] },
+    new Map(),
+    `apiKey`
+  )
+  const agent = clampMcpAccessToTeam(FULL_ACCESS, `ws-a`)
+
+  it(`allows full access with no session or an attended one`, () => {
+    expect(reporterFallbackAllowed(FULL_ACCESS, null)).toBe(true)
+    expect(reporterFallbackAllowed(FULL_ACCESS, { unattended: false })).toBe(true)
+  })
+
+  it(`refuses an unattended run even on full access`, () => {
+    expect(reporterFallbackAllowed(FULL_ACCESS, { unattended: true })).toBe(false)
+  })
+
+  it(`refuses every confined credential`, () => {
+    for (const access of [boardOnly, scopedKey, agent, NO_ACCESS]) {
+      expect(reporterFallbackAllowed(access, null)).toBe(false)
+      expect(reporterFallbackAllowed(access, { unattended: false })).toBe(false)
+    }
   })
 })

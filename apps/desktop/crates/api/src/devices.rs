@@ -65,6 +65,16 @@ pub struct RegisterDevice<'a> {
     /// `DeviceDoctor`, as a raw value). Skipped when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doctor: Option<&'a serde_json::Value>,
+    /// EXP-1417: the first register of a fresh LAUNCH of this build. Only a
+    /// launch brings back a machine its owner removed; a heartbeat-miss
+    /// recovery, a re-dial or an advertisement refresh sends `false`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub launch: bool,
+    /// FEED-154: proof this process holds the machine key
+    /// ([`crate::device_identity::cli_device_key`]). Without it the row
+    /// registers but cannot share.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<&'a crate::device_identity::KeyProof>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +95,14 @@ struct OkResult {
 pub struct RegisterResult {
     #[serde(default)]
     pub ok: bool,
+    /// EXP-1417: the owner removed this machine; nothing was written. The
+    /// next LAUNCH of the build registers it again.
+    #[serde(default)]
+    pub removed: bool,
+    /// FEED-154: the key proof landed and this account holds the machine's
+    /// pinned key (it may share the machine).
+    #[serde(default)]
+    pub key_accepted: bool,
     #[serde(default)]
     pub launch_defaults: Option<serde_json::Value>,
     #[serde(default)]
@@ -213,6 +231,10 @@ pub struct HeartbeatResult {
     /// NEW-67: the member's voice settings, on every beat.
     #[serde(default)]
     pub voice: Option<domain::voice::VoiceSettings>,
+    /// EXP-1417: `ok: false` because the owner REMOVED the machine: do not
+    /// re-register until the next launch (the server refuses it anyway).
+    #[serde(default)]
+    pub removed: bool,
 }
 
 /// `devices.heartbeat` — bump `last_seen_at`, report the live-session count
@@ -1097,6 +1119,8 @@ mod tests {
                 agent_accounts: Some(&accounts),
                 version: None,
                 doctor: None,
+                launch: false,
+                key: None,
             },
         )
         .unwrap();
@@ -1122,11 +1146,60 @@ mod tests {
                 agent_accounts: None,
                 version: None,
                 doctor: None,
+                launch: false,
+                key: None,
             },
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(!request.contains("agentAccounts"), "{request}");
+    }
+
+    /// EXP-1417 + FEED-154: a launch register says so and carries the key
+    /// proof; the response's `removed` / `keyAccepted` decode.
+    #[test]
+    fn register_posts_launch_and_the_key_proof() {
+        let proof = crate::device_identity::KeyProof {
+            public_key: "ab".repeat(32),
+            signed_at: "2026-10-28T10:00:00.000Z".to_string(),
+            signature: "cd".repeat(64),
+        };
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"ok":false,"removed":true,"keyAccepted":false}}}"#,
+        );
+        let result = register(
+            &client(&base),
+            &RegisterDevice {
+                device_id: "dev-1",
+                label: "buildbox",
+                kind: "server",
+                platform: None,
+                agents: &[],
+                unauthed_agents: &[],
+                acp_agents: None,
+                caps: &[],
+                launch_defaults: None,
+                agent_accounts: None,
+                version: None,
+                doctor: None,
+                launch: true,
+                key: Some(&proof),
+            },
+        )
+        .unwrap();
+        assert!(result.removed);
+        assert!(!result.key_accepted);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""launch":true"#), "{request}");
+        assert!(
+            request.contains(&format!(
+                r#""key":{{"publicKey":"{}","signedAt":"2026-10-28T10:00:00.000Z","signature":"{}"}}"#,
+                "ab".repeat(32),
+                "cd".repeat(64)
+            )),
+            "{request}"
+        );
     }
 
     /// EXP-749: the ACP-ready subset rides the register. An EMPTY list is a
@@ -1153,6 +1226,8 @@ mod tests {
                 agent_accounts: None,
                 version: None,
                 doctor: None,
+                launch: false,
+                key: None,
             },
         )
         .unwrap();
@@ -1178,6 +1253,8 @@ mod tests {
                 agent_accounts: None,
                 version: None,
                 doctor: None,
+                launch: false,
+                key: None,
             },
         )
         .unwrap();

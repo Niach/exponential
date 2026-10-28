@@ -50,8 +50,10 @@ vi.mock(`@exp/ui`, async (importOriginal) => {
   return { ...actual, toast }
 })
 
-import { MemoryTransport, type AppPackage } from "@exponential_app/ui"
-import { HostSurface } from "@exponential_app/ui-react"
+import { ExponentialHost, MemoryTransport, type AppPackage } from "@exponential_app/ui"
+import { mediaRequestOf } from "@exponential_app/ui/web"
+import { HostSurface, hostPlugin } from "@exponential_app/ui-react"
+import appsFixture from "@exp/domain-contract/fixtures/apps.json"
 import { appReactExtension, devicesPackage } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { exponentialUiConsentPrompt } from "@/lib/prompts"
@@ -77,8 +79,9 @@ describe(`VAPP-107: the app opts only its own private origin in`, () => {
     expect(ownPrivateHosts(`nope`)).toEqual([])
     const host = createAppHost({ consent: createConsentGate(), navigate: () => {} })
     const origin = window.location.origin
-    expect(host.mediaRequest(`${origin}/api/attachments/a1`)?.url).toBe(`${origin}/api/attachments/a1`)
-    expect(host.mediaRequest(`/api/attachments/a1`)?.url).toBe(`${origin}/api/attachments/a1`)
+    const a1 = `/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90`
+    expect(host.mediaRequest(`${origin}${a1}`)?.url).toBe(`${origin}${a1}`)
+    expect(host.mediaRequest(a1)?.url).toBe(`${origin}${a1}`)
     expect(host.mediaRequest(`http://192.168.1.10/cam.jpg`)).toBeNull()
     expect(host.openUrl(`http://169.254.169.254/latest/meta-data/`)).toBe(false)
   })
@@ -176,6 +179,22 @@ describe(`VAPP-120: typed actions`, () => {
     const stopped = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.sessions.send`, args: { sessionId: `s1`, stop: true } })
     expect(stopped.decision).toBe(`deny`)
     expect(ask).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+})
+
+describe(`VAPP-158: owner-only actions`, () => {
+  it(`a stored grant of an owner-only action is ignored: the call still asks`, async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal(`fetch`, fetchMock)
+    const ask = vi.fn(async () => false)
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential.teams.update`, `exponential.people.add`] })
+    for (const name of [`exponential.teams.update`, `exponential.people.add`]) {
+      const outcome = await host.callFunction({ surfaceId: `s`, componentId: `c`, name, args: {} })
+      expect(outcome.decision, name).toBe(`deny`)
+    }
+    expect(ask).toHaveBeenCalledTimes(2)
+    expect(fetchMock).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
   })
 })
@@ -302,5 +321,28 @@ describe(`the consent card`, () => {
       fireEvent.click(deny)
     })
     expect(await answer).toBe(false)
+  })
+})
+
+// VAPP-157: the app host narrows the SDK's media policy to the fixture's
+// rule (a data: image/audio/video or the instance's own attachment), on the
+// raw src, through the very path every renderer media load takes
+// (`hostPlugin` → `mediaRequestOf`); a plain host keeps the SDK default.
+describe(`VAPP-157: the app host's media rule`, () => {
+  it(`replays fixtures/apps.json mediaPolicy.cases through the host's media path`, () => {
+    const origin = appsFixture.mediaPolicy.origin
+    const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, origin })
+    const plugin = hostPlugin(host)
+    for (const c of appsFixture.mediaPolicy.cases) {
+      expect(host.mediaRequest(c.src) !== null, c.src).toBe(c.expected)
+      expect(mediaRequestOf(plugin, c.src) !== null, c.src).toBe(c.expected)
+    }
+  })
+
+  it(`a plain host sharing the SDK keeps its default (an https image loads)`, () => {
+    const plain = new ExponentialHost({ policy: { media: { baseUrl: `https://app.exponential.at` } } })
+    expect(plain.mediaRequest(`https://images.example/cat.png`)).not.toBeNull()
+    const app = createAppHost({ consent: createConsentGate(), navigate: () => {}, origin: `https://app.exponential.at` })
+    expect(app.mediaRequest(`https://images.example/cat.png`)).toBeNull()
   })
 })

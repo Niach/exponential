@@ -116,4 +116,22 @@ class AppsTest {
         assertEquals("Restored v2 as v5", Apps.restored(2, 5))
         assertEquals("Delete Team dashboard?", Apps.deleteTitle("Team dashboard"))
     }
+
+    @Test
+    fun `appMediaAllowed replays the fixture`() {
+        val policy = fixture["mediaPolicy"]!!.jsonObject
+        assertEquals(policy["dataMimePrefixes"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.MediaPolicy.DATA_MIME_PREFIXES)
+        assertEquals(policy["deniedDataMimes"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.MediaPolicy.DENIED_DATA_MIMES)
+        assertEquals(policy["attachmentPath"]!!.jsonPrimitive.content, Apps.MediaPolicy.ATTACHMENT_PATH)
+        val origin = policy["origin"]!!.jsonPrimitive.content
+        val cases = policy["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val src = case["src"]!!.jsonPrimitive.content
+            assertEquals(case.toString(), case["expected"]!!.jsonPrimitive.content.toBooleanStrict(), Apps.appMediaAllowed(src, origin))
+        }
+        // A trailing slash on the origin changes nothing; no origin = relative + data only.
+        assertEquals(true, Apps.appMediaAllowed("$origin/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90", "$origin/"))
+        assertEquals(false, Apps.appMediaAllowed("$origin/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90", ""))
+    }
 }

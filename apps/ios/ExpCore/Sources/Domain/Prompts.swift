@@ -290,7 +290,7 @@ public enum Prompts {
             "remove-device",
             texts: [
                 "title": "Remove \"{name}\"?",
-                "body": "A device with the daemon still running registers again on its next heartbeat.",
+                "body": "It comes back the next time Exponential starts on it. Sessions teammates started on it end.",
             ],
             params: ["name"], answer: "remove", label: "Remove"
         )

@@ -192,6 +192,22 @@ export async function resolveMcpAccessClampedToTeam(
   return clampMcpAccessToTeam(access, teamId, map)
 }
 
+/**
+ * NEW-85: the REPORTER fallback (an issue the caller reported through a
+ * widget, read and answered outside any team) is not covered by a grant's
+ * team/board selection, so only the user's own full-access credential in a
+ * session a person drives may take it: never a board-confined OAuth grant, a
+ * scoped key or an agent's clamped access, never an unattended run (a child,
+ * or a root another session watches: SLOP-4 "a person behind it"). `caller`
+ * = the X-Exp-Session-Id session (null = no header = the person's own client).
+ */
+export function reporterFallbackAllowed(
+  access: McpAccess,
+  caller: { unattended: boolean } | null
+): boolean {
+  return access.full && caller?.unattended !== true
+}
+
 export function isTeamVisible(access: McpAccess, teamId: string) {
   return access.full || access.visibleTeamIds.has(teamId)
 }

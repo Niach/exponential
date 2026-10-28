@@ -10,7 +10,7 @@ import {
   getReporterRateLimiters,
 } from "@/lib/reporter/service"
 import { isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
-import { stripImageEmbeds } from "@/lib/reporter/report-text"
+import { reporterFacingText, stripImageEmbeds } from "@/lib/reporter/report-text"
 
 // SLOP-4: anonymous read of a widget report's conversation via the emailed
 // magic-link token (the /support/$token page's data source). POST with the
@@ -19,7 +19,8 @@ import { stripImageEmbeds } from "@/lib/reporter/report-text"
 // leaves the server: the report (title + description text + the reporter's
 // own pictures) and the comments with audience `reporter`; member identities
 // are reduced to "Support" (reporters aren't members, so real names would
-// leak the roster). Team-audience comments never leave.
+// leak the roster), and so are member @mentions in the text (NEW-85,
+// reporter-reply.json `reporterView`). Team-audience comments never leave.
 async function handleThreadRead(request: Request): Promise<Response> {
   const { readLimiter } = getReporterRateLimiters()
   const limit = readLimiter.tryTake(`ip:${clientIpFromRequest(request)}`)
@@ -48,6 +49,8 @@ async function handleThreadRead(request: Request): Promise<Response> {
     return jsonResponse(404, { error: `Conversation not found` })
   }
   const { issue, submission } = resolved
+  const facing = (text: string) =>
+    reporterFacingText(text, submission.reporterEmail)
 
   const rows = await db
     .select({
@@ -95,15 +98,15 @@ async function handleThreadRead(request: Request): Promise<Response> {
   })()
 
   return jsonResponse(200, {
-    subject: issue.title,
+    subject: facing(issue.title),
     teamName: resolved.teamName,
     // The anchor enum names the category: `done` ⇔ completed. A reply
     // reopens, so the page keeps its reply box either way.
     status: issue.status === CATEGORY_ANCHOR.completed ? `resolved` : `open`,
     reporterName: submission.reporterName,
     report: {
-      title: issue.title,
-      description: stripImageEmbeds(issue.description ?? ``),
+      title: facing(issue.title),
+      description: facing(stripImageEmbeds(issue.description ?? ``)),
       createdAt: issue.createdAt,
     },
     attachments: pictures.filter((row) =>
@@ -112,7 +115,7 @@ async function handleThreadRead(request: Request): Promise<Response> {
     messages: rows.map((row) => ({
       id: row.id,
       direction: row.source === `reporter` ? `inbound` : `outbound`,
-      body: row.body,
+      body: row.source === `reporter` ? row.body : facing(row.body),
       createdAt: row.createdAt,
     })),
   })

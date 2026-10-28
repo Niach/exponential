@@ -259,6 +259,27 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await caller(w.mate).upsertPackage({ id: created.app.id, package: pkg })
     expect(await grants()).toEqual([])
   })
+  // VAPP-158: an owner-only action is never grantable: the update refuses
+  // it, and a grant stored before the rule never survives a new head.
+  it(`grants: an owner-only action is refused and a stored one is dropped on upsert and restore`, async () => {
+    const w = await world()
+    const pkg = { ...RECORDS_PACKAGE, functions: [`exponential.comments.create`, `exponential.teams.update`, `exponential.people.*`] }
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: pkg })
+    for (const name of [`exponential.teams.update`, `exponential.people.add`, `exponential.people.invites_create`]) {
+      await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.comments.create`, name] }), name).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+    const grants = async () => (await caller(w.owner).get({ id: created.app.id })).app.grantedTools
+    expect(await grants()).toEqual([])
+    // A row written before the rule: an owner's new version drops the owner-only grant.
+    const stale = [`exponential.comments.create`, `exponential.teams.update`, `exponential.people.add`]
+    await db.update(apps).set({ grantedTools: stale }).where(eq(apps.id, created.app.id))
+    await caller(w.owner).upsertPackage({ id: created.app.id, package: pkg })
+    expect(await grants()).toEqual([`exponential.comments.create`])
+    await db.update(apps).set({ grantedTools: stale }).where(eq(apps.id, created.app.id))
+    await caller(w.owner).restore({ id: created.app.id, number: 1 })
+    expect(await grants()).toEqual([`exponential.comments.create`])
+  })
+
   // VAPP-121: an app file round-trips: the import lists issues as rows, then
   // creates the app as v1 "Imported" with its records as the importer's and
   // no grants; a bare package imports under its own name.

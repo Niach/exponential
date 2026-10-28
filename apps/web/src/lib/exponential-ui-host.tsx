@@ -13,12 +13,15 @@
 //     URL policy (same-origin app links navigate in place; VAPP-107: a
 //     private origin, the localhost dev setup, is opted back in for the
 //     app's own loads and nothing else);
+//   - VAPP-157: media narrowed to `appMediaAllowed` (fixtures/apps.json
+//     `mediaPolicy`: a data: image/audio/video or the instance's own
+//     attachment) by overriding the host's public `mediaRequest`;
 //   - status: `host_offline` + the catalog-update banner (`HostBanner`).
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
 import { useState, useSyncExternalStore } from "react"
 import { ExponentialHost, isPrivateHost } from "@exponential_app/ui"
-import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential_app/ui"
+import type { FunctionCallInfo, HostOptions, MediaRequest, ParsedSource, SourceEmit, Transport } from "@exponential_app/ui"
 import { useHostStatus } from "@exponential_app/ui-react"
 import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
 import type { AppPackage } from "@exponential_app/ui"
@@ -39,6 +42,7 @@ import {
 import { parseRecordsQuery, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { appMediaAllowed } from "@exp/domain-contract/apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
@@ -354,6 +358,26 @@ export interface AppHostOptions {
   openDevice?: (id: string) => void
   transport?: Transport
   packages?: readonly AppPackage[]
+  /** The instance origin the media rule compares against (default: the
+   *  page's own; tests pass the fixture's). */
+  origin?: string
+}
+
+/** VAPP-157: an APP host. Every src an app surface loads (Image, Avatar,
+ *  Video, Audio, markdown images: the renderers all ask the host's
+ *  `mediaRequest` with the raw src, the web plugin sets no `resolveUrl`)
+ *  must pass `appMediaAllowed` on the RAW src first, then the SDK's own
+ *  media policy: the host narrows, never widens. Non-app hosts (plan cards,
+ *  the specimen) are plain `ExponentialHost`s and keep the SDK default. */
+export class AppHost extends ExponentialHost {
+  private readonly appOrigin: string
+  constructor(options: HostOptions, origin: string) {
+    super(options)
+    this.appOrigin = origin
+  }
+  override mediaRequest(url: string): MediaRequest | null {
+    return appMediaAllowed(url, this.appOrigin) ? super.mediaRequest(url) : null
+  }
 }
 
 /** VAPP-107: the private hosts the app's policy opts back in: its OWN
@@ -368,15 +392,15 @@ export function ownPrivateHosts(origin: string): string[] {
   }
 }
 
-export function createAppHost(options: AppHostOptions): ExponentialHost {
-  const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
+export function createAppHost(options: AppHostOptions): AppHost {
+  const origin = options.origin ?? (typeof window === `undefined` ? `http://localhost` : window.location.origin)
   const allowPrivate = ownPrivateHosts(origin)
   const scope: RecordsScope = { appId: options.appId ?? null, teamId: options.teamId ?? null, me: options.me ?? null }
   const appRef = () => {
     if (!scope.appId) throw new Error(`No app to keep records for`)
     return { id: scope.appId }
   }
-  return new ExponentialHost({
+  return new AppHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
     packages: options.packages ?? [],
@@ -445,7 +469,7 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
         else window.open(url, `_blank`, `noopener,noreferrer`)
       },
     },
-  })
+  }, origin)
 }
 
 /** VAPP-107 (the consent prompt's `slot`): what the card shows of a call:

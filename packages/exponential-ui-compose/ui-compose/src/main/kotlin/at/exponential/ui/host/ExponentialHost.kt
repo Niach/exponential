@@ -450,10 +450,11 @@ class ExponentialHost(
 
     /**
      * The media loader's request for `src` (absolute url + auth headers):
-     * the plugin's `resolveUrl` rewrite, then the media policy (defaults
-     * without one). null = denied or unresolvable: nothing loads.
+     * the media policy's [MediaOptions.allow] on the raw src, the plugin's
+     * `resolveUrl` rewrite, then the media policy (defaults without one).
+     * null = denied or unresolvable: nothing loads.
      */
-    fun mediaRequest(src: String): MediaRequest? = policedMediaRequest(options.plugin.resolveUrl(src), mediaOptions)
+    fun mediaRequest(src: String): MediaRequest? = policedRawMediaRequest(src, mediaOptions, options.plugin::resolveUrl)
 
     /** The media policy (the host policy's, else the plugin's; null = the contract defaults). */
     val mediaOptions: MediaOptions? get() = options.policy.media ?: options.plugin.mediaOptions

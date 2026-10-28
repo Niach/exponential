@@ -32,7 +32,8 @@ import ExponentialUI
 //     operation by `AppActions.actionConsent`), except a typed action the
 //     hosting app's synced row grants (`apps.granted_tools`): no card; urls through the URL policy (an
 //     instance link opens in-app like a markdown link, anything else in the
-//     Safari sheet).
+//     Safari sheet); media only through `Apps.appMediaAllowed` (VAPP-157:
+//     a data: image/audio/video or the instance's own attachment).
 
 /// VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
 /// the tool it names, its arguments as compact JSON (a `harness.mcp` call's
@@ -213,7 +214,9 @@ final class ExpAppHost {
         let scope = AppHostStore.RecordsScope(appId: appId, teamId: teamId, me: me)
         let appsApi = deps.appsApi
 
-        let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : [])
+        // VAPP-157: `data` for the fixture's data image/audio/video (the
+        // plugin's `resolveUrl` already narrowed every src to the media rule).
+        let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : []) + ["data"]
         let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient)
         host = ExponentialHost(HostOptions(
             functions: actions.merging([
@@ -340,7 +343,7 @@ final class ExpAppHost {
             ),
             theme: ThemeHandle.builtin(appHostThemeId),
             mode: .dark,
-            plugin: AppHostPlugin()
+            plugin: AppHostPlugin(origin: origin ?? "")
         ))
     }
 
@@ -367,6 +370,21 @@ final class ExpAppHost {
 /// app's registry (then raw registry names, the web host's map).
 @MainActor
 private final class AppHostPlugin: HostPlugin {
+    /// The instance origin (`scheme://host[:port]`, no trailing slash).
+    let origin: String
+
+    init(origin: String) {
+        self.origin = origin
+    }
+
+    /// VAPP-157: the app host NARROWS the SDK's media policy with
+    /// `Apps.appMediaAllowed` (fixture `mediaPolicy`), checked on the RAW
+    /// src: a denied src resolves to "" and loads nothing (the SDK's denied
+    /// rendering); an allowed one still passes `MediaOptions` after.
+    func resolveUrl(_ src: String) -> String {
+        Apps.appMediaAllowed(src, origin: origin) ? src : ""
+    }
+
     func icon(_ name: String, size: CGFloat) -> AnyView? {
         guard let resolved = AppIcons.conceptOrName(name) else { return nil }
         return AnyView(AppIcon(resolved, size: size))
