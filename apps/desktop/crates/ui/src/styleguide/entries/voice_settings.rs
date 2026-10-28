@@ -197,7 +197,10 @@ fn rail_specimen(
     let rows = rail.menu.clone();
     let menu = window.use_keyed_state(menu_key, cx, move |window, cx| {
         OpenMenu::new(window, cx, move |mut menu, _, _| {
-            menu = menu.min_w(px(240.));
+            // As the rail's: tokens.json `menu.pointer` widths.
+            menu = menu
+                .min_w(px(theme::tokens::menu::pointer::MIN_WIDTH))
+                .max_w(px(theme::tokens::menu::pointer::MAX_WIDTH));
             for item in rows {
                 let row = match item {
                     TrayItem::Check { id, label, checked, .. } => crate::controls::pointer_toggle_item(
