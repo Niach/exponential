@@ -467,18 +467,10 @@ pub(crate) fn strip_tab(id: impl Into<gpui::ElementId>, active: bool, cx: &App) 
     crate::surface::strip_chip_frame(id, active, false, cx)
 }
 
-/// THE issue chip's lead ×4: the issue's STATUS glyph (an unsynced status
-/// reads as the builtin backlog default, never a document glyph).
-pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx: &App) -> Icon {
-    let fallback;
-    let status = match status {
-        Some(status) => status,
-        None => {
-            fallback = domain::statuses::constructed_default(domain::IssueStatus::Backlog);
-            &fallback
-        }
-    };
-    crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0()
+/// THE issue chip's lead ×4: the issue's STATUS glyph. S-3: an unresolved
+/// status (the issue row not synced) draws NO glyph, never a Backlog one.
+pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx: &App) -> Option<Icon> {
+    status.map(|status| crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0())
 }
 
 /// The issue chip's body in the strip: status glyph, mono identifier, title.
@@ -490,8 +482,11 @@ pub(crate) fn strip_issue_body(
     cx: &App,
 ) -> Vec<AnyElement> {
     let theme = cx.theme();
-    vec![
-        issue_glyph(status.as_ref(), cx).into_any_element(),
+    let mut body: Vec<AnyElement> = issue_glyph(status.as_ref(), cx)
+        .map(IntoElement::into_any_element)
+        .into_iter()
+        .collect();
+    body.extend([
         div()
             .flex_shrink_0()
             .text_xs()
@@ -507,7 +502,8 @@ pub(crate) fn strip_issue_body(
             .text_color(if active { theme.foreground } else { theme.muted_foreground })
             .child(SharedString::from(title.to_string()))
             .into_any_element(),
-    ]
+    ]);
+    body
 }
 
 /// The Guide chip's green dot (the root's guide has content).
@@ -2078,7 +2074,7 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
         .children(crate::tree_guides::guide_layer(guides, 0., 0.));
     row = match item {
         SubtreeItem::Issue { identifier, title, status, .. } => row
-            .child(issue_glyph(status.as_ref(), cx))
+            .children(issue_glyph(status.as_ref(), cx))
             .child(
                 div()
                     .flex_shrink_0()

@@ -64,6 +64,9 @@ struct ThreadRows: Sendable {
     /// its chat is a CHANNEL like an agent's (the app's glyph + name on the
     /// editor's rows); nil = not an editor session, or not synced yet.
     var app: AppEntity?
+    /// S-3: the root team's statuses: an issue chip's glyph resolves its
+    /// `statusId` through them (the anchor only as their fallback).
+    var issueStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
 
     /// A CHANNEL root: an agent's conversation, or (VAPP-110) an app's
     /// editor session — the Conversation alone, Slack-like rows.
@@ -99,6 +102,13 @@ struct ThreadRows: Sendable {
 
     func issue(id: String) -> IssueEntity? {
         issues.first { $0.id == id }
+    }
+
+    /// S-3: an issue chip's status through the team's statuses (statusId
+    /// first, like Android's `IssueStatusResolver`); nil = the issue is not
+    /// in this snapshot, which draws NO glyph (never Backlog).
+    func issueStatus(id: String) -> ResolvedIssueStatus? {
+        issue(id: id).map { IssueStatusResolver.resolve($0, team: issueStatuses) }
     }
 
     func user(id: String?) -> UserEntity? {
@@ -335,6 +345,9 @@ struct ThreadRows: Sendable {
             rootDevice: try DeviceEntity.filter(Column("device_id") == root.deviceId).fetchOne(db),
             agent: try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) },
             app: try root.appId.flatMap { try AppEntity.fetchOne(db, key: $0) },
+            issueStatuses: IssueStatusResolver.teamStatusesOrFallback(
+                try IssueStatusEntity.filter(Column("team_id") == root.teamId).fetchAll(db)
+            ),
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues
         ).indexed()
@@ -372,6 +385,7 @@ struct ThreadRows: Sendable {
             try digest(db, table: "session_issues", where: "\"session_id\" = ?1", id),
             try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"session_issues\" WHERE \"session_id\" = ?1)", id),
             try stamp(db, table: "issue_relations", where: "\"type\" = 'parent'", nil),
+            try stamp(db, table: "issue_statuses", where: "\"team_id\" = ?1", root.teamId),
             try stamp(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
             try digest(db, table: "devices", where: "\"device_id\" = ?1", root.deviceId),
         ]
