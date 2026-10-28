@@ -72,6 +72,35 @@ export function backgroundStoryRoots(
   return [...conversations, ...recent].sort()
 }
 
+/** THE background sync: the member's agent conversations and the recently
+ *  active roots, their last week of messages (narrowed by rootId, #EXP-1380).
+ *  The team layout mounts it so a result is there before the chats page
+ *  opens; `useStories` reads the same subset. */
+export function useStoryBackgroundSync(teamId: string | null | undefined): unknown[] | undefined {
+  const { data: auth } = useSession()
+  const me = auth?.user?.id ?? null
+  const now = useNow(60_000).getTime()
+  const { rows } = useTeamSessions(teamId)
+  // The day's grain keeps the query stable through a session; the roots
+  // move on the hour.
+  const day = Math.floor(now / DAY)
+  const hour = Math.floor(now / 3_600_000)
+  const since = useMemo(() => new Date((day - RECENT_DAYS) * DAY), [day])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const roots = useMemo(() => backgroundStoryRoots(rows, me, now), [rows, me, hour])
+  const rootKey = roots.join(`,`)
+  const { data } = useLiveQuery(
+    (query) =>
+      roots.length > 0
+        ? query
+            .from({ messages: messageCollection })
+            .where(({ messages }) => and(inArray(messages.rootId, roots), gt(messages.createdAt, since)))
+        : undefined,
+    [rootKey, since.getTime()]
+  )
+  return data
+}
+
 export interface StoriesState {
   rings: StoryRing[]
   /** A story's raw card (its surface and options). */
@@ -86,8 +115,6 @@ export interface StoriesState {
 }
 
 export function useStories(teamId: string | null | undefined): StoriesState {
-  const { data: auth } = useSession()
-  const me = auth?.user?.id ?? null
   const now = useNow(60_000).getTime()
   const { rows } = useTeamSessions(teamId)
   const { conversations } = useConversationSessions()
@@ -105,19 +132,7 @@ export function useStories(teamId: string | null | undefined): StoriesState {
   const { data: readRows } = useLiveQuery((query) => query.from({ reads: sessionReadsCollection }), [])
 
   // ── background sync ──
-  // The day's grain keeps the query stable through a session.
-  const since = useMemo(() => new Date(Math.floor(now / DAY) * DAY - RECENT_DAYS * DAY), [Math.floor(now / DAY)])
-  const roots = useMemo(() => backgroundStoryRoots(rows, me, now), [rows, me, Math.floor(now / 3_600_000)])
-  const rootKey = roots.join(`,`)
-  const { data: loaded } = useLiveQuery(
-    (query) =>
-      roots.length > 0
-        ? query
-            .from({ messages: messageCollection })
-            .where(({ messages }) => and(inArray(messages.rootId, roots), gt(messages.createdAt, since)))
-        : undefined,
-    [rootKey, since.getTime()]
-  )
+  const loaded = useStoryBackgroundSync(teamId)
 
   // ── the fold ──
   const messages = useMemo(() => {
