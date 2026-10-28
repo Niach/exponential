@@ -2,7 +2,7 @@
 //! trunk working directory as a gpui-component `tree`: lazy directories,
 //! `.git` hidden, gitignored entries dimmed, git status dots (M/A/?) on
 //! changed files, context-menu "Reveal in file manager" / "Open terminal
-//! here". Clicking a file opens [`crate::navigation::Screen::FileViewer`].
+//! here". Clicking a file opens it in the Files screen's viewer.
 //!
 //! Scope: the tree follows the window's ACTIVE REPO (EXP-1133 — the shared
 //! repo picker's pick, else the team's first board-backed repo; its trunk
@@ -996,18 +996,24 @@ fn render_tree_item(
     }
 
     // File click → the read-only viewer (trunk-relative path) via the
-    // rail's selection channel — no tab (EXP-288); deselecting the active
-    // tab shows the viewer (the Files tool's center default). Directories
-    // fall through to the tree's own expand toggle.
+    // rail's selection channel — no tab (EXP-288). Directories fall through
+    // to the tree's own expand toggle.
     if !node.is_dir {
         let path = id.to_string();
         row = row.on_click(move |_: &ClickEvent, window, cx| {
-            crate::sidebar::select_file(window, cx, Some(path.clone()));
-            navigation::set_screen(window, cx, None);
+            open_file(window, cx, path.clone());
         });
     }
     let _ = trunk; // trunk is used by the context menu, not the row body
     row
+}
+
+/// Open a tree file in the Files screen's viewer. The tree only lives on
+/// that screen, so the navigation stays put: EXP-1419 — the click used to
+/// clear the screen (`None`, the EXP-288 "tool default"), which now resolves
+/// to Home and sent the window away before the viewer showed the file.
+fn open_file(window: &mut Window, cx: &mut App, path: String) {
+    crate::sidebar::select_file(window, cx, Some(path));
 }
 
 /// The right-click menu (§4.5): Reveal in file manager + Open terminal here.
@@ -1195,6 +1201,30 @@ fn find_children_mut<'a>(items: &'a mut Vec<TreeItem>, id: &str) -> Option<&'a m
 mod tests {
     use super::*;
     use coding::git_worktree::WorktreeEntry;
+
+    /// EXP-1419: opening a file points the viewer at it and keeps the window
+    /// on the Files screen (the click used to reset the navigation to Home).
+    #[gpui::test]
+    fn opening_a_file_keeps_the_files_screen(cx: &mut gpui::TestAppContext) {
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            gpui_component::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let nav = navigation::nav_for_window(window, cx);
+            navigation::set_screen(window, cx, Some(navigation::Screen::Files));
+            for path in ["src/main.rs", "README.md"] {
+                open_file(window, cx, path.to_string());
+                assert_eq!(
+                    navigation::resolved_screen(&nav, cx),
+                    Some(navigation::Screen::Files),
+                    "opening {path} leaves the Files screen"
+                );
+                let rail = crate::sidebar::rail_shared_for_window(window, cx);
+                assert_eq!(rail.read(cx).selected_file(), Some(path));
+            }
+        });
+    }
 
     fn entry(path: &str, branch: Option<&str>) -> WorktreeEntry {
         WorktreeEntry {
