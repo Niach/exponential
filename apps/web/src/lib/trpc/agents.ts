@@ -11,12 +11,22 @@ import {
   type agentTriggersSchema as AgentTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { agents, attachments, conversations, messages, sessionIssues, sessions, type Agent } from "@/db/schema"
+import {
+  agents,
+  attachments,
+  conversations,
+  devices,
+  messages,
+  sessionIssues,
+  sessions,
+  type Agent,
+  type DeviceAgentAccounts,
+} from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
 import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
-import { assertRunnerVocabulary, resolveSessionDeviceInTx } from "@/lib/sessions/send"
+import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
 import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
@@ -53,6 +63,37 @@ async function conversationIds(tx: { select: typeof import("@/db/connection").db
     .from(sessions)
     .where(and(eq(sessions.agentId, agentId), isNull(sessions.parentId)))
   return rows.map((row) => row.id)
+}
+
+/** S-3: the login an agent runs on, checked against its device's report.
+ *  A named profile the device does not have falls back to the device's
+ *  ACTIVE profile (else none = the device's own default); a device that
+ *  reported no profiles for the agent is unknowable and keeps the name. */
+export function reconcileAgentAccount(
+  account: string | null,
+  cli: string | null,
+  accounts: DeviceAgentAccounts | null | undefined
+): string | null {
+  const profiles = accounts?.[cli ?? `claude`]?.profiles ?? []
+  if (!account || profiles.length === 0) return account
+  if (profiles.some((profile) => profile.id === account)) return account
+  return profiles.find((profile) => profile.active)?.id ?? null
+}
+
+/** The device's per-agent logins as its owner's row reports them; null when
+ *  the caller may no longer see the machine (nothing to check against). */
+async function deviceAgentAccounts(
+  tx: Parameters<typeof resolveSessionDeviceInTx>[0],
+  ownerId: string | null,
+  deviceId: string
+): Promise<DeviceAgentAccounts | null> {
+  if (!ownerId) return null
+  const [row] = await tx
+    .select({ agentAccounts: devices.agentAccounts })
+    .from(devices)
+    .where(and(eq(devices.deviceId, deviceId), eq(devices.userId, ownerId)))
+    .limit(1)
+  return row?.agentAccounts ?? null
 }
 
 export const agentsRouter = router({
@@ -172,6 +213,22 @@ export const agentsRouter = router({
           input.deviceId !== undefined && input.deviceId !== agent.deviceId
             ? await resolveSessionDeviceInTx(tx, userId, agent.teamId, input.deviceId)
             : null
+        // S-3: the login is re-checked on every save against the device the
+        // agent runs on, and the conversations take the SAME value, so the
+        // definition and its sessions never drift apart (a profile the
+        // device lacks falls back to its active one).
+        const deviceId = moved ? input.deviceId! : agent.deviceId
+        const ownerId = moved
+          ? moved.ownerId
+          : await resolveSessionDevice(userId, agent.teamId, deviceId, tx).then(
+              (device) => device.ownerId,
+              () => null
+            )
+        const account = reconcileAgentAccount(
+          input.account !== undefined ? input.account : agent.account,
+          cli ?? null,
+          await deviceAgentAccounts(tx, ownerId, deviceId)
+        )
         const [updated] = await tx
           .update(agents)
           .set({
@@ -185,7 +242,7 @@ export const agentsRouter = router({
               : {}),
             ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
-            ...(input.account !== undefined ? { account: input.account } : {}),
+            account,
             ...(model !== undefined ? { model } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved ? { deviceId: input.deviceId } : {}),
@@ -202,7 +259,7 @@ export const agentsRouter = router({
             .set({
               ...agentMirror(updated!),
               ...(input.cli !== undefined ? { cli: input.cli } : {}),
-              ...(input.account !== undefined ? { account: input.account } : {}),
+              account,
               ...(model !== undefined ? { model } : {}),
               ...(moved
                 ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false, background: false }

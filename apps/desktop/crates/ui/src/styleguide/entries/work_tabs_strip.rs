@@ -28,7 +28,7 @@ pub(crate) const OWNER: &str = "EXP-1255";
 
 /// An issue chip's lead: its status glyph (the builtin default of `status`).
 fn status_lead(status: IssueStatus, cx: &App) -> RichTabStatus {
-    RichTabStatus::Glyph(issue_glyph(Some(&constructed_default(status)), cx))
+    RichTabStatus::Glyph(issue_glyph(Some(&constructed_default(status)), cx).expect("a status draws its glyph"))
 }
 
 fn tab(

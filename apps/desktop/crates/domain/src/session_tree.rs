@@ -139,6 +139,10 @@ pub struct ThreadCopy {
     pub suggestions: SuggestionsCopy,
     /// EXP-1211: the quick replies row above the composer.
     pub replies: RepliesCopy,
+    /// S-3: the engine's notice for a turn that ended with nothing said,
+    /// thought or done (`{reason}` = the ACP stopReason).
+    #[serde(rename = "emptyTurn")]
+    pub empty_turn: String,
 }
 
 /// EXP-1211: `session-thread.json` `copy.replies`.

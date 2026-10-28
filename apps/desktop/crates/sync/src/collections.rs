@@ -237,6 +237,10 @@ pub struct Collection<T> {
     seeded: HashMap<RowKey, T>,
     phase: ShapeSyncPhase,
     revision: u64,
+    /// S-3: the shape reached `up-to-date` in THIS process. The persisted
+    /// phase reads `Live` straight from the SQLite cache at boot, rows as old
+    /// as the last quit; this says the server has answered since.
+    caught_up: bool,
 }
 
 impl<T> Collection<T> {
@@ -246,7 +250,13 @@ impl<T> Collection<T> {
             seeded: HashMap::new(),
             phase: ShapeSyncPhase::Waiting,
             revision: 0,
+            caught_up: false,
         }
+    }
+
+    /// S-3: the `caught_up` flag — fresh rows, not the cache's.
+    pub fn is_caught_up(&self) -> bool {
+        self.caught_up
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
@@ -336,6 +346,7 @@ impl<T> Collection<T> {
         self.seeded.clear();
         self.phase = ShapeSyncPhase::Waiting;
         self.revision += 1;
+        self.caught_up = false;
     }
 }
 
@@ -537,52 +548,53 @@ impl Collections {
         shape: &str,
         keys: &[RowKey],
         full_replace: bool,
+        up_to_date: bool,
         sqlite: &Arc<ShapeStore>,
         cx: &mut AsyncApp,
     ) {
         match shape {
-            "teams" => apply_to(&self.teams, keys, full_replace, sqlite, cx),
-            "boards" => apply_to(&self.boards, keys, full_replace, sqlite, cx),
-            "issues" => apply_to(&self.issues, keys, full_replace, sqlite, cx),
-            "labels" => apply_to(&self.labels, keys, full_replace, sqlite, cx),
-            "issue_labels" => apply_to(&self.issue_labels, keys, full_replace, sqlite, cx),
-            "users" => apply_to(&self.users, keys, full_replace, sqlite, cx),
-            "team_members" => apply_to(&self.team_members, keys, full_replace, sqlite, cx),
-            "team_invites" => apply_to(&self.team_invites, keys, full_replace, sqlite, cx),
-            "comments" => apply_to(&self.comments, keys, full_replace, sqlite, cx),
-            "attachments" => apply_to(&self.attachments, keys, full_replace, sqlite, cx),
-            "notifications" => apply_to(&self.notifications, keys, full_replace, sqlite, cx),
-            "issue_events" => apply_to(&self.issue_events, keys, full_replace, sqlite, cx),
+            "teams" => apply_to(&self.teams, keys, full_replace, up_to_date, sqlite, cx),
+            "boards" => apply_to(&self.boards, keys, full_replace, up_to_date, sqlite, cx),
+            "issues" => apply_to(&self.issues, keys, full_replace, up_to_date, sqlite, cx),
+            "labels" => apply_to(&self.labels, keys, full_replace, up_to_date, sqlite, cx),
+            "issue_labels" => apply_to(&self.issue_labels, keys, full_replace, up_to_date, sqlite, cx),
+            "users" => apply_to(&self.users, keys, full_replace, up_to_date, sqlite, cx),
+            "team_members" => apply_to(&self.team_members, keys, full_replace, up_to_date, sqlite, cx),
+            "team_invites" => apply_to(&self.team_invites, keys, full_replace, up_to_date, sqlite, cx),
+            "comments" => apply_to(&self.comments, keys, full_replace, up_to_date, sqlite, cx),
+            "attachments" => apply_to(&self.attachments, keys, full_replace, up_to_date, sqlite, cx),
+            "notifications" => apply_to(&self.notifications, keys, full_replace, up_to_date, sqlite, cx),
+            "issue_events" => apply_to(&self.issue_events, keys, full_replace, up_to_date, sqlite, cx),
             "issue_subscribers" => {
-                apply_to(&self.issue_subscribers, keys, full_replace, sqlite, cx)
+                apply_to(&self.issue_subscribers, keys, full_replace, up_to_date, sqlite, cx)
             }
-            "sessions" => apply_to(&self.sessions, keys, full_replace, sqlite, cx),
-            "session_issues" => apply_to(&self.session_issues, keys, full_replace, sqlite, cx),
-            "messages" => apply_to(&self.messages, keys, full_replace, sqlite, cx),
-            "conversations" => apply_to(&self.conversations, keys, full_replace, sqlite, cx),
-            "pull_requests" => apply_to(&self.pull_requests, keys, full_replace, sqlite, cx),
+            "sessions" => apply_to(&self.sessions, keys, full_replace, up_to_date, sqlite, cx),
+            "session_issues" => apply_to(&self.session_issues, keys, full_replace, up_to_date, sqlite, cx),
+            "messages" => apply_to(&self.messages, keys, full_replace, up_to_date, sqlite, cx),
+            "conversations" => apply_to(&self.conversations, keys, full_replace, up_to_date, sqlite, cx),
+            "pull_requests" => apply_to(&self.pull_requests, keys, full_replace, up_to_date, sqlite, cx),
             "pull_request_issues" => {
-                apply_to(&self.pull_request_issues, keys, full_replace, sqlite, cx)
+                apply_to(&self.pull_request_issues, keys, full_replace, up_to_date, sqlite, cx)
             }
             "issue_statuses" => {
-                apply_to(&self.issue_statuses, keys, full_replace, sqlite, cx)
+                apply_to(&self.issue_statuses, keys, full_replace, up_to_date, sqlite, cx)
             }
-            "devices" => apply_to(&self.devices, keys, full_replace, sqlite, cx),
+            "devices" => apply_to(&self.devices, keys, full_replace, up_to_date, sqlite, cx),
             "device_worktrees" => {
-                apply_to(&self.device_worktrees, keys, full_replace, sqlite, cx)
+                apply_to(&self.device_worktrees, keys, full_replace, up_to_date, sqlite, cx)
             }
             "issue_relations" => {
-                apply_to(&self.issue_relations, keys, full_replace, sqlite, cx)
+                apply_to(&self.issue_relations, keys, full_replace, up_to_date, sqlite, cx)
             }
-            "pins" => apply_to(&self.pins, keys, full_replace, sqlite, cx),
-            "issue_drafts" => apply_to(&self.issue_drafts, keys, full_replace, sqlite, cx),
-            "session_reads" => apply_to(&self.session_reads, keys, full_replace, sqlite, cx),
-            "agents" => apply_to(&self.agents, keys, full_replace, sqlite, cx),
-            "events" => apply_to(&self.events, keys, full_replace, sqlite, cx),
-            "prompts" => apply_to(&self.prompts, keys, full_replace, sqlite, cx),
-            "apps" => apply_to(&self.apps, keys, full_replace, sqlite, cx),
-            "app_versions" => apply_to(&self.app_versions, keys, full_replace, sqlite, cx),
-            "app_records" => apply_to(&self.app_records, keys, full_replace, sqlite, cx),
+            "pins" => apply_to(&self.pins, keys, full_replace, up_to_date, sqlite, cx),
+            "issue_drafts" => apply_to(&self.issue_drafts, keys, full_replace, up_to_date, sqlite, cx),
+            "session_reads" => apply_to(&self.session_reads, keys, full_replace, up_to_date, sqlite, cx),
+            "agents" => apply_to(&self.agents, keys, full_replace, up_to_date, sqlite, cx),
+            "events" => apply_to(&self.events, keys, full_replace, up_to_date, sqlite, cx),
+            "prompts" => apply_to(&self.prompts, keys, full_replace, up_to_date, sqlite, cx),
+            "apps" => apply_to(&self.apps, keys, full_replace, up_to_date, sqlite, cx),
+            "app_versions" => apply_to(&self.app_versions, keys, full_replace, up_to_date, sqlite, cx),
+            "app_records" => apply_to(&self.app_records, keys, full_replace, up_to_date, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
@@ -840,6 +852,7 @@ fn apply_to<T: ShapeRow>(
     entity: &Entity<Collection<T>>,
     keys: &[RowKey],
     full_replace: bool,
+    up_to_date: bool,
     sqlite: &Arc<ShapeStore>,
     cx: &mut AsyncApp,
 ) {
@@ -858,6 +871,7 @@ fn apply_to<T: ShapeRow>(
         entity.update(cx, |collection, cx| {
             collection.replace_all(rows);
             collection.set_phase(phase);
+            collection.caught_up |= up_to_date;
             cx.notify();
         });
         return;
@@ -879,6 +893,7 @@ fn apply_to<T: ShapeRow>(
             }
         }
         collection.set_phase(phase);
+        collection.caught_up |= up_to_date;
         cx.notify();
     });
 }
@@ -1203,7 +1218,7 @@ impl Store {
                 shape,
                 keys,
                 full_replace,
-                up_to_date: _,
+                up_to_date,
             } => {
                 // EXP-501: every Applied delta — row batch or idle
                 // `up-to-date` heartbeat — is a 2xx poll. Recorded BEFORE the
@@ -1225,7 +1240,7 @@ impl Store {
                     return;
                 };
                 self.collections
-                    .apply(shape, &keys, full_replace, &sqlite, cx);
+                    .apply(shape, &keys, full_replace, up_to_date, &sqlite, cx);
             }
             ShapeDelta::PollFailed {
                 account_id,

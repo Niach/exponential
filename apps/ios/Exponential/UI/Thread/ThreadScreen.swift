@@ -346,6 +346,7 @@ struct ThreadScreen: View {
             ThreadFoldSheet(
                 fold: fold,
                 issue: { rows?.issue(id: $0) },
+                issueStatus: { rows?.issueStatus(id: $0) },
                 shownIssueId: { if case let .issue(id) = page { id } else { nil } }()
             ) { row in
                 pendingFoldPick = row
@@ -404,6 +405,7 @@ struct ThreadScreen: View {
             // NEW-46: the ONE session's page reads as the Conversation tab.
             selection: view.mainSessionId.map { page == .session($0) } == true ? .conversation : page,
             issue: { rows.issue(id: $0) },
+            issueStatus: { rows.issueStatus(id: $0) },
             isFresh: { model?.isFresh(issueId: $0) ?? false },
             onSelect: { next in
                 pendingPage = nil

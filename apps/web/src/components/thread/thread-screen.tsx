@@ -278,8 +278,10 @@ export function ThreadScreen({
     canEdit: permissions.isMember,
   })
 
+  // S-3: the status resolves through the team's statuses (statusId first);
+  // an issue row that has not synced draws NO glyph, never a Backlog one.
   const issueStatus = (issue: Issue | undefined) => {
-    if (!issue) return { icon: `circle-dashed` as const, colorClass: `text-muted-foreground` }
+    if (!issue) return null
     const status = resolve(issue)
     return {
       icon: status.icon,
@@ -299,7 +301,7 @@ export function ThreadScreen({
     const openNested = entry.nested.find((nested) => nested.issueId === openId) ?? null
     const active = openId === entry.issueId || openNested !== null
     const folded = entry.nested.length > 0
-    const status = issueStatus(issue)
+    const status = issueStatus(issue)!
     const subtree: ThreadIssueTreeRow[] = [
       { issueId: entry.issueId, identifier: entry.identifier, title: issue.title, status, depth: 0 },
       ...entry.nested.map((nested) => {
