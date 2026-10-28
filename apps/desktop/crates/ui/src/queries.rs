@@ -611,11 +611,23 @@ pub fn resolve_issue_status(cx: &App, issue: &domain::rows::Issue) -> ResolvedSt
         return domain::statuses::constructed_default(issue.status);
     };
     let collections = store.collections();
+    // S-3: a board outside the boards collection (another team's, not yet
+    // synced) still resolves the issue's `status_id` through the row's own
+    // team, so a Done issue never reads as its anchor's default.
     let team_id = collections
         .boards
         .read(cx)
         .get(&issue.board_id)
-        .map(|board| board.team_id.clone());
+        .map(|board| board.team_id.clone())
+        .or_else(|| {
+            let status_id = issue.status_id.as_deref()?;
+            collections
+                .issue_statuses
+                .read(cx)
+                .iter()
+                .find(|row| row.id == status_id)
+                .map(|row| row.team_id.clone())
+        });
     match team_id {
         Some(team_id) => resolve_status_sorted(issue, &team_statuses(cx, &team_id)),
         None => domain::statuses::constructed_default(issue.status),
@@ -1028,9 +1040,15 @@ pub(crate) fn device_launch_settings(value: Option<&serde_json::Value>) -> codin
 /// agent server-side). `own_device_id` is dropped here — this IDE is added
 /// by [`launch_devices`] from LOCAL state, so it stays a candidate even
 /// before its own row has synced.
+///
+/// S-3: `now_ms` = `None` while the `devices` shape has not caught up in
+/// this process (the rows are the SQLite cache's, their heartbeats as old as the last quit):
+/// a heartbeat is then UNKNOWN, not offline, so no row is dropped for it —
+/// the picker lists the other machines at first paint instead of seconds
+/// later, and `steer.startSession` still refuses an offline one.
 pub(crate) fn remote_launch_devices<'a>(
     rows: impl Iterator<Item = &'a domain::rows::DeviceRow>,
-    now_ms: i64,
+    now_ms: Option<i64>,
     me_user_id: &str,
     own_device_id: &str,
     owner_name: &dyn Fn(&str) -> Option<String>,
@@ -1041,7 +1059,9 @@ pub(crate) fn remote_launch_devices<'a>(
             if device_id == own_device_id {
                 return None;
             }
-            if !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms) {
+            if now_ms.is_some_and(|now_ms| {
+                !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms)
+            }) {
                 return None;
             }
             let agents: Vec<coding::CodingAgent> = coding::CodingAgent::ALL
@@ -1345,9 +1365,10 @@ pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
     };
     let mut devices = vec![own];
     if remote_enabled {
+        let rows = collections.devices.read(cx);
         devices.extend(remote_launch_devices(
-            collections.devices.read(cx).iter(),
-            chrono::Utc::now().timestamp_millis(),
+            rows.iter(),
+            rows.is_caught_up().then(|| chrono::Utc::now().timestamp_millis()),
             &me,
             &own_device_id,
             &owner_name,
@@ -1704,7 +1725,7 @@ mod tests {
             launch_device_row("r-5", "dev-own", "Local", "me", &["claude"], -30),
         ];
         let owner = |user_id: &str| (user_id == "mate").then(|| "Ada".to_string());
-        let devices = remote_launch_devices(rows.iter(), NOW_MS, "me", "dev-own", &owner);
+        let devices = remote_launch_devices(rows.iter(), Some(NOW_MS), "me", "dev-own", &owner);
         let ids: Vec<&str> = devices
             .iter()
             .map(|device| device.device_id.as_str())
@@ -1730,7 +1751,7 @@ mod tests {
         let silent = launch_device_row("r-3", "dev-3", "Gamma", "me", &["claude"], -30);
         let rows = vec![ready, none_ready, silent];
         let owner = |_: &str| None;
-        let devices = remote_launch_devices(rows.iter(), NOW_MS, "me", "dev-own", &owner);
+        let devices = remote_launch_devices(rows.iter(), Some(NOW_MS), "me", "dev-own", &owner);
 
         assert_eq!(devices[0].device_id, "dev-1");
         assert_eq!(devices[0].acp_agents, vec![coding::CodingAgent::Claude]);
@@ -1759,7 +1780,7 @@ mod tests {
         let owner = |_: &str| None;
         let devices = remote_launch_devices(
             std::iter::once(&row),
-            NOW_MS,
+            Some(NOW_MS),
             "me",
             "dev-own",
             &owner,

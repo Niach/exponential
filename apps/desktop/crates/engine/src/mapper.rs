@@ -342,6 +342,13 @@ pub struct Mapper {
     /// FEED-153: the turn's `session/prompt` failed ([`Mapper::on_turn_error`]):
     /// a turn that ends with nothing said replies the error instead.
     turn_error: Option<String>,
+    /// S-3: the turn produced something of its own (prose, a thought, a tool
+    /// call, a plan, an ask). A turn that closes with none of it and no error
+    /// leaves the empty-turn notice instead of nothing.
+    turn_output: bool,
+    /// S-3: the ACP `stopReason` of the prompt that closed the turn (logged
+    /// and named in the empty-turn notice).
+    turn_stop: Option<StopReason>,
     /// EXP-1418: the last turn to close was cut by an interrupt (a Stop,
     /// the stall watchdog): its turn-end report says `interrupted`.
     last_turn_interrupted: bool,
@@ -567,6 +574,14 @@ impl Coalescer {
 /// Put one event on BOTH streams: the relay's and the host's local feed.
 /// `tool_call_id` names the ACP tool call the event belongs to so the desktop
 /// can hang a diff/output card off the feed row this appends.
+/// S-3: an ACP `stopReason` as its wire spelling (`end_turn`, `refusal`, …).
+fn stop_reason_name(stop: StopReason) -> String {
+    serde_json::to_value(stop)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{stop:?}"))
+}
+
 fn emit(out: &mut MapOut, event: ActivityEvent, tool_call_id: Option<String>) {
     out.local.push(LocalFeedEvent::Activity {
         event: event.clone(),
@@ -619,6 +634,8 @@ impl Mapper {
             turn_reply: String::new(),
             turn_reply_id: None,
             turn_error: None,
+            turn_output: false,
+            turn_stop: None,
             last_turn_interrupted: false,
             carded: std::collections::HashSet::new(),
         }
@@ -742,6 +759,16 @@ impl Mapper {
         // another kind ends whatever the other two hold, so a replay (or any
         // burst inside one flush window) keeps its user → thought → message
         // interleaving instead of grouping by kind at the next flush.
+        if matches!(
+            &notification.update,
+            SessionUpdate::AgentMessageChunk(_)
+                | SessionUpdate::AgentThoughtChunk(_)
+                | SessionUpdate::ToolCall(_)
+                | SessionUpdate::ToolCallUpdate(_)
+                | SessionUpdate::Plan(_)
+        ) {
+            self.turn_output = true;
+        }
         match &notification.update {
             SessionUpdate::UserMessageChunk(chunk) => {
                 self.flush_message(out);
@@ -968,6 +995,7 @@ impl Mapper {
         request: &RequestPermissionRequest,
         out: &mut MapOut,
     ) -> PendingAskKey {
+        self.turn_output = true;
         // Whatever the agent was narrating belongs ABOVE the card it is now
         // blocked on.
         self.flush_all(out);
@@ -1050,6 +1078,7 @@ impl Mapper {
         request: &CreateElicitationRequest,
         out: &mut MapOut,
     ) -> PendingAskKey {
+        self.turn_output = true;
         self.flush_all(out);
         let ask_id = if ask_id.is_empty() {
             self.synthetic_id("ask", &request.message)
@@ -1185,6 +1214,7 @@ impl Mapper {
         }
         self.last_turn_interrupted = cancelled;
         self.prompt_turn_open = false;
+        self.turn_stop = Some(stop);
         if !cancelled {
             // EXP-1342: a turn ran to its end after the Stop — any replay
             // of what that Stop settled has landed by now.
@@ -1243,7 +1273,18 @@ impl Mapper {
                 &format!("Agent error: {}", error.trim()),
                 domain::contract::SESSIONS_SEND_MESSAGE_BODY_MAX,
             )));
+        } else if self.turn_live && !self.turn_output && !self.last_turn_interrupted {
+            // S-3: a turn that said, thought and did nothing ("the agent
+            // doesn't answer") leaves one neutral line naming its stopReason,
+            // so the silence is diagnosable from the transcript and the log.
+            let reason = self.turn_stop.map_or_else(|| "unknown".to_string(), stop_reason_name);
+            log::warn!("engine: turn ended empty (stopReason {reason})");
+            self.on_notice(
+                &domain::session_tree::THREAD.copy.empty_turn.replace("{reason}", &reason),
+                out,
+            );
         }
+        self.turn_stop = None;
         self.move_turn(steer::TurnState::Ended, false, out);
         if out.needs_input.is_none() && self.pending_asks() == 0 {
             out.needs_input = Some(false);
@@ -1335,6 +1376,7 @@ impl Mapper {
             // EXP-1292: a new turn, a new reply.
             self.reset_turn_reply();
             self.turn_error = None;
+            self.turn_output = false;
         }
         emit(out, self.turn_event(), None);
     }
@@ -6977,6 +7019,43 @@ mod conversation_tests {
         assert_eq!(replies.len(), 1, "{replies:?}");
         assert!(replies[0].starts_with("Final answer with "), "{replies:?}");
         assert!(!replies[0].contains("expu_supersecretkey"), "redacted: {replies:?}");
+    }
+
+    fn narrations(out: &MapOut) -> Vec<String> {
+        out.wire
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Narration { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// S-3: a turn that said, thought and did nothing leaves ONE neutral
+    /// line naming its stopReason (session-thread.json `copy.emptyTurn`);
+    /// a turn that only worked (a tool call) or was Stopped leaves none.
+    #[test]
+    fn an_empty_turn_leaves_the_empty_turn_notice() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        mapper.on_stop(StopReason::Refusal, &mut out);
+        assert_eq!(
+            narrations(&out),
+            vec!["The agent ended its turn without a reply (stop: refusal)".to_string()]
+        );
+        assert!(out.replies.is_empty(), "{:?}", out.replies);
+
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        read_call(&mut mapper, "tc-1", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(narrations(&out).is_empty(), "{:?}", out.wire);
+
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        mapper.on_stop(StopReason::Cancelled, &mut out);
+        assert!(narrations(&out).is_empty(), "{:?}", out.wire);
     }
 
     /// History streamed before the session is live (a `session/load`) is

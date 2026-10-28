@@ -700,7 +700,8 @@ export interface ThreadIssueTreeRow {
   issueId: string
   identifier: string
   title: string
-  status: StatusGlyphProps
+  /** S-3: null = the issue row is not synced: no glyph (never Backlog). */
+  status: StatusGlyphProps | null
   /** 0 = the chip's own issue. */
   depth: number
 }
@@ -737,10 +738,14 @@ export function ThreadIssueTree({
             style={{ paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px` }}
           >
             <TreeGuides guide={guides[index]} />
-            <StatusGlyph
-              {...row.status}
-              className={cn(`size-3.5 shrink-0`, row.status.className)}
-            />
+            {row.status ? (
+              <StatusGlyph
+                {...row.status}
+                className={cn(`size-3.5 shrink-0`, row.status.className)}
+              />
+            ) : (
+              <span aria-hidden className="size-3.5 shrink-0" />
+            )}
             <span className="shrink-0 font-mono text-xs text-muted-foreground">
               {row.identifier}
             </span>
