@@ -625,7 +625,7 @@ pub(crate) fn story_content(
             let facts = crate::thread_screen::plan_facts(row).map(|(_, _, facts)| facts);
             if let Some(facts) = facts {
                 let sheet = crate::dock::sheet_host(|| {
-                    crate::plan_card::plan_sheet(&facts, lead.into_any_element(), images, window, cx)
+                    crate::plan_card::plan_story_sheet(&facts, lead.into_any_element(), images, window, cx)
                 });
                 return StoryContent { body: sheet.body, footer: sheet.footer };
             }

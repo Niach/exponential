@@ -825,7 +825,7 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
     let controls = match facts.decision {
         Some(decision) => closed_decision(facts, decision, cx),
         None if answering => crate::thread_screen::card_answering(cx),
-        None if interactive => div().mt_3().w_full().child(plan_footer(facts, 0, window, cx)).into_any_element(),
+        None if interactive => div().mt_3().w_full().child(plan_footer(facts, 0, false, window, cx)).into_any_element(),
         None => div().into_any_element(),
     };
     (content, controls)
@@ -893,6 +893,29 @@ pub(crate) fn plan_sheet(
     window: &Window,
     cx: &mut App,
 ) -> crate::dock::SheetContent {
+    plan_sheet_with(facts, plan, false, images, window, cx)
+}
+
+/// S-3: the story viewer's plan footer (stories.json): Approve / Change,
+/// no fresh-context split, the same answer path.
+pub(crate) fn plan_story_sheet(
+    facts: &PlanFacts,
+    plan: AnyElement,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> crate::dock::SheetContent {
+    plan_sheet_with(facts, plan, true, images, window, cx)
+}
+
+fn plan_sheet_with(
+    facts: &PlanFacts,
+    plan: AnyElement,
+    story: bool,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> crate::dock::SheetContent {
     let message_id = facts.message_id;
     let decided = facts.decision.is_some();
     let answering = crate::thread_screen::answering(message_id, cx);
@@ -928,7 +951,7 @@ pub(crate) fn plan_sheet(
     }
     let mut footer = v_flex().w_full().min_w_0().gap_2();
     if interactive && last {
-        footer = footer.child(plan_footer(facts, page, window, cx));
+        footer = footer.child(plan_footer(facts, page, story, window, cx));
     } else {
         footer = footer.children(step_buttons(message_id, page, pages));
     }
@@ -993,7 +1016,7 @@ fn step_button(message_id: &str, test_id: &str, label: &str, to: usize) -> Butto
 /// while a required answer is missing (the issue line under the row).
 /// Picking the reject opens the feedback field above the row and the row
 /// reads Cancel + the reject label as the primary.
-fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) -> AnyElement {
+fn plan_footer(facts: &PlanFacts, page: usize, story: bool, window: &Window, cx: &mut App) -> AnyElement {
     let message_id = facts.message_id;
     let ids = model::test_ids();
     let copy = model::copy();
@@ -1002,7 +1025,13 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
     let (Some(approve), Some(reject)) = (find("approve"), find("reject")) else {
         return div().into_any_element();
     };
-    let fresh = find("approve-fresh");
+    let fresh = find("approve-fresh").filter(|_| !story);
+    let stories = &domain::stories::STORIES.copy;
+    let (approve_label, change_label) = if story {
+        (stories.approve.as_str(), stories.change.as_str())
+    } else {
+        (approve.label.as_str(), reject.label.as_str())
+    };
     let rejecting = draft(message_id, cx).is_some_and(|draft| draft.rejecting);
     let answers = plan_answers(message_id, facts.questions, cx);
     let blocked = (!rejecting).then(|| approve_issue(facts.questions, &answers)).flatten();
@@ -1028,7 +1057,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
         trailing = trailing
             .child(footer_button(format!("thread-plan-{message_id}-cancel"), &copy.cancel, false).on_click(set_rejecting(false)))
             .child(
-                footer_button(format!("thread-plan-{message_id}-decide"), &reject.label, true).on_click(move |_, _, cx| {
+                footer_button(format!("thread-plan-{message_id}-decide"), change_label, true).on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     decide("rejected", false, cx);
                 }),
@@ -1036,7 +1065,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
     } else {
         let approve_decide = decide.clone();
         let mut split = h_flex().id(SharedString::from(format!("{}-{message_id}", ids.decision))).items_center().child(
-            footer_button(format!("thread-plan-{message_id}-decide"), &approve.label, true)
+            footer_button(format!("thread-plan-{message_id}-decide"), approve_label, true)
                 .rounded_r_none()
                 .disabled(blocked.is_some())
                 .on_click(move |_, _, cx| {
@@ -1070,7 +1099,7 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
             );
         }
         trailing = trailing
-            .child(footer_button(format!("thread-plan-{message_id}-reject"), &reject.label, false).on_click(set_rejecting(true)))
+            .child(footer_button(format!("thread-plan-{message_id}-reject"), change_label, false).on_click(set_rejecting(true)))
             .child(split);
     }
     let row = h_flex()
