@@ -51,7 +51,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     title: "Screen memory",
     summary: "Your voice agent can look at the last 10 minutes of your screen.",
     body: r#"- **Screen memory**: on your voice device, the tray's Screen memory switch keeps the last 10 minutes of your screen (deduplicated, on this device only). Your voice agent can look at up to 4 screenshots from a moment you talk about.
-- **Paused for private windows**: password managers, private browser windows and online banking are never captured; the tray says Paused while one is focused."#,
+- **Paused for private windows**: password managers, private browser windows and online banking are never captured; the tray says Paused while one is focused.
+- **Private windows stay private**: a password manager or banking window behind other windows is blacked out too, and on desktops without a window list (Wayland) the switch doesn't show."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
@@ -62,7 +63,8 @@ const PREVIOUS_107: ChangelogEntry = ChangelogEntry {
     title: "Work screen",
     summary: "Pick the display agents drive with computer use, and fullscreen apps stay yours.",
     body: r#"- **Work screen**: Device settings → Computer use has a Work screen row: Auto (every display without a fullscreen app) or one display. Agents only see and drive that display.
-- **Fullscreen stays yours**: while you are in a fullscreen app (a game, a video) on another display, agents don't click or type; the voice overlay never opens over a fullscreen app."#,
+- **Fullscreen stays yours**: while you are in a fullscreen app (a game, a video) on another display, agents don't click or type; the voice overlay never opens over a fullscreen app.
+- **Follows its monitor**: the picked work screen is remembered by the monitor itself, so plugging in or reordering displays never moves agents to another screen."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

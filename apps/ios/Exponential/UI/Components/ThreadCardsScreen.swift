@@ -852,7 +852,7 @@ private struct DeviceReadinessSpecimens: View {
 private struct WorkScreenSpecimens: View {
     @State private var computerUse = true
     @State private var model = DomainContract.deviceComputerUseDefaultsModel
-    @State private var display: Int? = 2
+    @State private var display: String? = "display-2"
 
     private static let doctor = DeviceDoctor(
         items: [
@@ -861,8 +861,8 @@ private struct WorkScreenSpecimens: View {
             .init(key: "accessibility", group: "computer_use", parent: "computer_use", state: "ok", detail: "Granted"),
         ],
         displays: [
-            WorkScreen.Display(number: 1, width: 2560, height: 1440, primary: false),
-            WorkScreen.Display(number: 2, width: 3024, height: 1964, primary: true),
+            WorkScreen.Display(id: "display-1", number: 1, width: 2560, height: 1440, primary: false),
+            WorkScreen.Display(id: "display-2", number: 2, width: 3024, height: 1964, primary: true),
         ]
     )
 

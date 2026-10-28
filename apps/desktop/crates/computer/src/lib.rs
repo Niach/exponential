@@ -20,6 +20,7 @@ mod keys;
 mod server;
 mod tools;
 pub mod work_screen;
+pub mod visible;
 
 use std::sync::{Arc, OnceLock};
 
@@ -172,10 +173,13 @@ fn live() -> Result<&'static Live, String> {
 static PRESENCE: OnceLock<host::Presence> = OnceLock::new();
 
 /// NEW-59: one display as the device reports it (`doctor.displays`) and as
-/// the overlay and the banner place by: 1-based `number` in the OS's order
-/// (list_windows' index + 1), the rect in the OS's screen units.
+/// the overlay and the banner place by: its stable `id` (#FEED-161, the
+/// stored Work screen value), the 1-based `number` in the OS's order
+/// (list_windows' index + 1, the label only), the rect in the OS's screen
+/// units.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Display {
+    pub id: String,
     pub number: u32,
     pub x: i32,
     pub y: i32,
@@ -194,10 +198,11 @@ pub struct ScreenState {
     pub work: Vec<usize>,
 }
 
-/// NEW-59: the device's Work screen setting (`launch_defaults.computerUseDisplay`,
-/// 1-based; `None` = Auto). The hub reads it on every call.
-pub fn set_work_display(number: Option<u32>) {
-    work_screen::set_picked(number);
+/// NEW-59: the device's Work screen setting (`launch_defaults.computerUseDisplayId`,
+/// the picked [`Display::id`]; `None` = Auto). The hub resolves it to the
+/// display carrying that id on every call (#FEED-161).
+pub fn set_work_display(id: Option<String>) {
+    work_screen::set_picked(id);
 }
 
 /// NEW-59: the displays for the doctor (`doctor.displays`). Empty without a
@@ -216,8 +221,8 @@ pub fn pixel_size(display: &Display) -> (u32, u32) {
 
 /// NEW-58: the focused window as screen memory reads it: the owning app
 /// (its name and, where the OS names it cheaply, its id: the macOS bundle
-/// id), its title, the 1-based display holding its centre (the [`displays`]
-/// order) and its rect within that display in PHYSICAL pixels (the frame's
+/// id), its title, the 1-based display it overlaps most (#FEED-161; the
+/// [`displays`] order) and its rect within that display in PHYSICAL pixels (the frame's
 /// own pixels), clipped to the display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FocusedWindow {
@@ -230,7 +235,7 @@ pub struct FocusedWindow {
 }
 
 /// NEW-58: the top window of one display (the first of the window list
-/// whose centre lies on it).
+/// that overlaps it most).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TopWindow {
     /// 1-based.

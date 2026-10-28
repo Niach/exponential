@@ -985,12 +985,12 @@ export interface DeviceLaunchDefaults {
    * (contract `computerUseModel`); absent = contract
    * `deviceComputerUseDefaults.model`. Same carry-forward as `computerUse`. */
   computerUseModel?: string | null
-  /** NEW-59: the WORK SCREEN, the 1-based number of the display (in the
-   * device's own `doctor.displays` list) agents drive with computer use;
-   * absent / null = Auto (every display without a fullscreen app). A save
-   * without it keeps the stored one, an explicit null clears it to Auto
+  /** NEW-59 / #FEED-161: the WORK SCREEN, the stable `id` of the display
+   * (in the device's own `doctor.displays` list) agents drive with computer
+   * use; absent / null = Auto (every display without a fullscreen app). A
+   * save without it keeps the stored one, an explicit null clears it to Auto
    * (spec: domain-contract `fixtures/work-screen.json`). */
-  computerUseDisplay?: number | null
+  computerUseDisplayId?: string | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
@@ -1005,8 +1005,8 @@ export const deviceLaunchDefaultsSchema = z.object({
   computerUse: z.boolean().nullish(),
   // EXP-1236: see DeviceLaunchDefaults.computerUseModel.
   computerUseModel: z.string().max(32).nullish(),
-  // NEW-59: see DeviceLaunchDefaults.computerUseDisplay.
-  computerUseDisplay: z.number().int().min(1).max(16).nullish(),
+  // NEW-59 / #FEED-161: see DeviceLaunchDefaults.computerUseDisplayId.
+  computerUseDisplayId: z.string().min(1).max(128).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
@@ -1270,7 +1270,10 @@ export interface DeviceDoctorItem {
 }
 /** NEW-59: one display as the device reports it (the OS's order, pixels). */
 export interface DeviceDisplay {
-  /** 1-based, the number `launch_defaults.computerUseDisplay` stores. */
+  /** #FEED-161: stable across reconnects and reorders (1..128 chars), the
+   * value `launch_defaults.computerUseDisplayId` stores. */
+  id: string
+  /** 1-based position in the OS's order, for the label only. */
   number: number
   width: number
   height: number
@@ -1309,17 +1312,32 @@ export const deviceDoctorSchema = z.object({
     .array(deviceDoctorItemSchema)
     .max(64)
     .transform((items) => items.slice(0, MAX_DEVICE_DOCTOR_ITEMS)),
-  // NEW-59: see DeviceDoctor.displays.
+  // NEW-59: see DeviceDoctor.displays. #FEED-161: lenient, an entry without
+  // a usable `id` is dropped, never a reason to 400 the heartbeat.
   displays: z
-    .array(
-      z.object({
-        number: z.number().int().min(1).max(16),
+    .preprocess(
+      (value) =>
+        Array.isArray(value)
+          ? value.filter(
+              (entry) =>
+                typeof entry === `object` &&
+                entry !== null &&
+                typeof (entry as { id?: unknown }).id === `string` &&
+                (entry as { id: string }).id.length >= 1 &&
+                (entry as { id: string }).id.length <= 128
+            )
+          : value,
+      z.array(
+        z.object({
+          id: z.string().min(1).max(128),
+          number: z.number().int().min(1).max(16),
         width: z.number().int().min(1).max(100000),
         height: z.number().int().min(1).max(100000),
         primary: z.boolean(),
-      })
+        })
+      )
+      .max(16)
     )
-    .max(16)
     .nullish(),
 })
 

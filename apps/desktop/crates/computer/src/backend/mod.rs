@@ -27,6 +27,11 @@ pub(crate) struct Image {
 /// One display (monitor) of the screen, in screen units.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DisplayInfo {
+    /// #FEED-161: stable across reconnects and reorders, per OS
+    /// (`fixtures/work-screen.json` DISPLAYS: macOS the display UUID,
+    /// Windows the monitor's device interface path, X11 `edid:`/`output:`);
+    /// unique within one list ([`finish_ids`]), at most [`ID_MAX`] chars.
+    pub id: String,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -36,9 +41,43 @@ pub(crate) struct DisplayInfo {
 }
 
 impl DisplayInfo {
-    pub(crate) fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.x && y >= self.y && x < self.x + self.width as i32 && y < self.y + self.height as i32
+    /// The area (screen units²) a rect shares with this display.
+    pub(crate) fn overlap(&self, x: i32, y: i32, width: u32, height: u32) -> u64 {
+        let span = |start: i32, len: u32, own: i32, own_len: u32| {
+            let lo = i64::from(start.max(own));
+            let hi = (i64::from(start) + i64::from(len)).min(i64::from(own) + i64::from(own_len));
+            (hi - lo).max(0) as u64
+        };
+        span(x, width, self.x, self.width) * span(y, height, self.y, self.height)
     }
+}
+
+/// The longest display id (`work-screen.json` DISPLAYS).
+pub(crate) const ID_MAX: usize = 128;
+
+/// #FEED-161: every id at most [`ID_MAX`] chars, and twins (two monitors
+/// without a serial) told apart by `#2`, `#3`, … in the OS's order.
+pub(crate) fn finish_ids(displays: &mut [DisplayInfo]) {
+    let clip = |id: &str, room: usize| id.chars().take(room).collect::<String>();
+    let mut seen: Vec<String> = Vec::with_capacity(displays.len());
+    for display in displays.iter_mut() {
+        let base = clip(&display.id, ID_MAX);
+        let mut id = base.clone();
+        let mut n = 1;
+        while seen.contains(&id) {
+            n += 1;
+            let suffix = format!("#{n}");
+            id = format!("{}{suffix}", clip(&base, ID_MAX - suffix.len()));
+        }
+        seen.push(id.clone());
+        display.id = id;
+    }
+}
+
+/// FNV-1a 64: a hash that stays the same across builds (X11's `edid:` id).
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+pub(crate) fn stable_hash(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, &byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// One top-level window, in screen units.
@@ -175,4 +214,39 @@ pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
     return windows::open();
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     Err("Computer use is not available on this OS.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn display(id: &str) -> DisplayInfo {
+        DisplayInfo { id: id.into(), x: 0, y: 0, width: 100, height: 100, primary: false, name: String::new() }
+    }
+
+    /// #FEED-161: twins get `#2`, `#3` in the OS's order; every id fits 128.
+    #[test]
+    fn display_ids_are_unique_and_at_most_128_chars() {
+        let long = "x".repeat(200);
+        let mut displays = [display("edid:a"), display("edid:a"), display("output:DP-1"), display("edid:a"), display(&long), display(&long)];
+        finish_ids(&mut displays);
+        let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
+        assert_eq!(&ids[..4], ["edid:a", "edid:a#2", "output:DP-1", "edid:a#3"]);
+        assert_eq!(ids[4], "x".repeat(128));
+        assert_eq!(ids[5], format!("{}#2", "x".repeat(126)));
+    }
+
+    #[test]
+    fn the_overlap_is_the_shared_area() {
+        let display = DisplayInfo { x: 100, ..display("a") };
+        assert_eq!(display.overlap(150, 50, 100, 100), 50 * 50);
+        assert_eq!(display.overlap(0, 0, 100, 100), 0);
+        assert_eq!(display.overlap(-1000, -1000, 5000, 5000), 100 * 100);
+    }
+
+    #[test]
+    fn the_stable_hash_is_fnv1a() {
+        assert_eq!(stable_hash(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(stable_hash(b"a"), 0xaf63_dc4c_8601_ec8c);
+    }
 }

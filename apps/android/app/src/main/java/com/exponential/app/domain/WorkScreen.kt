@@ -39,34 +39,36 @@ object WorkScreen {
      * The Work screen picker's options: Auto, the reported displays, then a
      * stored display the device no longer reports.
      */
-    fun options(displays: List<WorkScreenDisplay>?, stored: Int?): List<WorkScreenOption> {
+    fun options(displays: List<WorkScreenDisplay>?, stored: String?): List<WorkScreenOption> {
         val out = mutableListOf(WorkScreenOption(value = null, label = Copy.AUTO))
         for (display in displays.orEmpty()) {
             var label = "${displayLabel(display.number)}$SEP${display.width} × ${display.height}"
             if (display.primary) label += "$SEP${Copy.PRIMARY}"
-            out += WorkScreenOption(value = display.number, label = label)
+            out += WorkScreenOption(value = display.id, label = label)
         }
         if (stored != null && out.none { it.value == stored }) {
-            out += WorkScreenOption(
-                value = stored,
-                label = "${displayLabel(stored)}$SEP${Copy.NOT_CONNECTED}",
-            )
+            out += WorkScreenOption(value = stored, label = Copy.NOT_CONNECTED)
         }
         return out
     }
 }
 
-/** One display as the device reports it in `doctor.displays` (1-based [number], pixels). */
+/**
+ * One display as the device reports it in `doctor.displays`: [id] = stable
+ * across reconnects and reorders (the stored value, #FEED-161), [number] =
+ * 1-based position for the label only, pixels.
+ */
 data class WorkScreenDisplay(
+    val id: String,
     val number: Int,
     val width: Int,
     val height: Int,
     val primary: Boolean,
 )
 
-/** One picker option; [value] = the stored `launch_defaults.computerUseDisplay`, null = Auto. */
-data class WorkScreenOption(val value: Int?, val label: String)
+/** One picker option; [value] = the stored `launch_defaults.computerUseDisplayId` (a display id), null = Auto. */
+data class WorkScreenOption(val value: String?, val label: String)
 
 /** The TS reference's name. */
-fun workScreenOptions(displays: List<WorkScreenDisplay>?, stored: Int?): List<WorkScreenOption> =
+fun workScreenOptions(displays: List<WorkScreenDisplay>?, stored: String?): List<WorkScreenOption> =
     WorkScreen.options(displays, stored)

@@ -18,7 +18,7 @@ mod store;
 mod tool;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 pub const SERVER_NAME: &str = "screen";
@@ -95,30 +95,84 @@ fn live() -> Result<&'static Live, String> {
     .map_err(Clone::clone)
 }
 
+/// Whether screen memory can ever capture here: it needs the computer
+/// crate's window list (PAUSE fails closed without one), which Wayland and
+/// a display-less session lack, so the Screen memory row hides there.
+pub fn available() -> bool {
+    cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows")) && computer::visible::window_list_supported()
+}
+
+/// Bumped by every stop: a start asked for before it is cancelled.
+static STOPS: AtomicU64 = AtomicU64::new(0);
+/// One capturer opens at a time (a second start waits for the first's
+/// portal dialog, then finds it running or cancelled).
+static OPENING: Mutex<()> = Mutex::new(());
+
+/// What a cancelled start answers.
+pub const CANCELLED: &str = "Screen memory was switched off while it started.";
+
+/// A start as asked for: a [`stop`] (or [`forget`]) after [`ticket`]
+/// cancels it, even while it waits on the Linux portal's dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ticket(u64);
+
+/// Take when the start is ASKED for (in order with the stops), then hand to
+/// [`start_with`] on any thread.
+pub fn ticket() -> Ticket {
+    Ticket(STOPS.load(Ordering::Acquire))
+}
+
 /// Start capturing into `data_dir/screen` (frames) + `data_dir/screen.sqlite`
 /// (index); a no-op while running. `Err` = this machine cannot capture.
 pub fn start(data_dir: PathBuf) -> Result<(), String> {
+    start_with(data_dir, ticket())
+}
+
+/// [`start`] for a start asked for at `ticket`: a stop since then cancels it
+/// ([`CANCELLED`]); one that comes while the capturer opens (the portal's
+/// dialog) does not wait for it: the capturer, once open, is closed at once.
+pub fn start_with(data_dir: PathBuf, ticket: Ticket) -> Result<(), String> {
+    let state_dir = data_dir.clone();
+    start_inner(data_dir, ticket, move || capture::open(&state_dir), Box::new(computer::visible::screen_look))
+}
+
+pub(crate) fn start_inner(
+    data_dir: PathBuf,
+    ticket: Ticket,
+    open: impl FnOnce() -> Result<Box<dyn capture::Capturer>, String>,
+    view: engine::ViewSource,
+) -> Result<(), String> {
+    let cancelled = || STOPS.load(Ordering::Acquire) != ticket.0;
+    let _opening = OPENING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cancelled() {
+        return Err(CANCELLED.to_string());
+    }
+    if RUNNING.lock().unwrap().is_some() {
+        return Ok(());
+    }
+    let capturer = open()?;
     let mut running = RUNNING.lock().unwrap();
+    // Under the lock: a stop either came before (cancelled here) or waits
+    // for this start and stops it.
+    if cancelled() {
+        drop(running);
+        drop(capturer);
+        return Err(CANCELLED.to_string());
+    }
     if running.is_some() {
         return Ok(());
     }
-    let capturer = capture::open(&data_dir)?;
-    let memory = engine::Memory::start(
-        &data_dir,
-        capturer,
-        Box::new(computer::screen_view),
-        engine::Timing::from_fixture(),
-        HOTKEY.clone(),
-        Arc::new(publish),
-    )?;
+    let memory = engine::Memory::start(&data_dir, capturer, view, engine::Timing::from_fixture(), HOTKEY.clone(), Arc::new(publish))?;
     *LAST_DIR.lock().unwrap() = Some(data_dir);
     *running = Some(memory);
     Ok(())
 }
 
 /// Stop capturing; `forget` also deletes every frame and index row (sign
-/// out, another voice device or account).
+/// out, another voice device or account). Cancels every start asked for
+/// before it, without waiting for one still opening.
 pub fn stop(forget: bool) {
+    STOPS.fetch_add(1, Ordering::AcqRel);
     let memory = RUNNING.lock().unwrap().take();
     match memory {
         Some(memory) => memory.stop(forget),

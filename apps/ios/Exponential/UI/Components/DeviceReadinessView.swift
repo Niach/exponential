@@ -29,7 +29,7 @@ struct DeviceReadinessView: View {
     private let computerUse: Binding<Bool>?
     private let computerUseModel: Binding<String>?
     /// NEW-59: the work screen draft (nil = Auto) and its options.
-    private let workScreen: Binding<Int?>?
+    private let workScreen: Binding<String?>?
     private let workScreenOptions: [WorkScreen.Option]
     private let busyActions: Set<String>
     private let onAction: (DeviceReadiness.Row) -> Void
@@ -46,7 +46,7 @@ struct DeviceReadinessView: View {
         groups: [DeviceReadiness.Group],
         computerUse: Binding<Bool>? = nil,
         computerUseModel: Binding<String>? = nil,
-        workScreen: Binding<Int?>? = nil,
+        workScreen: Binding<String?>? = nil,
         workScreenOptions: [WorkScreen.Option] = [],
         busyActions: Set<String> = [],
         onAction: @escaping (DeviceReadiness.Row) -> Void,
@@ -174,7 +174,7 @@ struct DeviceReadinessView: View {
 
     /// NEW-59: the Work screen picker, right under the model row in the same
     /// band and rhythm; the value reads the picked option's label.
-    private func workScreenRow(_ selection: Binding<Int?>) -> some View {
+    private func workScreenRow(_ selection: Binding<String?>) -> some View {
         WorkScreenPickerRow(selection: selection, options: workScreenOptions)
         .font(.subheadline)
         .padding(.horizontal, 12)
@@ -256,7 +256,7 @@ struct DeviceReadinessView: View {
 /// NEW-59: the Work screen row = THE shared `GlassPickerRow` over
 /// `WorkScreen.options` (no new component), tagged with the fixture test id.
 struct WorkScreenPickerRow: View {
-    @Binding var selection: Int?
+    @Binding var selection: String?
     let options: [WorkScreen.Option]
 
     var body: some View {

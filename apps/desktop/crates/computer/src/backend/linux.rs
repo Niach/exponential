@@ -321,7 +321,37 @@ impl X11 {
     /// The whole root as one display (no RandR monitors).
     fn root_display(&self) -> Result<DisplayInfo, String> {
         let geometry = reply("root geometry", self.conn.get_geometry(self.root))?;
-        Ok(DisplayInfo { x: 0, y: 0, width: u32::from(geometry.width), height: u32::from(geometry.height), primary: true, name: "screen".into() })
+        Ok(DisplayInfo {
+            id: "output:screen".into(),
+            x: 0,
+            y: 0,
+            width: u32::from(geometry.width),
+            height: u32::from(geometry.height),
+            primary: true,
+            name: "screen".into(),
+        })
+    }
+
+    /// #FEED-161: a monitor's stable id off its first RandR output:
+    /// `edid:` + 16 hex of the EDID's hash (the panel itself, whatever
+    /// port), else `output:` + the output's name, else the monitor's.
+    fn display_id(&self, outputs: &[x11rb::protocol::randr::Output], edid: xproto::Atom, monitor: &str) -> String {
+        let Some(&output) = outputs.first() else {
+            return format!("output:{monitor}");
+        };
+        if edid != x11rb::NONE {
+            let property = reply(
+                "EDID",
+                self.conn.randr_get_output_property(output, edid, xproto::AtomEnum::ANY, 0, 256, false, false),
+            );
+            if let Some(data) = property.ok().map(|property| property.data).filter(|data| !data.is_empty()) {
+                return format!("edid:{:016x}", super::stable_hash(&data));
+            }
+        }
+        match reply("output info", self.conn.randr_get_output_info(output, x11rb::CURRENT_TIME)) {
+            Ok(info) if !info.name.is_empty() => format!("output:{}", String::from_utf8_lossy(&info.name)),
+            _ => format!("output:{monitor}"),
+        }
     }
 }
 
@@ -334,6 +364,7 @@ impl Backend for X11 {
                 return Ok(vec![self.root_display()?]);
             }
         };
+        let edid = reply("EDID atom", self.conn.intern_atom(true, b"EDID")).map(|atom| atom.atom).unwrap_or(x11rb::NONE);
         let mut displays: Vec<DisplayInfo> = monitors
             .iter()
             .filter(|monitor| monitor.width > 0 && monitor.height > 0)
@@ -342,6 +373,7 @@ impl Backend for X11 {
                     .map(|name| String::from_utf8_lossy(&name.name).into_owned())
                     .unwrap_or_default();
                 DisplayInfo {
+                    id: self.display_id(&monitor.outputs, edid, &name),
                     x: i32::from(monitor.x),
                     y: i32::from(monitor.y),
                     width: u32::from(monitor.width),
@@ -357,6 +389,7 @@ impl Backend for X11 {
         if !displays.iter().any(|display| display.primary) {
             displays[0].primary = true;
         }
+        super::finish_ids(&mut displays);
         Ok(displays)
     }
 

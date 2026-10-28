@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use computer::visible::{ScreenLook, VisibleWindow};
 use computer::{FocusedWindow, ScreenView, TopWindow};
 use serde_json::{json, Value};
 
@@ -46,7 +47,7 @@ fn blocks(display: u32, bits: u64) -> Frame {
 }
 
 fn hash_of(frame: &Frame) -> String {
-    crate::hash::hex(crate::hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes()))
+    crate::hash::hex(crate::hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes(), &frame.masks))
 }
 
 impl FakeCapturer {
@@ -113,15 +114,23 @@ fn timing(interval_ms: u64) -> Timing {
 }
 
 fn start(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, interval_ms: u64) -> Rig {
+    start_listing(dir, capturer, first, Vec::new(), interval_ms)
+}
+
+/// [`start`] with `listed` as every window of the window list from the
+/// first look on.
+fn start_listing(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, listed: Vec<VisibleWindow>, interval_ms: u64) -> Rig {
     let view = Arc::new(Mutex::new(first));
+    let windows: Shared<Vec<VisibleWindow>> = Arc::new(Mutex::new(listed));
     let hotkey = Arc::new(AtomicBool::new(false));
     let statuses = Arc::new(Mutex::new(Vec::new()));
     let source = view.clone();
+    let listed = windows.clone();
     let heard = statuses.clone();
     let memory = Memory::start(
         &dir.0,
         capturer,
-        Box::new(move || source.lock().unwrap().clone()),
+        Box::new(move || source.lock().unwrap().clone().map(|view| ScreenLook { view, windows: listed.lock().unwrap().clone() })),
         timing(interval_ms),
         hotkey.clone(),
         Arc::new(move |status| heard.lock().unwrap().push(status)),
@@ -602,7 +611,7 @@ fn cpu_budget() {
     let parts = |name: &str, frame: &Frame| {
         let window = store::Rect { x: frame.width as i32 / 10, y: frame.height as i32 / 10, width: frame.width * 8 / 10, height: frame.height * 8 / 10 };
         let hash_ms = time(20, Box::new(|| {
-            std::hint::black_box(crate::hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes()));
+            std::hint::black_box(crate::hash::hash_rows(frame.width, frame.height, frame.stride, frame.bgra, frame.bytes(), &[]));
         }));
         for (label, focus) in [("whole", None), ("window", Some(window))] {
             let picture = crate::shrink::prepare(frame, focus);
@@ -622,7 +631,7 @@ fn cpu_budget() {
         parts("real", &Frame::rgba(1, shot.width(), shot.height(), shot.into_raw()));
     }
     let view_ms = time(200, Box::new(|| {
-        std::hint::black_box(computer::screen_view());
+        std::hint::black_box(computer::visible::screen_look());
     }));
     println!("screen view poll {view_ms:.2} ms");
     let seconds: u64 = std::env::var("SCREEN_BENCH_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(20);
@@ -644,8 +653,8 @@ fn cpu_budget() {
                 &dir.0,
                 Box::new(ChangingCapturer { width, height, variants: variants.clone(), next: 0 }),
                 Box::new(move || {
-                    std::hint::black_box(computer::screen_view());
-                    view(Some(focus.clone()), &[1, 2])
+                    std::hint::black_box(computer::visible::screen_look());
+                    view(Some(focus.clone()), &[1, 2]).map(|view| ScreenLook { view, windows: Vec::new() })
                 }),
                 Timing { encode_percent: percent, ..Timing::from_fixture() },
                 Arc::new(AtomicBool::new(false)),
@@ -667,4 +676,237 @@ fn cpu_budget() {
             );
         }
     }
+}
+
+/// The same frame on every grab (a still screen): white, or `bits`.
+struct StillCapturer {
+    bits: u64,
+}
+
+impl Capturer for StillCapturer {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        Ok(wanted.iter().map(|want| blocks(want.display, self.bits)).collect())
+    }
+
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
+        Ok(Some(blocks(wanted.display, self.bits)))
+    }
+}
+
+fn listed(display: u32, app: &str, title: &str, size: u32, rect: computer::ScreenRect) -> VisibleWindow {
+    VisibleWindow { display, display_size: (size, size), app: app.into(), app_id: None, title: title.into(), rect }
+}
+
+/// MASK: a vault that is NOT on top (behind the focused editor) is filled
+/// black before the hash and in the stored picture; one that cannot be
+/// placed (the reading's display size is not the frame's) drops that
+/// display's frames, the other display goes on.
+#[test]
+fn a_denylisted_window_behind_the_focus_is_masked_or_its_display_skipped() {
+    let dir = TempDir::new();
+    let quadrant = computer::ScreenRect { x: 0, y: 0, width: 160, height: 160 };
+    let windows = vec![listed(1, "Zed", "main.rs", SIDE, window("Zed", "main.rs").rect), listed(1, "Bitwarden", "Vault", SIDE, quadrant)];
+    let rig = start_listing(&dir, Box::new(StillCapturer { bits: u64::MAX }), view(Some(window("Zed", "main.rs")), &[1]), windows, 40);
+    wait_until(|| count(&rig.memory) == 1);
+    let row = rig.rows().remove(0);
+    // The top-left 4 x 4 blocks of 8 x 8 (160 px) black, the rest white.
+    let masked = (0..64).fold(0u64, |bits, k| if k / 8 < 4 && k % 8 < 4 { bits } else { bits | 1 << (63 - k) });
+    assert_eq!(row.hash, hash_of(&blocks(1, masked)));
+    // The stored picture (cut to the editor at (10, 20)): black inside the
+    // vault's rect, white past it.
+    let webp = std::fs::read(rig.memory.store.lock().unwrap().file(&row)).unwrap();
+    let picture = webp::Decoder::new(&webp).decode().unwrap();
+    let width = picture.width() as usize;
+    let channels = picture.len() / (width * picture.height() as usize);
+    let at = |x: usize, y: usize| picture[(y * width + x) * channels];
+    assert!(at(2, 2) < 24 && at(140, 130) < 24, "the vault is black");
+    assert!(at(200, 180) > 230, "the editor stays");
+    rig.memory.stop(true);
+
+    // Two displays; the vault's reading says display 1 is 640 px, the frame
+    // is 320: display 1 is skipped, display 2 kept.
+    let dir = TempDir::new();
+    let grabs = Arc::new(Mutex::new(Vec::new()));
+    let windows = vec![listed(1, "1Password", "Vault", 640, quadrant)];
+    let rig = start_listing(&dir, Box::new(FakeCapturer { seed: 5, grabs }), view(Some(window_on(2, "Zed", "main.rs")), &[1, 2]), windows, 40);
+    wait_until(|| count(&rig.memory) >= 3);
+    assert!(rig.rows().iter().all(|row| row.display == 2), "display 1 is skipped");
+    rig.memory.stop(true);
+}
+
+/// Every grab a new frame the OS captured `lag_ms` before it; the stamps
+/// it handed out.
+struct LaggingCapturer {
+    inner: FakeCapturer,
+    lag_ms: i64,
+    stamps: Shared<Vec<i64>>,
+}
+
+impl LaggingCapturer {
+    fn frame(&mut self, display: u32) -> Frame {
+        let at = engine::now_ms() - self.lag_ms;
+        self.stamps.lock().unwrap().push(at);
+        self.inner.frame(display).stamped(at)
+    }
+}
+
+impl Capturer for LaggingCapturer {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        Ok(wanted.iter().map(|want| self.frame(want.display)).collect())
+    }
+
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
+        Ok(Some(self.frame(wanted.display)))
+    }
+}
+
+/// LABEL by capture time + STAMP: a frame the OS captured before a title
+/// change but handed out after it carries the OLD title (the reading
+/// nearest its capture time), and every row's `at` is the capturer's stamp.
+#[test]
+fn a_frame_is_labelled_by_the_reading_nearest_its_capture_time() {
+    let dir = TempDir::new();
+    let stamps: Shared<Vec<i64>> = Default::default();
+    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 9, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() };
+    let rig = start(&dir, Box::new(capturer), view(Some(window("Zed", "before.rs")), &[1]), 40);
+    // Long enough for the readings to cover the lag.
+    std::thread::sleep(Duration::from_millis(600));
+    let switched = engine::now_ms();
+    rig.focus(Some(window("Zed", "after.rs")));
+    wait_until(|| rig.rows().iter().filter(|row| row.at > switched + 100).count() >= 2);
+    let rows = rig.rows();
+    rig.memory.stop(true);
+    let late_before: Vec<&store::Row> = rows.iter().filter(|row| row.at < switched - 30 && row.at > switched - 400).collect();
+    assert!(!late_before.is_empty(), "frames captured just before the change");
+    for row in &rows {
+        if row.at < switched - 30 {
+            assert_eq!(row.title, "before.rs", "captured at {} before the change at {switched}", row.at);
+        } else if row.at > switched + 30 {
+            assert_eq!(row.title, "after.rs");
+        }
+    }
+    let stamps = stamps.lock().unwrap();
+    assert!(rows.iter().all(|row| stamps.contains(&row.at)), "every row carries its capture stamp");
+}
+
+/// PAUSE by the bundle id in the production path: a localized Passwords
+/// app (its name matches nothing) is held paused by `com.apple.Passwords`.
+#[test]
+fn a_denylisted_bundle_id_pauses_whatever_the_app_is_called() {
+    let dir = TempDir::new();
+    let grabs = Arc::new(Mutex::new(Vec::new()));
+    let passwords = FocusedWindow { app_id: Some("com.apple.Passwords".into()), ..window("Kennwörter", "Alle Objekte") };
+    let rig = start(&dir, Box::new(FakeCapturer { seed: 2, grabs: grabs.clone() }), view(Some(passwords), &[1]), 40);
+    wait_until(|| !rig.statuses.lock().unwrap().is_empty());
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(rig.statuses.lock().unwrap().as_slice(), [Status::Paused]);
+    assert!(grabs.lock().unwrap().is_empty());
+    assert_eq!(count(&rig.memory), 0);
+    rig.focus(Some(FocusedWindow { app_id: Some("com.apple.Notes".into()), ..window("Notizen", "Liste") }));
+    wait_until(|| count(&rig.memory) >= 1);
+    assert_eq!(rig.statuses.lock().unwrap().as_slice(), [Status::Paused, Status::Active]);
+    rig.memory.stop(true);
+}
+
+/// A stream that delivers only on change (like [`StaleCapturer`]) plus a
+/// live screenshot of `screen` (FRESH); counts the screenshots.
+struct FreshCapturer {
+    stale: StaleCapturer,
+    screen: Shared<u64>,
+    shots: Shared<u32>,
+}
+
+impl Capturer for FreshCapturer {
+    fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
+        self.stale.grab_all(wanted)
+    }
+
+    fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
+        self.stale.grab(wanted)
+    }
+
+    fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        *self.shots.lock().unwrap() += 1;
+        Ok(Some(blocks(display, *self.screen.lock().unwrap()).stamped(engine::now_ms())))
+    }
+}
+
+/// FRESH: a screen that stood still across a pause (the stream delivers
+/// nothing new) is captured once after the resume, under the new label;
+/// never the frame the stream still holds from before.
+#[test]
+fn a_still_screen_is_stored_once_after_a_resume() {
+    let dir = TempDir::new();
+    let slot: Shared<Slot> = Default::default();
+    let (screen, shots): (Shared<u64>, Shared<u32>) = Default::default();
+    let (before, docs) = (0x00ff_00ff_00ff_00ff, 0x0f0f_f0f0_0f0f_f0f0);
+    deliver(&slot, before);
+    let capturer = FreshCapturer { stale: StaleCapturer { slot: slot.clone() }, screen: screen.clone(), shots: shots.clone() };
+    let rig = start(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), 40);
+    wait_until(|| count(&rig.memory) == 1);
+    assert_eq!(*shots.lock().unwrap(), 0, "no screenshot before any resume");
+    rig.focus(Some(window("1Password", "Vault")));
+    wait_until(|| rig.statuses.lock().unwrap().len() >= 2);
+    // The person reads Docs; nothing on screen changes after that.
+    *screen.lock().unwrap() = docs;
+    rig.focus(Some(window("Safari", "Docs")));
+    wait_until(|| count(&rig.memory) == 2);
+    std::thread::sleep(Duration::from_millis(250));
+    let rows = rig.rows();
+    assert_eq!(rows.len(), 2);
+    assert_eq!((rows[1].hash.as_str(), rows[1].app.as_str()), (hash_of(&blocks(1, docs)).as_str(), "Safari"));
+    assert_eq!(*shots.lock().unwrap(), 1, "one screenshot per resume");
+    rig.memory.stop(true);
+}
+
+/// Opens only when told to (a portal dialog the person has not answered);
+/// says when it is dropped.
+struct Dropped(Arc<AtomicBool>);
+
+impl Capturer for Dropped {
+    fn grab_all(&mut self, _: &[Want]) -> Result<Vec<Frame>, String> {
+        Ok(Vec::new())
+    }
+
+    fn grab(&mut self, _: Want) -> Result<Option<Frame>, String> {
+        Ok(None)
+    }
+}
+
+impl Drop for Dropped {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// A switch-off while the start still waits on its capturer (the Linux
+/// portal's dialog) does not wait for it: the stop and the delete return at
+/// once, and the capturer the start then gets is closed without capturing.
+#[test]
+fn a_stop_cancels_a_start_still_waiting_on_its_capturer() {
+    let dir = TempDir::new();
+    let ticket = crate::ticket();
+    let (answer, dialog) = std::sync::mpsc::channel::<()>();
+    let dropped = Arc::new(AtomicBool::new(false));
+    let (path, closed) = (dir.0.clone(), dropped.clone());
+    let starting = std::thread::spawn(move || {
+        crate::start_inner(
+            path,
+            ticket,
+            move || {
+                dialog.recv().unwrap();
+                Ok(Box::new(Dropped(closed)) as Box<dyn Capturer>)
+            },
+            Box::new(|| None),
+        )
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    let asked = Instant::now();
+    crate::forget(&dir.0);
+    assert!(asked.elapsed() < Duration::from_millis(500), "the stop waited for the start");
+    answer.send(()).unwrap();
+    assert_eq!(starting.join().unwrap(), Err(crate::CANCELLED.to_string()));
+    assert!(dropped.load(Ordering::Acquire), "the late capturer is closed");
+    assert!(!crate::leftover(&dir.0), "nothing was stored");
+    assert!(crate::grant("cancelled").is_err(), "screen memory stays off");
 }

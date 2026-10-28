@@ -100,6 +100,37 @@ extern "C" {
     fn CGEventGetIntegerValueField(event: core_graphics::sys::CGEventRef, field: u32) -> i64;
 }
 
+#[link(name = "ColorSync", kind = "framework")]
+extern "C" {
+    /// The display's UUID (a CFUUIDRef, create rule; null when unknown).
+    fn CGDisplayCreateUUIDFromDisplayID(display: CGDirectDisplayID) -> CFTypeRef;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFUUIDCreateString(allocator: CFTypeRef, uuid: CFTypeRef) -> CFStringRef;
+    fn CFRelease(value: CFTypeRef);
+}
+
+/// #FEED-161: the display's stable id, its UUID (the same across
+/// reconnects and reorders); the CGDirectDisplayID when macOS names none.
+fn display_uuid(id: CGDirectDisplayID) -> String {
+    // SAFETY: plain queries; the UUID is released after its string is
+    // taken (create rule both), the string wrapped under the create rule.
+    unsafe {
+        let uuid = CGDisplayCreateUUIDFromDisplayID(id);
+        if uuid.is_null() {
+            return format!("cg:{id}");
+        }
+        let text = CFUUIDCreateString(std::ptr::null(), uuid);
+        CFRelease(uuid);
+        if text.is_null() {
+            return format!("cg:{id}");
+        }
+        CFString::wrap_under_create_rule(text).to_string()
+    }
+}
+
 /// `pid_t`.
 type Pid = i32;
 
@@ -388,6 +419,7 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
             let display = CGDisplay::new(id);
             let bounds = display.bounds();
             let info = DisplayInfo {
+                id: display_uuid(id),
                 x: bounds.origin.x.round() as i32,
                 y: bounds.origin.y.round() as i32,
                 width: bounds.size.width.round().max(0.0) as u32,
@@ -403,6 +435,11 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
     }
     if !displays.iter().any(|(_, info)| info.primary) {
         displays[0].1.primary = true;
+    }
+    let mut infos: Vec<DisplayInfo> = displays.iter().map(|(_, info)| info.clone()).collect();
+    crate::backend::finish_ids(&mut infos);
+    for ((_, info), finished) in displays.iter_mut().zip(infos) {
+        info.id = finished.id;
     }
     Ok(displays)
 }

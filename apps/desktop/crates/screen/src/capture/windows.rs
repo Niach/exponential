@@ -10,6 +10,18 @@
 //! the same API. A monitor set change (plug, unplug) rebuilds the sessions on
 //! the next grab; a session that ended (secure desktop, device lost) is
 //! restarted, at most once every `RESTART_BACKOFF`.
+//!
+//! CPU: a delivered frame is copied ONCE (rows as the GPU mapped them, the
+//! padding kept as the stride) into a buffer the slot shares; a grab hands
+//! that buffer out without a copy (`Arc`), and the next delivery copies into
+//! a recycled one only when no grab still holds it. Where the OS has no
+//! minimum update interval (older Windows 10 builds), WGC
+//! delivers at the refresh rate while the screen changes: a delivery within
+//! `capture.intervalMs` of the last copy is not copied, only marked, and a
+//! grab that finds a marked monitor with nothing newer reads it live once
+//! (so the end of a burst is not lost). FRESH (a still screen
+//! after a resume, which WGC never delivers again): the computer crate's
+//! live GDI read of that monitor.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -31,17 +43,20 @@ const INTERVAL_MS: u64 = 1000;
 /// How long a session that ended or failed to start waits before a retry.
 const RESTART_BACKOFF: Duration = Duration::from_secs(5);
 
-/// One monitor's latest frame, RGBA8, tightly packed.
+/// One monitor's latest frame, RGBA8, rows `stride` bytes apart.
 #[derive(Default)]
 struct Latest {
     width: u32,
     height: u32,
-    rgba: Vec<u8>,
+    stride: usize,
+    rgba: Arc<Vec<u8>>,
     /// Bumped on every delivered frame (1 = the first).
     seq: u64,
     /// STALE: when it arrived; STAMP: when it was captured (Unix ms).
     delivered: Option<Instant>,
     at: i64,
+    /// A delivery after this frame was not copied (the throttle).
+    dirty: bool,
 }
 
 /// STAMP: a frame's SystemRelativeTime (QPC in 100 ns units) as Unix ms:
@@ -73,8 +88,13 @@ type Slot = Arc<Mutex<Option<Latest>>>;
 struct Handler {
     slot: Slot,
     /// The buffer the next frame is copied into outside the lock, then
-    /// swapped with the slot's, so a grab never waits on a full-frame copy.
+    /// swapped with the slot's, so a grab never waits on a full-frame copy:
+    /// the slot's previous buffer when no grab holds it any more.
     spare: Vec<u8>,
+    /// No minimum update interval here: copy at most once per interval.
+    throttle: bool,
+    /// When the last delivery was copied.
+    copied: Option<Instant>,
 }
 
 impl GraphicsCaptureApiHandler for Handler {
@@ -82,28 +102,49 @@ impl GraphicsCaptureApiHandler for Handler {
     type Error = String;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        Ok(Self { slot: ctx.flags, spare: Vec::new() })
+        let throttle = !GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false);
+        Ok(Self { slot: ctx.flags, spare: Vec::new(), throttle, copied: None })
     }
 
     fn on_frame_arrived(&mut self, frame: &mut WgcFrame, _control: InternalCaptureControl) -> Result<(), Self::Error> {
         let delivered = Instant::now();
+        if self.throttle && self.copied.is_some_and(|copied| delivered.duration_since(copied) < Duration::from_millis(INTERVAL_MS)) {
+            if let Some(latest) = self.slot.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+                latest.dirty = true;
+            }
+            return Ok(());
+        }
+        self.copied = Some(delivered);
         let at = captured_at(frame.timestamp().Duration);
         let mut buffer = frame.buffer().map_err(|e| format!("frame buffer: {e}"))?;
-        let (width, height) = (buffer.width(), buffer.height());
-        // Rgba8 is requested from the frame pool, so no BGRA swizzle here.
-        let pixels = buffer.as_nopadding_buffer().map_err(|e| format!("frame pixels: {e}"))?;
-        self.spare.clear();
-        self.spare.extend_from_slice(pixels);
-        let mut slot = self.slot.lock().unwrap_or_else(|p| p.into_inner());
-        let latest = slot.get_or_insert_with(Latest::default);
-        latest.width = width;
-        latest.height = height;
-        latest.seq += 1;
-        latest.delivered = Some(delivered);
-        latest.at = at;
-        std::mem::swap(&mut latest.rgba, &mut self.spare);
+        let (width, height, stride) = (buffer.width(), buffer.height(), buffer.row_pitch() as usize);
+        // Rgba8 is requested from the frame pool, so no BGRA swizzle here;
+        // the padded rows as mapped (no second, unpadding copy).
+        let pixels = buffer.as_raw_buffer();
+        let mut spare = std::mem::take(&mut self.spare);
+        spare.clear();
+        spare.extend_from_slice(pixels);
+        let old = {
+            let mut slot = self.slot.lock().unwrap_or_else(|p| p.into_inner());
+            let latest = slot.get_or_insert_with(Latest::default);
+            latest.width = width;
+            latest.height = height;
+            latest.stride = stride;
+            latest.seq += 1;
+            latest.delivered = Some(delivered);
+            latest.at = at;
+            latest.dirty = false;
+            std::mem::replace(&mut latest.rgba, Arc::new(spare))
+        };
+        // Recycled unless a frame handed out still reads it.
+        self.spare = Arc::try_unwrap(old).unwrap_or_default();
         Ok(())
     }
+}
+
+/// The latest frame shared with the frame (no copy).
+fn lend(display: u32, latest: &Latest) -> Frame {
+    Frame::lent(display, latest.width, latest.height, latest.stride, false, Box::new(latest.rgba.clone())).stamped(latest.at)
 }
 
 /// One monitor's capture.
@@ -203,7 +244,7 @@ impl Session {
         if latest.width == 0 || latest.height == 0 || latest.rgba.is_empty() || !want.takes(latest.delivered?) {
             return None;
         }
-        Some(Frame::rgba(want.display, latest.width, latest.height, latest.rgba.clone()).stamped(latest.at))
+        Some(lend(want.display, latest))
     }
 
     /// The latest frame only when it arrived after the one `grab_all` last
@@ -216,7 +257,13 @@ impl Session {
             return None;
         }
         self.handed = latest.seq;
-        Some(Frame::rgba(want.display, latest.width, latest.height, latest.rgba.clone()).stamped(latest.at))
+        Some(lend(want.display, latest))
+    }
+
+    /// Whether a delivery was skipped since the last copy (and clear it).
+    fn take_dirty(&self) -> bool {
+        let mut slot = self.slot.lock().unwrap_or_else(|p| p.into_inner());
+        slot.as_mut().is_some_and(|latest| std::mem::take(&mut latest.dirty))
     }
 
     fn stop(&mut self) {
@@ -271,11 +318,20 @@ impl Capturer for Wgc {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         self.refresh()?;
         self.check()?;
-        let sessions = &mut self.sessions;
-        Ok(wanted
-            .iter()
-            .filter_map(|want| sessions.get_mut(want.display.checked_sub(1)? as usize)?.fresh(*want))
-            .collect())
+        let mut frames = Vec::with_capacity(wanted.len());
+        for want in wanted {
+            let Some(session) = want.display.checked_sub(1).and_then(|index| self.sessions.get_mut(index as usize)) else { continue };
+            if let Some(frame) = session.fresh(*want) {
+                frames.push(frame);
+            } else if session.take_dirty() {
+                // The throttle skipped the last change: read it live once.
+                match live(want.display) {
+                    Ok(frame) => frames.push(frame),
+                    Err(reason) => log::debug!("screen: monitor {} not read live: {reason}", want.display),
+                }
+            }
+        }
+        Ok(frames)
     }
 
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
@@ -285,6 +341,19 @@ impl Capturer for Wgc {
         };
         Ok(session.latest(wanted))
     }
+
+    /// FRESH: the monitor read live (GDI, the computer crate's screenshot;
+    /// the same `EnumDisplayMonitors` order).
+    fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        live(display).map(Some)
+    }
+}
+
+/// `display` read live (GDI, the computer crate's screenshot; the same
+/// `EnumDisplayMonitors` order).
+fn live(display: u32) -> Result<Frame, String> {
+    let (width, height, rgba) = computer::visible::screenshot(display)?;
+    Ok(Frame::rgba(display, width, height, rgba).stamped(super::wall_ms()))
 }
 
 pub(super) fn open(_state_dir: &Path) -> Result<Box<dyn Capturer>, String> {

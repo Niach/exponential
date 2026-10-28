@@ -21,6 +21,11 @@
 //! microseconds; a change rebuilds only the streams that changed. A stream
 //! the system stopped (display gone, permission revoked) is rebuilt at most
 //! every `RETRY` seconds.
+//!
+//! FRESH (`fresh`): one `SCScreenshotManager` capture of the display through
+//! the stream's own filter and configuration (macOS 14+; earlier = none, the
+//! next delivery counts): a still screen after a resume, which the stream
+//! never delivers again.
 
 use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
@@ -45,8 +50,8 @@ use objc2_core_video::{
 };
 use objc2_foundation::{NSArray, NSError};
 use objc2_screen_capture_kit::{
-    SCContentFilter, SCDisplay, SCRunningApplication, SCShareableContent, SCStream,
-    SCStreamConfiguration, SCStreamDelegate, SCStreamOutput, SCStreamOutputType,
+    SCContentFilter, SCDisplay, SCRunningApplication, SCScreenshotManager, SCShareableContent,
+    SCStream, SCStreamConfiguration, SCStreamDelegate, SCStreamOutput, SCStreamOutputType,
 };
 
 use super::{Capturer, Frame, Pixels, Want};
@@ -57,6 +62,8 @@ const INTERVAL_MS: i64 = 1000;
 const TIMEOUT: Duration = Duration::from_secs(5);
 /// The least time between two rebuilds of failed or stopped streams.
 const RETRY: Duration = Duration::from_secs(5);
+/// How long the capture loop waits for a FRESH screenshot.
+const SHOT_TIMEOUT: Duration = Duration::from_secs(1);
 const NOT_GRANTED: &str = "Screen Recording is not granted.";
 
 pub(super) fn open(_state_dir: &Path) -> Result<Box<dyn Capturer>, String> {
@@ -111,6 +118,14 @@ impl Capturer for MacCapturer {
             .iter()
             .find(|s| s.number == wanted.display)
             .and_then(|s| s.take(false, wanted)))
+    }
+
+    fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        self.sync()?;
+        match self.streams.iter().find(|s| s.number == display) {
+            Some(stream) => stream.screenshot(),
+            None => Ok(None),
+        }
     }
 }
 
@@ -341,6 +356,10 @@ struct DisplayStream {
     slot: Arc<Mutex<Slot>>,
     stream: Retained<SCStream>,
     output: Retained<StreamOutput>,
+    /// FRESH: the screenshot goes through the stream's own filter (the IDE
+    /// excluded) and size.
+    filter: Retained<SCContentFilter>,
+    config: Retained<SCStreamConfiguration>,
     _queue: DispatchRetained<DispatchQueue>,
 }
 
@@ -407,12 +426,45 @@ impl DisplayStream {
             slot,
             stream,
             output,
+            filter,
+            config,
             _queue: queue,
         };
         match rx.recv_timeout(TIMEOUT) {
             Ok(None) => Ok(this),
             Ok(Some(err)) => Err(err),
             Err(_) => Err("ScreenCaptureKit did not start the stream.".to_string()),
+        }
+    }
+
+    /// FRESH: the display now, one `SCScreenshotManager` sample (macOS 14+;
+    /// `None` before), lent like a stream frame.
+    fn screenshot(&self) -> Result<Option<Frame>, String> {
+        if !objc2::available!(macos = 14.0) {
+            return Ok(None);
+        }
+        type Shot = Result<(Unsync<CFRetained<CVPixelBuffer>>, i64), String>;
+        let (tx, rx) = mpsc::channel::<Shot>();
+        let block = RcBlock::new(move |sample: *mut CMSampleBuffer, error: *mut NSError| {
+            let shot = match unsafe { sample.as_ref() } {
+                Some(sample) => unsafe { sample.image_buffer() }
+                    .map(|buffer| (Unsync(buffer), captured_at(sample)))
+                    .ok_or_else(|| "The screenshot carried no image.".to_string()),
+                None => Err(describe(error)),
+            };
+            let _ = tx.send(shot);
+        });
+        unsafe {
+            SCScreenshotManager::captureSampleBufferWithFilter_configuration_completionHandler(
+                &self.filter,
+                &self.config,
+                Some(&block),
+            )
+        };
+        match rx.recv_timeout(SHOT_TIMEOUT) {
+            Ok(Ok((buffer, at))) => Ok(to_frame(buffer.0, self.number).map(|frame| frame.stamped(at))),
+            Ok(Err(reason)) => Err(reason),
+            Err(_) => Err("ScreenCaptureKit took no screenshot.".to_string()),
         }
     }
 

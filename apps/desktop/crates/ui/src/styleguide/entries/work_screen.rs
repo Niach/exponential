@@ -24,18 +24,20 @@ pub(crate) const ID: &str = "work-screen";
 pub(crate) const OWNER: &str = "NEW-59";
 
 /// The demo machine's two displays (the web entry's): a 1440p external, the
-/// built-in Retina as the primary.
-pub(crate) const DEMO_DISPLAYS: [WorkScreenDisplay; 2] = [
-    WorkScreenDisplay { number: 1, width: 2560, height: 1440, primary: false },
-    WorkScreenDisplay { number: 2, width: 3024, height: 1964, primary: true },
-];
+/// built-in Retina as the primary, each with its stable id (#FEED-161).
+pub(crate) fn demo_displays() -> Vec<WorkScreenDisplay> {
+    vec![
+        WorkScreenDisplay { id: "uuid-a".into(), number: 1, width: 2560, height: 1440, primary: false },
+        WorkScreenDisplay { id: "uuid-b".into(), number: 2, width: 3024, height: 1964, primary: true },
+    ]
+}
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let card = window.use_keyed_state("sg-work-screen-card", cx, WorkScreenCard::new);
     let options = window.use_keyed_state("sg-work-screen-options", cx, |window, cx| {
         OpenMenu::new(window, cx, |mut menu, _, _| {
             menu = menu.min_w(px(280.));
-            for option in work_screen_options(&DEMO_DISPLAYS, None) {
+            for option in work_screen_options(&demo_displays(), None) {
                 menu = menu.item(crate::controls::pointer_check_item(
                     option.label,
                     option.value.is_none(),
@@ -68,7 +70,7 @@ impl WorkScreenCard {
             doctor: super::device_settings::computer_use_on_doctor(),
             computer_use: true,
             model: model_select(CodingAgent::Claude, &settings.computer_use_model, window, cx),
-            work_screen: work_screen_select(&DEMO_DISPLAYS, None, window, cx),
+            work_screen: work_screen_select(&demo_displays(), None, window, cx),
         }
     }
 }

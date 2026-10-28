@@ -185,6 +185,18 @@ impl Capturer for Portal {
         self.seen[index] = answer.seq;
         Ok(Some(Frame::rgba(wanted.display, width, height, rgba).stamped(answer.at)))
     }
+
+    /// FRESH: PipeWire too delivers on damage only, so a still screen after
+    /// a resume is read live where X11 allows it (the computer crate's root
+    /// read); elsewhere (Wayland, where screen memory never captures) the
+    /// next delivery counts.
+    fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        if !computer::visible::window_list_supported() {
+            return Ok(None);
+        }
+        let (width, height, rgba) = computer::visible::screenshot(display)?;
+        Ok(Some(Frame::rgba(display, width, height, rgba).stamped(crate::capture::wall_ms())))
+    }
 }
 
 impl Drop for Portal {

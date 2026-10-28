@@ -232,7 +232,8 @@ static PRESENCE: OnceLock<Mutex<std::sync::mpsc::Receiver<Option<String>>>> = On
 /// no counterpart, e.g. X11's one whole-screen display).
 fn toolkit_display(target: &coding::computer::Display, cx: &App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
     let screens = coding::computer::displays();
-    let index = screens.iter().position(|screen| screen.number == target.number)?;
+    // #FEED-161: by the stable id, the same display however the list moved.
+    let index = screens.iter().position(|screen| screen.id == target.id)?;
     let displays = cx.displays();
     let map = crate::push_to_talk::overlay::display_map(&displays, &screens);
     map.iter().position(|mapped| *mapped == Some(index)).and_then(|ix| displays.get(ix).cloned())
@@ -423,7 +424,7 @@ mod tests {
             primary: ScreenRect { x: 0, y: 0, width: 2560, height: 1440 },
             work_area: None,
         };
-        let work = Display { number: 2, x: 2560, y: 0, width: 2560, height: 1440, primary: false };
+        let work = Display { id: "edid:0123456789abcdef".into(), number: 2, x: 2560, y: 0, width: 2560, height: 1440, primary: false };
         let (x, _) = on_work_screen(layout, Some(&work)).banner_origin(5120., 400., 40., 24.).unwrap();
         assert_eq!(x, 2560. + 1280. - 200.);
         let (x, _) = on_work_screen(layout, None).banner_origin(5120., 400., 40., 24.).unwrap();

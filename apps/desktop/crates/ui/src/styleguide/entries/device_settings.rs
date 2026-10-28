@@ -145,8 +145,8 @@ impl DeviceSettingsDemo {
                 cx,
             ),
             work_screen: crate::coding_selects::work_screen_select(
-                &super::work_screen::DEMO_DISPLAYS,
-                settings.computer_use_display,
+                &super::work_screen::demo_displays(),
+                settings.computer_use_display_id.as_deref(),
                 window,
                 cx,
             ),

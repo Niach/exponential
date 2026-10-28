@@ -71,12 +71,14 @@ fun parseDeviceDoctor(raw: String?): DeviceDoctor? {
 private fun JsonObject.int(name: String): Int? =
     (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()
 
-/** `doctor.displays`, leniently: absent/bad = null, a malformed entry drops alone. */
+/** `doctor.displays`, leniently: absent/bad = null, a malformed entry (one
+ *  without an `id` included, #FEED-161) drops alone. */
 private fun parseDisplays(obj: JsonObject): List<WorkScreenDisplay>? {
     val array = runCatching { obj["displays"]?.jsonArray }.getOrNull() ?: return null
     return array.mapNotNull { el ->
         val display = el as? JsonObject ?: return@mapNotNull null
         WorkScreenDisplay(
+            id = display.str("id")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null,
             number = display.int("number") ?: return@mapNotNull null,
             width = display.int("width") ?: return@mapNotNull null,
             height = display.int("height") ?: return@mapNotNull null,

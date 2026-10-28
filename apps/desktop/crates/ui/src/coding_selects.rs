@@ -581,30 +581,30 @@ pub fn choice_select(
 
 /// NEW-59: the Work screen choices (`domain::work_screen::work_screen_options`
 /// over the device's reported displays + the stored pick) as select items:
-/// value `""` = Auto, else the 1-based display number.
+/// value `""` = Auto, else the display's stable id (#FEED-161).
 pub fn work_screen_items(
     displays: &[domain::work_screen::WorkScreenDisplay],
-    stored: Option<u32>,
+    stored: Option<&str>,
 ) -> Vec<ChoiceItem> {
     domain::work_screen::work_screen_options(displays, stored)
         .into_iter()
         .map(|option| ChoiceItem {
             label: SharedString::from(option.label),
-            value: work_screen_value(option.value),
+            value: work_screen_value(option.value.as_deref()),
         })
         .collect()
 }
 
 /// A Work screen pick as the select's value (`""` = Auto).
-pub fn work_screen_value(number: Option<u32>) -> SharedString {
-    number.map(|number| SharedString::from(number.to_string())).unwrap_or_default()
+pub fn work_screen_value(id: Option<&str>) -> SharedString {
+    id.map(|id| SharedString::from(id.to_string())).unwrap_or_default()
 }
 
 /// THE Work screen select: the device-settings picker row under the
 /// Computer use model, preselecting `stored`.
 pub fn work_screen_select(
     displays: &[domain::work_screen::WorkScreenDisplay],
-    stored: Option<u32>,
+    stored: Option<&str>,
     window: &mut Window,
     cx: &mut App,
 ) -> ChoiceSelect {
@@ -614,9 +614,9 @@ pub fn work_screen_select(
     cx.new(|cx| SelectState::new(items, Some(IndexPath::default().row(ix)), window, cx))
 }
 
-/// The Work screen select's pick (`None` = Auto).
-pub fn selected_work_screen(state: &ChoiceSelect, cx: &App) -> Option<u32> {
-    selected(state, cx).parse().ok().filter(|number| *number >= 1)
+/// The Work screen select's pick, a display id (`None` = Auto).
+pub fn selected_work_screen(state: &ChoiceSelect, cx: &App) -> Option<String> {
+    Some(selected(state, cx)).filter(|id| !id.is_empty())
 }
 
 /// The currently selected VALUE (`""` when nothing is selected — only

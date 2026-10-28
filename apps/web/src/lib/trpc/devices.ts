@@ -133,10 +133,10 @@ function clampLaunchDefaults(
   ) {
     out.computerUseModel = input.computerUseModel
   }
-  // NEW-59: the work screen's 1-based display number (the schema bounds it
-  // 1..16); null (= Auto) is dropped like every cleared field.
-  if (typeof input.computerUseDisplay === `number`) {
-    out.computerUseDisplay = input.computerUseDisplay
+  // NEW-59 / #FEED-161: the work screen's stable display id (the schema
+  // bounds it 1..128 chars); null (= Auto) is dropped like every cleared field.
+  if (typeof input.computerUseDisplayId === `string` && input.computerUseDisplayId.length > 0) {
+    out.computerUseDisplayId = input.computerUseDisplayId
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
@@ -242,6 +242,7 @@ export function clampDoctor(
     ...(input.displays
       ? {
           displays: input.displays.map((display) => ({
+            id: display.id,
             number: display.number,
             width: display.width,
             height: display.height,
@@ -1088,15 +1089,16 @@ export const devicesRouter = router({
       ) {
         clamped.defaultAgent = storedAgent
       }
-      // NEW-59: the work screen carries forward too: a save WITHOUT the key
-      // (a client that predates it) keeps the stored display, an explicit
+      // NEW-59 / #FEED-161: the work screen carries forward too: a save
+      // WITHOUT the key (a client that predates it) keeps the stored display, an explicit
       // null clears it to Auto.
-      const storedDisplay = row.launchDefaults?.computerUseDisplay
+      const storedDisplay = row.launchDefaults?.computerUseDisplayId
       if (
-        input.launchDefaults.computerUseDisplay === undefined &&
-        typeof storedDisplay === `number`
+        input.launchDefaults.computerUseDisplayId === undefined &&
+        typeof storedDisplay === `string` &&
+        storedDisplay.length > 0
       ) {
-        clamped.computerUseDisplay = storedDisplay
+        clamped.computerUseDisplayId = storedDisplay
       }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {

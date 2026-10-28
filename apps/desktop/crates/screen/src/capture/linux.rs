@@ -4,7 +4,10 @@
 //!   every monitor, `persist_mode` 2, the restore token in a file under
 //!   `state_dir` so the portal asks once.
 //! - X11 without a portal (missing or declined): the root window read per
-//!   RandR monitor, like the computer crate's screenshots.
+//!   RandR monitor, like the computer crate's screenshots: only the asked
+//!   (work) displays, each at most once per `capture.intervalMs` (a focus
+//!   change within it waits for the tick), the common 32-bit BGRX image lent
+//!   as BGRA without a conversion.
 //! - Wayland without a portal: `Err`, nothing else can read the screen.
 //!
 //! Display numbers are the computer crate's (`computer::displays`, the RandR
@@ -14,6 +17,7 @@
 #[cfg(feature = "portal")]
 mod portal;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -25,6 +29,9 @@ use super::{Capturer, Frame, Want};
 
 /// How long a read of the display set is reused (it opens an X connection).
 const DISPLAYS_TTL: Duration = Duration::from_secs(5);
+/// The least time between two root reads of one display: the fixture's
+/// `capture.intervalMs` less a tick's jitter.
+const READ_GAP: Duration = Duration::from_millis(900);
 
 pub(super) fn open(state_dir: &Path) -> Result<Box<dyn Capturer>, String> {
     #[cfg(feature = "portal")]
@@ -81,13 +88,15 @@ struct RootReader {
     screen: usize,
     root: xproto::Window,
     displays: DisplayCache,
+    /// When each display was last read (the [`READ_GAP`] throttle).
+    read_at: HashMap<u32, Instant>,
 }
 
 impl RootReader {
     fn connect() -> Result<RootReader, String> {
         let (conn, screen) = x11rb::connect(None).map_err(|error| format!("X connection: {error}"))?;
         let root = conn.setup().roots[screen].root;
-        Ok(RootReader { conn, screen, root, displays: DisplayCache::default() })
+        Ok(RootReader { conn, screen, root, displays: DisplayCache::default(), read_at: HashMap::new() })
     }
 
     /// The display rects (number, x, y, width, height); the whole root as
@@ -132,14 +141,29 @@ impl RootReader {
             .find(|visual| visual.visual_id == shot.visual)
             .ok_or("The root visual is unknown.")?;
         let little = setup.image_byte_order == xproto::ImageOrder::LSB_FIRST;
+        let count = (width as usize) * (height as usize);
+        // The common screen (32-bit BGRX, little-endian): lent as it came.
+        if bits == 32 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) && shot.data.len() >= count * 4 {
+            return Ok(Frame::lent(number, width, height, width as usize * 4, true, Box::new(shot.data)).stamped(super::wall_ms()));
+        }
         let rgba = x_pixels_to_rgba(
             &shot.data,
             usize::from(bits / 8),
             little,
             (visual.red_mask, visual.green_mask, visual.blue_mask),
-            (width as usize) * (height as usize),
+            count,
         )?;
-        Ok(Frame::rgba(number, width, height, rgba))
+        Ok(Frame::rgba(number, width, height, rgba).stamped(super::wall_ms()))
+    }
+
+    /// Whether `number` may be read now ([`READ_GAP`]); marks it read.
+    fn due(&mut self, number: u32) -> bool {
+        let now = Instant::now();
+        if self.read_at.get(&number).is_some_and(|at| now.duration_since(*at) < READ_GAP) {
+            return false;
+        }
+        self.read_at.insert(number, now);
+        true
     }
 }
 
@@ -147,6 +171,7 @@ impl RootReader {
 impl Capturer for RootReader {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         let rects: Vec<Rect> = self.rects()?.into_iter().filter(|rect| wanted.iter().any(|want| want.display == rect.0)).collect();
+        let rects: Vec<Rect> = rects.into_iter().filter(|rect| self.due(rect.0)).collect();
         let mut frames = Vec::with_capacity(rects.len());
         let mut failure = None;
         for rect in rects {
@@ -166,7 +191,18 @@ impl Capturer for RootReader {
 
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
         match self.rects()?.into_iter().find(|rect| rect.0 == wanted.display) {
-            Some(rect) => self.read(rect).map(Some),
+            Some(rect) if self.due(rect.0) => self.read(rect).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    /// A live read anyway (a resume owes one frame).
+    fn fresh(&mut self, display: u32) -> Result<Option<Frame>, String> {
+        match self.rects()?.into_iter().find(|rect| rect.0 == display) {
+            Some(rect) => {
+                self.read_at.insert(display, Instant::now());
+                self.read(rect).map(Some)
+            }
             None => Ok(None),
         }
     }
@@ -277,7 +313,7 @@ mod tests {
     use super::*;
 
     fn display(number: u32, x: i32, y: i32, width: u32, height: u32) -> computer::Display {
-        computer::Display { number, x, y, width, height, primary: number == 1 }
+        computer::Display { id: format!("output:{number}"), number, x, y, width, height, primary: number == 1 }
     }
 
     fn stream(x: i32, y: i32, width: i32, height: i32) -> StreamRect {

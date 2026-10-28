@@ -130,7 +130,7 @@ public extension SteerDevice {
             agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
             computerUse: decoded.computerUse,
             computerUseModel: decoded.computerUseModel,
-            computerUseDisplay: decoded.computerUseDisplay
+            computerUseDisplayId: decoded.computerUseDisplayId
         )
     }
 

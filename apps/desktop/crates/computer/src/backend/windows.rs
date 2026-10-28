@@ -37,7 +37,7 @@ use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, BOOL, HWND, LPAR
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors, GdiFlush, GetDC,
-    GetMonitorInfoW, MonitorFromWindow, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+    EnumDisplayDevicesW, GetMonitorInfoW, MonitorFromWindow, DISPLAY_DEVICEW, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
     DIB_RGB_COLORS, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONULL, SRCCOPY,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -55,7 +55,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
+    CallNextHookEx, EDD_GET_DEVICE_INTERFACE_NAME, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
     GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
     IsWindowVisible, PeekMessageW, PostThreadMessageW, SetCursorPos, SetForegroundWindow, SetWindowsHookExW,
     ShowWindow, UnhookWindowsHookEx, GWL_EXSTYLE, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED,
@@ -359,6 +359,23 @@ fn fullscreen(window: HWND, rect: &RECT) -> bool {
     covers && !SHELL_CLASSES.contains(&class_name(window).as_str())
 }
 
+/// #FEED-161: the monitor's device interface path (`\\?\DISPLAY#…#{…}`),
+/// stable across reconnects and reorders, of the monitor on adapter
+/// `device` (`MONITORINFOEXW::szDevice`, NUL-terminated); `None` when
+/// Windows names none.
+fn monitor_interface(device: &[u16]) -> Option<String> {
+    // SAFETY: DISPLAY_DEVICEW is plain data.
+    let mut found: DISPLAY_DEVICEW = unsafe { zeroed() };
+    found.cb = size_of::<DISPLAY_DEVICEW>() as u32;
+    // SAFETY: `device` is NUL-terminated (szDevice), `found` a live
+    // DISPLAY_DEVICEW whose cb says so.
+    if unsafe { EnumDisplayDevicesW(device.as_ptr(), 0, &mut found, EDD_GET_DEVICE_INTERFACE_NAME) } == 0 {
+        return None;
+    }
+    let end = found.DeviceID.iter().position(|&unit| unit == 0).unwrap_or(found.DeviceID.len());
+    Some(String::from_utf16_lossy(&found.DeviceID[..end])).filter(|id| !id.is_empty())
+}
+
 fn foreground() -> HWND {
     // SAFETY: no pointers.
     unsafe { GetForegroundWindow() }
@@ -391,13 +408,15 @@ impl Backend for Win32 {
                 continue;
             }
             let end = info.szDevice.iter().position(|&unit| unit == 0).unwrap_or(info.szDevice.len());
+            let name = String::from_utf16_lossy(&info.szDevice[..end]);
             displays.push(DisplayInfo {
+                id: monitor_interface(&info.szDevice).unwrap_or_else(|| name.clone()),
                 x: rect.left,
                 y: rect.top,
                 width,
                 height,
                 primary: info.monitorInfo.dwFlags & 1 != 0,
-                name: String::from_utf16_lossy(&info.szDevice[..end]),
+                name,
             });
         }
         if displays.is_empty() {
@@ -406,6 +425,7 @@ impl Backend for Win32 {
         if !displays.iter().any(|display| display.primary) {
             displays[0].primary = true;
         }
+        crate::backend::finish_ids(&mut displays);
         Ok(displays)
     }
 

@@ -1356,24 +1356,35 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
   })
 
-  it(`carries the work screen forward: absent keeps, null clears (NEW-59)`, async () => {
+  it(`carries the work screen forward: absent keeps, null clears (NEW-59, #FEED-161)`, async () => {
+    const uuid = `37D8832A-2D66-02CA-B9F7-8F30A301B230`
     h.state.selectQueue = deviceRow()
     let result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { computerUse: true, computerUseDisplay: 2 },
+      launchDefaults: { computerUse: true, computerUseDisplayId: uuid },
     })
-    expect(result.launchDefaults).toEqual({ computerUse: true, computerUseDisplay: 2 })
+    expect(result.launchDefaults).toEqual({ computerUse: true, computerUseDisplayId: uuid })
 
-    // Out of the 1..16 bounds = a bad request, never a stored value.
+    // Outside 1..128 chars = a bad request, never a stored value.
+    for (const bad of [``, `x`.repeat(129)]) {
+      h.state.selectQueue = deviceRow()
+      await expect(
+        caller.setLaunchDefaults({
+          deviceId: `dev-1`,
+          launchDefaults: { computerUse: true, computerUseDisplayId: bad },
+        })
+      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+
+    // The number key of #1295 is gone: it is dropped, never stored.
     h.state.selectQueue = deviceRow()
-    await expect(
-      caller.setLaunchDefaults({
-        deviceId: `dev-1`,
-        launchDefaults: { computerUse: true, computerUseDisplay: 0 },
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseDisplay: 2 } as never,
+    })
+    expect(result.launchDefaults).toEqual({ computerUse: true })
 
-    const stored = { computerUse: true, computerUseDisplay: 3 }
+    const stored = { computerUse: true, computerUseDisplayId: `edid:0123456789abcdef` }
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
     result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
@@ -1382,15 +1393,25 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.launchDefaults).toEqual({
       computerUse: true,
       computerUseModel: `sonnet`,
-      computerUseDisplay: 3,
+      computerUseDisplayId: `edid:0123456789abcdef`,
     })
 
+    // A new pick replaces the stored one.
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
     result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { computerUse: true, computerUseDisplay: null },
+      launchDefaults: { computerUse: true, computerUseDisplayId: uuid },
+    })
+    expect(result.launchDefaults).toEqual({ computerUse: true, computerUseDisplayId: uuid })
+
+    // An explicit null clears to Auto: the stored row carries no key.
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseDisplayId: null },
     })
     expect(result.launchDefaults).toEqual({ computerUse: true })
+    expect(result.launchDefaults).not.toHaveProperty(`computerUseDisplayId`)
     expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
   })
 
@@ -1995,8 +2016,8 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
 
   it(`stores the reported displays and drops a null list (NEW-59)`, async () => {
     const displays = [
-      { number: 1, width: 2560, height: 1440, primary: false },
-      { number: 2, width: 3024, height: 1964, primary: true },
+      { id: `uuid-a`, number: 1, width: 2560, height: 1440, primary: false },
+      { id: `uuid-b`, number: 2, width: 3024, height: 1964, primary: true },
     ]
     await caller.register({
       deviceId: `dev-1`,
@@ -2016,6 +2037,26 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
     })
     upsert = h.state.upserts[0] as { set: { doctor: Record<string, unknown> } }
     expect(upsert.set.doctor).not.toHaveProperty(`displays`)
+  })
+
+  it(`drops a display without a usable id, never the report (#FEED-161)`, async () => {
+    const kept = { id: `uuid-b`, number: 2, width: 3024, height: 1964, primary: true }
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `b`,
+      kind: `desktop`,
+      doctor: {
+        ...doctor,
+        displays: [
+          { number: 1, width: 2560, height: 1440, primary: false },
+          { id: ``, number: 3, width: 1920, height: 1080, primary: false },
+          { id: `x`.repeat(129), number: 4, width: 1920, height: 1080, primary: false },
+          kept,
+        ] as never,
+      },
+    })
+    const upsert = h.state.upserts[0] as { set: { doctor: Record<string, unknown> } }
+    expect(upsert.set.doctor.displays).toEqual([kept])
   })
 
   it(`heartbeat writes the report only when present`, async () => {

@@ -97,7 +97,7 @@ class DeviceEntityDecodeTest {
               "user_id": "user-1",
               "device_id": "dev-1",
               "label": "mac",
-              "launch_defaults": {"defaultAgent": "claude", "computerUse": true, "computerUseModel": "fable", "computerUseDisplay": 2, "agents": {"pi": {"model": "x"}}}
+              "launch_defaults": {"defaultAgent": "claude", "computerUse": true, "computerUseModel": "fable", "computerUseDisplayId": "uuid-b", "agents": {"pi": {"model": "x"}}}
             }
         """.trimIndent()
         val entity = json.decodeFromString(DeviceEntity.serializer(), row)
@@ -105,7 +105,7 @@ class DeviceEntityDecodeTest {
         assertEquals(true, defaults?.computerUse)
         assertEquals("fable", defaults?.computerUseModel)
         // NEW-59: the Work screen survives the same way.
-        assertEquals(2, defaults?.computerUseDisplay)
+        assertEquals("uuid-b", defaults?.computerUseDisplayId)
         // The retired agent is filtered, the top-level keys untouched.
         assertTrue(defaults!!.agents.isEmpty())
 
@@ -116,7 +116,7 @@ class DeviceEntityDecodeTest {
         val bareDefaults = com.exponential.app.domain.parseLaunchDefaults(bare.launchDefaults)
         assertEquals(false, bareDefaults?.computerUse)
         assertNull(bareDefaults?.computerUseModel)
-        assertNull(bareDefaults?.computerUseDisplay)
+        assertNull(bareDefaults?.computerUseDisplayId)
     }
 
     /** Dispatcher roots: the per-agent `threadModel` survives the jsonb text

@@ -35,6 +35,7 @@ pub(crate) fn prepare(frame: &Frame, focus: Option<Rect>) -> Picture {
     let rect = crop_of(focus, frame.width, frame.height).unwrap_or(Rect { x: 0, y: 0, width: frame.width, height: frame.height });
     let (target_width, target_height) = ring::fit(rect.width, rect.height, None);
     let mut picture = cut(frame, rect);
+    mask(&mut picture, rect, &frame.masks);
     while picture.width >= 2 * target_width && picture.height >= 2 * target_height {
         picture = halve(&picture);
     }
@@ -180,6 +181,27 @@ fn cut(frame: &Frame, rect: Rect) -> Picture {
     Picture { width: rect.width, height: rect.height, rgba }
 }
 
+/// MASK: each of the frame's `masks` that falls in the cut `rect` filled
+/// black (opaque) in the cut picture, before any scaling.
+fn mask(picture: &mut Picture, rect: Rect, masks: &[Rect]) {
+    let stride = picture.width as usize * 4;
+    for mask in masks {
+        let left = i64::from(mask.x).max(i64::from(rect.x));
+        let top = i64::from(mask.y).max(i64::from(rect.y));
+        let right = (i64::from(mask.x) + i64::from(mask.width)).min(i64::from(rect.x) + i64::from(rect.width));
+        let bottom = (i64::from(mask.y) + i64::from(mask.height)).min(i64::from(rect.y) + i64::from(rect.height));
+        if right <= left || bottom <= top {
+            continue;
+        }
+        let (x0, x1) = ((left - i64::from(rect.x)) as usize, (right - i64::from(rect.x)) as usize);
+        for y in (top - i64::from(rect.y)) as usize..(bottom - i64::from(rect.y)) as usize {
+            for pixel in picture.rgba[y * stride + x0 * 4..y * stride + x1 * 4].chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+    }
+}
+
 /// A 2 x 2 box mean (rounded); an odd last row or column is dropped.
 fn halve(picture: &Picture) -> Picture {
     let (width, height) = (picture.width as usize / 2, picture.height as usize / 2);
@@ -247,6 +269,25 @@ mod tests {
             assert_eq!((picture.width, picture.height), expect, "{}", case["name"]);
             assert_eq!(picture.rgba.len(), (expect.0 * expect.1 * 4) as usize);
         }
+    }
+
+    /// MASK: a masked rect is black in the stored picture, also where it
+    /// only partly lies in the window cut; the rest is untouched.
+    #[test]
+    fn a_masked_rect_is_filled_black_in_the_cut() {
+        let mut frame = frame(320, 240);
+        frame.masks = vec![Rect { x: 0, y: 0, width: 50, height: 60 }, Rect { x: 300, y: 200, width: 20, height: 40 }];
+        let window = Rect { x: 10, y: 20, width: 240, height: 210 };
+        let picture = prepare(&frame, Some(window));
+        let at = |x: usize, y: usize| &picture.rgba[(y * 240 + x) * 4..(y * 240 + x) * 4 + 4];
+        // (0..50, 0..60) of the frame = (0..40, 0..40) of the cut.
+        assert_eq!(at(0, 0), [0, 0, 0, 255]);
+        assert_eq!(at(39, 39), [0, 0, 0, 255]);
+        assert_ne!(at(40, 39), [0, 0, 0, 255]);
+        assert_ne!(at(39, 40), [0, 0, 0, 255]);
+        let whole = prepare(&frame, None);
+        assert_eq!(&whole.rgba[(239 * 320 + 319) * 4..], [0, 0, 0, 255]);
+        assert_ne!(&whole.rgba[(199 * 320 + 319) * 4..(199 * 320 + 320) * 4], [0, 0, 0, 255]);
     }
 
     #[test]

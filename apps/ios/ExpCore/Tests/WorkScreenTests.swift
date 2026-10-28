@@ -6,7 +6,8 @@ import XCTest
 // `work_screen`, Android `WorkScreenTest`) against fixtures/work-screen.json:
 // every `copy` key, the `testIds` and every `optionCases` entry (the gate,
 // current and overlay cases are desktop-only). Plus the wire: the doctor's
-// `displays` and `launchDefaults.computerUseDisplay` (null = Auto).
+// `displays` and `launchDefaults.computerUseDisplayId` (null = Auto; #FEED-161
+// a stable display id, the number key is gone).
 final class WorkScreenTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -41,15 +42,16 @@ final class WorkScreenTests: XCTestCase {
             let name = entry["name"] as? String ?? "?"
             let displays = (entry["displays"] as? [[String: Any]])?.map { raw in
                 WorkScreen.Display(
+                    id: raw["id"] as? String ?? "?",
                     number: raw["number"] as? Int ?? -1,
                     width: raw["width"] as? Int ?? -1,
                     height: raw["height"] as? Int ?? -1,
                     primary: raw["primary"] as? Bool ?? false
                 )
             }
-            let stored = entry["stored"] as? Int
+            let stored = entry["stored"] as? String
             let expect = try XCTUnwrap(entry["expect"] as? [[String: Any]], name).map { raw in
-                WorkScreen.Option(value: raw["value"] as? Int, label: raw["label"] as? String ?? "")
+                WorkScreen.Option(value: raw["value"] as? String, label: raw["label"] as? String ?? "")
             }
             XCTAssertEqual(WorkScreen.options(displays: displays, stored: stored), expect, name)
         }
@@ -58,16 +60,17 @@ final class WorkScreenTests: XCTestCase {
     func testDoctorDecodesDisplaysLeniently() throws {
         let doctor = try XCTUnwrap(DeviceDoctor.decode(json: #"""
         {"items":[],"displays":[
-          {"number":1,"width":2560,"height":1440,"primary":false},
-          {"number":2,"width":"wide"},
-          {"number":3,"width":3024,"height":1964,"primary":true}
+          {"id":"uuid-a","number":1,"width":2560,"height":1440,"primary":false},
+          {"id":"uuid-b","number":2,"width":"wide"},
+          {"number":3,"width":1920,"height":1080,"primary":false},
+          {"id":"uuid-d","number":4,"width":3024,"height":1964,"primary":true}
         ]}
         """#))
         XCTAssertEqual(doctor.displays, [
-            WorkScreen.Display(number: 1, width: 2560, height: 1440, primary: false),
-            WorkScreen.Display(number: 3, width: 3024, height: 1964, primary: true),
+            WorkScreen.Display(id: "uuid-a", number: 1, width: 2560, height: 1440, primary: false),
+            WorkScreen.Display(id: "uuid-d", number: 4, width: 3024, height: 1964, primary: true),
         ])
-        // Absent = not reported; a non-array degrades the key, not the report.
+        // #FEED-161: an entry without an `id` drops alone. Absent = not reported; a non-array degrades the key, not the report.
         XCTAssertNil(try XCTUnwrap(DeviceDoctor.decode(json: #"{"items":[]}"#)).displays)
         let odd = try XCTUnwrap(DeviceDoctor.decode(
             json: #"{"items":[{"key":"git","group":"required","state":"ok"}],"displays":7}"#
@@ -76,15 +79,20 @@ final class WorkScreenTests: XCTestCase {
         XCTAssertEqual(odd.items.count, 1)
     }
 
-    func testComputerUseDisplayDecodesAndSurvivesTheRowRebuild() throws {
+    func testComputerUseDisplayIdDecodesAndSurvivesTheRowRebuild() throws {
         let decode = { (raw: String) throws -> DeviceLaunchDefaults in
             try JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(raw.utf8))
         }
-        XCTAssertEqual(try decode(#"{"computerUse":true,"computerUseDisplay":2}"#).computerUseDisplay, 2)
-        XCTAssertNil(try decode(#"{"computerUse":true}"#).computerUseDisplay)
-        XCTAssertNil(try decode(#"{"computerUseDisplay":null}"#).computerUseDisplay)
-        let odd = try decode(#"{"defaultAgent":"codex","computerUseDisplay":"two"}"#)
-        XCTAssertNil(odd.computerUseDisplay)
+        XCTAssertEqual(
+            try decode(#"{"computerUse":true,"computerUseDisplayId":"uuid-b"}"#).computerUseDisplayId,
+            "uuid-b"
+        )
+        XCTAssertNil(try decode(#"{"computerUse":true}"#).computerUseDisplayId)
+        XCTAssertNil(try decode(#"{"computerUseDisplayId":null}"#).computerUseDisplayId)
+        // The #1295 number key is gone (no legacy): it reads as Auto.
+        XCTAssertNil(try decode(#"{"computerUseDisplay":2}"#).computerUseDisplayId)
+        let odd = try decode(#"{"defaultAgent":"codex","computerUseDisplayId":2}"#)
+        XCTAssertNil(odd.computerUseDisplayId)
         XCTAssertEqual(odd.defaultAgent, "codex")
 
         let row = DeviceEntity(
@@ -92,28 +100,29 @@ final class WorkScreenTests: XCTestCase {
             userId: "me",
             deviceId: "box",
             label: "Box",
-            launchDefaults: #"{"computerUse":true,"computerUseDisplay":3}"#,
+            launchDefaults: #"{"computerUse":true,"computerUseDisplayId":"uuid-c"}"#,
             lastSeenAt: "2026-10-05T11:59:00.000Z"
         )
-        XCTAssertEqual(SteerDevice(entity: row, currentUserId: "me").launchDefaults?.computerUseDisplay, 3)
+        XCTAssertEqual(SteerDevice(entity: row, currentUserId: "me").launchDefaults?.computerUseDisplayId, "uuid-c")
     }
 
     /// Same carry-forward as `computerUse`: no key keeps the stored display,
-    /// an explicit null clears it to Auto, a number picks it.
-    func testComputerUseDisplayEncodesKeepAutoAndANumber() throws {
+    /// an explicit null clears it to Auto, an id picks it.
+    func testComputerUseDisplayIdEncodesKeepAutoAndAnId() throws {
         func json(_ value: DeviceLaunchDefaultsInput) throws -> [String: Any] {
             let data = try JSONEncoder().encode(value)
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         let kept = try json(DeviceLaunchDefaultsInput(agents: [:], computerUse: true))
-        XCTAssertNil(kept.index(forKey: "computerUseDisplay"))
+        XCTAssertNil(kept.index(forKey: "computerUseDisplayId"))
         XCTAssertEqual(Set(kept.keys), ["agents", "computerUse"])
 
-        let auto = try json(DeviceLaunchDefaultsInput(agents: [:], computerUseDisplay: .init(nil)))
-        XCTAssertNotNil(auto.index(forKey: "computerUseDisplay"))
-        XCTAssertTrue(auto["computerUseDisplay"] is NSNull)
+        let auto = try json(DeviceLaunchDefaultsInput(agents: [:], computerUseDisplayId: .init(nil)))
+        XCTAssertNotNil(auto.index(forKey: "computerUseDisplayId"))
+        XCTAssertTrue(auto["computerUseDisplayId"] is NSNull)
 
-        let picked = try json(DeviceLaunchDefaultsInput(agents: [:], computerUseDisplay: .init(2)))
-        XCTAssertEqual(picked["computerUseDisplay"] as? Int, 2)
+        let picked = try json(DeviceLaunchDefaultsInput(agents: [:], computerUseDisplayId: .init("uuid-b")))
+        XCTAssertEqual(picked["computerUseDisplayId"] as? String, "uuid-b")
+        XCTAssertNil(picked.index(forKey: "computerUseDisplay"))
     }
 }

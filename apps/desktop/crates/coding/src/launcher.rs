@@ -1393,7 +1393,7 @@ fn attach_computer_use(
     }
     // NEW-59: the run drives the device's Work screen as of its start (the
     // hosts also set it whenever the converged value moves).
-    computer::set_work_display(deps.settings.computer_use_display);
+    computer::set_work_display(deps.settings.computer_use_display_id.clone());
     match computer::grant(session_id, label) {
         Ok(grant) => {
             crate::mcp_servers::attach_computer(team_mcp, &grant);

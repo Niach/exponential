@@ -77,10 +77,14 @@ pub struct DeviceDoctor {
 }
 
 /// NEW-59: one entry of `doctor.displays`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DoctorDisplay {
-    /// 1-based, the OS's order (`launch_defaults.computerUseDisplay`).
+    /// #FEED-161: stable per OS (the stored
+    /// `launch_defaults.computerUseDisplayId`); blank from a build before it.
+    #[serde(default)]
+    pub id: String,
+    /// 1-based, the OS's order, for the label only.
     pub number: u32,
     pub width: u32,
     pub height: u32,
@@ -93,6 +97,7 @@ impl From<&crate::computer::Display> for DoctorDisplay {
         // Physical pixels (work-screen.json DISPLAYS): macOS rects are points.
         let (width, height) = crate::computer::pixel_size(display);
         DoctorDisplay {
+            id: display.id.clone(),
             number: display.number,
             width,
             height,
@@ -637,6 +642,27 @@ mod tests {
 
     const FIXTURE: &str =
         include_str!("../../../../../packages/domain-contract/fixtures/device-doctor.json");
+
+    /// #FEED-161: `doctor.displays[]` carries the stable `id` beside the
+    /// number; a doctor from a build before it still parses (blank id).
+    #[test]
+    fn doctor_displays_carry_the_stable_id() {
+        let display = crate::computer::Display {
+            id: "37D8832A-2D66-02CA-B9F7-8F30A301B230".into(),
+            number: 1,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            primary: true,
+        };
+        let wire = serde_json::to_value(DoctorDisplay::from(&display)).unwrap();
+        assert_eq!(wire["id"], "37D8832A-2D66-02CA-B9F7-8F30A301B230");
+        assert_eq!(wire["number"], 1);
+        let old: DoctorDisplay =
+            serde_json::from_value(serde_json::json!({ "number": 2, "width": 1, "height": 1 })).unwrap();
+        assert_eq!(old.id, "");
+    }
 
     fn check(tool: Tool, version: Option<&str>) -> ToolCheck {
         ToolCheck {

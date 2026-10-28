@@ -68,41 +68,81 @@ pub struct DefaultsPatch {
     /// switch; same carry-forward contract as `computer_use`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_model: Option<String>,
-    /// NEW-59: `Settings.computer_use_display`, the Work screen
-    /// (`fixtures/work-screen.json`). The device states Auto as `null` (the
-    /// one null on its wire; the server accepts it and stores NO key). Every
-    /// patch the device applies is the row's full `launch_defaults`
-    /// snapshot, so an ABSENT key here is Auto (#1295 review: a remote Auto
-    /// must reach the device); only an invalid value keeps the stored one.
-    #[serde(
-        default = "auto_display",
-        deserialize_with = "present_or_null",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub computer_use_display: Option<Option<u32>>,
+    /// NEW-59 / #FEED-161: `Settings.computer_use_display_id`, the Work
+    /// screen (`fixtures/work-screen.json`), the picked display's stable id.
+    /// The device states Auto as `null` (the one null on its wire; the
+    /// server accepts it and stores NO key). Every patch the device applies
+    /// is the row's full `launch_defaults` snapshot, so an ABSENT key here
+    /// is Auto (#1295 review: a remote Auto must reach the device), except
+    /// for the UPGRADE ([`display_push_pending`]); an invalid value keeps
+    /// the stored one.
+    #[serde(skip_serializing_if = "DisplayPick::is_unstated")]
+    pub computer_use_display_id: DisplayPick,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
 }
 
-/// An absent `computerUseDisplay` in a row snapshot = Auto.
-fn auto_display() -> Option<Option<u32>> {
-    Some(None)
+/// `launch_defaults.computerUseDisplayId` as one patch states it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DisplayPick {
+    /// No key (a row snapshot's Auto; a client save that keeps the stored).
+    #[default]
+    Absent,
+    /// `null`: Auto.
+    Auto,
+    /// A display id.
+    Display(String),
+    /// Present but not a display id: changes nothing.
+    Invalid,
 }
 
-/// A present key (null included) deserializes to `Some`, so `null` and
-/// absent stay apart ([`DefaultsPatch::computer_use_display`]). A value
-/// that is not a positive integer reads as absent (ignore-invalid).
-fn present_or_null<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Option<u32>>, D::Error> {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match value {
-        serde_json::Value::Null => Some(None),
-        other => other
-            .as_u64()
-            .and_then(|number| u32::try_from(number).ok())
-            .filter(|number| *number >= 1)
-            .map(Some),
-    })
+impl DisplayPick {
+    fn is_unstated(&self) -> bool {
+        matches!(self, DisplayPick::Absent | DisplayPick::Invalid)
+    }
+}
+
+/// A display id the device may store: non-blank, at most 128 chars
+/// (`work-screen.json` DISPLAYS).
+pub fn valid_display_id(id: &str) -> bool {
+    !id.trim().is_empty() && id.chars().count() <= 128
+}
+
+impl Serialize for DisplayPick {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            DisplayPick::Display(id) => serializer.serialize_str(id),
+            _ => serializer.serialize_none(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DisplayPick {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match serde_json::Value::deserialize(deserializer)? {
+            serde_json::Value::Null => DisplayPick::Auto,
+            serde_json::Value::String(id) if valid_display_id(&id) => DisplayPick::Display(id),
+            _ => DisplayPick::Invalid,
+        })
+    }
+}
+
+/// #FEED-161 UPGRADE: this device holds a Work screen pick it never pushed
+/// (`Settings::computer_use_display_id_pushed`), so a row WITHOUT the key
+/// is not Auto yet: the converge keeps the pick and pushes it.
+pub fn display_push_pending(settings: &Settings) -> bool {
+    settings.computer_use_display_id.is_some() && !settings.computer_use_display_id_pushed
+}
+
+/// #FEED-161: a launch-defaults push went through: from now on a row
+/// without `computerUseDisplayId` is Auto. Saves `settings_path` only when
+/// the flag flips.
+pub fn mark_display_pushed(settings_path: &std::path::Path) -> std::io::Result<()> {
+    let mut settings = Settings::load(settings_path);
+    if settings.computer_use_display_id_pushed {
+        return Ok(());
+    }
+    settings.computer_use_display_id_pushed = true;
+    settings.save(settings_path)
 }
 
 /// Apply `patch` onto `settings`, FIELD-wise and ignore-invalid: a value
@@ -140,9 +180,20 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
             set_string(&mut settings.computer_use_model, model, &mut changed);
         }
     }
-    if let Some(display) = patch.computer_use_display {
-        if settings.computer_use_display != display {
-            settings.computer_use_display = display;
+    let display = match &patch.computer_use_display_id {
+        DisplayPick::Invalid => None,
+        // UPGRADE: a pick never pushed outlives a row that lacks the key.
+        DisplayPick::Absent if display_push_pending(settings) => None,
+        DisplayPick::Absent | DisplayPick::Auto => Some(None),
+        DisplayPick::Display(id) => {
+            // The row carries the key: the server knows this device's pick.
+            set_bool(&mut settings.computer_use_display_id_pushed, true, &mut changed);
+            Some(Some(id.clone()))
+        }
+    };
+    if let Some(display) = display {
+        if settings.computer_use_display_id != display {
+            settings.computer_use_display_id = display;
             changed = true;
         }
     }
@@ -241,7 +292,7 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.auto_rotate_accounts = from.auto_rotate_accounts;
     onto.computer_use = from.computer_use;
     onto.computer_use_model = from.computer_use_model.clone();
-    onto.computer_use_display = from.computer_use_display;
+    onto.computer_use_display_id = from.computer_use_display_id.clone();
 }
 
 /// The PUSH direction: this machine's launch defaults as the full wire
@@ -275,7 +326,10 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
         computer_use: Some(settings.computer_use),
         computer_use_model: Some(settings.computer_use_model.clone()),
-        computer_use_display: Some(settings.computer_use_display),
+        computer_use_display_id: match &settings.computer_use_display_id {
+            Some(id) => DisplayPick::Display(id.clone()),
+            None => DisplayPick::Auto,
+        },
         agents,
     }
 }
@@ -381,36 +435,72 @@ mod tests {
         }
     }
 
-    /// NEW-59: the Work screen rides the top of the wire; garbage changes
-    /// nothing, null clears it to Auto, and so does a row snapshot WITHOUT
-    /// the key (a remote client's Auto: the server stores no key).
+    /// NEW-59 / #FEED-161: the Work screen id rides the top of the wire;
+    /// garbage changes nothing, null clears it to Auto, and so does a row
+    /// snapshot WITHOUT the key (a remote client's Auto: the server stores
+    /// no key) once the device's pick reached the server.
     #[test]
-    fn computer_use_display_carries_forward_and_null_clears_it() {
+    fn computer_use_display_id_carries_forward_and_null_clears_it() {
         let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
-        assert!(wire.as_object().unwrap().contains_key("computerUseDisplay"));
+        assert_eq!(wire["computerUseDisplayId"], serde_json::Value::Null);
+        assert!(wire.get("computerUseDisplay").is_none(), "the #1295 number is gone");
         let mut settings = Settings::default();
         let patch: DefaultsPatch =
-            serde_json::from_value(serde_json::json!({ "computerUseDisplay": 2 })).unwrap();
+            serde_json::from_value(serde_json::json!({ "computerUseDisplayId": "uuid-b" })).unwrap();
         assert!(apply_defaults_patch(&mut settings, &patch));
-        assert_eq!(settings.computer_use_display, Some(2));
-        assert_eq!(serde_json::to_value(defaults_wire(&settings)).unwrap()["computerUseDisplay"], 2);
+        assert_eq!(settings.computer_use_display_id.as_deref(), Some("uuid-b"));
+        assert!(settings.computer_use_display_id_pushed, "the row carries the key");
+        assert_eq!(serde_json::to_value(defaults_wire(&settings)).unwrap()["computerUseDisplayId"], "uuid-b");
         for silent in [
-            serde_json::json!({ "computerUseDisplay": 0 }),
-            serde_json::json!({ "computerUseDisplay": "2" }),
+            serde_json::json!({ "computerUseDisplayId": 2 }),
+            serde_json::json!({ "computerUseDisplayId": "" }),
+            serde_json::json!({ "computerUseDisplayId": "x".repeat(129) }),
+            // The #1295 number key is not read at all.
+            serde_json::json!({ "computerUseDisplay": 1, "computerUseDisplayId": "uuid-b" }),
         ] {
             let patch: DefaultsPatch = serde_json::from_value(silent).unwrap();
             assert!(!apply_defaults_patch(&mut settings, &patch));
-            assert_eq!(settings.computer_use_display, Some(2));
+            assert_eq!(settings.computer_use_display_id.as_deref(), Some("uuid-b"));
         }
         let clear: DefaultsPatch =
-            serde_json::from_value(serde_json::json!({ "computerUseDisplay": null })).unwrap();
+            serde_json::from_value(serde_json::json!({ "computerUseDisplayId": null })).unwrap();
         assert!(apply_defaults_patch(&mut settings, &clear));
-        assert_eq!(settings.computer_use_display, None);
-        // Display 2 again, then the web picks Auto: the row loses the key.
-        settings.computer_use_display = Some(2);
+        assert_eq!(settings.computer_use_display_id, None);
+        // uuid-b again, then the web picks Auto: the row loses the key.
+        settings.computer_use_display_id = Some("uuid-b".into());
         let remote_auto: DefaultsPatch = serde_json::from_value(serde_json::json!({ "agents": {} })).unwrap();
         assert!(apply_defaults_patch(&mut settings, &remote_auto));
-        assert_eq!(settings.computer_use_display, None);
+        assert_eq!(settings.computer_use_display_id, None);
+    }
+
+    /// #FEED-161 UPGRADE: a local pick never pushed survives a row without
+    /// the key (the row predates `computerUseDisplayId`) and is pending a
+    /// push; once pushed (or once the row carried the key), absent = Auto.
+    #[test]
+    fn an_unpushed_local_pick_survives_a_row_without_the_key_until_pushed() {
+        let dir = std::env::temp_dir().join(format!("feed161-upgrade-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let mut settings = Settings { computer_use_display_id: Some("uuid-a".into()), ..Settings::default() };
+        assert!(display_push_pending(&settings));
+        let row: DefaultsPatch =
+            serde_json::from_value(serde_json::json!({ "computerUse": true, "agents": {} })).unwrap();
+        assert!(apply_defaults_patch(&mut settings, &row), "the rest of the row applies");
+        assert_eq!(settings.computer_use_display_id.as_deref(), Some("uuid-a"), "never Auto before the push");
+        assert!(display_push_pending(&settings), "the converge pushes it");
+        // The push went through: the flag lands in settings.json.
+        settings.save(&path).unwrap();
+        mark_display_pushed(&path).unwrap();
+        let mut settings = Settings::load(&path);
+        assert!(settings.computer_use_display_id_pushed);
+        assert!(!display_push_pending(&settings));
+        assert!(!serde_json::to_string(&defaults_wire(&settings)).unwrap().contains("Pushed"), "never on the wire");
+        // Now a row without the key is a remote Auto.
+        assert!(apply_defaults_patch(&mut settings, &row));
+        assert_eq!(settings.computer_use_display_id, None);
+        // A device with no pick has nothing pending: absent = Auto at once.
+        assert!(!display_push_pending(&Settings::default()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Every model is explicit: a blank model, subagent or thread model on
@@ -496,8 +586,8 @@ mod tests {
         // `devices.register` on every 0.14.10 daemon.
         let mut wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
         // NEW-59: Auto is the one stated null (it clears the stored pick).
-        assert_eq!(wire["computerUseDisplay"], serde_json::Value::Null);
-        wire.as_object_mut().unwrap().remove("computerUseDisplay");
+        assert_eq!(wire["computerUseDisplayId"], serde_json::Value::Null);
+        wire.as_object_mut().unwrap().remove("computerUseDisplayId");
         let rendered = serde_json::to_string(&wire).unwrap();
         assert!(!rendered.contains("null"), "no nulls on the wire: {rendered}");
         let codex = &wire["agents"]["codex"];
@@ -564,7 +654,8 @@ mod tests {
             auto_rotate_accounts: false,
             computer_use: true,
             computer_use_model: "opus".into(),
-            computer_use_display: Some(2),
+            computer_use_display_id: Some("uuid-b".into()),
+            computer_use_display_id_pushed: true,
             terminal_shell: Some("/bin/zsh".into()),
             changelog_seen_id: Some("2026-09-24".into()),
             app_editor_layout: Some("docked".into()),
@@ -591,6 +682,8 @@ mod tests {
             emoji_recents: Settings::default().emoji_recents,
             tools_setup_seen: Settings::default().tools_setup_seen,
             os_notifications: Settings::default().os_notifications,
+            // Local sync bookkeeping, not a launch default.
+            computer_use_display_id_pushed: Settings::default().computer_use_display_id_pushed,
             ..from.clone()
         };
         assert_eq!(onto, expected);

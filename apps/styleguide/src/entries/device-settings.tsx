@@ -33,10 +33,10 @@ const RemoveIcon = conceptIcon(`ui-delete`)
 
 /** NEW-59: the Work screen row's options for one reported display. */
 const WORK_SCREEN_ITEMS = workScreenOptions(
-  [{ number: 1, width: 3024, height: 1964, primary: true }],
+  [{ id: `uuid-a`, number: 1, width: 3024, height: 1964, primary: true }],
   null
 ).map((option) => ({
-  value: option.value === null ? `auto` : String(option.value),
+  value: option.value ?? `auto`,
   label: option.label,
 }))
 

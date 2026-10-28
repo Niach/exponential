@@ -38,8 +38,11 @@ pub static WORK_SCREEN: LazyLock<WorkScreenSpec> =
     LazyLock::new(|| serde_json::from_str(WORK_SCREEN_JSON).expect("work-screen.json parses"));
 
 /// One display as the device reports it in `doctor.displays`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct WorkScreenDisplay {
+    /// #FEED-161: stable across reconnects and reorders (the stored value).
+    pub id: String,
+    /// 1-based position, for the label only.
     pub number: u32,
     pub width: u32,
     pub height: u32,
@@ -47,11 +50,11 @@ pub struct WorkScreenDisplay {
     pub primary: bool,
 }
 
-/// One picker option: `value` = the stored `launch_defaults.computerUseDisplay`
+/// One picker option: `value` = the stored `launch_defaults.computerUseDisplayId`
 /// (`None` = Auto).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkScreenOption {
-    pub value: Option<u32>,
+    pub value: Option<String>,
     pub label: String,
 }
 
@@ -62,8 +65,8 @@ fn display_label(number: u32) -> String {
 }
 
 /// The Work screen picker's options: Auto, the reported displays, then a
-/// stored display the device no longer reports.
-pub fn work_screen_options(displays: &[WorkScreenDisplay], stored: Option<u32>) -> Vec<WorkScreenOption> {
+/// stored display id the device no longer reports (labelled Not connected).
+pub fn work_screen_options(displays: &[WorkScreenDisplay], stored: Option<&str>) -> Vec<WorkScreenOption> {
     let copy = &WORK_SCREEN.copy;
     let mut out = vec![WorkScreenOption { value: None, label: copy.auto.clone() }];
     for display in displays {
@@ -72,14 +75,11 @@ pub fn work_screen_options(displays: &[WorkScreenDisplay], stored: Option<u32>) 
             label.push_str(SEP);
             label.push_str(&copy.primary);
         }
-        out.push(WorkScreenOption { value: Some(display.number), label });
+        out.push(WorkScreenOption { value: Some(display.id.clone()), label });
     }
     if let Some(stored) = stored {
-        if !out.iter().any(|option| option.value == Some(stored)) {
-            out.push(WorkScreenOption {
-                value: Some(stored),
-                label: format!("{}{SEP}{}", display_label(stored), copy.not_connected),
-            });
+        if !out.iter().any(|option| option.value.as_deref() == Some(stored)) {
+            out.push(WorkScreenOption { value: Some(stored.to_string()), label: copy.not_connected.clone() });
         }
     }
     out
@@ -97,13 +97,13 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             let displays: Vec<WorkScreenDisplay> =
                 serde_json::from_value(case["displays"].clone()).unwrap_or_default();
-            let stored = case["stored"].as_u64().map(|number| number as u32);
+            let stored = case["stored"].as_str();
             let expect: Vec<WorkScreenOption> = case["expect"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .map(|option| WorkScreenOption {
-                    value: option["value"].as_u64().map(|number| number as u32),
+                    value: option["value"].as_str().map(str::to_string),
                     label: option["label"].as_str().unwrap().to_string(),
                 })
                 .collect();

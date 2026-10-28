@@ -408,7 +408,7 @@ pub struct DeviceSettingsView {
     /// screen-driving subagents run on; the picker row under the switch,
     /// shown only while it is on, saved through the same defaults write.
     computer_use_model_select: ChoiceSelect,
-    /// NEW-59: `Settings.computer_use_display` — the Work screen picker row
+    /// NEW-59: `Settings.computer_use_display_id` — the Work screen picker row
     /// under the model row (same group, same picker row, only while the
     /// switch is on). Its options follow the machine's reported displays
     /// (`doctor.displays`); [`Self::work_screen_options`] = the listed ones.
@@ -556,10 +556,10 @@ impl DeviceSettingsView {
             crate::coding_selects::model_select(CodingAgent::Claude, &seeded.computer_use_model, window, cx);
         let work_screen_displays = Self::displays_for(Some(&row), own, cx);
         let work_screen_options =
-            domain::work_screen::work_screen_options(&work_screen_displays, seeded.computer_use_display);
+            domain::work_screen::work_screen_options(&work_screen_displays, seeded.computer_use_display_id.as_deref());
         let work_screen_select = crate::coding_selects::work_screen_select(
             &work_screen_displays,
-            seeded.computer_use_display,
+            seeded.computer_use_display_id.as_deref(),
             window,
             cx,
         );
@@ -739,7 +739,10 @@ impl DeviceSettingsView {
                 doctor
                     .displays
                     .iter()
+                    // #FEED-161: a build before ids reports no pickable id.
+                    .filter(|display| !display.id.is_empty())
                     .map(|display| domain::work_screen::WorkScreenDisplay {
+                        id: display.id.clone(),
                         number: display.number,
                         width: display.width,
                         height: display.height,
@@ -755,7 +758,7 @@ impl DeviceSettingsView {
     fn refresh_work_screen(
         &mut self,
         row: Option<&domain::rows::DeviceRow>,
-        pick: Option<u32>,
+        pick: Option<&str>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -817,7 +820,7 @@ impl DeviceSettingsView {
         // NEW-59: the reported displays move with the doctor, not the
         // baseline: re-list them around the current pick first.
         let pick = crate::coding_selects::selected_work_screen(&self.work_screen_select, cx);
-        self.refresh_work_screen(Some(&row), pick, window, cx);
+        self.refresh_work_screen(Some(&row), pick.as_deref(), window, cx);
 
         let (baseline, editor_agents) = Self::baseline_for(&row, self.own, cx);
         if baseline == self.seeded && editor_agents == self.editor_agents {
@@ -868,7 +871,7 @@ impl DeviceSettingsView {
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.claude_auto_rotate = baseline.auto_rotate_accounts;
         self.computer_use = baseline.computer_use;
-        self.refresh_work_screen(Some(&row), baseline.computer_use_display, window, cx);
+        self.refresh_work_screen(Some(&row), baseline.computer_use_display_id.as_deref(), window, cx);
         if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
         }
@@ -894,7 +897,7 @@ impl DeviceSettingsView {
         drafted.auto_rotate_accounts = self.claude_auto_rotate;
         drafted.computer_use = self.computer_use;
         drafted.computer_use_model = selected(&self.computer_use_model_select, cx);
-        drafted.computer_use_display =
+        drafted.computer_use_display_id =
             crate::coding_selects::selected_work_screen(&self.work_screen_select, cx);
         drafted
     }
@@ -2225,6 +2228,22 @@ mod tests {
         // Unparseable / absent stamps fail closed.
         assert!(!row_is_online(Some("garbage"), now_ms));
         assert!(!row_is_online(None, now_ms));
+    }
+
+    /// #FEED-161: the Work screen row reads the row's `computerUseDisplayId`
+    /// and its items carry display ids (`""` = Auto); a stored id the
+    /// machine no longer reports stays pickable as Not connected.
+    #[test]
+    fn the_work_screen_row_picks_by_display_id() {
+        let seeded = super::remote_baseline(Some(&serde_json::json!({ "computerUseDisplayId": "uuid-c" })));
+        assert_eq!(seeded.computer_use_display_id.as_deref(), Some("uuid-c"));
+        assert_eq!(super::remote_baseline(Some(&serde_json::json!({}))).computer_use_display_id, None);
+        let displays = crate::styleguide::entries::work_screen::demo_displays();
+        let items = crate::coding_selects::work_screen_items(&displays, seeded.computer_use_display_id.as_deref());
+        let values: Vec<&str> = items.iter().map(|item| item.value.as_ref()).collect();
+        assert_eq!(values, ["", "uuid-a", "uuid-b", "uuid-c"]);
+        assert_eq!(items[3].label.as_ref(), "Not connected");
+        assert_eq!(crate::coding_selects::work_screen_value(Some("uuid-b")).as_ref(), "uuid-b");
     }
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own
