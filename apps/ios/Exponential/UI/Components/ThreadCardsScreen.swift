@@ -300,7 +300,7 @@ struct ThreadCardsScreen: View {
 /// then folded (issue chips identifier-only with a
 /// sub-issue chevron and `› APP-16` open, the session chips with a folded
 /// subtree, each zone's "+N"), the subtree sheet's rows, and THE thread
-/// composer's options line + "+" rows.
+/// composer's tool row (the + alone, S-3) and an agent chat's "+" rows.
 private struct ThreadStripSpecimens: View {
     private static let fits: [ThreadTab] = [
         .add, .conversation,
@@ -350,7 +350,7 @@ private struct ThreadStripSpecimens: View {
                 ThreadFoldSheet(fold: fold) { _ in }
                     .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
             }
-            caption("THE composer row: + · the device glyph · the model · Plan … the ring beside Send")
+            caption("THE composer row: the + alone … the ring beside Send")
             composerRow()
             caption("EXP-1211: the agent's quick replies above the composer")
             VStack(spacing: 0) {
@@ -376,13 +376,12 @@ private struct ThreadStripSpecimens: View {
                 }
             }
             .padding(.horizontal, -16)
+            // S-3: an agent chat's "+" (composer-menu.json surface `agent`).
             ThreadComposerPlusMenu(
                 conditions: ComposerMenu.Conditions(model: true),
+                surface: .agent,
                 agent: "claude",
-                effortValue: "High",
-                mcpValue: "2",
-                ultracode: .constant(false),
-                computerUse: .constant(true)
+                modelValue: "opus"
             ) { _ in }
                 .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
         }
@@ -396,40 +395,18 @@ private struct ThreadStripSpecimens: View {
             SessionComposerFooter(
                 controls: SessionComposerFooter.Controls(
                     modelValue: "opus", agent: "claude", onPickModel: { _ in },
-                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
-                    devicePin: Self.devicePin()
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
                 ),
                 attachEnabled: true,
                 onPhoto: {},
                 onFile: {},
-                attachMenuOpen: .constant(false)
+                attachMenuOpen: .constant(false),
+                onPlus: {}
             )
             GlassComposerSubmitButton(AppIcons.uiSubmit, accessibilityLabel: "Send", action: {})
         }
         .padding(8)
         .glassCard(isOpaque: true)
-    }
-
-    /// EXP-1252: the Device pin specimen — this laptop, a shared studio
-    /// machine (refused: shared differently) and an offline one.
-    private static func devicePin() -> SessionDevicePin {
-        let devices = [
-            SteerDevice(deviceId: "laptop", deviceLabel: "MacBook Pro", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
-            SteerDevice(deviceId: "studio", deviceLabel: "Mac Studio", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
-            SteerDevice(deviceId: "build", deviceLabel: "Build server", agents: ["claude"], kind: "server", online: true, version: "0.14.73", sharedTeamIds: ["t1"]),
-            SteerDevice(deviceId: "mini", deviceLabel: "Mac mini", agents: ["claude"], kind: "desktop", online: false, version: "0.14.73"),
-        ]
-        let rows = SessionDeviceMove.rows(
-            devices: devices, currentDeviceId: "laptop", sessionTeamId: "t1", sessionShared: false, agent: "claude"
-        )
-        return SessionDevicePin(
-            label: "MacBook Pro",
-            icon: DeviceIconDisplay.iconName(for: devices[0]),
-            rows: rows.map(DevicePickerDevice.init(moveRow:)),
-            currentDeviceId: "laptop",
-            blockedReason: nil,
-            onPick: { _ in }
-        )
     }
 
     private func caption(_ text: String) -> some View {

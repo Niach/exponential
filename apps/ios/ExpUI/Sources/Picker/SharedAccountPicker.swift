@@ -84,8 +84,33 @@ public struct AccountPicker<Trigger: View>: View {
         }
     }
 
-    private func option(for key: String) -> AccountOption? {
-        options.first { $0.key == key }
+    /// The row's brand mark (resolved by the caller's `mark`).
+    nonisolated public static func renderMark(
+        _ options: [AccountOption], mark: ((String) -> Image?)?
+    ) -> (PickerItem<String>) -> AnyView? {
+        { item in
+            guard let image = options.first(where: { $0.key == item.value }).flatMap({ mark?($0.agent) })
+            else { return nil }
+            return AnyView(
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            )
+        }
+    }
+
+    /// EXP-992: the limits preview is why the account rows draw their own
+    /// body — a phone has no hover, so the three bars sit inline under the
+    /// email.
+    nonisolated public static func renderItem(_ options: [AccountOption]) -> (PickerItem<String>) -> AnyView? {
+        { item in
+            guard let option = options.first(where: { $0.key == item.value }) else { return nil }
+            // The bars make this the one row taller than the 44pt tap
+            // target, so it brings the breathing room with it.
+            return AnyView(AccountOptionBody(option: option).padding(.vertical, 8))
+        }
     }
 
     public var body: some View {
@@ -109,27 +134,45 @@ public struct AccountPicker<Trigger: View>: View {
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,
-            renderMark: { item in
-                guard let image = option(for: item.value).flatMap({ mark?($0.agent) })
-                else { return nil }
-                return AnyView(
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 16, height: 16)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                )
-            },
-            // EXP-992: the limits preview is why the account rows draw their
-            // own body — a phone has no hover, so the three bars sit inline
-            // under the email.
-            renderItem: { item in
-                guard let option = option(for: item.value) else { return nil }
-                // The bars make this the one row taller than the 44pt tap
-                // target, so it brings the breathing room with it.
-                return AnyView(AccountOptionBody(option: option).padding(.vertical, 8))
-            },
+            renderMark: Self.renderMark(options, mark: mark),
+            renderItem: Self.renderItem(options),
             trigger: trigger
+        )
+    }
+}
+
+/// S-3 (composer-menu.json): THE account picker's rows as a PAGE — what a
+/// composer's "+" pushes for its Account submenu on a phone. The same items,
+/// marks, bars and search as `AccountPicker`'s sheet; a pick dismisses the
+/// host sheet (`GlassPickerContent`).
+public struct AccountPickerContent: View {
+    let options: [AccountOption]
+    let value: String?
+    let onChange: (String) -> Void
+    let mark: ((String) -> Image?)?
+
+    public init(
+        options: [AccountOption],
+        value: String?,
+        onChange: @escaping (String) -> Void,
+        mark: ((String) -> Image?)? = nil
+    ) {
+        self.options = options
+        self.value = value
+        self.onChange = onChange
+        self.mark = mark
+    }
+
+    public var body: some View {
+        GlassPickerContent(
+            items: AccountPicker<EmptyView>.items(options),
+            mode: .single,
+            value: value.map { [$0] } ?? [],
+            onChange: { picked in picked.first.map(onChange) },
+            search: true,
+            searchPlaceholder: "Search accounts",
+            renderMark: AccountPicker<EmptyView>.renderMark(options, mark: mark),
+            renderItem: AccountPicker<EmptyView>.renderItem(options)
         )
     }
 }

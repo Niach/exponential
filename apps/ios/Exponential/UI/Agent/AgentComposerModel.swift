@@ -9,11 +9,17 @@ import GRDB
 /// THREAD root in the ACTIVE team (phones: the current board's team):
 ///
 /// - The SUBJECT is issue chips, OR one prompt chip (NEW-2: picked in the
-///   `/` menu, sent as `promptId`), OR one agent chip (NEW-3: the "+" menu's
-///   Message an agent ›, sent as `sessions.send({agentId})` into the
-///   caller's DM with it); picking another kind REPLACES the current subject
+///   `/` menu, sent as `promptId`), OR the agent the agent row picked (S-3,
+///   composer-home.json `agentRow`: `pickAgent` / `clearAgent` = Temporary
+///   session); picking issues or a prompt REPLACES the current subject
 ///   (exclusivity by swap, no disabled controls). No subject = the text is
 ///   the request.
+/// - S-3 SEND TO AN AGENT: while `agentId` is set, `submit()` goes through
+///   `sendToAgent` = `sessions.send({agentId, text, attachmentIds})` into the
+///   viewer's conversation with that agent and publishes `landedAgentId`
+///   (the page opens that agent's chat and consumes it). The pick STAYS
+///   after the send (the row never resets itself); the "+" hides its runner
+///   and work rows meanwhile (`temporary` false).
 /// - The free text is OPTIONAL with a subject and required without one
 ///   (`AgentComposerPrompt`). Images and files ride it as the steer embed
 ///   format, uploaded BEFORE the send to the team route, their ids sent
@@ -334,8 +340,8 @@ final class AgentComposerModel {
             .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
     }
 
-    /// NEW-3: Message an agent ›'s rows — the team's agents in their order
-    /// (`SessionQueries.agents`: sortOrder, then name).
+    /// The team's agents in their order (`SessionQueries.agents`: sortOrder,
+    /// then name) — what `agentId` must name.
     var agents: [AgentDefinitionEntity] {
         guard let teamId else { return [] }
         return agentRows
@@ -448,8 +454,8 @@ final class AgentComposerModel {
         promptId = nil
     }
 
-    /// NEW-3: Message an agent ›'s pick — the agent becomes the subject (ONE
-    /// chip), REPLACING the issue chips or a prompt.
+    /// S-3: the agent row's pick — the send goes to that agent
+    /// (`sendToAgent`), REPLACING the issue chips or a prompt.
     func pickAgent(_ id: String) {
         touched = true
         agentId = id
@@ -457,6 +463,7 @@ final class AgentComposerModel {
         checked = []
     }
 
+    /// S-3: the agent row's Temporary session — today's launch.
     func clearAgent() {
         touched = true
         agentId = nil
@@ -757,22 +764,7 @@ final class AgentComposerModel {
                 files: pendingFiles.compactMap(\.wireFile)
             )
             if let messagedAgentId {
-                // NEW-3: into the caller's DM with the agent (opened on first
-                // use server-side); the page opens it.
-                do {
-                    _ = try await deps.sessionsApi.send(
-                        accountId: accountId,
-                        .agent(
-                            agentId: messagedAgentId,
-                            text: text,
-                            attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds
-                        )
-                    )
-                    clearDraft()
-                    landedAgentId = messagedAgentId
-                } catch {
-                    failed(verb: "send", thing: "the message", error)
-                }
+                await sendToAgent(messagedAgentId, text: text, attachmentIds: attachmentIds)
                 return
             }
             guard let device = self.device else { return }
@@ -786,6 +778,28 @@ final class AgentComposerModel {
             } catch {
                 failed(verb: "start", thing: "the session", error)
             }
+        }
+    }
+
+    /// S-3 (composer-home.json `agentRow`): the message goes into the
+    /// viewer's conversation with the picked agent —
+    /// `sessions.send({agentId, text, attachmentIds})`, opened on first use
+    /// server-side — and `landedAgentId` tells the page to open that chat.
+    /// The draft clears; the agent pick stays.
+    private func sendToAgent(_ agentId: String, text: String?, attachmentIds: [String]) async {
+        do {
+            _ = try await deps.sessionsApi.send(
+                accountId: accountId,
+                .agent(
+                    agentId: agentId,
+                    text: text,
+                    attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds
+                )
+            )
+            clearDraft()
+            landedAgentId = agentId
+        } catch {
+            failed(verb: "send", thing: "the message", error)
         }
     }
 
@@ -856,7 +870,7 @@ final class AgentComposerModel {
         pendingFiles = []
         checked = []
         promptId = nil
-        agentId = nil
+        // S-3: the agent row's pick is no draft: it stays.
         seededDraft = ""
     }
 }
