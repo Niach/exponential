@@ -1,0 +1,284 @@
+{
+  "$comment": "S-3 STORIES ×4 (owner 2026-10-28: 'agent stories as a new way the agent communicates ... decisions/questions and results land here, instagram-story-like UI ... swipeable. all questions and drafts propagate to the top. minimal text ... default to visual only'). Stories REPLACE the Guide tab and the Dock's plan/question rows. A STORY = a session's OWN show card (`messages` row with author_session_id = session_id, card kind `plan` | `question` | `surface`, posted by `exponential_show`) that is a story: `card.story` true, or `card.story` absent and (kind plan|question, or a resolved picture). A plan/question with `questionId` (an engine's relay ask) and an `ask` mirror never are. KIND: plan → `plan`, question → `question`, surface → `result`. A plan waits while `decision` is null (any decision, `superseded` included, = gone); a question waits while `answeredAt` and `answer` are both null (answered = gone). A result is kept while age (now − createdAt) < `constants.unseenHours` hours when unseen, < `constants.seenHours` when seen. SEEN = createdAt <= the viewer's mark of the story's ROOT: max(session_reads.read_at, session_reads.story_seen_at) of the row (user = viewer, session = rootId); no row = unseen. A host marks a story seen when it is SHOWN in the viewer: `sessions.markStoriesSeen({sessionId: rootId, at: createdAt})`, the server keeps the greatest. RINGS = `stories(input)`: one ring per AGENT (key `agent:<id>`: the root's own agentId (its agent conversation) else the root's startedByAgentId; title = the agent's name, `assistant` from the host's agent row) and one per ROOT chat with no agent (key `root:<rootId>`; title = the root's name). A ring's stories: waiting first, then unseen, then seen, each group oldest first (createdAt, then id), so the viewer opens on what needs the person. A ring: `waiting` = its waiting count, `unseen` = any story waiting or unseen. RING ORDER: the Assistant's ring first (whatever its state), then rings with waiting, then rings with unseen, then the rest, each group by its newest story (createdAt desc, then key). A ring with no story left is absent. A STORY (out): id (the message id), sessionId, rootId, sessionName (the posting session's name), kind, waiting, seen, createdAt, meta = '<copy kind> · <age>' (age: < 1 min `now`, < 60 min `<m>m`, < 24 h `<h>h`, else `<d>d`, floored), title = a result's card title, a question's text, a plan's first plain line (ask-dock `askDockTitle`), else null; pictures = the card's RESOLVED pictures (attachmentId set) in card order {label, attachmentId, width, height, caption}; surface = the card has a surface; text = a plan's markdown when it has neither a picture nor a surface, else null; footer = `plan` (THE plan options of ask-dock.json: Approve = approve, Change = reject + its feedback field) | `choices` (a question with options: its option chips, + the free-text field when custom) | `reply` (a question with no options: the free-text field) | `none` (a result); autoAdvanceMs = `constants.autoAdvanceMs` for a result, else null (a decision never advances on its own). An answer goes through THE card-answer path (`sessions.answer`, the same as the in-chat card); the story then drops out (answered). STORY RING (styleguide `story-ring`, eUI `StoryRing`: an avatar inside a ring split into one arc per story, `ring.gap` degrees apart, `ring.width` px; a waiting story's arc = the plan/question tint (ask-dock tints), an unseen one = foreground, a seen one = the glass-stroke hairline): the chats header's agent bubbles (chats.json BUBBLES) wear their agent's ring; a tap on a bubble with a ring opens THE viewer at that ring (no ring = the interim chats.json tap); the root rings follow the agent bubbles in the same row (the root's session avatar, its name under it). STORY VIEWER (styleguide `story-viewer`; Exponential-specific, not eUI): phones (iOS, Android, web-mobile) = full screen over everything; web wide + the IDE = a centered modal (`viewer.width` × `viewer.height` max, `viewer.radius`) over a scrim on the list. Top: THE StoryProgress (eUI `StoryProgress`: one segment per story of the ring, `progress.gap` apart, `progress.height` tall; done = foreground, the current = its fill fraction, todo = the glass-stroke track). Header: the ring's avatar (agent mark / session avatar), the story's `sessionName`, `meta` muted, the close ghost glyph; a tap on the avatar or name opens that session (the #1309 back stack) and closes the viewer. Body: the pictures (fitted, a horizontal pager when several, the caption under it) and/or the surface (THE surface card renderer of chats.json `surfaceCard`), else the plan text (markdown); the title over the body in one line when present. Footer: per `footer`; nothing for a result. NAVIGATION: tap the right third / swipe left / ArrowRight / the side arrow (wide) = next story, past the last = the next ring, past the last ring = close; left third / swipe right / ArrowLeft = previous (the first story of a ring = the previous ring's last); swipe down / Escape / the close glyph = close; holding a press pauses the timer. Only a result advances on its own after `autoAdvanceMs`. TOOL: `exponential_show {story?}`: default true for ask/plan/pictures, false for a plain surface (a status card stays in the chat only); a surface may carry `pictures` (labels; each returned curl uploads one) so a result story shows screenshots. PR BODIES read the stories: pr-body.json `storyCases`. Mirrors: desktop domain::stories, iOS ExpCore Stories.swift, Android domain/Stories.kt replay `cases` comparing the WHOLE expected array.",
+  "constants": {
+    "seenHours": 24,
+    "unseenHours": 168,
+    "autoAdvanceMs": 6000
+  },
+  "copy": {
+    "plan": "Plan",
+    "question": "Question",
+    "result": "Result",
+    "now": "now",
+    "approve": "Approve",
+    "change": "Change",
+    "reply": "Reply…",
+    "close": "Close",
+    "next": "Next",
+    "previous": "Previous"
+  },
+  "ring": { "width": 3, "gap": 6 },
+  "progress": { "height": 3, "gap": 4 },
+  "viewer": { "width": 440, "height": 760, "radius": 16 },
+  "testIds": {
+    "ring": "story-ring",
+    "viewer": "story-viewer",
+    "progress": "story-progress",
+    "header": "story-header",
+    "next": "story-next",
+    "previous": "story-previous"
+  },
+  "cases": [
+    {
+      "name": "nothing: no rings",
+      "input": { "now": 1800000000000, "sessions": [], "agents": [], "messages": [], "reads": [] },
+      "expected": []
+    },
+    {
+      "name": "a waiting question in a chat: one root ring, unseen; a plain surface without story is not a story",
+      "input": {
+        "now": 1800000000000,
+        "sessions": [{ "id": "r1", "rootId": "r1", "name": "Fix the nav", "agentId": null, "startedByAgentId": null }],
+        "agents": [],
+        "messages": [
+          {
+            "id": "m1", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799999700000, "answeredAt": null,
+            "card": { "kind": "question", "question": "Which colour?", "options": ["Green", "Blue"], "custom": false }
+          },
+          {
+            "id": "m2", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799999800000, "answeredAt": null,
+            "card": { "kind": "surface", "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Status" }
+          }
+        ],
+        "reads": []
+      },
+      "expected": [
+        {
+          "key": "root:r1", "agentId": null, "rootId": "r1", "title": "Fix the nav", "assistant": false, "waiting": 1, "unseen": true,
+          "stories": [
+            {
+              "id": "m1", "sessionId": "r1", "rootId": "r1", "sessionName": "Fix the nav", "kind": "question", "waiting": true, "seen": false,
+              "createdAt": 1799999700000, "meta": "Question · 5m", "title": "Which colour?", "pictures": [], "surface": false, "text": null,
+              "footer": "choices", "autoAdvanceMs": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an agent ring holds its conversation and the chats it started; waiting first, then unseen, then seen; answered and superseded drop",
+      "input": {
+        "now": 1800000000000,
+        "sessions": [
+          { "id": "conv", "rootId": "conv", "name": "Ops agent", "agentId": "a1", "startedByAgentId": null },
+          { "id": "t1", "rootId": "t1", "name": "Nightly deploy", "agentId": null, "startedByAgentId": "a1" },
+          { "id": "c1", "rootId": "t1", "name": "Smoke tests", "agentId": null, "startedByAgentId": null }
+        ],
+        "agents": [{ "id": "a1", "name": "Ops", "assistant": false }],
+        "messages": [
+          {
+            "id": "seen-result", "sessionId": "conv", "authorSessionId": "conv", "createdAt": 1799990000000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Deploy green" }
+          },
+          {
+            "id": "new-result", "sessionId": "c1", "authorSessionId": "c1", "createdAt": 1799996400000, "answeredAt": null,
+            "card": {
+              "kind": "surface", "surface": { "root": { "id": "c", "component": "Card" } }, "title": null,
+              "pictures": [
+                { "label": "web smoke", "attachmentId": "att1", "width": 1200, "height": 800, "caption": "All green" },
+                { "label": "ios smoke", "attachmentId": null, "width": null, "height": null, "caption": null }
+              ]
+            }
+          },
+          {
+            "id": "plan", "sessionId": "t1", "authorSessionId": "t1", "createdAt": 1799999000000, "answeredAt": null,
+            "card": { "kind": "plan", "plan": "## Roll back\n\nRevert **v2** first.", "decision": null, "pictures": [], "questions": [] }
+          },
+          {
+            "id": "old-plan", "sessionId": "t1", "authorSessionId": "t1", "createdAt": 1799998000000, "answeredAt": 1799999000000,
+            "card": { "kind": "plan", "plan": "Old", "decision": "superseded" }
+          },
+          {
+            "id": "answered", "sessionId": "conv", "authorSessionId": "conv", "createdAt": 1799997000000, "answeredAt": 1799998000000,
+            "card": { "kind": "question", "question": "Ok?", "options": ["Yes"], "answer": "Yes" }
+          },
+          {
+            "id": "relay-ask", "sessionId": "conv", "authorSessionId": "conv", "createdAt": 1799997500000, "answeredAt": null,
+            "card": { "kind": "plan", "plan": "Engine plan", "decision": null, "questionId": "q1" }
+          },
+          {
+            "id": "mirror", "sessionId": "conv", "authorSessionId": "t1", "createdAt": 1799999000001, "answeredAt": null,
+            "card": { "kind": "ask", "sessionId": "t1", "messageId": "plan" }
+          }
+        ],
+        "reads": [
+          { "sessionId": "conv", "readAt": 1799991000000, "storySeenAt": null },
+          { "sessionId": "t1", "readAt": null, "storySeenAt": 1799995000000 }
+        ]
+      },
+      "expected": [
+        {
+          "key": "agent:a1", "agentId": "a1", "rootId": null, "title": "Ops", "assistant": false, "waiting": 1, "unseen": true,
+          "stories": [
+            {
+              "id": "plan", "sessionId": "t1", "rootId": "t1", "sessionName": "Nightly deploy", "kind": "plan", "waiting": true, "seen": false,
+              "createdAt": 1799999000000, "meta": "Plan · 16m", "title": "Roll back", "pictures": [], "surface": false,
+              "text": "## Roll back\n\nRevert **v2** first.", "footer": "plan", "autoAdvanceMs": null
+            },
+            {
+              "id": "new-result", "sessionId": "c1", "rootId": "t1", "sessionName": "Smoke tests", "kind": "result", "waiting": false, "seen": false,
+              "createdAt": 1799996400000, "meta": "Result · 1h", "title": null,
+              "pictures": [{ "label": "web smoke", "attachmentId": "att1", "width": 1200, "height": 800, "caption": "All green" }],
+              "surface": true, "text": null, "footer": "none", "autoAdvanceMs": 6000
+            },
+            {
+              "id": "seen-result", "sessionId": "conv", "rootId": "conv", "sessionName": "Ops agent", "kind": "result", "waiting": false, "seen": true,
+              "createdAt": 1799990000000, "meta": "Result · 2h", "title": "Deploy green", "pictures": [], "surface": true, "text": null,
+              "footer": "none", "autoAdvanceMs": 6000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "expiry: a seen result older than seenHours drops, an unseen one stays until unseenHours; a waiting question never expires",
+      "input": {
+        "now": 1800000000000,
+        "sessions": [{ "id": "r1", "rootId": "r1", "name": "Old chat", "agentId": null, "startedByAgentId": null }],
+        "agents": [],
+        "messages": [
+          {
+            "id": "seen-old", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799900000000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "A" }
+          },
+          {
+            "id": "unseen-old", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799910000000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "B" }
+          },
+          {
+            "id": "unseen-ancient", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799000000000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "C" }
+          },
+          {
+            "id": "waiting-ancient", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1798000000000, "answeredAt": null,
+            "card": { "kind": "question", "question": "Still there?", "options": [], "custom": true }
+          },
+          {
+            "id": "not-story", "sessionId": "r1", "authorSessionId": "r1", "createdAt": 1799999990000, "answeredAt": null,
+            "card": { "kind": "question", "story": false, "question": "Hidden", "options": ["x"] }
+          }
+        ],
+        "reads": [{ "sessionId": "r1", "readAt": 1799905000000, "storySeenAt": null }]
+      },
+      "expected": [
+        {
+          "key": "root:r1", "agentId": null, "rootId": "r1", "title": "Old chat", "assistant": false, "waiting": 1, "unseen": true,
+          "stories": [
+            {
+              "id": "waiting-ancient", "sessionId": "r1", "rootId": "r1", "sessionName": "Old chat", "kind": "question", "waiting": true, "seen": true,
+              "createdAt": 1798000000000, "meta": "Question · 23d", "title": "Still there?", "pictures": [], "surface": false, "text": null,
+              "footer": "reply", "autoAdvanceMs": null
+            },
+            {
+              "id": "unseen-old", "sessionId": "r1", "rootId": "r1", "sessionName": "Old chat", "kind": "result", "waiting": false, "seen": false,
+              "createdAt": 1799910000000, "meta": "Result · 1d", "title": "B", "pictures": [], "surface": true, "text": null,
+              "footer": "none", "autoAdvanceMs": 6000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ring order: the Assistant first even when all seen, then waiting, then unseen, then seen; ties by the newest story",
+      "input": {
+        "now": 1800000000000,
+        "sessions": [
+          { "id": "as", "rootId": "as", "name": "Assistant", "agentId": "assist", "startedByAgentId": null },
+          { "id": "r-seen", "rootId": "r-seen", "name": "Seen chat", "agentId": null, "startedByAgentId": null },
+          { "id": "r-unseen", "rootId": "r-unseen", "name": "Unseen chat", "agentId": null, "startedByAgentId": null },
+          { "id": "r-wait", "rootId": "r-wait", "name": "Waiting chat", "agentId": null, "startedByAgentId": null },
+          { "id": "r-unseen2", "rootId": "r-unseen2", "name": "Newer unseen", "agentId": null, "startedByAgentId": null }
+        ],
+        "agents": [{ "id": "assist", "name": "Assistant", "assistant": true }],
+        "messages": [
+          {
+            "id": "a1", "sessionId": "as", "authorSessionId": "as", "createdAt": 1799999000000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Brief" }
+          },
+          {
+            "id": "s1", "sessionId": "r-seen", "authorSessionId": "r-seen", "createdAt": 1799999970000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Done" }
+          },
+          {
+            "id": "u1", "sessionId": "r-unseen", "authorSessionId": "r-unseen", "createdAt": 1799999000000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Draft" }
+          },
+          {
+            "id": "u2", "sessionId": "r-unseen2", "authorSessionId": "r-unseen2", "createdAt": 1799999500000, "answeredAt": null,
+            "card": { "kind": "surface", "story": true, "surface": { "root": { "id": "c", "component": "Card" } }, "title": "Draft 2" }
+          },
+          {
+            "id": "w1", "sessionId": "r-wait", "authorSessionId": "r-wait", "createdAt": 1799000000000, "answeredAt": null,
+            "card": { "kind": "question", "question": "Ship?", "options": ["Yes", "No"] }
+          }
+        ],
+        "reads": [
+          { "sessionId": "as", "readAt": 1799999950000, "storySeenAt": null },
+          { "sessionId": "r-seen", "readAt": null, "storySeenAt": 1799999970000 }
+        ]
+      },
+      "expected": [
+        {
+          "key": "agent:assist", "agentId": "assist", "rootId": null, "title": "Assistant", "assistant": true, "waiting": 0, "unseen": false,
+          "stories": [
+            {
+              "id": "a1", "sessionId": "as", "rootId": "as", "sessionName": "Assistant", "kind": "result", "waiting": false, "seen": true,
+              "createdAt": 1799999000000, "meta": "Result · 16m", "title": "Brief", "pictures": [], "surface": true, "text": null,
+              "footer": "none", "autoAdvanceMs": 6000
+            }
+          ]
+        },
+        {
+          "key": "root:r-wait", "agentId": null, "rootId": "r-wait", "title": "Waiting chat", "assistant": false, "waiting": 1, "unseen": true,
+          "stories": [
+            {
+              "id": "w1", "sessionId": "r-wait", "rootId": "r-wait", "sessionName": "Waiting chat", "kind": "question", "waiting": true, "seen": false,
+              "createdAt": 1799000000000, "meta": "Question · 11d", "title": "Ship?", "pictures": [], "surface": false, "text": null,
+              "footer": "choices", "autoAdvanceMs": null
+            }
+          ]
+        },
+        {
+          "key": "root:r-unseen2", "agentId": null, "rootId": "r-unseen2", "title": "Newer unseen", "assistant": false, "waiting": 0, "unseen": true,
+          "stories": [
+            {
+              "id": "u2", "sessionId": "r-unseen2", "rootId": "r-unseen2", "sessionName": "Newer unseen", "kind": "result", "waiting": false, "seen": false,
+              "createdAt": 1799999500000, "meta": "Result · 8m", "title": "Draft 2", "pictures": [], "surface": true, "text": null,
+              "footer": "none", "autoAdvanceMs": 6000
+            }
+          ]
+        },
+        {
+          "key": "root:r-unseen", "agentId": null, "rootId": "r-unseen", "title": "Unseen chat", "assistant": false, "waiting": 0, "unseen": true,
+          "stories": [
+            {
+              "id": "u1", "sessionId": "r-unseen", "rootId": "r-unseen", "sessionName": "Unseen chat", "kind": "result", "waiting": false, "seen": false,
+              "createdAt": 1799999000000, "meta": "Result · 16m", "title": "Draft", "pictures": [], "surface": true, "text": null,
+              "footer": "none", "autoAdvanceMs": 6000
+            }
+          ]
+        },
+        {
+          "key": "root:r-seen", "agentId": null, "rootId": "r-seen", "title": "Seen chat", "assistant": false, "waiting": 0, "unseen": false,
+          "stories": [
+            {
+              "id": "s1", "sessionId": "r-seen", "rootId": "r-seen", "sessionName": "Seen chat", "kind": "result", "waiting": false, "seen": true,
+              "createdAt": 1799999970000, "meta": "Result · now", "title": "Done", "pictures": [], "surface": true, "text": null,
+              "footer": "none", "autoAdvanceMs": 6000
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

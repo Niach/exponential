@@ -326,7 +326,6 @@ export type ThreadTab =
       markState: SessionTabMarkState
       nested: ThreadTabNestedSession[]
     }
-  | { kind: `guide`; dot: boolean }
 
 /** EXP-1322: a question row's option, label + description like the session
  *  view's card (an undescribed card option → description null). */
@@ -1072,9 +1071,6 @@ export function buildSessionThread(input: {
     }
   }
 
-  const guideDot = (root.guide ?? []).some(
-    (entry) => (entry.text ?? ``).trim().length > 0 || (entry.label ?? null) !== null
-  )
   const live = tree.filter((s) => s.status !== `ended`)
   // NEW-6 (N-1): the root alone = the thread IS that session: the
   // Conversation tab opens its raw work in place (`mainSessionId`); a
@@ -1100,7 +1096,6 @@ export function buildSessionThread(input: {
       { kind: `conversation` as const },
       ...issueTabs,
       ...sessionTabs,
-      { kind: `guide`, dot: guideDot },
     ],
     rows,
     composer: { sessionId: root.id, placeholder: THREAD_COPY.placeholder },

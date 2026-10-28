@@ -1262,6 +1262,8 @@ export type MessageCard =
       multi?: boolean | null
       custom?: boolean | null
       surface?: CardSurface | null
+      /** S-3 stories.json: false keeps the card in the chat only. */
+      story?: boolean | null
       /** The picks joined by ", " (compat), or the free text. */
       answer?: string | null
       answers?: string[] | null
@@ -1274,6 +1276,8 @@ export type MessageCard =
       pictures?: PlanCardPicture[] | null
       questions?: PlanCardQuestion[] | null
       surface?: CardSurface | null
+      /** S-3 stories.json: false keeps the card in the chat only. */
+      story?: boolean | null
       /** FEED-140: `superseded` = replaced by a newer plan (server-written). */
       decision?: `approved` | `rejected` | `superseded` | null
       /** An approval that starts the work in a fresh context (ask-dock.json `planOptions`). */
@@ -1312,7 +1316,15 @@ export type MessageCard =
   | { kind: `replies`; items: ReplyItem[] }
   /** Chats (fixtures/chats.json `surfaceCard`): an agent's inline Exponential
    *  UI preview (`exponential_session_self {op: "show"}`); answers nothing. */
-  | { kind: `surface`; surface: CardSurface; title?: string | null }
+  | {
+      kind: `surface`
+      surface: CardSurface
+      title?: string | null
+      /** S-3: a result story's screenshots (labels resolved by upload). */
+      pictures?: PlanCardPicture[] | null
+      /** S-3 stories.json: a story (absent = pictures make it one). */
+      story?: boolean | null
+    }
 
 /** EXP-1323: one item of a `suggestions` card (`sessions_suggest`). Start =
  *  a child (`sessionId` stamped), Do it here = a message to the posting
