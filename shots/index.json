@@ -3426,73 +3426,6 @@
         "sha256": "05f30ca49ddc318d92b5062f4b312a679939b05129ce90953e708a3bbf5a0437"
       }
     },
-    "guide": {
-      "android": {
-        "file": "shots/guide/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 80056,
-        "sha256": "4e668f450e51f8ea17d623fbaa8fb1bbbf7e66d8f4170de29654dd3a174c7308"
-      },
-      "desktop": {
-        "file": "shots/guide/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 80390,
-        "sha256": "c0bafea67e4e06c115ee1f038485ff278703f82a5e86e5f33fe694da31fb5b1b"
-      },
-      "ios": {
-        "file": "shots/guide/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 76036,
-        "sha256": "2ac49a8d5e22c7acaafeb220cba0ff4ac8950a7d201f49201da4da7e576b1f00"
-      },
-      "web": {
-        "file": "shots/guide/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 63628,
-        "sha256": "cf5b529664017e4c4e88691693e9d273e9d53777301f9b9d6b2958582152e220"
-      },
-      "web-mobile": {
-        "file": "shots/guide/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 77796,
-        "sha256": "69e454f55fe0f861eafb128a2d8cf1432f3dcf4460195a2774bdc40d76f84696"
-      }
-    },
-    "guide-section": {
-      "android": {
-        "file": "shots/guide-section/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 81280,
-        "sha256": "40a4a0c8dda3c74fbbf9cf79689768aab6fc6f1b154daa9373899d02d34a1d77"
-      },
-      "ios": {
-        "file": "shots/guide-section/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 94914,
-        "sha256": "5a4fc9d72fcd34ac33ba61cfca7dbe1a9626fa7ac000f9eb70ebb33f1336acc3"
-      },
-      "web": {
-        "file": "shots/guide-section/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 93806,
-        "sha256": "d6c909e4c7c2ec7aadbc202981f3bcb9c74bcbbf3baf75fa4dc25b5ad41ab82f"
-      },
-      "web-mobile": {
-        "file": "shots/guide-section/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 75498,
-        "sha256": "53af507b05e616642868b141397179b6170d3690c25c38f037a1cd30dd79110b"
-      }
-    },
     "inbox": {
       "android": {
         "file": "shots/inbox/android.webp",
@@ -4126,13 +4059,6 @@
         "height": 1800,
         "bytes": 82378,
         "sha256": "71bce8e157ff1d553409f88bf09f00bed41a5941c119db0c146da4db4bbb67ef"
-      },
-      "ios": {
-        "file": "shots/review-diff/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 94626,
-        "sha256": "590550a2ed42a1a87621386c2fe89ad6cb392fe9ad453c3c08df51dd718816a8"
       },
       "web": {
         "file": "shots/review-diff/web.webp",
