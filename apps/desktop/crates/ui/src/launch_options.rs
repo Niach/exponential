@@ -4,8 +4,8 @@
 //!
 //! - Launch: the Agent page composer (EXP-825) and, before it, the start-coding
 //!   dialog: the doctor-filtered agent pill strip, the per-agent Model /
-//!   Effort selects and the capability-gated toggles (ultracode, plan
-//!   mode). This is [`LaunchOptionsSection`], which OWNS that
+//!   Effort selects and the capability-gated toggle (ultracode; S-3: no
+//!   plan toggle anywhere). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
 //! - Trigger: [`crate::trigger_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
@@ -33,7 +33,7 @@ use gpui::{
     Render, SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{h_flex, select::Select, ActiveTheme as _, Icon};
+use gpui_component::{select::Select, ActiveTheme as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
@@ -211,17 +211,13 @@ pub(crate) fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<Codi
         .collect()
 }
 
-/// The `(ultracode, plan_mode)` settings defaults for `agent`,
-/// capability-masked (EXP-201: ultracode is Claude-only, plan mode is
-/// claude-only). EXP-206: ONE set of defaults — a single-issue
-/// session and a multi-issue session seed identically, and plan mode is a
-/// per-AGENT setting. EXP-690 retired the skip-permissions toggle (every
-/// run bypasses).
-pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool) {
-    (
-        settings.claude_ultracode && agent.supports_ultracode(),
-        settings.plan_mode_for(agent) && agent.supports_plan_mode(),
-    )
+/// The ultracode settings default for `agent`, capability-masked (EXP-201:
+/// ultracode is Claude-only). EXP-206: ONE set of defaults — a single-issue
+/// session and a multi-issue session seed identically. EXP-690 retired the
+/// skip-permissions toggle (every run bypasses); S-3 the plan toggle and its
+/// per-device default (a launch never enters plan mode from a UI default).
+pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> bool {
+    settings.claude_ultracode && agent.supports_ultracode()
 }
 
 /// EXP-749: can `agent` NOT run a session on a machine advertising
@@ -391,32 +387,6 @@ pub(crate) fn device_glyph_name(device_id: &str, cx: &App) -> &'static str {
         })
         .unwrap_or((None, false));
     crate::icons::device_icon_name(icon.as_deref(), is_server)
-}
-
-/// EXP-825: a labelled switch on the composer options row.
-fn inline_switch<V: Render>(
-    id: SharedString,
-    label: &'static str,
-    on: bool,
-    write: impl Fn(&mut V, bool) + 'static,
-    cx: &mut Context<V>,
-) -> AnyElement {
-    h_flex()
-        .gap_1p5()
-        .items_center()
-        .px_1()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
-        .child(
-            crate::controls::web_switch(id)
-                .checked(on)
-                .on_click(cx.listener(move |view, on: &bool, _, cx| {
-                    write(view, *on);
-                    cx.notify();
-                })),
-        )
-        .into_any_element()
 }
 
 /// EXP-877 — THE choice pin: `trigger` with a checked-item menu of
@@ -755,8 +725,6 @@ pub(crate) struct LaunchOptionsSection {
     subagent_model: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     pub(crate) ultracode: bool,
-    /// Native plan mode (`--permission-mode plan`).
-    pub(crate) plan_mode: bool,
     /// EXP-696: `Some` while the run targets another machine — its agents
     /// and its published defaults replace the local doctor + hub everywhere.
     remote: Option<RemoteDefaults>,
@@ -789,7 +757,7 @@ impl LaunchOptionsSection {
     pub(crate) fn new(window: &mut Window, cx: &mut App) -> Self {
         let settings = crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone();
         let agent = settings.default_agent;
-        let (ultracode, plan_mode) = agent_defaults(&settings, agent);
+        let ultracode = agent_defaults(&settings, agent);
         let mut this = Self {
             agent,
             model: choice_select(model_choices_for(agent), settings.model_for(agent), window, cx),
@@ -806,7 +774,6 @@ impl LaunchOptionsSection {
                 cx,
             ),
             ultracode,
-            plan_mode,
             remote: None,
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
@@ -990,7 +957,7 @@ impl LaunchOptionsSection {
             window,
             cx,
         );
-        (self.ultracode, self.plan_mode) = agent_defaults(settings, agent);
+        self.ultracode = agent_defaults(settings, agent);
     }
 
     /// Switch the agent tab (EXP-201): rebuild the model/effort selects from
@@ -1057,7 +1024,8 @@ impl LaunchOptionsSection {
             // Capability-clamped so a stale toggle can never leak onto an
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
-            plan_mode: self.plan_mode && self.agent.supports_plan_mode(),
+            // S-3: no plan toggle; a launch never enters plan mode.
+            plan_mode: false,
             // EXP-981: claude-only, clamped like the toggles above.
             subagent_model: if self.agent.supports_subagent_model() {
                 selected(&self.subagent_model, cx)
@@ -1109,24 +1077,10 @@ impl LaunchOptionsSection {
     // ── EXP-825: the Agent page composer's inline options row ──────────────
     //
     // Variant B of the composer mockups: under the card ONE muted line —
-    // Device (the composer's own), Agent, Model, Plan — and a `⋯` popover
+    // Device (the composer's own), Agent, Model — and a `⋯` popover
     // holding Effort, Ultracode, MCP servers and Account. These are thin
     // views over the same state `render` shows as a grouped cluster, so the
     // two surfaces cannot disagree about what a run launches with.
-
-    /// EXP-825: reseed plan mode when the composer's subject flips between
-    /// "nothing picked" (a chat — a conversation, never a planning run, so
-    /// OFF whatever the agent's setting says, EXP-772) and a picked subject
-    /// (the agent's own default, EXP-206). `planModeOff` is read on open on
-    /// the web too; the always-open composer needs the same reseed on the
-    /// flip or a chat inherits the device default (the EXP-772 regression).
-    pub(crate) fn reseed_plan_for_subject(&mut self, has_subject: bool, cx: &mut App) {
-        self.plan_mode = if has_subject {
-            agent_defaults(&self.seed_settings(cx), self.agent).1
-        } else {
-            false
-        };
-    }
 
     /// The Model pin over the picked agent's own model list.
     pub(crate) fn model_pin<V: Render>(
@@ -1141,25 +1095,6 @@ impl LaunchOptionsSection {
         let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-model")), label, cx);
         choice_menu(trigger, choices, picked, |section| &section.model, access, cx)
             .into_any_element()
-    }
-
-    /// The Plan switch; `None` for an agent without a plan mode.
-    pub(crate) fn plan_toggle<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        if !self.agent.supports_plan_mode() {
-            return None;
-        }
-        Some(inline_switch(
-            SharedString::from(format!("{prefix}-plan")),
-            "Plan",
-            self.plan_mode,
-            move |view: &mut V, on| access(view).plan_mode = on,
-            cx,
-        ))
     }
 
     /// EXP-1249: everything the composer's "+" menu draws, read off the

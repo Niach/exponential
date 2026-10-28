@@ -24,9 +24,9 @@ enum Specimen {
 
 fn specimens() -> Vec<(&'static str, Specimen)> {
     vec![
-        ("A live chat", Specimen::Chat(thread_menu_entries("running", true, true))),
-        ("An ended chat", Specimen::Chat(thread_menu_entries("ended", true, true))),
-        ("The agent menu (busy, owner)", Specimen::Agent(agent_menu_entries(true, true))),
+        // S-3: Delete only, live or ended (no Stop anywhere).
+        ("A chat", Specimen::Chat(thread_menu_entries("running", true, true))),
+        ("The agent menu (owner)", Specimen::Agent(agent_menu_entries(true, true))),
         ("The agent menu (idle, member)", Specimen::Agent(agent_menu_entries(false, false))),
     ]
 }
@@ -87,8 +87,7 @@ mod tests {
     #[test]
     fn the_specimens_are_the_fixture_entries() {
         let specimens = specimens();
-        assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Stop, ThreadMenuEntry::StopAndDelete]));
-        assert!(matches!(&specimens[1].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Delete]));
-        assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 4));
+        assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Delete]));
+        assert!(matches!(&specimens[1].1, Specimen::Agent(entries) if entries.len() == 3));
     }
 }

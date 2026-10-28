@@ -358,14 +358,9 @@ pub(crate) fn computer_use_rows(
 
 /// A REMOTE row's defaults baseline: its `launch_defaults` clamped onto a
 /// default Settings (remote_admin's apply, the same clamp the device itself
-/// runs). Plan mode reads OFF until the row says otherwise (web `agentSeed`:
-/// `planMode ?? false`, ×4): the local Settings default (ON) is THIS
-/// machine's, never a seed for another one's.
+/// runs). S-3: no plan-mode default.
 fn remote_baseline(launch_defaults: Option<&serde_json::Value>) -> coding::Settings {
-    let mut seeded = coding::Settings {
-        claude_plan_mode: false,
-        ..coding::Settings::default()
-    };
+    let mut seeded = coding::Settings::default();
     if let Some(value) = launch_defaults {
         if let Ok(patch) = serde_json::from_value::<coding::DefaultsPatch>(value.clone()) {
             coding::apply_defaults_patch(&mut seeded, &patch);
@@ -398,7 +393,6 @@ pub struct DeviceSettingsView {
     /// had and the IDE did not.
     subagent_model_select: ChoiceSelect,
     claude_ultracode: bool,
-    claude_plan_mode: bool,
     /// EXP-1005: `Settings.auto_rotate_accounts` (claude-only).
     claude_auto_rotate: bool,
     /// EXP-1196: `Settings.computer_use` — the DEVICE's switch (no agent
@@ -637,7 +631,6 @@ impl DeviceSettingsView {
             codex_thread_model_select,
             subagent_model_select,
             claude_ultracode: seeded.claude_ultracode,
-            claude_plan_mode: seeded.claude_plan_mode,
             claude_auto_rotate: seeded.auto_rotate_accounts,
             computer_use: seeded.computer_use,
             computer_use_model_select,
@@ -868,7 +861,6 @@ impl DeviceSettingsView {
             });
         }
         self.claude_ultracode = baseline.claude_ultracode;
-        self.claude_plan_mode = baseline.claude_plan_mode;
         self.claude_auto_rotate = baseline.auto_rotate_accounts;
         self.computer_use = baseline.computer_use;
         self.refresh_work_screen(Some(&row), baseline.computer_use_display_id.as_deref(), window, cx);
@@ -893,7 +885,6 @@ impl DeviceSettingsView {
         drafted.codex_thread_model = selected(&self.codex_thread_model_select, cx);
         drafted.claude_subagent_model = selected(&self.subagent_model_select, cx);
         drafted.claude_ultracode = self.claude_ultracode;
-        drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.auto_rotate_accounts = self.claude_auto_rotate;
         drafted.computer_use = self.computer_use;
         drafted.computer_use_model = selected(&self.computer_use_model_select, cx);
@@ -1640,15 +1631,6 @@ impl DeviceSettingsView {
                         this.save_defaults(cx);
                     },
                 ))
-                .toggle(DefaultsToggle::new(
-                    "device-claude-plan",
-                    "Plan mode",
-                    self.claude_plan_mode,
-                    |this: &mut Self, on, cx| {
-                        this.claude_plan_mode = on;
-                        this.save_defaults(cx);
-                    },
-                ))
                 // EXP-1005: start on the login with the most headroom and
                 // move a rate-limited run to another one between turns.
                 .toggle(DefaultsToggle::new(
@@ -2248,15 +2230,6 @@ mod tests {
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own
     /// machine's login tab is right there to type into.
-    /// A remote device with NO saved launch defaults reads Plan mode OFF
-    /// (web/iOS/Android `planMode ?? false`); a saved pick still wins.
-    #[test]
-    fn remote_baseline_seeds_plan_mode_off() {
-        assert!(!super::remote_baseline(None).claude_plan_mode);
-        assert!(!super::remote_baseline(Some(&serde_json::json!({}))).claude_plan_mode);
-        let saved = serde_json::json!({ "agents": { "claude": { "planMode": true } } });
-        assert!(super::remote_baseline(Some(&saved)).claude_plan_mode);
-    }
 
     #[test]
     fn parse_agent_map_tolerates_garbage() {

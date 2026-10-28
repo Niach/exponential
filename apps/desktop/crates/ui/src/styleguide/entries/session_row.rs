@@ -1,9 +1,8 @@
 //! EXP-1248/EXP-1294 — `session-row`: THE session card in every state it
 //! has, the REAL [`crate::work_card::session_card`] over
 //! `domain::session_tree::session_card`, fed `fixtures/session-card.json`'s
-//! own cases (the first case per state): Working with its spinner, Waiting,
-//! Queued (no elapsed), Needs you, Usage limit, Ended, Background task
-//! (EXP-1374, spinning), Interrupted (EXP-1374). A card is the work card's header row in the glass
+//! own cases (the first case per state; S-3: the four display states):
+//! Working with its spinner, Idle (no elapsed), Needs you, Done. A card is the work card's header row in the glass
 //! frame plus a chevron; no device, account or branch.
 
 use gpui::{px, App, Div, ParentElement as _, Styled as _, Window};
@@ -56,13 +55,9 @@ mod tests {
             states,
             vec![
                 SessionState::Working,
-                SessionState::Waiting,
-                SessionState::Queued,
+                SessionState::Idle,
                 SessionState::NeedsYou,
-                SessionState::Blocked,
-                SessionState::Ended,
-                SessionState::Background,
-                SessionState::Interrupted,
+                SessionState::Done,
             ]
         );
     }

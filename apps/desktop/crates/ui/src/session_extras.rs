@@ -587,8 +587,8 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     line.into_any_element()
 }
 
-/// The read of ONE steering value: the session MODE ([`mode_chip`]) or one
-/// `config_state.options` entry ([`option_chip`]). EXP-772 took the mid-session
+/// The read of ONE steering value: one `config_state.options` entry
+/// ([`option_chip`]). EXP-772 took the mid-session
 /// pickers away; EXP-877 brought back exactly one read, the model.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ConfigChip {
@@ -602,42 +602,8 @@ pub(crate) struct ConfigChip {
     pub(crate) values: Vec<steer::frames::ConfigValue>,
 }
 
-/// EXP-772: the mode chip, or `None` when the run advertises no modes (codex
-/// advertises none, so its composer draws nothing). Mirrored ×4 as `modeChip`.
-///
-/// EXP-847 gave it its reader back: the session HEADER wears it as a READ-ONLY
-/// "Plan" chip while `current_mode` is [`PLAN_MODE_ID`]
-/// (`SteerSessionView::plan_mode_label`), so a run that is planning says so and
-/// an approved `ExitPlanMode` visibly clears it. Never a control — EXP-790
-/// keeps the mode a launch-time choice.
-pub(crate) fn mode_chip(config: Option<&steer::SessionConfig>) -> Option<ConfigChip> {
-    let config = config?;
-    if config.modes.is_empty() {
-        return None;
-    }
-    let current = config.current_mode.as_deref().unwrap_or_default();
-    let value_label = config
-        .modes
-        .iter()
-        .find(|mode| mode.id == current)
-        .map(|mode| mode.label.clone())
-        .filter(|label| !label.is_empty())
-        .or_else(|| (!current.is_empty()).then(|| current.to_string()))
-        .unwrap_or_else(|| crate::slash_commands::CONFIG_DEFAULT_VALUE_LABEL.to_string());
-    Some(ConfigChip {
-        value: current.to_string(),
-        label: crate::slash_commands::CONFIG_MODE_LABEL.to_string(),
-        value_label,
-        values: config
-            .modes
-            .iter()
-            .map(|mode| steer::frames::ConfigValue::new(mode.id.clone(), mode.label.clone()))
-            .collect(),
-    })
-}
-
-/// EXP-877 — the read of ONE `config_state.options` entry by id, generalising
-/// [`mode_chip`] over the option list instead of the mode list.
+/// EXP-877 — the read of ONE `config_state.options` entry by id. S-3: the
+/// mode chip (the read-only Plan read) is gone with the plan toggle.
 ///
 /// `value_label` resolves the same way the mode chip's does: the matching
 /// `values` entry's label, else the raw value, else the "default" label. The
@@ -663,9 +629,6 @@ pub(crate) fn option_chip(config: Option<&steer::SessionConfig>, id: &str) -> Op
         values,
     })
 }
-
-/// The mode id every plan-capable agent advertises.
-pub(crate) const PLAN_MODE_ID: &str = "plan";
 
 #[cfg(test)]
 mod tests {
@@ -904,43 +867,6 @@ mod tests {
         extras.bind(7, "call-1".to_string());
         assert!(extras.has_extras(7));
         assert!(!extras.has_extras(8), "a different row keeps its own cards");
-    }
-
-    // ── EXP-772: the composer's ONE chip (×4 `modeChip`) ──────────────────
-
-    fn config(modes: &[(&str, &str)], current: Option<&str>) -> steer::SessionConfig {
-        steer::SessionConfig {
-            // EXP-877: the option list carries the `model` value and nothing
-            // else; the mode tests below do not need it.
-            options: Vec::new(),
-            current_mode: current.map(str::to_string),
-            modes: modes
-                .iter()
-                .map(|(id, label)| steer::frames::ConfigMode::new(*id, *label))
-                .collect(),
-            commands: Vec::new(),
-        }
-    }
-
-    /// The chip row is the mode and nothing else — a claude run reads "Plan",
-    /// a run with no modes (codex) draws nothing at all.
-    #[test]
-    fn the_only_chip_left_is_the_mode() {
-        let claude = config(&[("plan", "Plan"), ("bypassPermissions", "Build")], Some("plan"));
-        let chip = mode_chip(Some(&claude)).expect("claude advertises modes");
-        assert_eq!((chip.label.as_str(), chip.value_label.as_str()), ("Mode", "Plan"));
-        assert_eq!(chip.values.len(), 2);
-
-        // No modes, no chip; no config at all, no chip.
-        assert!(mode_chip(Some(&config(&[], None))).is_none());
-        assert!(mode_chip(None).is_none());
-
-        // A mode the publisher never described still names itself.
-        let unknown = config(&[("plan", "Plan")], Some("acceptEdits"));
-        assert_eq!(
-            mode_chip(Some(&unknown)).expect("a mode is in force").value_label,
-            "acceptEdits"
-        );
     }
 
     /// EXP-877: the composer's model read. A publisher that describes its

@@ -184,7 +184,9 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
                 .child(text)
         }))
         .children(badge);
+    // S-3: a DONE chat stays in the list, the whole row dimmed.
     chat_row_frame(lead, row.title.clone(), unread, row.time.clone(), time_color, Some(second), cx)
+        .when(row.dim, |this| this.opacity(CHATS.shell.dim_opacity))
 }
 
 /// THE row's frame: the lead, then the text column (title + the trailing

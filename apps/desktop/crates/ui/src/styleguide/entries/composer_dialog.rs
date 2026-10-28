@@ -28,7 +28,6 @@ use crate::chat_screen::{
 use crate::composer::{
     composer_tool, session_composer_card, session_composer_field, session_context_ring, session_model_pin,
     ContextRingProps, SessionComposerBox, SessionComposerControls, SessionComposerSubmit, SubmitKind,
-    PLAN_MODE_FALLBACK,
 };
 use crate::icons::registry;
 use crate::launch_options::{inline_pin_trigger, inline_pin_trigger_with};
@@ -88,19 +87,6 @@ fn sample_usage(phase: Phase) -> steer::SessionUsage {
     }
 }
 
-/// The Plan switch: on while running.
-pub(super) fn plan_switch(id: String, phase: Phase, cx: &App) -> AnyElement {
-    h_flex()
-        .gap_1p5()
-        .items_center()
-        .px_1()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(PLAN_MODE_FALLBACK)
-        .child(crate::controls::web_switch(SharedString::from(id)).checked(phase == Phase::Running))
-        .into_any_element()
-}
-
 /// The start line's pins before the model: the device (its glyph), the
 /// account.
 fn start_pins(prefix: &str, cx: &App) -> Vec<AnyElement> {
@@ -127,7 +113,7 @@ pub(super) fn session_device_pin(prefix: &str, cx: &App) -> AnyElement {
 }
 
 /// N-12 (web `ComposerSessionRowSpecimen`): a session composer's in-card
-/// row: the Device glyph · the model pin · the Plan switch.
+/// row: the Device glyph · the model pin.
 pub(super) fn session_row(prefix: &str, phase: Phase, cx: &App) -> Div {
     h_flex()
         .min_w_0()
@@ -142,7 +128,6 @@ pub(super) fn session_row(prefix: &str, phase: Phase, cx: &App) -> Div {
             crate::steer_viewer::model_label(sample_model(phase)),
             cx,
         ))
-        .child(plan_switch(format!("{prefix}-plan"), phase, cx))
 }
 
 /// The repository pin, the start line's last word.
@@ -176,7 +161,7 @@ pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyEl
 }
 
 /// The options line UNDER the start composer (web
-/// `ComposerOptionsSpecimen`): device · account · model · Plan ·
+/// `ComposerOptionsSpecimen`): device · account · model ·
 /// repository (N-12: a session's pins sit in the card, [`session_row`]). The model pin here is the static word (the live
 /// menu is the whole composer's, [`ComposerSpecimen`]).
 pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
@@ -195,7 +180,7 @@ pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
         .text_xs()
         .text_color(cx.theme().muted_foreground);
     line = line.children(start_pins(prefix, cx));
-    line = line.child(model).child(plan_switch(format!("{prefix}-plan"), phase, cx));
+    line = line.child(model);
     line.child(repository_pin(prefix, cx))
 }
 
@@ -254,10 +239,10 @@ impl Render for ComposerSpecimen {
             },
             cx,
         );
-        let plan = plan_switch(format!("{prefix}-plan"), phase, cx);
         let device_pin = (phase != Phase::Start).then(|| session_device_pin(prefix, cx));
-        let (model_pin, plan, context_ring) = match phase {
-            // Before a start: device · account · model · Plan · repository.
+        let (model_pin, repository, context_ring) = match phase {
+            // Before a start: device · account · model · repository (S-3: no
+            // Plan switch).
             Phase::Start => (
                 Some(
                     h_flex()
@@ -267,18 +252,11 @@ impl Render for ComposerSpecimen {
                         .children(model)
                         .into_any_element(),
                 ),
-                Some(
-                    h_flex()
-                        .gap_1()
-                        .items_center()
-                        .child(plan)
-                        .child(repository_pin(prefix, cx))
-                        .into_any_element(),
-                ),
+                Some(repository_pin(prefix, cx)),
                 None,
             ),
-            // In a session: model · Plan … the context ring.
-            _ => (model, Some(plan), context_ring(prefix, phase, cx)),
+            // In a session: model … the context ring.
+            _ => (model, None, context_ring(prefix, phase, cx)),
         };
         // NEW-3: a message to an agent runs on the agent's own device and
         // login: no options line at all.
@@ -289,10 +267,10 @@ impl Render for ComposerSpecimen {
         } else if phase == Phase::Start {
             (
                 SessionComposerControls::default(),
-                Some(h_flex().w_full().min_w_0().px_1().pt_1p5().gap_2().items_center().children(model_pin).children(plan)),
+                Some(h_flex().w_full().min_w_0().px_1().pt_1p5().gap_2().items_center().children(model_pin).children(repository)),
             )
         } else {
-            (SessionComposerControls { device_pin, model_pin, plan, context_ring }, None)
+            (SessionComposerControls { device_pin, model_pin, context_ring }, None)
         };
         let replies = self
             .replies
@@ -549,7 +527,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                         .w(px(COLUMN_W))
                         .max_w_full()
                         .gap_2()
-                        .child(caption("A running session: Stop, model · Plan … the context ring under the card.", cx))
+                        .child(caption("A running session: Stop, model … the context ring under the card.", cx))
                         .child(running)
                         .child(caption("An idle thread: the same composer (it messages the dispatcher).", cx))
                         .child(idle),

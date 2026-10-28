@@ -21,7 +21,7 @@
 //!
 //! N-12 (the iOS row ×4): the card's bottom row holds the "+" options menu
 //! (the only tool), the run's controls ([`SessionComposerControls`]: the
-//! Device glyph, the model pin, the Plan switch), then the usage ring
+//! Device glyph, the model pin; S-3: no Plan switch), then the usage ring
 //! beside the round button; nothing sits under the card.
 //!
 //! Every slot is optional except the field; the caller owns all state and
@@ -34,7 +34,7 @@
 //! own — they host the ROOT session's composer (`session_screen::
 //! root_composer_view`), so all three paint ONE composer: the box, the `/`
 //! menu ([`session_slash_menu`]), the run controls ([`SessionComposerControls`]:
-//! [`session_model_pin`], the plan read, [`session_context_ring`]),
+//! [`session_model_pin`], [`session_context_ring`]),
 //! Send⇄Stop and the queue strip.
 
 use gpui::{
@@ -427,11 +427,10 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
     let SessionComposerControls {
         device_pin,
         model_pin,
-        plan,
         context_ring,
     } = controls;
     // The run's options after the "+" (web `pl-1 gap-x-2.5`, xs muted).
-    if device_pin.is_some() || model_pin.is_some() || plan.is_some() {
+    if device_pin.is_some() || model_pin.is_some() {
         composer = composer.tool(
             h_flex()
                 .min_w_0()
@@ -442,7 +441,6 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
                 .text_color(cx.theme().muted_foreground)
                 .children(device_pin)
                 .children(model_pin)
-                .children(plan)
                 .into_any_element(),
         );
     }
@@ -498,15 +496,9 @@ pub(crate) struct SessionComposerControls {
     /// a pick moves it there.
     pub(crate) device_pin: Option<AnyElement>,
     pub(crate) model_pin: Option<AnyElement>,
-    /// EXP-1334: the Plan switch (`sessions.configure({planMode})`, live
-    /// mid-session), or a read-only label where the run cannot change it.
-    pub(crate) plan: Option<AnyElement>,
     pub(crate) context_ring: Option<AnyElement>,
 }
 
-/// The plan read before the run publishes a `config_state`: web's `Plan`
-/// fallback off the row's `plan_mode`.
-pub(crate) const PLAN_MODE_FALLBACK: &str = "Plan";
 
 /// EXP-877 — THE model pin: the model the run is on (`value`, off
 /// `config_state.options[model]`). `picker` (claude) makes it a menu over THE

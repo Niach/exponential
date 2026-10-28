@@ -129,6 +129,13 @@ fn child_row_lead(session_id: &str, busy: bool, needs_you: bool, cx: &App) -> gp
     }
 }
 
+/// S-3: the fold row's lead = the root agent's mark in the done state (web
+/// `threads-list` `markState="ended"`).
+fn fold_row_lead(root_id: &str, cx: &App) -> gpui::AnyElement {
+    let agent = session_data::session(root_id, cx).and_then(|root| crate::run_rows::run_agent(root.cli.as_deref()));
+    crate::run_rows::run_mark(agent, domain::session_tree::SessionState::Done, cx).into_any_element()
+}
+
 /// EXP-1318: a thread row's trailing DEVICE ICON — the root session's
 /// device resolved against the synced `devices` rows, its pick through the
 /// device-icon concept map (the Devices page's glyph), the device's name as
@@ -219,25 +226,31 @@ fn thread_list_row(
     cx: &App,
 ) -> gpui::AnyElement {
     // EXP-1323: a nested child = its own session's mark, no word; it
-    // opens that session (a thread row opens the thread).
-    let child = row.depth > 0;
-    let lead = if child {
+    // opens that session (a thread row opens the thread). S-3: the fold row
+    // (`<root>:earlier`) = the muted row with the root's done mark; it opens
+    // the thread.
+    let fold = row.earlier.is_some();
+    let child = row.depth > 0 && !fold;
+    let lead = if fold {
+        fold_row_lead(&row.root_id, cx)
+    } else if child {
         child_row_lead(&row.session_id, row.busy, row.needs_you, cx)
     } else {
         thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx)
     };
-    let word = (!child)
+    let word = (!child && !fold)
         .then(|| thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls))
         .flatten();
     let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
     let trailing = thread_row_trailing(word, device, cx);
-    let session_id = row.session_id.clone();
+    let session_id = if fold { row.root_id.clone() } else { row.session_id.clone() };
     let element = pr_row(
         PrRowSpec {
             lead: Some(lead),
             trailing,
             guides,
             strong: row.unread,
+            muted: fold,
             on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                 let session_id = session_id.clone();
                 let screen = if child {
@@ -254,7 +267,7 @@ fn thread_list_row(
         },
         cx,
     );
-    if child {
+    if child || fold {
         return element;
     }
     chat_row_menu(&row.session_id, element, cx)

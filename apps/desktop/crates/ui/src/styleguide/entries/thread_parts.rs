@@ -261,14 +261,9 @@ enum SubtreeRow {
     },
 }
 
-/// A session chip's lead ×4: the thread row mark of THAT session.
+/// A session chip's lead ×4: THAT session's display state (S-3: one type).
 fn chip_state(mark: SessionTabMarkState) -> SessionState {
-    match mark {
-        SessionTabMarkState::NeedsYou => SessionState::NeedsYou,
-        SessionTabMarkState::Working => SessionState::Working,
-        SessionTabMarkState::Waiting => SessionState::Waiting,
-        SessionTabMarkState::Ended => SessionState::Ended,
-    }
+    mark
 }
 
 /// A chip and its nested rows with their picks, depths relative to the chip
@@ -360,9 +355,7 @@ fn subtree_row(item: &SubtreeRow, guides: &domain::tree_guides::Guides, active: 
             ),
         SubtreeRow::Session { name, state } => {
             let word_color = match state {
-                SessionState::NeedsYou | SessionState::Blocked => {
-                    crate::work_card::session_tone_color(state.tone(), cx)
-                }
+                SessionState::NeedsYou => crate::work_card::session_tone_color(state.tone(), cx),
                 _ => theme.muted_foreground,
             };
             row.child(crate::run_rows::run_mark(crate::run_rows::run_agent(None), *state, cx))

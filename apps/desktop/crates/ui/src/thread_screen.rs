@@ -1890,15 +1890,10 @@ pub(crate) fn issue_threads_row(issue_id: &str, cx: &App) -> Option<AnyElement> 
 // EXP-1334: the strip (never scrolls) and the chips' subtree menus
 // ---------------------------------------------------------------------------
 
-/// A chip's mark state as THE session state (the run mark reads it).
+/// A chip's mark state as THE session state (the run mark reads it; S-3:
+/// they are one type, the four display states).
 fn chip_state(mark: domain::session_tree::SessionTabMarkState) -> domain::session_tree::SessionState {
-    use domain::session_tree::{SessionState, SessionTabMarkState};
-    match mark {
-        SessionTabMarkState::NeedsYou => SessionState::NeedsYou,
-        SessionTabMarkState::Working => SessionState::Working,
-        SessionTabMarkState::Waiting => SessionState::Waiting,
-        SessionTabMarkState::Ended => SessionState::Ended,
-    }
+    mark
 }
 
 /// Open `session_id` IN PLACE (its thread hosts the raw work).
@@ -2098,9 +2093,7 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
             ),
         SubtreeItem::Session { name, state, cli, .. } => {
             let word_color = match state {
-                domain::session_tree::SessionState::NeedsYou | domain::session_tree::SessionState::Blocked => {
-                    crate::work_card::session_tone_color(state.tone(), cx)
-                }
+                domain::session_tree::SessionState::NeedsYou => crate::work_card::session_tone_color(state.tone(), cx),
                 _ => theme.muted_foreground,
             };
             row.child(crate::run_rows::run_mark(crate::run_rows::run_agent(cli.as_deref()), *state, cx))
@@ -3124,23 +3117,8 @@ impl ThreadScreenView {
                 cx,
             )
         });
-        // EXP-1316 (1b): the open session's Stop while it is live.
-        // NEW-6 (N-1): the thread's ONE session's Stop while it is the body.
-        // Thread 58cb32df (chats.json STOP): the pill = the menu's Stop,
-        // `sessions.end` on the ROOT (the whole tree), shown while the root
-        // is not ended and the viewer may steer the chat.
-        let root_live = crate::chat_actions::chat_entries(&model.root.id, cx)
-            .contains(&domain::chats::ThreadMenuEntry::Stop);
-        let stop = root_live.then(|| {
-            let root_id = model.root.id.clone();
-            crate::session_screen::stop_session_pill(
-                "thread-session-stop",
-                crate::surface::PillSize::Md,
-                cx,
-            )
-            .tooltip(SharedString::from(domain::chats::CHATS.copy.menu.stop.clone()))
-            .on_click(move |_, _, cx| crate::chat_actions::stop_chat(&root_id, cx))
-        });
+        // S-3 (owner 2026-10-28): no Stop pill; the composer's stop-turn
+        // is the one stop.
         let menu = guide_menu(model, cx);
         v_flex()
             .w_full()
@@ -3155,7 +3133,6 @@ impl ThreadScreenView {
                     .items_center()
                     .child(div().flex_1().min_w_0().child(title))
                     .children(merge)
-                    .children(stop)
                     .children(menu),
             )
             .child(self.render_strip(model, window, cx))

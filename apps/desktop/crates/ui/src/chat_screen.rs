@@ -690,7 +690,6 @@ impl ChatScreenView {
         self.ensure_repos_loaded(cx);
         self.ensure_mcp_loaded(cx);
         if let Some(launch) = self.launch.as_mut() {
-            launch.reseed_plan_for_subject(false, cx);
             // The new team's `enabled_by_default` servers seed afresh once
             // its list lands; the old team's ticks mean nothing here.
             launch.reset_mcp_seed();
@@ -704,8 +703,6 @@ impl ChatScreenView {
         }
         let mut launch = LaunchOptionsSection::new(window, cx);
         launch.reconcile_agent(window, cx);
-        // A chat starts in build mode, always (EXP-772).
-        launch.reseed_plan_for_subject(false, cx);
         self.launch = Some(launch);
         // EXP-696: settle the machine, which may re-seed the cluster off a
         // remote advertisement.
@@ -759,17 +756,11 @@ impl ChatScreenView {
             .map(|row| row.issue_id.clone())
             .collect();
         self.probe_generation += 1;
-        let had_subject = !matches!(self.subject, Subject::None);
         self.subject = Subject::Issues(IssueSubject {
             rows: Rc::new(rows),
             checked: checked.clone(),
             repos: HashMap::new(),
         });
-        if !had_subject {
-            if let Some(launch) = self.launch.as_mut() {
-                launch.reseed_plan_for_subject(true, cx);
-            }
-        }
         for issue_id in checked {
             self.ensure_probe(issue_id, cx);
         }
@@ -811,9 +802,6 @@ impl ChatScreenView {
     fn clear_subject(&mut self, cx: &mut gpui::Context<Self>) {
         self.subject = Subject::None;
         self.probe_generation += 1;
-        if let Some(launch) = self.launch.as_mut() {
-            launch.reseed_plan_for_subject(false, cx);
-        }
         cx.notify();
     }
 
@@ -881,14 +869,8 @@ impl ChatScreenView {
     /// Pick an action: the subject becomes that ONE chip (issues, if any,
     /// are dropped — the swap rule), its picks reset.
     fn select_action(&mut self, action_id: String, cx: &mut gpui::Context<Self>) {
-        let had_subject = !matches!(self.subject, Subject::None);
         self.probe_generation += 1;
         self.subject = Subject::Action(ActionSubject { action_id });
-        if !had_subject {
-            if let Some(launch) = self.launch.as_mut() {
-                launch.reseed_plan_for_subject(true, cx);
-            }
-        }
         cx.notify();
     }
 
@@ -1052,14 +1034,8 @@ impl ChatScreenView {
     /// "+" → Message an agent ›'s pick: the agent becomes the ONE subject
     /// (issues or a prompt, if any, are swapped out).
     fn pick_agent(&mut self, agent_id: String, cx: &mut gpui::Context<Self>) {
-        let had_subject = !matches!(self.subject, Subject::None);
         self.probe_generation += 1;
         self.subject = Subject::Agent(AgentSubject { agent_id });
-        if !had_subject {
-            if let Some(launch) = self.launch.as_mut() {
-                launch.reseed_plan_for_subject(true, cx);
-            }
-        }
         cx.notify();
     }
 
@@ -1243,14 +1219,10 @@ impl ChatScreenView {
                     usage,
                 }
             });
-        let has_subject = !matches!(self.subject, Subject::None);
         let Some(launch) = self.launch.as_mut() else {
             return;
         };
         launch.set_remote(remote, window, cx);
-        // A reseed off a machine's defaults must not re-enter plan mode
-        // for a chat (EXP-772).
-        launch.reseed_plan_for_subject(has_subject, cx);
     }
 
     /// EXP-836: why the machine a ▶ REQUESTED cannot take this run, for the
@@ -2333,8 +2305,7 @@ impl ChatScreenView {
                 // EXP-872: WHICH LOGIN a run spends is the first decision on
                 // the line, and it is also the agent pick.
                 .children(self.launch_ref().account_pin("chat", Self::launch_access, cx))
-                .child(self.launch_ref().model_pin("chat", Self::launch_access, cx))
-                .children(self.launch_ref().plan_toggle("chat", Self::launch_access, cx));
+                .child(self.launch_ref().model_pin("chat", Self::launch_access, cx));
         }
         if matches!(self.subject, Subject::None) {
             row = row.children(self.repo_pin(cx));
