@@ -43,6 +43,7 @@ export function declaredActions(functions: readonly string[]): string[] {
 export const APP_ACTION_GRANT_ROLE: string = fixture.grantRole
 const DESTRUCTIVE_WORDS: readonly string[] = fixture.destructiveWords
 const DESTRUCTIVE_ARGS = fixture.destructiveArgs as Record<string, readonly string[]>
+const OWNER_ACTIONS: readonly string[] = fixture.ownerActions
 
 /** May a member with `role` set an app's grants? Owners only. */
 export function canGrantActions(role: string | null | undefined): boolean {
@@ -58,9 +59,17 @@ export function actionDestructive(name: string): boolean {
   return words.some((w) => DESTRUCTIVE_WORDS.includes(w))
 }
 
-/** May `name` be granted at all: an offered, non-destructive action. */
+/** VAPP-158: an operation the server runs for a team owner only (members,
+ *  invites, MCP servers, prompts, the team's settings). Never grantable;
+ *  always asks (the plain card). */
+export function actionOwnerOnly(name: string): boolean {
+  return OWNER_ACTIONS.includes(name)
+}
+
+/** May `name` be granted at all: an offered action that is neither
+ *  destructive nor owner-only. */
 export function actionGrantable(name: string): boolean {
-  return parseActionName(name) !== null && !actionDestructive(name)
+  return parseActionName(name) !== null && !actionDestructive(name) && !actionOwnerOnly(name)
 }
 
 /** A destructive CALL: a destructive action, or a grantable one whose
