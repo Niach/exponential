@@ -957,7 +957,7 @@ pub(crate) fn plan_card(
         .into_any_element()
 }
 
-fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
+pub(crate) fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
     match row {
         SessionThreadRow::Plan { id, plan, questions, surface, decision, fresh, answers, feedback, surface_data, .. } => Some((
             id,
@@ -977,7 +977,7 @@ fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate:
     }
 }
 
-fn question_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::QuestionFacts<'a>)> {
+pub(crate) fn question_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::QuestionFacts<'a>)> {
     match row {
         SessionThreadRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, .. } => Some((
             id,

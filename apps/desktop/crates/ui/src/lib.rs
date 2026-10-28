@@ -151,6 +151,9 @@ mod pins;
 mod plan_card;
 // Thread 58cb32df: the transcript's surface card + command dividers.
 mod surface_card;
+// S-3: THE story ring + THE story viewer.
+mod story_ring;
+mod story_viewer;
 mod pr_graph;
 mod pr_merge;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).

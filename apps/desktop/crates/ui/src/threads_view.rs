@@ -569,6 +569,9 @@ impl Render for ThreadsView {
                 .ok();
             })
         };
+        let stories_row = active_team_id(&self.nav, cx)
+            .and_then(|team_id| crate::story_ring::stories_row(&team_id, cx));
+        let story_viewer = crate::story_viewer::overlay(_window, cx);
         let column = if !ready {
             // Skeletons, never "Loading…" (feedback-states.json).
             v_flex().min_w_0().child(crate::feedback::skeleton_rows(
@@ -622,6 +625,8 @@ impl Render for ThreadsView {
                 .min_w_0()
                 .gap_4()
                 .children(back)
+                // S-3: THE StoryRingRow, above the agent bubbles.
+                .when(view_kind == ChatListView::List, |this| this.children(stories_row))
                 .when(view_kind == ChatListView::List, |this| {
                     this.children(crate::chat_list::agent_bubbles_row(&model.bubbles, chats_page_bubble, cx))
                 })
@@ -718,6 +723,7 @@ impl Render for ThreadsView {
             }))
             .child(page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W))
             .children(bar.map(crate::issue_list::bulk_bar_dock))
+            .children(story_viewer)
     }
 }
 
