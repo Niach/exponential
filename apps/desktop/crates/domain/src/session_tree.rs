@@ -740,8 +740,6 @@ pub enum ThreadTab {
         mark_state: SessionTabMarkState,
         nested: Vec<ThreadTabNestedSession>,
     },
-    /// `dot` = the root's guide holds any text or picture.
-    Guide { dot: bool },
 }
 
 /// EXP-1334: one row of a folded issue chip's subtree; `depth` is relative
@@ -1297,17 +1295,6 @@ fn event_text(
         text = text.replacen("{name}", name, 1);
     }
     Some(text)
-}
-
-fn guide_dot(guide: Option<&Value>) -> bool {
-    let Some(Value::Array(entries)) = guide else {
-        return false;
-    };
-    entries.iter().any(|entry| {
-        let text = entry.get("text").and_then(Value::as_str).unwrap_or_default();
-        let label = entry.get("label").is_some_and(|label| !label.is_null());
-        !text.trim().is_empty() || label
-    })
 }
 
 /// EXP-1306: the ONE pull request the thread's Guide speaks for (its stack
@@ -1918,9 +1905,6 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
-    tabs.push(ThreadTab::Guide {
-        dot: guide_dot(root.guide.as_ref()),
-    });
     SessionThreadView {
         root_id: root.id.clone(),
         title,
