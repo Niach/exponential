@@ -8,14 +8,20 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|settings-voice>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "chat-selection", "settings-voice"]
 
     var body: some View {
-        if kind == "app-consent" {
+        if kind == "settings-voice" {
+            // NEW-71: THE Voice settings page over the seed's rows.
+            VoiceSettingsSpecimen()
+                .preferredColorScheme(.dark)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
+        } else if kind == "app-consent" {
             // VAPP-120: the consent card over a stand-in surface.
             AppConsentSpecimens()
         } else if kind == "chat-list" || kind == "chat-selection" {

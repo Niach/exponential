@@ -4852,12 +4852,26 @@
       }
     },
     "settings-voice": {
+      "android": {
+        "file": "shots/settings-voice/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 29288,
+        "sha256": "3dfe2ccec61ff0c678ee465edad4235f47326e07b14a2eb5cea03362a492c00e"
+      },
       "desktop": {
         "file": "shots/settings-voice/desktop.webp",
         "width": 1800,
         "height": 1126,
         "bytes": 34810,
         "sha256": "1712816581edc00e64de49010de2f3d693f42162c7e32566760d1c38a391321c"
+      },
+      "ios": {
+        "file": "shots/settings-voice/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 30374,
+        "sha256": "cdbdd5bf7d079e5b3734c957f160a998c2b9abb7e78bc616eeeb961500a2af33"
       },
       "web": {
         "file": "shots/settings-voice/web.webp",

@@ -1590,9 +1590,13 @@
           "value": "voice"
         }
       },
-      "notes": {
-        "ios": "Its own screen, opened from the Voice row on the Account screen: see settings-account.",
-        "android": "Its own screen, opened from the Voice row on the Account screen: see settings-account."
+      "ios": {
+        "shot": "sg_settings-voice",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-voice",
+        "lane": "styleguide"
       }
     },
     {
