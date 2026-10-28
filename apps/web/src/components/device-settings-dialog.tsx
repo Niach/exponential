@@ -60,7 +60,6 @@ import { deviceCollection, teamCollection } from "@/lib/collections"
 import {
   agentSeed,
   agentSupportsAccountRotation,
-  agentSupportsPlanMode,
   type AgentLaunchDefaults,
   agentSupportsSubagentModel,
   agentSupportsUltracode,
@@ -108,7 +107,6 @@ interface AgentDraft {
   threadModel?: string
   effort: string
   ultracode: boolean
-  planMode: boolean
   /** EXP-1005: claude only; absent on the row = ON (the device default). */
   autoRotateAccounts: boolean
 }
@@ -474,7 +472,6 @@ export function DeviceSettingsDialog({
         threadModel?: string
         effort?: string
         ultracode?: boolean
-        planMode?: boolean
         autoRotateAccounts?: boolean
       }
     > = {}
@@ -488,7 +485,7 @@ export function DeviceSettingsDialog({
         ...(value.threadModel ? { threadModel: value.threadModel } : {}),
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
-        ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
+        // S-3: no per-device plan default (a save drops a stored one).
         // EXP-1005: claude only.
         ...(agentSupportsAccountRotation(agent)
           ? { autoRotateAccounts: value.autoRotateAccounts }
@@ -970,8 +967,6 @@ export function DeviceSettingsDialog({
               }
               ultracode={draft.ultracode}
               onUltracodeChange={(value) => patchDraft({ ultracode: value })}
-              planMode={draft.planMode}
-              onPlanModeChange={(value) => patchDraft({ planMode: value })}
               autoRotateAccounts={draft.autoRotateAccounts}
               onAutoRotateAccountsChange={(value) =>
                 patchDraft({ autoRotateAccounts: value })

@@ -41,6 +41,7 @@ public enum DomainContract {
     public static let sessionIssueSourceValues: [String] = ["user", "agent"]
     public static let messageAuthorKindValues: [String] = ["user", "agent", "system"]
     public static let conversationKindValues: [String] = ["dm", "channel", "session"]
+    public static let agentRoleValues: [String] = ["assistant", "agent"]
     public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
     public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
@@ -101,7 +102,7 @@ public enum DomainContract {
 
     public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000
-    public static let codingSessionLaunchKeys: [String] = ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "mcpServerIds", "account", "computerUse"]
+    public static let codingSessionLaunchKeys: [String] = ["agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse"]
     public static let codingSessionComputerUseCap: String = "computer-use-run"
     public static let deviceOnlineWindowMs: Int = 90000
     public static let sessionsSendTextMax: Int = 16384
@@ -247,6 +248,8 @@ public enum DomainContract {
     public static let conversationKindDm: String = "dm"
     public static let conversationKindChannel: String = "channel"
     public static let conversationKindSession: String = "session"
+    public static let agentRoleAssistant: String = "assistant"
+    public static let agentRoleAgent: String = "agent"
     public static let messageCardKindQuestion: String = "question"
     public static let messageCardKindPlan: String = "plan"
     public static let messageCardKindSubagent: String = "subagent"

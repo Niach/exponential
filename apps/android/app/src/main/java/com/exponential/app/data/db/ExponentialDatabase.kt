@@ -471,8 +471,11 @@ import androidx.room.TypeConverters
     // v102 (#EXP-1388): session_reads.archived_at (the viewer's per-chat
     //      archive). Explicit [MIGRATION_101_102] adds the nullable column
     //      and refetches only the session_reads shape.
+    // v103 (S-3): agents.role (contract agentRole, null = agent). Explicit
+    //      [MIGRATION_102_103] adds the nullable column and refetches only
+    //      the agents shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 102,
+    version = 103,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

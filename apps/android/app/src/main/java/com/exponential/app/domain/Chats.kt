@@ -42,7 +42,7 @@ object Chats {
         val FILTERS: Map<ChatFilter, String> = linkedMapOf(
             ChatFilter.All to "All",
             ChatFilter.NeedsYou to "Needs you",
-            ChatFilter.Running to "Running",
+            ChatFilter.Running to "Working",
             ChatFilter.Unread to "Unread",
         )
 
@@ -72,8 +72,10 @@ object Chats {
         val MONTHS_SHORT: List<String> =
             listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-        const val MENU_STOP = "Stop"
-        const val MENU_STOP_AND_DELETE = "Stop and delete"
+        /** S-3: the composer stop-turn's toasts (`copy.stopTurn`). */
+        const val STOP_TURN_FAILED = "Couldn't stop the turn"
+        const val STOP_TURN_NOT_DELIVERED = "The device didn't get the stop"
+
         const val MENU_DELETE = "Delete"
         const val MENU_COMPACT = "Compact conversation"
         const val MENU_NEW_CONVERSATION = "New conversation"
@@ -83,9 +85,7 @@ object Chats {
         const val CONFIRM_DELETE_BODY =
             "Its messages and sessions are deleted for everyone. Pull requests stay on GitHub."
 
-        const val TOAST_STOP_FAILED = "Couldn't stop the chat"
         const val TOAST_DELETE_FAILED = "Couldn't delete the chat"
-        const val TOAST_STOP_NOT_DELIVERED = "The device didn't get the stop"
         const val TOAST_SELECTION_FAILED = "Couldn't update every chat"
         const val TOAST_SELECTION_PARTIAL = "{n} of {m} chats couldn't be updated"
 
@@ -96,7 +96,6 @@ object Chats {
         const val SELECTION_MARK_UNREAD = "Mark unread"
         const val SELECTION_ARCHIVE = "Archive"
         const val SELECTION_UNARCHIVE = "Unarchive"
-        const val SELECTION_STOP = "Stop"
         const val SELECTION_DELETE = "Delete"
         const val SELECTION_CONFIRM_DELETE_MANY = "Delete {n} chats?"
 
@@ -104,6 +103,11 @@ object Chats {
         const val ARCHIVED_ENTRY = "Archived"
         const val ARCHIVED_TITLE = "Archived"
         const val ARCHIVED_EMPTY = "No archived chats"
+
+        /** S-3 `copy.sections`: the Chats list's headers, only while an
+         *  agent row exists. */
+        const val SECTION_AGENTS = "Agents"
+        const val SECTION_CHATS = "Chats"
 
         /** `copy.selection.count` filled. */
         fun selectionCount(n: Int): String = SELECTION_COUNT.replace("{n}", n.toString())
@@ -232,6 +236,11 @@ object Chats {
         const val ARCHIVED_GLYPH = 24
         const val BUBBLE = 66
         const val BUBBLE_RING = 3
+        /** S-3 `shell.dimOpacity`: a done chat row (whole row). */
+        const val DIM_OPACITY = 0.5f
+        /** S-3 `shell.chatLead`: a chat row's lead glyph CONCEPT (never the
+         *  brand mark). */
+        const val CHAT_LEAD = "action-chat"
     }
 
     object TestIds {
@@ -361,6 +370,9 @@ object Chats {
         val needsYou: Boolean,
         val busy: Boolean,
         val word: SessionTree.ThreadRowWord?,
+        /** S-3: the chat is DONE (every PR of the root merged and nothing
+         *  works or needs you): it stays, dimmed ([Shell.DIM_OPACITY]). */
+        val dim: Boolean = false,
     )
 
     data class ChatCounts(val needsYou: Int, val running: Int, val unread: Int) {
@@ -698,11 +710,11 @@ object Chats {
             .flatMap { group -> group.rows.filter { it.depth == 0 }.map { it to group.key } }
             .map { (row, group) ->
                 val mark = SessionTree.threadRowMarkState(row.needsYou, row.busy)
+                val states = prStates[row.sessionId].orEmpty()
                 val lead = when (mark) {
                     SessionTree.SessionState.NeedsYou -> ChatLead.NeedsYou
                     SessionTree.SessionState.Working -> ChatLead.Working
                     else -> {
-                        val states = prStates[row.sessionId].orEmpty()
                         when {
                             states.any { it == DomainContract.prStateOpen } -> ChatLead.Open
                             states.any { it == DomainContract.prStateMerged } -> ChatLead.Merged
@@ -724,6 +736,8 @@ object Chats {
                     needsYou = row.needsYou,
                     busy = row.busy,
                     word = words[row.sessionId],
+                    dim = mark == SessionTree.SessionState.Idle &&
+                        states.isNotEmpty() && states.all { it == DomainContract.prStateMerged },
                 )
             }
             .sortedWith(compareByDescending<ChatRow> { ms(it.activityAt) ?: 0L }.thenBy { it.sessionId })
@@ -753,7 +767,6 @@ object Chats {
         MarkUnread("markUnread"),
         Archive("archive"),
         Unarchive("unarchive"),
-        Stop("stop"),
         Delete("delete"),
     }
 
@@ -770,8 +783,8 @@ object Chats {
     /** #EXP-1388 (`selectionCases`): the selection bar's actions in bar
      *  order, each with the chats it acts on (selection order): Mark read
      *  when any is unread, else Mark unread (all); Archive in the list,
-     *  Unarchive on the Archived page (all); Stop while any is live and
-     *  steerable (those); Delete only when every one may be deleted (all). */
+     *  Unarchive on the Archived page (all); Delete only when every one may
+     *  be deleted (all). S-3: no Stop. */
     fun chatSelectionActions(rows: List<ChatSelectionRow>, view: ChatListView = ChatListView.List): List<ChatSelectionEntry> {
         if (rows.isEmpty()) return emptyList()
         val ids = rows.map { it.sessionId }
@@ -785,8 +798,6 @@ object Chats {
                 ids,
             ),
         )
-        val live = rows.filter { it.canSteer && it.rootStatus != DomainContract.sessionStatusEnded }
-        if (live.isNotEmpty()) out += ChatSelectionEntry(ChatSelectionAction.Stop, live.map { it.sessionId })
         if (rows.all { it.canSteer && it.canDelete }) out += ChatSelectionEntry(ChatSelectionAction.Delete, ids)
         return out
     }
@@ -820,7 +831,6 @@ object Chats {
         ChatSelectionAction.MarkUnread -> Copy.SELECTION_MARK_UNREAD
         ChatSelectionAction.Archive -> Copy.SELECTION_ARCHIVE
         ChatSelectionAction.Unarchive -> Copy.SELECTION_UNARCHIVE
-        ChatSelectionAction.Stop -> Copy.SELECTION_STOP
         ChatSelectionAction.Delete -> Copy.SELECTION_DELETE
     }
 
@@ -852,36 +862,98 @@ object Chats {
         AgentBubble(agent, if (unread) AgentRing.Unread else null)
     }
 
-    enum class ThreadMenuEntry(val wire: String) { Stop("stop"), StopAndDelete("stopAndDelete"), Delete("delete") }
+    /** S-3: an agent row pinned on top of the Chats list (`agentRowCases`). */
+    data class AgentChatRow(
+        val agentId: String,
+        /** The viewer's conversation with the agent; null = none yet. */
+        val sessionId: String?,
+        val name: String,
+        val icon: String,
+        val color: String,
+        /** The viewer's Assistant: the brand mark instead of icon/color. */
+        val assistant: Boolean,
+        val preview: ChatPreview,
+        /** [chatTimeLabel] of [activityAt]; empty without a conversation. */
+        val time: String,
+        val activityAt: String?,
+        val unreadCount: Int,
+        val needsYou: Boolean,
+        val busy: Boolean,
+    )
 
-    /** A chat row's context menu ×4 (`menuCases`): live → Stop, Stop and
-     *  delete; ended → Delete; nothing for a viewer who cannot steer it. The
-     *  delete entries need [canDelete] (the chat's starter or a team owner,
-     *  the server's `sessions.delete` rule). */
-    fun threadMenuEntries(rootStatus: String, canSteer: Boolean, canDelete: Boolean): List<ThreadMenuEntry> {
-        if (!canSteer) return emptyList()
-        return if (rootStatus == DomainContract.sessionStatusEnded) {
-            if (canDelete) listOf(ThreadMenuEntry.Delete) else emptyList()
-        } else if (canDelete) {
-            listOf(ThreadMenuEntry.Stop, ThreadMenuEntry.StopAndDelete)
-        } else {
-            listOf(ThreadMenuEntry.Stop)
+    /** S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one row
+     *  per [SessionTree.listAgents] row (that order), filtered by the chip
+     *  like a chat; none on the Archived page. */
+    fun agentChatRows(
+        agents: List<SessionTree.AgentRow>,
+        sessions: List<SessionTree.Session>,
+        messages: List<SessionTree.Message>,
+        reads: List<SessionTree.SessionRead> = emptyList(),
+        me: String?,
+        filter: ChatFilter,
+        view: ChatListView = ChatListView.List,
+        now: String,
+        utcOffsetMinutes: Int,
+    ): List<AgentChatRow> {
+        if (view == ChatListView.Archived) return emptyList()
+        return agents.map { agent ->
+            val conversation = sessions.firstOrNull { it.parentId == null && it.agentId == agent.agentId && it.userId == me }
+            val id = conversation?.id
+            var newest: String? = null
+            if (id != null) {
+                for (m in messages) {
+                    if (m.sessionId != id) continue
+                    if (m.authorKind != DomainContract.messageAuthorKindUser && m.authorKind != DomainContract.messageAuthorKindAgent) continue
+                    if ((ms(m.createdAt) ?: 0L) > (ms(newest) ?: -1L)) newest = m.createdAt
+                }
+            }
+            val activityAt = newest ?: conversation?.createdAt
+            AgentChatRow(
+                agentId = agent.agentId,
+                sessionId = id,
+                name = agent.name,
+                icon = agent.icon,
+                color = agent.color,
+                assistant = agent.assistant,
+                preview = if (id != null) chatPreview(id, messages, agent.needsYou, agent.busy) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
+                time = activityAt?.let { chatTimeLabel(it, now, utcOffsetMinutes) } ?: "",
+                activityAt = activityAt,
+                unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,
+                needsYou = agent.needsYou,
+                busy = agent.busy,
+            )
+        }.filter {
+            when (filter) {
+                ChatFilter.All -> true
+                ChatFilter.NeedsYou -> it.needsYou
+                ChatFilter.Running -> it.busy
+                ChatFilter.Unread -> it.unreadCount > 0
+            }
         }
     }
+
+    enum class ThreadMenuEntry(val wire: String) { Delete("delete") }
+
+    /** A chat row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28) no
+     *  Stop/End anywhere: Delete for a viewer who can steer the chat and may
+     *  delete it (the chat's starter or a team owner, the server's
+     *  `sessions.delete` rule, which ends what is live first); else nothing. */
+    @Suppress("UNUSED_PARAMETER")
+    fun threadMenuEntries(rootStatus: String, canSteer: Boolean, canDelete: Boolean): List<ThreadMenuEntry> =
+        if (canSteer && canDelete) listOf(ThreadMenuEntry.Delete) else emptyList()
 
     enum class AgentMenuEntry(val wire: String) {
         Compact("compact"),
         NewConversation("newConversation"),
-        Stop("stop"),
         Settings("settings"),
     }
 
     /** The agent chat's header menu (and its bubble's long-press) ×4
-     *  (`agentMenuCases`). */
+     *  (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one). */
+    @Suppress("UNUSED_PARAMETER")
     fun agentMenuEntries(busy: Boolean, isOwner: Boolean): List<AgentMenuEntry> = buildList {
         add(AgentMenuEntry.Compact)
         add(AgentMenuEntry.NewConversation)
-        if (busy) add(AgentMenuEntry.Stop)
         if (isOwner) add(AgentMenuEntry.Settings)
     }
 
@@ -893,15 +965,12 @@ object Chats {
     }
 
     fun threadMenuLabel(entry: ThreadMenuEntry): String = when (entry) {
-        ThreadMenuEntry.Stop -> Copy.MENU_STOP
-        ThreadMenuEntry.StopAndDelete -> Copy.MENU_STOP_AND_DELETE
         ThreadMenuEntry.Delete -> Copy.MENU_DELETE
     }
 
     fun agentMenuLabel(entry: AgentMenuEntry): String = when (entry) {
         AgentMenuEntry.Compact -> Copy.MENU_COMPACT
         AgentMenuEntry.NewConversation -> Copy.MENU_NEW_CONVERSATION
-        AgentMenuEntry.Stop -> Copy.MENU_STOP
         AgentMenuEntry.Settings -> Copy.MENU_SETTINGS
     }
 

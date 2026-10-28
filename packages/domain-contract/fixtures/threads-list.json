@@ -1,11 +1,11 @@
 {
-  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the thread title (session-thread.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: threadRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then the ROOT's PRs, never the word (NEW-41, owner 2026-10-22): ANY open PR, a stacked one too → pr-open emerald, else a merged one → pr-merged VIOLET on every client incl. the IDE, else no PR glyph; threadRowLeadPr(prStates) = `open` | `merged` | null, `leadCases` replay it ×4, a stacked open PR is just another `open` state) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = threadRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = threadInStack(threadPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railThreads(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every thread the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railThreads) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the thread, opens the thread), `parentId`, `rootId`, `unread`. A tree in Needs you or Running nests EVERY descendant right after its root (depth-first, the tree's creation order, depth = levels below the root) as SessionRow depth + TreeGuides (14px/level, the 3px corner tee); a child row = its session card name, its own busy/needsYou (false once ended), its own deviceId, activityAt = its updatedAt, and opens that session; Recent collapses to the root. `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; a child when its OWN newest agent message is newer than its own read; no agent message = read. Unread = a bold title ×4; threadsUnread(groups) (any depth-0 row unread) = the Threads nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's derived state for every surface that colours a thread: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `running` (any session queued or running) · `done` (every session ended and every PR of the thread merged; a thread without a PR is never done) · `stale` (nothing touched for `treeState.staleHours`) · else `idle`; `treeStateCases` replay it. A thread's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty).",
+  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (S-3: titled `copy.groups.running` 'Working'; else any non-ended session queued or BUSY, never by status) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the thread title (session-thread.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: threadRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then the ROOT's PRs, never the word (NEW-41, owner 2026-10-22): ANY open PR, a stacked one too → pr-open emerald, else a merged one → pr-merged VIOLET on every client incl. the IDE, else no PR glyph; threadRowLeadPr(prStates) = `open` | `merged` | null, `leadCases` replay it ×4, a stacked open PR is just another `open` state) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = threadRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = threadInStack(threadPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railThreads(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every thread the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railThreads) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the thread, opens the thread), `parentId`, `rootId`, `unread`. A tree in Needs you or Running nests its VISIBLE descendants right after its root (S-3 owner 2026-10-28, ONE rule `visibleChild(session, now)` ×4, shared with the thread strip's session chips: a session shows while working (queued or busy) or needs_you, or while its last activity, endedAt once ended else updatedAt, is within `recentChildMinutes` of `now` (absent now = only working/needs_you); `visibleTree` keeps every ancestor of a visible one; depth-first, the tree's creation order, depth = levels below the root), the rest fold into ONE trailing row at depth 1: sessionId `<rootId>:earlier`, parentId the root, title = `copy.earlier` (one/other, {n} = the hidden count), deviceId null, busy/needsYou/unread false, activityAt = the newest hidden updatedAt, `earlier` = the hidden count (the field exists ONLY on that row); it renders as the muted list-item row and opens the thread as SessionRow depth + TreeGuides (14px/level, the 3px corner tee); a child row = its session card name, its own busy/needsYou (false once ended), its own deviceId, activityAt = its updatedAt, and opens that session; Recent collapses to the root. `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; a child when its OWN newest agent message is newer than its own read; no agent message = read. Unread = a bold title ×4; threadsUnread(groups) (any depth-0 row unread) = the Threads nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's display state (S-3: the FOUR states of session-card.json, never running/stale) for every surface that colours a thread: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `working` (any live session queued or busy) · `done` (every session ended, or the thread has PRs and every one merged) · else `idle`; `treeStateCases` replay it. A thread's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty).",
   "copy": {
     "title": "Chats",
     "agents": "Agents",
     "groups": {
       "needs_you": "Needs you",
-      "running": "Running",
+      "running": "Working",
       "recent": "Recent"
     },
     "empty": "No sessions yet",
@@ -15,6 +15,10 @@
       "readyToMerge": "ready to merge",
       "question": "question",
       "needsInput": "needs input"
+    },
+    "earlier": {
+      "one": "1 earlier sub-session",
+      "other": "{n} earlier sub-sessions"
     }
   },
   "agentDefaults": {
@@ -297,7 +301,7 @@
         },
         {
           "key": "running",
-          "title": "Running",
+          "title": "Working",
           "rows": [
             {
               "sessionId": "b",
@@ -311,32 +315,6 @@
               "needsYou": false,
               "unread": false,
               "activityAt": "2026-10-13T08:00:00.000Z"
-            },
-            {
-              "sessionId": "h",
-              "teamId": "t-team-1",
-              "depth": 0,
-              "parentId": null,
-              "rootId": "h",
-              "title": "Untitled",
-              "deviceId": "dev-mint",
-              "busy": false,
-              "needsYou": false,
-              "unread": false,
-              "activityAt": "2026-10-13T06:10:00.000Z"
-            },
-            {
-              "sessionId": "h1",
-              "teamId": "t-team-1",
-              "depth": 1,
-              "parentId": "h",
-              "rootId": "h",
-              "title": "Untitled",
-              "deviceId": "dev-child",
-              "busy": false,
-              "needsYou": false,
-              "unread": false,
-              "activityAt": "2026-10-13T06:10:00.000Z"
             }
           ]
         },
@@ -369,6 +347,19 @@
               "needsYou": false,
               "unread": false,
               "activityAt": "2026-10-13T07:00:00.000Z"
+            },
+            {
+              "sessionId": "h",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "h",
+              "title": "Untitled",
+              "deviceId": "dev-mint",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-13T06:10:00.000Z"
             },
             {
               "sessionId": "e",
@@ -658,7 +649,7 @@
         },
         {
           "key": "running",
-          "title": "Running",
+          "title": "Working",
           "rows": [
             {
               "sessionId": "b",
@@ -672,32 +663,6 @@
               "needsYou": false,
               "unread": false,
               "activityAt": "2026-10-13T08:00:00.000Z"
-            },
-            {
-              "sessionId": "h",
-              "teamId": "t-team-1",
-              "depth": 0,
-              "parentId": null,
-              "rootId": "h",
-              "title": "Untitled",
-              "deviceId": "dev-mint",
-              "busy": false,
-              "needsYou": false,
-              "unread": false,
-              "activityAt": "2026-10-13T06:10:00.000Z"
-            },
-            {
-              "sessionId": "h1",
-              "teamId": "t-team-1",
-              "depth": 1,
-              "parentId": "h",
-              "rootId": "h",
-              "title": "Untitled",
-              "deviceId": "dev-child",
-              "busy": false,
-              "needsYou": false,
-              "unread": false,
-              "activityAt": "2026-10-13T06:10:00.000Z"
             },
             {
               "sessionId": "f",
@@ -743,6 +708,19 @@
               "needsYou": false,
               "unread": false,
               "activityAt": "2026-10-13T07:00:00.000Z"
+            },
+            {
+              "sessionId": "h",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "h",
+              "title": "Untitled",
+              "deviceId": "dev-mint",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-13T06:10:00.000Z"
             },
             {
               "sessionId": "e",
@@ -794,7 +772,7 @@
       "expected": []
     },
     {
-      "name": "EXP-1323: a running tree nests its children depth-first, Recent collapses to the root, unread follows the viewer's reads",
+      "name": "EXP-1323: a working tree nests its visible children depth-first (S-3: without `now` an idle child folds into the earlier row), Recent collapses to the root, unread follows the viewer's reads",
       "input": {
         "teamId": "t-team-1",
         "sessions": [
@@ -1060,17 +1038,18 @@
               "activityAt": "2026-10-15T10:07:00.000Z"
             },
             {
-              "sessionId": "a2",
+              "sessionId": "a:earlier",
               "teamId": "t-team-1",
               "depth": 1,
               "parentId": "a",
               "rootId": "a",
-              "title": "Lazy images",
-              "deviceId": "dev-mac",
+              "title": "1 earlier sub-session",
+              "deviceId": null,
               "busy": false,
               "needsYou": false,
-              "unread": true,
-              "activityAt": "2026-10-15T10:06:00.000Z"
+              "unread": false,
+              "activityAt": "2026-10-15T10:06:00.000Z",
+              "earlier": 1
             }
           ]
         },
@@ -1103,6 +1082,410 @@
               "needsYou": false,
               "unread": false,
               "activityAt": "2026-10-15T08:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "S-3: children show only while working or needing you or active within recentChildMinutes (ended: endedAt, else updatedAt); a working grandchild keeps its old parent; the rest fold into ONE earlier row",
+      "input": {
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Root",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:00:00.000Z",
+            "updatedAt": "2026-10-28T11:50:00.000Z",
+            "rootId": "r",
+            "id": "r"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C1",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:01:00.000Z",
+            "updatedAt": "2026-10-28T08:00:00.000Z",
+            "rootId": "r",
+            "id": "c1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "window": "weekly",
+              "resetsAt": null
+            },
+            "shared": true,
+            "title": "C2",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:02:00.000Z",
+            "updatedAt": "2026-10-28T08:00:00.000Z",
+            "rootId": "r",
+            "id": "c2"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C3",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": "2026-10-28T11:00:00.000Z",
+            "createdAt": "2026-10-28T08:03:00.000Z",
+            "updatedAt": "2026-10-28T11:00:00.000Z",
+            "rootId": "r",
+            "id": "c3"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C4",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": "2026-10-28T08:30:00.000Z",
+            "createdAt": "2026-10-28T08:04:00.000Z",
+            "updatedAt": "2026-10-28T08:30:00.000Z",
+            "rootId": "r",
+            "id": "c4"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C5",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:05:00.000Z",
+            "updatedAt": "2026-10-28T09:00:00.000Z",
+            "rootId": "r",
+            "id": "c5"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C6",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:06:00.000Z",
+            "updatedAt": "2026-10-28T11:30:00.000Z",
+            "rootId": "r",
+            "id": "c6"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C7",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": "2026-10-27T10:00:00.000Z",
+            "createdAt": "2026-10-28T08:07:00.000Z",
+            "updatedAt": "2026-10-27T10:00:00.000Z",
+            "rootId": "r",
+            "id": "c7"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "c7",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C71",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:08:00.000Z",
+            "updatedAt": "2026-10-28T08:00:00.000Z",
+            "rootId": "r",
+            "id": "c71"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C8",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": "2026-10-28T09:59:00.000Z",
+            "createdAt": "2026-10-28T08:09:00.000Z",
+            "updatedAt": "2026-10-28T09:59:00.000Z",
+            "rootId": "r",
+            "id": "c8"
+          }
+        ],
+        "sessionIssues": [],
+        "issues": [],
+        "messages": [],
+        "teamId": "t-team-1",
+        "now": "2026-10-28T12:00:00.000Z"
+      },
+      "expected": [
+        {
+          "key": "needs_you",
+          "title": "Needs you",
+          "rows": [
+            {
+              "sessionId": "r",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "r",
+              "title": "Root",
+              "deviceId": "dev-mac",
+              "busy": true,
+              "needsYou": true,
+              "unread": false,
+              "activityAt": "2026-10-28T11:50:00.000Z"
+            },
+            {
+              "sessionId": "c1",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "C1",
+              "deviceId": "dev-mac",
+              "busy": true,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T08:00:00.000Z"
+            },
+            {
+              "sessionId": "c2",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "C2",
+              "deviceId": "dev-mac",
+              "busy": false,
+              "needsYou": true,
+              "unread": false,
+              "activityAt": "2026-10-28T08:00:00.000Z"
+            },
+            {
+              "sessionId": "c3",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "C3",
+              "deviceId": "dev-mac",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T11:00:00.000Z"
+            },
+            {
+              "sessionId": "c6",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "C6",
+              "deviceId": "dev-mac",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T11:30:00.000Z"
+            },
+            {
+              "sessionId": "c7",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "C7",
+              "deviceId": "dev-mac",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-27T10:00:00.000Z"
+            },
+            {
+              "sessionId": "c71",
+              "teamId": "t-team-1",
+              "depth": 2,
+              "parentId": "c7",
+              "rootId": "r",
+              "title": "C71",
+              "deviceId": "dev-mac",
+              "busy": true,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T08:00:00.000Z"
+            },
+            {
+              "sessionId": "r:earlier",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "3 earlier sub-sessions",
+              "deviceId": null,
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T09:59:00.000Z",
+              "earlier": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "S-3: one hidden child reads the singular earlier label",
+      "input": {
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Root",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T08:00:00.000Z",
+            "updatedAt": "2026-10-28T11:50:00.000Z",
+            "rootId": "r",
+            "id": "r"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "C4",
+            "guide": null,
+            "startedAt": "2026-10-28T08:00:00.000Z",
+            "endedAt": "2026-10-28T08:30:00.000Z",
+            "createdAt": "2026-10-28T08:04:00.000Z",
+            "updatedAt": "2026-10-28T08:30:00.000Z",
+            "rootId": "r",
+            "id": "c4"
+          }
+        ],
+        "sessionIssues": [],
+        "issues": [],
+        "messages": [],
+        "teamId": "t-team-1",
+        "now": "2026-10-28T12:00:00.000Z"
+      },
+      "expected": [
+        {
+          "key": "running",
+          "title": "Working",
+          "rows": [
+            {
+              "sessionId": "r",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "r",
+              "title": "Root",
+              "deviceId": "dev-mac",
+              "busy": true,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T11:50:00.000Z"
+            },
+            {
+              "sessionId": "r:earlier",
+              "teamId": "t-team-1",
+              "depth": 1,
+              "parentId": "r",
+              "rootId": "r",
+              "title": "1 earlier sub-session",
+              "deviceId": null,
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-10-28T08:30:00.000Z",
+              "earlier": 1
             }
           ]
         }
@@ -1255,7 +1638,8 @@
           "icon": "rocket",
           "color": "#f97316",
           "busy": true,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag3",
@@ -1264,7 +1648,8 @@
           "icon": "bot",
           "color": "#6366f1",
           "busy": false,
-          "needsYou": true
+          "needsYou": true,
+          "assistant": false
         },
         {
           "agentId": "ag1",
@@ -1273,7 +1658,8 @@
           "icon": "bot",
           "color": "#22c55e",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         }
       ]
     },
@@ -1422,7 +1808,8 @@
           "icon": "bot",
           "color": "#6366f1",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag2",
@@ -1431,7 +1818,8 @@
           "icon": "rocket",
           "color": "#f97316",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag3",
@@ -1440,7 +1828,8 @@
           "icon": "bot",
           "color": "#6366f1",
           "busy": true,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         },
         {
           "agentId": "ag1",
@@ -1449,7 +1838,8 @@
           "icon": "bot",
           "color": "#22c55e",
           "busy": false,
-          "needsYou": false
+          "needsYou": false,
+          "assistant": false
         }
       ]
     },
@@ -1558,6 +1948,68 @@
         "me": "u-dana"
       },
       "expected": []
+    },
+    {
+      "name": "S-3: my Assistant first (role assistant, mine), another member's Assistant never listed",
+      "input": {
+        "agents": [
+          {
+            "id": "ag1",
+            "teamId": "t-team-1",
+            "name": "Triage",
+            "icon": "bot",
+            "color": "#22c55e",
+            "sortOrder": 0,
+            "role": "agent",
+            "ownerId": "u-x"
+          },
+          {
+            "id": "as-me",
+            "teamId": "t-team-1",
+            "name": "Assistant",
+            "icon": null,
+            "color": null,
+            "sortOrder": 9,
+            "role": "assistant",
+            "ownerId": "u-dana"
+          },
+          {
+            "id": "as-other",
+            "teamId": "t-team-1",
+            "name": "Assistant",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "role": "assistant",
+            "ownerId": "u-other"
+          }
+        ],
+        "sessions": [],
+        "teamId": "t-team-1",
+        "me": "u-dana"
+      },
+      "expected": [
+        {
+          "agentId": "as-me",
+          "teamId": "t-team-1",
+          "name": "Assistant",
+          "icon": "bot",
+          "color": "#6366f1",
+          "busy": false,
+          "needsYou": false,
+          "assistant": true
+        },
+        {
+          "agentId": "ag1",
+          "teamId": "t-team-1",
+          "name": "Triage",
+          "icon": "bot",
+          "color": "#22c55e",
+          "busy": false,
+          "needsYou": false,
+          "assistant": false
+        }
+      ]
     }
   ],
   "markCases": [
@@ -2165,9 +2617,7 @@
     "hours": 24,
     "max": 20
   },
-  "treeState": {
-    "staleHours": 24
-  },
+  "recentChildMinutes": 120,
   "recentCases": [
     {
       "name": "22 recent trees: the last 20 by activity (the 3 inside the window are among them)",
@@ -3611,7 +4061,7 @@
       "expected": "needs_you"
     },
     {
-      "name": "queued or running beats everything but needs you",
+      "name": "queued or busy = working, beats everything but needs you",
       "input": {
         "tree": [
           {
@@ -3656,7 +4106,7 @@
         "pullRequests": [],
         "now": "2026-10-20T12:00:00.000Z"
       },
-      "expected": "running"
+      "expected": "working"
     },
     {
       "name": "all ended, every PR merged = done",
@@ -3713,7 +4163,7 @@
       "expected": "done"
     },
     {
-      "name": "all ended with an open PR is not done: stale after 24 h",
+      "name": "S-3: every session ended = done (an open PR too)",
       "input": {
         "tree": [
           {
@@ -3745,10 +4195,10 @@
         ],
         "now": "2026-10-20T12:00:00.000Z"
       },
-      "expected": "stale"
+      "expected": "done"
     },
     {
-      "name": "all ended without a PR, touched today = idle",
+      "name": "S-3: every session ended without a PR = done",
       "input": {
         "tree": [
           {
@@ -3774,10 +4224,10 @@
         "pullRequests": [],
         "now": "2026-10-20T12:00:00.000Z"
       },
-      "expected": "idle"
+      "expected": "done"
     },
     {
-      "name": "an idle tree untouched for more than 24 h = stale",
+      "name": "S-3: an idle tree untouched for days is still idle (no stale)",
       "input": {
         "tree": [
           {
@@ -3803,7 +4253,7 @@
         "pullRequests": [],
         "now": "2026-10-20T12:00:00.000Z"
       },
-      "expected": "stale"
+      "expected": "idle"
     },
     {
       "name": "an idle tree touched within 24 h = idle",
@@ -3833,6 +4283,103 @@
         "now": "2026-10-20T12:00:00.000Z"
       },
       "expected": "idle"
+    },
+    {
+      "name": "S-3: status running but not busy = idle (no running concept)",
+      "input": {
+        "tree": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Old thread",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "t",
+            "rootId": "t"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-20T12:00:00.000Z"
+      },
+      "expected": "idle"
+    },
+    {
+      "name": "S-3: every PR merged and nothing works = done, the root still live",
+      "input": {
+        "tree": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Old thread",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "t",
+            "rootId": "t"
+          }
+        ],
+        "pullRequests": [
+          {
+            "id": "pr1",
+            "number": 1,
+            "state": "merged"
+          }
+        ],
+        "now": "2026-10-20T12:00:00.000Z"
+      },
+      "expected": "done"
+    },
+    {
+      "name": "S-3: an interruption is invisible: a busy flagged row works",
+      "input": {
+        "tree": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": {
+              "kind": "device_offline",
+              "window": null,
+              "resetsAt": null
+            },
+            "shared": true,
+            "title": "Old thread",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "t",
+            "rootId": "t"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-20T12:00:00.000Z"
+      },
+      "expected": "working"
     }
   ],
   "leadCases": [

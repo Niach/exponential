@@ -10,7 +10,6 @@ import {
   agentEffortValues,
   agentModelValues,
   agentSupportsAccountRotation,
-  agentSupportsPlanMode,
   agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
@@ -87,8 +86,6 @@ export function effortLabel(value: string): string {
 interface LaunchToggleProps {
   ultracode: boolean
   onUltracodeChange: (value: boolean) => void
-  planMode: boolean
-  onPlanModeChange: (value: boolean) => void
   /** EXP-1005: the device-settings toggle only — absent in the launch
    * composer, which never shows it. Start every run on the login with the
    * most headroom and move a rate-limited run to another one between turns. */
@@ -244,14 +241,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           label="Ultracode"
           checked={toggles.ultracode}
           onCheckedChange={toggles.onUltracodeChange}
-        />
-      )}
-      {toggles && agentSupportsPlanMode(agent) && (
-        <GlassToggleRow
-          id={`${idPrefix}-plan-mode`}
-          label="Plan mode"
-          checked={toggles.planMode}
-          onCheckedChange={toggles.onPlanModeChange}
         />
       )}
       {toggles &&

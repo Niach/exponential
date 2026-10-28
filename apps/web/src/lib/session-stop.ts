@@ -36,7 +36,7 @@ export function onStopRetraction(
  *  queue, its next `queue` frame repaints the strip — the text must not sit
  *  in a field too, or it is sent twice) and rethrows. Thread 58cb32df
  *  (chats.json STOP): `delivered === false` (the relay reached no device)
- *  toasts `copy.toasts.stopNotDelivered`. */
+ *  toasts `copy.stopTurn.notDelivered`. */
 export async function stopSessionTurn(
   sessionId: string,
   opts?: Parameters<typeof trpc.sessions.stop.mutate>[1]
@@ -55,7 +55,7 @@ export async function stopSessionTurn(
     if (tookQueue) retractHeld(sessionId, store, held, draftBefore)
     throw error
   }
-  if (!delivered) toast.error(CHATS_COPY.toasts.stopNotDelivered)
+  if (!delivered) toast.error(CHATS_COPY.stopTurn.notDelivered)
   return { delivered }
 }
 

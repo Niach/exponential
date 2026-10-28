@@ -32,6 +32,7 @@ export function BoardIdentityRow({
   disabled,
   invalid,
   placeholder = `Name`,
+  lead,
 }: {
   name: string
   onNameChange: (value: string) => void
@@ -46,6 +47,9 @@ export function BoardIdentityRow({
   invalid?: boolean
   /** The name field's hint (EXP-1293: an agent says `Agent name`). */
   placeholder?: string
+  /** S-3: drawn INSTEAD of the icon + colour pickers (the Assistant's
+   *  brand mark: its identity is the name only). */
+  lead?: React.ReactNode
 }) {
   // Two board forms can share a document (the create dialog opens from the
   // settings nav while a board's settings page is mounted), so the control
@@ -53,19 +57,23 @@ export function BoardIdentityRow({
   const uid = useId()
   return (
     <div className="flex items-center gap-2 px-4 py-3">
-      <IconPicker
-        id={`${uid}-icon`}
-        value={icon}
-        onChange={(next) => onIconChange(next as BoardIcon)}
-        color={color}
-        disabled={disabled}
-      />
-      <ColorPicker
-        id={`${uid}-color`}
-        value={color}
-        onChange={onColorChange}
-        disabled={disabled}
-      />
+      {lead ?? (
+        <>
+          <IconPicker
+            id={`${uid}-icon`}
+            value={icon}
+            onChange={(next) => onIconChange(next as BoardIcon)}
+            color={color}
+            disabled={disabled}
+          />
+          <ColorPicker
+            id={`${uid}-color`}
+            value={color}
+            onChange={onColorChange}
+            disabled={disabled}
+          />
+        </>
+      )}
       <Input
         id={`${uid}-name`}
         aria-label="Name"

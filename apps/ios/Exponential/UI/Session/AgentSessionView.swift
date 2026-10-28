@@ -102,7 +102,8 @@ struct AgentSessionScreen: View {
 /// rows, collapsible subagent runs, question cards. NO terminal rendering.
 ///
 /// The header is the back button, a back row naming the THREAD (its root,
-/// EXP-1310) over the session's name, and Stop (`sessions.stop`); the composer box sends a `messages` row
+/// EXP-1310) over the session's name (S-3: no Stop; the composer's
+/// stop-turn is the one); the composer box sends a `messages` row
 /// (`sessions.send({sessionId})`). The relay stays the LIVE layer (streaming
 /// text, tool lines, usage). Read-only for a viewer who may not post (a
 /// teammate's session on a private device).
@@ -111,8 +112,7 @@ struct AgentSessionView: View {
     /// The row the screen opened on — the model observes it from there on.
     let session: SessionEntity
     /// EXP-1343: a page of the thread screen — no header of its own (the
-    /// thread's band + strip are the ONE header; its Stop rides the thread
-    /// header's trailing slot through `onModel`).
+    /// thread's band + strip are the ONE header).
     var embedded = false
     /// EXP-1343: the claimed model, handed to the host (nil once the page
     /// left), keyed by this session's id.
@@ -171,8 +171,6 @@ struct AgentSessionView: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
-    /// EXP-1310: the Stop confirm (`Prompts.StopRun`, ×4 with Android).
-    @State private var stopConfirm = false
     /// EXP-1280: this session's OWN tool-posted cards (`exponential_plan_propose`
     /// / `exponential_sessions_ask`: a `plan` / `question` message with no
     /// mirrored ACP ask) — the relay has no open ask for them, so they answer
@@ -189,9 +187,6 @@ struct AgentSessionView: View {
     @State private var toolAnsweringId: String?
     /// N-12: THE Dock's open sheet (a card id).
     @State private var dockOpenId: String?
-    /// N-12: the Plan switch's pick, shown until the relay's `config_state`
-    /// agrees (`sessions.configure`).
-    @State private var planPick: Bool?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -276,7 +271,6 @@ struct AgentSessionView: View {
         // front opens its sheet; what already waited (the relay's history
         // replay, the synced cards) stays collapsed.
         .dockAutoOpen(rows, ready: model.phase == .live) { dockOpenId = $0 }
-        .onChange(of: model.planModeActive) { _, _ in planPick = nil }
         // EXP-1162: the bottom edge strip behind the band — not behind an
         // open composer card, which is opaque and rides the keyboard.
         // EXP-1256 (D15): in the page's own ground — no tint, no blur.
@@ -287,9 +281,7 @@ struct AgentSessionView: View {
 
     /// The nav bar: the system back button, a two-line title (EXP-1310, web
     /// `session-header`, Android `SessionHeaderBar`): the back row naming
-    /// the THREAD over the session's name; and Stop while the session is
-    /// live and this viewer may stop it (EXP-942: a NATIVE bar button, not a
-    /// glass pill — the bar wraps its items in its own capsule).
+    /// the THREAD over the session's name (S-3: no Stop).
     @ViewBuilder
     private func withChrome(_ content: some View) -> some View {
         if embedded {
@@ -305,21 +297,6 @@ struct AgentSessionView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) { headerTitle }
-                // Always mounted (EXP-942: an action-edge item that comes and
-                // goes sometimes failed to reappear); draws nothing while
-                // there is nothing to stop.
-                ToolbarItem(placement: .topBarTrailing) { stopButton }
-            }
-            // EXP-240: the confirm on a zero-size node of its own.
-            .background {
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .allowsHitTesting(false)
-                    .glassAlert(isPresented: $stopConfirm) {
-                        GlassAlert(prompt: Prompts.StopRun.copy(), handlers: [
-                            "stop": { model?.stop() },
-                        ])
-                    }
             }
     }
 
@@ -350,21 +327,6 @@ struct AgentSessionView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .accessibilityIdentifier("session-title")
-        }
-    }
-
-    /// The ending verb is the word "Stop" on every client — it stops the
-    /// session (`sessions.stop`), confirmed first (`Prompts.StopRun`).
-    @ViewBuilder
-    private var stopButton: some View {
-        if let model, model.canStop {
-            // Text, not a Label: a bar item collapses a Label to its icon.
-            Button(role: .destructive) { stopConfirm = true } label: {
-                Text("Stop").fontWeight(.medium)
-            }
-            .tint(DesignTokens.Semantic.red)
-            .accessibilityLabel("Stop the session")
-            .accessibilityIdentifier("session-stop")
         }
     }
 
@@ -406,7 +368,11 @@ struct AgentSessionView: View {
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.stopError) { _, message in
                 guard let message else { return }
-                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: message)
+                toaster.error(Chats.Copy.StopTurn.failed, description: message)
+            }
+            .onChange(of: model?.stopNotDeliveredAt) { _, at in
+                guard at != nil else { return }
+                toaster.warning(Chats.Copy.StopTurn.notDelivered)
             }
             .onChange(of: model?.sendError) { _, message in
                 guard let message else { return }
@@ -544,17 +510,6 @@ struct AgentSessionView: View {
         )
     }
 
-    /// EXP-550: the host machine is asleep and the session is parked on it —
-    /// the screen says paused (grey), not "Connecting…" forever.
-    private var hostPaused: Bool {
-        guard model?.hostDeviceOffline == true else { return false }
-        switch model?.phase {
-        case .starting, .connecting, .idle, .none: return true
-        case let .closed(_, reconnecting): return reconnecting
-        default: return false
-        }
-    }
-
     /// EXP-549: the CURRENT machine label off the synced devices row.
     private var hostLabel: String {
         model?.hostDevice.displayLabel ?? SessionHostDevice(label: nil, online: nil).displayLabel
@@ -589,11 +544,6 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
-        } else if model.feed.isEmpty, hostPaused {
-            // EXP-550: the machine hosting this session is asleep. The session
-            // is NOT over — it resumes when the machine comes back.
-            hostOfflineState
-                .frame(maxHeight: .infinity)
         } else if model.feed.isEmpty,
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
@@ -1521,19 +1471,6 @@ struct AgentSessionView: View {
         return model.phase == .live && !model.sessionEnded
     }
 
-    // MARK: - Status banners (feed retained above)
-
-
-    /// EXP-550: the "your machine is asleep" empty state — the same glyph the
-    /// machines list draws for an offline device (`ui-device-offline`).
-    private var hostOfflineState: some View {
-        EmptyState(
-            title: "\(hostLabel) is offline",
-            description: "The agent is paused on that machine and continues when it comes back online.",
-            icon: AppIcons.uiDeviceOffline
-        )
-    }
-
     // MARK: - Account switch (EXP-849)
 
     /// EXP-849: "Switch account" — THE account picker the composer uses,
@@ -1805,7 +1742,7 @@ struct AgentSessionView: View {
     // MARK: - Composer card
 
     /// EXP-1295: THE session composer box (`SessionComposerCard`) with the
-    /// session's own controls: the plan chip, the model pill, the usage ring
+    /// session's own controls: the "+" Model row (S-3), the usage ring
     /// (EXP-893), the `/` keys (EXP-724) and Stop in the send slot.
     private func composerCard(_ model: AgentSessionModel) -> some View {
         // EXP-790: an EMPTY field while the agent works offers Stop (the
@@ -1818,20 +1755,16 @@ struct AgentSessionView: View {
             // the card's own inline field.
             placeholder: model.composerPlaceholder,
             controls: SessionComposerFooter.Controls(
-                planModeActive: model.planModeActive,
                 modelValue: model.composerModelValue(),
                 agent: model.catalogAgent,
                 onPickModel: { alias in sendModelSwitch(model, alias) },
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
                 onUsage: { showUsageSheet = true },
-                // An ended row takes no `/model`: the pin is a label.
+                // An ended row takes no `/model` (no Model row in the "+").
                 ended: model.session?.isLive == false,
-                planModeFallback: model.sessionConfig == nil && model.session?.planMode == true,
-                // EXP-1252: the Device pin before Model.
-                devicePin: model.devicePin,
-                // N-12: THE Plan switch in the card's row.
-                plan: planBinding(model)
+                // S-3: the "+" Issue page searches the session's team.
+                teamId: model.session?.teamId
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits
@@ -1859,33 +1792,6 @@ struct AgentSessionView: View {
         .onChange(of: model.draftText) { _, _ in
             slashHighlight = 0
         }
-    }
-
-    /// N-12: THE Plan switch (`sessions.configure`, live mid-run); none on
-    /// an agent without plan mode or an ended row.
-    private func planBinding(_ model: AgentSessionModel) -> Binding<Bool>? {
-        let row = model.session ?? session
-        guard row.isLive, LaunchVocabulary.supportsPlanMode(model.catalogAgent) else { return nil }
-        return Binding(
-            get: { planPick ?? (model.planModeActive || (model.sessionConfig == nil && row.planMode == true)) },
-            set: { on in
-                planPick = on
-                let api = deps.sessionsApi
-                let accountId = accountId
-                let sessionId = session.id
-                Task {
-                    do {
-                        try await api.configure(accountId: accountId, SessionConfigureInput(sessionId: sessionId, planMode: on))
-                    } catch {
-                        planPick = nil
-                        toaster.error(
-                            FeedbackStates.Errors.title(verb: "change", thing: "the session"),
-                            description: error.userFacingMessage
-                        )
-                    }
-                }
-            }
-        )
     }
 
     /// EXP-877: a model switch is a PLAIN MESSAGE — `/model <alias>` — the
@@ -2074,6 +1980,9 @@ struct UserMessageBubble: View {
     /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
     /// at the END of the caption line (`sessions.unqueue`); nil = no X.
     var onRemove: (() -> Void)? = nil
+    /// The free leading gap (a chat's bubbles: `ChatBubbleMetrics
+    /// .personLeadingGap`, max 80% of the column).
+    var leadingGap: CGFloat = 32
 
     @State private var expanded = false
 
@@ -2106,7 +2015,7 @@ struct UserMessageBubble: View {
         // the fold — which then hid the images the fold was measuring.
         let clampable = isClampable(hasImages ? parsed.text : text)
         return HStack {
-            Spacer(minLength: 32)
+            Spacer(minLength: leadingGap)
             VStack(alignment: .leading, spacing: 4) {
                 Group {
                     if !hasImages {

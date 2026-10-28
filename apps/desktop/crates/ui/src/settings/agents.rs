@@ -92,10 +92,9 @@ pub struct AgentsPane {
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
     /// Per-agent run defaults (the shared dialog's prefill — EXP-206: one
-    /// set for single- and multi-issue sessions alike): Claude plan mode ON out of the
-    /// box, everything else OFF.
+    /// set for single- and multi-issue sessions alike): OFF out of the box
+    /// (S-3: no plan-mode default).
     claude_ultracode: bool,
-    claude_plan_mode: bool,
     /// The hub settings the controls were last synced from (the autosave
     /// baseline: a control rewrite the pane itself performed drafts back to
     /// it and writes nothing).
@@ -204,7 +203,6 @@ impl AgentsPane {
             subagent_model_select,
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
-            claude_plan_mode: defaults.claude_plan_mode,
             synced: None,
             path_save: None,
             save_error: None,
@@ -269,7 +267,6 @@ impl AgentsPane {
             });
         }
         self.claude_ultracode = settings.claude_ultracode;
-        self.claude_plan_mode = settings.claude_plan_mode;
         // Open the Agents card on the saved default agent (first sync only —
         // later saves must not yank the tab from under the user).
         if self.synced.is_none() {
@@ -306,7 +303,6 @@ impl AgentsPane {
             claude_thread_model: selected(&self.thread_model_select, cx),
             codex_thread_model: selected(&self.codex_thread_model_select, cx),
             claude_ultracode: self.claude_ultracode,
-            claude_plan_mode: self.claude_plan_mode,
             ..defaults
         };
         Self::overlay_owned(&mut drafted, &owned);
@@ -479,15 +475,6 @@ impl AgentsPane {
                     self.claude_ultracode,
                     |this: &mut Self, on, cx| {
                         this.claude_ultracode = on;
-                        this.save(cx);
-                    },
-                ))
-                .toggle(DefaultsToggle::new(
-                    "claude-plan-mode",
-                    "Plan mode",
-                    self.claude_plan_mode,
-                    |this: &mut Self, on, cx| {
-                        this.claude_plan_mode = on;
                         this.save(cx);
                     },
                 ));

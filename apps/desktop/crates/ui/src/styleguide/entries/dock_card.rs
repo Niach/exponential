@@ -66,23 +66,19 @@ pub(super) fn sources() -> Vec<DockSource> {
 }
 
 /// EXP-1374: the session's own state cards (`session-card.json` `banner`,
-/// the web entry's `STATE_ROWS`): interrupted (its device went offline),
-/// background tasks and (#EXP-1405) queued, waiting for its device.
+/// the web entry's `STATE_ROWS`): background tasks and (#EXP-1405) queued,
+/// waiting for its device. S-3: no interrupted card.
 pub(super) fn state_rows() -> Vec<DockRow> {
-    use domain::session_tree::{SessionState, SESSION_CARD};
-    let banner = |state: SessionState, text: &str| DockSource::Banner {
-        id: state.as_str().into(),
-        icon: state.icon().into(),
-        label: state.word().into(),
-        text: text.into(),
+    use domain::session_tree::{SessionBannerId, SESSION_CARD};
+    let banner = |id: SessionBannerId, key: &str| DockSource::Banner {
+        id: key.into(),
+        icon: SESSION_CARD.banner_icons.get(id).into(),
+        label: SESSION_CARD.banner_labels.get(id).into(),
+        text: SESSION_CARD.banner.get(id).into(),
         tone: DockTint::Muted,
         action: None,
     };
-    dock_rows(&[
-        banner(SessionState::Interrupted, &SESSION_CARD.banner.interrupted["device_offline"]),
-        banner(SessionState::Background, &SESSION_CARD.banner.background),
-        banner(SessionState::Queued, &SESSION_CARD.banner.queued),
-    ])
+    dock_rows(&[banner(SessionBannerId::Background, "background"), banner(SessionBannerId::Queued, "queued")])
 }
 
 fn switch_button(key: &str) -> AnyElement {

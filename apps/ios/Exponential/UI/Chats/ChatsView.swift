@@ -6,7 +6,7 @@ import SwiftUI
 /// Thread 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
 /// page header (#EXP-1384 `shell.header`: the large title "Chats", the
 /// native search and INBOX circles), the team agents as BUBBLES, the filter chips All · Needs you ·
-/// Running · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
+/// Working · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
 /// chats (`Chats.chatList` over `partitionThreads`: no bands, no nesting,
 /// newest activity first). A row opens the chat; a bubble's hold its agent
 /// menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
@@ -102,6 +102,13 @@ struct ChatsView: View {
                 .environment(\.accountId, accountId)
         }
         .task(id: teamState.activeTeamId) { await resolveOwner() }
+        // S-3: the viewer's Assistant exists once the list mounts (once per
+        // team per app run).
+        .task(id: "\(accountId)/\(teamState.activeTeamId ?? "")") {
+            if view == .list, let teamId = teamState.activeTeamId {
+                await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)
+            }
+        }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
@@ -135,10 +142,30 @@ struct ChatsView: View {
         )
     }
 
+    /// The active team's agents in `listAgents` order (the viewer's
+    /// Assistant first; another member's never).
+    private var teamAgents: [AgentRow] {
+        lists.agents.filter { $0.teamId == teamState.activeTeamId }
+    }
+
+    /// S-3: the AGENTS section pinned on top (`agentChatRows`).
+    private var agentRows: [Chats.AgentChatRow] {
+        Chats.agentChatRows(
+            agents: teamAgents,
+            sessions: lists.sessions,
+            messages: lists.chatMessages,
+            reads: lists.reads,
+            me: deps.auth.userId,
+            filter: filter,
+            view: view,
+            now: Self.iso.string(from: now),
+            utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
+        )
+    }
+
     private var bubbles: [AgentBubbleItem] {
-        let agents = lists.agents.filter { $0.teamId == teamState.activeTeamId }
-        return Chats.agentBubbles(
-            agents: agents,
+        Chats.agentBubbles(
+            agents: teamAgents,
             sessions: lists.sessions,
             messages: lists.chatMessages,
             reads: lists.reads,
@@ -150,7 +177,8 @@ struct ChatsView: View {
                 icon: BoardTypeDisplay.iconName(for: bubble.agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
                 color: Color(hex: bubble.agent.color)
                     ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white,
-                ring: bubble.ring == .needsYou ? .needsYou : bubble.ring == .unread ? .unread : .none
+                ring: bubble.ring == .needsYou ? .needsYou : bubble.ring == .unread ? .unread : .none,
+                assistant: bubble.agent.assistant
             )
         }
     }
@@ -159,6 +187,8 @@ struct ChatsView: View {
     private var content: some View {
         let list = list
         let bubbles = view == .archived ? [] : bubbles
+        let agentRows = agentRows
+        let archivedEntry = view == .list && list.archived > 0 && filter == .all
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if !bubbles.isEmpty {
@@ -173,16 +203,29 @@ struct ChatsView: View {
                 }
                 filterChips(list.counts)
                     .padding(.bottom, 4)
+                // S-3: the agent rows pinned on top, the section headers only
+                // while one exists.
+                if !agentRows.isEmpty {
+                    GlassSectionHeader(Chats.Copy.Sections.agents)
+                        .padding(.top, 8)
+                    ForEach(agentRows) { row in
+                        agentChatRow(row)
+                    }
+                    if !list.rows.isEmpty || archivedEntry {
+                        GlassSectionHeader(Chats.Copy.Sections.chats)
+                            .padding(.top, 16)
+                    }
+                }
                 // #EXP-1388 THE ARCHIVED ENTRY: first while archived > 0 and
                 // the filter is All.
-                if view == .list, list.archived > 0, filter == .all {
+                if archivedEntry {
                     ChatArchivedRow(count: list.archived)
                         .glassLongPress(enabled: false, onTap: {
                             guard !selectionActive else { return }
                             pushRoute(.archivedChats(accountId: accountId))
                         }, onHold: {})
                 }
-                if list.rows.isEmpty {
+                if list.rows.isEmpty, agentRows.isEmpty {
                     Group {
                         if view == .archived {
                             EmptyState(title: Chats.Copy.Archived.empty, icon: AppIcons.uiArchive)
@@ -222,19 +265,49 @@ struct ChatsView: View {
         .padding(.horizontal, -16)
     }
 
-    private func chatRow(_ row: Chats.ChatRow) -> some View {
-        let label: String? = switch row.preview.kind {
+    /// The preview's leading `Question:` / `Plan:` label.
+    private func previewLabel(_ kind: Chats.ChatPreviewKind) -> String? {
+        let label: String? = switch kind {
         case .question: Chats.Copy.Preview.question.components(separatedBy: "{text}").first
-        case .plan: Chats.Copy.Preview.plan.components(separatedBy: "{text}").first?
-            .trimmingCharacters(in: .whitespaces)
+        case .plan: Chats.Copy.Preview.plan.components(separatedBy: "{text}").first
         default: nil
         }
+        return label?.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// S-3: an agent row = a chat row whose lead disc holds the agent's
+    /// avatar (the Assistant = the brand mark), the viewer's conversation's
+    /// preview / time / unread; never dim, never selectable. A tap opens
+    /// the conversation, a hold the agent menu.
+    private func agentChatRow(_ row: Chats.AgentChatRow) -> some View {
+        ChatRowView(
+            title: row.name,
+            time: row.time,
+            preview: row.preview.text,
+            previewLabel: previewLabel(row.preview.kind),
+            previewItalic: row.preview.kind == .working,
+            needsYou: row.needsYou,
+            unreadCount: row.unreadCount
+        ) {
+            AgentChatLead(row: row)
+        }
+        .glassLongPress(onTap: {
+            guard !selectionActive else { return }
+            pushRoute(.agentChannel(accountId: accountId, agentId: row.agentId))
+        }, onHold: {
+            guard !selectionActive else { return }
+            openAgentMenu(row.agentId)
+        })
+        .accessibilityIdentifier(Chats.TestIds.chatRow)
+    }
+
+    private func chatRow(_ row: Chats.ChatRow) -> some View {
         let selected = selectionActive && selectedIds.contains(row.sessionId)
         return ChatRowView(
             title: row.title,
             time: row.time,
             preview: row.preview.text,
-            previewLabel: label?.trimmingCharacters(in: .whitespaces),
+            previewLabel: previewLabel(row.preview.kind),
             previewItalic: row.preview.kind == .working,
             needsYou: row.needsYou,
             unreadCount: row.unreadCount,
@@ -244,6 +317,8 @@ struct ChatsView: View {
         ) {
             ChatLeadMark(lead: row.lead, cli: lists.clis[row.sessionId])
         }
+        // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed.
+        .opacity(row.dim ? Chats.Shell.dimOpacity : 1)
         .chatSelectedTint(selected)
         // The issue row's tap + long-press (`bulkSelectable`): the same hold,
         // the release never toggles the row back out, ONE haptic (the list's).
@@ -342,19 +417,13 @@ struct ChatsView: View {
         guard let pick = pendingPick else { return }
         pendingPick = nil
         switch pick.entry {
-        case .thread(.stop):
-            actions.stop(rootId: pick.target.id)
-        case .thread(.stopAndDelete), .thread(.delete):
+        case .thread(.delete):
             deleteTarget = pick.target.id
         case let .agent(entry):
             let agentId = pick.target.id
             switch entry {
             case .compact, .newConversation:
                 actions.sendToAgent(agentId: agentId, entry: entry)
-            case .stop:
-                if let conversation = lists.agentConversations[agentId] {
-                    actions.interrupt(sessionId: conversation)
-                }
             case .settings:
                 if let teamId = teamState.activeTeamId {
                     agentSettings = AgentSettingsTarget(teamId: teamId, agentId: agentId)
@@ -395,24 +464,24 @@ private struct AgentSettingsTarget: Hashable, Identifiable {
     var id: String { agentId }
 }
 
-/// A chat row's lead in its 52pt disc (`lead`): needs you = the brand mark
-/// with the amber badge, working = the working mark, else the root's PR
-/// glyph (open emerald, merged violet), else the bare mark.
+/// A chat row's lead in its 52pt disc (`lead`): needs you = the chat glyph
+/// (`shell.chatLead`) with the amber badge, working = the working mark, else
+/// the root's PR glyph (open emerald, merged violet), else the bare chat
+/// glyph. S-3: never the brand mark (that is the Assistant's avatar now).
 struct ChatLeadMark: View {
     let lead: Chats.ChatLead
     var cli: String?
 
+    static var chatGlyph: String {
+        AppIcons.conceptOrName(Chats.Shell.chatLead) ?? AppIcons.actionChat
+    }
+
     var body: some View {
         switch lead {
         case .needsYou:
-            BeatingAgentMark(agent: cli, beating: false)
-                .frame(width: 26, height: 26)
-                .overlay(alignment: .topTrailing) {
-                    Circle()
-                        .fill(DesignTokens.Semantic.yellow)
-                        .frame(width: 10, height: 10)
-                        .offset(x: 4, y: -4)
-                }
+            AppIcon(Self.chatGlyph, size: 24)
+                .foregroundStyle(.white)
+                .needsYouBadge()
         case .working:
             AgentWorkingMark(agent: cli)
                 .frame(width: 22, height: 22)
@@ -423,8 +492,48 @@ struct ChatLeadMark: View {
             AppIcon(AppIcons.prMerged, size: 24)
                 .foregroundStyle(DesignTokens.Avatar.violet)
         case .waiting:
-            BeatingAgentMark(agent: cli, beating: false)
-                .frame(width: 24, height: 24)
+            AppIcon(Self.chatGlyph, size: 24)
+                .foregroundStyle(.white)
+        }
+    }
+}
+
+/// S-3: an agent row's lead = the agent's AVATAR (the Assistant = the
+/// Exponential brand mark in the foreground colour, never its stored
+/// icon/colour; an agent = its icon in its colour), the amber badge while
+/// it needs the viewer.
+struct AgentChatLead: View {
+    let row: Chats.AgentChatRow
+
+    var body: some View {
+        Group {
+            if row.assistant {
+                ExpLogoMark(size: 26, color: .white)
+            } else {
+                AppIcon(
+                    BoardTypeDisplay.iconName(for: row.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+                    size: 26,
+                    weight: .medium
+                )
+                .foregroundStyle(
+                    Color(hex: row.color) ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
+                )
+            }
+        }
+        .needsYouBadge(row.needsYou)
+    }
+}
+
+private extension View {
+    /// The amber needs-you badge on a lead's top-trailing corner.
+    func needsYouBadge(_ shown: Bool = true) -> some View {
+        overlay(alignment: .topTrailing) {
+            if shown {
+                Circle()
+                    .fill(DesignTokens.Semantic.yellow)
+                    .frame(width: 10, height: 10)
+                    .offset(x: 4, y: -4)
+            }
         }
     }
 }

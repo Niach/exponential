@@ -129,6 +129,13 @@ fn child_row_lead(session_id: &str, busy: bool, needs_you: bool, cx: &App) -> gp
     }
 }
 
+/// S-3: the fold row's lead = the root agent's mark in the done state (web
+/// `threads-list` `markState="ended"`).
+fn fold_row_lead(root_id: &str, cx: &App) -> gpui::AnyElement {
+    let agent = session_data::session(root_id, cx).and_then(|root| crate::run_rows::run_agent(root.cli.as_deref()));
+    crate::run_rows::run_mark(agent, domain::session_tree::SessionState::Done, cx).into_any_element()
+}
+
 /// EXP-1318: a thread row's trailing DEVICE ICON — the root session's
 /// device resolved against the synced `devices` rows, its pick through the
 /// device-icon concept map (the Devices page's glyph), the device's name as
@@ -219,25 +226,31 @@ fn thread_list_row(
     cx: &App,
 ) -> gpui::AnyElement {
     // EXP-1323: a nested child = its own session's mark, no word; it
-    // opens that session (a thread row opens the thread).
-    let child = row.depth > 0;
-    let lead = if child {
+    // opens that session (a thread row opens the thread). S-3: the fold row
+    // (`<root>:earlier`) = the muted row with the root's done mark; it opens
+    // the thread.
+    let fold = row.earlier.is_some();
+    let child = row.depth > 0 && !fold;
+    let lead = if fold {
+        fold_row_lead(&row.root_id, cx)
+    } else if child {
         child_row_lead(&row.session_id, row.busy, row.needs_you, cx)
     } else {
         thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx)
     };
-    let word = (!child)
+    let word = (!child && !fold)
         .then(|| thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls))
         .flatten();
     let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
     let trailing = thread_row_trailing(word, device, cx);
-    let session_id = row.session_id.clone();
+    let session_id = if fold { row.root_id.clone() } else { row.session_id.clone() };
     let element = pr_row(
         PrRowSpec {
             lead: Some(lead),
             trailing,
             guides,
             strong: row.unread,
+            muted: fold,
             on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                 let session_id = session_id.clone();
                 let screen = if child {
@@ -254,7 +267,7 @@ fn thread_list_row(
         },
         cx,
     );
-    if child {
+    if child || fold {
         return element;
     }
     chat_row_menu(&row.session_id, element, cx)
@@ -525,6 +538,10 @@ impl Render for ThreadsView {
         use gpui::StatefulInteractiveElement as _;
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
+        // S-3: the viewer's Assistant is created on first use.
+        if let Some(team_id) = active_team_id(&self.nav, cx) {
+            session_data::ensure_assistant(&team_id, cx);
+        }
         let model = self.model(cx);
         let filter = self.filter;
         let view_kind = self.view;
@@ -594,8 +611,53 @@ impl Render for ThreadsView {
                     })
                     .into_any_element()
                 });
+            // S-3: the AGENT rows pinned on top (the chip filters them like
+            // a chat; none on the Archived page), under section headers
+            // only while one exists.
+            let agent_rows: Vec<&domain::chats::AgentChatRow> = match view_kind {
+                ChatListView::Archived => Vec::new(),
+                ChatListView::List => model
+                    .agent_rows
+                    .iter()
+                    .filter(|row| match filter {
+                        ChatFilter::All => true,
+                        ChatFilter::NeedsYou => row.needs_you,
+                        ChatFilter::Running => row.busy,
+                        ChatFilter::Unread => row.unread_count > 0,
+                    })
+                    .collect(),
+            };
+            let agents_section = (!agent_rows.is_empty()).then(|| {
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .child(crate::chat_list::chat_section_header(&CHATS.copy.sections.agents, cx))
+                    .children(agent_rows.iter().map(|row| {
+                        let open_id = row.agent_id.clone();
+                        let menu_id = row.agent_id.clone();
+                        use crate::controls::PointerContextMenuExt as _;
+                        use gpui::StatefulInteractiveElement as _;
+                        crate::chat_list::chat_selectable(
+                            SharedString::from(format!("{}-agent-{}", CHATS.test_ids.chat_row, row.agent_id)),
+                            &row.agent_id,
+                            None,
+                            |_, _, _| {},
+                            crate::chat_list::agent_chat_row(row, cx),
+                            cx,
+                        )
+                        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                            crate::navigation::navigate(window, cx, Screen::Agent { agent_id: open_id.clone() });
+                        })
+                        .pointer_context_menu(move |menu, _, cx| {
+                            crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
+                        })
+                        .into_any_element()
+                    }))
+                    .child(crate::chat_list::chat_section_header(&CHATS.copy.sections.chats, cx))
+                    .into_any_element()
+            });
             // The empty state for an empty filter too (web `ChatList`).
-            let list = if rows.is_empty() && archived_entry.is_none() {
+            let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() {
                 let (icon, copy): (Icon, SharedString) = match view_kind {
                     ChatListView::Archived => (Icon::new(registry::UI_ARCHIVE), CHATS.copy.archived.empty.clone().into()),
                     ChatListView::List => (Icon::new(registry::NAV_THREADS), crate::empty_state_copy::THREADS.into()),
@@ -605,6 +667,7 @@ impl Render for ThreadsView {
                 v_flex()
                     .w_full()
                     .min_w_0()
+                    .children(agents_section)
                     .children(archived_entry)
                     .children(rows.iter().map(|row| {
                         let selected = self.selected.contains(&row.session_id);

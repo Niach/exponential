@@ -273,16 +273,20 @@ pub(crate) enum SettingsSection {
 }
 
 struct NavItem {
+    /// The page id in `settings-nav.json` (`nav.groups[].items`, `rows`,
+    /// `pages`).
+    id: &'static str,
     label: &'static str,
     section: SettingsSection,
     /// EXP-630: sub-pages folded under this entry (Issues → Labels,
-    /// Statuses) — the web nav's `children`.
+    /// Statuses) — the fixture's `nav.children`.
     children: &'static [NavItem],
 }
 
 impl NavItem {
-    const fn leaf(label: &'static str, section: SettingsSection) -> Self {
+    const fn leaf(id: &'static str, label: &'static str, section: SettingsSection) -> Self {
         Self {
+            id,
             label,
             section,
             children: &[],
@@ -300,101 +304,117 @@ fn flat_nav_items() -> impl Iterator<Item = &'static NavItem> {
 }
 
 struct NavGroup {
+    /// The fixture's group id (`team`, `boards`, `agents`, `apps`,
+    /// `device`, `personal`).
+    id: &'static str,
     label: &'static str,
     items: &'static [NavItem],
 }
 
-/// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
-/// web-only Billing item, plus the desktop-only "This device" group.
-/// EXP-1294: the Agents group's per-agent rows + "New agent" are injected at
-/// render like the boards', ahead of its static Repositories + Prompts.
-/// EXP-238 appended the Personal group (Account, Notifications, Security,
-/// About) as ordinary items — web parity again, and last so the fallback
-/// scan below never lands on a personal pane. The Boards group has no static
-/// items: its per-board rows + "New board" are injected at render (EXP-288,
-/// NEW-41 moved Repositories to the Agents group like web); order
-/// defines both the nav and the fallback scan (first visible item).
+/// S-3 (owner 2026-10-28): THE settings nav ×4 = `settings-nav.json` `nav`
+/// on platform `desktop` (the test replays its `navCases`). The injected
+/// lists (`@boards` + `@new-board`, `@assistant` + `@agents` +
+/// `@new-agent`, `@apps` + `@new-app`) are drawn at render AHEAD of their
+/// group's static pages; Plan & Billing and Import are web-only. The
+/// Features and Advanced groups are gone, and Voice left Personal: its block
+/// is the Assistant page's Voice section. Order defines both the nav and the
+/// fallback scan (first visible item).
 const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
+        id: "team",
         label: "Team",
         items: &[
-            NavItem::leaf("General", SettingsSection::General),
-            NavItem::leaf("Members", SettingsSection::Members),
-            // EXP-630: Issues after Members, with Labels and Statuses
-            // (EXP-314; EXP-771: the web's label) as its sub-pages — the web
-            // nav's nested entry, verbatim.
+            NavItem::leaf("general", "General", SettingsSection::General),
+            NavItem::leaf("members", "Members", SettingsSection::Members),
+            // EXP-630: Issues with Labels and Statuses as its sub-pages.
             NavItem {
+                id: "issues",
                 label: "Issues",
                 section: SettingsSection::Issues,
                 children: &[
-                    NavItem::leaf("Labels", SettingsSection::Labels),
-                    NavItem::leaf("Statuses", SettingsSection::Statuses),
+                    NavItem::leaf("labels", "Labels", SettingsSection::Labels),
+                    NavItem::leaf("statuses", "Statuses", SettingsSection::Statuses),
                 ],
             },
+            NavItem::leaf("repositories", "Repositories", SettingsSection::Repositories),
+            NavItem::leaf("prompts", prompts::PROMPTS_TITLE, SettingsSection::Prompts),
+            NavItem::leaf("widget", "Widget", SettingsSection::Widget),
+            NavItem::leaf("storage", "Storage", SettingsSection::Storage),
         ],
     },
-    // NEW-41: static-empty like web's (the per-board rows + New board are
-    // injected at render); Repositories moved to the Agents group.
-    NavGroup { label: "Boards", items: &[] },
-    // NEW-6 + NEW-41 (web's `SETTINGS_NAV`): the per-agent rows + New agent
-    // are injected at render, then Repositories, then Prompts close the group.
+    // The per-board rows + New board are injected at render.
     NavGroup {
+        id: "boards",
+        label: "Boards",
+        items: &[NavItem::leaf("archived-boards", "Archived boards", SettingsSection::ArchivedBoards)],
+    },
+    // The viewer's Assistant, the team agents and New agent are injected at
+    // render; MCP servers close the group.
+    NavGroup {
+        id: "agents",
         label: AGENTS_GROUP,
-        items: &[
-            NavItem::leaf("Repositories", SettingsSection::Repositories),
-            NavItem::leaf(prompts::PROMPTS_TITLE, SettingsSection::Prompts),
-        ],
+        items: &[NavItem::leaf("mcp-servers", "MCP servers", SettingsSection::McpServers)],
     },
-    // VAPP-110: the Agents group's twin — the per-app rows + New app are
-    // injected at render.
-    NavGroup { label: APPS_GROUP, items: &[] },
-    // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
-    // is gone with the helpdesk; the widget page is "Widget" now).
+    // VAPP-110: the per-app rows + New app are injected at render.
+    NavGroup { id: "apps", label: APPS_GROUP, items: &[] },
     NavGroup {
-        label: "Features",
-        items: &[
-            NavItem::leaf("Widget", SettingsSection::Widget),
-            // EXP-792: member-visible, unlike its neighbour — every
-            // member reads the registry and signs in on their own machines
-            // (the web nav's `visible: () => true`).
-            NavItem::leaf("MCP servers", SettingsSection::McpServers),
-        ],
-    },
-    NavGroup {
+        id: "device",
         label: "This device",
         items: &[
-            NavItem::leaf("Tools", SettingsSection::Tools),
-            NavItem::leaf("Coding CLIs", SettingsSection::AgentClis),
-            NavItem::leaf("Worktrees", SettingsSection::LocalRepos),
-            // SLOP-5: "Runs" — the one word for a coding run in UI copy.
-            NavItem::leaf("Sessions", SettingsSection::Sessions),
+            NavItem::leaf("tools", "Tools", SettingsSection::Tools),
+            NavItem::leaf("coding-clis", "Coding CLIs", SettingsSection::AgentClis),
+            NavItem::leaf("worktrees", "Worktrees", SettingsSection::LocalRepos),
+            NavItem::leaf("sessions", "Sessions", SettingsSection::Sessions),
         ],
     },
-    // EXP-238: the Personal group is ordinary nav now — the web merged the
-    // account pages into its settings nav the same way, so the two screens
-    // stay row-for-row parallel. Last on purpose: the fallback scan must
-    // keep landing on General/Members.
     NavGroup {
+        id: "personal",
         label: "Personal",
         items: &[
-            NavItem::leaf("Account", SettingsSection::Account),
-            NavItem::leaf("Notifications", SettingsSection::Notifications),
-            NavItem::leaf("Voice", SettingsSection::Voice),
-            NavItem::leaf("Security", SettingsSection::ApiKeys),
-            NavItem::leaf("About", SettingsSection::About),
-        ],
-    },
-    // SLOP-5: the admin-ish, owner-only sections close the nav as one
-    // Advanced group — the web nav's group, minus its web-only Import. After
-    // Personal on purpose: the fallback scan still lands on General/Members.
-    NavGroup {
-        label: "Advanced",
-        items: &[
-            NavItem::leaf("Storage", SettingsSection::Storage),
-            NavItem::leaf("Archived boards", SettingsSection::ArchivedBoards),
+            NavItem::leaf("account", "Account", SettingsSection::Account),
+            NavItem::leaf("notifications", "Notifications", SettingsSection::Notifications),
+            NavItem::leaf("security", "Security", SettingsSection::ApiKeys),
+            NavItem::leaf("about", "About", SettingsSection::About),
         ],
     },
 ];
+
+#[cfg(test)]
+/// The injected `@lists` of a group, in the fixture's order, for a viewer
+/// (`newEntries`: the New rows are the owners').
+fn injected_items(group_id: &str, owner: bool) -> Vec<&'static str> {
+    match group_id {
+        "boards" if owner => vec!["@boards", "@new-board"],
+        "boards" => vec!["@boards"],
+        "agents" if owner => vec!["@assistant", "@agents", "@new-agent"],
+        "agents" => vec!["@assistant", "@agents"],
+        "apps" if owner => vec!["@apps", "@new-app"],
+        "apps" => vec!["@apps"],
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+/// The nav's groups for a viewer: group id → item ids (the injected lists
+/// first, then the visible static pages; children folded under their
+/// parent). Locked by `settings-nav.json` `navCases` (platform desktop).
+fn nav_model(owner: bool) -> Vec<(&'static str, Vec<&'static str>)> {
+    NAV_GROUPS
+        .iter()
+        .map(|group| {
+            let mut items = injected_items(group.id, owner);
+            items.extend(
+                group
+                    .items
+                    .iter()
+                    .filter(|item| section_visible(&item.section, owner))
+                    .map(|item| item.id),
+            );
+            (group.id, items)
+        })
+        .filter(|(_, items)| !items.is_empty())
+        .collect()
+}
 
 /// EXP-1294: the team Agents group's label — `agent-settings.json`
 /// `copy.title` (a test locks the two together).
@@ -455,7 +475,6 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
     match section {
         SettingsSection::General
         | SettingsSection::Storage
-        | SettingsSection::Board(_)
         | SettingsSection::ArchivedBoards
         | SettingsSection::Widget
         | SettingsSection::NewAgent
@@ -536,6 +555,12 @@ fn first_agent_resolved(
             .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
             .map(|agent| SettingsSection::Agent(agent.agent_id))
             .unwrap_or(SettingsSection::Agent(id)),
+        // S-3: the Voice page left the nav; its block is the Assistant
+        // page's Voice section (the tray / meeting links land there).
+        SettingsSection::Voice => active_team_id(nav, cx)
+            .and_then(|team_id| crate::session_data::my_assistant(&team_id, cx))
+            .map(|assistant| SettingsSection::Agent(assistant.id))
+            .unwrap_or(SettingsSection::Voice),
         // VAPP-110: `App("")` = the team's first app; a slug (the dev
         // `app:<slug>`) names its app.
         SettingsSection::App(id) => {
@@ -1141,6 +1166,11 @@ impl Render for SettingsNavPanel {
             .as_deref()
             .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
             .unwrap_or_default();
+        // S-3: the Agents group mounting creates the viewer's Assistant on
+        // first use.
+        if let Some(team_id) = team_id.as_deref() {
+            crate::session_data::ensure_assistant(team_id, cx);
+        }
         let agents = team_id
             .as_deref()
             .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
@@ -1161,7 +1191,9 @@ impl Render for SettingsNavPanel {
                 .collect();
             // EXP-288: the Boards group's per-board rows are injected ahead
             // of its static items (owner-only, like the pages themselves).
-            let board_group = group.label == "Boards" && owner && team_id.is_some();
+            // S-3 (settings-nav.json): every member sees the board rows; New
+            // board is the owners'.
+            let board_group = group.id == "boards" && team_id.is_some();
             // EXP-1294: the Agents group is every member's (only an agent's
             // Delete is owner-only), so it shows whenever a team is active.
             let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
@@ -1257,7 +1289,28 @@ impl Render for SettingsNavPanel {
                 list = list.child(Self::group_label(group.label, cx));
             }
             if agent_group {
-                for agent in &agents {
+                // S-3 `@assistant`: the viewer's OWN Assistant first (the
+                // brand mark, `assistant.copy.title`), opening the Assistant
+                // page; `@agents` = the team agents (others' Assistants are
+                // never listed: `list_agents`).
+                if let Some(assistant) = agents.iter().find(|agent| agent.assistant) {
+                    let section = SettingsSection::Agent(assistant.agent_id.clone());
+                    let selected = section == effective;
+                    list = list.child(
+                        Self::row(
+                            "settings-nav-assistant",
+                            domain::agent_settings::ASSISTANT.copy.title.clone(),
+                            Some(Icon::from(crate::icons::ExpIcon::Logo).text_color(cx.theme().foreground)),
+                            selected,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            select_settings_section(window, cx, section.clone());
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                    );
+                }
+                for agent in agents.iter().filter(|agent| !agent.assistant) {
                     let section = SettingsSection::Agent(agent.agent_id.clone());
                     let selected = section == effective;
                     list = list.child(
@@ -1316,7 +1369,7 @@ impl Render for SettingsNavPanel {
                         })),
                     );
                 }
-                if let Some(team_id) = team_id.clone() {
+                if let Some(team_id) = team_id.clone().filter(|_| owner) {
                     let new_board = Self::row(
                         "settings-nav-new-board",
                         "New board",
@@ -1802,7 +1855,6 @@ mod tests {
         for gated in [
             SettingsSection::General,
             SettingsSection::Storage,
-            SettingsSection::Board("b-1".to_string()),
             SettingsSection::ArchivedBoards,
             // EXP-771: the Features group mirrors the web's
             // `canManageWidgets` gate, which IS `isOwner`.
@@ -1813,6 +1865,12 @@ mod tests {
                 SettingsSection::Members
             );
         }
+        // S-3 (settings-nav.json `nav`): the @boards rows show to every
+        // member (the page reads only for them), like web.
+        assert_eq!(
+            effective_selection(SettingsSection::Board("b-1".to_string()), false, any_board, any_board),
+            SettingsSection::Board("b-1".to_string())
+        );
         // EXP-557: Repositories is member-visible — the selection sticks
         // instead of falling back.
         assert_eq!(
@@ -1987,38 +2045,82 @@ mod tests {
         assert_eq!(AGENTS_GROUP, domain::agent_settings::AGENT_SETTINGS.copy.title);
     }
 
-    /// EXP-771/EXP-792: the Features group sits between Agents (EXP-1294: after
-    /// Boards, like the web) and This
-    /// device, its labels are the web's, and its gating is the web's too —
-    /// the widget pane is owner-only (`canManageWidgets`), MCP servers
-    /// is member-visible (`visible: () => true`), because every member reads
-    /// the registry and signs in on their OWN machines. The nav order also
-    /// feeds the fallback scan, which must keep landing on a Team section.
+    /// S-3: THE settings nav = `settings-nav.json` `nav` on platform
+    /// desktop: every `navCases` entry (owner / member) replays through
+    /// [`nav_model`], the group labels and the pages' labels are the
+    /// fixture's.
     #[test]
-    fn features_group_sits_between_boards_and_this_device() {
-        let groups: Vec<&str> = NAV_GROUPS.iter().map(|group| group.label).collect();
-        // SLOP-5: the owner-only Advanced group (Storage, Archived boards)
-        // closes the nav AFTER Personal, so the fallback scan is unchanged.
-        assert_eq!(
-            groups,
-            vec!["Team", "Boards", "Agents", "Apps", "Features", "This device", "Personal", "Advanced"]
-        );
-        assert_eq!(APPS_GROUP, domain::apps::APPS.copy.title);
-        let features = NAV_GROUPS
-            .iter()
-            .find(|group| group.label == "Features")
-            .expect("Features group");
-        let labels: Vec<&str> = features.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Widget", "MCP servers"]);
-        for item in features.items {
-            assert!(section_visible(&item.section, true));
-            assert_eq!(
-                section_visible(&item.section, false),
-                item.section == SettingsSection::McpServers,
-                "{} owner gating must match the web nav's `visible`",
-                item.label
-            );
+    fn the_nav_replays_the_settings_nav_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/settings-nav.json"
+        ))
+        .unwrap();
+        let nav = &fixture["nav"];
+        let mut replayed = 0;
+        for case in nav["navCases"].as_array().unwrap() {
+            if case["platform"] != "desktop" {
+                continue;
+            }
+            replayed += 1;
+            let owner = case["role"] == "owner";
+            let expected: Vec<(String, Vec<String>)> = case["expected"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(group, items)| {
+                    (
+                        group.clone(),
+                        items.as_array().unwrap().iter().map(|item| item.as_str().unwrap().to_string()).collect(),
+                    )
+                })
+                .collect();
+            let got: Vec<(String, Vec<String>)> = nav_model(owner)
+                .into_iter()
+                .map(|(group, items)| (group.to_string(), items.into_iter().map(str::to_string).collect()))
+                .collect();
+            // serde_json keeps object keys sorted: compare as maps, then the
+            // group ORDER against `nav.groups`.
+            let sorted = |mut list: Vec<(String, Vec<String>)>| {
+                list.sort();
+                list
+            };
+            assert_eq!(sorted(got.clone()), sorted(expected), "{}", case["name"]);
+            let order: Vec<&str> = nav["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|group| group["id"].as_str().unwrap())
+                .filter(|id| got.iter().any(|(group, _)| group == id))
+                .collect();
+            assert_eq!(got.iter().map(|(group, _)| group.as_str()).collect::<Vec<_>>(), order);
         }
+        assert_eq!(replayed, 2);
+        // The labels: the groups', the pages' (`rows` / `pages`), and the
+        // children folded under Issues.
+        for group in NAV_GROUPS {
+            let fixture_group = nav["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|candidate| candidate["id"] == group.id)
+                .expect("a fixture group");
+            assert_eq!(fixture_group["label"], group.label, "{}", group.id);
+            for item in group.items.iter().flat_map(|item| std::iter::once(item).chain(item.children.iter())) {
+                let label = fixture["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| row["id"] == item.id)
+                    .map(|row| row["label"].clone())
+                    .unwrap_or_else(|| nav["pages"][item.id]["label"].clone());
+                assert_eq!(label, item.label, "{}", item.id);
+            }
+        }
+        let children: Vec<&str> = NAV_GROUPS[0].items[2].children.iter().map(|item| item.id).collect();
+        assert_eq!(serde_json::json!(children), nav["children"]["issues"]);
+        assert_eq!(APPS_GROUP, domain::apps::APPS.copy.title);
+        // The Voice page left the nav (the Assistant page's Voice section).
+        assert!(!flat_nav_items().any(|item| item.section == SettingsSection::Voice));
     }
 
     /// EXP-771: web copy wins — the nav says "Statuses", not the longer
@@ -2087,17 +2189,11 @@ mod tests {
         );
     }
 
-    /// NEW-6 (web parity): the Agents group closes with Repositories (NEW-41)
-    /// then Prompts, and the Boards group has no static items; the list
-    /// and a prompt's page are member-readable, New prompt owner-only, and
-    /// the Prompts row stays lit on both sub-pages.
+    /// NEW-6: the prompts list and a prompt's page are member-readable,
+    /// New prompt owner-only, and the Prompts row stays lit on both
+    /// sub-pages.
     #[test]
-    fn prompts_sit_in_the_agents_group_like_the_web() {
-        let agents = NAV_GROUPS.iter().find(|group| group.label == AGENTS_GROUP).unwrap();
-        let labels: Vec<&str> = agents.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Repositories", "Prompts"]);
-        let boards = NAV_GROUPS.iter().find(|group| group.label == "Boards").unwrap();
-        assert!(boards.items.is_empty());
+    fn prompts_are_member_readable_and_stay_lit() {
         assert!(section_visible(&SettingsSection::Prompts, false));
         assert!(section_visible(&SettingsSection::Prompt("p-1".into()), false));
         assert!(section_visible(&SettingsSection::NewPrompt, true));

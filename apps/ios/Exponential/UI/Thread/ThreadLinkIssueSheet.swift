@@ -14,24 +14,45 @@ struct ThreadLinkIssueSheet: View {
     let excluded: Set<String>
     let onPick: (String) -> Void
 
+    var body: some View {
+        ThreadIssueSearchList(teamId: teamId, excluded: excluded, sheet: true) { onPick($0.id) }
+            .accessibilityIdentifier("thread-link-issue-sheet")
+    }
+}
+
+/// THE issue search list over a team's synced issues — the Link an issue
+/// sheet's body, and (S-3, composer-menu.json) the session / agent
+/// composer's "+" Issue page, whose pick inserts `#IDENT` at the caret.
+struct ThreadIssueSearchList: View {
+    let teamId: String
+    var excluded: Set<String> = []
+    /// In its own sheet (the search list's sheet chrome); false = a page.
+    var sheet = false
+    let onPick: (IssueEntity) -> Void
+
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var query = ""
     @State private var pool: [IssueEntity] = []
 
     var body: some View {
-        SearchListSheet(
-            SearchListView(
-                items: ranked.map(Self.item),
-                query: $query,
-                placeholder: IssueSearchCopy.placeholder,
-                autofocus: true,
-                emptyText: IssueSearchCopy.noMatches,
-                onPick: onPick
-            )
-        )
-        .accessibilityIdentifier("thread-link-issue-sheet")
+        Group {
+            if sheet { SearchListSheet(list) } else { list }
+        }
         .task { load() }
+    }
+
+    private var list: SearchListView<String> {
+        SearchListView(
+            items: ranked.map(Self.item),
+            query: $query,
+            placeholder: IssueSearchCopy.placeholder,
+            autofocus: true,
+            emptyText: IssueSearchCopy.noMatches,
+            onPick: { id in
+                if let issue = pool.first(where: { $0.id == id }) { onPick(issue) }
+            }
+        )
     }
 
     private var ranked: [IssueEntity] {

@@ -22,6 +22,7 @@ pub(crate) mod scope_picker;
 pub(crate) mod schedule_picker;
 pub(crate) mod search_list;
 pub(crate) mod menu_submenu;
+pub(crate) mod composer_agent_row;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
 pub(crate) mod strip_chip;
@@ -45,7 +46,6 @@ pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
 pub(crate) mod session_thread;
-pub(crate) mod composer_options;
 pub(crate) mod work_card;
 pub(crate) mod thread_parts;
 pub(crate) mod ask_dock;
@@ -144,7 +144,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
     Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
-    Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
+    Entry { id: composer_agent_row::ID, owner: composer_agent_row::OWNER, render: composer_agent_row::render },
     Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
     Entry { id: thread_parts::ID, owner: thread_parts::OWNER, render: thread_parts::render },
     Entry { id: ask_dock::ID, owner: ask_dock::OWNER, render: ask_dock::render },

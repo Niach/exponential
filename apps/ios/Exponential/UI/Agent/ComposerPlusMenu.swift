@@ -2,17 +2,22 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1249: the launch composer's ONE "+" menu on a phone — a bottom sheet
-/// of the same rows web's dropdown draws (`ComposerMenu.composerMenuLayout`,
-/// fixture-locked ×4): Implement issue ›, Message an agent › (NEW-3, while
-/// the team has agents), Add file or image | Effort ›, Ultracode | MCP
-/// servers ›, Computer use (NEW-2: prompts live in the `/` menu, never
-/// here). Implement issue › and Message an agent › PUSH their page inside
-/// this sheet, THE search list (`AgentIssuePickerPage`, `AgentPickerPage`)
-/// with a back row; the other submenu rows close
-/// this sheet and hand off to their picker (a sheet cannot present while its
-/// sibling is still animating away, so the host opens the picker on this
-/// sheet's dismiss); a toggle flips in place.
+/// EXP-1249 / S-3: the launch composer's ONE "+" menu on a phone — a bottom
+/// sheet of the same rows web's dropdown draws
+/// (`ComposerMenu.composerMenuLayout(_, surface: .launch)`, fixture-locked
+/// ×4): Photo or file · Issue › | Device › · Account › · Model › ·
+/// Repository › | Effort › · Subagents › · Ultracode | MCP servers › ·
+/// Computer use. The "+" is the composer's ONLY tool (no options line under
+/// the card). The runner submenus (Device, Account, Model, Repository) and
+/// Issue PUSH their page inside this sheet over THE existing pickers' rows,
+/// a back row on top; the value column names the pick. While the agent row
+/// (composer-home.json) picks an agent instead of Temporary session, the
+/// runner and work rows hide (`temporary` false): a message to an agent runs
+/// on that agent's definition, and Issue inserts `#IDENT` at the caret
+/// (there is no implement subject on a message). Effort and MCP servers hand
+/// off to their picker (a sheet cannot present while its sibling is still
+/// animating away, so the host opens it on this sheet's dismiss); a toggle
+/// flips in place.
 struct ComposerPlusMenu: View {
     let model: AgentComposerModel
     /// The team's MCP servers (empty = the row hides).
@@ -20,11 +25,11 @@ struct ComposerPlusMenu: View {
     /// A hand-off row was picked: the host closes the sheet and opens what
     /// the row names.
     let onPick: (ComposerMenu.RowId) -> Void
-    /// A page finished (an agent picked, Implement N issues): the host
+    /// A page finished (Implement N issues, an `#IDENT` inserted): the host
     /// closes the sheet.
     let onClose: () -> Void
 
-    /// The pushed page (Implement issue or Message an agent), nil = the rows.
+    /// The pushed page, nil = the rows.
     @State private var page: ComposerMenu.RowId?
     @Environment(\.motion) private var motion
 
@@ -33,20 +38,27 @@ struct ComposerPlusMenu: View {
     /// `subagentModel` stays false: `sessions.send` carries no subagent
     /// model (EXP-1291), so the Subagents row has nothing to set.
     private var conditions: ComposerMenu.Conditions {
-        ComposerMenu.Conditions(
+        let temporary = model.agentId == nil
+        return ComposerMenu.Conditions(
+            temporary: temporary,
+            device: temporary && !model.candidateDevices.isEmpty,
+            account: temporary && model.device != nil,
+            model: temporary,
+            repositories: model.repos.count > 1,
             subagentModel: false,
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
-            computerUse: model.device?.canToggleComputerUse == true,
-            agents: !model.agents.isEmpty
+            computerUse: model.device?.canToggleComputerUse == true
         )
     }
 
     var body: some View {
         Group {
             if let page {
-                pageView(page)
-                    .transition(.move(edge: .trailing))
+                ComposerMenuPage(id: page, onBack: { self.page = nil }) {
+                    pageContent(page)
+                }
+                .transition(.move(edge: .trailing))
             } else {
                 rows
                     .transition(.move(edge: .leading))
@@ -58,7 +70,7 @@ struct ComposerPlusMenu: View {
     private var rows: some View {
         GlassSheetChrome(title: nil) {
             VStack(spacing: 0) {
-                ForEach(Array(ComposerMenu.composerMenuLayout(conditions).enumerated()), id: \.offset) { _, entry in
+                ForEach(Array(ComposerMenu.composerMenuLayout(conditions, surface: .launch).enumerated()), id: \.offset) { _, entry in
                     switch entry {
                     case .separator:
                         GlassDivider()
@@ -81,7 +93,7 @@ struct ComposerPlusMenu: View {
         switch row.kind {
         case .toggle:
             GlassToggleRow(label, isOn: toggleBinding(row.id)) {
-                rowIcon(row)
+                ComposerMenuRowIcon(concept: row.icon)
             }
             .font(.body)
             .padding(.horizontal, 12)
@@ -91,29 +103,13 @@ struct ComposerPlusMenu: View {
             let disabled = row.id == .effort && launch.agent == "claude" && launch.ultracode
                 || row.id == .addFile && (model.attachFull || model.sending)
             Button {
-                if row.id == .implementIssue || row.id == .messageAgent {
+                if Self.pushes(row.id) {
                     page = row.id
                 } else {
                     onPick(row.id)
                 }
             } label: {
-                HStack(spacing: 12) {
-                    rowLabel(row, label: label)
-                    Spacer(minLength: 8)
-                    if let value = value(row.id) {
-                        Text(value)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                    if row.kind == .submenu {
-                        AppIcon(AppIcons.uiChevronRight, size: 12)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                }
-                .padding(.horizontal, 12)
-                .frame(minHeight: 48)
-                .contentShape(Rectangle())
+                ComposerMenuRowLabel(row: row, label: label, value: value(row.id))
             }
             .buttonStyle(.plain)
             .disabled(disabled)
@@ -122,67 +118,95 @@ struct ComposerPlusMenu: View {
         }
     }
 
-    /// A pushed page: a back row naming the submenu over THE search list,
-    /// at the large detent (the list scrolls under its input).
-    private func pageView(_ id: ComposerMenu.RowId) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                page = nil
-            } label: {
-                HStack(spacing: 8) {
-                    AppIcon(AppIcons.uiChevronLeft, size: 14)
-                    Text(ComposerMenu.allRows.first { $0.id == id }?.label ?? "")
-                        .font(.headline)
-                    Spacer(minLength: 0)
+    /// The rows whose submenu is a page of this sheet (the rest hand off).
+    static func pushes(_ id: ComposerMenu.RowId) -> Bool {
+        switch id {
+        case .implementIssue, .device, .account, .model, .repository: true
+        default: false
+        }
+    }
+
+    // MARK: - Pages
+
+    @ViewBuilder
+    private func pageContent(_ id: ComposerMenu.RowId) -> some View {
+        switch id {
+        case .device:
+            // THE device picker's rows (`DevicePicker.items`).
+            GlassPickerContent(
+                items: DevicePicker<EmptyView>.items(model.candidateDevices.map(DevicePickerDevice.init)),
+                mode: .single,
+                value: model.device.map { [$0.deviceId] } ?? [],
+                onChange: { picked in picked.first.map { model.selectDevice($0) } }
+            )
+            .accessibilityIdentifier("agent-device-pill")
+        case .account:
+            // EXP-872: THE account picker's rows (brand mark, email, the
+            // EXP-992 limit bars); picking a login picks its agent too.
+            let options = launch.accountOptions(on: model.device)
+            AccountPickerContent(
+                options: options,
+                value: (launch.selectedAccount(in: options) ?? options.first)?.key,
+                onChange: { key in
+                    guard let picked = options.first(where: { $0.key == key }) else { return }
+                    model.selectAccount(picked)
+                },
+                mark: { AgentBrandMark.image($0) }
+            )
+            .accessibilityIdentifier("start-coding-agent-picker")
+        case .model:
+            GlassPickerContent(
+                items: ModelPicker<EmptyView>.items(agent: launch.agent),
+                mode: .single,
+                value: [launch.model],
+                onChange: { picked in picked.first.map { launch.model = $0 } }
+            )
+        case .repository:
+            let rows = model.repos.map { RepositoryPickerRow(id: $0.id, fullName: $0.fullName, isPrivate: $0.isPrivate) }
+            let byId = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            GlassPickerContent(
+                items: RepositoryPickerRules.items(rows, noneLabel: nil),
+                mode: .single,
+                value: [model.chatRepoId],
+                onChange: { picked in picked.first.map { model.chatRepoId = $0 } },
+                search: RepositoryPickerRules.showsSearch(count: rows.count),
+                searchPlaceholder: "Search repositories…",
+                renderItem: { item in byId[item.value].map { AnyView(RepositoryPickerRowBody(row: $0)) } }
+            )
+        default:
+            if model.agentId != nil, let teamId = model.teamId {
+                // A message to an agent has no implement subject: THE issue
+                // search list, a pick inserts `#IDENT` at the caret.
+                ThreadIssueSearchList(teamId: teamId) { issue in
+                    if let identifier = issue.identifier {
+                        model.draftEditor.insertTextAtCaret("#\(identifier) ")
+                    }
+                    onClose()
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, GlassSheetTokens.headerHPadding)
-                .padding(.top, GlassSheetTokens.headerTopPadding)
-                .padding(.bottom, GlassSheetTokens.headerBottomPadding)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            .accessibilityIdentifier("agent-composer-submenu-back")
-            if id == .messageAgent {
-                AgentPickerPage(model: model, onClose: onClose)
             } else {
                 AgentIssuePickerPage(model: model, onClose: onClose)
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.large])
-        .presentationBackground(GlassSheetTokens.background)
-        .presentationCornerRadius(GlassSheetTokens.cornerRadius)
-        .presentationDragIndicator(.visible)
-        .presentationContentInteraction(.scrolls)
     }
 
-    private func rowIcon(_ row: ComposerMenu.Row) -> some View {
-        AppIcon(Self.icon(row.icon), size: 18, weight: .medium)
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .frame(width: 22)
-    }
-
-    private func rowLabel(_ row: ComposerMenu.Row, label: String) -> some View {
-        HStack(spacing: 12) {
-            rowIcon(row)
-            Text(label)
-                .font(.body)
-                .foregroundStyle(.white)
-        }
-    }
-
-    /// A submenu row's current value: the effort, the number of MCP servers
-    /// picked.
+    /// A submenu row's current value: the picked label.
     private func value(_ id: ComposerMenu.RowId) -> String? {
         switch id {
+        case .device:
+            model.device.map(LaunchVocabulary.deviceName)
+        case .account:
+            {
+                let options = launch.accountOptions(on: model.device)
+                return (launch.selectedAccount(in: options) ?? options.first)?.email
+            }()
+        case .model:
+            LaunchVocabulary.modelLabel(launch.model)
+        case .repository:
+            model.repos.first { $0.id == model.chatRepoId }?.fullName
         case .effort:
             launch.effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(launch.effort)
         case .mcpServers:
             McpServers.pickedValue(launch.mcpServerIds)
-        case .messageAgent:
-            model.selectedAgent?.name
         default:
             nil
         }
@@ -206,47 +230,86 @@ struct ComposerPlusMenu: View {
 
     /// The fixture's concept ids → this client's generated icon names.
     static func icon(_ concept: String) -> String {
-        switch concept {
-        case "editor-issue-ref": AppIcons.editorIssueRef
-        case "action-run": AppIcons.actionRun
-        case "ui-attach": AppIcons.uiAttach
-        case "ui-estimate": AppIcons.uiEstimate
-        case "coding-subagent": AppIcons.codingSubagent
-        case "action-default": AppIcons.actionDefault
-        case "ui-mcp": AppIcons.uiMcp
-        case "nav-computer": AppIcons.navComputer
-        case "settings-agents": AppIcons.settingsAgents
-        default: AppIcons.uiAdd
-        }
+        AppIcons.conceptOrName(concept) ?? AppIcons.uiAdd
     }
 }
 
-/// NEW-3: Message an agent › — THE Picker rows of the team's agents (the
-/// agent's icon in its colour + its name, single pick; web `PickerMenuRows`,
-/// no search). The pick becomes the composer's subject as ONE agent chip and
-/// closes the menu.
-struct AgentPickerPage: View {
-    let model: AgentComposerModel
-    let onClose: () -> Void
+/// One "+" row's glyph: the fixture concept, muted, in a 22pt column.
+struct ComposerMenuRowIcon: View {
+    let concept: String
 
     var body: some View {
-        GlassPickerContent(
-            items: model.agents.map { agent in
-                PickerItem(
-                    value: agent.id,
-                    label: agent.name,
-                    icon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-                    color: Color(hex: agent.color ?? SessionTree.ListCopy.agentDefaultColor)
-                )
-            },
-            mode: .single,
-            value: Set([model.agentId].compactMap { $0 }),
-            onChange: { picked in
-                guard let id = picked.first else { return }
-                model.pickAgent(id)
-                onClose()
+        AppIcon(ComposerPlusMenu.icon(concept), size: 18, weight: .medium)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .frame(width: 22)
+    }
+}
+
+/// One "+" item / submenu row: glyph · label · the value column (the picked
+/// label) · a chevron on a submenu.
+struct ComposerMenuRowLabel: View {
+    let row: ComposerMenu.Row
+    let label: String
+    var value: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ComposerMenuRowIcon(concept: row.icon)
+            Text(label)
+                .font(.body)
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            if let value, !value.isEmpty {
+                Text(value)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-        )
-        .accessibilityIdentifier("agent-composer-agents-picker")
+            if row.kind == .submenu {
+                AppIcon(AppIcons.uiChevronRight, size: 12)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A "+" submenu PUSHED as a page of the sheet (composer-menu.json: phones
+/// push submenus): a back row naming the submenu over its rows, at the large
+/// detent (a list scrolls under its input).
+struct ComposerMenuPage<Content: View>: View {
+    let id: ComposerMenu.RowId
+    let onBack: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onBack) {
+                HStack(spacing: 8) {
+                    AppIcon(AppIcons.uiChevronLeft, size: 14)
+                    Text(ComposerMenu.row(id).label)
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, GlassSheetTokens.headerHPadding)
+                .padding(.top, GlassSheetTokens.headerTopPadding)
+                .padding(.bottom, GlassSheetTokens.headerBottomPadding)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            .accessibilityIdentifier("agent-composer-submenu-back")
+            content()
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.large])
+        .presentationBackground(GlassSheetTokens.background)
+        .presentationCornerRadius(GlassSheetTokens.cornerRadius)
+        .presentationDragIndicator(.visible)
+        .presentationContentInteraction(.scrolls)
     }
 }

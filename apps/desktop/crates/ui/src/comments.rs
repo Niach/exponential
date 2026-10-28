@@ -914,6 +914,7 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
     let clamps = thread_comment_clamps(&props.body);
     let mut view = MarkdownView::new(SharedString::from(format!("{}-body", props.id)), props.body.clone())
         .chat(true)
+        .selectable(true)
         .autolink(true);
     if let Some(images) = props.images.clone() {
         view = view.images(images);

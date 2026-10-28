@@ -27,9 +27,9 @@ import { trpc } from "@/lib/trpc-client"
 // number like the issue bar), then `chatSelectionActions` as icon buttons
 // (labelled on md+). Mark read / unread = `sessions.setRead`,
 // Archive / Unarchive = `sessions.setArchived` (batched, 200 ids a call),
-// Stop = `sessions.end` per chat, Delete asks first (`chatDeleteTitle`) then
+// Delete asks first (`chatDeleteTitle`) then
 // `sessions.delete` per chat, at most `IN_FLIGHT` at once (each ends a tree
-// and relays to devices). Every action leaves the selection; a failure toasts
+// and relays to devices; S-3: no Stop). Every action leaves the selection; a failure toasts
 // `chatSelectionFailedTitle` ("{n} of {m} …" when only some failed). Escape
 // leaves it too.
 
@@ -76,7 +76,7 @@ async function runChatAction(action: ChatSelectionAction, sessionIds: readonly s
     if (txid !== undefined) await sessionReadsCollection.utils.awaitTxId(txid, 3000).catch(() => undefined)
     return
   }
-  // Stop / Delete: one call per chat, `IN_FLIGHT` workers; every one is
+  // Delete: one call per chat, `IN_FLIGHT` workers; every one is
   // tried, then the failures are counted.
   let next = 0
   let last: number | undefined
@@ -85,10 +85,7 @@ async function runChatAction(action: ChatSelectionAction, sessionIds: readonly s
     while (next < sessionIds.length) {
       const sessionId = sessionIds[next++]
       try {
-        const { txid } =
-          action === `stop`
-            ? await trpc.sessions.end.mutate({ sessionId }, SKIP_ERROR_TOAST)
-            : await trpc.sessions.delete.mutate({ sessionId }, SKIP_ERROR_TOAST)
+        const { txid } = await trpc.sessions.delete.mutate({ sessionId }, SKIP_ERROR_TOAST)
         last = Math.max(last ?? txid, txid)
       } catch (error) {
         failures.push(error)

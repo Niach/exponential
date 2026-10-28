@@ -87,7 +87,7 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 28] = [
+const DEAD_KEYS: [&str; 29] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -122,6 +122,9 @@ const DEAD_KEYS: [&str; 28] = [
     // #FEED-161: the NEW-59 Work screen NUMBER; the pick is a display id
     // now (`computerUseDisplayId`), no legacy.
     "computerUseDisplay",
+    // S-3: the per-device plan-mode default (the plan toggle is gone; a
+    // launch never enters plan mode from a UI default).
+    "claudePlanMode",
 ];
 
 /// [`Settings::computer_use_display_id_pushed`] on disk.
@@ -186,9 +189,6 @@ pub struct Settings {
     /// `#[serde(default)]` uses `Settings::default()`, not `bool::default()`)
     /// — locked by a test below.
     pub claude_ultracode: bool,
-    /// Claude native plan-mode default — ON by default (Claude presents a
-    /// plan for approval in the terminal before editing).
-    pub claude_plan_mode: bool,
     /// EXP-1005: let the host move an unattended run
     /// to another signed-in profile when its usage window is spent — ON by
     /// default, a missing key reads TRUE (the manual [`Default`], locked by a
@@ -318,7 +318,6 @@ impl Default for Settings {
             codex_thread_model: DEFAULT_CODEX_THREAD_MODEL.to_string(),
             codex_effort: String::new(),
             claude_ultracode: false,
-            claude_plan_mode: true,
             auto_rotate_accounts: true,
             computer_use: false,
             computer_use_model: DEFAULT_COMPUTER_USE_MODEL.to_string(),
@@ -519,15 +518,6 @@ impl Settings {
         match agent {
             CodingAgent::Claude => &self.claude_thread_model,
             CodingAgent::Codex => &self.codex_thread_model,
-        }
-    }
-
-    /// The plan-mode default for `agent` (dialog seed). Always `false` for
-    /// codex: it has no launch-into-plan mode.
-    pub fn plan_mode_for(&self, agent: CodingAgent) -> bool {
-        match agent {
-            CodingAgent::Claude => self.claude_plan_mode,
-            CodingAgent::Codex => false,
         }
     }
 
@@ -779,11 +769,10 @@ mod tests {
         // Codex: the contract model, the CLI's own effort (blank = omit).
         assert_eq!(settings.codex_model, "gpt-5.6-sol");
         assert_eq!(settings.codex_effort, "");
-        // Per-agent run defaults (EXP-206 — no issue/batch split): Claude
-        // plan mode ON, ultracode OFF. EXP-690: skip-permissions is no
-        // longer a setting — every run bypasses.
+        // Per-agent run defaults (EXP-206 — no issue/batch split):
+        // ultracode OFF (S-3: no plan-mode default). EXP-690:
+        // skip-permissions is no longer a setting — every run bypasses.
         assert!(!settings.claude_ultracode);
-        assert!(settings.claude_plan_mode);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
         // EXP-367: a fresh install has not seen the tools onboarding step.
@@ -938,8 +927,8 @@ mod tests {
     }
 
     /// Per-agent run fields (EXP-206): MISSING keys must fill from the
-    /// manual `Default` impl (container-level `#[serde(default)]`) — Claude
-    /// plan mode TRUE, everything else FALSE. Explicit bools round-trip; the
+    /// manual `Default` impl (container-level `#[serde(default)]`) —
+    /// auto-rotate TRUE, everything else FALSE. Explicit bools round-trip; the
     /// dead release-era AND per-run-mode keys are ignored on load and
     /// scrubbed from the file on save.
     #[test]
@@ -949,7 +938,6 @@ mod tests {
         fs::write(&path, r#"{"claudeModel":"sonnet"}"#).unwrap();
         let settings = Settings::load(&path);
         assert!(!settings.claude_ultracode, "missing key must default FALSE");
-        assert!(settings.claude_plan_mode, "missing key must default TRUE");
         assert!(settings.auto_rotate_accounts, "missing key must default TRUE");
         assert!(!settings.computer_use, "missing key must default FALSE");
 
@@ -960,13 +948,6 @@ mod tests {
         .unwrap();
         let settings = Settings::load(&path);
         assert!(settings.claude_ultracode);
-        assert!(!settings.claude_plan_mode);
-
-        // plan_mode_for maps per agent; codex has no launch-into-plan mode.
-        let defaults = Settings::default();
-        assert!(defaults.plan_mode_for(CodingAgent::Claude));
-        assert!(!defaults.plan_mode_for(CodingAgent::Codex));
-        assert!(!settings.plan_mode_for(CodingAgent::Claude));
 
         // Saving scrubs the retired keys the merge-save would otherwise
         // carry forever.
@@ -979,6 +960,7 @@ mod tests {
             "piModel",
             "piThinking",
             "piPlanMode",
+            "claudePlanMode",
             "releaseUltracode",
             "issueUltracode",
             "batchUltracode",
@@ -1012,7 +994,6 @@ mod tests {
             codex_thread_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
             claude_ultracode: true,
-            claude_plan_mode: false,
             auto_rotate_accounts: false,
             computer_use: true,
             computer_use_model: "sonnet".to_string(),
@@ -1033,7 +1014,6 @@ mod tests {
         assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
-        assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }

@@ -735,11 +735,7 @@ mod tests {
                             ))
                             .child(probe(
                                 self.0.stop.clone(),
-                                crate::session_screen::stop_session_pill(
-                                    "work-stop",
-                                    header_action_size(true),
-                                    cx,
-                                )
+                                crate::surface::glass_pill_button("work-pill", header_action_size(true), cx).label("Pill")
                                 .into_any_element(),
                             )),
                     )
@@ -767,13 +763,13 @@ mod tests {
         );
         assert!(
             (stop.get() - expected).abs() < 2.,
-            "the Stop pill is the Sm rung: {} vs {expected}",
+            "a glass pill is the Sm rung: {} vs {expected}",
             stop.get()
         );
         assert_eq!(
             merge.get(),
             stop.get(),
-            "EXP-889: the Merge pill is the SAME box as the Stop pill beside it",
+            "EXP-889: the Merge pill is the SAME box as the glass pill beside it",
         );
         assert!(
             (merge.get() - expected).abs() < 2.,
@@ -831,11 +827,7 @@ mod tests {
                     ))
                     .child(probe(
                         self.0.stop.clone(),
-                        crate::session_screen::stop_session_pill(
-                            "work-stop",
-                            header_action_size(false),
-                            cx,
-                        )
+                        crate::surface::glass_pill_button("work-pill", header_action_size(false), cx).label("Pill")
                         .into_any_element(),
                     ))
             }
@@ -858,7 +850,7 @@ mod tests {
         );
         assert!(
             (stop.get() - expected).abs() < 2.,
-            "EXP-926: the Stop pill is the bar's rung: {} vs {expected}",
+            "EXP-926: a glass pill is the bar's rung: {} vs {expected}",
             stop.get()
         );
     }
@@ -886,11 +878,7 @@ mod tests {
                 cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
                 let height = self.height.clone();
-                let stop = crate::session_screen::stop_session_pill(
-                    "work-stop",
-                    header_action_size(false),
-                    cx,
-                )
+                let stop = crate::surface::glass_pill_button("work-pill", header_action_size(false), cx).label("Pill")
                 .into_any_element();
                 let title = self.collapsed.then(|| {
                     collapsed_title(Some("EXP-1162".into()), "Title", None, cx)

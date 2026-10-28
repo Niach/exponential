@@ -277,7 +277,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(stuck)).toMatchObject({ blocked: null, needsInput: false, busy: true })
   })
 
-  it(`a host device silent past the online window pauses its live sessions; its heartbeat restores them`, async () => {
+  it(`a host device silent past the online window flags its BUSY sessions (S-3: idle ones untouched, silent); its heartbeat restores them`, async () => {
     const w = await world({ shared: true })
     const rootId = await w.root()
     const childId = await w.child(rootId, `working`)
@@ -296,39 +296,31 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
 
     const run = await runWatchdog(NOW)
-    expect(run.offline).toBeGreaterThanOrEqual(2)
-    // EXP-1374: an interruption, never on a person (an open card still
-    // waits); the busy one was mid-turn (`resume`).
+    expect(run.offline).toBeGreaterThanOrEqual(1)
+    // EXP-1374: an interruption, never on a person; the busy one was
+    // mid-turn (`resume`). S-3: an idle one (its open card still waits) is
+    // never flagged.
     expect(await row(childId)).toMatchObject({
       status: `idle`,
       busy: false,
       needsInput: false,
       blocked: { kind: `device_offline`, since: NOW.toISOString(), resume: true, resumeSince: null },
     })
-    expect(await row(hosted)).toMatchObject({
-      status: `idle`,
-      busy: false,
-      needsInput: true,
-      blocked: { kind: `device_offline`, since: NOW.toISOString(), resume: false },
-    })
+    expect(await row(hosted)).toMatchObject({ busy: false, needsInput: true, blocked: null })
     expect(await row(queued)).toMatchObject({ status: `queued`, blocked: null })
-    // Informational: pre-consumed in the parent.
-    const [line] = await lines(rootId, `device_offline`, childId)
-    expect(line).toMatchObject({ authorSessionId: childId, body: BUS_COPY.device_offline })
-    expect(line!.consumedAt).not.toBeNull()
-    // Said once.
+    // S-3: silent, no bus line.
     await runWatchdog(NOW)
-    expect(await lines(rootId, `device_offline`, childId)).toHaveLength(1)
+    expect(await lines(rootId, `device_offline`, childId)).toHaveLength(0)
 
-    // The heartbeat (the OWNER's device row) restores both, Needs you
-    // re-derived from the open cards.
+    // The heartbeat (the OWNER's device row) restores the flagged one.
     const restored = await db.transaction((tx) =>
       restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner })
     )
-    expect(restored).toBe(2)
+    expect(restored).toBe(1)
     expect(await row(childId)).toMatchObject({ status: `idle`, blocked: null, needsInput: false })
-    expect(await row(hosted)).toMatchObject({ status: `idle`, blocked: null, needsInput: true })
+    expect(await row(hosted)).toMatchObject({ blocked: null, needsInput: true })
     // Another account's heartbeat for an unrelated device restores nothing.
+    await w.host.report({ sessionId: childId, busy: true })
     await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
     await runWatchdog(NOW)
     expect(
@@ -381,12 +373,9 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     }
     expect(await row(alive)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
     expect(await row(between)).toMatchObject({ status: `running`, busy: false, blocked: null })
-    // The parent is told once, not woken (nothing for it to do).
-    const said = await lines(rootId, `session_interrupted`, dead)
-    expect(said).toMatchObject([{ authorKind: `system`, authorSessionId: dead, body: BUS_COPY.session_interrupted }])
-    expect(said[0]!.consumedAt).not.toBeNull()
+    // S-3: silent, the parent is not told.
     await beat([alive])
-    expect(await lines(rootId, `session_interrupted`, dead)).toHaveLength(1)
+    expect(await lines(rootId, `session_interrupted`, dead)).toHaveLength(0)
 
     // The device continuing it reports: the flag clears.
     await w.host.report({ sessionId: dead, status: `running`, busy: true })
@@ -807,14 +796,15 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
     await runWatchdog(NOW)
     expect(await row(interrupted)).toMatchObject({ blocked: { kind: `device_offline`, resume: true }, needsInput: false })
-    expect(await row(idle)).toMatchObject({ blocked: { kind: `device_offline`, resume: false } })
+    // S-3: an idle session is never flagged.
+    expect(await row(idle)).toMatchObject({ blocked: null })
 
     const back = ago(10 * MIN)
     await db.transaction((tx) =>
       restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [survived] }, back)
     )
     expect(await row(survived)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
-    expect(await row(idle)).toMatchObject({ status: `idle`, blocked: null })
+    expect(await row(idle)).toMatchObject({ busy: false, blocked: null })
     // Still interrupted, waiting for its device since it came back.
     expect(await row(interrupted)).toMatchObject({
       status: `idle`,
@@ -858,10 +848,8 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
       endedAt: null,
       blocked: { kind: `restarted`, resume: true },
     })
-    // Said once to its parent, not waking: its device continues it.
-    const said = await lines(rootId, `session_interrupted`, killed)
-    expect(said).toMatchObject([{ authorKind: `system`, body: BUS_COPY.session_lost }])
-    expect(said[0]!.consumedAt).not.toBeNull()
+    // S-3: silent, its device continues it.
+    expect(await lines(rootId, `session_interrupted`, killed)).toHaveLength(0)
 
     // An older device sends no `lost`: its end report while a turn is open
     // (running, after a turn ran) is the same interruption.

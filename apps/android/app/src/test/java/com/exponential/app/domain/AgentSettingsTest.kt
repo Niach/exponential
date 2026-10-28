@@ -249,4 +249,86 @@ class AgentSettingsTest {
         assertTrue(!AgentSettings.hidesAssigneeControl(memberCount = 1, agentCount = 0, assigneeAgentId = "G1"))
         assertTrue(!AgentSettings.hidesAssigneeControl(memberCount = 2, agentCount = 0))
     }
+
+    // S-3: the Assistant (`assistant.*Cases`, TS `agent-settings.test.ts`).
+    private val assistant: JsonObject get() = fixture.getValue("assistant").jsonObject
+
+    @Test
+    fun `assistant copy, schedules and sections are the fixture's`() {
+        val copy = assistant.getValue("copy").jsonObject
+        assertEquals(copy.str("title"), AgentSettings.Assistant.TITLE)
+        assertEquals(copy.str("name"), AgentSettings.Assistant.NAME)
+        assertEquals(copy.str("runsOn"), AgentSettings.Assistant.RUNS_ON)
+        assertEquals(copy.str("checkIn"), AgentSettings.Assistant.CHECK_IN)
+        assertEquals(copy.str("voice"), AgentSettings.Assistant.VOICE)
+        assertEquals(copy.str("noDevice"), AgentSettings.Assistant.NO_DEVICE)
+        assertEquals(copy.str("deleteRefused"), AgentSettings.Assistant.DELETE_REFUSED)
+        assertEquals(copy.str("scheduleRefused"), AgentSettings.Assistant.SCHEDULE_REFUSED)
+        assertEquals(assistant.str("defaultSchedule"), AgentSettings.Assistant.DEFAULT_SCHEDULE)
+        assertEquals(assistant.getValue("sections").jsonArray.map { it.jsonPrimitive.content }, AgentSettings.Assistant.SECTIONS)
+        assertEquals(
+            assistant.getValue("schedules").jsonArray.map {
+                val o = it.jsonObject
+                AgentSettings.Assistant.Schedule(o.str("id")!!, o.str("label")!!, o.str("cron"))
+            },
+            AgentSettings.Assistant.SCHEDULES,
+        )
+    }
+
+    @Test
+    fun `assistant scheduleCases`() {
+        val cases = assistant.getValue("scheduleCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val triggers = case.getValue("triggers").jsonArray.map {
+                val t = it.jsonObject
+                AgentSettings.TriggerLike(
+                    kind = t.str("kind")!!,
+                    enabled = t["enabled"]?.takeUnless { e -> e is JsonNull }?.jsonPrimitive?.boolean,
+                    cron = t.str("cron"),
+                    tz = t.str("tz"),
+                    name = t.str("name"),
+                )
+            }
+            assertEquals(case.str("name"), case.str("expected"), AgentSettings.Assistant.scheduleOf(triggers))
+        }
+    }
+
+    @Test
+    fun `assistant every preset round-trips`() {
+        for (schedule in AgentSettings.Assistant.SCHEDULES) {
+            assertEquals(schedule.id, AgentSettings.Assistant.scheduleOfStored(AgentSettings.Assistant.scheduleTriggers(schedule.id)))
+        }
+    }
+
+    @Test
+    fun `assistant visibleCases`() {
+        val cases = assistant.getValue("visibleCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agent = case.getValue("agent").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonPrimitive.boolean,
+                AgentSettings.Assistant.visibleAgent(agent.str("role"), agent.str("ownerId"), case.str("me")),
+            )
+        }
+    }
+
+    @Test
+    fun `assistant orderCases`() {
+        val cases = assistant.getValue("orderCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agents = case.getValue("agents").jsonArray.map { it.jsonObject }
+            val ordered = AgentSettings.Assistant.orderedAgents(agents, case.str("me")) {
+                AgentSettings.Assistant.OrderLike(it.str("role"), it.str("ownerId"), it.str("name")!!, it.getValue("sortOrder").jsonPrimitive.content.toInt())
+            }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                ordered.map { it.str("id") },
+            )
+        }
+    }
 }

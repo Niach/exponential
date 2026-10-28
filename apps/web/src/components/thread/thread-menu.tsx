@@ -203,7 +203,7 @@ export function useThreadMenu({
 }
 
 /** Thread 58cb32df (chats.json MENUS): the thread header's `…` = the chat's
- *  own menu (Stop · Stop and delete | Delete, the rows' right-click menu)
+ *  own menu (Delete, the rows' right-click menu)
  *  plus, while the Guide's PR is open, its Close (EXP-1338). The delete
  *  confirm is the host's (`useChatActions().dialog`). */
 export function ThreadHeaderMenu({
@@ -219,7 +219,7 @@ export function ThreadHeaderMenu({
   /** The Guide's PR (null = none). */
   pr: PullRequestRow | null
   canClosePr: boolean
-  actions: Pick<ReturnType<typeof useChatActions>, `stop` | `requestDelete`>
+  actions: Pick<ReturnType<typeof useChatActions>, `requestDelete`>
   className?: string
 }) {
   const chat = useChatMenuEntries(root, actions)

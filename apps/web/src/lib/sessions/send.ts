@@ -67,6 +67,7 @@ import {
   type MoveTarget,
 } from "@/lib/sessions/move"
 import { SHARING_ORDER } from "@/lib/sessions/host"
+import { agentReuseRefusal } from "@/lib/sessions/agent-reuse"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
@@ -610,7 +611,8 @@ export async function sendSession(args: {
   }
   if (outcome.messageId) fireAndForgetSessionMessageNotify({ messageId: outcome.messageId })
   // EXP-1375: a start on a device low on disk says so.
-  const warning = outcome.queued ? await startDiskWarning(outcome.queued) : null
+  const disk = outcome.queued ? await startDiskWarning(outcome.queued) : null
+  const warning = [outcome.warning, disk].filter(Boolean).join(` `)
   return {
     sessionId: outcome.sessionId,
     messageId: outcome.messageId,
@@ -746,6 +748,49 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
   await postMovedMessage(tx, session, movedText(from, target.name))
 }
 
+/** S-3: an agent's message to a thread it may not reuse never fails: it
+ *  starts a FRESH thread on the same device and repository with the same
+ *  message (watched by the caller, `startRoot`), the result's `warning`
+ *  naming why. */
+async function agentFreshThread(
+  userId: string,
+  uploaderIds: string[],
+  input: SessionsSendInput,
+  caller: Session | null,
+  target: Session
+): Promise<SendOutcome | null> {
+  if (!caller || caller.rootId === target.rootId) return null
+  if (target.parentId !== null || target.agentId || target.appId || isPersistent(target)) return null
+  if (input.answer || !(input.text?.trim() || input.attachmentIds?.length)) return null
+  if (!(await callerTreeAgentId(caller))) return null
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessions)
+    .where(and(eq(sessions.rootId, target.id), ne(sessions.id, target.id)))
+  const reason = agentReuseRefusal(target, count, new Date())
+  if (!reason) return null
+  const outcome = await startRoot(
+    userId,
+    uploaderIds,
+    {
+      ...input,
+      sessionId: undefined,
+      teamId: target.teamId,
+      deviceId: input.deviceId ?? target.deviceId ?? undefined,
+      repositoryId: target.repositoryId ?? undefined,
+      cli: target.cli ?? undefined,
+      model: input.model ?? target.model ?? undefined,
+      effort: input.effort ?? target.effort ?? undefined,
+      account: input.account ?? target.account ?? undefined,
+    },
+    caller
+  )
+  return {
+    ...outcome,
+    warning: `Started a fresh thread instead of reusing ${target.id}: ${reason}. You watch the new one.`,
+  }
+}
+
 async function messageSession(
   userId: string,
   uploaderIds: string[],
@@ -760,6 +805,10 @@ async function messageSession(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The session is in another team` })
   }
   const input = modelCommand(sent, viaMcp)
+  if (viaMcp) {
+    const fresh = await agentFreshThread(userId, uploaderIds, input, caller, target)
+    if (fresh) return fresh
+  }
   // EXP-1376: the runner picks apply to the session (never dropped), in the
   // vocabulary of the agent it runs.
   const cli = await effectiveCli(target)

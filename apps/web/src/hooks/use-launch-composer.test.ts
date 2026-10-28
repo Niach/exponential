@@ -17,8 +17,6 @@ const mockState = vi.hoisted(() => ({
   navigate: vi.fn(),
   awaitTxId: vi.fn(),
   toastError: vi.fn(),
-  // NEW-3: the team's agents (`useAgents`), the Message an agent › rows.
-  agents: [] as unknown[],
 }))
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
@@ -42,6 +40,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 })
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => mockState.navigate }))
 vi.mock(`@/lib/collections`, () => ({
+  agentCollection: {},
   promptCollection: {},
   issueCollection: {},
   sessionCollection: { utils: { awaitTxId: mockState.awaitTxId } },
@@ -57,7 +56,6 @@ vi.mock(`@/hooks/use-mcp-servers`, () => ({
   useMcpServers: () => ({ servers: null, error: null, refresh: vi.fn() }),
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
-  useAgents: () => ({ agents: mockState.agents, isReady: true }),
 }))
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
   uploadTeamSessionImageFile: mockState.upload,
@@ -87,7 +85,7 @@ const device: SteerDevice = {
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
-    agents: { claude: { planMode: true } },
+    agents: { claude: {} },
   },
 }
 
@@ -121,21 +119,35 @@ const prompt = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 })
 
-const agentRow = (agentId: string, name = `Triage`) => ({
-  agentId,
+// S-3: the synced `agents` rows the agent row lists.
+const agentRow = (id: string, name = `Triage`, role = `agent`, ownerId = `u-x`) => ({
+  id,
   teamId: `t1`,
   name,
   icon: `bot`,
   color: `#8b5cf6`,
-  busy: false,
-  needsYou: false,
+  sortOrder: 1,
+  role,
+  ownerId,
 })
 
-function mount(seed: LaunchSeed | null = null, devices: SteerDevice[] | null = [device]) {
+function mount(
+  seed: LaunchSeed | null = null,
+  devices: SteerDevice[] | null = [device],
+  agentRowShown = false
+) {
   const onSeedConsumed = vi.fn()
   const onStarted = vi.fn()
   const hook = renderHook(() =>
-    useLaunchComposer({ teamId: `t1`, devices, seed, onSeedConsumed, onStarted })
+    useLaunchComposer({
+      teamId: `t1`,
+      devices,
+      seed,
+      onSeedConsumed,
+      onStarted,
+      agentRow: agentRowShown,
+      me: `u-me`,
+    })
   )
   return { ...hook, onSeedConsumed, onStarted }
 }
@@ -147,7 +159,7 @@ beforeEach(() => {
   }
   mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-1`)]
   mockState.repos = [{ id: `repo-1`, fullName: `acme/app` }]
-  mockState.agents = [agentRow(`ag-1`)]
+  mockState.rows.agents = [agentRow(`ag-1`), agentRow(`ag-me`, `Assistant`, `assistant`, `u-me`)]
   mockState.upload.mockReset()
   mockState.send.mockReset()
   mockState.send.mockResolvedValue({ sessionId: `s-new`, messageId: null, txid: 42 })
@@ -168,8 +180,8 @@ describe(`submitLabelFor`, () => {
     expect(submitLabelFor({ kind: `issues`, ids: [`a`] })).toBe(`Start coding`)
     expect(submitLabelFor({ kind: `issues`, ids: [`a`, `b`] })).toBe(`Start batch · 2`)
     expect(submitLabelFor({ kind: `prompt`, id: `x` })).toBe(`Start session`)
-    // NEW-3: a DM sends; it starts nothing.
-    expect(submitLabelFor({ kind: `agent`, id: `ag-1` })).toBe(`Send`)
+    // S-3: a message to the agent row's pick sends; it starts nothing.
+    expect(submitLabelFor({ kind: `issues`, ids: [`a`] }, true)).toBe(`Send`)
   })
 })
 
@@ -179,7 +191,6 @@ describe(`buildSendInput`, () => {
     model: `opus`,
     effort: ``,
     ultracode: false,
-    planMode: true,
     account: `work`,
     mcpServerIds: [`m1`],
   }
@@ -201,7 +212,6 @@ describe(`buildSendInput`, () => {
       cli: `claude`,
       account: `work`,
       model: `opus`,
-      planMode: true,
       ultracode: false,
       mcpServerIds: [`m1`],
       issueIds: [`i1`, `i2`],
@@ -232,7 +242,7 @@ describe(`buildSendInput`, () => {
     expect(chat).not.toHaveProperty(`promptId`)
     expect(buildSendInput({ ...base, subject: null, repoId: `` })).not.toHaveProperty(`repositoryId`)
   })
-  it(`NEW-3: an agent subject is a DM: agentId, text and attachments, no runner picks`, () => {
+  it(`S-3: a picked agent is a message: agentId, text, attachments and issues, no runner picks`, () => {
     expect(
       buildSendInput({
         teamId: `t1`,
@@ -240,14 +250,16 @@ describe(`buildSendInput`, () => {
         options,
         text: `triage the inbox`,
         attachmentIds: [`att-1`],
-        subject: { kind: `agent`, id: `ag-1` },
+        subject: { kind: `issues`, ids: [`i1`] },
         repoId: `repo-1`,
+        agentId: `ag-1`,
       })
     ).toEqual({
       teamId: `t1`,
       agentId: `ag-1`,
       text: `triage the inbox`,
       attachmentIds: [`att-1`],
+      issueIds: [`i1`],
     })
   })
 })
@@ -305,25 +317,26 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.blocked).toBe(true)
   })
 
-  it(`NEW-3: an agent is a subject like the others: it swaps, and a DM needs no device`, () => {
-    const { result } = mount(null, [])
-    act(() => result.current.toggleIssue(`i1`))
-    act(() => result.current.pickAgent(`ag-1`))
-    expect(result.current.subject).toEqual({ kind: `agent`, id: `ag-1` })
-    expect(result.current.selectedAgent?.name).toBe(`Triage`)
+  it(`S-3: the agent row preselects the viewer's Assistant; a message needs no device`, () => {
+    const { result } = mount(null, [], true)
+    expect(result.current.agentRow?.options).toEqual([`ag-me`, `ag-1`, `temporary`])
+    expect(result.current.recipient?.id).toBe(`ag-me`)
     expect(result.current.submitLabel).toBe(`Send`)
-    // Something to say, then the DM sends without any machine of the caller's.
+    // Something to say, then it sends without any machine of the caller's.
     expect(result.current.blocked).toBe(true)
     act(() => result.current.setText(`hi`))
     expect(result.current.blocked).toBe(false)
-    // An agent whose row is not synced (or gone) cannot be messaged.
-    act(() => result.current.pickAgent(`ag-gone`))
+    act(() => result.current.pickRecipient(`temporary`))
+    expect(result.current.recipient).toBeNull()
+    expect(result.current.agentRow?.label).toBe(`Temporary session`)
+    // A temporary session needs a device again.
     expect(result.current.blocked).toBe(true)
-    act(() => result.current.toggleIssue(`i2`))
-    expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i2`] })
-    act(() => result.current.pickAgent(`ag-1`))
-    act(() => result.current.clearAgent())
-    expect(result.current.subject).toBeNull()
+  })
+
+  it(`S-3: without the agent row (the launch dialog) it is a temporary session`, () => {
+    const { result } = mount()
+    expect(result.current.agentRow).toBeNull()
+    expect(result.current.recipient).toBeNull()
   })
 
   it(`consumes a seed once: issues, text only into an empty draft`, () => {
@@ -359,9 +372,9 @@ describe(`useLaunchComposer start`, () => {
     expect(result.current.text).toBe(``)
   })
 
-  it(`NEW-3: a DM sends sessions.send({agentId}) and opens the agent's conversation`, async () => {
-    const { result, onStarted } = mount(null, [])
-    act(() => result.current.pickAgent(`ag-1`))
+  it(`S-3: a picked agent sends sessions.send({agentId}) and opens its chat`, async () => {
+    const { result, onStarted } = mount(null, [], true)
+    act(() => result.current.pickRecipient(`ag-1`))
     act(() => result.current.setText(`what is open?`))
     await act(() => result.current.submit())
     expect(mockState.send).toHaveBeenCalledTimes(1)

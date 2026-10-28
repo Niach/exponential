@@ -90,6 +90,9 @@ export interface ChatRow {
   needsYou: boolean
   busy: boolean
   word: ThreadRowWord | null
+  /** S-3: the chat is DONE (every PR of the root merged and nothing works
+   *  or needs you): it stays in the list, dimmed (`shell.dimOpacity`). */
+  dim: boolean
 }
 
 export interface ChatList {
@@ -288,7 +291,8 @@ export function chatList(input: {
     .flatMap((group) => group.rows.filter((row) => row.depth === 0).map((row) => ({ row, group: group.key })))
     .map(({ row, group }) => {
       const mark = threadRowMarkState(row)
-      const pr = mark === `waiting` ? threadRowLeadPr(input.prStates?.[row.sessionId] ?? []) : null
+      const prStates = input.prStates?.[row.sessionId] ?? []
+      const pr = mark === `waiting` ? threadRowLeadPr(prStates) : null
       const lead: ChatLead = mark === `needs_you` ? `needs_you` : mark === `working` ? `working` : (pr ?? `waiting`)
       return {
         sessionId: row.sessionId,
@@ -310,6 +314,7 @@ export function chatList(input: {
         needsYou: row.needsYou,
         busy: row.busy,
         word: input.words?.[row.sessionId] ?? null,
+        dim: mark === `waiting` && prStates.length > 0 && prStates.every((state) => state === `merged`),
       }
     })
     .sort(
@@ -377,23 +382,96 @@ export function agentBubbles(input: {
   })
 }
 
-export type ThreadMenuEntry = `stop` | `stopAndDelete` | `delete`
+/** S-3: an agent row pinned on top of the Chats list (`agentRowCases`). */
+export interface AgentChatRow {
+  agentId: string
+  /** The viewer's conversation with the agent; null = none yet. */
+  sessionId: string | null
+  name: string
+  icon: string
+  color: string
+  /** The viewer's Assistant: the brand mark instead of icon/color. */
+  assistant: boolean
+  preview: ChatPreview
+  /** `chatTimeLabel` of `activityAt`; empty without a conversation. */
+  time: string
+  /** The newest person/agent message of the conversation, else its
+   *  creation; null without one. */
+  activityAt: string | null
+  unreadCount: number
+  needsYou: boolean
+  busy: boolean
+}
 
-/** A thread row's context menu ×4 (`menuCases`): live → Stop, Stop and
- *  delete; ended → Delete; nothing for a viewer who cannot steer it. The
- *  delete entries need `canDelete` (the chat's starter or a team owner, the
- *  server's `sessions.delete` rule). */
+/** S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one row per
+ *  `listAgents` row (that order), filtered by the chip like a chat; none on
+ *  the Archived page. */
+export function agentChatRows(input: {
+  agents: readonly AgentRow[]
+  sessions: readonly TreeSession[]
+  messages: readonly TreeMessage[]
+  reads?: readonly TreeSessionRead[]
+  me: string | null
+  filter: ChatFilter
+  view?: ChatListView
+  now: string
+  utcOffsetMinutes: number
+}): AgentChatRow[] {
+  if (input.view === `archived`) return []
+  const reads = input.reads ?? []
+  return input.agents
+    .map((agent): AgentChatRow => {
+      const conversation = input.sessions.find(
+        (s) => s.parentId === null && s.agentId === agent.agentId && s.userId === input.me
+      )
+      const id = conversation?.id ?? null
+      const newest = id
+        ? input.messages
+            .filter((m) => m.sessionId === id && (m.authorKind === `user` || m.authorKind === `agent`))
+            .reduce<string | null>((at, m) => ((ms(m.createdAt) ?? 0) > (ms(at) ?? -1) ? m.createdAt : at), null)
+        : null
+      const activityAt = newest ?? conversation?.createdAt ?? null
+      return {
+        agentId: agent.agentId,
+        sessionId: id,
+        name: agent.name,
+        icon: agent.icon,
+        color: agent.color,
+        assistant: agent.assistant,
+        preview: id
+          ? chatPreview({ rootId: id, messages: input.messages, needsYou: agent.needsYou, busy: agent.busy })
+          : { kind: `empty`, text: fixture.copy.preview.empty },
+        time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
+        activityAt,
+        unreadCount: id ? unreadCount(id, input.messages, reads) : 0,
+        needsYou: agent.needsYou,
+        busy: agent.busy,
+      }
+    })
+    .filter(
+      (row) =>
+        input.filter === `all` ||
+        (input.filter === `needs_you` && row.needsYou) ||
+        (input.filter === `running` && row.busy) ||
+        (input.filter === `unread` && row.unreadCount > 0)
+    )
+}
+
+export type ThreadMenuEntry = `delete`
+
+/** A thread row's context menu ×4 (`menuCases`): S-3 (owner 2026-10-28)
+ *  no Stop/End anywhere: Delete for a viewer who can steer the chat and
+ *  may delete it (the chat's starter or a team owner, the server's
+ *  `sessions.delete` rule, which ends what is live first); else nothing. */
 export function threadMenuEntries(input: {
   rootStatus: string
   canSteer: boolean
   canDelete: boolean
 }): ThreadMenuEntry[] {
-  if (!input.canSteer) return []
-  if (input.rootStatus === `ended`) return input.canDelete ? [`delete`] : []
-  return input.canDelete ? [`stop`, `stopAndDelete`] : [`stop`]
+  return input.canSteer && input.canDelete ? [`delete`] : []
 }
 
-export type ChatSelectionAction = `markRead` | `markUnread` | `archive` | `unarchive` | `stop` | `delete`
+export type ChatSelectionAction = `markRead` | `markUnread` | `archive` | `unarchive` | `delete`
 
 export interface ChatSelectionRow {
   sessionId: string
@@ -406,8 +484,8 @@ export interface ChatSelectionRow {
 /** #EXP-1388: the selection bar's actions ×4 (`selectionCases`), in bar
  *  order, each with the chats it acts on (selection order): Mark read when
  *  any chat is unread, else Mark unread (all); Archive in the list, Unarchive
- *  on the Archived page (all); Stop while any chat is live and steerable
- *  (those); Delete only when the viewer may delete every one (all). */
+ *  on the Archived page (all); Delete only when the viewer may delete every
+ *  one (all). S-3: no Stop. */
 export function chatSelectionActions(input: {
   rows: readonly ChatSelectionRow[]
   view?: ChatListView
@@ -419,8 +497,6 @@ export function chatSelectionActions(input: {
     { action: rows.some((row) => row.unreadCount > 0) ? `markRead` : `markUnread`, sessionIds: ids(rows) },
     { action: input.view === `archived` ? `unarchive` : `archive`, sessionIds: ids(rows) },
   ]
-  const live = rows.filter((row) => row.canSteer && row.rootStatus !== `ended`)
-  if (live.length > 0) out.push({ action: `stop`, sessionIds: ids(live) })
   if (rows.every((row) => row.canSteer && row.canDelete)) out.push({ action: `delete`, sessionIds: ids(rows) })
   return out
 }
@@ -449,17 +525,12 @@ export function chatSelectionFailedTitle(failed: number, total: number): string 
     : fixture.copy.toasts.selectionFailed
 }
 
-export type AgentMenuEntry = `compact` | `newConversation` | `stop` | `settings`
+export type AgentMenuEntry = `compact` | `newConversation` | `settings`
 
 /** The agent chat's header menu (and its bubble's long-press) ×4
- *  (`agentMenuCases`). */
+ *  (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one). */
 export function agentMenuEntries(input: { busy: boolean; isOwner: boolean }): AgentMenuEntry[] {
-  return [
-    `compact`,
-    `newConversation`,
-    ...(input.busy ? ([`stop`] as const) : []),
-    ...(input.isOwner ? ([`settings`] as const) : []),
-  ]
+  return [`compact`, `newConversation`, ...(input.isOwner ? ([`settings`] as const) : [])]
 }
 
 /** What a menu entry sends (`agentMenuCases`): Compact and New conversation

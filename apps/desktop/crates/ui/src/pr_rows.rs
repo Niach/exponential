@@ -105,6 +105,8 @@ pub(crate) struct PrRowSpec {
     /// EXP-1323: a Threads row's live caption, the muted line under the
     /// title (the row grows to [`CAPTION_ROW`]).
     pub(crate) caption: Option<SharedString>,
+    /// S-3: a Threads tree's fold row (`<root>:earlier`): a muted title.
+    pub(crate) muted: bool,
 }
 
 /// EXP-1323: a row carrying a caption line (web `h-[52px]`).
@@ -128,6 +130,7 @@ impl PrRowSpec {
             trailing: None,
             strong: false,
             caption: None,
+            muted: false,
         }
     }
 }
@@ -154,6 +157,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
         trailing,
         strong,
         caption,
+        muted: muted_title,
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
@@ -175,7 +179,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
     } else {
         title_el
             .text_sm()
-            .text_color(theme.foreground)
+            .text_color(if muted_title { muted } else { theme.foreground })
             .when(strong, |this| this.font_weight(gpui::FontWeight::SEMIBOLD))
     };
     let row_h = if caption.is_some() { CAPTION_ROW } else { PR_ROW };
@@ -306,6 +310,7 @@ pub(crate) fn pr_list(id_prefix: &str, rows: Vec<PrListRow>, cx: &App) -> AnyEle
                     trailing: row.trailing,
                     strong: false,
                     caption: None,
+                    muted: false,
                 },
                 cx,
             )
@@ -432,6 +437,7 @@ pub(crate) fn stack_rail(spec: StackRailSpec, cx: &App) -> AnyElement {
                 trailing,
                 strong: false,
                 caption: None,
+                muted: false,
             },
             cx,
         ));

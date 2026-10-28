@@ -9,15 +9,12 @@ import {
   ComposerReplies,
   ComposerSubmit,
   ContextRing,
-  Label,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
   InlinePickerRow,
-  ModelPicker,
   Prompt,
   Spinner,
-  Switch,
   toast,
   type ValueChoice,
 } from "@exp/ui"
@@ -32,8 +29,7 @@ import {
   type ComposerInlineToolsHandle,
 } from "@/components/composer-inline-tools"
 import { ComposerOptionsMenu } from "@/components/launch-dialog/composer-plus-menu"
-import { useSessionComposerOptions } from "@/components/session-composer-options"
-import { SessionDevicePin } from "@/components/session-device-pin"
+import type { ComposerMenuSurface } from "@/components/launch-dialog/composer-menu"
 import {
   SlashCommandMenu,
   useSlashCommandMenu,
@@ -43,15 +39,19 @@ import {
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
 import { useComposerReplies } from "@/hooks/use-composer-replies"
+import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
 import { useSessionRow } from "@/hooks/use-session-tree"
 import { useSteerCommand } from "@/hooks/use-steer-command"
 import { usePrompts } from "@/hooks/use-prompts"
-import { planModeToggle, sessionModel } from "@/lib/agent-feed"
+import { sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
 import { defaultModelFor } from "@/lib/coding-launch-prefs"
 import {
   acquireSteerSession,
   mergeHeldIntoDraft,
+  type SteerDraftSnapshot,
+  type SteerSessionSnapshot,
+  type SteerSessionStore,
 } from "@/lib/steer-session-store"
 import {
   parseSteerCommand,
@@ -62,12 +62,12 @@ import {
   type SteerCommand,
 } from "@/lib/steer-commands"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
-import { deviceCollection, messageCollection } from "@/lib/collections"
+import { deviceCollection, messageCollection, sessionCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
-import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -82,12 +82,15 @@ import { cn } from "@/lib/utils"
 // 2026-10-22, the iOS row ×4): the row = the "+" = THE options menu
 // (composer-menu.json rows minus the subject rows: Effort ›, Ultracode,
 // MCP servers ›, Computer use, Add file — changed mid-session through
-// `sessions.configure`; the "+" is the only tool, no inline edit tools) ·
-// the Device pin as its glyph alone (EXP-1252, a pick MOVES the session;
-// `session-device-pin.tsx`) · the model pin (THE ModelPicker; a pick sends
-// `/model <alias>` through `sessions.send`, shown at once until the relay's
-// `config_state` confirms) · the Plan switch … the context ring (its usage
-// popover on click) beside Send ⇄ Stop. Nothing under the card. The live
+// `sessions.configure`; the "+" is the only tool, no inline edit tools) …
+// the context ring (its usage popover on click) beside Send ⇄ Stop. Nothing
+// under the card. S-3 (composer-menu.json surface `session` | `agent`): the
+// "+" = Photo or file · Issue › (a pick inserts `#IDENT`) · Model › (THE
+// model rows; a pick = `sessions.configure {model}`, shown at once until
+// the relay's `config_state` confirms) while the agent switches models; no
+// Device pin (a running session never moves device here), no model word in
+// the row. An agent chat with no conversation yet (`sessionId` null) sends
+// `sessions.send({agentId})` through the same composer. The live
 // reads (model in force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
 
@@ -106,11 +109,28 @@ function fallbackModel(
   return defaults?.model || defaultModelFor(agent)
 }
 
+/** No session yet (an agent chat's first message): a store that never
+ *  connects and holds nothing. */
+const IDLE_SNAPSHOT = { config: null, usage: null, contextLayout: null } as unknown as SteerSessionSnapshot
+const IDLE_DRAFT: SteerDraftSnapshot = { text: ``, images: [] }
+const IDLE_STORE = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => IDLE_SNAPSHOT,
+  getDraftSnapshot: () => IDLE_DRAFT,
+  takeDraftText: () => ``,
+  noteSessionStatus: () => undefined,
+  connect: () => undefined,
+} as unknown as SteerSessionStore
+
+/** The models a live session can switch to mid-run (composer-menu.json
+ *  `model`: always for claude and codex). */
+const MODEL_SWITCHING_AGENTS = new Set([`claude`, `codex`])
+
 /** The session's live relay reads + the synced row, for the bottom row. */
-function useComposerSession(sessionId: string) {
+function useComposerSession(sessionId: string | null) {
   const { row } = useSessionRow(sessionId)
   const live = row !== null && row.status !== `ended`
-  const store = useMemo(() => acquireSteerSession(sessionId), [sessionId])
+  const store = useMemo(() => (sessionId ? acquireSteerSession(sessionId) : IDLE_STORE), [sessionId])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   // The thread and the agent channel render no feed of their own: the
   // composer is what keeps the root's relay state (model, usage) current.
@@ -167,6 +187,12 @@ export function SessionComposerReplies({ sessionId }: { sessionId: string }) {
 export function SessionComposer({
   teamId,
   sessionId,
+  agentId,
+  appId,
+  deviceId,
+  disabled = false,
+  surface = `session`,
+  onSent,
   placeholder,
   users = [],
   busy = false,
@@ -177,7 +203,22 @@ export function SessionComposer({
   hideReplies = false,
 }: {
   teamId: string
-  sessionId: string
+  /** The session messaged; null = an agent chat with no conversation yet
+   *  (the send opens it: `sessions.send({agentId})`). */
+  sessionId: string | null
+  /** The agent a first message goes to (`sessionId` null). */
+  agentId?: string
+  /** VAPP-110: or the app whose editor session a first message opens
+   *  (`sessions.send({appId, deviceId})`). */
+  appId?: string
+  /** The device a fresh editor session runs on (an app send). */
+  deviceId?: string
+  /** Nothing can be sent (an app editor with no device). */
+  disabled?: boolean
+  /** composer-menu.json: a thread / a session, or an agent chat. */
+  surface?: Exclude<ComposerMenuSurface, `launch`>
+  /** The conversation a first message opened. */
+  onSent?: (sessionId: string) => void
   placeholder: string
   users?: readonly User[]
   /** The session works right now: the submit offers Stop when `canStop`. */
@@ -203,7 +244,7 @@ export function SessionComposer({
 
   const { store, row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
   // EXP-1211: the agent's quick replies, above the card.
-  const quick = useComposerReplies(sessionId)
+  const quick = useComposerReplies(sessionId ?? ``)
   // EXP-1342: a Stop (here or the header's) hands the unread messages' text
   // back through the session store's draft: it lands in THIS field, after a
   // draft in progress, and the store's copy is cleared. What was merged is
@@ -230,7 +271,7 @@ export function SessionComposer({
   }, [store, restored])
   useEffect(
     () =>
-      onStopRetraction(sessionId, (held) => {
+      onStopRetraction(sessionId ?? ``, (held) => {
         const last = heldRef.current
         if (!last || last.held !== held) return false
         heldRef.current = null
@@ -243,7 +284,7 @@ export function SessionComposer({
     [sessionId]
   )
   const agent = row?.cli ?? `claude`
-  const options = useSessionComposerOptions({ teamId, sessionId, row, agent })
+  const ended = row === null || row.status === `ended`
   // The `/` menu (NEW-2): the contract builtins for this agent, then the
   // team's prompts; the CLI's own injected commands are never offered.
   const catalogAgent = steerAgentId(row?.cli, config !== null)
@@ -269,7 +310,7 @@ export function SessionComposer({
     onPickPrompt: pickPrompt,
   })
   // NEW-2: `/effort <level>` = `sessions.configure`, never a message.
-  const dispatch = useSteerCommand({ sessionId, agent: catalogAgent })
+  const dispatch = useSteerCommand({ sessionId: sessionId ?? ``, agent: catalogAgent })
 
   // The model pin: the model in force (the relay's `config_state`), else the
   // row's / device's. A pick reads as picked AT ONCE (the CLI only confirms
@@ -295,12 +336,6 @@ export function SessionComposer({
       ? choices
       : [{ value: model, label: modelLabel(model) }, ...choices]
   }, [agent, model])
-  // The Plan switch: a pick leads, then the run's live mode, then the
-  // synced row.
-  const livePlan = planModeToggle(config)
-  const planOn = options.planPending
-    ? options.planMode
-    : (livePlan?.active ?? options.planMode)
   const percent = contextPercent(usage)
 
   const addFiles = (picked: File[]) => {
@@ -325,7 +360,7 @@ export function SessionComposer({
   const empty = text.trim().length === 0 && files.length === 0
 
   const send = async (confirmed = false) => {
-    if (sending || empty) return
+    if (sending || empty || disabled) return
     // A slash command is the WHOLE message: no attachments around it, and a
     // context-discarding one asks first (the device runs what it receives).
     const command = parseSteerCommand(text, commands)
@@ -343,7 +378,7 @@ export function SessionComposer({
     try {
       // A steer command the web runs itself (`/effort`): the draft clears
       // once it is applied; a failed one toasted and keeps the draft.
-      const dispatched = await dispatch(text)
+      const dispatched = sessionId ? await dispatch(text) : null
       if (dispatched !== null) {
         if (dispatched === `sent`) setText(``)
         return
@@ -355,7 +390,7 @@ export function SessionComposer({
       }
       const result = await trpc.sessions.send.mutate({
         teamId,
-        sessionId,
+        ...(sessionId ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
         text: text.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       })
@@ -367,6 +402,12 @@ export function SessionComposer({
       // A message to a live session writes only a `messages` row: free the
       // composer now, then wait (bounded) for that row to sync.
       setSending(false)
+      if (!sessionId) {
+        // The first message opened the conversation: its row, then the chat.
+        await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+        onSent?.(result.sessionId)
+        return
+      }
       await messageCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch {
       toast.error(`Couldn't send the message`)
@@ -376,12 +417,13 @@ export function SessionComposer({
   }
 
   const stop = async () => {
+    if (!sessionId) return
     try {
       // Chats STOP: the composer's stop = the TURN interrupt; an
       // undelivered one toasts inside `stopSessionTurn`.
       await stopSessionTurn(sessionId)
     } catch {
-      toast.error(CHATS_COPY.toasts.stopFailed)
+      toast.error(CHATS_COPY.stopTurn.failed)
     }
   }
 
@@ -390,7 +432,7 @@ export function SessionComposer({
     // failure or the confirm window) latches the next. EXP-1401: the pick
     // is the row's (`sessions.configure`), never a `/model` turn: a walled
     // session takes no turn (the server lifts a model wall or refuses).
-    if (value === model || options.ended || pickedModel !== null) return
+    if (!sessionId || value === model || ended || pickedModel !== null) return
     setPickedModel(value)
     try {
       await trpc.sessions.configure.mutate({ sessionId, model: value }, SKIP_ERROR_TOAST)
@@ -450,50 +492,31 @@ export function SessionComposer({
         tools={
           <>
             <ComposerOptionsMenu
-              options={options.binding}
+              surface={surface}
+              agent={agent}
+              runner={
+                row && MODEL_SWITCHING_AGENTS.has(agent)
+                  ? {
+                      model: {
+                        value: model,
+                        models: modelOptions,
+                        onChange: (value) => void pickModel(value),
+                      },
+                    }
+                  : undefined
+              }
+              issues={{
+                kind: `insert`,
+                onPick: (identifier) =>
+                  fieldRef.current?.insertText(
+                    `${issueRefInsertionText(fieldRef.current.charBeforeCaret())}${identifier} `
+                  ),
+              }}
               onAttach={() => toolsRef.current?.attach()}
-              rowsDisabled={options.ended}
+              rowsDisabled={row !== null && ended}
               highlighted={files.length > 0}
             />
-            <ComposerInlineTools
-              ref={toolsRef}
-              fieldRef={fieldRef}
-              onFiles={addFiles}
-              disabled={sending}
-              hidden
-            />
-            {row && (
-              <div
-                data-testid="session-composer-options"
-                className="flex min-w-0 items-center gap-x-2.5 pl-1 text-xs text-muted-foreground"
-              >
-                {/* EXP-1252: THE launch line's Device pin — a pick moves the
-                    session to that device after its turn. */}
-                <SessionDevicePin teamId={teamId} row={row} />
-                <span data-testid="session-composer-model" data-model={model}>
-                  <ModelPicker
-                    value={model}
-                    models={modelOptions}
-                    onChange={(value) => void pickModel(value)}
-                    // Codex has no mid-run model prompt: its pin is a label ×4.
-                    disabled={options.ended || agent !== `claude`}
-                  />
-                </span>
-                {options.planSupported && (
-                  <Label className="cursor-pointer gap-1.5 font-normal">
-                    <span>Plan</span>
-                    <Switch
-                      size="sm"
-                      checked={planOn}
-                      onCheckedChange={options.setPlanMode}
-                      disabled={options.ended}
-                      aria-label="Plan mode"
-                      data-testid="session-composer-plan"
-                    />
-                  </Label>
-                )}
-              </div>
-            )}
+            <ComposerInlineTools ref={toolsRef} onFiles={addFiles} />
           </>
         }
         submit={
@@ -522,7 +545,7 @@ export function SessionComposer({
             <ComposerSubmit
               stop={showStop}
               aria-label={showStop ? `Stop` : `Send`}
-              disabled={!showStop && (empty || sending)}
+              disabled={!showStop && (empty || sending || disabled)}
               onClick={showStop ? stop : () => void send()}
             >
               {sending ? <Spinner size={16} label="Sending" /> : undefined}

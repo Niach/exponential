@@ -566,57 +566,51 @@ public struct TreePullRequest: Equatable, Sendable, Identifiable {
 
 // MARK: - Outputs
 
-/// One state word per session: the card's kind word, icon and tone.
+/// S-3 (owner 2026-10-28): the FOUR display states ×4, nothing else (no
+/// running, paused, interrupted or stale in the UI): `working` = queued or
+/// busy (background tasks included), `needsYou` = needsInput, `done` =
+/// ended, `idle` = the rest.
 public enum SessionState: String, Equatable, Sendable, CaseIterable {
-    case queued
     case working
-    /// EXP-1374: the turn is over, background tasks still run on its device.
-    case background
-    case waiting
     case needsYou = "needs_you"
-    /// EXP-1374: its run was interrupted (device offline, runner restarted);
-    /// never on a person, its device continues it by itself.
-    case interrupted
-    case blocked
-    case ended
+    case idle
+    case done
 
     /// Fixture `copy.states`.
     public var word: String {
         switch self {
-        case .queued: "Queued"
         case .working: "Working"
-        case .background: "Background task"
-        case .waiting: "Waiting"
         case .needsYou: "Needs you"
-        case .interrupted: "Interrupted"
-        case .blocked: "Usage limit"
-        case .ended: "Ended"
+        case .idle: "Idle"
+        case .done: "Done"
         }
     }
 
     /// Fixture `icons` (concept names).
     public var icon: String {
         switch self {
-        case .queued: "ui-clock"
         case .working: "coding-running"
-        case .background: "trace-background"
-        case .waiting: "coding-assistant"
         case .needsYou: "coding-needs-input"
-        case .interrupted: "run-pause"
-        case .blocked: "notification-session-blocked"
-        case .ended: "coding-ended"
+        case .idle: "coding-assistant"
+        case .done: "coding-ended"
         }
     }
 
-    /// Fixture `tones`: muted | foreground | amber | rose.
+    /// Fixture `tones`: muted | foreground | amber.
     public var tone: String {
         switch self {
-        case .working, .background: "foreground"
+        case .working: "foreground"
         case .needsYou: "amber"
-        case .blocked: "rose"
-        case .queued, .waiting, .interrupted, .ended: "muted"
+        case .idle, .done: "muted"
         }
     }
+}
+
+/// EXP-1312: a thread row's mark (`threads-list.json` `markCases`).
+public enum ThreadRowMark: String, Equatable, Sendable, CaseIterable {
+    case needsYou = "needs_you"
+    case working
+    case waiting
 }
 
 /// THE session card = the Work card's header row (EXP-1240 `WorkCardView`):
@@ -657,10 +651,11 @@ public struct SessionCard: Equatable, Sendable {
     }
 }
 
-/// EXP-1374: the Dock card of an interrupted or background session (a
-/// dock.json `banner` source without its `kind`; `SessionTree.sessionBanner`).
+/// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
+/// queued one (a dock.json `banner` source without its `kind`;
+/// `SessionTree.sessionBanner`). S-3: an interruption has no card.
 public struct SessionBanner: Equatable, Sendable {
-    /// `interrupted` | `background`.
+    /// `background` | `queued`.
     public let id: String
     /// Concept name.
     public let icon: String
@@ -736,7 +731,7 @@ public enum ThreadTab: Equatable, Sendable {
     case issue(issueId: String, identifier: String, nested: [ThreadTabNestedIssue])
     /// EXP-1334: one chip per DIRECT child of the dispatcher (the root has
     /// no chip); every deeper session folds into `nested`. `markState` =
-    /// `threadRowMarkState` of that session, `.ended` once it ended.
+    /// that session's display state (S-3).
     case session(sessionId: String, name: String, markState: SessionState, nested: [ThreadTabNestedSession])
     /// `dot` while the root's guide holds any text or picture.
     case guide(dot: Bool)
@@ -1092,6 +1087,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1323: bold title (a root: the tree's newest agent message is
     /// newer than the viewer's read of the root; a child: its own).
     public let unread: Bool
+    /// S-3: set ONLY on a tree's fold row (`<rootId>:earlier`, depth 1, the
+    /// muted list-item row; opens the thread) = how many sub-sessions it hides.
+    public let earlier: Int?
 
     public var id: String { sessionId }
 
@@ -1106,9 +1104,11 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         needsYou: Bool,
         unread: Bool = false,
         activityAt: String,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        earlier: Int? = nil
     ) {
         self.deviceId = deviceId
+        self.earlier = earlier
         self.depth = depth
         self.parentId = parentId
         self.rootId = rootId ?? sessionId
@@ -1132,7 +1132,7 @@ public struct ThreadsListGroup: Equatable, Sendable, Identifiable {
         public var title: String {
             switch self {
             case .needsYou: "Needs you"
-            case .running: "Running"
+            case .running: "Working"
             case .recent: "Recent"
             }
         }
@@ -1198,22 +1198,35 @@ public struct AgentLike: Equatable, Sendable, Identifiable {
     public let icon: String?
     public let color: String?
     public let sortOrder: Double
+    /// S-3: contract `agentRole` (nil/absent = `agent`).
+    public let role: String?
+    /// S-3: who owns it (an Assistant shows to its owner only).
+    public let ownerId: String?
 
-    public init(id: String, teamId: String, name: String, icon: String?, color: String?, sortOrder: Double) {
+    public init(
+        id: String, teamId: String, name: String, icon: String?, color: String?, sortOrder: Double,
+        role: String? = nil, ownerId: String? = nil
+    ) {
         self.id = id
         self.teamId = teamId
         self.name = name
         self.icon = icon
         self.color = color
         self.sortOrder = sortOrder
+        self.role = role
+        self.ownerId = ownerId
     }
 
     public init(_ agent: AgentDefinitionEntity) {
         self.init(
             id: agent.id, teamId: agent.teamId, name: agent.name,
-            icon: agent.icon, color: agent.color, sortOrder: agent.sortOrder
+            icon: agent.icon, color: agent.color, sortOrder: agent.sortOrder,
+            role: agent.role, ownerId: agent.ownerId
         )
     }
+
+    /// S-3: `agents.role = assistant`.
+    public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
 }
 
 /// One row of the Agents band (icon + color like a board row): an agent
@@ -1228,6 +1241,9 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
     public let color: String
     public let busy: Bool
     public let needsYou: Bool
+    /// S-3: the viewer's own Assistant (agents.role assistant): the brand
+    /// mark instead of icon/color, always first.
+    public let assistant: Bool
 
     public var id: String { agentId }
 
@@ -1238,7 +1254,8 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
         icon: String,
         color: String,
         busy: Bool,
-        needsYou: Bool
+        needsYou: Bool,
+        assistant: Bool = false
     ) {
         self.agentId = agentId
         self.teamId = teamId
@@ -1247,6 +1264,7 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
         self.color = color
         self.busy = busy
         self.needsYou = needsYou
+        self.assistant = assistant
     }
 }
 
@@ -1256,33 +1274,26 @@ public enum SessionTree {
     /// fixtures/session-card.json `copy` + `testIds`.
     public enum CardCopy {
         public static let testId = "session-card"
-        /// NEW-1: `copy.blockedKinds` — the state word per `blocked.kind`
-        /// (contract codingSessionBlocked.kinds); an unknown kind reads
-        /// `SessionState.blocked.word`.
+        /// NEW-1: `copy.blockedKinds` — the needs-you word per `blocked.kind`
+        /// (an unknown kind reads `SessionState.needsYou.word`).
         public static let blockedKinds: [String: String] = [
             "rate_limit": "Usage limit",
-            "device_offline": "Device offline",
             "unclaimed": "Not picked up",
             "stuck": "Stuck",
-            "restarted": "Interrupted",
         ]
-        /// EXP-1374: `copy.interruptedKinds` — the blocked kinds that
-        /// INTERRUPT a run (never on a person) and their state word.
-        public static let interruptedKinds: [String: String] = [
-            "device_offline": "Interrupted · device offline",
-            "restarted": "Interrupted · runner restarted",
+        /// S-3: `bannerIcons` / `bannerLabels` / `banner` per banner id.
+        public static let bannerIcons: [String: String] = [
+            "background": "trace-background",
+            "queued": "ui-clock",
         ]
-        /// EXP-1374: `banner.interrupted` — the Dock card's text per kind.
-        public static let bannerInterrupted: [String: String] = [
-            "device_offline": "Its device went offline. It continues by itself when the device is back.",
-            "restarted": "Its runner restarted mid-turn. It continues by itself.",
+        public static let bannerLabels: [String: String] = [
+            "background": "Background task",
+            "queued": "Queued",
         ]
-        /// EXP-1374: `banner.background`.
-        public static let bannerBackground = "The turn is over; background tasks still run on its device."
-        /// #EXP-1405: `copy.queuedKind` — a queued row waits for its device.
-        public static let queuedKind = "Queued · waiting for the device"
-        /// #EXP-1405: `banner.queued`.
-        public static let bannerQueued = "Waiting for its device to pick it up. It starts by itself once the device is online."
+        public static let banner: [String: String] = [
+            "background": "The turn is over; background tasks still run on its device.",
+            "queued": "Waiting for its device to pick it up. It starts by itself once the device is online.",
+        ]
     }
 
     /// fixtures/session-thread.json `copy` + `testIds` (titles: `SessionTitle`).
@@ -1305,12 +1316,9 @@ public enum SessionTree {
             "session_blocked": "{session} hit a usage limit",
             "session_unclaimed": "{session} was not picked up",
             "session_stuck": "{session} shows no sign of life",
-            "device_offline": "{session} interrupted: device offline",
             // NEW-2: an agent's trigger fired ({name} = the event name, else
             // the schedule's cron).
             "trigger_fired": "Trigger fired: {name}",
-            // EXP-1374: a child's run stopped mid-turn (runner restart).
-            "session_interrupted": "{session} interrupted: runner restarted",
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused": "Merge of PR {pr} refused",
         ]
@@ -1395,28 +1403,49 @@ public enum SessionTree {
         return "\(seconds)s"
     }
 
-    /// EXP-1374: the blocked kinds that INTERRUPT a run (never on a person;
-    /// its device continues it by itself), `CardCopy.interruptedKinds`' keys.
-    public static func isInterruption(_ blocked: TreeSessionBlocked?) -> Bool {
-        guard let kind = blocked?.kind else { return false }
-        return CardCopy.interruptedKinds[kind] != nil
+    /// S-3: one of the four display states per session.
+    public static func sessionState(_ session: TreeSession) -> SessionState {
+        if session.status == "ended" { return .done }
+        if session.needsInput { return .needsYou }
+        if session.status == "queued" || session.busy { return .working }
+        return .idle
     }
 
-    public static func sessionState(_ session: TreeSession) -> SessionState {
-        if session.status == "ended" { return .ended }
-        if session.needsInput { return .needsYou }
-        if isInterruption(session.blocked) { return .interrupted }
-        if session.blocked != nil { return .blocked }
-        if session.status == "queued" { return .queued }
-        if session.busy && session.background { return .background }
-        if session.busy { return .working }
-        return .waiting
+    /// S-3: a NESTED session (a child row, a strip chip) shows while it works
+    /// or needs you, or while its last activity (done: endedAt, else
+    /// updatedAt) is within `ListRules.recentChildMinutes` of `now` (nil =
+    /// never).
+    public static func visibleChild(_ session: TreeSession, now: Date?) -> Bool {
+        let state = sessionState(session)
+        if state == .working || state == .needsYou { return true }
+        guard let now else { return false }
+        let last = state == .done ? (ms(session.endedAt) ?? ms(session.updatedAt)) : ms(session.updatedAt)
+        guard let last else { return false }
+        return ms(now) - last <= ListRules.recentChildMinutes * 60 * 1000
+    }
+
+    /// S-3: the ids of a tree's sessions that show nested: `visibleChild` or
+    /// an ancestor of one (a working grandchild keeps its idle parent).
+    public static func visibleTree(_ tree: [TreeSession], now: Date?) -> Set<String> {
+        var byId: [String: TreeSession] = [:]
+        for session in tree where byId[session.id] == nil { byId[session.id] = session }
+        var out = Set<String>()
+        for session in tree where visibleChild(session, now: now) {
+            var at: TreeSession? = session
+            var seen = Set<String>()
+            while let current = at, !seen.contains(current.id) {
+                seen.insert(current.id)
+                out.insert(current.id)
+                at = current.parentId.flatMap { byId[$0] }
+            }
+        }
+        return out
     }
 
     /// EXP-1312: a thread row's lead outside the Threads tab (Home's Running
     /// band) ×4: needs you beats working, else the bare mark
     /// (`threads-list.json` `markCases`).
-    public static func threadRowMarkState(needsYou: Bool, busy: Bool) -> SessionState {
+    public static func threadRowMarkState(needsYou: Bool, busy: Bool) -> ThreadRowMark {
         if needsYou { return .needsYou }
         if busy { return .working }
         return .waiting
@@ -1435,11 +1464,9 @@ public enum SessionTree {
         return nil
     }
 
-    /// EXP-1316: a session chip's lead: that session's row mark, `.ended`
-    /// once it ended.
+    /// EXP-1316 / S-3: a session chip's lead = that session's display state.
     public static func sessionTabMarkState(_ session: TreeSession) -> SessionState {
-        if session.status == "ended" { return .ended }
-        return threadRowMarkState(needsYou: session.needsInput, busy: session.busy)
+        sessionState(session)
     }
 
     /// Sessions of one tree in creation order (ties by id).
@@ -1452,13 +1479,18 @@ public enum SessionTree {
     }
 
     /// THE session card. `title` = its `SessionTitle.title` (EXP-1341,
-    /// fixtures/session-title.json; never `Session N`).
+    /// fixtures/session-title.json; never `Session N`). S-3: elapsed only
+    /// while working (not queued; startedAt → now) and once done (startedAt
+    /// → endedAt, else updatedAt).
     public static func sessionCard(_ session: TreeSession, title: String, now: Date) -> SessionCard {
         let state = sessionState(session)
         let start = ms(session.startedAt)
-        let end = state == .ended ? (ms(session.endedAt) ?? ms(session.updatedAt)) : ms(now)
+        let end: Double? =
+            state == .done
+            ? (ms(session.endedAt) ?? ms(session.updatedAt))
+            : state == .working && session.status != "queued" ? ms(now) : nil
         var elapsed: String?
-        if let start, let end, state != .queued { elapsed = formatElapsed(ms: end - start) }
+        if let start, let end { elapsed = formatElapsed(ms: end - start) }
         return SessionCard(
             sessionId: session.id,
             icon: state.icon,
@@ -1467,53 +1499,43 @@ public enum SessionTree {
             state: state,
             tone: state.tone,
             elapsed: elapsed,
-            running: state == .working || state == .background,
+            running: state == .working,
             testId: CardCopy.testId
         )
     }
 
-    /// NEW-1: the card's state word; a blocked session names WHY
-    /// (`CardCopy.blockedKinds[blocked.kind]`; an unknown or absent kind =
-    /// `SessionState.blocked.word`). Web `sessionKindWord`.
+    /// NEW-1: the card's state word; a session that needs you because of a
+    /// flag names WHY (`CardCopy.blockedKinds[blocked.kind]`). Web
+    /// `sessionKindWord`.
     public static func sessionKindWord(_ session: TreeSession, state: SessionState) -> String {
-        // #EXP-1405: a queued row names what it waits for (its device).
-        if state == .queued { return CardCopy.queuedKind }
-        // EXP-1374: an interruption names its kind (`CardCopy.interruptedKinds`).
-        if state == .interrupted, let kind = session.blocked?.kind, let word = CardCopy.interruptedKinds[kind] {
-            return word
-        }
-        if state == .blocked, let kind = session.blocked?.kind, let word = CardCopy.blockedKinds[kind] {
+        if state == .needsYou, let kind = session.blocked?.kind, let word = CardCopy.blockedKinds[kind] {
             return word
         }
         return state.word
     }
 
-    /// EXP-1374: the Dock card of an interrupted or background session, and
-    /// (#EXP-1405) of a queued one waiting for its device (a dock.json
-    /// `banner` source; session-card.json `bannerCases`), nil for
-    /// any other state. It replaces the host's offline "paused" banner while
-    /// shown. Web `sessionBanner`.
+    /// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
+    /// queued one waiting for its device (a dock.json `banner` source;
+    /// session-card.json `bannerCases`), nil otherwise. S-3: an interruption
+    /// has no card. Web `sessionBanner`.
     public static func sessionBanner(_ session: TreeSession) -> SessionBanner? {
-        let state = sessionState(session)
-        switch state {
-        case .interrupted:
-            guard let kind = session.blocked?.kind, let text = CardCopy.bannerInterrupted[kind] else { return nil }
-            return SessionBanner(
-                id: state.rawValue, icon: state.icon, label: state.word, text: text, tone: "muted", action: nil
-            )
-        case .background:
-            return SessionBanner(
-                id: state.rawValue, icon: state.icon, label: state.word,
-                text: CardCopy.bannerBackground, tone: "muted", action: nil
-            )
-        case .queued:
-            return SessionBanner(
-                id: state.rawValue, icon: state.icon, label: state.word,
-                text: CardCopy.bannerQueued, tone: "muted", action: nil
-            )
-        default:
+        if session.status == "ended" || session.needsInput { return nil }
+        let id: String
+        if session.status == "queued" {
+            id = "queued"
+        } else if session.busy && session.background {
+            id = "background"
+        } else {
             return nil
         }
+        return SessionBanner(
+            id: id,
+            icon: CardCopy.bannerIcons[id] ?? "",
+            label: CardCopy.bannerLabels[id] ?? "",
+            text: CardCopy.banner[id] ?? "",
+            tone: "muted",
+            action: nil
+        )
     }
 
     /// THE display title of one tree session off the tree rows
@@ -1588,8 +1610,11 @@ public enum SessionTree {
             sessionCard(session, title: titles[session.id] ?? "", now: now).name
         }
         let treeIds = Set(tree.map(\.id))
+        // S-3: only the VISIBLE sessions get chips (`visibleTree`), the
+        // focused one always; the rest stay reachable through their cards.
+        let shown = visibleTree(tree.filter { $0.id != root.id }, now: now)
         let sessionTabs: [ThreadTab] = foldForest(
-            tree.filter { $0.id != root.id },
+            tree.filter { $0.id != root.id && (shown.contains($0.id) || $0.id == focused?.id) },
             id: \.id,
             foldParent: { session in
                 guard let parent = session.parentId, parent != root.id, treeIds.contains(parent) else { return nil }
@@ -1985,12 +2010,13 @@ public enum SessionTree {
         let titleIndex = SessionTitle.index(sessionIssues: sessionIssues, issues: issues, messages: messages)
         var updatedMs: [String: Double] = [:]
         for session in sessions { updatedMs[session.id] = ms(session.updatedAt) ?? 0 }
+        let nowDate = ms(now).map { Date(timeIntervalSince1970: $0 / 1000) }
         var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, children: [ThreadsListRow], activityMs: Double)]] = [:]
         for root in roots {
             let tree = byRoot[root.id] ?? [root]
             let live = tree.filter { $0.status != "ended" }
             let needsYou = live.contains { $0.needsInput }
-            let running = live.contains { $0.status == "queued" || $0.status == "running" }
+            let running = live.contains { $0.status == "queued" || $0.busy }
             var activity = root.updatedAt
             var activityMs = ms(root.updatedAt) ?? 0
             for session in tree where (updatedMs[session.id] ?? 0) > activityMs {
@@ -2012,13 +2038,16 @@ public enum SessionTree {
                 deviceId: root.deviceId
             )
             let key: ThreadsListGroup.Key = needsYou ? .needsYou : running ? .running : .recent
-            // A live tree nests its children (depth-first, creation order);
-            // Recent collapses to the root.
+            // A live tree nests its VISIBLE children (S-3 `visibleTree`:
+            // working, needs you or active within `recentChildMinutes`;
+            // depth-first, creation order), the rest fold into ONE `earlier`
+            // row; Recent collapses to the root.
             var children: [ThreadsListRow] = []
             if key != .recent {
                 let ordered = treeOrder(tree)
+                let shown = visibleTree(ordered.filter { $0.id != root.id }, now: nowDate)
                 func walk(_ parentId: String, _ depth: Int) {
-                    for child in ordered where child.parentId == parentId {
+                    for child in ordered where child.parentId == parentId && shown.contains(child.id) {
                         let ended = child.status == "ended"
                         children.append(ThreadsListRow(
                             sessionId: child.id,
@@ -2037,6 +2066,27 @@ public enum SessionTree {
                     }
                 }
                 walk(root.id, 1)
+                let hidden = ordered.filter { $0.id != root.id && !shown.contains($0.id) }
+                if let first = hidden.first {
+                    var hiddenActivity = first.updatedAt
+                    for session in hidden where (updatedMs[session.id] ?? 0) > (ms(hiddenActivity) ?? 0) {
+                        hiddenActivity = session.updatedAt
+                    }
+                    children.append(ThreadsListRow(
+                        sessionId: "\(root.id)\(earlierSuffix)",
+                        teamId: root.teamId,
+                        depth: 1,
+                        parentId: root.id,
+                        rootId: root.id,
+                        title: earlierLabel(hidden.count),
+                        busy: false,
+                        needsYou: false,
+                        unread: false,
+                        activityAt: hiddenActivity,
+                        deviceId: nil,
+                        earlier: hidden.count
+                    ))
+                }
             }
             buckets[key, default: []].append((row, children, activityMs))
         }
@@ -2060,28 +2110,27 @@ public enum SessionTree {
         }
     }
 
-    /// NEW-1: fixtures/threads-list.json `recent` + `treeState`.
+    /// NEW-1: fixtures/threads-list.json `recent` + (S-3) `recentChildMinutes`.
     public enum ListRules {
         public static let recentHours: Double = 24
         public static let recentMax = 20
-        public static let staleHours: Double = 24
+        public static let recentChildMinutes: Double = 120
     }
 
-    /// NEW-1 (plan 3.13): a tree's derived state (threads-list.json
-    /// `treeState`).
-    public enum TreeState: String, Equatable, Sendable, CaseIterable {
-        case needsYou = "needs_you"
-        case running
-        case done
-        case stale
-        case idle
+    /// S-3: the fold row's id suffix and its label (`copy.earlier`).
+    public static let earlierSuffix = ":earlier"
+    public static func earlierLabel(_ count: Int) -> String {
+        count == 1 ? "1 earlier sub-session" : "\(count) earlier sub-sessions"
     }
 
-    /// NEW-1: `needs_you` = a live session waits on a person (a card, a
-    /// usage wall or a watchdog flag all set `needsInput`); `running` = any
-    /// session queued or running; `done` = every session ended and every PR
-    /// of the thread merged (none = never done); `stale` = nothing touched
-    /// for `staleHours`; else `idle`.
+    /// S-3: a tree's display state = the session's four (`SessionState`).
+    public typealias TreeState = SessionState
+
+    /// NEW-1 / S-3: `needsYou` = a live session waits on a person (a card,
+    /// a usage wall or a watchdog flag all set `needsInput`); `working` =
+    /// any live session queued or busy; `done` = every session ended, or
+    /// every PR of the thread merged (none = never done this way); else
+    /// `idle`. `now` is kept for the signature.
     public static func treeState(
         _ tree: [TreeSession],
         pullRequests: [TreePullRequest],
@@ -2089,12 +2138,9 @@ public enum SessionTree {
     ) -> TreeState {
         let live = tree.filter { $0.status != "ended" }
         if live.contains(where: { $0.needsInput }) { return .needsYou }
-        if live.contains(where: { $0.status == "queued" || $0.status == "running" }) { return .running }
-        if live.isEmpty, !pullRequests.isEmpty, pullRequests.allSatisfy({ $0.state == "merged" }) {
-            return .done
-        }
-        let newest = tree.reduce(0.0) { Swift.max($0, ms($1.updatedAt) ?? 0) }
-        if let at = ms(now), at - newest > ListRules.staleHours * 60 * 60 * 1000 { return .stale }
+        if live.contains(where: { $0.status == "queued" || $0.busy }) { return .working }
+        if live.isEmpty { return .done }
+        if !pullRequests.isEmpty, pullRequests.allSatisfy({ $0.state == "merged" }) { return .done }
         return .idle
     }
 
@@ -2117,7 +2163,12 @@ public enum SessionTree {
         }
         return agents
             .filter { teamId == nil || $0.teamId == teamId }
+            // S-3: another member's Assistant is never listed
+            // (agent-settings.json `assistant.visibleCases`); the viewer's
+            // own comes first.
+            .filter { !$0.isAssistant || $0.ownerId == me }
             .sorted { a, b in
+                if a.isAssistant != b.isAssistant { return a.isAssistant }
                 if a.sortOrder != b.sortOrder { return a.sortOrder < b.sortOrder }
                 let byName = a.name.localizedCompare(b.name)
                 if byName != .orderedSame { return byName == .orderedAscending }
@@ -2133,9 +2184,21 @@ public enum SessionTree {
                     icon: agent.icon ?? ListCopy.agentDefaultIcon,
                     color: agent.color ?? ListCopy.agentDefaultColor,
                     busy: live && conversation?.busy == true,
-                    needsYou: live && conversation?.needsInput == true
+                    needsYou: live && conversation?.needsInput == true,
+                    assistant: agent.isAssistant
                 )
             }
+    }
+
+    /// S-3 (session-thread.json `chatModeCases`): THE thread screen's mode:
+    /// an agent conversation paints chat bubbles, a thread its transcript.
+    public enum ThreadChatMode: String, Equatable, Sendable {
+        case bubbles
+        case transcript
+    }
+
+    public static func threadChatMode(agentId: String?) -> ThreadChatMode {
+        (agentId ?? "").isEmpty ? .transcript : .bubbles
     }
 
     /// The caller's own working sessions counted per team — the board

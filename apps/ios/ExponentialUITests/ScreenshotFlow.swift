@@ -593,7 +593,7 @@ extension XCTestCase {
         let backButton = app.navigationBars.buttons
             .matching(NSPredicate(
                 format: "NOT (identifier IN %@)",
-                ["thread-guide-menu", "session-stop", "session-back"]
+                ["thread-guide-menu", "session-back"]
             ))
             .firstMatch
         if backButton.waitForExistence(timeout: 1) {

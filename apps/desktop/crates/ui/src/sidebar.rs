@@ -312,6 +312,9 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "account" => Some(S::Account),
         "notifications" => Some(S::Notifications),
         "voice" => Some(S::Voice),
+        // S-3: the viewer's Assistant page (`Voice` resolves to it once
+        // the agents synced: `first_agent_resolved`).
+        "assistant" => Some(S::Voice),
         "api-keys" => Some(S::ApiKeys),
         "mcp-servers" => Some(S::McpServers),
         "about" => Some(S::About),
@@ -946,14 +949,17 @@ impl RailView {
         let guides = domain::tree_guides::guides_for(&running.iter().map(|row| row.depth).collect::<Vec<_>>());
         let child_rows: std::collections::HashSet<String> = running
             .iter()
-            .filter(|row| row.depth > 0)
+            .filter(|row| row.depth > 0 && row.earlier.is_none())
             .map(|row| row.session_id.clone())
             .collect();
         let elements: Vec<gpui::AnyElement> = running
             .into_iter()
             .enumerate()
             .map(|(index, row)| {
+                // S-3: the fold row (`<root>:earlier`) never lights.
+                let fold = row.earlier.is_some();
                 let active = match &screen {
+                    _ if fold => false,
                     Some(Screen::Thread { session_id }) => row.depth == 0 && *session_id == row.root_id,
                     Some(Screen::Session { session_id }) if row.depth > 0 => *session_id == row.session_id,
                     Some(Screen::Session { session_id }) => {
@@ -961,7 +967,13 @@ impl RailView {
                     }
                     _ => false,
                 };
-                let state = running_row_state(row.busy, row.needs_you);
+                // S-3: the fold row = the muted list-item row with the done
+                // mark (web `sidebar-running`'s `ended` mark).
+                let state = if fold {
+                    domain::session_tree::SessionState::Done
+                } else {
+                    running_row_state(row.busy, row.needs_you)
+                };
                 // The mark is the agent of the newest session working in the
                 // tree, else the root's.
                 let agent = row
@@ -970,10 +982,11 @@ impl RailView {
                     .rev()
                     .filter_map(|id| crate::session_data::session(id, cx))
                     .find(crate::session_data::session_is_working)
-                    .or_else(|| crate::session_data::session(&row.session_id, cx))
+                    .or_else(|| crate::session_data::session(if fold { &row.root_id } else { &row.session_id }, cx))
                     .and_then(|session| crate::run_rows::run_agent(session.cli.as_deref()));
-                // A thread row opens the thread, a child row that session.
-                let target = if row.depth == 0 {
+                // A thread row (and the fold row) opens the thread, a child
+                // row that session.
+                let target = if row.depth == 0 || fold {
                     Screen::Thread {
                         session_id: row.root_id.clone(),
                     }
@@ -1003,6 +1016,7 @@ impl RailView {
                         }),
                         guides: guides.get(index).cloned().unwrap_or_default(),
                         unread: row.unread,
+                        muted: fold,
                     },
                     cx,
                 );
@@ -3752,7 +3766,7 @@ mod tests {
         assert_eq!(running_row_state(true, true), SessionState::NeedsYou);
         assert_eq!(running_row_state(false, true), SessionState::NeedsYou);
         assert_eq!(running_row_state(true, false), SessionState::Working);
-        assert_eq!(running_row_state(false, false), SessionState::Waiting);
+        assert_eq!(running_row_state(false, false), SessionState::Idle);
     }
 
     /// EXP-851: every list in the origin vocabulary maps onto exactly the

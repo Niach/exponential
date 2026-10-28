@@ -48,6 +48,9 @@ pub struct Agent {
     pub owner_id: Option<String>,
     #[serde(default)]
     pub sort_order: f64,
+    /// S-3: contract `agentRole` (`assistant` | `agent`); absent = `agent`.
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 /// `{txid}` of a plain mutation.
@@ -83,6 +86,20 @@ struct IdInput<'a> {
 pub fn list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<Agent>, ApiError> {
     let response: ListResponse = trpc.query_with_input("agents.list", &TeamIdInput { team_id })?;
     Ok(response.agents)
+}
+
+#[derive(Deserialize)]
+struct MaybeAgentResponse {
+    #[serde(default)]
+    agent: Option<Agent>,
+}
+
+/// S-3 `agents.ensureAssistant`: the caller's Assistant in `team_id`,
+/// created on first use on their newest own desktop; `None` while they have
+/// no device (agent-settings.json `assistant.copy.noDevice`).
+pub fn ensure_assistant(trpc: &TrpcClient, team_id: &str) -> Result<Option<Agent>, ApiError> {
+    let response: MaybeAgentResponse = trpc.mutation("agents.ensureAssistant", &TeamIdInput { team_id })?;
+    Ok(response.agent)
 }
 
 /// `agents.get`: the row with its server-only instructions (member read).

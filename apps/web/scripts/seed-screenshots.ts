@@ -29,6 +29,7 @@
  *   bun run seed:screenshots
  *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
+import { ASSISTANT_COPY, assistantScheduleTriggers } from "@exp/domain-contract/agent-settings"
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
@@ -101,6 +102,7 @@ import {
   DEMO_AGENT_EVENT_TRIGGER_ID,
   DEMO_AGENT_ID,
   DEMO_AGENT_IDS,
+  DEMO_ASSISTANT_ID,
   DEMO_AGENT_REQUEST,
   DEMO_APP_CHAT_TIMES,
   DEMO_APP_EDITOR_SESSION_ID,
@@ -676,6 +678,29 @@ async function seedSessionTree(ctx: {
       updatedAt: daysAgo(20),
     }))
   )
+  // S-3: the demo user's Assistant (agent-settings.json `assistant`): what
+  // `agents.ensureAssistant` would create on first use, seeded so every
+  // client photographs it at once: the copy's name, no icon/colour (the
+  // brand mark), the default hourly check-in, on the demo desktop.
+  await db.insert(agents).values({
+    id: DEMO_ASSISTANT_ID,
+    teamId,
+    name: ASSISTANT_COPY.name,
+    icon: null,
+    color: null,
+    instructions: `Keep my mornings quiet: batch what needs me into one update.`,
+    triggers: assistantScheduleTriggers(`1h`).map((trigger) => ({
+      ...trigger,
+      id: `2a9c4e6f-8b1d-4f3a-9c5e-7d1f3b5a9c2e`,
+    })) satisfies AgentTrigger[],
+    deviceId: DEMO_DEVICE_ID,
+    cli: `claude`,
+    ownerId: demoId,
+    role: `assistant`,
+    sortOrder: 0,
+    createdAt: daysAgo(20),
+    updatedAt: daysAgo(20),
+  })
   await db.insert(sessions).values(
     agentSpecs.map((spec) =>
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
@@ -2550,12 +2575,12 @@ async function main() {
   }
   await seedSessionTree({ teamId: ws.id, demoId, jonas, repoId: repo.id, issue })
 
-  // NEW-67: Settings → Voice with the demo desktop as the voice device and
-  // Triage (seeded by the session tree above) as the agent, so the capture
-  // shows the tray group too.
+  // NEW-67 / S-3: the voice runs on the demo user's Assistant (seeded by
+  // the session tree above) on the demo desktop (the server-kept mirror of
+  // it), so the Assistant page's Voice section shows the tray group too.
   const voice = {
     voiceDeviceId: DEMO_DEVICE_ID,
-    agentId: DEMO_AGENT_IDS.triage,
+    agentId: DEMO_ASSISTANT_ID,
     speakReplies: true,
     pushToTalk: true,
     pttShortcut: `ctrl+space`,

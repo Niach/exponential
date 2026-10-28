@@ -141,4 +141,40 @@ class AgentsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = AgentIdInput.serializer(),
         )
     }
+
+    /**
+     * S-3: the caller's Assistant in [teamId], created on first use on their
+     * newest own desktop (null = no device yet). The composer home, the
+     * chats list and the settings Agents group call it on mount; the row
+     * arrives through the agents shape.
+     */
+    suspend fun ensureAssistant(accountId: String, teamId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "agents.ensureAssistant",
+            input = kotlinx.serialization.json.buildJsonObject { put("teamId", kotlinx.serialization.json.JsonPrimitive(teamId)) },
+            inputSerializer = JsonObject.serializer(),
+        )
+    }
+}
+
+/**
+ * S-3: `agents.ensureAssistant` once per (account, team) per app run — the
+ * composer home, the chats list and the settings Agents group all ask; a
+ * failure (no device yet, offline) is retried on the next mount.
+ */
+object AssistantEnsurer {
+    private val done: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    suspend fun ensure(api: AgentsApi, accountId: String?, teamId: String?) {
+        if (accountId.isNullOrEmpty() || teamId.isNullOrEmpty()) return
+        val key = "$accountId:$teamId"
+        if (!done.add(key)) return
+        try {
+            api.ensureAssistant(accountId, teamId)
+        } catch (t: Throwable) {
+            done.remove(key)
+            if (t is kotlinx.coroutines.CancellationException) throw t
+        }
+    }
 }

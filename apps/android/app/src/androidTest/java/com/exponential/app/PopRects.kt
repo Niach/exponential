@@ -52,8 +52,8 @@ object PopRects {
      *
      * The tags live on the product composables (`issue-description`,
      * `agent-composer-headline` (EXP-1038: the run's subject moved out of the
-     * card, so the pop-out has to take it in) + `agent-composer` +
-     * `agent-options-row`, `dock-card` (N-12: the waiting question's card),
+     * card, so the pop-out has to take it in) + `composer-agent-row` (S-3:
+     * the agent row over the card; no options line) + `agent-composer`, `dock-card` (N-12: the waiting question's card),
      * `work-merge-pr-section` (EXP-1154/1251: the Guide section page's white Merge capsule; EXP-1307: the thread Guide's own carries the fixture's `thread-guide-merge`, so the first match is the on-screen one), `notification-row`, plus the pre-existing `action-row`,
      * `support-thread-row` and the EXP-642 `issue-row-<identifier>`) and are
      * mirrored 1:1 as iOS accessibility identifiers.
@@ -61,7 +61,7 @@ object PopRects {
     val IDENTIFIERS: Map<String, List<String>> = mapOf(
         "1_board" to listOf("issue-row-APP-5"),
         "2_issue-detail" to listOf("issue-description"),
-        "3_start-coding" to listOf("agent-composer-headline", "agent-composer", "agent-options-row"),
+        "3_start-coding" to listOf("agent-composer-headline", "composer-agent-row", "agent-composer"),
         "4_steering" to listOf("dock-card"),
         "5_review" to listOf("work-merge-pr-section"),
         "6_actions" to listOf("action-row"),

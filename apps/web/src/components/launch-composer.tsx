@@ -11,7 +11,8 @@ import {
 } from "@/components/steer-command-menu"
 import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
-import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
+import { LaunchNotes } from "@/components/launch-dialog/launch-notes"
+import { ComposerAgentRow } from "@exp/ui"
 import {
   ComposerInlineTools,
   type ComposerInlineToolsHandle,
@@ -50,9 +51,11 @@ import {
 // is the "+" menu (EXP-1249: Implement issue ›, Add file or image, the run's
 // options and tools — `launch-dialog/composer-plus-menu.tsx`), the submit
 // glyph carrying the per-subject label (Start session / Start coding / Start
-// batch · N). Under the card: the options line (EXP-1270: the
-// suggestion rows are gone; the HOME column owns what sits under it, see
-// `routes/t/$teamSlug/agent.tsx`). All state is the hook's
+// batch · N). S-3: over the card the AGENT ROW (composer-home.json
+// `agentRow`, the home only: an agent picked = a message into its chat);
+// the "+" is the card's ONLY tool (no inline image/file/#/emoji, no options
+// line: Device/Account/Model/Repository are "+" rows); under the card only
+// the launch notes (no desktop, not ready, batch guards). All state is the hook's
 // (`use-launch-composer.ts`); this file owns chrome, the caret and the file
 // plumbing. Test ids are byte-identical with the native suites
 // (`agent-composer*`).
@@ -79,6 +82,8 @@ export function composerPlaceholder(
   variant: LaunchComposerVariant = `dialog`
 ): string {
   const { subject } = model
+  // S-3: a message to the agent row's pick keeps the home's question.
+  if (variant === `home` && model.recipient) return HOME_PLACEHOLDER
   if (subject === null)
     return variant === `home` ? HOME_PLACEHOLDER : contract.composerUi.chatPlaceholder
   return contract.composerUi.instructionsPlaceholder
@@ -145,6 +150,7 @@ export function LaunchComposer({
   const menu = useSlashCommandMenu({
     text,
     commands: NO_COMMANDS,
+    // S-3: a prompt pick moves the agent row to Temporary session.
     prompts: model.prompts,
     onAccept: model.setText,
     onPickPrompt: (prompt) => {
@@ -158,9 +164,18 @@ export function LaunchComposer({
   return (
     <ComposerFrame
       className={cn(`gap-2`, className)}
-      // NEW-3: a DM runs on the agent's own device and login: no options.
-      options={subject?.kind === `agent` ? undefined : <LaunchOptionsLine model={model} />}
+      // S-3: a message to an agent runs on the agent's own device and
+      // login: no launch notes.
+      options={model.recipient ? undefined : <LaunchNotes model={model} />}
     >
+      {model.agentRow && (
+        <ComposerAgentRow
+          row={model.agentRow}
+          onPick={model.pickRecipient}
+          disabled={busy}
+          className="mb-1"
+        />
+      )}
       {/* EXP-1019: the SUBJECT leads — a prompt / "Implement <issues>" —
           and the field under it is the optional half. The chips are the
           ones the card used to carry in its leading row, ✕ and all. */}
@@ -201,12 +216,7 @@ export function LaunchComposer({
               disabled={busy}
               onAttach={() => toolsRef.current?.attach()}
             />
-            <ComposerInlineTools
-              ref={toolsRef}
-              fieldRef={fieldRef}
-              onFiles={addFiles}
-              disabled={busy}
-            />
+            <ComposerInlineTools ref={toolsRef} onFiles={addFiles} />
           </>
         }
         submit={

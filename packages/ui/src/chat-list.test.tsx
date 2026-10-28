@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
-import type { AgentBubble, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
-import { AgentBubbles, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
+import type { AgentBubble, AgentChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
+import { AgentBubbles, CHAT_AGENT_ROW_TEST_ID, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
 // Thread 58cb32df (chats.json): the phone Chats pieces paint the contract's
@@ -10,6 +10,7 @@ import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
 const rows = fixture.listCases[0]!.expected.rows as ChatRowModel[]
 const bubbles = fixture.bubbleCases[0]!.expected as AgentBubble[]
+const agentRows = fixture.agentRowCases[0]!.expected as AgentChatRow[]
 const ids = fixture.testIds
 
 describe(`ChatList`, () => {
@@ -52,6 +53,50 @@ describe(`ChatList`, () => {
     expect(painted.querySelector(`.text-amber-400`)?.textContent).toBe(`09:10`)
   })
 
+  it(`S-3: dims a done chat as a whole at shell.dimOpacity`, () => {
+    render(<ChatList rows={rows} />)
+    const painted = screen.getAllByTestId(ids.chatRow)
+    // listCases[0]: d's PRs all merged and nothing works.
+    expect(painted.map((row) => row.getAttribute(`data-dim`))).toEqual([null, null, null, `true`])
+    expect(painted[3]!.style.opacity).toBe(String(fixture.shell.dimOpacity))
+    expect(painted[0]!.style.opacity).toBe(``)
+  })
+
+  it(`S-3: a chat's lead never draws the brand mark: the chat glyph`, () => {
+    render(<ChatList rows={rows} />)
+    const painted = screen.getAllByTestId(ids.chatRow)
+    // b working, a needs_you (the glyph + the amber badge), c/d PR glyphs.
+    expect(painted[1]!.querySelector(`[data-slot=chat-lead-glyph]`)).toBeTruthy()
+    expect(painted[1]!.querySelector(`[data-slot=run-mark-badge]`)).toBeTruthy()
+    expect(painted.some((row) => row.querySelector(`svg mask`))).toBe(false)
+  })
+
+  it(`S-3: pins the agent rows on top under the section headers`, () => {
+    const onOpenAgent = vi.fn()
+    render(<ChatList rows={rows} agentRows={agentRows} onOpenAgent={onOpenAgent} />)
+    const headers = screen.getAllByRole(`heading`)
+    expect(headers.map((h) => h.textContent)).toEqual([
+      fixture.copy.sections.agents,
+      fixture.copy.sections.chats,
+    ])
+    const painted = screen.getAllByTestId(CHAT_AGENT_ROW_TEST_ID)
+    expect(painted.map((row) => row.getAttribute(`data-agent-id`))).toEqual(
+      agentRows.map((row) => row.agentId)
+    )
+    // The Assistant (first) wears the brand mark, never selectable / dim.
+    expect(painted[0]!.getAttribute(`data-assistant`)).toBe(`true`)
+    expect(painted[0]!.querySelector(`svg mask`)).toBeTruthy()
+    expect(painted.every((row) => row.getAttribute(`data-menu`) === `agent`)).toBe(true)
+    expect(painted.some((row) => row.getAttribute(`data-dim`))).toBe(false)
+    fireEvent.click(painted[1]!)
+    expect(onOpenAgent).toHaveBeenCalledWith(agentRows[1]!.agentId)
+  })
+
+  it(`S-3: no section headers without an agent row`, () => {
+    render(<ChatList rows={rows} agentRows={[]} />)
+    expect(screen.queryAllByRole(`heading`)).toHaveLength(0)
+  })
+
   it(`shows the empty state with no rows`, () => {
     render(<ChatList rows={[]} />)
     expect(screen.queryByTestId(ids.chatRow)).toBeNull()
@@ -63,10 +108,10 @@ describe(`AgentBubbles`, () => {
     const onOpen = vi.fn()
     render(<AgentBubbles bubbles={bubbles} onOpen={onOpen} />)
     const painted = screen.getAllByTestId(ids.agentBubble)
-    expect(painted.map((b) => b.getAttribute(`data-ring`))).toEqual([`needs_you`, `unread`, `none`])
-    expect(painted.map((b) => b.getAttribute(`data-menu`))).toEqual([`agent`, `agent`, `agent`])
-    expect(painted[0]!.getAttribute(`data-menu-id`)).toBe(`ag1`)
-    fireEvent.click(painted[1]!)
+    expect(painted.map((b) => b.getAttribute(`data-ring`))).toEqual([`none`, `needs_you`, `unread`, `none`])
+    expect(painted.map((b) => b.getAttribute(`data-menu`))).toEqual([`agent`, `agent`, `agent`, `agent`])
+    expect(painted[1]!.getAttribute(`data-menu-id`)).toBe(`ag1`)
+    fireEvent.click(painted[2]!)
     expect(onOpen).toHaveBeenCalledWith(`ag2`)
   })
 })
@@ -78,7 +123,7 @@ describe(`ChatFilterChips`, () => {
       <ChatFilterChips value="all" counts={{ needs_you: 1, running: 2, unread: 0 }} onChange={onChange} />
     )
     const chips = screen.getAllByTestId(ids.chatFilter)
-    expect(chips.map((chip) => chip.textContent)).toEqual([`All`, `Needs you 1`, `Running 2`, `Unread`])
+    expect(chips.map((chip) => chip.textContent)).toEqual([`All`, `Needs you 1`, `Working 2`, `Unread`])
     expect(chips[0]!.getAttribute(`data-selected`)).toBe(`true`)
     fireEvent.click(chips[2]!)
     expect(onChange).toHaveBeenCalledWith(`running`)

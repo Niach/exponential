@@ -60,7 +60,7 @@ class NewTwoEntityDecodeTest {
         assertEquals(TriggerWhen.Event("pr.merged"), triggers[1].whenPart)
         assertEquals(false, triggers[1].enabled)
         assertEquals(
-            SessionTree.AgentDefinition("ag-1", "team-1", "Triage", "bot", "#22c55e", 2.0),
+            SessionTree.AgentDefinition("ag-1", "team-1", "Triage", "bot", "#22c55e", 2.0, role = null, ownerId = "u-1"),
             SessionTree.agentDefinition(entity),
         )
         // A bare row (columns absent) still decodes.

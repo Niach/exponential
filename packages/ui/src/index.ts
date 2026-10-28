@@ -124,6 +124,7 @@ export * from "./session-thread-view"
 export * from "./threads-list"
 // Thread 58cb32df (chats.json): THE phone Chats list pieces + the phone tab bar.
 export * from "./chat-list"
+export * from "./composer-agent-row"
 // #EXP-1388: THE bulk action bar capsule (issue list + Chats selection).
 export * from "./bulk-bar"
 export * from "./phone-tab-bar"

@@ -6,6 +6,7 @@ import {
   CHATS_TEST_IDS,
   chatFilterLabel,
   type AgentBubble,
+  type AgentChatRow,
   type ChatFilter,
   type ChatLead,
   type ChatList as ChatListModel,
@@ -13,8 +14,9 @@ import {
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
 import { THREAD_ROW_WORDS, THREADS_LIST_COPY } from "@exp/domain-contract/session-tree"
-import { AgentBrandMark, AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
+import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
+import { ExponentialLogo } from "./exponential-logo"
 import { CHECKBOX_CLASSES } from "@exponential_app/ui/web/primitives"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
@@ -32,6 +34,8 @@ import { SkeletonRows } from "./skeleton"
 // twins.
 //
 //   ChatsHeader      the large "Chats" headline + search + inbox circles
+//   AgentAvatar      an agent's avatar glyph: the Assistant = the brand
+//                    mark in the foreground colour, an agent = its icon
 //   AgentBubbles     the team's agents as 66px rings, scrolling sideways
 //   ChatFilterChips  All · Needs you N · Running N · Unread N (select Pills)
 //   ChatRow          one flat WhatsApp row: 52 lead disc, title + time,
@@ -41,9 +45,12 @@ import { SkeletonRows } from "./skeleton"
 //                    full-width tint with the check badge on its disc
 //   ChatArchivedRow  the Archived entry (#EXP-1388): the plain ui-archive
 //                    glyph in the disc column, the count in the time slot
+//   AgentChatRowButton  S-3: an agent row pinned on top (its avatar disc)
 //   ChatList         the rows (or the skeleton / the empty state)
 
 const ChatsIcon = conceptIcon(`nav-threads`)
+/** S-3 (`shell.chatLead`): a chat row's plain lead glyph. */
+const ChatLeadIcon = conceptIcon(CHATS_SHELL.chatLead as Parameters<typeof conceptIcon>[0])
 const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PrStackIcon = conceptIcon(`pr-stack`)
@@ -56,7 +63,6 @@ export const CHAT_SELECTION_ICONS: Record<ChatSelectionAction, ReturnType<typeof
   markUnread: conceptIcon(`ui-mark-unread`),
   archive: ArchiveIcon,
   unarchive: conceptIcon(`ui-unarchive`),
-  stop: conceptIcon(`coding-stop`),
   delete: conceptIcon(`ui-delete`),
 }
 
@@ -67,6 +73,27 @@ export function ChatsHeader({
   ...props
 }: Omit<ComponentProps<typeof PageHeader>, `title`> & { title?: string }) {
   return <PageHeader title={title} {...props} />
+}
+
+/** S-3: an agent's AVATAR glyph ×4: the viewer's Assistant = the Exponential
+ *  brand mark in the foreground colour (never its stored icon/color), any
+ *  other agent = its icon in its colour. Callers put it on the bg-muted disc. */
+export function AgentAvatar({
+  agent,
+  className,
+}: {
+  agent: { icon: string; color: string; assistant?: boolean }
+  className?: string
+}) {
+  if (agent.assistant) {
+    return (
+      <ExponentialLogo
+        variant="light"
+        className={cn(`shrink-0 text-foreground`, className)}
+      />
+    )
+  }
+  return <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={className} />
 }
 
 const BUBBLE_RING: Record<NonNullable<AgentBubble[`ring`]> | `none`, string> = {
@@ -113,7 +140,7 @@ export function AgentBubbleButton({
           {bubble.busy ? (
             <AgentWorkingMark agent={null} className="size-6" />
           ) : (
-            <BoardGlyph board={{ icon: bubble.icon, color: bubble.color }} className="size-6" />
+            <AgentAvatar agent={bubble} className="size-6" />
           )}
         </span>
       </span>
@@ -221,20 +248,24 @@ export function ChatSelectBadge({ className }: { className?: string }) {
   )
 }
 
-/** The 52 lead DISC (bg muted) and what it holds (`lead`): the brand mark
- *  with the amber badge, the working mark, the root's PR glyph, else the
- *  bare brand mark. #EXP-1388: a SELECTED row's disc steps one grey notch
+/** The 52 lead DISC (bg muted) and what it holds (`lead`): the chat glyph
+ *  (`shell.chatLead`) with the amber badge, the working mark, the root's PR
+ *  glyph, else the bare chat glyph (S-3: the brand mark is the Assistant's
+ *  avatar now, never a chat's). `avatar` = an agent row's avatar instead. #EXP-1388: a SELECTED row's disc steps one grey notch
  *  up (fillActive over muted) so it never blends into the highlight. */
 export function ChatLeadDisc({
   lead,
   agent,
   selected = false,
   badge,
+  avatar,
   className,
 }: {
   lead: ChatLead
-  /** The root's agent CLI (its brand mark). */
+  /** The root's agent CLI (its working mark). */
   agent: string | null
+  /** S-3: an agent row's avatar (`AgentAvatar`) in place of the chat glyph. */
+  avatar?: ReactNode
   /** #EXP-1388: the row is selected (the stronger disc). */
   selected?: boolean
   /** #EXP-1388: the touch selection badge (`ChatSelectBadge`). */
@@ -246,7 +277,8 @@ export function ChatLeadDisc({
   if (lead === `working`) body = <AgentWorkingMark agent={agent} className="size-6" />
   else if (lead === `open`) body = <PrOpenIcon className="size-6 text-emerald-500" />
   else if (lead === `merged`) body = <PrMergedIcon className="size-6 text-violet-400" />
-  else body = <AgentBrandMark agent={agent} className="size-6" />
+  else if (avatar) body = avatar
+  else body = <ChatLeadIcon data-slot="chat-lead-glyph" className="size-6 text-muted-foreground" />
   return (
     <span
       data-slot="chat-lead"
@@ -277,15 +309,96 @@ export function ChatLeadDisc({
 
 /** The preview's copy prefix (`Question: `, `Plan: `, `You: `), painted at
  *  full emphasis before the muted rest. */
-function previewParts(row: ChatRowModel): { prefix: string; rest: string } {
-  const kind = row.preview.kind
+function previewParts(preview: ChatRowModel[`preview`]): { prefix: string; rest: string } {
+  const kind = preview.kind
   if (kind === `question` || kind === `plan` || kind === `you`) {
     const prefix = CHATS_COPY.preview[kind].split(`{text}`)[0] ?? ``
-    if (prefix && row.preview.text.startsWith(prefix)) {
-      return { prefix, rest: row.preview.text.slice(prefix.length) }
+    if (prefix && preview.text.startsWith(prefix)) {
+      return { prefix, rest: preview.text.slice(prefix.length) }
     }
   }
-  return { prefix: ``, rest: row.preview.text }
+  return { prefix: ``, rest: preview.text }
+}
+
+/** A row's two text lines (a chat's and an agent row's alike): title +
+ *  time, then the preview, the row word and the unread badge. */
+function ChatRowText({
+  title,
+  time,
+  needsYou,
+  unreadCount,
+  preview,
+  word: wordKey = null,
+  className,
+}: {
+  title: string
+  time: string
+  needsYou: boolean
+  unreadCount: number
+  preview: ChatRowModel[`preview`]
+  word?: ChatRowModel[`word`]
+  className?: string
+}) {
+  const unread = unreadCount > 0
+  const { prefix, rest } = previewParts(preview)
+  const word = wordKey ? (THREAD_ROW_WORDS[wordKey] ?? null) : null
+  const row = { title, time, needsYou, unreadCount, preview, word: wordKey }
+  return (
+      <span
+        className={cn(
+          `flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5`,
+          // Phones: no hairline inside the selected band (WhatsApp's).
+          className
+        )}
+      >
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span
+            className={cn(
+              `min-w-0 flex-1 truncate text-[15px] text-foreground`,
+              unread ? `font-semibold` : `font-medium`
+            )}
+          >
+            {row.title}
+          </span>
+          <span
+            className={cn(
+              `shrink-0 text-xs tabular-nums`,
+              row.needsYou ? `text-amber-400` : unread ? `text-foreground` : `text-muted-foreground`
+            )}
+          >
+            {row.time}
+          </span>
+        </span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              `line-clamp-2 min-w-0 flex-1 text-sm leading-snug text-muted-foreground`,
+              row.preview.kind === `working` && `italic`
+            )}
+          >
+            {prefix && <span className="text-foreground/85">{prefix}</span>}
+            {rest}
+          </span>
+          {word && (
+            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              {row.word === `stack` && <PrStackIcon className="size-3.5 shrink-0" />}
+              {word}
+            </span>
+          )}
+          {unread && (
+            <span
+              data-slot="chat-unread"
+              className={cn(
+                `flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums`,
+                row.needsYou ? `bg-amber-400 text-black` : `bg-foreground text-background`
+              )}
+            >
+              {row.unreadCount > 99 ? `99+` : row.unreadCount}
+            </span>
+          )}
+        </span>
+      </span>
+  )
 }
 
 /** The row's button classes, shared by a chat and the Archived entry. */
@@ -326,9 +439,6 @@ export function ChatRow({
 }) {
   const selectable = Boolean(onSelectToggle) || selecting
   const isSelected = selecting && selected
-  const unread = row.unreadCount > 0
-  const { prefix, rest } = previewParts(row)
-  const word = row.word ? (THREAD_ROW_WORDS[row.word] ?? null) : null
   return (
     <button
       type="button"
@@ -338,6 +448,10 @@ export function ChatRow({
       aria-pressed={selecting ? selected : undefined}
       {...menuProps(`thread`, row.sessionId)}
       {...props}
+      // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed as
+      // a whole at `shell.dimOpacity`.
+      data-dim={row.dim || undefined}
+      style={row.dim ? { ...props.style, opacity: CHATS_SHELL.dimOpacity } : props.style}
       // Shift-click ranges: never the browser's text selection.
       onMouseDown={(event) => {
         if (event.shiftKey) event.preventDefault()
@@ -395,60 +509,15 @@ export function ChatRow({
         selected={isSelected}
         badge={isSelected ? <ChatSelectBadge className="md:hidden" /> : undefined}
       />
-      <span
-        className={cn(
-          `flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5`,
-          // Phones: no hairline inside the selected band (WhatsApp's).
-          isSelected && `max-md:border-transparent`
-        )}
-      >
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span
-            className={cn(
-              `min-w-0 flex-1 truncate text-[15px] text-foreground`,
-              unread ? `font-semibold` : `font-medium`
-            )}
-          >
-            {row.title}
-          </span>
-          <span
-            className={cn(
-              `shrink-0 text-xs tabular-nums`,
-              row.needsYou ? `text-amber-400` : unread ? `text-foreground` : `text-muted-foreground`
-            )}
-          >
-            {row.time}
-          </span>
-        </span>
-        <span className="flex min-w-0 items-center gap-2">
-          <span
-            className={cn(
-              `line-clamp-2 min-w-0 flex-1 text-sm leading-snug text-muted-foreground`,
-              row.preview.kind === `working` && `italic`
-            )}
-          >
-            {prefix && <span className="text-foreground/85">{prefix}</span>}
-            {rest}
-          </span>
-          {word && (
-            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              {row.word === `stack` && <PrStackIcon className="size-3.5 shrink-0" />}
-              {word}
-            </span>
-          )}
-          {unread && (
-            <span
-              data-slot="chat-unread"
-              className={cn(
-                `flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums`,
-                row.needsYou ? `bg-amber-400 text-black` : `bg-foreground text-background`
-              )}
-            >
-              {row.unreadCount > 99 ? `99+` : row.unreadCount}
-            </span>
-          )}
-        </span>
-      </span>
+      <ChatRowText
+        title={row.title}
+        time={row.time}
+        needsYou={row.needsYou}
+        unreadCount={row.unreadCount}
+        preview={row.preview}
+        word={row.word}
+        className={isSelected ? `max-md:border-transparent` : undefined}
+      />
     </button>
   )
 }
@@ -500,11 +569,80 @@ export function ChatArchivedRow({
   )
 }
 
+/** S-3: the agent rows' test id (no fixture id: web-only hook). */
+export const CHAT_AGENT_ROW_TEST_ID = `chat-agent-row`
+
+/** S-3 (chats.json AGENT ROWS): an agent pinned on top of the list: a chat
+ *  row whose disc holds the agent's avatar (`AgentAvatar`), its name, the
+ *  viewer's conversation's preview / time / unread; the amber needs-you
+ *  badge on the avatar, busy only in the preview; never dim, never selectable. Right-click /
+ *  long-press = the agent menu (`menuProps('agent', id)`). */
+export function AgentChatRowButton({
+  row,
+  onOpen,
+  aligned = false,
+  className,
+  ...props
+}: Omit<ComponentProps<`button`>, `onClick`> & {
+  row: AgentChatRow
+  onOpen?: (agentId: string) => void
+  /** Over selectable rows: the same inset and (wide) the checkbox column's
+   *  room, so the discs line up. */
+  aligned?: boolean
+}) {
+  // The avatar always (chats.json AGENT ROWS): needs you adds the amber
+  // badge; busy reads in the preview (`working…`), never as the working mark.
+  const lead: ChatLead = row.needsYou ? `needs_you` : `waiting`
+  return (
+    <button
+      type="button"
+      data-testid={CHAT_AGENT_ROW_TEST_ID}
+      data-agent-id={row.agentId}
+      data-assistant={row.assistant || undefined}
+      {...menuProps(`agent`, row.agentId)}
+      {...props}
+      onClick={onOpen ? () => onOpen(row.agentId) : undefined}
+      className={cn(
+        ROW_CLASS,
+        aligned && `max-md:-mx-4 max-md:w-[calc(100%+2rem)] max-md:px-4 md:-mx-3 md:px-3 md:hover:bg-glass-row`,
+        className
+      )}
+    >
+      {aligned && <span aria-hidden className="hidden size-4 shrink-0 md:block" />}
+      <ChatLeadDisc lead={lead} agent={null} avatar={<AgentAvatar agent={row} className="size-6" />} />
+      <ChatRowText
+        title={row.name}
+        time={row.time}
+        needsYou={row.needsYou}
+        unreadCount={row.unreadCount}
+        preview={row.preview}
+      />
+    </button>
+  )
+}
+
+/** S-3: a section header of the list (`copy.sections`), only while an agent
+ *  row exists. */
+function ChatSectionHeader({ title }: { title: string }) {
+  return (
+    <div
+      role="heading"
+      aria-level={2}
+      data-slot="chat-section"
+      className="pt-2 pb-1 text-xs font-medium text-muted-foreground"
+    >
+      {title}
+    </div>
+  )
+}
+
 /** The flat list (`chatList(...).rows`): the Archived entry (when
  *  `archived` > 0), the rows, the skeleton while the shapes load, else the
  *  empty state. `selection` non-null = the list SELECTS (#EXP-1388). */
 export function ChatList({
   rows,
+  agentRows = [],
+  onOpenAgent,
   agentOf,
   loading = false,
   entering,
@@ -518,7 +656,10 @@ export function ChatList({
   className,
 }: {
   rows: readonly ChatRowModel[]
-  /** A root's agent CLI (its brand mark). */
+  /** S-3: the agents pinned on top (`agentChatRows`); none = no headers. */
+  agentRows?: readonly AgentChatRow[]
+  onOpenAgent?: (agentId: string) => void
+  /** A root's agent CLI (its working mark). */
   agentOf?: (sessionId: string) => string | null
   loading?: boolean
   /** The `motion-enter` class for a row that arrived after the first paint. */
@@ -537,17 +678,24 @@ export function ChatList({
   className?: string
 }) {
   if (loading) return <SkeletonRows rowHeight={76} />
-  if (rows.length === 0 && archived === 0) {
-    return <EmptyState icon={ChatsIcon} title={emptyTitle ?? THREADS_LIST_COPY.empty} size="page" />
-  }
+  const empty = <EmptyState icon={ChatsIcon} title={emptyTitle ?? THREADS_LIST_COPY.empty} size="page" />
+  if (rows.length === 0 && archived === 0 && agentRows.length === 0) return empty
+  const aligned = Boolean(onSelectToggle) || selection !== null
+  const sections = agentRows.length > 0
   return (
     <div data-slot="chat-list" data-testid="chat-list" className={cn(`flex flex-col`, className)}>
+      {sections && (
+        <>
+          <ChatSectionHeader title={CHATS_COPY.sections.agents} />
+          {agentRows.map((row) => (
+            <AgentChatRowButton key={row.agentId} row={row} onOpen={onOpenAgent} aligned={aligned} />
+          ))}
+          <ChatSectionHeader title={CHATS_COPY.sections.chats} />
+        </>
+      )}
+      {sections && rows.length === 0 && archived === 0 && empty}
       {archived > 0 && (
-        <ChatArchivedRow
-          count={archived}
-          onOpen={onOpenArchived}
-          aligned={Boolean(onSelectToggle) || selection !== null}
-        />
+        <ChatArchivedRow count={archived} onOpen={onOpenArchived} aligned={aligned} />
       )}
       {rows.map((row) => (
         <ChatRow

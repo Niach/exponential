@@ -258,6 +258,137 @@ public enum AgentSettings {
     public static func showsAssignee(memberCount: Int, agentCount: Int) -> Bool {
         memberCount != 1 || agentCount > 0
     }
+
+    // MARK: - S-3 THE ASSISTANT (fixture `assistant`, contract `agentRole`)
+
+    /// Fixture `assistant.copy`.
+    public enum AssistantCopy {
+        public static let title = "Assistant"
+        /// The default name (the member may rename it).
+        public static let name = "Assistant"
+        public static let runsOn = "Runs on"
+        public static let checkIn = "Check in"
+        public static let voice = "Voice"
+        public static let noDevice = "Connect a desktop to set up your Assistant"
+        public static let deleteRefused = "The Assistant can't be deleted"
+        public static let scheduleRefused = "The Assistant checks in on a schedule only"
+    }
+
+    /// The Assistant page's sections top to bottom (fixture
+    /// `assistant.sections`): identity | runs-on | check-in | voice |
+    /// instructions. No Delete.
+    public static let assistantSections = ["identity", "runs-on", "check-in", "voice", "instructions"]
+
+    /// One check-in preset (fixture `assistant.schedules`).
+    public enum AssistantScheduleId: String, Equatable, Sendable, CaseIterable {
+        case off
+        case every15m = "15m"
+        case every30m = "30m"
+        case hourly = "1h"
+        case daily
+    }
+
+    public struct AssistantSchedule: Equatable, Sendable, Identifiable {
+        public let id: AssistantScheduleId
+        public let label: String
+        /// nil = `off` (no trigger).
+        public let cron: String?
+    }
+
+    /// THE Picker rows of the `Check in` section, in order.
+    public static let assistantSchedules: [AssistantSchedule] = [
+        AssistantSchedule(id: .off, label: "Off", cron: nil),
+        AssistantSchedule(id: .every15m, label: "Every 15 minutes", cron: "*/15 * * * *"),
+        AssistantSchedule(id: .every30m, label: "Every 30 minutes", cron: "*/30 * * * *"),
+        AssistantSchedule(id: .hourly, label: "Every hour", cron: "0 * * * *"),
+        AssistantSchedule(id: .daily, label: "Every day", cron: "0 9 * * *"),
+    ]
+
+    public static let assistantDefaultSchedule: AssistantScheduleId = .hourly
+
+    /// The server brief every Assistant turn runs on (read-only here).
+    public static let assistantBrief = "You are this member's Assistant: the one agent they talk to. You orchestrate their other chats and agents. On a scheduled check-in, look at every other chat of theirs: is it progressing, stuck, or waiting on them? Gather their open questions and results into one short update, show it (one text and at most one Exponential UI card, edited in place), and nudge stuck chats. Say nothing when nothing needs them."
+
+    /// `assistant.scheduleCases`: the preset stored triggers stand for; nil
+    /// = not an Assistant's (an event, a custom cron, more than one) and
+    /// `agents.update` refuses it. A paused preset reads `off`.
+    public static func assistantScheduleOf(_ triggers: [(when: TriggerWhen, enabled: Bool)]) -> AssistantScheduleId? {
+        if triggers.isEmpty { return .off }
+        guard triggers.count == 1, let trigger = triggers.first,
+              case let .schedule(schedule) = trigger.when,
+              let preset = assistantSchedules.first(where: { $0.cron != nil && $0.cron == schedule.cron })
+        else { return nil }
+        return trigger.enabled ? preset.id : .off
+    }
+
+    public static func assistantScheduleOf(_ triggers: [AgentTrigger]) -> AssistantScheduleId? {
+        assistantScheduleOf(triggers.map { (when: $0.when, enabled: $0.enabled) })
+    }
+
+    /// The whole-array `triggers` write a preset saves as (`off` = none).
+    public static func assistantScheduleTriggers(_ id: AssistantScheduleId, tz: String? = nil) -> [AgentTriggerInput] {
+        guard let cron = assistantSchedules.first(where: { $0.id == id })?.cron else { return [] }
+        let zone = (tz?.isEmpty ?? true) ? nil : tz
+        return [AgentTriggerInput(enabled: true, when: .schedule(ScheduleTrigger(cron: cron, tz: zone)))]
+    }
+
+    public static func isAssistant(role: String?) -> Bool {
+        role == DomainContract.agentRoleAssistant
+    }
+
+    /// `assistant.visibleCases`: another member's Assistant is never listed
+    /// (settings, composer, chats).
+    public static func visibleAgent(role: String?, ownerId: String?, me: String?) -> Bool {
+        !isAssistant(role: role) || ownerId == me
+    }
+
+    public static func visibleAgent(_ agent: some AgentRoleOrdered, me: String?) -> Bool {
+        visibleAgent(role: agent.agentRole, ownerId: agent.agentOwnerId, me: me)
+    }
+
+    /// `assistant.orderCases`: the agents a member sees, in order: their
+    /// Assistant first, then the team agents by sortOrder, then name.
+    public static func orderedAgents<T: AgentRoleOrdered>(_ agents: [T], me: String?) -> [T] {
+        agents
+            .filter { visibleAgent($0, me: me) }
+            .enumerated()
+            .sorted { lhs, rhs in
+                let a = lhs.element, b = rhs.element
+                let aAssistant = isAssistant(role: a.agentRole), bAssistant = isAssistant(role: b.agentRole)
+                if aAssistant != bAssistant { return aAssistant }
+                if a.agentSortOrder != b.agentSortOrder { return a.agentSortOrder < b.agentSortOrder }
+                let byName = a.agentName.localizedCompare(b.agentName)
+                if byName != .orderedSame { return byName == .orderedAscending }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+}
+
+/// S-3: what `AgentSettings.orderedAgents` / `visibleAgent` /
+/// `ComposerAgentRow` read off an agent row.
+public protocol AgentRoleOrdered {
+    var agentId: String { get }
+    var agentName: String { get }
+    var agentRole: String? { get }
+    var agentOwnerId: String? { get }
+    var agentSortOrder: Double { get }
+}
+
+extension AgentDefinitionEntity: AgentRoleOrdered {
+    public var agentId: String { id }
+    public var agentName: String { name }
+    public var agentRole: String? { role }
+    public var agentOwnerId: String? { ownerId }
+    public var agentSortOrder: Double { sortOrder }
+}
+
+extension AgentLike: AgentRoleOrdered {
+    public var agentId: String { id }
+    public var agentName: String { name }
+    public var agentRole: String? { role }
+    public var agentOwnerId: String? { ownerId }
+    public var agentSortOrder: Double { sortOrder }
 }
 
 /// #EXP-1383 (agent-settings.json `assignee`): an issue's assignee is ONE of

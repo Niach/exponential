@@ -534,7 +534,9 @@ class AgentUsagePresentationTest {
             CodingSessionBlocked(kind = kind, resetsAt = inTwoHours),
             now,
         )
-        assertEquals("Device offline", label("device_offline"))
+        // S-3: an interruption is invisible.
+        assertEquals(null, label("device_offline"))
+        assertEquals(null, label("restarted"))
         assertEquals("Not picked up", label("unclaimed"))
         assertEquals("Stuck", label("stuck"))
         assertEquals("Rate limited · resets in 2h", label("rate_limit"))

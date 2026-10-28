@@ -554,18 +554,8 @@ fun ServerDetailScreen(
                 }
             }
 
-            // NEW-67: Settings → Personal → Voice (`voice.json`), icon concept
-            // `settings-voice`: the row opens the page.
-            if (account?.token != null) {
-                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                    SettingsRow(
-                        icon = ExpIcons.settingsVoice,
-                        title = Voice.Copy.GROUP,
-                        onClick = onOpenVoice,
-                        modifier = Modifier.testTag("${Voice.TestIds.PAGE}-row"),
-                    )
-                }
-            }
+            // S-3: Voice left Personal: its block lives on the Assistant page
+            // (agent-settings.json `assistant`).
 
             // EXP-1126: how this account signs in — only with a live session.
             if (account?.token != null) {

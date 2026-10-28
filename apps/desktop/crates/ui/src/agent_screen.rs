@@ -166,6 +166,10 @@ pub struct AgentScreenView {
     /// id); `None` until the conversation exists.
     composer: Option<(String, Entity<crate::steer_viewer::SteerSessionView>)>,
     first: FirstComposer,
+    /// S-3: an agent's conversation, once it exists, IS a thread: THE thread
+    /// screen over its root (chat mode `bubbles`); this view is then only
+    /// its wrapper. Keyed by the root id.
+    thread: Option<(String, Entity<crate::thread_screen::ThreadScreenView>)>,
     /// THE ask dock's state (the focused card, the swap animation).
     /// N-12: THE Dock's state (the fan, the open sheet, the band height).
     dock: Entity<crate::dock::DockState>,
@@ -257,6 +261,7 @@ impl AgentScreenView {
             messages: std::collections::HashMap::new(),
             images,
             composer: None,
+            thread: None,
             first: FirstComposer {
                 input,
                 mention,
@@ -582,16 +587,9 @@ impl AgentScreenView {
         let composer = crate::composer::session_composer_card(
             crate::composer::SessionComposerBox::new(self.first.mention.clone(), submit)
                 .strip(strip)
-                .tool(
-                    crate::composer::composer_tool("agent-attach", registry::UI_ATTACH, cx)
-                        .tooltip("Attach files")
-                        .disabled(self.first.sending)
-                        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                            composer_images::pick_attachment_files(window, cx, |this: &mut Self, read, window, cx| {
-                                this.stage_first_files(read, window, cx)
-                            });
-                        })),
-                ),
+                // S-3: THE "+" (composer-menu.json, `agent` surface: Photo or
+                // file, Issue ›), never an inline paperclip.
+                .tool(self.render_first_plus(cx)),
             cx,
         );
         match notice {
@@ -609,6 +607,66 @@ impl AgentScreenView {
                 .into_any_element(),
             None => composer,
         }
+    }
+
+    /// S-3: the first composer's "+" (the `agent` surface before the
+    /// conversation exists: nothing to configure yet, so no Model row).
+    fn render_first_plus(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        use crate::chat_screen::{composer_menu_rows, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
+        let view = cx.entity().downgrade();
+        let input = self.first.input.clone();
+        let team_id = self.subject_team_id();
+        let trigger = crate::composer::composer_tool("agent-plus", registry::UI_ADD, cx)
+            .tooltip(crate::chat_screen::PLUS_TOOLTIP)
+            .disabled(self.first.sending);
+        crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
+            let root = cx.entity().downgrade();
+            menu = crate::picker::search_list::search_submenu_parent(menu.min_w(px(260.)));
+            for row in composer_menu_rows(ComposerSurface::Agent, ComposerMenuConditions::default()) {
+                menu = match row {
+                    Row::Separator => menu.separator(),
+                    Row::AddFile => {
+                        let view = view.clone();
+                        menu.item(crate::controls::pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |_, cx| {
+                                    composer_images::pick_attachment_files(window, cx, |this: &mut Self, read, window, cx| {
+                                        this.stage_first_files(read, window, cx)
+                                    });
+                                });
+                            }
+                        }))
+                    }
+                    Row::ImplementIssue => {
+                        let Some(team_id) = team_id.clone() else {
+                            continue;
+                        };
+                        let input = input.clone();
+                        let root = root.clone();
+                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
+                            let input = input.clone();
+                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
+                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
+                                    input.update(cx, |state, cx| state.insert(text, window, cx));
+                                    input.read(cx).focus_handle(cx).focus(window, cx);
+                                });
+                            crate::picker::search_list::menu_search_list_submenu(
+                                "agent-issue-ref",
+                                crate::picker::search_list::issue_ref_source(team_id.clone(), insert),
+                                sub,
+                                root.clone(),
+                                window,
+                                cx,
+                            )
+                        })
+                    }
+                    _ => menu,
+                };
+            }
+            menu
+        })
+        .anchor(gpui::Anchor::BottomLeft)
+        .into_any_element()
     }
 
     /// The agent's mark in the 24px gutter disc.
@@ -870,6 +928,24 @@ impl Render for AgentScreenView {
             // A plain box, no focus or mouse handlers: the preview under it
             // keeps its clicks.
             return v_flex().size_full().child(self.render_floating(window, cx));
+        }
+        // S-3: one session screen. An agent's conversation renders on THE
+        // thread screen (chat bubbles, its header, composer with the "+",
+        // selection, Dock); this view keeps only the "no conversation yet"
+        // page, whose first send = sessions.send({agentId}).
+        if !editor {
+            if let Some(root_id) = self.conversation.as_ref().map(|row| row.id.clone()) {
+                if self.thread.as_ref().map(|(id, _)| id.as_str()) != Some(root_id.as_str()) {
+                    let id = root_id.clone();
+                    let view = cx.new(|cx| crate::thread_screen::ThreadScreenView::new(id, window, cx));
+                    self.thread = Some((root_id, view));
+                }
+                if let Some((_, thread)) = self.thread.as_ref() {
+                    return v_flex().track_focus(&self.focus_handle).size_full().min_h_0().child(thread.clone());
+                }
+            } else {
+                self.thread = None;
+            }
         }
         if !self.has_subject() {
             // VAPP-110: the editor screen owns the app's not-found verdict.
