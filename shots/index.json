@@ -5060,8 +5060,8 @@
         "file": "shots/thread/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 70508,
-        "sha256": "08d011d10e019f0ffdddf35cff72f77ff5fa0eed5a48d0a9d9174cef83f6d15e"
+        "bytes": 67094,
+        "sha256": "ba5359d4f2a8fbb41b5dcc43ca528f1185f55d36c7fb91dba357eb7dd6ea844c"
       },
       "desktop": {
         "file": "shots/thread/desktop.webp",
@@ -5134,8 +5134,8 @@
         "file": "shots/threads/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 71364,
-        "sha256": "3ee2f85c63d7c74aa14066db4ea73a4985e15da1872af6b4e79725b1e15ef0c1"
+        "bytes": 80150,
+        "sha256": "a3da76a5915384f48dbece49960016e81ae9eceed09ce4b1bcd857a9442e8698"
       },
       "desktop": {
         "file": "shots/threads/desktop.webp",
