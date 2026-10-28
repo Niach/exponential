@@ -72,6 +72,12 @@ const BASH_SYSTEM_PREFIXES: [&str; 12] = [
     "/Library/Developer/CommandLineTools",
 ];
 
+/// Under [`BASH_SYSTEM_PREFIXES`] but NOT system: macOS mounts every volume
+/// below `/System/Volumes`, and the Data volume holds `/Users`, `/home` (a
+/// symlink to `/System/Volumes/Data/home`) and `/private` again, so
+/// `/{home,x}/…` resolving through the link must not ride the `/System` pass.
+const BASH_SYSTEM_EXCLUDED: [&str; 1] = ["/System/Volumes"];
+
 /// A command that only passes its wrapped command through: the options that
 /// take a separate value, the options whose value is shell code, and how
 /// many operands come before the wrapped command.
@@ -317,7 +323,10 @@ impl Check {
         if self.allowed.iter().any(|root| within(&resolved, root)) || in_temp_dir(&resolved) {
             return None;
         }
-        if bash && BASH_SYSTEM_PREFIXES.iter().any(|prefix| within(&resolved, Path::new(prefix))) {
+        if bash
+            && BASH_SYSTEM_PREFIXES.iter().any(|prefix| within(&resolved, Path::new(prefix)))
+            && !BASH_SYSTEM_EXCLUDED.iter().any(|prefix| within(&resolved, Path::new(prefix)))
+        {
             return None;
         }
         Some(raw.to_string())
@@ -1882,6 +1891,12 @@ mod tests {
             "echo \"$(cat x\"".to_string(),
         ] {
             assert!(bash(&command), "{command}");
+        }
+        // macOS: the Data volume spells home again (`/home` links into it).
+        if cfg!(target_os = "macos") {
+            for command in [format!("cat /System/Volumes/Data{home}/CLAUDE.md"), "ls /System/Volumes/Data/home".to_string()] {
+                assert!(bash(&command), "{command}");
+            }
         }
         // The unresolved ones say so.
         let message = denial_in("Bash", json!({ "command": "cat ${HOME%/}/x" }), &scratch(), &[]).expect("denied");
