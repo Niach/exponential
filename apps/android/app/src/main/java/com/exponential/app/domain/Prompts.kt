@@ -224,7 +224,7 @@ object Prompts {
             "remove-device",
             mapOf(
                 "title" to "Remove \"{name}\"?",
-                "body" to "A device with the daemon still running registers again on its next heartbeat.",
+                "body" to "It comes back the next time Exponential starts on it. Sessions teammates started on it end.",
             ),
             listOf("name"),
             "remove",

@@ -45,6 +45,8 @@ import {
   deviceAgentUsageSchema,
   deviceCommands,
   deviceDoctorSchema,
+  deviceKeys,
+  deviceRemovals,
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
@@ -68,6 +70,9 @@ import { voiceSettingsOf } from "@/lib/trpc/voice"
 import { versionPayload } from "@/lib/client-version"
 import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
+import { pinDeviceKeyInTx, shareKeyRefusal, verifyDeviceKeyProof, type SquatRow } from "@/lib/device-keys"
+import { hostedIds, withdrawShareInTx, type HostedByTeam } from "@/lib/device-shares"
+import { notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
 import {
   agentEffortValues,
   agentModelValues,
@@ -550,6 +555,74 @@ async function shareConflict(
   })
 }
 
+/**
+ * FEED-149/FEED-154: drop one row's share of its machine from a team for
+ * another account (a team owner's `devices.dropShare`, an instance admin's
+ * `admin.dropDeviceShare`; the caller checked the right). Its hosted runs
+ * end with the reason, its first-sharer agents disarm, and the device owner
+ * is notified.
+ */
+export async function dropDeviceShare(
+  db: Context[`db`],
+  input: { id: string; teamId: string; actorId: string }
+): Promise<{ ok: true; txid: number }> {
+  const { txid, target, hosted } = await db.transaction(async (tx) => {
+    const id = await generateTxId(tx)
+    const [target] = await tx
+      .select({ id: devices.id, userId: devices.userId, deviceId: devices.deviceId, label: devices.label })
+      .from(devices)
+      .where(and(eq(devices.id, input.id), arrayContains(devices.sharedTeamIds, [input.teamId])))
+      .limit(1)
+    if (!target) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+    }
+    await lockDeviceShares(tx, target.deviceId)
+    const hosted = await withdrawShareInTx(tx, target, [input.teamId])
+    return { txid: id, target, hosted }
+  })
+  const ended = await endHostedSessions(hostedIds(hosted), {
+    actorId: input.actorId,
+    deviceLabel: target.label,
+    cause: `dropped`,
+  })
+  await notifyDeviceShareRemoved({
+    ownerId: target.userId,
+    actorId: input.actorId,
+    teamId: input.teamId,
+    deviceLabel: target.label,
+    endedCount: ended.length,
+    cause: `dropped`,
+  })
+  return { ok: true, txid }
+}
+
+/** FEED-154: after the key holder's register committed, end the runs each
+ *  squat hosted and tell its owner why their share went. */
+async function settleSquats(
+  keyHolderId: string,
+  squats: readonly SquatRow[],
+  ending: ReadonlyMap<string, HostedByTeam>
+): Promise<void> {
+  for (const squat of squats) {
+    const hosted = ending.get(squat.id) ?? []
+    const ended = await endHostedSessions(hostedIds(hosted), {
+      actorId: keyHolderId,
+      deviceLabel: squat.label,
+      cause: `dropped`,
+    })
+    for (const { teamId, ids } of hosted) {
+      await notifyDeviceShareRemoved({
+        ownerId: squat.userId,
+        actorId: keyHolderId,
+        teamId,
+        deviceLabel: squat.label,
+        endedCount: ids.filter((id) => ended.includes(id)).length,
+        cause: `key`,
+      })
+    }
+  }
+}
+
 export const devicesRouter = router({
   // Upsert on (user, deviceId): control-channel start (desktop) and daemon
   // start (CLI) both call this, refreshing kind/platform/agents/caps. The
@@ -587,10 +660,50 @@ export const devicesRouter = router({
         // EXP-1196: the device's readiness report (devices.doctor), sent on
         // every register; it overwrites the stored one.
         doctor: deviceDoctorSchema,
+        // EXP-1417: the first register of a fresh LAUNCH of the build (not
+        // a heartbeat-miss recovery, a re-dial or an advertisement refresh).
+        // Only a launch brings back a machine its owner removed.
+        launch: z.boolean().optional(),
+        // FEED-154: proof the caller holds the machine's ed25519 key (the
+        // CLI daemon's `cli-device-key`): a signature of
+        // `deviceKeyMessage(userId, deviceId, publicKey, signedAt)`. A
+        // missing or failed proof still registers; the row then cannot
+        // share.
+        key: z
+          .object({
+            publicKey: z.string().max(64),
+            signedAt: z.string().max(64),
+            signature: z.string().max(128),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
+      const userId = ctx.session.user.id
+      // EXP-1417: Remove sticks. A removed machine's still-running build
+      // re-registered it on the next heartbeat miss or re-dial; while the
+      // removal stands only a fresh launch brings it back.
+      const removal = and(eq(deviceRemovals.userId, userId), eq(deviceRemovals.deviceId, input.deviceId))
+      if (input.launch) {
+        await ctx.db.delete(deviceRemovals).where(removal)
+      } else {
+        const [removed] = await ctx.db
+          .select({ removedAt: deviceRemovals.removedAt })
+          .from(deviceRemovals)
+          .where(removal)
+          .limit(1)
+        if (removed) {
+          return { ok: false, removed: true, keyAccepted: false, launchDefaults: null, launchDefaultsUpdatedAt: null }
+        }
+      }
+      const publicKey =
+        input.key && verifyDeviceKeyProof({ userId, deviceId: input.deviceId, proof: input.key }, now)
+          ? input.key.publicKey
+          : null
+      if (input.key && !publicKey) {
+        console.warn(`[devices.register] rejected a key proof for ${input.deviceId}`)
+      }
       const [row] = await ctx.db
         .insert(devices)
         .values({
@@ -612,6 +725,7 @@ export const devicesRouter = router({
             : null,
           version: input.version ?? null,
           doctor: clampDoctor(input.doctor),
+          publicKey,
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
@@ -638,6 +752,9 @@ export const devicesRouter = router({
               : {}),
             doctor: clampDoctor(input.doctor),
             version: input.version ?? null,
+            // FEED-154: the key THIS register proved; no proof = NULL, so a
+            // stale proof never outlives the build that made it.
+            publicKey,
             // Registering CONSUMES a pending Update click: the daemon
             // re-registers after acting on the request (whether or not a
             // newer build actually existed). `active_sessions` stays
@@ -652,17 +769,36 @@ export const devicesRouter = router({
           launchDefaults: devices.launchDefaults,
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
+      // FEED-154: a proven key pins the machine (first key wins) and clears
+      // the shares other accounts hold of it without the key.
+      let keyAccepted = false
+      if (publicKey) {
+        const { pinned, squats, ending } = await ctx.db.transaction(async (tx) => {
+          await lockDeviceShares(tx, input.deviceId)
+          const pin = await pinDeviceKeyInTx(tx, { userId, deviceId: input.deviceId, publicKey })
+          const ending = new Map<string, HostedByTeam>()
+          for (const squat of pin.squats) {
+            ending.set(squat.id, await withdrawShareInTx(tx, squat, squat.sharedTeamIds))
+          }
+          return { ...pin, ending }
+        })
+        keyAccepted = pinned
+        await settleSquats(userId, squats, ending)
+      }
       // Return the (post-seed) server copy so the device converges
       // immediately instead of waiting a heartbeat.
       return {
         ok: true,
+        removed: false,
+        keyAccepted,
         launchDefaults: row?.launchDefaults ?? null,
         launchDefaultsUpdatedAt: stampOf(row?.launchDefaultsUpdatedAt ?? null),
       }
     }),
 
-  // Liveness bump. `ok: false` means the row is gone (removed from the UI
-  // while the daemon ran) — the caller should re-register.
+  // Liveness bump. `ok: false` means the row is gone — the caller should
+  // re-register, unless `removed: true` (EXP-1417: its owner removed it; a
+  // register before the next launch is refused).
   // `updateRequested` piggybacks the web "Update" button to the daemon: it
   // checks for a new release, updates + restarts when one exists, and its
   // next register consumes the flag either way. While sessions are live the
@@ -758,7 +894,16 @@ export const devicesRouter = router({
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
       const row = updated[0]
-      if (!row) return { ok: false, updateRequested: false }
+      if (!row) {
+        // EXP-1417: removed by its owner: the device stops re-registering
+        // until its next launch (only a launch register brings it back).
+        const [removed] = await ctx.db
+          .select({ removedAt: deviceRemovals.removedAt })
+          .from(deviceRemovals)
+          .where(and(eq(deviceRemovals.userId, ctx.session.user.id), eq(deviceRemovals.deviceId, input.deviceId)))
+          .limit(1)
+        return removed ? { ok: false, updateRequested: false, removed: true } : { ok: false, updateRequested: false }
+      }
 
       // NEW-1: the device is back: its sessions the watchdog parked as
       // `device_offline` read live again (the device re-claims them).
@@ -1398,9 +1543,14 @@ export const devicesRouter = router({
         .select({
           id: devices.id,
           kind: devices.kind,
+          label: devices.label,
           sharedTeamIds: devices.sharedTeamIds,
+          publicKey: devices.publicKey,
+          // FEED-154: the key pinned for this machine id (any account's).
+          pinnedKey: deviceKeys.publicKey,
         })
         .from(devices)
+        .leftJoin(deviceKeys, eq(deviceKeys.deviceId, devices.deviceId))
         .where(
           and(
             eq(devices.userId, ctx.session.user.id),
@@ -1423,6 +1573,15 @@ export const devicesRouter = router({
       const revoked = current.filter((teamId) => !next.includes(teamId))
       for (const teamId of added) {
         await assertTeamMember(ctx.session.user.id, teamId)
+      }
+      // FEED-154: proof of possession. A share needs this row's last
+      // register to have proven the machine's PINNED key: an account that
+      // only read the box's id from a team-visible session lacks the
+      // private key, so it can never share the box (or block its owner's
+      // share with CONFLICT). Withdrawing needs no proof.
+      const refusal = added.length > 0 ? shareKeyRefusal(row) : null
+      if (refusal) {
+        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: refusal })
       }
       // EXP-530 follow-up / EXP-1291: an agent a REVOKED team's owner put
       // on this device keeps firing its triggers on the device owner's
@@ -1478,7 +1637,7 @@ export const devicesRouter = router({
         }
         return { txid: id, ending }
       })
-      await endHostedSessions(ending)
+      await endHostedSessions(ending, { actorId: ctx.session.user.id, deviceLabel: row.label, cause: `unshared` })
       return { ok: true, txid }
     }),
 
@@ -1492,33 +1651,7 @@ export const devicesRouter = router({
     .input(z.object({ id: z.string().uuid(), teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
-      const { txid, ending } = await ctx.db.transaction(async (tx) => {
-        const id = await generateTxId(tx)
-        const [target] = await tx
-          .select({ id: devices.id, userId: devices.userId, deviceId: devices.deviceId })
-          .from(devices)
-          .where(and(eq(devices.id, input.id), arrayContains(devices.sharedTeamIds, [input.teamId])))
-          .limit(1)
-        if (!target) {
-          throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
-        }
-        await lockDeviceShares(tx, target.deviceId)
-        const ending = await foreignHostedSessionIds(tx, target.userId, input.teamId, [target.deviceId])
-        const pause = await firstSharerTeams(tx, target, [input.teamId])
-        await tx
-          .update(devices)
-          .set({
-            sharedTeamIds: sql`array_remove(${devices.sharedTeamIds}, ${input.teamId}::uuid)`,
-            updatedAt: new Date(),
-          })
-          .where(eq(devices.id, target.id))
-        if (pause.length > 0) {
-          await pauseDeviceAgents(tx, pause, target.deviceId)
-        }
-        return { txid: id, ending }
-      })
-      await endHostedSessions(ending)
-      return { ok: true, txid }
+      return dropDeviceShare(ctx.db, { ...input, actorId: ctx.session.user.id })
     }),
 
   rename: authedProcedure
@@ -1615,22 +1748,66 @@ export const devicesRouter = router({
       return { ok: true, txid }
     }),
 
-  // Drops the registry row only — a still-running daemon re-registers on its
-  // next heartbeat miss, and a live relay connection is untouched. Worktrees
-  // + queued commands go with it (FK cascade).
+  // Drops the registry row; worktrees + queued commands go with it (FK
+  // cascade). FEED-155: Remove is an UNSHARE first: the runs the row
+  // hosted for teammates end (read under the machine's lock, before the
+  // delete, ended after commit) and the teams' agents on it disarm (the
+  // setShared rule: not for a team the owner owns). Else a teammate who
+  // registered the box's id and shared it before the owner re-shared would
+  // inherit the still-live runs and agents. EXP-1417: the removal is
+  // recorded, so the machine's still-running build no longer re-creates the
+  // row on its next heartbeat miss or re-dial; only a fresh launch does
+  // (`register({launch: true})`). An unknown device is NOT_FOUND, never a
+  // silent success.
   remove: authedProcedure
     .input(z.object({ deviceId: deviceIdInput }))
     .mutation(async ({ ctx, input }) => {
-      const txid = await ctx.db.transaction(async (tx) => {
+      const userId = ctx.session.user.id
+      const [probe] = await ctx.db
+        .select({ sharedTeamIds: devices.sharedTeamIds })
+        .from(devices)
+        .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
+        .limit(1)
+      if (!probe) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+      const disarmable: string[] = []
+      for (const teamId of probe.sharedTeamIds ?? []) {
+        const member = await getTeamMember(userId, teamId)
+        if (member?.role !== `owner`) disarmable.push(teamId)
+      }
+      const { txid, ending, label } = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
+        await lockDeviceShares(tx, input.deviceId)
+        const [row] = await tx
+          .select({ id: devices.id, label: devices.label, sharedTeamIds: devices.sharedTeamIds })
+          .from(devices)
+          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
+          .limit(1)
+        if (!row) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+        }
+        const shared = row.sharedTeamIds ?? []
+        const ending: string[] = []
+        for (const teamId of shared) {
+          ending.push(...(await foreignHostedSessionIds(tx, userId, teamId, [input.deviceId])))
+        }
+        const pause = await firstSharerTeams(
+          tx,
+          { id: row.id, deviceId: input.deviceId },
+          disarmable.filter((teamId) => shared.includes(teamId))
+        )
+        if (pause.length > 0) {
+          await pauseDeviceAgents(tx, pause, input.deviceId)
+        }
+        await tx.delete(devices).where(eq(devices.id, row.id))
         await tx
-          .delete(devices)
-          .where(
-            and(
-              eq(devices.userId, ctx.session.user.id),
-              eq(devices.deviceId, input.deviceId)
-            )
-          )
+          .insert(deviceRemovals)
+          .values({ userId, deviceId: input.deviceId, removedAt: new Date() })
+          .onConflictDoUpdate({
+            target: [deviceRemovals.userId, deviceRemovals.deviceId],
+            set: { removedAt: new Date() },
+          })
         // #NEW-71: `voice_device_id` has no FK; a removed voice device reads
         // as None (`clearOnNone`), so a re-registration never speaks again.
         await tx
@@ -1638,12 +1815,13 @@ export const devicesRouter = router({
           .set({ voiceDeviceId: null, speakReplies: false, pushToTalk: false, wakeWord: false, updatedAt: new Date() })
           .where(
             and(
-              eq(userVoiceSettings.userId, ctx.session.user.id),
+              eq(userVoiceSettings.userId, userId),
               eq(userVoiceSettings.voiceDeviceId, input.deviceId)
             )
           )
-        return id
+        return { txid: id, ending, label: row.label }
       })
+      await endHostedSessions(ending, { actorId: userId, deviceLabel: label, cause: `removed` })
       return { ok: true, txid }
     }),
 

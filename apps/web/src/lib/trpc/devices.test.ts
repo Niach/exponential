@@ -48,6 +48,7 @@ const h = vi.hoisted(() => {
     const b = {
       from: () => b,
       innerJoin: () => b,
+      leftJoin: () => b,
       where: () => terminal,
     }
     return b
@@ -137,6 +138,10 @@ vi.mock(`@/lib/sessions/lifecycle`, () => ({
   endHostedSessions: h.endHostedSessions,
   pauseDeviceAgents: h.pauseDeviceTriggers,
 }))
+// FEED-154: the device owner's notice (notifications tests cover delivery).
+vi.mock(`@/lib/integrations/notifications`, () => ({
+  notifyDeviceShareRemoved: vi.fn(async () => {}),
+}))
 vi.mock(`@/lib/client-version`, () => ({
   versionPayload: () => ({
     android: { min: null, latest: null },
@@ -162,8 +167,11 @@ const caller = devicesRouter.createCaller({
 
 // What setShared's ownership probe selects (id, kind, shared_team_ids).
 // FEED-33: the share is a SET, so the probe seeds any number of teams.
+// FEED-154: the row's proven key and the machine's pin ride it (equal = the
+// caller holds the box's key and may share it).
+const PROVEN_KEY = `ab`.repeat(32)
 const sharedProbe = (...sharedTeamIds: string[]) => [
-  [{ id: `row-1`, kind: `server`, sharedTeamIds }],
+  [{ id: `row-1`, kind: `server`, label: `box`, sharedTeamIds, publicKey: PROVEN_KEY, pinnedKey: PROVEN_KEY }],
 ]
 
 beforeEach(() => {
@@ -420,6 +428,17 @@ describe(`devices.heartbeat`, () => {
     expect(result).toEqual({ ok: false, updateRequested: false })
   })
 
+  it(`says removed when its owner removed it, so the device stops re-registering (EXP-1417)`, async () => {
+    h.state.updateReturning = [[]]
+    h.state.selectQueue = [[{ removedAt: new Date() }]]
+    const result = await caller.heartbeat({
+      deviceId: `dev-gone`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+    })
+    expect(result).toEqual({ ok: false, updateRequested: false, removed: true })
+  })
+
   it(`bumps last_seen_at for a live row`, async () => {
     const result = await caller.heartbeat({
       deviceId: `dev-1`,
@@ -456,13 +475,29 @@ describe(`devices.latestVersions`, () => {
 })
 
 describe(`devices.remove`, () => {
-  it(`deletes the row`, async () => {
+  const TEAM_A = `11111111-1111-4111-8111-111111111111`
+  // The probe (shares, outside the tx) then the locked read.
+  const removeProbe = (...sharedTeamIds: string[]) => [
+    [{ sharedTeamIds }],
+    [{ id: `row-1`, label: `box`, sharedTeamIds }],
+  ]
+
+  it(`deletes the row and records the removal (EXP-1417)`, async () => {
+    h.state.selectQueue = removeProbe()
     const result = await caller.remove({ deviceId: `dev-1` })
     expect(result).toMatchObject({ ok: true })
     expect(h.state.deletes).toBe(1)
+    expect(h.state.inserted).toEqual([expect.objectContaining({ userId: `actor`, deviceId: `dev-1` })])
+  })
+
+  it(`404s a device the caller does not have, instead of a silent success (EXP-1417)`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(caller.remove({ deviceId: `dev-x` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(h.state.deletes).toBe(0)
   })
 
   it(`clears the voice settings that named it (#NEW-71: no FK)`, async () => {
+    h.state.selectQueue = removeProbe()
     h.state.updates = []
     await caller.remove({ deviceId: `dev-1` })
     expect(h.state.updates).toHaveLength(1)
@@ -472,6 +507,66 @@ describe(`devices.remove`, () => {
       pushToTalk: false,
       wakeWord: false,
     })
+  })
+
+  it(`acts like an unshare: ends the hosted runs after commit and disarms the agents (FEED-155)`, async () => {
+    h.state.selectQueue = removeProbe(TEAM_A)
+    let deletesWhenEnded = -1
+    h.foreignHostedSessionIds.mockResolvedValue([`s-1`])
+    h.endHostedSessions.mockImplementation(async () => {
+      deletesWhenEnded = h.state.deletes
+      return [`s-1`]
+    })
+    await caller.remove({ deviceId: `dev-1` })
+    expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM_A, [`dev-1`])
+    expect(h.pauseDeviceTriggers).toHaveBeenCalledWith(expect.anything(), [TEAM_A], `dev-1`)
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-1`], {
+      actorId: `actor`,
+      deviceLabel: `box`,
+      cause: `removed`,
+    })
+    expect(deletesWhenEnded).toBe(1)
+  })
+
+  it(`leaves the agents armed in a team the device owner owns`, async () => {
+    h.state.selectQueue = removeProbe(TEAM_A)
+    h.getTeamMember.mockResolvedValue({ role: `owner` })
+    await caller.remove({ deviceId: `dev-1` })
+    expect(h.pauseDeviceTriggers).not.toHaveBeenCalled()
+  })
+})
+
+describe(`devices.register — removal + key (EXP-1417, FEED-154)`, () => {
+  it(`refuses a non-launch register of a removed machine and writes nothing`, async () => {
+    h.state.selectQueue = [[{ removedAt: new Date() }]]
+    const result = await caller.register({ doctor: DOCTOR, deviceId: `dev-1`, label: `box`, kind: `server` })
+    expect(result).toMatchObject({ ok: false, removed: true })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`a launch register clears the removal and registers`, async () => {
+    const result = await caller.register({
+      doctor: DOCTOR,
+      deviceId: `dev-1`,
+      label: `box`,
+      kind: `server`,
+      launch: true,
+    })
+    expect(result).toMatchObject({ ok: true, removed: false })
+    expect(h.state.deletes).toBe(1)
+    expect(h.state.inserted).toHaveLength(1)
+  })
+
+  it(`stores no key for a proof that does not verify`, async () => {
+    const result = await caller.register({
+      doctor: DOCTOR,
+      deviceId: `dev-1`,
+      label: `box`,
+      kind: `server`,
+      key: { publicKey: `ab`.repeat(32), signedAt: new Date().toISOString(), signature: `cd`.repeat(64) },
+    })
+    expect(result).toMatchObject({ ok: true, keyAccepted: false })
+    expect(h.state.inserted[0]).toMatchObject({ publicKey: null })
   })
 })
 
@@ -518,6 +613,32 @@ describe(`devices.setShared`, () => {
       })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
     expect(h.state.updates).toHaveLength(0)
+  })
+
+  it(`refuses to share a row that never proved the machine key (FEED-154)`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, kind: `server`, label: `box`, sharedTeamIds: [], publicKey: null, pinnedKey: null }]]
+    await expect(
+      caller.setShared({ deviceId: `dev-1`, teamId: `11111111-1111-4111-8111-111111111111`, shared: true })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED`, message: `Update Exponential on this machine to share it` })
+    expect(h.state.updates).toHaveLength(0)
+  })
+
+  it(`refuses to share when another account's key is pinned for the machine (FEED-154)`, async () => {
+    h.state.selectQueue = [
+      [{ id: `row-1`, kind: `server`, label: `box`, sharedTeamIds: [], publicKey: `ab`.repeat(32), pinnedKey: `ef`.repeat(32) }],
+    ]
+    await expect(
+      caller.setShared({ deviceId: `dev-1`, teamId: `11111111-1111-4111-8111-111111111111`, shared: true })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.state.updates).toHaveLength(0)
+  })
+
+  it(`withdraws without a key proof`, async () => {
+    h.state.selectQueue = [
+      [{ id: `row-1`, kind: `server`, label: `box`, sharedTeamIds: [`11111111-1111-4111-8111-111111111111`], publicKey: null, pinnedKey: null }],
+    ]
+    await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
   })
 
   it(`rejects a deviceId the caller does not own`, async () => {
@@ -699,7 +820,11 @@ describe(`devices.setShared — kill fan-out`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
     expect(h.foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM_A, [`dev-1`])
-    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-1`])
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-1`], {
+      actorId: `actor`,
+      deviceLabel: `box`,
+      cause: `unshared`,
+    })
     expect(updatesWhenRead).toBe(0)
     expect(updatesWhenEnded).toBe(1)
     expect(pausesWhenEnded).toBe(1)

@@ -32,6 +32,9 @@ log = "0.4"
 # Same use as `crates/coding`'s run-registry lock (unix only, `cfg`-gated in
 # the source rather than here, exactly as `coding` declares it).
 libc = { workspace = true }
+# FEED-154: the CLI daemon's ed25519 machine key (device_identity.rs) — the
+# same ring rustls already builds, no new crate.
+ring = "0.17"
 
 # NOTE (locked decision 2026-07-03): secrets are ALWAYS file-based (0600/0700,
 # see token_store.rs) — never the OS keyring. The keyring crate was removed:

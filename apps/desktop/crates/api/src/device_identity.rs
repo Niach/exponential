@@ -44,6 +44,104 @@ pub fn cli_device_id(data_dir: &Path) -> String {
     stable_id(data_dir, "cli-device-id", "cliDeviceId")
 }
 
+/// FEED-154: the CLI daemon's machine key — an ed25519 keypair in
+/// `{data_dir}/cli-device-key` (the PKCS#8 document as one hex line, 0600),
+/// minted beside `cli-device-id` and, like it, never rewritten. The daemon
+/// signs every `devices.register` with it ([`DeviceKey::proof`]); the
+/// server pins the first proven key per machine id and lets only its holder
+/// share the machine, so an account that merely read the id from a
+/// team-visible session cannot share (or squat) the box. An unreadable or
+/// unparsable file is NEVER minted over (a new key would orphan the pin):
+/// the daemon then registers without a proof, and the row cannot share.
+pub struct DeviceKey {
+    pair: ring::signature::Ed25519KeyPair,
+}
+
+/// What a register carries to prove the key: the public key, the instant it
+/// signed, and the signature (all lowercase hex but `signed_at`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyProof {
+    pub public_key: String,
+    pub signed_at: String,
+    pub signature: String,
+}
+
+impl DeviceKey {
+    /// The raw 32-byte public key, hex.
+    pub fn public_key_hex(&self) -> String {
+        use ring::signature::KeyPair as _;
+        hex(self.pair.public_key().as_ref())
+    }
+
+    /// The register proof: a signature of the server's
+    /// `deviceKeyMessage` (`lib/device-keys.ts`), bound to the ACCOUNT so a
+    /// proof never registers the key under another one. `signed_at` is an
+    /// ISO instant (the server takes ±10 minutes).
+    pub fn proof(&self, user_id: &str, device_id: &str, signed_at: &str) -> KeyProof {
+        let public_key = self.public_key_hex();
+        let message = key_message(user_id, device_id, &public_key, signed_at);
+        KeyProof {
+            signature: hex(self.pair.sign(message.as_bytes()).as_ref()),
+            public_key,
+            signed_at: signed_at.to_string(),
+        }
+    }
+}
+
+/// The signed bytes — byte-for-byte the server's `deviceKeyMessage`.
+fn key_message(user_id: &str, device_id: &str, public_key: &str, signed_at: &str) -> String {
+    format!("exponential-device-key:v1\n{user_id}\n{device_id}\n{public_key}\n{signed_at}")
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    let text = text.trim();
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok())
+        .collect()
+}
+
+/// The daemon's machine key (minted on first call, under the same
+/// machine-wide lock as the ids). `None` = the file is there but unreadable,
+/// or the disk refused the first write: register without a proof.
+pub fn cli_device_key(data_dir: &Path) -> Option<DeviceKey> {
+    let path = data_dir.join("cli-device-key");
+    let _guard = crate::settings_lock::locked(data_dir);
+    let parse = |raw: &str| {
+        unhex(raw).and_then(|der| ring::signature::Ed25519KeyPair::from_pkcs8(&der).ok())
+    };
+    match fs::read_to_string(&path) {
+        Ok(raw) => match parse(&raw) {
+            Some(pair) => return Some(DeviceKey { pair }),
+            None => {
+                log::warn!("{} is unreadable; registering without a machine key", path.display());
+                return None;
+            }
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            log::warn!("{} could not be read ({err}); registering without a machine key", path.display());
+            return None;
+        }
+    }
+    let rng = ring::rand::SystemRandom::new();
+    let document = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).ok()?;
+    let encoded = hex(document.as_ref());
+    if let Err(err) = crate::atomic_file::write_atomic(&path, &format!("{encoded}\n")) {
+        log::warn!("{} could not be written: {err}", path.display());
+        return None;
+    }
+    parse(&encoded).map(|pair| DeviceKey { pair })
+}
+
 /// One read of a file, classified — EXP-766: "cannot read" and "not there"
 /// are DIFFERENT answers, and only the second one may mint a new id.
 enum Read<T> {
@@ -210,6 +308,38 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn cli_device_key_is_minted_once_and_signs_the_server_message() {
+        let dir = TempDir::new("device-key");
+        let first = cli_device_key(&dir.0).expect("minted");
+        let again = cli_device_key(&dir.0).expect("read back");
+        assert_eq!(first.public_key_hex(), again.public_key_hex());
+        assert_eq!(first.public_key_hex().len(), 64);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(dir.0.join("cli-device-key")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let proof = first.proof("user-1", "dev-1", "2026-10-28T10:00:00.000Z");
+        assert_eq!(proof.signature.len(), 128);
+        let public = unhex(&proof.public_key).unwrap();
+        let message = key_message("user-1", "dev-1", &proof.public_key, &proof.signed_at);
+        let key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public);
+        assert!(key.verify(message.as_bytes(), &unhex(&proof.signature).unwrap()).is_ok());
+        // Bound to the account: another user id does not verify.
+        let other = key_message("user-2", "dev-1", &proof.public_key, &proof.signed_at);
+        assert!(key.verify(other.as_bytes(), &unhex(&proof.signature).unwrap()).is_err());
+    }
+
+    #[test]
+    fn an_unreadable_cli_device_key_is_never_minted_over() {
+        let dir = TempDir::new("device-key-torn");
+        fs::write(dir.0.join("cli-device-key"), "not hex\n").unwrap();
+        assert!(cli_device_key(&dir.0).is_none());
+        assert_eq!(fs::read_to_string(dir.0.join("cli-device-key")).unwrap(), "not hex\n");
     }
 
     #[test]

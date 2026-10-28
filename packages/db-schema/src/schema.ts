@@ -1386,6 +1386,12 @@ export const devices = pgTable(
     // on register + heartbeat. NULL = not reported yet: clients render
     // no readiness block.
     doctor: jsonb().$type<DeviceDoctor>(),
+    // FEED-154: the machine's ed25519 public key (64 hex chars) the LAST
+    // register PROVED it holds (a fresh signature over user + device id).
+    // Server-only, outside the shape allowlist. A share needs it to equal
+    // the machine's pin (`device_keys`): an account that only knows a box's
+    // id cannot share it. NULL = registered without a proof (a desktop).
+    publicKey: varchar(`public_key`, { length: 64 }),
     ...timestamps,
   },
   (table) => [
@@ -1394,6 +1400,36 @@ export const devices = pgTable(
     // Serves the per-team shared listing (`&&` / `@>` on the array).
     index(`idx_devices_shared_teams`).using(`gin`, table.sharedTeamIds),
   ]
+)
+
+// FEED-154: the key PINNED for a machine id, trust-on-first-use: the first
+// proven register of the id pins its key, and only the pinning account may
+// rotate it (a fresh data dir). It outlives the devices rows on purpose: the
+// box owner's Remove must not hand the pin to a teammate's squat of the id.
+// An instance admin clears a wrong pin (`admin.clearDeviceKey`). Server-only.
+export const deviceKeys = pgTable(`device_keys`, {
+  deviceId: varchar(`device_id`, { length: 128 }).primaryKey(),
+  publicKey: varchar(`public_key`, { length: 64 }).notNull(),
+  userId: text(`user_id`)
+    .notNull()
+    .references(() => users.id, { onDelete: `cascade` }),
+  ...timestamps,
+})
+
+// EXP-1417: a machine its owner REMOVED. A running daemon or desktop app
+// re-registered the row on its next heartbeat miss or re-dial, so Remove
+// never stuck; while this row stands only a fresh launch of that build
+// (`register({launch: true})`) brings the machine back. Server-only.
+export const deviceRemovals = pgTable(
+  `device_removals`,
+  {
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
+    removedAt: timestamp(`removed_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.deviceId] })]
 )
 
 // EXP-481: per-device worktree inventory, reported by the device
