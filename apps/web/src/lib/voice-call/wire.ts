@@ -50,6 +50,11 @@ export function hostCallEvent(raw: unknown): CallEvent | null {
       return typeof event.count === `number` && text !== null ? { t: `queued`, count: event.count, text } : null
     case `replyFinished`:
     case `speechStarted`:
+    // S-3: the host's ring (its `ringMs` ran out), its worker listening and
+    // its mic check: the caller rings exactly as long as the host does.
+    case `rang`:
+    case `ready`:
+    case `noSound`:
       return { t: event.t }
     default:
       return null

@@ -14,6 +14,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.media.MediaRecorder
+import android.media.ToneGenerator
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
@@ -48,6 +49,12 @@ import kotlin.math.sqrt
  * everything without blocking its caller and is safe to call twice; it puts
  * the routing back only once the capture and playback threads have exited
  * (#NEW-89), never under a recorder or track that is still running.
+ *
+ * S-3: a call RINGS first ([prepare] routes and [ring]s a local ringback
+ * tone on the call's voice stream while the voice device warms up; the
+ * threads start with [start] once the relay paired). [speaker] routes the
+ * loudspeaker (default) or the earpiece; a headset (wired, USB or
+ * Bluetooth) always wins over both.
  */
 internal class VoiceCallAudio(
     private val context: Context,
@@ -74,6 +81,15 @@ internal class VoiceCallAudio(
     private val released = AtomicBoolean(false)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var focus: AudioFocusRequest? = null
+    private val routed = AtomicBoolean(false)
+    @Volatile private var tone: ToneGenerator? = null
+
+    /** S-3: the loudspeaker (true, the default) or the earpiece; a headset wins over both. */
+    @Volatile var speaker: Boolean = true
+        set(value) {
+            field = value
+            if (routed.get() && !released.get()) runCatching { routeOutput() }.onFailure { Log.w(TAG, "call speaker route failed", it) }
+        }
 
     private var captureThread: Thread? = null
     private var decodeThread: Thread? = null
@@ -95,6 +111,8 @@ internal class VoiceCallAudio(
         private const val JOIN_MS = 500L
         /** Opus' standard seek pre-roll (80 ms) for the decoder's csd-2. */
         private const val SEEK_PREROLL_NS = 80_000_000L
+        /** The ringback's volume (ToneGenerator's 0…100). */
+        private const val RING_VOLUME = 70
 
         /**
          * A call can capture here: a microphone, API 29 (MediaCodec's Opus
@@ -161,11 +179,43 @@ internal class VoiceCallAudio(
         }
     }
 
-    /** Route for a call (communication mode, the speaker unless a headset is on), open the mic and the player. */
+    /**
+     * S-3: route for the call (audio focus, communication mode, [speaker]);
+     * false = focus was refused (another call holds the audio).
+     */
+    fun prepare(): Boolean {
+        if (released.get()) return false
+        if (routed.get()) return true
+        if (!routeForCall()) return false
+        routed.set(true)
+        return true
+    }
+
+    /**
+     * S-3: the ringback on the call's voice stream (it follows [speaker]),
+     * until [stopRing] or [release]; the cadence repeats while the voice
+     * device is still getting ready.
+     */
+    fun ring() {
+        if (released.get() || tone != null || !prepare()) return
+        tone = runCatching {
+            ToneGenerator(AudioManager.STREAM_VOICE_CALL, RING_VOLUME).apply { startTone(ToneGenerator.TONE_SUP_RINGTONE) }
+        }.onFailure { Log.w(TAG, "call ring tone failed", it) }.getOrNull()
+    }
+
+    fun stopRing() {
+        val generator = tone ?: return
+        tone = null
+        runCatching { generator.stopTone() }
+        runCatching { generator.release() }
+    }
+
+    /** Route for a call when [prepare] did not yet, open the mic and the player. */
     @RequiresApi(Build.VERSION_CODES.Q)
     fun start() {
         if (!running.compareAndSet(false, true)) return
-        if (!routeForCall()) return fail("dropped")
+        // The ringback keeps playing until the host answers (the controller stops it).
+        if (!prepare()) return fail("dropped")
         captureThread = Thread({ capture() }, "call-capture").apply { start() }
         decodeThread = Thread({ decode() }, "call-decode").apply { start() }
         playThread = Thread({ play() }, "call-play").apply { start() }
@@ -189,6 +239,7 @@ internal class VoiceCallAudio(
 
     fun release() {
         if (!released.compareAndSet(false, true)) return
+        stopRing()
         running.set(false)
         sending = false
         downlink.clear()
@@ -204,7 +255,7 @@ internal class VoiceCallAudio(
     }
 
     private fun fail(code: String, cause: Throwable? = null) {
-        if (!running.get() || !failed.compareAndSet(false, true)) return
+        if (!(running.get() || routed.get()) || released.get() || !failed.compareAndSet(false, true)) return
         Log.w(TAG, "call audio failed ($code)", cause)
         onFailure(code)
     }
@@ -237,19 +288,29 @@ internal class VoiceCallAudio(
         runCatching {
             routing.claim(this) { audioManager.mode to audioManager.isSpeakerphoneOn }
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            // The call is a full screen held in front of the face: the
-            // loudspeaker, unless a headset (wired, USB or Bluetooth) is on.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val devices = audioManager.availableCommunicationDevices
-                val headset = devices.firstOrNull { it.type in HEADSET_TYPES }
-                val target = headset ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                target?.let { audioManager.setCommunicationDevice(it) }
-            } else {
-                val headset = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in HEADSET_TYPES }
-                audioManager.isSpeakerphoneOn = !headset
-            }
+            routeOutput()
         }.onFailure { Log.w(TAG, "call routing failed", it) }
         return true
+    }
+
+    /**
+     * The call's output: a headset (wired, USB or Bluetooth) when one is on,
+     * else the loudspeaker while [speaker] (the default: the call is a full
+     * screen held in front of the face) or the earpiece.
+     */
+    @Suppress("DEPRECATION")
+    private fun routeOutput() {
+        val loud = speaker
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val devices = audioManager.availableCommunicationDevices
+            val headset = devices.firstOrNull { it.type in HEADSET_TYPES }
+            val builtIn = if (loud) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            val target = headset ?: devices.firstOrNull { it.type == builtIn }
+            if (target != null) audioManager.setCommunicationDevice(target) else audioManager.clearCommunicationDevice()
+        } else {
+            val headset = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in HEADSET_TYPES }
+            audioManager.isSpeakerphoneOn = !headset && loud
+        }
     }
 
     @Suppress("DEPRECATION")

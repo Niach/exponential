@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -16,8 +17,9 @@ import org.junit.Test
 /**
  * NEW-67: Settings → Voice, locked ×4 (TS `voice.ts`, desktop
  * `domain::voice`, iOS `VoiceTests`) against `fixtures/voice.json`: every
- * `copy` key, the `testIds`, `shortcuts`, `languages`, `limits`, `defaults` and every case list but
- * the speech and tray ones (shouldSpeak / spokenText / numbers / trayMenu are desktop-only).
+ * `copy` key, the `testIds`, `shortcutGrammar`, `languages`, `limits`, `defaults` and every case list but
+ * the speech and tray ones (shouldSpeak / spokenText / numbers / trayMenu / railVoice are desktop-only);
+ * S-3: `shortcutParseCases`, `captureCases`, `wakeDetailCases`.
  */
 class VoiceTest {
 
@@ -43,7 +45,6 @@ class VoiceTest {
             "voiceDeviceNone" to Voice.Copy.VOICE_DEVICE_NONE,
             "agent" to Voice.Copy.AGENT,
             "agentNone" to Voice.Copy.AGENT_NONE,
-            "speakReplies" to Voice.Copy.SPEAK_REPLIES,
             "language" to Voice.Copy.LANGUAGE,
             "languageNote" to Voice.Copy.LANGUAGE_NOTE,
             "voiceFile" to Voice.Copy.VOICE_FILE,
@@ -52,7 +53,6 @@ class VoiceTest {
             "voiceTranscriptPlaceholder" to Voice.Copy.VOICE_TRANSCRIPT_PLACEHOLDER,
             "trayHeader" to Voice.Copy.TRAY_HEADER,
             "pushToTalk" to Voice.Copy.PUSH_TO_TALK,
-            "shortcut" to Voice.Copy.SHORTCUT,
             "wakeWord" to Voice.Copy.WAKE_WORD,
             "wakePhrase" to Voice.Copy.WAKE_PHRASE,
             "wakePhrasePlaceholder" to Voice.Copy.WAKE_PHRASE_PLACEHOLDER,
@@ -70,32 +70,47 @@ class VoiceTest {
             "stop" to Voice.Copy.STOP,
             "link" to Voice.Copy.LINK,
             "ellipsis" to Voice.Copy.ELLIPSIS,
+            "shortcutNone" to Voice.Copy.SHORTCUT_NONE,
+            "shortcutRecord" to Voice.Copy.SHORTCUT_RECORD,
+            "shortcutClear" to Voice.Copy.SHORTCUT_CLEAR,
+            "trayEndCall" to Voice.Copy.TRAY_END_CALL,
         )
         // A key added to the fixture must land here too.
         assertEquals(copy.keys.associateWith { copy.str(it) }, mirrored)
     }
 
     @Test
-    fun `test ids, shortcuts and maxChars match the fixture`() {
+    fun `test ids, the shortcut grammar and maxChars match the fixture`() {
         val ids = fixture.getValue("testIds").jsonObject
         val mirrored = mapOf(
             "page" to Voice.TestIds.PAGE,
             "voiceDevice" to Voice.TestIds.VOICE_DEVICE,
             "agent" to Voice.TestIds.AGENT,
-            "speakReplies" to Voice.TestIds.SPEAK_REPLIES,
             "language" to Voice.TestIds.LANGUAGE,
             "voiceFile" to Voice.TestIds.VOICE_FILE,
             "voiceTranscript" to Voice.TestIds.VOICE_TRANSCRIPT,
-            "pushToTalk" to Voice.TestIds.PUSH_TO_TALK,
             "shortcut" to Voice.TestIds.SHORTCUT,
             "wakeWord" to Voice.TestIds.WAKE_WORD,
             "wakePhrase" to Voice.TestIds.WAKE_PHRASE,
+            "shortcutClear" to Voice.TestIds.SHORTCUT_CLEAR,
         )
         assertEquals(ids.keys.associateWith { ids.str(it) }, mirrored)
-        val shortcuts = fixture.getValue("shortcuts").jsonArray.map { it.jsonObject }.map {
-            Voice.Shortcut(value = it.str("value")!!, label = it.str("label")!!)
-        }
-        assertEquals(shortcuts, Voice.shortcuts)
+        val grammar = fixture.getValue("shortcutGrammar").jsonObject
+        val g = Voice.ShortcutGrammar
+        fun list(key: String) = grammar.getValue(key).jsonArray.map { it.jsonPrimitive.content }
+        fun range(key: String) = grammar.getValue(key).jsonObject.let { it.getValue("min").jsonPrimitive.int to it.getValue("max").jsonPrimitive.int }
+        assertEquals(list("mods"), g.MODS)
+        assertEquals(list("named"), g.NAMED)
+        assertEquals(list("bareKeys"), g.BARE_KEYS)
+        assertEquals(range("mouse"), g.MOUSE_MIN to g.MOUSE_MAX)
+        assertEquals(range("function"), g.FUNCTION_MIN to g.FUNCTION_MAX)
+        assertEquals(grammar.getValue("maxLength").jsonPrimitive.int, g.MAX_LENGTH)
+        assertEquals(grammar.str("separator"), g.SEPARATOR)
+        assertEquals(grammar.getValue("labels").jsonObject.let { l -> l.keys.associateWith { l.str(it) } }, g.LABELS)
+        val ptt = fixture.getValue("pttCopy").jsonObject
+        assertEquals(ptt.str("shortcutNeedsModifier"), Voice.PttCopy.SHORTCUT_NEEDS_MODIFIER)
+        val wake = ptt.getValue("wakeDetail").jsonObject
+        assertEquals(wake.keys.associateWith { wake.str(it) }, Voice.WakeState.entries.associate { it.wire to it.detail })
         assertEquals(fixture.getValue("maxChars").jsonPrimitive.int, Voice.MAX_CHARS)
     }
 
@@ -132,11 +147,75 @@ class VoiceTest {
     fun `defaults match the fixture`() {
         val decoded = Json.decodeFromJsonElement(Voice.Settings.serializer(), fixture.getValue("defaults"))
         assertEquals(Voice.defaults, decoded)
-        assertTrue(Voice.shortcuts.any { it.value == Voice.defaults.pttShortcut })
+        assertEquals("", Voice.defaults.pttShortcut)
         assertTrue(Voice.languages.any { it.value == Voice.defaults.language })
         // A row from an older server without the #NEW-73 keys reads the defaults.
         val legacy = Json.decodeFromString(Voice.Settings.serializer(), """{"wakePhrase":"Hi"}""")
         assertEquals(Voice.defaults.copy(wakePhrase = "Hi"), legacy)
+        // S-3: an older server's speakReplies / pushToTalk are tolerated and ignored.
+        val lenient = Json { ignoreUnknownKeys = true }
+        val old = lenient.decodeFromString(Voice.Settings.serializer(), """{"speakReplies":true,"pushToTalk":true,"pttShortcut":"ctrl+space"}""")
+        assertEquals(Voice.defaults.copy(pttShortcut = "ctrl+space"), old)
+    }
+
+    @Test
+    fun `every shortcutParse case matches the fixture`() {
+        for (case in cases("shortcutParseCases")) {
+            val input = case.str("in")!!
+            val value = Voice.shortcutCanonical(input)
+            assertEquals(input, case.str("value"), value)
+            if (value != null) assertEquals(input, case.str("label"), Voice.shortcutLabel(value))
+        }
+    }
+
+    @Test
+    fun `every capture case matches the fixture`() {
+        for (case in cases("captureCases")) {
+            val name = case.str("name")
+            var state = Voice.captureStart(case.str("before")!!)
+            for (raw in case.getValue("events").jsonArray.map { it.jsonObject }) {
+                val event = when (raw.str("t")) {
+                    "down" -> Voice.CaptureEvent.Down(raw.str("key")!!)
+                    "up" -> Voice.CaptureEvent.Up(raw.str("key")!!)
+                    "mouse" -> Voice.CaptureEvent.Mouse(raw.getValue("button").jsonPrimitive.int)
+                    else -> error("$name: $raw")
+                }
+                state = Voice.captureStep(state, event)
+            }
+            val result = case.getValue("result").jsonObject
+            assertEquals(name, result.str("status"), state.status.wire)
+            assertEquals(name, result.str("value"), state.value)
+            assertEquals(name, result.str("pending"), Voice.capturePending(state))
+            assertEquals(name, result.str("error"), state.error)
+        }
+    }
+
+    @Test
+    fun `every wakeDetail case matches the fixture`() {
+        for (case in cases("wakeDetailCases")) {
+            val c = case.getValue("context").jsonObject
+            val context = Voice.WakeDetailContext(
+                wakeWord = c.getValue("wakeWord").jsonPrimitive.boolean,
+                agent = c.getValue("agent").jsonPrimitive.boolean,
+                online = c.getValue("online").jsonPrimitive.boolean,
+                device = c.str("device")!!,
+                state = c.str("state")?.let { s -> Voice.WakeState.entries.single { it.wire == s } },
+            )
+            assertEquals(case.str("name"), case.str("detail"), Voice.wakeDetail(context))
+        }
+    }
+
+    /** S-3: a phone reads the voice device's doctor row `wake` verbatim; no agent / offline win over it. */
+    @Test
+    fun `the wake row reads the voice device's doctor row`() {
+        val on = Voice.WakeDetailContext(wakeWord = true, agent = true, online = true, device = "mint", state = null)
+        val doctor = DeviceDoctor(items = listOf(DeviceDoctorItem(key = "wake", group = "voice", state = "off", detail = "A call is using the microphone")))
+        assertEquals("A call is using the microphone", Voice.wakeRowDetail(doctor, on))
+        assertEquals("Starting…", Voice.wakeRowDetail(null, on))
+        assertEquals("Starting…", Voice.wakeRowDetail(DeviceDoctor(items = listOf(DeviceDoctorItem(key = "wake", group = "agents", state = "ok", detail = "x"))), on))
+        assertEquals("mint is offline", Voice.wakeRowDetail(doctor, on.copy(online = false)))
+        assertEquals("Pick an agent", Voice.wakeRowDetail(doctor, on.copy(agent = false)))
+        assertEquals(null, Voice.wakeRowDetail(doctor, on.copy(wakeWord = false)))
     }
 
     @Test
@@ -208,10 +287,10 @@ class VoiceTest {
     /** None travels as an explicit null; an untouched field writes no key. */
     @Test
     fun `change encodes None as null and skips untouched fields`() {
-        val json = Voice.Change(agentId = Voice.Pick(null), speakReplies = true).toJson()
-        assertEquals(setOf("agentId", "speakReplies"), json.keys)
+        val json = Voice.Change(agentId = Voice.Pick(null), wakeWord = true).toJson()
+        assertEquals(setOf("agentId", "wakeWord"), json.keys)
         assertEquals(JsonNull, json["agentId"])
-        assertEquals(JsonPrimitive(true), json["speakReplies"])
+        assertEquals(JsonPrimitive(true), json["wakeWord"])
         assertEquals(JsonObject(emptyMap()), Voice.Change().toJson())
         val typed = Voice.Change(language = "de", voiceFile = "/v.wav", voiceTranscript = "Hallo").toJson()
         assertEquals(setOf("language", "voiceFile", "voiceTranscript"), typed.keys)
@@ -227,8 +306,6 @@ class VoiceTest {
     private fun settings(raw: JsonObject): Voice.Settings = Voice.defaults.copy(
         voiceDeviceId = raw.str("voiceDeviceId"),
         agentId = raw.str("agentId"),
-        speakReplies = raw["speakReplies"]?.jsonPrimitive?.booleanOrNull ?: false,
-        pushToTalk = raw["pushToTalk"]?.jsonPrimitive?.booleanOrNull ?: false,
         wakeWord = raw["wakeWord"]?.jsonPrimitive?.booleanOrNull ?: false,
     )
 }

@@ -2521,8 +2521,7 @@ async function main() {
   const voice = {
     voiceDeviceId: DEMO_DEVICE_ID,
     agentId: DEMO_AGENT_IDS.triage,
-    speakReplies: true,
-    pushToTalk: true,
+    // S-3: push to talk = a bound key (the row's keycaps in the capture).
     pttShortcut: `ctrl+space`,
     wakeWord: false,
     wakePhrase: ``,

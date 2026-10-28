@@ -1225,8 +1225,13 @@ export const deviceDoctorKeys = [
   `accessibility`,
   // NEW-78: the voice device's microphone (IDE only, Push to talk on).
   `microphone`,
-  // NEW-55: whether the voice device can speak (IDE only, Speak replies on).
+  // NEW-55: whether the voice device can speak (IDE only; S-3: whenever it
+  // is the member's voice device, speak-back is always on).
   `speech`,
+  // S-3: the wake word's state on the voice device (IDE only, wakeWord on):
+  // ok while listening, else off; `detail` = its `wakeDetail` text, which
+  // every other client's Wake word row shows verbatim (voice.json).
+  `wake`,
   // EXP-1375: free disk (the kept worktree rows are `worktree-<n>`, labelled).
   `disk`,
   // NEW-57: the voice device's desktop audio (IDE only, desktopAudio not off).
@@ -3041,10 +3046,14 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   // simply stops being found (the page reads None).
   voiceDeviceId: varchar(`voice_device_id`, { length: 128 }),
   agentId: uuid(`agent_id`).references(() => agents.id, { onDelete: `set null` }),
+  // S-3: LEGACY SHIMS, read by nobody. Speak-back is always on (`voice.get`
+  // answers speakReplies true) and push to talk is on while a key is bound
+  // (pushToTalk = pttShortcut !== ''); kept for old clients' writes.
   speakReplies: boolean(`speak_replies`).notNull().default(false),
   pushToTalk: boolean(`push_to_talk`).notNull().default(false),
-  // One of `voice.json` `shortcuts` values.
-  pttShortcut: varchar(`ptt_shortcut`, { length: 32 }).notNull().default(`ctrl+space`),
+  // S-3: the push-to-talk binding in `voice.json` `shortcutGrammar`'s
+  // canonical text; empty = no key bound = push to talk off.
+  pttShortcut: varchar(`ptt_shortcut`, { length: 32 }).notNull().default(``),
   wakeWord: boolean(`wake_word`).notNull().default(false),
   // Empty = `Hey {agent}`.
   wakePhrase: varchar(`wake_phrase`, { length: 64 }).notNull().default(``),

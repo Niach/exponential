@@ -9,7 +9,7 @@ import SwiftUI
 // Language read through `languageLabel`, and while a voice device is picked
 // Voice file + Transcript, #NEW-73), then while a voice device is picked the
 // tray group under `trayHeader` (Push to talk, Wake word, Wake phrase). S-3:
-// Push to talk is READ-ONLY here (the binding's `shortcutLabel`, None while
+// Push to talk is READ-ONLY here (the binding as THE eUI keycaps, None while
 // empty: keys are recorded on the voice device's IDE); the Wake word row's
 // detail says why it is or is not listening (the voice device's doctor row
 // `wake`, else `wakeDetail`). Every switch reads off and is disabled while
@@ -174,8 +174,15 @@ struct VoiceSettingsPage: View {
             if let deviceId = settings.voiceDeviceId {
                 Section {
                     // S-3: read-only; the voice device's IDE records the key.
-                    GlassPickerRowLabel(Voice.Copy.pushToTalk, value: Voice.shortcutLabel(settings.pttShortcut), chevron: false)
-                        .accessibilityElement(children: .combine)
+                    HStack(spacing: 8) {
+                        Text(Voice.Copy.pushToTalk)
+                            .foregroundStyle(.white.opacity(TextOpacity.primary))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 8)
+                        ShortcutKeys(settings.pttShortcut)
+                    }
+                    .accessibilityElement(children: .combine)
                         .accessibilityIdentifier(Voice.TestIds.shortcut)
                     GlassToggleRow(
                         Voice.Copy.wakeWord,

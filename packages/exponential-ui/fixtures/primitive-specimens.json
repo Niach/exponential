@@ -9,7 +9,7 @@
   },
   "specimens": [
     { "id": "smoke/button", "primitive": "smoke", "viewport": { "width": 900, "height": 600 }, "open": false, "interact": null },
-    { "id": "plain/button", "primitive": "plain", "viewport": { "width": 1100, "height": 600 }, "open": false, "interact": "hover" },
+    { "id": "plain/button", "primitive": "plain", "viewport": { "width": 1100, "height": 760 }, "open": false, "interact": "hover" },
     { "id": "plain/badge", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": null },
     { "id": "plain/alert", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": null },
     { "id": "plain/card", "primitive": "plain", "viewport": { "width": 900, "height": 400 }, "open": false, "interact": null },

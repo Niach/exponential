@@ -20,6 +20,7 @@ import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as stripChip } from "./strip-chip.tsx"
 import { entry as mentionPill } from "./mention-pill.tsx"
+import { entry as callControls } from "./call-controls.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionRow } from "./session-row.tsx"
@@ -89,6 +90,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   jumpToBottom,
   stripChip,
   mentionPill,
+  callControls,
   feedbackStates,
   trace,
   codeBlock,

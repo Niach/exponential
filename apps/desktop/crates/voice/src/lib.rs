@@ -47,6 +47,14 @@
 //! microphone and the desktop audio, segmented per channel. While one is
 //! asked for, a `Listen` is its flush trigger (`MeetingFlushNow`, then
 //! `Empty`) and a `Call` is refused (`ListenFailed { reason: meeting }`).
+//!
+//! S-3 (`voice-call.json`): a LOCAL `Call` opens the call's one output stream
+//! at once and RINGS on it for `ring_ms` ([`ring_tone`]; a remote call rings
+//! on the caller, never here) while the worker warms up: the voice is
+//! brought up ([`Job::Warm`]) and the listener loads the recognizer (a
+//! download included) and opens the microphone. `CallListening` follows
+//! once both are settled ([`listener::Links::voice_ready`]). The ring stops
+//! at the first Speak (the greeting), a Stop, Hangup or the next call.
 
 pub mod builtin;
 pub mod capture;
@@ -97,6 +105,41 @@ pub(crate) fn emit(event: &Event) {
 enum Job {
     Prepare(VoiceChoice),
     Speak { id: String, text: String, generation: u64 },
+    /// S-3: a call starts: bring the current voice up if it is not yet.
+    Warm,
+}
+
+/// Lines a host logs at debug (`talk` reads the prefix).
+pub(crate) fn debug(line: &str) {
+    eprintln!("{}{line}", talk::DEBUG_PREFIX);
+}
+
+/// S-3: the ring's level (peak, about -20 dBFS: soft next to a reply).
+const RING_AMPLITUDE: f32 = 0.1;
+/// S-3: the ring's pitch and cadence: a burst, then a pause (two bursts in
+/// voice-call.json's 3 s `ringMs`).
+const RING_HZ: f32 = 425.0;
+const RING_ON_MS: u32 = 1_000;
+const RING_OFF_MS: u32 = 500;
+/// Each burst fades in and out over this long (no click).
+const RING_FADE_MS: u32 = 20;
+
+/// S-3: `ms` of the ring at `rate`: [`RING_HZ`] bursts of [`RING_ON_MS`]
+/// with [`RING_OFF_MS`] of silence after each, cut at `ms`.
+pub fn ring_tone(rate: u32, ms: u32) -> Vec<f32> {
+    let at = |ms: u32| (u64::from(rate) * u64::from(ms) / 1000) as usize;
+    let (on, period, fade, total) = (at(RING_ON_MS), at(RING_ON_MS + RING_OFF_MS), at(RING_FADE_MS).max(1), at(ms));
+    (0..total)
+        .map(|index| {
+            let phase = index % period;
+            if phase >= on {
+                return 0.0;
+            }
+            let envelope = (phase.min(on - 1 - phase) as f32 / fade as f32).min(1.0);
+            let t = index as f32 / rate as f32;
+            RING_AMPLITUDE * envelope * (std::f32::consts::TAU * RING_HZ * t).sin()
+        })
+        .collect()
 }
 
 /// Where an event goes: stdout in the worker, a list in the tests.
@@ -120,6 +163,11 @@ struct Shared {
     /// #NEW-92: the sentences of the local call's last two replies, and when
     /// each ended (`None` = it plays): what the call may still hear as echo.
     spoken: Mutex<Vec<(Vec<String>, Option<Instant>)>>,
+    /// S-3: the ring of a local call on its output stream (its call id).
+    ring: Mutex<Option<(String, Arc<sink::Reply>)>>,
+    /// S-3: the voice is settled: brought up (or known unavailable) and no
+    /// bring-up or voice install runs. A call's `CallListening` waits for it.
+    voice_settled: std::sync::atomic::AtomicBool,
     emit: Emitter,
 }
 
@@ -144,7 +192,46 @@ impl Shared {
             far: Arc::default(),
             call_out: Mutex::new(None),
             spoken: Mutex::new(Vec::new()),
+            ring: Mutex::new(None),
+            voice_settled: std::sync::atomic::AtomicBool::new(false),
             emit,
+        }
+    }
+
+    /// S-3: ring local call `id` for `ms` on its output stream (opened now,
+    /// the stream every reply of the call plays on). `false` = no stream.
+    fn ring(&self, id: &str, ms: u32) -> bool {
+        let stream = match self.call_out(crispasr::QWEN3_TTS_RATE) {
+            Some(Ok(stream)) => stream,
+            Some(Err(err)) => {
+                eprintln!("call {id}: the audio output did not open: {err}");
+                return false;
+            }
+            None => return false,
+        };
+        if ms == 0 {
+            return true;
+        }
+        let ring = Arc::new(sink::Reply::new(stream));
+        if let Err(err) = sink::Sink::push(&*ring, &ring_tone(crispasr::QWEN3_TTS_RATE, ms)) {
+            eprintln!("call {id}: the ring did not play: {err}");
+            return true;
+        }
+        eprintln!("call {id}: ringing for {ms} ms");
+        let old = self.ring.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace((id.to_string(), ring));
+        if let Some((_, old)) = old {
+            sink::Sink::stop(&*old);
+        }
+        true
+    }
+
+    /// S-3: the ring stops (`id` = only call `id`'s; None = any).
+    fn stop_ring(&self, id: Option<&str>) {
+        let mut ring = self.ring.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if ring.as_ref().is_some_and(|(call, _)| id.is_none_or(|id| id == call)) {
+            if let Some((_, ring)) = ring.take() {
+                sink::Sink::stop(&*ring);
+            }
         }
     }
 
@@ -232,7 +319,28 @@ impl Drop for SpokenUntilDrop<'_> {
     }
 }
 
+/// S-3: the worker's `log` lines (the echo canceller's warnings) go to
+/// stderr, which the host logs; there was no logger, so they went nowhere.
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Info
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{} {}", record.level(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 fn run(data_dir: PathBuf) {
+    if log::set_logger(&StderrLog).is_ok() {
+        log::set_max_level(log::LevelFilter::Info);
+    }
     emit(&Event::Ready { protocol: talk::PROTOCOL });
     remove_retired_voices(&data_dir);
     let ears = data_dir.clone();
@@ -291,6 +399,10 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             let shared = shared.clone();
             Arc::new(move || shared.spoken())
         },
+        voice_ready: {
+            let shared = shared.clone();
+            Arc::new(move || shared.voice_settled.load(Ordering::SeqCst))
+        },
     };
     let (listen, listener) = listener::spawn(hearing, links);
 
@@ -316,10 +428,13 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             }
             Request::Speak { id, text } => {
                 let generation = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
+                // S-3: the greeting (any reply) ends the ring.
+                shared.stop_ring(None);
                 silence(&shared);
                 let _ = tx.send(Job::Speak { id, text, generation });
             }
             Request::Stop => {
+                shared.stop_ring(None);
                 shared.generation.fetch_add(1, Ordering::SeqCst);
                 silence(&shared);
             }
@@ -358,11 +473,18 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::CancelListen { id } => {
                 let _ = listen.send(listener::Job::Cancel { id });
             }
-            Request::Call { id, language, remote } => {
+            Request::Call { id, language, remote, ring_ms } => {
                 // Replaces a Listen or Call; replies keep playing.
                 listening.begin_call(&id, remote);
                 // The call it replaced (or this one, turned remote) closes its stream.
+                shared.stop_ring(None);
                 shared.keep_call_out((!remote).then_some(id.as_str()));
+                // S-3: a local call's stream opens now and rings while the
+                // voice and the recognizer warm up.
+                if !remote {
+                    shared.ring(&id, ring_ms);
+                }
+                let _ = tx.send(Job::Warm);
                 let _ = listen.send(listener::Job::Call { id, language, remote });
             }
             Request::CallAudio { id, pcm } => match talk::decode_pcm(&pcm) {
@@ -378,6 +500,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::Hangup { id } => {
                 // Replies play locally again at once.
                 listening.end(&id);
+                shared.stop_ring(Some(&id));
                 shared.close_call_out(Some(&id));
                 let _ = listen.send(listener::Job::Hangup { id });
             }
@@ -529,6 +652,8 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
                         job = Job::Prepare(choice.clone());
                     }
                 }
+                // Any job brings the voice up.
+                Job::Warm => {}
                 speak => job = speak,
             }
         }
@@ -537,13 +662,16 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
         }
         if let State::Idle { failures, retry_at } = state {
             if retry_at.is_some_and(|at| Instant::now() < at) {
-                // Backing off: the voice is not tried again yet.
+                // Backing off: the voice is not tried again yet (settled:
+                // a call need not wait for it).
+                shared.voice_settled.store(true, Ordering::SeqCst);
                 emit(&Event::Voices { voices: Vec::new() });
                 if let Job::Speak { id, .. } = job {
                     emit(&Event::Failed { id, error: "the voice is unavailable for now".into() });
                 }
                 continue;
             }
+            shared.voice_settled.store(false, Ordering::SeqCst);
             state = match bring_up(data_dir) {
                 Ok(Some(loaded)) => {
                     emit(&Event::ModelReady);
@@ -562,6 +690,8 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             };
         }
         let State::Ready(loaded) = &mut state else {
+            // Unavailable (no GPU, or backing off): settled all the same.
+            shared.voice_settled.store(true, Ordering::SeqCst);
             emit(&Event::Voices { voices: Vec::new() });
             if let Job::Speak { id, .. } = job {
                 emit(&Event::Failed { id, error: "no usable GPU for the voice".into() });
@@ -569,12 +699,15 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             continue;
         };
         if loaded.voice.as_ref() != Some(&choice) {
+            shared.voice_settled.store(false, Ordering::SeqCst);
             if let Err(err) = install_voice(data_dir, loaded, &choice) {
                 eprintln!("{err}");
             }
         }
+        shared.voice_settled.store(true, Ordering::SeqCst);
         match job {
             Job::Prepare(_) => emit(&Event::Voices { voices: builtin::languages() }),
+            Job::Warm => {}
             Job::Speak { id, text, generation } => speak(loaded, shared, &id, &text, generation),
         }
     }
@@ -976,6 +1109,23 @@ mod tests {
         let mics = probe.opened.lock().unwrap();
         assert_eq!(mics.len(), 1);
         assert!(mics[0].load(Ordering::SeqCst), "the microphone closed");
+    }
+
+    /// S-3: the ring: soft 425 Hz bursts, 1 s on and 0.5 s off, cut at
+    /// `ring_ms` (two bursts in 3 s), no click at a burst's edges.
+    #[test]
+    fn the_ring_is_two_soft_bursts_in_three_seconds() {
+        let rate = 24_000;
+        let ring = ring_tone(rate, 3_000);
+        assert_eq!(ring.len(), 72_000);
+        let peak = |from: usize, to: usize| ring[from..to].iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+        assert!(peak(0, ring.len()) <= RING_AMPLITUDE);
+        assert!(peak(6_000, 18_000) > RING_AMPLITUDE * 0.9, "the first burst");
+        assert_eq!(peak(24_000, 36_000), 0.0, "the pause");
+        assert!(peak(42_000, 54_000) > RING_AMPLITUDE * 0.9, "the second burst");
+        assert_eq!(peak(60_000, 72_000), 0.0, "the pause after it");
+        assert!(ring[0].abs() < 1e-6 && ring[23_999].abs() < 0.01, "faded in and out");
+        assert!(ring_tone(rate, 0).is_empty());
     }
 
     #[test]

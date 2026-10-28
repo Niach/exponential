@@ -77,6 +77,9 @@ const stored = {
   meetingStartedAt: null as string | null,
 }
 const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null }
+// S-3: the legacy shims old clients read (speak-back always on, push to
+// talk = a key bound).
+const LEGACY_DEFAULTS = { speakReplies: true, pushToTalk: false }
 
 beforeEach(() => {
   h.state.selectQueue = []
@@ -88,7 +91,17 @@ beforeEach(() => {
 
 describe(`voice.get`, () => {
   it(`a member without a row gets the fixture's defaults`, async () => {
-    expect(await caller.get()).toEqual({ ...fixture.defaults, ...MEETING_DEFAULTS })
+    expect(await caller.get()).toEqual({ ...fixture.defaults, ...LEGACY_DEFAULTS, ...MEETING_DEFAULTS })
+  })
+
+  it(`S-3: speakReplies always reads true and pushToTalk reads a bound key`, async () => {
+    const at = { createdAt: new Date(), updatedAt: new Date() }
+    h.state.selectQueue = [
+      [{ userId: `me`, ...stored, speakReplies: false, pushToTalk: false, ...at }],
+      [{ userId: `me`, ...stored, pttShortcut: ``, pushToTalk: true, ...at }],
+    ]
+    expect(await caller.get()).toMatchObject({ speakReplies: true, pushToTalk: true, pttShortcut: `ctrl+space` })
+    expect(await caller.get()).toMatchObject({ speakReplies: true, pushToTalk: false, pttShortcut: `` })
   })
 
   it(`returns the stored row`, async () => {
@@ -100,9 +113,9 @@ describe(`voice.get`, () => {
 describe(`voice.update`, () => {
   it(`stores a desktop and an agent of the member's teams, and nudges the device`, async () => {
     h.state.selectQueue = [[], [{ kind: `desktop` }], [{ id: AGENT }]]
-    const next = await caller.update({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true })
-    expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true })
-    expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true })
+    const next = await caller.update({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT })
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
   })
 
@@ -119,30 +132,69 @@ describe(`voice.update`, () => {
     await expect(caller.update({ agentId: AGENT })).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`choosing None for the agent clears every switch and nudges the old device`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+  it(`choosing None for the agent clears the wake word (S-3: the key stays) and nudges the old device`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, wakeWord: true }]]
     const next = await caller.update({ agentId: null })
-    expect(next).toMatchObject({ agentId: null, speakReplies: false, pushToTalk: false, wakeWord: false })
+    expect(next).toMatchObject({ agentId: null, wakeWord: false, pttShortcut: `ctrl+space` })
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
   })
 
-  it(`trims the wake phrase and refuses an unknown shortcut`, async () => {
+  it(`trims the wake phrase`, async () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored }]]
     expect(await caller.update({ wakePhrase: `  Hey Ops  ` })).toMatchObject({ wakePhrase: `Hey Ops` })
-    await expect(caller.update({ pttShortcut: `ctrl+q` as never })).rejects.toThrow()
+  })
+})
+
+// S-3: push to talk = a key binding in `shortcutGrammar`'s canonical text.
+describe(`S-3 push-to-talk binding`, () => {
+  const row = (patch: Record<string, unknown> = {}) => [{ userId: `me`, ...stored, ...patch }]
+
+  it(`stores every canonical value of shortcutParseCases and refuses every other text`, async () => {
+    for (const c of fixture.shortcutParseCases) {
+      h.state.selectQueue = [row()]
+      h.state.upserts = []
+      const write = caller.update({ pttShortcut: c.in })
+      if (c.value === c.in) {
+        expect(await write, c.in).toMatchObject({ pttShortcut: c.in, pushToTalk: c.in !== `` })
+        expect(h.state.upserts[0]?.set, c.in).toMatchObject({ pttShortcut: c.in, pushToTalk: c.in !== `` })
+      } else {
+        await expect(write, c.in).rejects.toMatchObject({ code: `BAD_REQUEST` })
+        expect(h.state.upserts, c.in).toHaveLength(0)
+      }
+    }
+  })
+
+  it(`an empty binding = push to talk off`, async () => {
+    h.state.selectQueue = [row()]
+    expect(await caller.update({ pttShortcut: `` })).toMatchObject({ pttShortcut: ``, pushToTalk: false })
+  })
+
+  it(`an old client's pushToTalk false clears the key; true without one binds ctrl+space`, async () => {
+    h.state.selectQueue = [row()]
+    expect(await caller.update({ pushToTalk: false })).toMatchObject({ pttShortcut: ``, pushToTalk: false })
+    h.state.selectQueue = [row({ pttShortcut: `` })]
+    expect(await caller.update({ pushToTalk: true })).toMatchObject({ pttShortcut: `ctrl+space`, pushToTalk: true })
+    h.state.selectQueue = [row({ pttShortcut: `f13` })]
+    expect(await caller.update({ pushToTalk: true })).toMatchObject({ pttShortcut: `f13`, pushToTalk: true })
+  })
+
+  it(`an old client's speakReplies is ignored (speak-back is always on)`, async () => {
+    h.state.selectQueue = [row()]
+    expect(await caller.update({ speakReplies: false })).toMatchObject({ speakReplies: true })
+    expect(h.state.upserts[0]?.set).toMatchObject({ speakReplies: true })
   })
 })
 
 describe(`#NEW-71`, () => {
-  it(`a deleted agent (agent_id nulled by the FK) reads with every switch off`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }]]
-    expect(await caller.get()).toMatchObject({ agentId: null, speakReplies: false, pushToTalk: false, wakeWord: false })
+  it(`a deleted agent (agent_id nulled by the FK) reads with the wake word off`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null, wakeWord: true }]]
+    expect(await caller.get()).toMatchObject({ agentId: null, wakeWord: false })
   })
 
-  it(`picking a new agent after that never turns speaking back on`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }], [{ id: AGENT }]]
+  it(`picking a new agent after that never turns the wake word back on`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null, wakeWord: true }], [{ id: AGENT }]]
     const next = await caller.update({ agentId: AGENT })
-    expect(next).toMatchObject({ agentId: AGENT, speakReplies: false, pushToTalk: false, wakeWord: false })
+    expect(next).toMatchObject({ agentId: AGENT, wakeWord: false })
   })
 
   it(`refuses a wake phrase with a newline or a control character`, async () => {
@@ -379,9 +431,6 @@ describe(`voice.startCall`, () => {
     h.state.selectQueue = [[{ id: AGENT }], []]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noVoiceDevice))
 
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored, speakReplies: false }], [deviceRow()]]
-    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(refused(reasons.speakOff))
-
     h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ lastSeenAt: new Date(0) })]]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(`mint is offline`))
 
@@ -399,6 +448,13 @@ describe(`voice.startCall`, () => {
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(
       refused(`mint can't speak: no usable GPU`)
     )
+  })
+
+  it(`S-3: Speak replies off never refuses, and a downloading voice rings`, async () => {
+    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored, speakReplies: false }], [deviceRow()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })
+    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: doctor(`action`) })]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })
   })
 
   it(`reads the speech doctor row`, () => {

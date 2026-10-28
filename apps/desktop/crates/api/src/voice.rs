@@ -25,10 +25,9 @@ pub struct VoiceUpdate {
     pub voice_device_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub speak_replies: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_to_talk: Option<bool>,
+    /// S-3: the push-to-talk binding (canonical `shortcutGrammar` text;
+    /// empty = no key = off). The legacy `speakReplies` / `pushToTalk`
+    /// inputs are never sent by this client.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ptt_shortcut: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,8 +101,8 @@ mod tests {
 
     #[test]
     fn an_update_sends_only_what_changed_and_explicit_nulls() {
-        let update = VoiceUpdate { agent_id: Some(None), speak_replies: Some(true), ..Default::default() };
-        assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"agentId":null,"speakReplies":true}"#);
+        let update = VoiceUpdate { agent_id: Some(None), ptt_shortcut: Some(String::new()), ..Default::default() };
+        assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"agentId":null,"pttShortcut":""}"#);
         let update = VoiceUpdate {
             desktop_audio: Some(domain::meeting::DesktopAudio::Include),
             desktop_audio_apps: Some(vec![domain::meeting::AudioApp { id: "z".into(), name: "Zoom".into() }]),
@@ -114,9 +113,12 @@ mod tests {
 
     #[test]
     fn settings_decode_with_defaults_for_missing_fields() {
-        let settings: VoiceSettings = serde_json::from_str(r#"{"voiceDeviceId":"d-mint","speakReplies":true}"#).unwrap();
+        // S-3: the legacy speakReplies / pushToTalk the server still answers
+        // old clients are tolerated and ignored.
+        let settings: VoiceSettings =
+            serde_json::from_str(r#"{"voiceDeviceId":"d-mint","speakReplies":true,"pushToTalk":true,"pttShortcut":"f13"}"#).unwrap();
         assert_eq!(settings.voice_device_id.as_deref(), Some("d-mint"));
-        assert!(settings.speak_replies);
+        assert_eq!(settings.ptt_shortcut, "f13");
         assert!(settings.agent_id.is_none());
     }
 }

@@ -13,13 +13,19 @@
 // Desktop audio choice and the running meeting; `startMeeting {consent: true}`
 // is the ONLY writer of `meeting_started_at`, `stopMeeting` and choosing None
 // for the device or the agent clear it.
+//
+// S-3 (voice.json): speak-back is always on and push to talk is a key
+// binding (`pttShortcut`, `shortcutGrammar`, empty = off). `speakReplies` and
+// `pushToTalk` stay in the answer for OLD clients only (true / a key bound)
+// and in the input as legacy writes (pushToTalk false clears the key, true
+// without one binds `ctrl+space`; speakReplies is ignored).
 
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 
-import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS, wakePhraseError } from "@exp/domain-contract/voice"
+import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/domain-contract/voice"
 import { callAvailability } from "@exp/domain-contract/voice-call"
 import {
   DESKTOP_AUDIO_VALUES,
@@ -42,8 +48,11 @@ type Db = typeof Database
 export interface VoiceSettings {
   voiceDeviceId: string | null
   agentId: string | null
+  /** S-3 legacy shim for old clients: always true. */
   speakReplies: boolean
+  /** S-3 legacy shim for old clients: a key is bound. */
   pushToTalk: boolean
+  /** S-3: `shortcutGrammar`'s canonical text; empty = push to talk off. */
   pttShortcut: string
   wakeWord: boolean
   wakePhrase: string
@@ -61,6 +70,8 @@ export interface VoiceSettings {
 /** voice.json `defaults` plus the meeting.json settings' defaults. */
 export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
   ...VOICE_DEFAULTS,
+  speakReplies: true,
+  pushToTalk: VOICE_DEFAULTS.pttShortcut !== ``,
   desktopAudio: `off`,
   desktopAudioApps: [],
   meetingStartedAt: null,
@@ -68,7 +79,9 @@ export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
 
 const DESKTOP_AUDIO = DESKTOP_AUDIO_VALUES.map((option) => option.value) as [DesktopAudio, ...DesktopAudio[]]
 
-const SHORTCUT_VALUES = VOICE_SHORTCUTS.map((shortcut) => shortcut.value) as [string, ...string[]]
+/** S-3: the binding a legacy pushToTalk true binds when no key is. */
+const VOICE_SHORTCUT_MAX = VOICE_SHORTCUT_GRAMMAR.maxLength
+const LEGACY_PTT_SHORTCUT = `ctrl+space`
 const LANGUAGE_VALUES = VOICE_LANGUAGES.map((language) => language.value) as [string, ...string[]]
 
 // #NEW-71/#NEW-73: one line of text; control characters and newlines never.
@@ -101,8 +114,8 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
   return withClearOnNone({
     voiceDeviceId: row.voiceDeviceId,
     agentId: row.agentId,
-    speakReplies: row.speakReplies,
-    pushToTalk: row.pushToTalk,
+    speakReplies: true,
+    pushToTalk: row.pttShortcut !== ``,
     pttShortcut: row.pttShortcut,
     wakeWord: row.wakeWord,
     wakePhrase: row.wakePhrase,
@@ -122,10 +135,13 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
   })
 }
 
-/** The row's columns for a settings object (the meeting stamp as a Date). */
+/** The row's columns for a settings object (the meeting stamp as a Date;
+ *  the S-3 legacy columns mirror what old clients read). */
 function rowOf(settings: VoiceSettings) {
   return {
     ...settings,
+    speakReplies: true,
+    pushToTalk: settings.pttShortcut !== ``,
     meetingStartedAt: settings.meetingStartedAt ? new Date(settings.meetingStartedAt) : null,
   }
 }
@@ -140,13 +156,21 @@ async function writeSettings(database: Db, userId: string, next: VoiceSettings):
     .onConflictDoUpdate({ target: userVoiceSettings.userId, set: { ...row, updatedAt: now } })
 }
 
-/** voice.json `clearOnNone`: with no voice device or no agent, nothing
- *  listens and nothing speaks; NEW-57: and no meeting runs. */
+/** voice.json `clearOnNone`: with no voice device or no agent the wake word
+ *  is off; NEW-57: and no meeting runs. S-3: a bound key stays bound. */
 export function withClearOnNone(settings: VoiceSettings): VoiceSettings {
   if (settings.voiceDeviceId === null || settings.agentId === null) {
-    return { ...settings, speakReplies: false, pushToTalk: false, wakeWord: false, meetingStartedAt: null }
+    return { ...settings, wakeWord: false, meetingStartedAt: null }
   }
   return settings
+}
+
+/** S-3: the binding after an update, old clients' `pushToTalk` included. */
+export function pttShortcutOf(before: string, input: { pttShortcut?: string; pushToTalk?: boolean }): string {
+  const key = input.pttShortcut ?? before
+  if (input.pushToTalk === false) return ``
+  if (input.pushToTalk === true && key === ``) return LEGACY_PTT_SHORTCUT
+  return key
 }
 
 /** NEW-57 (meeting.json): an update that CHANGES the meeting's scope (the
@@ -213,9 +237,10 @@ export const voiceRouter = router({
       z.object({
         voiceDeviceId: z.string().min(1).max(128).nullable().optional(),
         agentId: z.string().uuid().nullable().optional(),
+        // S-3: legacy writes of old clients (see the header).
         speakReplies: z.boolean().optional(),
         pushToTalk: z.boolean().optional(),
-        pttShortcut: z.enum(SHORTCUT_VALUES).optional(),
+        pttShortcut: z.string().max(VOICE_SHORTCUT_MAX).optional(),
         wakeWord: z.boolean().optional(),
         wakePhrase: oneLine(VOICE_LIMITS.wakePhrase, `wake phrase`).optional(),
         language: z.enum(LANGUAGE_VALUES).optional(),
@@ -240,6 +265,10 @@ export const voiceRouter = router({
       // #NEW-56: a short wake phrase would fire on every segment.
       const tooShort = input.wakePhrase === undefined ? null : wakePhraseError(input.wakePhrase)
       if (tooShort) throw new TRPCError({ code: `BAD_REQUEST`, message: tooShort })
+      // S-3: only a binding already in its canonical form is stored.
+      if (input.pttShortcut !== undefined && shortcutCanonical(input.pttShortcut) !== input.pttShortcut) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `That key can't be a push-to-talk binding` })
+      }
       const before = await voiceSettingsOf(db, userId)
       // The voice device: one of the member's OWN desktops (phones and
       // servers never run the voice; `voice.json` voiceDeviceOptions).
@@ -257,9 +286,14 @@ export const voiceRouter = router({
       if (input.agentId && !(await memberAgentExists(db, userId, input.agentId))) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `That agent isn't in your teams` })
       }
+      const { speakReplies: _speakReplies, pushToTalk: _pushToTalk, ...writes } = input
+      const pttShortcut = pttShortcutOf(before.pttShortcut, input)
       const next = withMeetingScope(before, withClearOnNone({
         ...before,
-        ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
+        ...Object.fromEntries(Object.entries(writes).filter(([, value]) => value !== undefined)),
+        speakReplies: true,
+        pttShortcut,
+        pushToTalk: pttShortcut !== ``,
         wakePhrase: input.wakePhrase === undefined ? before.wakePhrase : input.wakePhrase.trim(),
         voiceFile: input.voiceFile === undefined ? before.voiceFile : input.voiceFile.trim(),
         voiceTranscript: input.voiceTranscript === undefined ? before.voiceTranscript : input.voiceTranscript.trim(),
@@ -316,8 +350,8 @@ export const voiceRouter = router({
 
   // NEW-55: start a STREAMED call with one agent (phones V5, web V6). Refused
   // with the availability reason (voice-call.json `copy.reasons`) unless the
-  // member's voice device is picked, Speak replies is on, the device is
-  // online and its `speech` doctor row is ok; `busy` is the relay's to say
+  // member's voice device is picked, the device is online and has reported
+  // its `speech` doctor row (S-3: a downloading voice rings until ready); `busy` is the relay's to say
   // (it alone knows a running call). Answers the CALLER's relay ticket.
   // (`call` is a reserved word in tRPC routers, hence `startCall`.)
   startCall: authedProcedure
@@ -348,7 +382,6 @@ export const voiceRouter = router({
         platform: input.platform,
         // A voice device whose row is gone reads as none picked.
         device: device ? device.label : null,
-        speakReplies: settings.speakReplies,
         online: device ? deviceRowIsOnline(device.lastSeenAt, new Date()) : false,
         here: input.deviceId !== undefined && input.deviceId === settings.voiceDeviceId,
         speech: device ? callSpeechOf(device.doctor) : null,

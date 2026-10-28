@@ -3,27 +3,32 @@
 //! speaks. It is THE bar (the bulk bar's glass capsule, the computer-use
 //! banner's `glass_bar` with its `item` and `value`), holding `VoiceWave`
 //! (md, the brand mark as its child), the state as the bold value, what
-//! was heard or said as a muted item, and one pill. NEW-55: a call adds a
-//! LEAD pill before it (Mute / Unmute; End call is then the primary pill),
-//! and each pill takes its own click ([`call_capsule`]). The window around it
+//! was heard or said as a muted item, and one pill. S-3: a call no longer
+//! rides the capsule: it is the PHONE-CALL surface below ([`call_panel`] in
+//! the agent chat, [`call_pill`] floating while no IDE window is focused),
+//! with the round call buttons ([`call_buttons`], styleguide
+//! `call-controls`). The window around the capsule
 //! (transparent, always on top, never focused, bottom centre of the display
 //! under the pointer) is push to talk's (`push_to_talk::overlay`, #NEW-54);
 //! this is the capsule both draw, its words from `fixtures/voice.json`
 //! (`pttCopy`, `overlaySpecimens`).
 
 use exponential_ui::voice_wave::Activity;
-use exponential_ui_gpui::controls::{glass_pill, glass_pill_button_primary, voice_wave, PillMode, PillSize, VoiceWaveChild, VoiceWaveColors};
+use domain::voice_call::{CallButton, CallView, SurfaceSpecimen, VOICE_CALL};
+use exponential_ui_gpui::controls::{
+    call_button, glass_pill, glass_pill_button_primary, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild, VoiceWaveColors,
+};
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, AnyElement, App, Div, ElementId, FontWeight, InteractiveElement as _, IntoElement as _, ParentElement as _, Pixels,
     StatefulInteractiveElement as _,
     SharedString, Size, Stateful, Styled as _,
 };
-use gpui_component::{ActiveTheme as _, Icon};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::computer_indicator::{
     item, rem_size, shaped_width, value, BAR_GAP_REMS, BAR_SIDE_REMS, BAR_SLACK, BAR_STROKE, BAR_TOP_REMS, ITEM_SIDE, LABEL_SIDE,
 };
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
 use crate::surface::glass_bar;
 
 /// The wave's edge (`VoiceWave` size `md`).
@@ -48,8 +53,6 @@ pub(crate) struct Capsule {
     pub pill: SharedString,
     /// Stop while speaking is the one primary pill.
     pub primary: bool,
-    /// NEW-55: a call's Mute / Unmute pill, before `pill` (End call).
-    pub lead: Option<SharedString>,
 }
 
 /// NEW-55: a pill's click.
@@ -67,16 +70,8 @@ fn colors(activity: Activity, cx: &App) -> VoiceWaveColors {
 
 /// THE capsule.
 pub(crate) fn capsule(id: impl Into<ElementId>, c: &Capsule, cx: &App) -> Stateful<Div> {
-    bar(id.into(), c, None, None, cx)
-}
-
-/// NEW-55: THE capsule of a call: the lead pill (Mute / Unmute) and the
-/// primary pill (End call) each take their own click.
-pub(crate) fn call_capsule(id: impl Into<ElementId>, c: &Capsule, on_lead: PillClick, on_pill: PillClick, cx: &App) -> Stateful<Div> {
-    bar(id.into(), c, Some(on_lead), Some(on_pill), cx)
-}
-
-fn bar(id: ElementId, c: &Capsule, on_lead: Option<PillClick>, on_pill: Option<PillClick>, cx: &App) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let on_pill: Option<PillClick> = None;
     let theme = cx.theme();
     let dim = matches!(c.activity, Activity::Idle | Activity::Muted);
     let mark = if c.activity == Activity::Muted { theme.muted_foreground } else { theme.foreground };
@@ -102,12 +97,6 @@ fn bar(id: ElementId, c: &Capsule, on_lead: Option<PillClick>, on_pill: Option<P
             .when_some(on_pill, |pill, on_click| pill.on_click(move |_, _, cx| on_click(cx)))
             .into_any_element()
     };
-    let lead = c.lead.clone().map(|lead| {
-        glass_pill((id.clone(), "lead"), PillSize::Sm, PillMode::Action, cx)
-            .flex_none()
-            .child(lead)
-            .when_some(on_lead, |pill, on_click| pill.on_click(move |_, _, cx| on_click(cx)))
-    });
     glass_bar(cx)
         .id(id)
         .flex_shrink_0()
@@ -115,21 +104,18 @@ fn bar(id: ElementId, c: &Capsule, on_lead: Option<PillClick>, on_pill: Option<P
         .child(wave)
         .child(value(c.state.clone(), cx).flex_none())
         .child(item(cx).flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(c.line.clone()))
-        .children(lead)
         .child(pill)
 }
 
 /// The bar's width around these shaped words at `rem`, whole pixels up:
-/// the wave, the state as the value, the line as an item, the pill (and
-/// NEW-55's lead pill, one more gap), three gaps, inside `glass_bar`'s
-/// padding and stroke.
-fn capsule_width(state: f32, line: f32, pill: f32, primary: bool, lead: Option<f32>, rem: f32) -> f32 {
+/// the wave, the state as the value, the line as an item, the pill, three
+/// gaps, inside `glass_bar`'s padding and stroke.
+fn capsule_width(state: f32, line: f32, pill: f32, primary: bool, rem: f32) -> f32 {
     let bar = 2. * (BAR_SIDE_REMS * rem + BAR_STROKE);
     let value = LABEL_SIDE + state + LABEL_SIDE;
     let item = ITEM_SIDE + line + ITEM_SIDE;
     let pill = PILL_SIDE + pill + PILL_SIDE + if primary { 0. } else { 2. * BAR_STROKE };
-    let lead = lead.map_or(0., |lead| PILL_SIDE + lead + PILL_SIDE + 2. * BAR_STROKE + BAR_GAP_REMS * rem);
-    (bar + WAVE + value + item + pill + lead + 3. * BAR_GAP_REMS * rem).ceil()
+    (bar + WAVE + value + item + pill + 3. * BAR_GAP_REMS * rem).ceil()
 }
 
 /// The bar's height at `rem`: the wave between the padding and the stroke.
@@ -149,10 +135,356 @@ pub(crate) fn capsule_size(c: &Capsule, max_width: f32, cx: &App) -> Size<Pixels
         shaped_width(&c.line, sm, FontWeight::NORMAL, cx),
         shaped_width(&c.pill, xs, FontWeight::MEDIUM, cx),
         c.primary,
-        c.lead.as_ref().map(|lead| shaped_width(lead, xs, FontWeight::MEDIUM, cx)),
         f32::from(rem),
     );
     size(px((width + BAR_SLACK).min(max_width.max(0.))), px(capsule_height(f32::from(rem))))
+}
+
+// ---------------------------------------------------------------------------
+// S-3: the PHONE-CALL surface (voice-call.json PHONE-CALL UI, `callView`).
+// ---------------------------------------------------------------------------
+
+/// The agent's mark on the call's avatar (its icon and colour; none = the
+/// Exponential logo, the Assistant's).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CallMark {
+    pub icon: Option<String>,
+    pub color: Option<String>,
+}
+
+impl CallMark {
+    fn icon(&self) -> Icon {
+        match self.icon.as_deref().filter(|icon| !icon.is_empty()) {
+            Some(icon) => crate::icons::agent_icon(Some(icon), self.color.as_deref()),
+            None => Icon::from(ExpIcon::Logo),
+        }
+    }
+}
+
+/// What one call surface shows: `callView` plus the agent, the timer and
+/// the live microphone level.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CallFace {
+    pub agent: SharedString,
+    pub mark: CallMark,
+    pub view: CallView,
+    /// `callTimer(ms since answered)`, shown while `view.status` is None.
+    pub timer: SharedString,
+    pub level: f32,
+    pub bands: Vec<f32>,
+}
+
+impl CallFace {
+    /// The line under the name: the status, or the timer.
+    fn status(&self) -> SharedString {
+        self.view.status.clone().map(SharedString::from).unwrap_or_else(|| self.timer.clone())
+    }
+
+    fn activity(&self) -> Activity {
+        crate::push_to_talk::overlay::activity(self.view.activity)
+    }
+}
+
+/// A styleguide row (`surfaceSpecimens`) as the face the surfaces draw.
+pub(crate) fn specimen_face(row: &SurfaceSpecimen) -> CallFace {
+    let activity = match row.activity.as_str() {
+        "ringing" => "ringing",
+        "listening" => "listening",
+        "thinking" => "thinking",
+        "speaking" => "speaking",
+        _ => "muted",
+    };
+    CallFace {
+        agent: SharedString::from(row.agent.clone()),
+        mark: CallMark::default(),
+        view: CallView {
+            activity,
+            status: row.status.clone(),
+            caption: row.caption.clone(),
+            muted: row.muted,
+            speaker: row.speaker,
+            buttons: row.buttons.clone(),
+            end: row.end.clone(),
+        },
+        timer: SharedString::from(row.timer.clone().unwrap_or_default()),
+        level: row.level,
+        bands: row.bands.clone(),
+    }
+}
+
+/// The surface's two clicks (Mute toggles, End ends or cancels).
+#[derive(Clone)]
+pub(crate) struct CallActions {
+    pub on_mute: PillClick,
+    pub on_end: PillClick,
+}
+
+impl CallActions {
+    /// A styleguide specimen's (nothing happens).
+    pub(crate) fn none() -> Self {
+        let noop: PillClick = std::rc::Rc::new(|_| {});
+        CallActions { on_mute: noop.clone(), on_end: noop }
+    }
+}
+
+/// THE round call buttons (`call-controls`) in `view.buttons` order: mute
+/// (toggled = the inverted fill), speaker (phones only, never here) and the
+/// red end; while ringing (`Lg`) the end's label shows UNDER it.
+pub(crate) fn call_buttons(id: impl Into<ElementId>, view: &CallView, size: CallSize, actions: &CallActions, cx: &App) -> Div {
+    let id: ElementId = id.into();
+    let copy = &VOICE_CALL.copy;
+    let icons = &VOICE_CALL.icons;
+    let concept = |name: &str| Icon::new(registry::concept_by_name(name).unwrap_or(registry::VOICE_CALL));
+    let ringing = view.activity == "ringing";
+    // A press on a button is never the pill's drag.
+    let mut row = h_flex()
+        .items_start()
+        .gap(px(if size == CallSize::Lg { 32. } else { 8. }))
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
+    for button in &view.buttons {
+        let element: AnyElement = match button {
+            CallButton::Mute => {
+                let (icon, label, tone) = if view.muted {
+                    (&icons.unmute, &copy.unmute, CallTone::Toggled)
+                } else {
+                    (&icons.mute, &copy.mute, CallTone::Neutral)
+                };
+                let on_mute = actions.on_mute.clone();
+                call_button((id.clone(), "mute"), concept(icon), tone, size, cx)
+                    .tooltip(label.clone())
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        on_mute(cx)
+                    })
+                    .into_any_element()
+            }
+            CallButton::Speaker => {
+                let (icon, label) = if view.speaker { (&icons.speaker, &copy.speaker) } else { (&icons.speaker_off, &copy.speaker_off) };
+                call_button((id.clone(), "speaker"), concept(icon), CallTone::Neutral, size, cx)
+                    .tooltip(label.clone())
+                    .into_any_element()
+            }
+            CallButton::End => {
+                let on_end = actions.on_end.clone();
+                let end = call_button((id.clone(), "end"), concept(&icons.end), CallTone::Destructive, size, cx)
+                    .tooltip(view.end.clone())
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        on_end(cx)
+                    });
+                if ringing && size == CallSize::Lg {
+                    v_flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(end)
+                        .child(div().text_xs().text_color(cx.theme().muted_foreground).child(SharedString::from(view.end.clone())))
+                        .into_any_element()
+                } else {
+                    end.into_any_element()
+                }
+            }
+        };
+        row = row.child(element);
+    }
+    row
+}
+
+/// The avatar's circle and the ring that pulses with the activity
+/// (ringing: a soft halo; listening: the success ring glowing with the
+/// level; speaking: the wave; thinking: dim; muted: none).
+fn call_avatar(id: ElementId, face: &CallFace, edge: f32, cx: &App) -> AnyElement {
+    use gpui::AnimationExt as _;
+    let theme = cx.theme();
+    let activity = face.activity();
+    let disc = edge * 0.56;
+    let mark = face.mark.icon().with_size(px(disc * 0.5));
+    let avatar = div()
+        .size(px(disc))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme.secondary)
+        .border_1()
+        .border_color(theme.border)
+        .when(face.view.activity == "thinking", |d| d.opacity(0.6))
+        .child(mark);
+    let centred = |child: AnyElement| div().absolute().top_0().left_0().size(px(edge)).flex().items_center().justify_center().child(child);
+    let ring: Option<AnyElement> = match face.view.activity {
+        "ringing" => {
+            let halo = theme.foreground;
+            let reduced = cx.reduce_motion();
+            let pulse = div().size(px(disc)).rounded_full().bg(halo.opacity(0.08));
+            Some(if reduced {
+                pulse.size(px(disc * 1.4)).into_any_element()
+            } else {
+                pulse
+                    .with_animation(
+                        (id.clone(), "halo"),
+                        gpui::Animation::new(std::time::Duration::from_millis(1600)).repeat(),
+                        move |pulse, delta| {
+                            let grow = disc * (1. + 0.6 * delta);
+                            pulse.size(px(grow)).bg(halo.opacity(0.14 * (1. - delta)))
+                        },
+                    )
+                    .into_any_element()
+            })
+        }
+        "listening" => {
+            let glow = disc + 8. + 28. * face.level.clamp(0., 1.);
+            Some(
+                div()
+                    .size(px(glow))
+                    .rounded_full()
+                    .bg(theme.success.opacity(0.12 + 0.18 * face.level.clamp(0., 1.)))
+                    .border_2()
+                    .border_color(theme.success.opacity(0.7))
+                    .into_any_element(),
+            )
+        }
+        "speaking" => Some(voice_wave(
+            (id.clone(), "wave"),
+            activity,
+            face.level,
+            &face.bands,
+            edge,
+            None,
+            colors(activity, cx),
+            Some("Voice".into()),
+            cx,
+        )),
+        _ => None,
+    };
+    div()
+        .relative()
+        .flex_none()
+        .size(px(edge))
+        .children(ring.map(|ring| centred(ring)))
+        .child(centred(avatar.into_any_element()))
+        .into_any_element()
+}
+
+/// S-3: the desktop's in-window CALL PANEL over the agent chat's body (testId
+/// `panel`): the avatar large and centred, the name, the status or the
+/// timer, the caption (at most 4 lines), the round buttons at the bottom.
+pub(crate) fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let theme = cx.theme();
+    let timer = face.view.status.is_none();
+    v_flex()
+        .id(id.clone())
+        .size_full()
+        .items_center()
+        .px(px(32.))
+        .pt(px(72.))
+        .pb(px(48.))
+        .bg(theme.background)
+        .child(call_avatar(id.clone(), face, AVATAR_LG, cx))
+        .child(
+            div()
+                .mt(px(16.))
+                .flex_none()
+                .max_w_full()
+                .truncate()
+                .text_2xl()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.foreground)
+                .child(face.agent.clone()),
+        )
+        .child(
+            div()
+                // testId `timer` while it counts.
+                .id(if timer { ElementId::from(SharedString::from(VOICE_CALL.test_ids.timer.clone())) } else { (id.clone(), "status").into() })
+                .mt(px(4.))
+                .flex_none()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child(face.status()),
+        )
+        .child(
+            div()
+                .mt(px(32.))
+                .min_h_0()
+                .flex_shrink_1()
+                .overflow_hidden()
+                .max_w(px(480.))
+                .text_center()
+                .text_base()
+                .line_clamp(4)
+                .text_color(theme.foreground)
+                .child(SharedString::from(face.view.caption.clone())),
+        )
+        .child(div().flex_1())
+        .child(call_buttons((id, "buttons"), &face.view, CallSize::Lg, actions, cx).flex_none().mt(px(16.)))
+}
+
+/// The panel's avatar box (the halo and the wave inside it).
+pub(crate) const AVATAR_LG: f32 = 200.;
+/// The pill's avatar.
+const AVATAR_SM: f32 = 28.;
+
+/// S-3: the FLOATING CALL PILL (testId `pill`), `pill.width` × `pill.height`
+/// fixed: a drag handle, the avatar small, the name over the timer (both
+/// truncate), the VoiceWave sm, the mute and end buttons.
+pub(crate) fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let theme = cx.theme();
+    let activity = face.activity();
+    let pill = &VOICE_CALL.pill;
+    let mark = face.mark.icon().with_size(px(AVATAR_SM * 0.55));
+    let avatar = div()
+        .flex_none()
+        .size(px(AVATAR_SM))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme.secondary)
+        .child(mark);
+    let wave = div().flex_none().when(matches!(activity, Activity::Idle | Activity::Muted), |d| d.opacity(0.35)).child(voice_wave(
+        (id.clone(), "wave"),
+        activity,
+        face.level,
+        &face.bands,
+        PILL_WAVE,
+        None,
+        colors(activity, cx),
+        Some("Voice".into()),
+        cx,
+    ));
+    glass_bar(cx)
+        .id(id.clone())
+        .w(px(pill.width))
+        .h(px(pill.height))
+        .flex_none()
+        .rounded_full()
+        .gap(px(8.))
+        .pl(px(8.))
+        .pr(px(12.))
+        .cursor_grab()
+        .child(grip(theme.muted_foreground))
+        .child(avatar)
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(div().truncate().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(theme.foreground).child(face.agent.clone()))
+                .child(div().truncate().text_xs().text_color(theme.muted_foreground).child(face.status())),
+        )
+        // Ringing has no wave yet (the microphone is not open).
+        .when(face.view.activity != "ringing", |pill| pill.child(wave))
+        .child(call_buttons((id, "buttons"), &face.view, CallSize::Sm, actions, cx).items_center())
+}
+
+/// The pill's wave (`VoiceWave` sm).
+const PILL_WAVE: f32 = 32.;
+
+/// The pill's drag handle: two columns of three dots (no icon concept: it
+/// is a texture, not a glyph).
+fn grip(color: gpui::Hsla) -> Div {
+    let dot = || div().size(px(2.)).rounded_full().bg(color);
+    let column = || v_flex().gap(px(2.)).child(dot()).child(dot()).child(dot());
+    h_flex().flex_none().gap(px(2.)).px(px(2.)).child(column()).child(column())
 }
 
 #[cfg(test)]
@@ -181,7 +513,6 @@ mod tests {
                 line: row.line.clone().into(),
                 pill: row.pill.clone().into(),
                 primary: row.primary,
-                lead: None,
             })
             .collect();
         let long = Capsule { line: LONG.into(), ..rows[0].clone() };
@@ -256,13 +587,11 @@ mod tests {
     fn the_capsule_width_adds_every_box_around_the_words() {
         // At 16: 22 bar sides + 56 wave + 8 value sides + 16 item sides +
         // 18 pill sides and stroke + 3 gaps of 4, around the words.
-        assert_eq!(capsule_width(60., 100., 30., false, None, 16.), 22. + 56. + 68. + 116. + 48. + 12.);
+        assert_eq!(capsule_width(60., 100., 30., false, 16.), 22. + 56. + 68. + 116. + 48. + 12.);
         // The primary pill (a Button) has no stroke.
-        assert_eq!(capsule_width(60., 100., 30., true, None, 16.), 22. + 56. + 68. + 116. + 46. + 12.);
-        // NEW-55: a call's lead pill adds itself, its stroke and one gap.
-        assert_eq!(capsule_width(60., 100., 30., true, Some(20.), 16.), 22. + 56. + 68. + 116. + 46. + 38. + 4. + 12.);
+        assert_eq!(capsule_width(60., 100., 30., true, 16.), 22. + 56. + 68. + 116. + 46. + 12.);
         // At 14 the bar's own spacing shrinks: 19.5 sides, 3.5 gaps.
-        assert_eq!(capsule_width(60., 100., 30., false, None, 14.), (19.5 + 56. + 68. + 116. + 48. + 10.5_f32).ceil());
+        assert_eq!(capsule_width(60., 100., 30., false, 14.), (19.5 + 56. + 68. + 116. + 48. + 10.5_f32).ceil());
         assert_eq!(capsule_height(16.), 74.);
         assert_eq!(capsule_height(14.), 72.);
     }

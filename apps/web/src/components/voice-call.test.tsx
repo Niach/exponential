@@ -6,7 +6,7 @@ import { TooltipProvider } from "@exp/ui"
 import { VoiceCall, type CallDeps } from "@/lib/voice-call/call"
 
 // NEW-70 (voice-call.json): THE telephone in the web agent chat's header and
-// THE call card over it.
+// THE call surface over it (S-3: phone-call style).
 
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { voice: { get: { query: async () => null }, startCall: { mutate: vi.fn() } } } }))
 vi.mock(`@/lib/collections`, () => ({ deviceCollection: {} }))
@@ -71,29 +71,59 @@ describe(`VoiceCallOverlay`, () => {
     return { call, socket }
   }
 
+  const overlay = (call: VoiceCall) => (
+    <TooltipProvider>
+      <VoiceCallOverlay call={call} snapshot={call.getSnapshot()} agentName="Assistant" avatar={<span>A</span>} />
+    </TooltipProvider>
+  )
+  const hostEvent = (socket: { onmessage: ((event: MessageEvent) => void) | null }, event: Record<string, unknown>) =>
+    socket.onmessage?.({ data: JSON.stringify({ t: `call_event`, event }) } as MessageEvent)
+
   it(`draws nothing without a call`, () => {
     const { call } = connected()
-    render(<VoiceCallOverlay call={call} snapshot={call.getSnapshot()} />)
+    render(overlay(call))
     expect(screen.queryByTestId(testIds.surface)).toBeNull()
   })
 
-  it(`draws the card: the state, the line, End call primary and Mute`, async () => {
+  it(`S-3 ringing: the name, Calling…, only the red end button labelled Cancel under it`, async () => {
+    const { call } = connected()
+    await call.start(`agent-1`, `mint`)
+    render(overlay(call))
+    const surface = screen.getByTestId(testIds.surface)
+    expect(surface.textContent).toContain(`Assistant`)
+    expect(surface.textContent).toContain(fixture.copy.calling)
+    expect(screen.queryByTestId(testIds.mute)).toBeNull()
+    expect(screen.queryByTestId(testIds.timer)).toBeNull()
+    const end = screen.getByTestId(testIds.end)
+    expect(end.getAttribute(`aria-label`)).toBe(fixture.copy.cancel)
+    expect(end.getAttribute(`data-tone`)).toBe(`destructive`)
+    expect(surface.textContent).toContain(fixture.copy.cancel)
+  })
+
+  it(`S-3 in call: the timer, the caption, round mute + end (no speaker on web), mute toggles`, async () => {
     const { call, socket } = connected()
     await call.start(`agent-1`, `mint`)
     socket.onmessage?.({ data: JSON.stringify({ t: `call_ready` }) } as MessageEvent)
-    socket.onmessage?.({ data: JSON.stringify({ t: `call_event`, event: { t: `partial`, text: `what is still open` } }) } as MessageEvent)
-    const { rerender } = render(<VoiceCallOverlay call={call} snapshot={call.getSnapshot()} />)
-    const card = screen.getByTestId(testIds.surface)
-    expect(card.textContent).toContain(fixture.copy.listening)
-    expect(card.textContent).toContain(`“what is still open”`)
-    expect(screen.getByTestId(testIds.end).textContent).toContain(fixture.copy.endCall)
+    hostEvent(socket, { t: `rang` })
+    hostEvent(socket, { t: `ready` })
+    hostEvent(socket, { t: `replyFinished` })
+    hostEvent(socket, { t: `partial`, text: `what is still open` })
+    const { rerender } = render(overlay(call))
+    const surface = screen.getByTestId(testIds.surface)
+    expect(surface.textContent).toContain(`“what is still open”`)
+    expect(screen.getByTestId(testIds.timer).textContent).toBe(`00:00`)
+    expect(screen.queryByTestId(testIds.speaker)).toBeNull()
+    expect(screen.getByTestId(testIds.end).getAttribute(`aria-label`)).toBe(fixture.copy.endCall)
+    expect(screen.getByRole(`img`, { name: `Assistant, ${fixture.copy.listening}` })).toBeTruthy()
     fireEvent.click(screen.getByTestId(testIds.mute))
-    rerender(<VoiceCallOverlay call={call} snapshot={call.getSnapshot()} />)
-    expect(screen.getByTestId(testIds.mute).textContent).toContain(fixture.copy.unmute)
+    rerender(overlay(call))
+    const mute = screen.getByTestId(testIds.mute)
+    expect(mute.getAttribute(`aria-label`)).toBe(fixture.copy.unmute)
+    expect(mute.getAttribute(`aria-pressed`)).toBe(`true`)
     expect(screen.getByTestId(testIds.surface).textContent).toContain(fixture.copy.muted)
     expect(socket.sent.at(-1)).toBe(JSON.stringify({ t: `call_mute`, muted: true }))
     fireEvent.click(screen.getByTestId(testIds.end))
-    rerender(<VoiceCallOverlay call={call} snapshot={call.getSnapshot()} />)
+    rerender(overlay(call))
     expect(screen.queryByTestId(testIds.surface)).toBeNull()
   })
 })

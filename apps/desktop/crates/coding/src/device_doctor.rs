@@ -28,6 +28,8 @@ pub const KEY_COMPUTER_USE: &str = "computer_use";
 pub const KEY_MICROPHONE: &str = "microphone";
 /// NEW-55: the voice group's second row (see [`add_speech`]).
 pub const KEY_SPEECH: &str = "speech";
+/// S-3: the voice group's wake word row (see [`add_wake`]).
+pub const KEY_WAKE: &str = "wake";
 /// EXP-1375: the storage group's free-disk row (see [`add_storage`]).
 pub const KEY_DISK: &str = "disk";
 /// EXP-1375: a kept worktree row's key prefix (`worktree-1`, `worktree-2`, …).
@@ -236,6 +238,7 @@ pub fn label(key: &str) -> &str {
         "accessibility" => "Accessibility",
         "microphone" => "Microphone",
         "speech" => "Speech",
+        "wake" => "Wake word",
         "disk" => "Disk",
         KEY_DESKTOP_AUDIO => &domain::meeting::MEETING.copy.doctor_label,
         other => other,
@@ -579,8 +582,8 @@ pub enum MicrophoneState {
 }
 
 /// NEW-78: append the voice group's `microphone` row (pure). The IDE calls it
-/// only on the member's voice device with Push to talk on; the CLI daemon
-/// never does.
+/// only on the member's voice device while it listens (S-3: a key bound or
+/// the wake word); the CLI daemon never does.
 pub fn add_microphone(doctor: &mut DeviceDoctor, state: MicrophoneState) {
     let row = |state| item(KEY_MICROPHONE, DoctorGroup::Voice, state);
     doctor.items.push(match state {
@@ -605,8 +608,8 @@ pub enum SpeechState {
 }
 
 /// NEW-55: append the voice group's `speech` row (pure). The IDE calls it
-/// only on the member's voice device with Speak replies on, once the worker
-/// answered; callers read it to enable the telephone (voice-call.json).
+/// on the member's voice device (S-3: speak-back is always on), once the
+/// worker answered; callers read it to enable the telephone (voice-call.json).
 pub fn add_speech(doctor: &mut DeviceDoctor, state: SpeechState) {
     let row = |state| item(KEY_SPEECH, DoctorGroup::Voice, state);
     doctor.items.push(match state {
@@ -614,6 +617,15 @@ pub fn add_speech(doctor: &mut DeviceDoctor, state: SpeechState) {
         SpeechState::Downloading => row(DoctorState::Off).detail(DOWNLOADING),
         SpeechState::NoGpu => row(DoctorState::Missing).detail(NO_USABLE_GPU),
     });
+}
+
+/// S-3: append the voice group's `wake` row (pure; voice.json WAKE DETAIL).
+/// The IDE calls it on the member's voice device while the wake word is on:
+/// ok while listening, else off; `detail` = the device's own `wake_detail`
+/// text, which every other client shows verbatim on its Wake word row.
+pub fn add_wake(doctor: &mut DeviceDoctor, listening: bool, detail: &str) {
+    let state = if listening { DoctorState::Ok } else { DoctorState::Off };
+    doctor.items.push(item(KEY_WAKE, DoctorGroup::Voice, state).detail(detail));
 }
 
 /// NEW-57: what this machine's desktop audio capture can do (mapped by the
@@ -1030,6 +1042,22 @@ mod tests {
 
     /// NEW-57: the desktop audio row's four states (`meeting.json` DOCTOR),
     /// and the doctor object riding the change key.
+    #[test]
+    fn wake_row_is_ok_while_listening_with_the_devices_detail() {
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_wake(&mut doctor, true, "Listening");
+        add_wake(&mut doctor, false, "Microphone muted");
+        let rows: Vec<_> = doctor.items.iter().map(|row| (row.key.as_str(), row.group, row.state, row.detail.as_deref())).collect();
+        assert_eq!(
+            rows,
+            [
+                (KEY_WAKE, DoctorGroup::Voice, DoctorState::Ok, Some("Listening")),
+                (KEY_WAKE, DoctorGroup::Voice, DoctorState::Off, Some("Microphone muted")),
+            ]
+        );
+        assert_eq!(label(KEY_WAKE), "Wake word");
+    }
+
     #[test]
     fn desktop_audio_row_and_object() {
         let empty = || DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };

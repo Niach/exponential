@@ -185,7 +185,7 @@ fun AgentConversationScreen(
                     },
                     onBack = onBack,
                     call = if (row == null) null else {
-                        { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name) }
+                        { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name, agentIcon = row?.icon, agentColor = row?.color) }
                     },
                 )
             },

@@ -68,6 +68,75 @@ pub fn glass_icon_button(
         .border_color(chrome.stroke_card)
 }
 
+/// S-3 (voice-call.json, styleguide `call-controls`): what a round call
+/// button says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallTone {
+    /// Mute / the speaker at rest: the glass circle.
+    Neutral,
+    /// A toggled mute: the inverted neutral fill (foreground circle,
+    /// background glyph).
+    Toggled,
+    /// End call / Cancel: the red `destructive` circle.
+    Destructive,
+}
+
+/// S-3: the round call buttons' two sizes: the call panel's 56 px circle
+/// with a 24 px glyph (web `icon-lg`), the floating pill's 32 px one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallSize {
+    Lg,
+    Sm,
+}
+
+impl CallSize {
+    /// The circle's edge.
+    pub fn edge(self) -> f32 {
+        match self {
+            CallSize::Lg => 56.,
+            CallSize::Sm => CTL_MD_H,
+        }
+    }
+}
+
+/// S-3 — the ROUND ICON-ONLY CALL BUTTON (`call-controls`, eUI
+/// `CallButton`): [`glass_icon_button`]'s circle with a tone and a size.
+/// Icon only: the caller chains the label as `.tooltip()` (Cancel's label
+/// shows under it, drawn by the caller).
+pub fn call_button(
+    id: impl Into<ElementId>,
+    icon: Icon,
+    tone: CallTone,
+    size: CallSize,
+    cx: &App,
+) -> gpui_component::button::Button {
+    use gpui_component::button::{ButtonCustomVariant, ButtonVariants as _};
+    use gpui_component::theme::Colorize as _;
+    // A custom variant paints its rest colour at a fifth of its alpha
+    // ([`CUSTOM_VARIANT_ALPHA_FACTOR`]) and the built-in `danger` is the
+    // web's tint: the SOLID red circle rides a transparent custom variant
+    // (its hover and press, handed over unmixed) under a refined rest fill.
+    // The dark theme's `primary` IS the inverted neutral fill.
+    let button = match tone {
+        CallTone::Neutral => glass_icon_button(id, icon, cx),
+        CallTone::Toggled => gpui_component::button::Button::new(id).primary().icon(icon),
+        CallTone::Destructive => {
+            let red = cx.theme().danger;
+            let variant = ButtonCustomVariant::new(cx)
+                .color(gpui::transparent_black())
+                .hover(red.darken(0.08))
+                .active(red.darken(0.16))
+                .foreground(gpui::white());
+            gpui_component::button::Button::new(id).custom(variant).bg(red).icon(icon)
+        }
+    };
+    let button = match size {
+        CallSize::Lg => button.with_size(Size::Large),
+        CallSize::Sm => button.with_size(Size::Small),
+    };
+    button.size(px(size.edge())).rounded_full().cursor_pointer()
+}
+
 /// EXP-862 — the ONE GHOST icon button, the web `<Button variant="ghost"
 /// size="icon-sm">` twin (iOS `GhostIconButton`, Android `CircleIconButton(
 /// borderless = true)`).

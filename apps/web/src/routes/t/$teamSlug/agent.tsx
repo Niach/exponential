@@ -17,6 +17,9 @@ import {
   PhoneTabBarSpecimen,
   PhoneBoardMenuSpecimen,
   PhonePageHeaderSpecimen,
+  CallControlsSpecimen,
+  VoiceCallPillSpecimen,
+  VoiceCallSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
@@ -73,8 +76,10 @@ const str = (value: unknown): string | undefined =>
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, FEED-160 `?dev=device-readiness` its specimen, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
 // `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
-// `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens) (identical
-// ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
+// `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
+// S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
+// ones: web's ringing and in-call surface, the desktop pill, the round
+// buttons) (identical ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
   `trace`,
@@ -90,6 +95,9 @@ const DEV_VIEWS = [
   `phone-tab-bar`,
   `phone-board-menu`,
   `phone-page-header`,
+  `voice-call`,
+  `voice-call-overlay`,
+  `call-controls`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -152,6 +160,16 @@ function AgentRoute() {
           <PhonePageHeaderSpecimen />
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
+        ) : dev === `voice-call` ? (
+          <VoiceCallSpecimen
+            platform="web"
+            names={[`ringing`, `in call, speaking`, `muted`]}
+            frameClassName="h-[700px] w-[300px] max-w-full"
+          />
+        ) : dev === `voice-call-overlay` ? (
+          <VoiceCallPillSpecimen />
+        ) : dev === `call-controls` ? (
+          <CallControlsSpecimen />
         ) : (
           <FeedbackStatesSpecimen />
         )}

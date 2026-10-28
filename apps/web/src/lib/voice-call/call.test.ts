@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/voice-call.json"
-import { callView, type CallEvent } from "@exp/domain-contract/voice-call"
+import { callView, type CallEvent, type CallPlatform } from "@exp/domain-contract/voice-call"
 
 import { CallAudioError, type CallAudio } from "./audio"
 import { VoiceCall, type CallSocket } from "./call"
@@ -66,30 +66,40 @@ function fakeAudio() {
   return audio as typeof audio & CallAudio
 }
 
-async function dialed(options: { startCall?: () => Promise<{ url: string }>; openAudio?: () => Promise<CallAudio> } = {}) {
+async function dialed(
+  options: {
+    startCall?: () => Promise<{ url: string }>
+    openAudio?: () => Promise<CallAudio>
+    device?: string
+    language?: string
+  } = {}
+) {
   const socket = new FakeSocket()
   const audio = fakeAudio()
   const toasts: string[] = []
   const startCall = vi.fn(options.startCall ?? (async () => ({ url: `wss://relay/ws?t=caller` })))
+  const rings = { started: [] as number[], stopped: 0 }
   const call = new VoiceCall({
     startCall,
     openSocket: () => socket,
     openAudio: options.openAudio ?? (async () => audio),
+    ring: (ms) => {
+      rings.started.push(ms)
+      return () => (rings.stopped += 1)
+    },
   })
   call.onToast = (message) => toasts.push(message)
-  await call.start(`agent-1`, `mint`)
-  return { call, socket, audio, toasts, startCall }
+  await call.start(`agent-1`, options.device ?? `mint`, options.language)
+  return { call, socket, audio, toasts, startCall, rings }
 }
 
-const view = (call: VoiceCall) => callView(call.getSnapshot().state)
+const view = (call: VoiceCall, platform: CallPlatform = `web`) => callView(call.getSnapshot().state, platform)
 
 /** One fixture event, as it reaches a web caller. */
 function deliver(call: VoiceCall, socket: FakeSocket, event: CallEvent) {
   switch (event.t) {
     case `start`:
       return
-    case `connected`:
-      return socket.text({ t: `call_ready` })
     case `mute`:
     case `unmute`:
       if (call.getSnapshot().state.muted !== (event.t === `mute`)) call.toggleMute()
@@ -105,11 +115,18 @@ function deliver(call: VoiceCall, socket: FakeSocket, event: CallEvent) {
   }
 }
 
+// The phones' `speaker` (the loudspeaker vs the earpiece) is device-local:
+// a web caller has none to replay.
+const webCases = fixture.flowCases.filter((c) => !c.events.some((event) => event.t === `speaker`))
+
 describe(`a web call replays voice-call.json flowCases off the wire`, () => {
-  it.each(fixture.flowCases.map((c) => [c.name, c] as const))(`%s`, async (_name, c) => {
-    const { call, socket, toasts } = await dialed()
-    for (const event of c.events as CallEvent[]) deliver(call, socket, event)
-    expect(view(call)).toEqual(c.view)
+  it.each(webCases.map((c) => [c.name, c] as const))(`%s`, async (_name, c) => {
+    const [start, ...events] = c.events as CallEvent[]
+    if (start?.t !== `start`) throw new Error(`a flow case starts with start`)
+    const { call, socket, toasts } = await dialed({ device: start.device, language: start.language })
+    socket.text({ t: `call_ready` })
+    for (const event of events) deliver(call, socket, event)
+    expect(view(call, c.platform as CallPlatform)).toEqual(c.view)
     expect(toasts).toEqual(`toast` in c ? [c.toast] : [])
   })
 })
@@ -159,7 +176,28 @@ describe(`the web caller's wire`, () => {
     socket.text({ t: `call_ready` })
     socket.text({ t: `call_event`, event: { t: `end` } })
     socket.text({ t: `call_event`, event: { t: `said` } })
-    expect(view(call)?.state).toBe(fixture.copy.listening)
+    socket.text({ t: `call_event`, event: { t: `speaker`, on: false } })
+    expect(call.getSnapshot().state).toMatchObject({ phase: `ringing`, speaker: true })
+  })
+
+  it(`S-3: rings for ringMs from the dial; call_ready answers nothing, the host's rang + ready do`, async () => {
+    const { call, socket, rings } = await dialed()
+    expect(rings).toEqual({ started: [fixture.constants.ringMs], stopped: 0 })
+    socket.text({ t: `call_ready` })
+    expect(view(call)?.status).toBe(fixture.copy.calling)
+    socket.text({ t: `call_event`, event: { t: `rang` } })
+    expect(view(call)?.status).toBe(fixture.copy.gettingReady)
+    expect(rings.stopped).toBe(0)
+    socket.text({ t: `call_event`, event: { t: `ready` } })
+    expect(view(call)).toMatchObject({ activity: `speaking`, caption: fixture.copy.greeting.en, buttons: [`mute`, `end`] })
+    expect(rings.stopped).toBe(1)
+  })
+
+  it(`S-3: Cancel while ringing silences the ring`, async () => {
+    const { call, rings } = await dialed()
+    call.end()
+    expect(view(call)).toBeNull()
+    expect(rings.stopped).toBe(1)
   })
 
   it(`mute closes the microphone and tells the host; muted before ready is told on ready`, async () => {
@@ -325,7 +363,7 @@ describe(`the web caller's wire`, () => {
     const toasts: string[] = []
     call.onToast = (message) => toasts.push(message)
     const started = call.start(`agent-1`, `mint`)
-    expect(view(call)?.state).toBe(fixture.copy.connecting)
+    expect(view(call)?.status).toBe(fixture.copy.calling)
     call.end()
     expect(call.active).toBe(false)
     grant(audio)

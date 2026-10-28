@@ -2,6 +2,7 @@ package com.exponential.app.domain
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 
 /**
@@ -18,20 +19,26 @@ object VoiceCall {
 
     object Copy {
         const val CALL = "Call {agent}"
-        const val CONNECTING = "Connecting"
+        const val CALLING = "Calling…"
+        const val GETTING_READY = "Getting ready…"
+        const val NO_SOUND = "Can't hear your microphone"
         const val LISTENING = "Listening"
         const val THINKING = "Thinking"
         const val SPEAKING = "Speaking"
         const val MUTED = "Microphone muted"
-        const val MUTED_LINE = "Unmute to talk"
         const val MUTE = "Mute"
         const val UNMUTE = "Unmute"
+        const val SPEAKER = "Speaker"
+        const val SPEAKER_OFF = "Speaker off"
         const val END_CALL = "End call"
+        const val CANCEL = "Cancel"
         const val QUEUED = "{count} queued · {text}"
+
+        /** What the device says once answered, by language (`en` the fallback). */
+        val greeting: Map<String, String> = linkedMapOf("en" to "Hello?", "de" to "Hallo?")
 
         object Reasons {
             const val NO_VOICE_DEVICE = "Pick a voice device in Settings → Voice"
-            const val SPEAK_OFF = "Turn on Speak replies in Settings → Voice"
             const val OFFLINE = "{device} is offline"
             const val NOT_HERE = "Calls run on {device}"
             const val PREPARING = "{device} is getting its voice ready"
@@ -51,6 +58,7 @@ object VoiceCall {
             const val BUSY = "{device} is in another call"
             const val UNSUPPORTED = "This browser can't make calls"
             const val MEETING = "{device} is transcribing a meeting"
+            const val UNAVAILABLE = "{device} couldn't get its voice ready"
 
             val byCode: Map<String, String> = linkedMapOf(
                 "no_answer" to NO_ANSWER,
@@ -60,7 +68,8 @@ object VoiceCall {
                 "dropped" to DROPPED,
                 "busy" to BUSY,
                 "unsupported" to UNSUPPORTED,
-            "meeting" to MEETING,
+                "meeting" to MEETING,
+                "unavailable" to UNAVAILABLE,
             )
         }
 
@@ -71,6 +80,11 @@ object VoiceCall {
     object Icons {
         /** The telephone's icon concept (`ExpIcons.voiceCall`). */
         const val CALL = "voice-call"
+        const val MUTE = "call-mute"
+        const val UNMUTE = "call-unmute"
+        const val SPEAKER = "call-speaker"
+        const val SPEAKER_OFF = "call-speaker-off"
+        const val END = "call-end"
     }
 
     object TestIds {
@@ -78,11 +92,21 @@ object VoiceCall {
         const val SURFACE = "voice-call"
         const val MUTE = "voice-call-mute"
         const val END = "voice-call-end"
+        const val SPEAKER = "voice-call-speaker"
+        const val PANEL = "voice-call-panel"
+        const val PILL = "voice-call-pill"
+        const val TIMER = "voice-call-timer"
     }
 
     object Constants {
+        /** S-3: how long a call rings while the voice device warms up. */
+        const val RING_MS = 3_000
+        /** A voice still not ready after this fails the call `unavailable`. */
+        const val MAX_RING_MS = 300_000
+        /** No microphone frame reached this level during the ring = `noSound`. */
+        const val NO_SOUND_LEVEL = 0.1
         const val RING_TIMEOUT_MS = 10_000
-        const val MIN_SILENCE_MS = 250
+        const val MIN_SILENCE_MS = 700
         const val BARGE_IN_MS = 250
         const val FRAME_MS = 20
         const val UP_RATE = 16_000
@@ -93,6 +117,13 @@ object VoiceCall {
         const val MAX_FRAMES_PER_SECOND = 60
         const val MAX_CALL_MS = 3_600_000
         const val IDLE_TIMEOUT_MS = 30_000
+    }
+
+    /** The desktop's floating call pill (`pill`; phones never show it). */
+    object Pill {
+        const val WIDTH = 320
+        const val HEIGHT = 56
+        const val MARGIN_PX = 24
     }
 
     /**
@@ -147,13 +178,12 @@ object VoiceCall {
         val platform: Platform,
         /** The voice device's name; null = none picked. */
         val device: String?,
-        val speakReplies: Boolean,
         val online: Boolean,
         /** THIS client is the voice device. */
         val here: Boolean,
         /** null = no `speech` row yet. */
         val speech: Speech?,
-        /** A call already runs on the voice device. */
+        /** A call this client does not run already runs on the voice device. */
         val busy: Boolean,
         /** #NEW-57: a meeting runs on the voice device (`meetingStartedAt` set). */
         val meeting: Boolean = false,
@@ -161,17 +191,17 @@ object VoiceCall {
 
     data class Availability(val enabled: Boolean, val reason: String?)
 
-    /** Whether the telephone is enabled, and the reason when it is not. */
+    /** Whether the telephone is enabled, and the reason when it is not. S-3:
+     *  a voice that is still downloading rings until it is ready. */
     fun callAvailability(input: AvailabilityInput): Availability {
         fun off(reason: String) = Availability(enabled = false, reason = reason.replace("{device}", input.device ?: ""))
         val r = Copy.Reasons
         return when {
             input.device == null -> off(r.NO_VOICE_DEVICE)
-            !input.speakReplies -> off(r.SPEAK_OFF)
             !input.online -> off(r.OFFLINE)
             input.meeting -> off(r.MEETING)
             input.platform == Platform.Desktop && !input.here -> off(r.NOT_HERE)
-            input.speech == null || input.speech == Speech.Preparing -> off(r.PREPARING)
+            input.speech == null -> off(r.PREPARING)
             input.speech == Speech.NoGpu -> off(r.NO_GPU)
             input.busy -> off(r.BUSY)
             else -> Availability(enabled = true, reason = null)
@@ -192,24 +222,52 @@ object VoiceCall {
         }
     }
 
-    enum class Phase { Hidden, Connecting, Listening, Thinking, Speaking }
+    enum class Phase { Hidden, Ringing, Listening, Thinking, Speaking }
 
     data class State(
         val phase: Phase,
         val muted: Boolean,
+        /** The loudspeaker (false = the earpiece). */
+        val speaker: Boolean,
         val device: String,
+        /** The greeting the device says once answered. */
+        val greeting: String,
+        /** The ring's `ringMs` ran out. */
+        val rang: Boolean,
+        /** The worker confirmed it listens (`CallListening`). */
+        val ready: Boolean,
+        /** The microphone stayed silent during the ring. */
+        val noSound: Boolean,
         /** The last utterance, quoted (what Thinking shows). */
         val said: String,
         val line: String,
         val toast: String?,
     )
 
-    val CALL_IDLE = State(phase = Phase.Hidden, muted = false, device = "", said = "", line = "", toast = null)
+    val CALL_IDLE = State(
+        phase = Phase.Hidden,
+        muted = false,
+        speaker = true,
+        device = "",
+        greeting = "",
+        rang = false,
+        ready = false,
+        noSound = false,
+        said = "",
+        line = "",
+        toast = null,
+    )
+
+    /** The greeting in [language] (English for an unknown one). */
+    fun callGreeting(language: String?): String =
+        Copy.greeting[language ?: "en"] ?: Copy.greeting.getValue("en")
 
     /** One `flowCases` event (`t` on the wire). */
     sealed interface Event {
-        data class Start(val device: String) : Event
-        data object Connected : Event
+        data class Start(val device: String, val language: String? = null) : Event
+        data object Rang : Event
+        data object Ready : Event
+        data object NoSound : Event
         data class Partial(val text: String) : Event
         data class Said(val text: String) : Event
         data object SpeechStarted : Event
@@ -218,6 +276,7 @@ object VoiceCall {
         data object ReplyFinished : Event
         data object Mute : Event
         data object Unmute : Event
+        data class Speaker(val on: Boolean) : Event
         data object End : Event
         data class HungUp(val reason: String?) : Event
         data class Failed(val code: String) : Event
@@ -227,8 +286,10 @@ object VoiceCall {
             fun of(json: JsonObject): Event? {
                 fun str(key: String): String = (json[key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""
                 return when (str("t")) {
-                    "start" -> Start(str("device"))
-                    "connected" -> Connected
+                    "start" -> Start(str("device"), str("language").ifEmpty { null })
+                    "rang" -> Rang
+                    "ready" -> Ready
+                    "noSound" -> NoSound
                     "partial" -> Partial(str("text"))
                     "said" -> Said(str("text"))
                     "speechStarted" -> SpeechStarted
@@ -237,6 +298,7 @@ object VoiceCall {
                     "replyFinished" -> ReplyFinished
                     "mute" -> Mute
                     "unmute" -> Unmute
+                    "speaker" -> Speaker((json["on"] as? JsonPrimitive)?.booleanOrNull ?: true)
                     "end" -> End
                     "hungUp" -> HungUp(str("reason").ifEmpty { null })
                     "failed" -> Failed(str("code"))
@@ -248,22 +310,39 @@ object VoiceCall {
 
     private fun quoted(text: String): String = "“$text”"
 
+    /** Rang and ready: the device speaks its greeting (not an agent turn). */
+    private fun answered(state: State): State =
+        state.copy(phase = Phase.Speaking, line = state.greeting, toast = null)
+
     /** One step of the call (the same machine on the voice device and a caller). */
     fun callStep(state: State, event: Event): State {
-        fun at(phase: Phase, line: String, said: String = state.said) =
-            state.copy(phase = phase, line = line, toast = null, said = said)
-        if (event is Event.Start) return CALL_IDLE.copy(phase = Phase.Connecting, device = event.device)
+        fun at(phase: Phase, line: String, said: String = state.said, noSound: Boolean = state.noSound) =
+            state.copy(phase = phase, line = line, toast = null, said = said, noSound = noSound)
+        if (event is Event.Start) {
+            return CALL_IDLE.copy(phase = Phase.Ringing, device = event.device, greeting = callGreeting(event.language))
+        }
         if (state.phase == Phase.Hidden) return state
+        val ringing = state.phase == Phase.Ringing
         return when (event) {
             is Event.Start -> state
-            Event.Connected -> if (state.phase == Phase.Connecting) at(Phase.Listening, "") else state
+            Event.Rang -> when {
+                !ringing -> state
+                state.ready -> answered(state.copy(rang = true))
+                else -> state.copy(rang = true)
+            }
+            Event.Ready -> when {
+                !ringing -> state
+                state.rang -> answered(state.copy(ready = true))
+                else -> state.copy(ready = true)
+            }
+            Event.NoSound -> state.copy(noSound = true)
             is Event.Partial -> {
                 val text = event.text.trim()
-                if (state.phase == Phase.Listening && text.isNotEmpty()) at(Phase.Listening, quoted(text)) else state
+                if (state.phase == Phase.Listening && text.isNotEmpty()) at(Phase.Listening, quoted(text), noSound = false) else state
             }
             is Event.Said -> {
                 val text = event.text.trim()
-                if (text.isEmpty()) state else at(Phase.Thinking, quoted(text), said = quoted(text))
+                if (ringing || text.isEmpty()) state else at(Phase.Thinking, quoted(text), said = quoted(text), noSound = false)
             }
             Event.SpeechStarted -> if (state.phase == Phase.Speaking) at(Phase.Listening, "") else state
             is Event.Queued -> when {
@@ -274,10 +353,11 @@ object VoiceCall {
                     Copy.QUEUED.replace("{count}", event.count.toString()).replace("{text}", quoted(event.text.trim())),
                 )
             }
-            is Event.ReplyStarted -> at(Phase.Speaking, event.text.trim())
+            is Event.ReplyStarted -> if (ringing) state else at(Phase.Speaking, event.text.trim())
             Event.ReplyFinished -> if (state.phase == Phase.Speaking) at(Phase.Listening, "") else state
             Event.Mute -> state.copy(muted = true)
             Event.Unmute -> state.copy(muted = false)
+            is Event.Speaker -> state.copy(speaker = event.on)
             Event.End -> CALL_IDLE
             is Event.HungUp -> if (event.reason.isNullOrEmpty()) CALL_IDLE else callStep(state, Event.Failed(HangUpRules.FAILED_CODE))
             is Event.Failed -> {
@@ -287,49 +367,122 @@ object VoiceCall {
         }
     }
 
-    /** The VoiceWave activity the surface draws (`VoiceWaveActivity`). */
-    enum class Activity(val wire: String) { Listening("listening"), Thinking("thinking"), Speaking("speaking"), Muted("muted") }
+    /** What the avatar's ring shows (`ringing` a halo, `speaking` the VoiceWave). */
+    enum class Activity(val wire: String) {
+        Ringing("ringing"),
+        Listening("listening"),
+        Thinking("thinking"),
+        Speaking("speaking"),
+        Muted("muted"),
+        ;
+
+        /** The state word, the avatar's accessibility value. */
+        val label: String get() = when (this) {
+            Ringing -> Copy.CALLING
+            Listening -> Copy.LISTENING
+            Thinking -> Copy.THINKING
+            Speaking -> Copy.SPEAKING
+            Muted -> Copy.MUTED
+        }
+    }
+
+    /** One round call button (`call-controls`). */
+    enum class Button(val wire: String) { Mute("mute"), Speaker("speaker"), End("end") }
 
     data class View(
         val activity: Activity,
-        val state: String,
-        val line: String,
-        /** The mute pill's label (Mute / Unmute); End call is always beside it. */
-        val mute: String,
+        /** The line under the name; null = the call's timer ([callTimer]). */
+        val status: String?,
+        val caption: String,
+        val muted: Boolean,
+        val speaker: Boolean,
+        /** The round buttons, in order. */
+        val buttons: List<Button>,
+        /** The end button's label (shown under it while ringing). */
+        val end: String,
     )
 
     /** What the call surface shows; null = no surface. */
-    fun callView(state: State): View? {
-        val mute = if (state.muted) Copy.UNMUTE else Copy.MUTE
-        return when (state.phase) {
-            Phase.Hidden -> null
-            Phase.Connecting -> View(Activity.Thinking, Copy.CONNECTING, state.line, mute)
-            Phase.Listening -> if (state.muted) {
-                View(Activity.Muted, Copy.MUTED, Copy.MUTED_LINE, mute)
-            } else {
-                View(Activity.Listening, Copy.LISTENING, state.line, mute)
-            }
-            Phase.Thinking -> View(Activity.Thinking, Copy.THINKING, state.line, mute)
-            Phase.Speaking -> View(Activity.Speaking, Copy.SPEAKING, state.line, mute)
+    fun callView(state: State, platform: Platform = Platform.Phone): View? {
+        if (state.phase == Phase.Hidden) return null
+        if (state.phase == Phase.Ringing) {
+            return View(
+                activity = Activity.Ringing,
+                status = if (state.rang) Copy.GETTING_READY else Copy.CALLING,
+                caption = "",
+                muted = state.muted,
+                speaker = state.speaker,
+                buttons = listOf(Button.End),
+                end = Copy.CANCEL,
+            )
         }
+        val buttons = if (platform == Platform.Phone) listOf(Button.Mute, Button.Speaker, Button.End) else listOf(Button.Mute, Button.End)
+        fun inCall(activity: Activity, caption: String) = View(
+            activity = activity,
+            status = null,
+            caption = caption,
+            muted = state.muted,
+            speaker = state.speaker,
+            buttons = buttons,
+            end = Copy.END_CALL,
+        )
+        return when (state.phase) {
+            Phase.Listening -> when {
+                state.muted -> inCall(Activity.Muted, Copy.MUTED)
+                else -> inCall(Activity.Listening, state.line.ifEmpty { if (state.noSound) Copy.NO_SOUND else "" })
+            }
+            Phase.Thinking -> inCall(Activity.Thinking, state.line)
+            Phase.Speaking -> inCall(Activity.Speaking, state.line)
+            Phase.Hidden, Phase.Ringing -> null
+        }
+    }
+
+    /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
+    fun callTimer(ms: Long): String {
+        val total = maxOf(0L, ms / 1000)
+        val hours = total / 3600
+        val minutes = (total % 3600) / 60
+        val seconds = total % 60
+        fun pad(n: Long) = n.toString().padStart(2, '0')
+        return if (hours > 0) "$hours:${pad(minutes)}:${pad(seconds)}" else "${pad(minutes)}:${pad(seconds)}"
     }
 
     /** One styleguide row of the surface (`surfaceSpecimens`). */
     data class SurfaceSpecimen(
-        val activity: Activity,
+        val name: String,
+        val agent: String,
+        /** The ticking timer's text; null = [View.status] shows. */
+        val timer: String?,
         val level: Double,
         val bands: List<Double>,
-        val state: String,
-        val line: String,
-        val mute: String,
-    ) {
-        val view: View get() = View(activity, state, line, mute)
-    }
+        val view: View,
+    )
+
+    private val PHONE_BUTTONS = listOf(Button.Mute, Button.Speaker, Button.End)
 
     val surfaceSpecimens: List<SurfaceSpecimen> = listOf(
-        SurfaceSpecimen(Activity.Listening, 0.7, listOf(0.9, 0.6, 1.0, 0.5), "Listening", "“what is still open on the voice board”", "Mute"),
-        SurfaceSpecimen(Activity.Thinking, 0.0, emptyList(), "Thinking", "1 queued · “and assign them to me”", "Mute"),
-        SurfaceSpecimen(Activity.Speaking, 0.5, listOf(0.7, 1.0, 0.5, 0.8), "Speaking", "Three issues are open: NEW-55, NEW-56 and NEW-79.", "Mute"),
-        SurfaceSpecimen(Activity.Muted, 0.0, emptyList(), "Microphone muted", "Unmute to talk", "Unmute"),
+        SurfaceSpecimen(
+            "ringing", "Assistant", null, 0.0, emptyList(),
+            View(Activity.Ringing, "Calling…", "", muted = false, speaker = true, buttons = listOf(Button.End), end = "Cancel"),
+        ),
+        SurfaceSpecimen(
+            "getting ready", "Assistant", null, 0.0, emptyList(),
+            View(Activity.Ringing, "Getting ready…", "", muted = false, speaker = true, buttons = listOf(Button.End), end = "Cancel"),
+        ),
+        SurfaceSpecimen(
+            "in call, speaking", "Assistant", "04:12", 0.5, listOf(0.7, 1.0, 0.5, 0.8),
+            View(
+                Activity.Speaking, null, "Batch 4 is rebasing; the other two are merged. Want me to merge the last one when it's green?",
+                muted = false, speaker = true, buttons = PHONE_BUTTONS, end = "End call",
+            ),
+        ),
+        SurfaceSpecimen(
+            "in call, listening", "Assistant", "04:20", 0.7, listOf(0.9, 0.6, 1.0, 0.5),
+            View(Activity.Listening, null, "“merge it when it's green”", muted = false, speaker = true, buttons = PHONE_BUTTONS, end = "End call"),
+        ),
+        SurfaceSpecimen(
+            "muted", "Assistant", "04:31", 0.0, emptyList(),
+            View(Activity.Muted, null, "Microphone muted", muted = true, speaker = true, buttons = PHONE_BUTTONS, end = "End call"),
+        ),
     )
 }

@@ -438,8 +438,8 @@ struct BeatSnapshot {
     /// See [`DeviceSyncState::doctor_soon`].
     doctor_soon: Arc<AtomicBool>,
     /// NEW-78 / NEW-55: the voice rows the readiness block carries (the
-    /// member's voice device: the microphone with Push to talk on, speech
-    /// with Speak replies on).
+    /// member's voice device: the microphone while a key is bound or the
+    /// wake word is on, speech, and S-3's wake word row).
     voice: crate::device_readiness::VoiceRows,
 }
 

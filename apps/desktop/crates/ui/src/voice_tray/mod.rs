@@ -10,10 +10,12 @@
 //! `voice.update` optimistically like Settings → Voice (the menu flips at
 //! once, the stored value goes to `speak_replies::set_settings`, a refusal
 //! reverts and toasts). Mute microphone is device-local (#NEW-86: kept in
-//! `{data_dir}/voice-tray.json` across restarts, never synced): it shows while push to
-//! talk listens here and the speech worker is up (`micAvailable`), and push
-//! to talk never opens the microphone while it is on (#NEW-54). A shortcut
-//! that can't be held system-wide says so on the Push to talk item.
+//! `{data_dir}/voice-tray.json` across restarts, never synced): it shows while a
+//! bound key or the wake word listens here and the speech worker is up
+//! (`micAvailable`), and push to talk never opens the microphone while it is
+//! on (#NEW-54). S-3: Push to talk · {key} shows while a key is bound and
+//! opens Settings → Voice (no toggle; a shortcut that can't be held
+//! system-wide says so there); while a call runs here Call reads End call.
 //! While the tray is up, closing the last window keeps the IDE running
 //! ([`keeps_running`], read by the shell) so the speech worker stays resident.
 //! #NEW-56: while the wake word holds the microphone open the icon carries a
@@ -152,7 +154,7 @@ fn item_key(id: TrayItemId) -> &'static str {
     match id {
         TrayItemId::Open => "voice-tray:open",
         TrayItemId::Call => "voice-tray:call",
-        TrayItemId::SpeakReplies => "voice-tray:speak-replies",
+        TrayItemId::EndCall => "voice-tray:end-call",
         TrayItemId::PushToTalk => "voice-tray:push-to-talk",
         TrayItemId::WakeWord => "voice-tray:wake-word",
         TrayItemId::Meeting => "voice-tray:meeting",
@@ -169,7 +171,7 @@ fn item_of(key: &str) -> Option<TrayItemId> {
     [
         TrayItemId::Open,
         TrayItemId::Call,
-        TrayItemId::SpeakReplies,
+        TrayItemId::EndCall,
         TrayItemId::PushToTalk,
         TrayItemId::WakeWord,
         TrayItemId::Meeting,
@@ -607,10 +609,10 @@ impl VoiceTray {
     fn sync(&mut self, cx: &mut Context<Self>) {
         let settings = self.settings(cx);
         let agent = agent_label(&settings, cx);
-        // #NEW-54: Mute shows once push to talk listens here and the worker
-        // is up; the grab's status names an unavailable shortcut or the
-        // portal's trigger.
-        let mic_available = crate::speak_replies::listens_here(&settings, &self.device_id) && crate::speak_replies::worker_ready(cx);
+        // #NEW-54: Mute shows once a bound key or the wake word listens here
+        // and the worker is up; the grab's status names an unavailable
+        // shortcut or the portal's trigger.
+        let mic_available = crate::push_to_talk::listens_here(&settings, &self.device_id) && crate::speak_replies::worker_ready(cx);
         let status = crate::push_to_talk::status(cx);
         let device_is_voice_device = settings.voice_device_id.as_deref() == Some(self.device_id.as_str());
         let wake_listening = crate::push_to_talk::wake_listening(cx);
@@ -645,6 +647,8 @@ impl VoiceTray {
             }),
             meeting: Some(MeetingTrayState { on: meeting_on, who: &who }),
             pause: pausable.then_some(meeting_state.paused),
+            // S-3: while a call runs here Call reads End call.
+            in_call: crate::voice_call::active(cx),
         };
         let menu = tray_menu(&settings, &context);
         // #NEW-97: no answer yet = no button.
@@ -686,7 +690,7 @@ impl VoiceTray {
 
     fn on_click(&mut self, id: TrayItemId, cx: &mut Context<Self>) {
         match id {
-            TrayItemId::SpeakReplies | TrayItemId::PushToTalk | TrayItemId::WakeWord => self.toggle(id, cx),
+            TrayItemId::WakeWord => self.toggle(id, cx),
             TrayItemId::Mute => self.set_muted(!self.muted, cx),
             TrayItemId::ScreenMemory => self.set_screen_memory(!self.screen.on, cx),
             // NEW-57: on = THE consent dialog in an IDE window (the native
@@ -726,7 +730,11 @@ impl VoiceTray {
                 crate::meeting::set_paused(!paused, cx);
             }
             TrayItemId::Open => open_ide(cx),
-            TrayItemId::Settings => crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx),
+            // S-3: Push to talk · {key} is an action: the key is recorded in
+            // Settings → Voice.
+            TrayItemId::Settings | TrayItemId::PushToTalk => {
+                crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx)
+            }
             TrayItemId::Quit => cx.quit(),
             // NEW-55: call the voice agent (deferred: the call stops this
             // tray's speaker and redraws it).
@@ -735,6 +743,8 @@ impl VoiceTray {
                     cx.defer(move |cx| crate::voice_call::start(agent_id, cx));
                 }
             }
+            // S-3: End call (deferred like Call).
+            TrayItemId::EndCall => cx.defer(crate::voice_call::end),
         }
     }
 
@@ -748,14 +758,6 @@ impl VoiceTray {
         let mut next = current.clone();
         let mut update = VoiceUpdate::default();
         match id {
-            TrayItemId::SpeakReplies => {
-                next.speak_replies = !current.speak_replies;
-                update.speak_replies = Some(next.speak_replies);
-            }
-            TrayItemId::PushToTalk => {
-                next.push_to_talk = !current.push_to_talk;
-                update.push_to_talk = Some(next.push_to_talk);
-            }
             TrayItemId::WakeWord => {
                 next.wake_word = !current.wake_word;
                 update.wake_word = Some(next.wake_word);
@@ -1002,7 +1004,7 @@ mod tests {
         for id in [
             TrayItemId::Open,
             TrayItemId::Call,
-            TrayItemId::SpeakReplies,
+            TrayItemId::EndCall,
             TrayItemId::PushToTalk,
             TrayItemId::WakeWord,
             TrayItemId::ScreenMemory,

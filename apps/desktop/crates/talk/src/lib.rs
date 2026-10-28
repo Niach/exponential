@@ -38,6 +38,14 @@
 //! [`Event::SpeechAudio`] instead of playing here. [`SpeechClient::hangup`]
 //! ends it without an answer.
 //!
+//! S-3 (protocol 7) rings: a Call carries `ring_ms`; a LOCAL call opens the
+//! call's one output stream at once and plays a ring tone on it for that
+//! long while the worker warms up (the recognizer and the voice loaded, a
+//! download included, the microphone opened). [`Event::CallListening`]
+//! confirms the call hears (the host's `ready`); nothing of the call is
+//! heard before it. A worker of protocol 6 ignores `ringMs` and never
+//! sends CallListening (the host reads [`Event::Ready`]'s protocol).
+//!
 //! NEW-57 (protocol 6) meets (`packages/domain-contract/fixtures/meeting.json`):
 //! [`SpeechClient::meeting`] owns the microphone (channel `you`) and, per
 //! [`MeetingApps`], the desktop audio ([`apps`]) until
@@ -70,15 +78,20 @@ pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// construction; nothing here replaces a worker on a mismatch, the host
 /// only reads the number.
 /// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
-/// NEW-57: 6 = meetings.
-pub const PROTOCOL: u32 = 6;
+/// NEW-57: 6 = meetings. S-3: 7 = the ring and CallListening.
+pub const PROTOCOL: u32 = 7;
+
+/// S-3: a worker stderr line starting with this is logged at debug (the
+/// rest at info): the call's per-second input level.
+pub const DEBUG_PREFIX: &str = "debug: ";
 
 /// NEW-57: the microphone's meeting channel (`meeting.json` `you`).
 pub const YOU_CHANNEL: &str = "you";
 
 /// NEW-55: a call closes an utterance after this much silence (push to talk
-/// keeps talk-listen.json's 300 ms); `voice-call.json` `minSilenceMs`.
-pub const CALL_MIN_SILENCE_MS: usize = 250;
+/// keeps talk-listen.json's 300 ms); `voice-call.json` `minSilenceMs`
+/// (S-3: 700, a breath between two clauses no longer ends the turn).
+pub const CALL_MIN_SILENCE_MS: usize = 700;
 /// NEW-55: speech this long in the open utterance is a barge-in
 /// ([`Event::SpeechStarted`]); `voice-call.json` `bargeInMs`.
 pub const BARGE_IN_MS: usize = 250;
@@ -113,7 +126,16 @@ pub enum Request {
     /// answering Said per utterance. `remote` = the audio comes ONLY as
     /// CallAudio (a caller streams it; the microphone stays closed) and
     /// replies stream back as SpeechAudio. Replaces a running Listen or Call.
-    Call { id: String, language: String, remote: bool },
+    /// S-3: `ring_ms` = how long a LOCAL call rings on its output stream
+    /// while the worker warms up (0 = no ring; a remote call never rings
+    /// here); [`Event::CallListening`] follows once it hears.
+    Call {
+        id: String,
+        language: String,
+        remote: bool,
+        #[serde(default)]
+        ring_ms: u32,
+    },
     /// NEW-55: caller audio of remote call `id`: base64 of i16 little-endian
     /// mono [`CALL_RATE`] samples ([`encode_pcm`]).
     CallAudio { id: String, pcm: String },
@@ -231,6 +253,11 @@ pub enum Event {
     /// a reply that was playing has already ended (`Finished { stopped:
     /// true }` came first).
     SpeechStarted { id: String },
+    /// S-3: call `id` hears: the recognizer and the voice are loaded (a
+    /// download waited for) and the microphone (local) or the stream
+    /// intake (remote) is open. Once per call; its Level, SpeechStarted
+    /// and Said only follow it.
+    CallListening { id: String },
     /// NEW-55: reply `id`'s audio during a remote call (never played here):
     /// base64 of i16 LE mono samples at `rate` Hz (the voice's, 24000), at
     /// most [`SPEECH_AUDIO_CHUNK_MS`] per event, between Started and Finished.
@@ -671,9 +698,10 @@ impl SpeechClient {
 
     /// NEW-55: start call `id` in `language`; `remote` = the audio comes
     /// through [`Self::call_audio`] (a phone or the web streams it) and
-    /// replies stream back as [`Event::SpeechAudio`].
-    pub fn call(&self, id: impl Into<String>, language: impl Into<String>, remote: bool) {
-        self.send(&Request::Call { id: id.into(), language: language.into(), remote });
+    /// replies stream back as [`Event::SpeechAudio`]. S-3: a local call
+    /// rings `ring_ms` on this device while the worker warms up.
+    pub fn call(&self, id: impl Into<String>, language: impl Into<String>, remote: bool, ring_ms: u32) {
+        self.send(&Request::Call { id: id.into(), language: language.into(), remote, ring_ms });
     }
 
     /// NEW-55: the caller's audio of remote call `id`: mono [`CALL_RATE`] Hz
@@ -823,7 +851,10 @@ impl SpeechClient {
         })?;
         std::thread::Builder::new().name("talk-stderr".into()).spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                log::info!("speech-worker: {line}");
+                match line.strip_prefix(DEBUG_PREFIX) {
+                    Some(line) => log::debug!("speech-worker: {line}"),
+                    None => log::info!("speech-worker: {line}"),
+                }
             }
         })?;
         log::info!("talk: speech worker started (pid {})", child.id());
@@ -951,7 +982,7 @@ mod tests {
 
     #[test]
     fn protocol_6_meets() {
-        assert_eq!(PROTOCOL, 6);
+        assert!(PROTOCOL >= 6);
         let start = Request::Meeting {
             id: "m1".into(),
             language: "en".into(),
@@ -1010,7 +1041,10 @@ mod tests {
     #[test]
     fn protocol_5_calls() {
         let requests = [
-            (Request::Call { id: "c1".into(), language: "de".into(), remote: true }, r#"{"t":"call","id":"c1","language":"de","remote":true}"#),
+            (
+                Request::Call { id: "c1".into(), language: "de".into(), remote: true, ring_ms: 0 },
+                r#"{"t":"call","id":"c1","language":"de","remote":true,"ringMs":0}"#,
+            ),
             (Request::CallAudio { id: "c1".into(), pcm: encode_pcm(&[1, -2, i16::MAX, i16::MIN]) }, r#"{"t":"callAudio","id":"c1","pcm":"AQD+//9/AIA="}"#),
             (Request::CallMute { id: "c1".into(), muted: true }, r#"{"t":"callMute","id":"c1","muted":true}"#),
             (Request::Hangup { id: "c1".into() }, r#"{"t":"hangup","id":"c1"}"#),
@@ -1032,6 +1066,20 @@ mod tests {
         assert!(decode_pcm("AQ==").is_err(), "an odd byte");
         assert!(decode_pcm("not base64!").is_err());
         assert_eq!((to_i16(1.5), to_i16(-1.0), to_i16(0.0)), (i16::MAX, -i16::MAX, 0));
+    }
+
+    #[test]
+    fn protocol_7_rings() {
+        assert_eq!(PROTOCOL, 7);
+        let call = Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 3000 };
+        let json = r#"{"t":"call","id":"c1","language":"en","remote":false,"ringMs":3000}"#;
+        assert_eq!(serde_json::to_string(&call).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Request>(json).unwrap(), call);
+        let old: Request = serde_json::from_str(r#"{"t":"call","id":"c1","language":"en","remote":false}"#).unwrap();
+        assert_eq!(old, Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 0 }, "an old host rings nothing");
+        let listening = Event::CallListening { id: "c1".into() };
+        assert_eq!(serde_json::to_string(&listening).unwrap(), r#"{"t":"callListening","id":"c1"}"#);
+        assert_eq!(serde_json::from_str::<Event>(r#"{"t":"callListening","id":"c1"}"#).unwrap(), listening);
     }
 
     #[test]
@@ -1110,7 +1158,7 @@ mod tests {
         client.stop();
         client.end_listen("u1");
         client.cancel_listen("u1");
-        client.call("c1", "en", true);
+        client.call("c1", "en", true, 0);
         client.call_audio("c1", &[0, 1, -1]);
         client.call_mute("c1", true);
         client.hangup("c1");
@@ -1198,7 +1246,7 @@ mod tests {
         });
         client.start();
         assert_eq!(*seen.lock().unwrap(), 1, "a failed start is an exit");
-        client.call("c1", "en", false);
+        client.call("c1", "en", false, 3_000);
         assert_eq!(*seen.lock().unwrap(), 2, "a request that cannot spawn is an exit");
         // Requests that never spawn a worker say nothing.
         client.stop();

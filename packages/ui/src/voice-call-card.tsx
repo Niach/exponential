@@ -1,74 +1,85 @@
-import type { HTMLAttributes } from "react"
+import type { HTMLAttributes, ReactNode } from "react"
+import { VOICE_CALL_TEST_IDS, type CallView } from "@exp/domain-contract/voice-call"
 
+import { CallAvatar, CallControls } from "./call-controls"
 import { cn } from "./cn"
-import { ExponentialLogo } from "./exponential-logo"
-import { GlassCard } from "./glass-card"
-import { Pill } from "./pill"
-import { VoiceWave, type VoiceWaveActivity } from "./voice-wave"
 
-// NEW-70 (voice V6): THE call card (`fixtures/voice-call.json`, the
-// `voice-call` styleguide entry): the centred card a web call draws over
-// the agent chat, and the phones' full-screen call (V5) in the same order.
-// VoiceWave (xl) with the brand mark, the state, the line (what was heard,
-// the queue, or what is said), then End call as the ONE primary pill and the
-// mute pill beside it. Exponential-specific, so it is no eUI primitive; the
-// desktop draws the same states in its voice capsule (voice-call-overlay).
-// The frame is THE `GlassCard` (opaque card fill, so the chat scrolling
-// behind never shows through); this adds only the layout.
+// S-3 (voice-call.json PHONE-CALL UI, the `voice-call` styleguide entry):
+// THE call surface, WhatsApp / Teams style, the same on web (a full-height
+// overlay over the agent chat) and in the phones' full screen. Top to
+// bottom: the agent's avatar large with the ring of its activity
+// (`CallAvatar`), the agent's name, the status line (null = the call's
+// TIMER, testId `timer`), the caption (centred, at most 4 lines), and at the
+// bottom the round call buttons in `callView`'s order (`CallControls`, the
+// `call-controls` entry). No text pills and no state word: the activity is
+// the avatar's accessibility value. Exponential-specific (the copy is the
+// fixture's), so it is no eUI primitive; the round button is.
 
-export const VOICE_CALL_CARD_CLASS = `flex w-[22rem] max-w-full flex-col items-center gap-4 px-6 py-6`
-
-export interface VoiceCallCardProps extends Omit<HTMLAttributes<HTMLDivElement>, `onClick`> {
-  activity: VoiceWaveActivity
-  level: number
+export interface VoiceCallSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>, `onClick`> {
+  agent: string
+  /** The agent's mark (the Assistant: the Exponential logo). */
+  avatar: ReactNode
+  /** `callView(state, platform)`. */
+  view: CallView
+  /** `callTimer(ms since answered)`, shown while `view.status` is null. */
+  timer: string
+  level?: number
   bands?: number[]
-  state: string
-  line: string
-  /** The mute pill's label (Mute / Unmute). */
-  mute: string
-  muted?: boolean
-  endLabel: string
-  onEnd?: () => void
   onMute?: () => void
-  endTestId?: string
-  muteTestId?: string
+  onSpeaker?: () => void
+  onEnd?: () => void
 }
 
-export function VoiceCallCard({
-  activity,
-  level,
+export function VoiceCallSurface({
+  agent,
+  avatar,
+  view,
+  timer,
+  level = 0,
   bands,
-  state,
-  line,
-  mute,
-  muted = false,
-  endLabel,
-  onEnd,
   onMute,
-  endTestId,
-  muteTestId,
+  onSpeaker,
+  onEnd,
   className,
   ...props
-}: VoiceCallCardProps) {
+}: VoiceCallSurfaceProps) {
+  const ringing = view.activity === `ringing`
   return (
-    <GlassCard data-slot="voice-call" className={cn(VOICE_CALL_CARD_CLASS, className)} {...props}>
-      <VoiceWave activity={activity} level={level} bands={bands} size="xl" label="Voice">
-        <ExponentialLogo variant="light" size={56} />
-      </VoiceWave>
-      <div className="flex min-w-0 max-w-full flex-col items-center gap-1 text-center">
-        <span className="text-sm font-medium text-foreground" aria-live="polite">
-          {state}
-        </span>
-        <span className="line-clamp-3 min-h-5 text-sm text-muted-foreground">{line}</span>
+    <div
+      data-slot="voice-call"
+      data-testid={VOICE_CALL_TEST_IDS.surface}
+      className={cn(
+        `flex h-full min-h-0 w-full flex-col items-center justify-between gap-6 bg-background px-6 pt-[12vh] pb-12`,
+        className
+      )}
+      {...props}
+    >
+      <div className="flex min-h-0 w-full max-w-sm flex-col items-center text-center">
+        <CallAvatar agent={agent} activity={view.activity} level={level} bands={bands}>
+          {avatar}
+        </CallAvatar>
+        <h2 className="mt-2 max-w-full truncate text-2xl font-semibold tracking-tight text-foreground">{agent}</h2>
+        {view.status === null ? (
+          <span data-testid={VOICE_CALL_TEST_IDS.timer} className="mt-1 text-sm text-muted-foreground tabular-nums">
+            {timer}
+          </span>
+        ) : (
+          <span className="mt-1 text-sm text-muted-foreground">{view.status}</span>
+        )}
+        <p aria-live="polite" className="mt-8 line-clamp-4 min-h-6 text-base leading-relaxed text-foreground/90">
+          {view.caption}
+        </p>
       </div>
-      <div className="flex items-center gap-2">
-        <Pill size="md" mode="action" primary onClick={onEnd} data-testid={endTestId}>
-          {endLabel}
-        </Pill>
-        <Pill size="md" mode="action" onClick={onMute} aria-pressed={muted} data-testid={muteTestId}>
-          {mute}
-        </Pill>
-      </div>
-    </GlassCard>
+      <CallControls
+        buttons={view.buttons}
+        muted={view.muted}
+        speaker={view.speaker}
+        end={view.end}
+        ringing={ringing}
+        onMute={onMute}
+        onSpeaker={onSpeaker}
+        onEnd={onEnd}
+      />
+    </div>
   )
 }

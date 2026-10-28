@@ -1,9 +1,9 @@
 // NEW-67 (voice plan v3, V1): Settings → Voice, the member's ONE voice
 // settings row (`fixtures/voice.json`). One group: the voice device (THE
 // device picker's rows over `voiceDeviceOptions`, None first), the agent
-// (`agentOptions`, None first) and Speak replies; while a voice device is
-// picked the tray group follows under `trayHeader`. #NEW-73: Language
-// (`languages`, each read through `languageLabel`) follows Speak replies,
+// (`agentOptions`, None first); while a voice device is picked the tray group
+// follows under `trayHeader`. #NEW-73: Language (`languages`, each read
+// through `languageLabel`) follows the agent,
 // and while a voice device is picked the voice file + its transcript. Every switch reads off
 // and is disabled while the device or the agent is None, and choosing None
 // clears them (`clearOnNone`). Each change is an optimistic `voice.update`
@@ -13,6 +13,12 @@
 // `voice.stopMeeting` at once; its detail = `who`), Desktop audio over the
 // voice device's `doctor.desktopAudio` capability and, while it picks or
 // leaves out apps, the Apps multi-picker over `appOptions(live, stored)`.
+// S-3: speak-back is always on (no Speak replies row) and push to talk is a
+// key binding recorded on the voice device's IDE: here the Push to talk row
+// is READ-ONLY, the binding as keycaps (`shortcutLabel`, None while empty).
+// The Wake word row's detail says why it is or is not listening: the voice
+// device's doctor row `wake` verbatim, else `wakeDetail` (no agent, offline,
+// not reported yet).
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
@@ -23,10 +29,10 @@ import {
   VOICE_COPY,
   VOICE_LANGUAGES,
   VOICE_LIMITS,
-  VOICE_SHORTCUTS,
   VOICE_TEST_IDS,
   voiceDeviceOptions,
   voiceTextInput,
+  wakeDetail,
   wakePhraseError,
   wakePhrasePlaceholder,
   type VoiceAgentLike,
@@ -55,11 +61,14 @@ import {
   Picker,
   PickerTrigger,
   Prompt,
+  ShortcutKeys,
   type DevicePickerDevice,
 } from "@exp/ui"
+import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { agentCollection, deviceCollection, teamCollection } from "@/lib/collections"
+import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 
 export type VoiceSettings = Awaited<ReturnType<typeof trpc.voice.get.query>>
@@ -73,6 +82,30 @@ export interface VoiceDeviceRow {
   icon?: string | null
   /** #NEW-57: the device doctor's `desktopAudio` (absent = `none`, `[]`). */
   desktopAudio?: { capability: string; apps: readonly AudioApp[] } | null
+  /** S-3: the device is online (its heartbeat is fresh; absent = online). */
+  online?: boolean
+  /** S-3: its doctor row `wake` (group voice) detail; absent = not reported. */
+  wakeDetail?: string | null
+}
+
+/** S-3: the Wake word row's detail on a client that is not the voice
+ *  device: no agent and offline first (`wakeDetail`), then the device's own
+ *  words (its doctor row `wake`), else `starting`. */
+export function wakeRowDetail(
+  settings: { wakeWord: boolean; agentId: string | null },
+  device: VoiceDeviceRow | undefined,
+  deviceName: string
+): string | null {
+  const context = {
+    wakeWord: settings.wakeWord,
+    agent: settings.agentId !== null,
+    online: device?.online ?? false,
+    device: deviceName,
+    state: null,
+  }
+  const base = wakeDetail(context)
+  if (base === null || !context.agent || !context.online) return base
+  return device?.wakeDetail || base
 }
 
 /** #NEW-57: an unknown or absent capability reads as `none`. */
@@ -296,13 +329,6 @@ export function VoiceSettingsCard({
           onNone={() => apply({ agentId: null })}
           onChange={(agentId) => apply({ agentId })}
         />
-        <GlassToggleRow
-          id={VOICE_TEST_IDS.speakReplies}
-          label={VOICE_COPY.speakReplies}
-          checked={switchesLive && settings.speakReplies}
-          onCheckedChange={(speakReplies) => apply({ speakReplies })}
-          disabled={!switchesLive}
-        />
         <Picker
           mode="single"
           triggerVariant="row"
@@ -340,26 +366,19 @@ export function VoiceSettingsCard({
         <>
           <GlassSectionHeader label={trayHeader(deviceName)} />
           <GlassGroup>
-            <GlassToggleRow
-              id={VOICE_TEST_IDS.pushToTalk}
-              label={VOICE_COPY.pushToTalk}
-              checked={switchesLive && settings.pushToTalk}
-              onCheckedChange={(pushToTalk) => apply({ pushToTalk })}
-              disabled={!switchesLive}
-            />
-            <Picker
-              mode="single"
-              triggerVariant="row"
-              width="md"
-              mobileTitle={VOICE_COPY.shortcut}
+            {/* S-3: read-only here; keys are recorded on the voice device. */}
+            <div
+              data-slot="glass-value-row"
               data-testid={VOICE_TEST_IDS.shortcut}
-              value={settings.pttShortcut}
-              items={VOICE_SHORTCUTS}
-              onChange={(pttShortcut) => apply({ pttShortcut })}
-            />
+              className="flex items-center gap-3 px-4 py-3"
+            >
+              <span className="flex-1 text-sm font-normal">{VOICE_COPY.pushToTalk}</span>
+              <ShortcutKeys value={settings.pttShortcut} />
+            </div>
             <GlassToggleRow
               id={VOICE_TEST_IDS.wakeWord}
               label={VOICE_COPY.wakeWord}
+              description={switchesLive ? (wakeRowDetail(settings, voiceDevice, deviceName) ?? undefined) : undefined}
               checked={switchesLive && settings.wakeWord}
               onCheckedChange={(wakeWord) => apply({ wakeWord })}
               disabled={!switchesLive}
@@ -455,6 +474,7 @@ export function VoiceSettingsSection({ settings }: { settings: VoiceSettings }) 
   const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
   const { data: agentRows } = useLiveQuery((query) => query.from({ a: agentCollection }), [])
   const { data: teamRows } = useLiveQuery((query) => query.from({ t: teamCollection }), [])
+  const now = useNow(15_000)
 
   const devices = useMemo<VoiceDeviceRow[]>(
     () =>
@@ -466,8 +486,11 @@ export function VoiceSettingsSection({ settings }: { settings: VoiceSettings }) 
           kind: device.kind,
           icon: device.icon,
           desktopAudio: device.doctor?.desktopAudio ?? null,
+          online: deviceRowIsOnline(device.lastSeenAt, now),
+          wakeDetail:
+            device.doctor?.items.find((item) => item.key === `wake` && item.group === `voice`)?.detail ?? null,
         })),
-    [deviceRows, userId]
+    [deviceRows, userId, now]
   )
   const agents = useMemo<VoiceAgentRow[]>(() => {
     const teamNames = new Map((teamRows ?? []).map((team) => [team.id, team.name] as const))

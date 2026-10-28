@@ -153,7 +153,7 @@ function AgentChannelPage() {
         availability={callAvailability}
         agentName={name}
         active={voiceCall.call.active}
-        onCall={() => void voiceCall.call.start(agent.id, callAvailability.device)}
+        onCall={() => void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language)}
         className={className}
       />
       <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />
@@ -209,7 +209,11 @@ function AgentChannelPage() {
           {headerMenu(`shrink-0 text-muted-foreground`)}
         </div>
       )}
-      <VoiceCallOverlay {...voiceCall} />
+      <VoiceCallOverlay
+        {...voiceCall}
+        agentName={name}
+        avatar={<BoardGlyph board={{ icon: agent.icon, color: agent.color }} />}
+      />
       {/* EXP-1316 (1n): the session feed's scroll (opens at the newest
           row, follows while pinned, THE jump button once scrolled up). */}
       <div className="relative min-h-0 flex-1">

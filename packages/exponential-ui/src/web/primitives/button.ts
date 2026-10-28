@@ -41,6 +41,9 @@ export const buttonVariants = cva(
         // glass circle.
         "icon-sm": `size-8 rounded-full [&_svg:not([class*='size-'])]:size-4`,
         "icon-xs": `size-6 rounded-full [&_svg:not([class*='size-'])]:size-3`,
+        // S-3 (voice-call.json): the phone call's round buttons (styleguide
+        // `call-controls`): a 56px circle with a 24px glyph.
+        "icon-lg": `size-14 rounded-full [&_svg:not([class*='size-'])]:size-6`,
         // EXP-962: INLINE — no box at all: the words sit in the run of text
         // around them at 12px, only the colour (and, for `link`, the
         // underline) says they are a button. For `link` and `text`; the
@@ -56,7 +59,7 @@ export const buttonVariants = cva(
     compoundVariants: [
       {
         variant: `ghost`,
-        size: [`icon`, `icon-sm`, `icon-xs`],
+        size: [`icon`, `icon-sm`, `icon-xs`, `icon-lg`],
         className: `rounded-md`,
       },
       // EXP-1243: a boxed button presses to `scale.press` (motion-press);
@@ -69,7 +72,7 @@ export const buttonVariants = cva(
       },
       {
         variant: [`default`, `destructive`, `outline`, `glass`, `secondary`],
-        size: [`icon`, `icon-sm`, `icon-xs`],
+        size: [`icon`, `icon-sm`, `icon-xs`, `icon-lg`],
         className: `motion-press`,
       },
     ],

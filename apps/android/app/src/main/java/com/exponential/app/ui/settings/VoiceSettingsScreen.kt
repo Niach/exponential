@@ -1,6 +1,11 @@
 package com.exponential.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.semantics.semantics
+import com.exponential.app.domain.DeviceDoctor
+import com.exponential.app.domain.DeviceLiveness
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -68,6 +73,7 @@ import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.picker.devicePickerItems
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.components.ShortcutKeys
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -85,10 +91,14 @@ import kotlinx.coroutines.launch
 /**
  * NEW-67 (voice plan v3, V1): Settings → Personal → Voice (`voice.json`, the
  * same page on web, the IDE and iOS; on the phones it hangs off the account
- * page, the phone's Personal settings). ONE group (Voice device, Agent, Speak
- * replies, Language; Voice file + Transcript while a voice device is picked,
+ * page, the phone's Personal settings). ONE group (Voice device, Agent,
+ * Language; Voice file + Transcript while a voice device is picked,
  * #NEW-73), then while a voice device is picked the tray group under
- * `trayHeader` (Push to talk, Shortcut, Wake word, Wake phrase). Every switch
+ * `trayHeader` (Push to talk, Wake word, Wake phrase). S-3: speak-back is
+ * always on (no Speak replies row); Push to talk is the key binding, READ-ONLY
+ * here (keys are recorded on the voice device); the Wake word row's detail
+ * says why it is or is not listening (the voice device's doctor row `wake`,
+ * else `wakeDetail`). Every switch
  * reads off and is disabled while the device or the agent is None. Each
  * change saves at once with `voice.update` (optimistic; a refusal reverts and
  * toasts, feedback-states.json).
@@ -163,9 +173,12 @@ class VoiceSettingsViewModel @Inject constructor(
         val agentNames: Map<String, String> = emptyMap(),
         /** NEW-57: each own device's `doctor.desktopAudio` (capability + live apps). */
         val desktopAudio: Map<String, DesktopAudioDoctor> = emptyMap(),
+        /** S-3: each own device's doctor (its `wake` row) and whether it is online. */
+        val doctors: Map<String, DeviceDoctor?> = emptyMap(),
+        val online: Set<String> = emptySet(),
     )
 
-    val vocabulary: StateFlow<Vocabulary> = combine(devices, agents, teams) { devices, agents, teams ->
+    val vocabulary: StateFlow<Vocabulary> = combine(devices, agents, teams, DeviceLiveness.ticker()) { devices, agents, teams, now ->
         // The member's OWN devices; `voiceDeviceOptions` keeps the desktops.
         val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
         val teamNames = teams.associate { it.id to it.name }
@@ -187,6 +200,8 @@ class VoiceSettingsViewModel @Inject constructor(
             deviceNames = devices.associate { it.deviceId to it.label },
             agentNames = agents.associate { it.id to it.name },
             desktopAudio = own.associate { it.deviceId to (parseDeviceDoctor(it.doctor)?.desktopAudio ?: DesktopAudioDoctor()) },
+            doctors = own.associate { it.deviceId to parseDeviceDoctor(it.doctor) },
+            online = own.filter { DeviceLiveness.isOnline(it.lastSeenAt, now) }.map { it.deviceId }.toSet(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Vocabulary())
 
@@ -519,14 +534,6 @@ internal fun VoiceSettingsForm(
                 testTag = Voice.TestIds.AGENT,
             )
             GroupDivider()
-            SwitchRow(
-                title = Voice.Copy.SPEAK_REPLIES,
-                checked = armed && settings.speakReplies,
-                onCheckedChange = { onChange(Voice.Change(speakReplies = it)) },
-                enabled = armed,
-                modifier = Modifier.testTag(Voice.TestIds.SPEAK_REPLIES),
-            )
-            GroupDivider()
             // Every language carries its GPU note (#NEW-74), in the row and in the menu.
             val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: Voice.Copy.ELLIPSIS }
             ChoicePickerRow(
@@ -571,28 +578,30 @@ internal fun VoiceSettingsForm(
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
             OptionGroup {
-                SwitchRow(
-                    title = Voice.Copy.PUSH_TO_TALK,
-                    checked = armed && settings.pushToTalk,
-                    onCheckedChange = { onChange(Voice.Change(pushToTalk = it)) },
-                    enabled = armed,
-                    modifier = Modifier.testTag(Voice.TestIds.PUSH_TO_TALK),
+                // S-3: the binding, read-only (recorded on the voice device's IDE).
+                KeyBindingRow(
+                    label = Voice.Copy.PUSH_TO_TALK,
+                    value = settings.pttShortcut,
+                    modifier = Modifier.testTag(Voice.TestIds.SHORTCUT),
                 )
                 GroupDivider()
-                ChoicePickerRow(
-                    label = Voice.Copy.SHORTCUT,
-                    choices = Voice.shortcuts.map { it.value },
-                    selected = settings.pttShortcut,
-                    choiceLabel = { value -> Voice.shortcuts.firstOrNull { it.value == value }?.label ?: value },
-                    onSelect = { onChange(Voice.Change(pttShortcut = it)) },
-                    testTag = Voice.TestIds.SHORTCUT,
+                val wakeOn = armed && settings.wakeWord
+                val wakeDetail = Voice.wakeRowDetail(
+                    vocabulary.doctors[deviceId],
+                    Voice.WakeDetailContext(
+                        wakeWord = wakeOn,
+                        agent = settings.agentId != null,
+                        online = deviceId in vocabulary.online,
+                        device = vocabulary.deviceNames[deviceId] ?: Voice.Copy.ELLIPSIS,
+                        state = null,
+                    ),
                 )
-                GroupDivider()
                 SwitchRow(
                     title = Voice.Copy.WAKE_WORD,
-                    checked = armed && settings.wakeWord,
+                    checked = wakeOn,
                     onCheckedChange = { onChange(Voice.Change(wakeWord = it)) },
                     enabled = armed,
+                    description = wakeDetail,
                     modifier = Modifier.testTag(Voice.TestIds.WAKE_WORD),
                 )
                 GroupDivider()
@@ -718,6 +727,31 @@ private fun MeetingRows(
 }
 
 /**
+ * S-3: the Push to talk row on a phone: the binding's label as keycaps
+ * (`shortcutLabel`), `None` while no key is bound; no picker (keys are
+ * recorded on the voice device).
+ */
+@Composable
+private fun KeyBindingRow(label: String, value: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {}
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        ShortcutKeys(value)
+    }
+}
+
+/**
  * THE picker row (label left, value + chevron right) over [Voice.Option]s,
  * the shared `Picker` sheet behind it; a null id (None) rides as [NONE].
  */
@@ -750,8 +784,7 @@ private fun OptionPickerRow(
 }
 
 /**
- * #NEW-75: THE picker row over a choice that is never None (Language,
- * Shortcut): the same picker row + `Picker` sheet as [OptionPickerRow], the
+ * #NEW-75: THE picker row over a choice that is never None (Language): the same picker row + `Picker` sheet as [OptionPickerRow], the
  * row's value = the picked choice's label, read through [choiceLabel] in the
  * row and in the sheet alike.
  */

@@ -10,7 +10,7 @@ export { buttonVariants }
 type BaseButtonProps = React.ComponentProps<typeof BaseButton>
 
 /** The icon-only sizes: pending swaps the glyph for the spinner, no words. */
-const ICON_SIZES = new Set([`icon`, `icon-sm`, `icon-xs`])
+const ICON_SIZES = new Set([`icon`, `icon-sm`, `icon-xs`, `icon-lg`])
 
 /**
  * The shadcn Button + EXP-1275's PENDING state (feedback-states.json D8.2):

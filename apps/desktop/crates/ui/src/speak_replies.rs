@@ -7,10 +7,13 @@
 //! reduced to [`domain::voice::spoken_text`] and handed to the speech worker
 //! (`talk::SpeechClient`, the IDE's own executable as `__speech-worker`).
 //! While it plays, the conversation's Dock shows the Speaking banner with
-//! Stop (`steer_viewer::dock_banners`). The worker is started and the voice
-//! fetched as soon as the setting turns on, so the first reply does not wait
-//! for the download (~2-3 GB: the CrispASR runtime and Qwen3-TTS, NEW-74);
-//! it is shut down when the setting turns off. NEW-74: which languages are
+//! Stop (`steer_viewer::dock_banners`). S-3: SPEAK-BACK IS ALWAYS ON (the
+//! setting is gone): the voice device with an agent picked keeps the worker
+//! and the voice prepared, so the first reply does not wait for the
+//! download (~2-3 GB: the CrispASR runtime and Qwen3-TTS, NEW-74), and what
+//! is spoken is a VOICE TURN's reply only (voice.json `voiceTurn`): the
+//! running call's conversation, or the reply to a push-to-talk / wake turn
+//! ([`voice_turn`]); a typed message is never read aloud. NEW-74: which languages are
 //! spoken is what the worker reports (`talk::Event::Voices`): none without a
 //! usable GPU, so a reply there is shown, never spoken.
 
@@ -28,24 +31,22 @@ use domain::voice::{VoiceContext, VoiceMessage, VOICE};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct DeviceVoice {
     pub agent_id: Option<String>,
-    pub speak_replies: bool,
-    /// #NEW-54: push to talk or (#NEW-56) the wake word listens here (the
-    /// worker stays resident for it).
+    /// #NEW-54: push to talk or (#NEW-56) the wake word listens here.
     pub listen: bool,
     /// NEW-74: the language and voice file the worker speaks with.
     pub voice: talk::VoiceChoice,
 }
 
 impl DeviceVoice {
-    /// The worker runs here: an agent is picked and Speak replies or (#NEW-54)
-    /// push to talk is on.
+    /// The worker runs here: this is the voice device and an agent is
+    /// picked (S-3: speak-back is always on).
     pub(crate) fn active(&self) -> bool {
-        (self.speak_replies || self.listen) && self.agent_id.is_some()
+        self.agent_id.is_some()
     }
 
-    /// The voice (the TTS model) is wanted: Speak replies is on.
+    /// The voice (the TTS model) is wanted: always where the worker runs.
     fn speaks(&self) -> bool {
-        self.speak_replies && self.agent_id.is_some()
+        self.active()
     }
 }
 
@@ -63,8 +64,8 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     // NEW-74: the worker is prepared for every language; whether it speaks
     // is what it reports back (`voices`, empty without a usable GPU).
     // NEW-57: a meeting keeps the worker resident too.
-    let listen = settings.push_to_talk || settings.wake_word || settings.meeting();
-    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, listen, voice }
+    let listen = settings.push_to_talk() || settings.wake_word || settings.meeting();
+    DeviceVoice { agent_id: settings.agent_id, listen, voice }
 }
 
 /// NEW-78: THIS device listens: it is the member's voice device and Push to
@@ -72,7 +73,7 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
 /// Only then does its doctor carry the `microphone` row.
 pub(crate) fn listens_here(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
     let settings = settings.clone().clear_on_none();
-    (settings.push_to_talk || settings.wake_word) && settings.voice_device_id.as_deref() == Some(own_device_id)
+    (settings.push_to_talk() || settings.wake_word) && settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
 /// [`listens_here`] for the member's current settings (false before the
@@ -183,7 +184,21 @@ pub(crate) struct SpeakReplies {
     /// NEW-58: the signed-in account's settings arrived since it signed in
     /// (the tray's Screen memory tells "no voice device" from "not yet").
     settings_known: bool,
+    /// S-3: a push-to-talk / wake turn went out and waits for its reply
+    /// (voice.json `voiceTurn`): that conversation's next reply is spoken.
+    voice_turn: Option<VoiceTurn>,
 }
+
+/// S-3: a voice turn waiting for its reply.
+#[derive(Clone, Debug)]
+struct VoiceTurn {
+    session_id: String,
+    at: std::time::Instant,
+}
+
+/// How long a voice turn waits for its reply before a later one is
+/// treated as typed.
+const VOICE_TURN_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// #NEW-63 / #1278 review: `{data_dir}/talk` belongs to the MACHINE, shared
 /// by every account signed in here. It goes only once the same account's
@@ -282,6 +297,7 @@ pub fn install(cx: &mut App) {
             worker_ready: false,
             cleanup,
             settings_known: false,
+            voice_turn: None,
         }
     });
     cx.set_global(SpeakRepliesGlobal(entity.clone()));
@@ -297,9 +313,9 @@ pub fn install(cx: &mut App) {
                 }
                 // NEW-55: a running call's events (its microphone, its
                 // streamed reply audio) go to the call first.
+                // S-3: the call repaints only its own surfaces.
                 if crate::voice_call::owns(&event, cx) {
                     crate::voice_call::on_worker_event(event, cx);
-                    cx.refresh_windows();
                     return;
                 }
                 // NEW-57: what a meeting heard goes to the meeting host.
@@ -312,8 +328,10 @@ pub fn install(cx: &mut App) {
                     crate::push_to_talk::on_worker_event(event, cx);
                     return;
                 }
+                // S-3: what the windows draw of it (the Speaking banner,
+                // the download detail) repaints in `on_event`, only when it
+                // changed: never every window for every worker event.
                 entity.update(cx, |this, cx| this.on_event(event, cx));
-                cx.refresh_windows();
             });
         }
     })
@@ -403,6 +421,36 @@ pub(crate) fn stop(cx: &mut App) {
         });
         cx.refresh_windows();
     }
+}
+
+/// S-3: a push-to-talk / wake turn went out to `session_id` (the member's
+/// conversation with the voice agent): its reply is read aloud (voice.json
+/// `voiceTurn`; a typed message's never is).
+pub(crate) fn voice_turn(session_id: &str, cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, _| {
+            this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), at: std::time::Instant::now() });
+        });
+    }
+}
+
+/// S-3: a call was answered: the device says `text` (`callGreeting`) on the
+/// call's output stream, tracked like a reply (`speaking`, its `Finished`)
+/// so the call's Speaking follows it, but no agent message and no banner
+/// (no session). False = nothing here can speak it.
+pub(crate) fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
+    let Some(entity) = global(cx) else { return false };
+    let spoken = entity.update(cx, |this, cx| {
+        let Some(client) = this.client.as_ref() else { return false };
+        if this.voices_known && this.voices.is_empty() {
+            return false;
+        }
+        client.speak(id.clone(), text.clone());
+        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), title: text });
+        cx.notify();
+        true
+    });
+    spoken
 }
 
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
@@ -597,17 +645,24 @@ impl SpeakReplies {
         let voice = self.own_voice(cx);
         // NEW-55: while a call runs, ITS agent's conversation is spoken.
         let call_agent = crate::voice_call::agent_id(cx);
-        let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speak_replies) else {
+        let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speaks()) else {
             return;
         };
         let Some(conversation) = crate::session_data::my_conversation(agent_id, cx) else { return };
+        // S-3: only a voice turn's reply: the call's conversation, or the
+        // conversation a push-to-talk / wake turn went to.
+        if self.voice_turn.as_ref().is_some_and(|turn| turn.at.elapsed() > VOICE_TURN_TTL) {
+            self.voice_turn = None;
+        }
+        let turn = self.voice_turn.as_ref().is_some_and(|turn| turn.session_id == conversation.id);
+        let voice_turn = call_agent.is_some() || turn;
         let Some(store) = Store::try_global(cx) else { return };
         let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
         let voices: Vec<&str> = self.voices.iter().map(String::as_str).collect();
         let context = VoiceContext {
             agent_session_id: Some(conversation.id.as_str()),
             is_voice_device: true,
-            speak_replies: true,
+            voice_turn,
             language: self.settings.language(),
             voices: &voices,
             armed_at: self.gate.armed_at(),
@@ -652,6 +707,10 @@ impl SpeakReplies {
         }
         let Some(client) = self.client.as_ref() else { return };
         client.speak(row.id.clone(), spoken.clone());
+        // The turn got its reply.
+        if turn {
+            self.voice_turn = None;
+        }
         self.speaking = Some(Speaking {
             message_id: row.id.clone(),
             session_id: conversation.id.clone(),
@@ -662,6 +721,8 @@ impl SpeakReplies {
 
     fn on_event(&mut self, event: talk::Event, cx: &mut Context<Self>) {
         let download_before = self.download.clone();
+        let speaking_before = self.speaking.clone();
+        let ready_before = (self.worker_ready, self.voices_known, self.voices.clone());
         let speech_before = self.speech_state(cx);
         match event {
             talk::Event::Downloading { received, total } => self.download = Download::Running { received, total },
@@ -732,11 +793,14 @@ impl SpeakReplies {
                 }
             });
         }
-        // Settings → Voice draws the download as the Speak replies detail.
-        if self.download != download_before {
+        // Settings → Voice draws the download, the Dock the Speaking banner:
+        // the windows repaint only when one of them changed.
+        if self.download != download_before || self.speaking != speaking_before {
             cx.refresh_windows();
         }
-        cx.notify();
+        if self.download != download_before || self.speaking != speaking_before || (self.worker_ready, self.voices_known, self.voices.clone()) != ready_before {
+            cx.notify();
+        }
     }
 
     /// The worker ended. A shutdown we asked for (setting off, sign-out)
@@ -795,20 +859,23 @@ mod tests {
         let settings = domain::voice::VoiceSettings {
             voice_device_id: Some("mac".into()),
             agent_id: Some("a1".into()),
-            push_to_talk: true,
+            ptt_shortcut: "ctrl+space".into(),
             ..Default::default()
         };
         assert!(listens_here(&settings, "mac"));
         assert!(!listens_here(&settings, "pc"));
-        let off = domain::voice::VoiceSettings { push_to_talk: false, ..settings.clone() };
+        let off = domain::voice::VoiceSettings { ptt_shortcut: String::new(), ..settings.clone() };
         assert!(!listens_here(&off, "mac"));
-        // #NEW-56: the wake word alone listens too, and keeps the worker up.
+        // #NEW-56: the wake word alone listens too.
         let wake = domain::voice::VoiceSettings { wake_word: true, ..off.clone() };
         assert!(listens_here(&wake, "mac"));
-        assert!(voice_here(&wake, "mac").active());
-        assert!(!voice_here(&off, "mac").active());
-        // clearOnNone: no agent picked = nothing listens.
-        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
+        assert!(voice_here(&wake, "mac").listen);
+        // S-3: speak-back is always on: the voice device keeps the worker
+        // without a key or the wake word too.
+        assert!(voice_here(&off, "mac").active() && !voice_here(&off, "mac").listen);
+        // clearOnNone (S-3: only the wake word): no agent picked = the wake
+        // word does not listen.
+        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..wake };
         assert!(!listens_here(&no_agent, "mac"));
     }
 
@@ -855,9 +922,6 @@ mod tests {
         let mine = domain::voice::VoiceSettings { voice_device_id: Some("d-mint".into()), ..Default::default() };
         assert!(settings_name_this_device(&mine, "d-mint"), "the voice device keeps its data");
         assert!(!settings_name_this_device(&mine, "d-mac"));
-        // Speak replies off on the voice device keeps the download (#NEW-63 plan v3).
-        let off = domain::voice::VoiceSettings { speak_replies: false, ..mine.clone() };
-        assert!(settings_name_this_device(&off, "d-mint"));
         assert!(!settings_name_this_device(&domain::voice::VoiceSettings::default(), "d-mint"));
     }
 
@@ -920,7 +984,6 @@ mod tests {
         let settings = domain::voice::VoiceSettings {
             voice_device_id: Some("d-mint".into()),
             agent_id: Some("a1".into()),
-            speak_replies: true,
             ..Default::default()
         };
         assert!(voice_here(&settings, "d-mint").active());
@@ -940,10 +1003,8 @@ mod tests {
         assert_eq!(voice_here(&settings, "d-mint").voice.language, "en", "unset reads as English");
         let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings.clone() };
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
-        // #NEW-54: push to talk alone keeps the worker, never the voice.
-        let listen_only = domain::voice::VoiceSettings { speak_replies: false, push_to_talk: true, ..settings };
-        let here = voice_here(&listen_only, "d-mint");
-        assert!(here.active() && !here.speaks());
+        // S-3: speak-back is always on: the worker prepares the voice.
+        assert!(voice_here(&settings, "d-mint").speaks());
     }
 
 }

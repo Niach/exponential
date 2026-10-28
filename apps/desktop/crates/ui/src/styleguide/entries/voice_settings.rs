@@ -1,21 +1,24 @@
 //! NEW-67 — `voice-settings` (3 Special components): Settings → Personal →
 //! Voice (`fixtures/voice.json`), drawn by the pane's own
 //! [`crate::settings::voice_prefs::voice_rows`] over static values: mint as
-//! the voice device, Studio as the agent, Speak replies on, the tray group
-//! with Push to talk and Wake word off, Ctrl + Space and an empty wake phrase
-//! (placeholder "Hey Studio"), as the web entry. The rows
+//! the voice device, Studio as the agent (S-3: replies are always spoken, no
+//! Speak replies row), the tray group with Push to talk bound to Ctrl +
+//! Space (read-only keycaps, as on another device; the voice device's own
+//! IDE records it: "Press any key or combination…"), Wake word off and an
+//! empty wake phrase (placeholder "Hey Studio"), as the web entry. The rows
 //! are inert here (no `on_change`); the pane wires the same rows to
 //! `voice.update`.
 //!
 //! NEW-68: the voice device's IDE also shows a system tray item
 //! (`crate::voice_tray`) whose menu is OS-native, not a styleguide
-//! component: Open Exponential first (Call {agent} after it once calls
-//! land, V4), then Speak replies, Push to talk · {shortcut} and Wake word ·
-//! {phrase} as check items (disabled while the device or the agent is None,
-//! as on this page; #NEW-58: Screen memory ("Screen memory · Paused" while
-//! a private window is focused; device-local, always enabled) and Mute
-//! microphone follow them, Mute while the microphone listens: Push to talk
-//! on and its worker up), then
+//! component: Open Exponential first (Call {agent} after it, End call while
+//! a call runs), then Push to talk · {shortcut} (S-3: an action while a key
+//! is bound, opening this page) and Wake word · {phrase} as a check item
+//! (disabled while the device or the agent is None, as on this page;
+//! #NEW-58: Screen memory ("Screen memory · Paused" while a private window
+//! is focused; device-local, always enabled) and Mute microphone follow
+//! them, Mute while the microphone listens: a key bound or the wake word,
+//! and its worker up), then
 //! Voice settings… (opens this page) and Quit.
 //!
 //! #NEW-57 (`fixtures/meeting.json`): after the wake phrase the tray group
@@ -53,7 +56,7 @@ use super::composer_dialog::OpenMenu;
 use crate::icons::registry;
 
 use crate::controls::glass_input;
-use crate::settings::voice_prefs::{apps_control, voice_rows, MeetingRows, VoiceInputs};
+use crate::settings::voice_prefs::{apps_control, voice_rows, MeetingRows, ShortcutRecorder, VoiceInputs};
 use crate::surface;
 
 pub(crate) const ID: &str = "voice-settings";
@@ -72,8 +75,6 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
     let settings = VoiceSettings {
         voice_device_id: Some("d-mint".into()),
         agent_id: Some("a1".into()),
-        speak_replies: true,
-        push_to_talk: false,
         ptt_shortcut: "ctrl+space".into(),
         wake_word: false,
         wake_phrase: String::new(),
@@ -107,7 +108,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         apps: apps_control(&settings, &[], None, window, cx),
         on_meeting: None,
     };
-    for row in voice_rows(&settings, &devices, &agents, inputs, meeting, None, cx) {
+    for row in voice_rows(&settings, &devices, &agents, inputs, meeting, ShortcutRecorder::default(), None, cx) {
         body = body.child(row);
     }
     div().w_full().max_w(px(560.)).child(body).child(div().mt_8().child(rail_voice_specimen(window, cx))).child(div().mt_8().child(rail_meeting_specimen(window, cx)))
@@ -121,8 +122,6 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
     let settings = VoiceSettings {
         voice_device_id: Some("d-mint".into()),
         agent_id: Some("a1".into()),
-        speak_replies: true,
-        push_to_talk: true,
         ptt_shortcut: "ctrl+space".into(),
         wake_word: true,
         wake_phrase: String::new(),
@@ -142,6 +141,7 @@ fn rail_voice_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
         screen_memory: Some(ScreenMemoryState { on: true, paused: true }),
         meeting: None,
         pause: None,
+        in_call: false,
     };
     let Some(rail) = rail_voice(&settings, &context, true, false, false) else { return div() };
     let caption = format!(
@@ -159,7 +159,6 @@ fn rail_meeting_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
     let settings = VoiceSettings {
         voice_device_id: Some("d-mint".into()),
         agent_id: Some("a1".into()),
-        speak_replies: true,
         ptt_shortcut: "ctrl+space".into(),
         language: "en".into(),
         meeting_started_at: Some("2026-10-28T10:00:00.000Z".into()),
@@ -176,6 +175,7 @@ fn rail_meeting_specimen(window: &mut Window, cx: &mut App) -> gpui::Div {
         screen_memory: None,
         meeting: Some(domain::voice::MeetingTrayState { on: true, who: "You, Zoom and Slack" }),
         pause: Some(false),
+        in_call: false,
     };
     let Some(rail) = rail_voice(&settings, &context, false, true, false) else { return div() };
     let caption = format!(

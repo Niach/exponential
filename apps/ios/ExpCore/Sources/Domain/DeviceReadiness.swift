@@ -186,6 +186,7 @@ public enum DeviceReadiness {
         "accessibility": "Accessibility",
         "microphone": "Microphone",
         "speech": "Speech",
+        "wake": "Wake word",
         "disk": "Disk",
     ]
 

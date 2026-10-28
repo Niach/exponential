@@ -174,10 +174,14 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
 /// NEW-78 / NEW-55: the voice rows THIS device adds, read on the main thread.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct VoiceRows {
-    /// Push to talk listens here: the `microphone` row.
+    /// A bound key or the wake word listens here: the `microphone` row.
     pub listening: bool,
-    /// Speak replies runs here and the worker answered: the `speech` row.
+    /// THIS device is the voice device and the worker answered: the
+    /// `speech` row (S-3: speak-back is always on).
     pub speech: Option<device_doctor::SpeechState>,
+    /// S-3: THIS device is the voice device with the wake word on: the
+    /// `wake` row.
+    pub wake: Option<WakeRow>,
     /// NEW-57: THIS device is the voice device: `doctor.desktopAudio`.
     pub voice_device: bool,
     /// NEW-57: ... with Desktop audio not off: the `desktop_audio` row.
@@ -185,6 +189,25 @@ pub(crate) struct VoiceRows {
     /// NEW-57: `doctor.desktopAudio.apps` names what plays right now
     /// ([`reports_apps`]); else `[]`.
     pub apps: bool,
+}
+
+/// S-3: what the `wake` row reads (voice.json WAKE DETAIL), sampled on the
+/// main thread.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WakeRow {
+    /// An agent is picked.
+    pub agent: bool,
+    /// `push_to_talk::wake_state` (None = not reported yet).
+    pub state: Option<domain::voice::WakeState>,
+}
+
+/// S-3: the `wake` row's state and detail: ok while listening, else off;
+/// the detail is the device's own `wake_detail` (always online here).
+pub(crate) fn wake_row(row: WakeRow) -> (bool, String) {
+    let context =
+        domain::voice::WakeDetailContext { wake_word: true, agent: row.agent, online: true, device: "", state: row.state };
+    let listening = row.agent && row.state == Some(domain::voice::WakeState::Listening);
+    (listening, domain::voice::wake_detail(&context).unwrap_or_default())
 }
 
 /// meeting.json: the live app names ride the heartbeat only on the voice
@@ -213,9 +236,14 @@ pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
         .map(|auth| steer::persistent_device_id(&auth.data_dir));
     let voice_device = device_id.as_deref().is_some_and(|id| settings.voice_device_id.as_deref() == Some(id));
     let shared = device_id.as_deref().is_none_or(|id| own_device_shared(id, cx));
+    let wake_word = settings.clone().clear_on_none().wake_word;
     VoiceRows {
-        listening: crate::speak_replies::push_to_talk_here(cx),
-        speech: crate::speak_replies::speech_state(cx),
+        listening: device_id.as_deref().is_some_and(|id| crate::push_to_talk::listens_here(&settings, id)),
+        speech: crate::speak_replies::speech_state(cx).filter(|_| voice_device),
+        wake: (voice_device && settings.wake_word).then(|| WakeRow {
+            agent: settings.agent_id.is_some(),
+            state: if wake_word { crate::push_to_talk::wake_state(cx) } else { None },
+        }),
         voice_device,
         desktop_audio: voice_device && settings.desktop_audio != domain::meeting::DesktopAudio::Off,
         apps: reports_apps(voice_device, settings.desktop_audio, shared),
@@ -228,6 +256,10 @@ pub(crate) fn add_voice_rows(doctor: &mut DeviceDoctor, rows: VoiceRows) {
     add_microphone_row(doctor, rows.listening);
     if let Some(speech) = rows.speech {
         device_doctor::add_speech(doctor, speech);
+    }
+    if let Some(wake) = rows.wake {
+        let (listening, detail) = wake_row(wake);
+        device_doctor::add_wake(doctor, listening, &detail);
     }
     add_desktop_audio(doctor, rows);
 }
@@ -267,7 +299,7 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
 }
 
 /// NEW-78: the IDE's `microphone` row, appended only while THIS device
-/// listens (`speak_replies::listens_here`); the CLI daemon never adds it.
+/// listens (`push_to_talk::listens_here`); the CLI daemon never adds it.
 /// Probes the OS (`talk::microphone`, a `pactl` run on Linux): background
 /// executor only. The mapping lives here because coding never depends on talk.
 pub(crate) fn add_microphone_row(doctor: &mut DeviceDoctor, listening: bool) {
@@ -1253,6 +1285,22 @@ mod tests {
         assert!(!reports_apps(true, DesktopAudio::All, false), "Everything needs no names");
         assert!(!reports_apps(true, DesktopAudio::Off, false));
         assert!(!reports_apps(false, DesktopAudio::Include, false), "not the voice device");
+    }
+
+    /// S-3: the doctor's `wake` row: ok while listening, the device's own
+    /// wake detail as the text every other client shows.
+    #[test]
+    fn the_wake_row_carries_the_devices_wake_detail() {
+        use domain::voice::WakeState;
+        assert_eq!(wake_row(WakeRow { agent: true, state: Some(WakeState::Listening) }), (true, "Listening".into()));
+        assert_eq!(wake_row(WakeRow { agent: true, state: Some(WakeState::Muted) }), (false, "Microphone muted".into()));
+        assert_eq!(wake_row(WakeRow { agent: true, state: None }), (false, "Starting…".into()));
+        assert_eq!(wake_row(WakeRow { agent: false, state: None }), (false, "Pick an agent".into()));
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        let rows = VoiceRows { wake: Some(WakeRow { agent: true, state: Some(WakeState::MicBusy) }), ..Default::default() };
+        add_voice_rows(&mut doctor, rows);
+        let wake = doctor.items.iter().find(|item| item.key == "wake").unwrap();
+        assert_eq!((wake.state, wake.detail.as_deref()), (DoctorState::Off, Some("A call is using the microphone")));
     }
 
     #[test]

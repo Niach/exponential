@@ -33,6 +33,14 @@
 //! remote call, from [`Job::Audio`] only. Mute drops the audio; Hangup ends
 //! it without an answer.
 //!
+//! S-3: a call WARMS UP while it rings: it is pending until the engines are
+//! up (a download included: the call waits for it, `Downloading` keeps
+//! coming, and only a failed download or load fails it, `unavailable`),
+//! then its microphone (local) or stream intake (remote) opens, and once
+//! the voice is settled too ([`Links::voice_ready`]) `CallListening` goes
+//! out. Nothing is heard before it (the canceller keeps pace, nothing is
+//! metered or transcribed).
+//!
 //! NEW-57: the same thread runs a MEETING ([`crate::meeting`]): it owns the
 //! microphone (channel `you`) and the desktop audio [`Hearing::apps`] opens,
 //! once no Listen or Call runs, until MeetingStop; the wake word's scan
@@ -486,7 +494,7 @@ impl<H: Hearing> Active<H> {
     fn hears_a_mic(&self) -> bool {
         match self {
             Active::Listen(_) => true,
-            Active::Call(calling) => calling.mic.is_some(),
+            Active::Call(calling) => calling.ears.as_ref().is_some_and(|ears| ears.mic.is_some()),
         }
     }
 }
@@ -521,19 +529,71 @@ type WakeReport = (bool, Option<ListenFailure>);
 /// NEW-55: a call.
 struct Calling<H: Hearing> {
     call: Call,
+    remote: bool,
+    /// S-3: `None` while the call warms up (the engines load or download).
+    ears: Option<CallEars<H>>,
+    muted: bool,
+    /// S-3: `CallListening` went out: only from then on is anything heard.
+    listening: bool,
+    /// S-3: the input's peak level (dBFS) this second and over the call.
+    level: InputLevel,
+}
+
+/// S-3: a call's VAD and, local, its microphone and echo canceller.
+struct CallEars<H: Hearing> {
     vad: H::Vad,
     /// `None` = remote: the audio comes as [`Job::Audio`].
     mic: Option<H::Mic>,
     /// Local calls only.
     echo: Option<Echo>,
-    muted: bool,
+}
+
+/// S-3 ("it does not detect my speech"): the raw input's peak per second
+/// (logged at debug) and over the whole call (logged once at its end).
+struct InputLevel {
+    second: Instant,
+    peak: f32,
+    max: f32,
+}
+
+impl Default for InputLevel {
+    fn default() -> Self {
+        InputLevel { second: Instant::now(), peak: 0.0, max: 0.0 }
+    }
+}
+
+impl InputLevel {
+    fn hear(&mut self, id: &str, samples: &[f32]) {
+        let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+        self.peak = self.peak.max(peak);
+        self.max = self.max.max(peak);
+        if self.second.elapsed() >= Duration::from_secs(1) {
+            crate::debug(&format!("call {id}: input peak {:.1} dBFS", dbfs(self.peak)));
+            self.peak = 0.0;
+            self.second = Instant::now();
+        }
+    }
+}
+
+/// A sample's magnitude in dBFS (-120 for silence).
+fn dbfs(peak: f32) -> f32 {
+    if peak > 0.0 { (20.0 * peak.log10()).max(-120.0) } else { -120.0 }
 }
 
 impl<H: Hearing> Calling<H> {
-    /// Hear `samples` (echo-cancelled when local; dropped while muted).
+    fn new(id: String, language: &str, remote: bool) -> Self {
+        Calling { call: Call::new(id, language), remote, ears: None, muted: false, listening: false, level: InputLevel::default() }
+    }
+
+    /// Hear `samples` (echo-cancelled when local; dropped while muted, and
+    /// S-3 before `CallListening`).
     fn hear(&mut self, samples: &[f32], engines: &mut H::Engines, links: &Links) -> Result<(), (ListenFailure, String)> {
+        let Some(ears) = self.ears.as_mut() else { return Ok(()) };
+        if self.listening && !self.muted {
+            self.level.hear(self.call.id(), samples);
+        }
         let cleaned;
-        let samples = match &mut self.echo {
+        let samples = match &mut ears.echo {
             // Also while muted: the reference keeps pace with the microphone.
             Some(echo) => {
                 cleaned = echo.cancel(samples);
@@ -541,19 +601,17 @@ impl<H: Hearing> Calling<H> {
             }
             None => samples,
         };
-        if self.muted {
+        if self.muted || !self.listening {
             return Ok(());
         }
-        if let Some(echo) = &self.echo {
+        if let Some(echo) = &ears.echo {
             // #NEW-92: the barge-in gate hears what the canceller says.
             self.call.set_echo(echo.state());
-        }
-        if self.echo.is_some() {
             // #NEW-92: the reply's own words are its echo (unless the
             // utterance barged in): dropped, never a turn.
             self.call.set_spoken((links.spoken)());
         }
-        self.call.feed(samples, &mut self.vad, engines, &mut |event| {
+        self.call.feed(samples, &mut ears.vad, engines, &mut |event| {
             if matches!(event, Event::SpeechStarted { .. }) {
                 // Barge-in: the reply stops (its Finished goes out) BEFORE
                 // the host hears that the person talks.
@@ -561,6 +619,57 @@ impl<H: Hearing> Calling<H> {
             }
             (links.emit)(&event);
         })
+    }
+
+    /// S-3: warm the call up: the engines (a download keeps it pending:
+    /// `Ok`), then its VAD and microphone (unless a Hangup or a newer
+    /// Listen/Call came meanwhile), then, once the voice is settled too,
+    /// `CallListening`. `Err` fails the call.
+    fn warm_up(
+        &mut self,
+        hearing: &mut H,
+        rx: &Receiver<Job>,
+        backlog: &mut VecDeque<Job>,
+        links: &Links,
+    ) -> Result<(), (ListenFailure, String)> {
+        if self.ears.is_none() {
+            match hearing.prepare(!self.remote) {
+                Ok(()) => {}
+                // The ring goes on; the download's progress reaches the host.
+                Err((ListenFailure::Downloading, _)) => return Ok(()),
+                Err(failed) => return Err(failed),
+            }
+            // A load takes seconds: what arrived meanwhile comes first.
+            backlog.extend(rx.try_iter());
+            let id = self.call.id();
+            if backlog.iter().any(|job| job.starts() || matches!(job, Job::Hangup { id: other } if other == id)) {
+                return Ok(());
+            }
+            let vad = hearing.vad()?;
+            let mic = if self.remote { None } else { Some(hearing.mic()?) };
+            let echo = (!self.remote).then(|| Echo::new(links.far.clone()));
+            self.ears = Some(CallEars { vad, mic, echo });
+        }
+        if !self.listening && (links.voice_ready)() {
+            self.listening = true;
+            self.level = InputLevel::default();
+            eprintln!(
+                "call {}: listening ({})",
+                self.call.id(),
+                if self.remote { "the caller's stream" } else { "the microphone, echo-cancelled" }
+            );
+            (links.emit)(&Event::CallListening { id: self.call.id().to_string() });
+        }
+        Ok(())
+    }
+}
+
+impl<H: Hearing> Drop for Calling<H> {
+    /// S-3: one line per call: how loud the member's input ever got.
+    fn drop(&mut self) {
+        if self.listening {
+            eprintln!("call {}: ended; loudest input {:.1} dBFS", self.call.id(), dbfs(self.level.max));
+        }
     }
 }
 
@@ -578,6 +687,9 @@ pub struct Links {
     /// #NEW-92: the sentences of the reply a local call may still hear
     /// (empty = none): an utterance made of their words is the echo.
     pub spoken: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
+    /// S-3: the voice is settled (loaded, or known unavailable): a call
+    /// says `CallListening` only then, so its greeting can be spoken.
+    pub voice_ready: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 impl Links {
@@ -590,6 +702,7 @@ impl Links {
             emit: Arc::new(emit),
             speaking: Arc::new(|| false),
             spoken: Arc::new(Vec::new),
+            voice_ready: Arc::new(|| true),
         }
     }
 }
@@ -789,6 +902,17 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     };
     loop {
         hearing.poll();
+        // S-3: a call warming up advances (its download, the load, its
+        // microphone, CallListening).
+        if let Some(Active::Call(calling)) = active.as_mut() {
+            if let Err((reason, detail)) = calling.warm_up(hearing, rx, &mut backlog, links) {
+                let id = calling.call.id().to_string();
+                eprintln!("call {id}: could not listen ({reason:?}): {detail}");
+                active = None;
+                links.listening.end(&id);
+                emit(Event::ListenFailed { id, reason, detail });
+            }
+        }
         // NEW-57: a wanted meeting takes the microphone once no Listen or
         // Call runs (the wake scan lets it go).
         let meeting_due = meeting_retry.is_none_or(|at| Instant::now() >= at);
@@ -839,8 +963,10 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 Err(TryRecvError::Disconnected) => break,
             }
         } else if hearing.downloading() || active.is_some() || wake.is_some() || meeting_wanted.is_some() {
-            // A remote call hears its audio as jobs.
-            match rx.recv_timeout(Duration::from_millis(250)) {
+            // A remote call hears its audio as jobs; S-3: a call warming up
+            // looks again soon (the voice may settle any moment).
+            let warming = matches!(&active, Some(Active::Call(calling)) if !calling.listening);
+            match rx.recv_timeout(Duration::from_millis(if warming { 50 } else { 250 })) {
                 Ok(job) => Some(job),
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -995,7 +1121,8 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     }
                 },
                 Active::Call(calling) => {
-                    let received = calling.mic.as_ref().map(|mic| mic.recv_timeout(Duration::from_millis(20)));
+                    let mic = calling.ears.as_ref().and_then(|ears| ears.mic.as_ref());
+                    let received = mic.map(|mic| mic.recv_timeout(Duration::from_millis(20)));
                     let failed = match received {
                         Some(Ok(samples)) => calling.hear(&samples, engines, links).err(),
                         Some(Err(RecvTimeoutError::Timeout)) | None => None,
@@ -1130,10 +1257,8 @@ fn handle<H: Hearing>(
             if let Some(replaced) = active.take() {
                 links.listening.end(replaced.id());
             }
-            *active = start_call(hearing, rx, backlog, id.clone(), language_of(&language), remote, links).map(Active::Call);
-            if active.is_none() {
-                links.listening.end(&id);
-            }
+            // S-3: it warms up on the loop's next passes (Calling::warm_up).
+            *active = Some(Active::Call(Calling::new(id, language_of(&language), remote)));
         }
         Job::End { id } => {
             if matches!(active, Some(Active::Listen(held)) if held.utterance.id() == id) {
@@ -1154,7 +1279,7 @@ fn handle<H: Hearing>(
             }
             let Some(Active::Call(running)) = active.as_mut() else { unreachable!("checked") };
             // Only a remote call takes streamed audio.
-            if running.mic.is_some() {
+            if !running.remote {
                 return;
             }
             if let Err((reason, detail)) = running.hear(&samples, hearing.engines(), links) {
@@ -1171,10 +1296,10 @@ fn handle<H: Hearing>(
             if muted && !running.muted {
                 // The open utterance is dropped, never half said.
                 running.call.reset();
-            } else if !muted && running.muted {
+            } else if !muted && running.muted && running.ears.is_some() {
                 // A fresh VAD: its stream starts with the unmuted audio.
                 match hearing.vad() {
-                    Ok(vad) => running.vad = vad,
+                    Ok(vad) => running.ears.as_mut().expect("checked").vad = vad,
                     Err((reason, detail)) => {
                         *active = None;
                         links.listening.end(&id);
@@ -1244,49 +1369,6 @@ fn start<H: Hearing>(
         }
     };
     Some(Held { utterance: Utterance::new(id, language), mic, vad, started: Instant::now(), woken: false })
-}
-
-/// NEW-55: like [`start`]: the engines, then (unless a Hangup or a newer
-/// Listen/Call arrived meanwhile) the VAD and, for a local call, the
-/// microphone and its echo canceller.
-fn start_call<H: Hearing>(
-    hearing: &mut H,
-    rx: &Receiver<Job>,
-    backlog: &mut VecDeque<Job>,
-    id: String,
-    language: &str,
-    remote: bool,
-    links: &Links,
-) -> Option<Calling<H>> {
-    let fail = |reason: ListenFailure, detail: String| {
-        (links.emit)(&Event::ListenFailed { id: id.clone(), reason, detail });
-        None
-    };
-    if let Err((reason, detail)) = hearing.prepare(!remote) {
-        return fail(reason, detail);
-    }
-    backlog.extend(rx.try_iter());
-    if let Some(index) = backlog.iter().position(|job| matches!(job, Job::Hangup { id: other } if *other == id)) {
-        backlog.remove(index);
-        return None;
-    }
-    if backlog.iter().any(Job::starts) {
-        return None;
-    }
-    let vad = match hearing.vad() {
-        Ok(vad) => vad,
-        Err((reason, detail)) => return fail(reason, detail),
-    };
-    let mic = if remote {
-        None
-    } else {
-        match hearing.mic() {
-            Ok(mic) => Some(mic),
-            Err((reason, detail)) => return fail(reason, detail),
-        }
-    };
-    let echo = (!remote).then(|| Echo::new(links.far.clone()));
-    Some(Calling { call: Call::new(id, language), vad, mic, echo, muted: false })
 }
 
 /// The key was released: take what the microphone still holds, close it,
@@ -1388,6 +1470,9 @@ pub(crate) mod fake {
         /// NEW-57: each desktop capture opened (its sender) and the
         /// selection it was opened for.
         pub apps: Arc<Mutex<Vec<(talk::apps::Selection, Sender<talk::apps::Chunk>)>>>,
+        /// S-3: `prepare` answers `Downloading` this many more times; then
+        /// `failed` decides whether the download failed.
+        pub downloads: Arc<Mutex<(usize, bool)>>,
     }
 
     /// NEW-57: desktop audio the test plays.
@@ -1410,6 +1495,7 @@ pub(crate) mod fake {
                 opened_tx,
                 loads: Arc::new(Mutex::new(slow.then_some(loads))),
                 apps: Arc::default(),
+                downloads: Arc::default(),
             };
             (probe, opened, slow.then_some(release))
         }
@@ -1450,6 +1536,16 @@ pub(crate) mod fake {
         type Mic = FakeMic;
 
         fn prepare(&mut self, _microphone: bool) -> Result<(), (ListenFailure, String)> {
+            {
+                let mut downloads = self.probe.downloads.lock().unwrap();
+                if downloads.0 > 0 {
+                    downloads.0 -= 1;
+                    return Err((ListenFailure::Downloading, "downloading".into()));
+                }
+                if downloads.1 {
+                    return Err((ListenFailure::Unavailable, "the download failed".into()));
+                }
+            }
             if let Some(loads) = self.probe.loads.lock().unwrap().take() {
                 let _ = loads.recv();
             }
@@ -1604,8 +1700,9 @@ mod tests {
     }
 
     /// One phrase: 0.2 s quiet, `seconds` of speech, 0.5 s quiet.
+    /// The pause after it closes a call's utterance too (S-3: 700 ms).
     fn phrase(seconds: f32) -> Vec<f32> {
-        [tone(0.2, 0.0), tone(seconds, 0.3), tone(0.5, 0.0)].concat()
+        [tone(0.2, 0.0), tone(seconds, 0.3), tone(0.9, 0.0)].concat()
     }
 
     /// A call's listener with its events (the barge marked as `barge`).
@@ -1618,6 +1715,8 @@ mod tests {
         speaking: Arc<std::sync::atomic::AtomicBool>,
         /// What `Links::spoken` answers (the reply's sentences).
         spoken: Arc<Mutex<Vec<String>>>,
+        /// S-3: the voice is settled (CallListening waits for it).
+        voice: Arc<std::sync::atomic::AtomicBool>,
         tx: Option<Sender<Job>>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
@@ -1634,6 +1733,8 @@ mod tests {
             let plays = speaking.clone();
             let spoken: Arc<Mutex<Vec<String>>> = Arc::default();
             let replying = spoken.clone();
+            let voice = Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let settled = voice.clone();
             let links = Links {
                 listening: listening.clone(),
                 barge: Arc::new(move || barged.lock().unwrap().push(Event::Finished { id: BARGE.into(), stopped: true })),
@@ -1641,10 +1742,11 @@ mod tests {
                 emit: Arc::new(move |event| sink.lock().unwrap().push(event.clone())),
                 speaking: Arc::new(move || plays.load(Ordering::SeqCst)),
                 spoken: Arc::new(move || replying.lock().unwrap().clone()),
+                voice_ready: Arc::new(move || settled.load(Ordering::SeqCst)),
             };
             let hearing = probe.hearing();
             let (tx, thread) = spawn(move || hearing, links);
-            Harness { probe, opened, listening, events, speaking, spoken, tx: Some(tx), thread: Some(thread) }
+            Harness { probe, opened, listening, events, speaking, spoken, voice, tx: Some(tx), thread: Some(thread) }
         }
 
         fn send(&self, job: Job) {
@@ -1800,10 +1902,11 @@ mod tests {
                 Event::Finished { id, .. } if id == BARGE => "barge".to_string(),
                 Event::SpeechStarted { id } => format!("started {id}"),
                 Event::Said { id, text } => format!("said {id} {text}"),
+                Event::CallListening { id } => format!("listening {id}"),
                 other => format!("{other:?}"),
             })
             .collect();
-        assert_eq!(kinds, ["barge", "started c1", "said c1 clip1", "barge", "started c1", "said c1 clip2"]);
+        assert_eq!(kinds, ["listening c1", "barge", "started c1", "said c1 clip1", "barge", "started c1", "said c1 clip2"]);
         assert!(harness.listening.active(), "a call runs until Hangup");
         let events = harness.close();
         assert!(!events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::Empty { .. })));
@@ -1856,6 +1959,8 @@ mod tests {
         let harness = Harness::new();
         harness.call("c1", false);
         harness.opened.recv_timeout(Duration::from_secs(10)).unwrap();
+        harness.until(|events| events.contains(&Event::CallListening { id: "c1".into() }));
+        harness.events.lock().unwrap().clear();
         harness.send(Job::Mute { id: "c1".into(), muted: true });
         // The mute is handled before the next chunk (jobs come first).
         harness.until(|_| true);
@@ -1902,6 +2007,62 @@ mod tests {
         }
         harness.said(2);
         harness.close();
+    }
+
+    /// S-3: a call whose recognizer is still downloading stays pending (no
+    /// ListenFailed): its microphone opens after the download, and
+    /// CallListening waits for the voice too; nothing said before it is heard.
+    #[test]
+    fn a_call_warms_up_through_a_download_and_the_voice() {
+        let harness = Harness::new();
+        harness.voice.store(false, Ordering::SeqCst);
+        *harness.probe.downloads.lock().unwrap() = (3, false);
+        harness.call("c1", false);
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the microphone opened after the download");
+        assert_eq!(harness.probe.downloads.lock().unwrap().0, 0, "it waited the download out");
+        // The voice still loads: what the microphone hears is nobody's.
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        {
+            let events = harness.events.lock().unwrap();
+            assert!(events.is_empty(), "nothing before CallListening: {:?}", without_levels(&events));
+        }
+        harness.voice.store(true, Ordering::SeqCst);
+        let events = harness.until(|events| !events.is_empty());
+        assert_eq!(events.first(), Some(&Event::CallListening { id: "c1".into() }));
+        for chunk in phrase(0.8).chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+        let events = harness.said(1);
+        assert_eq!(events.iter().filter(|event| matches!(event, Event::CallListening { .. })).count(), 1, "once per call");
+        assert!(!events.iter().any(|event| matches!(event, Event::ListenFailed { .. })));
+        harness.close();
+    }
+
+    /// S-3: a download (or load) that fails fails the call `unavailable`,
+    /// never `downloading`; a Hangup while it downloads ends it unanswered.
+    #[test]
+    fn a_failed_download_fails_the_call_and_a_hangup_ends_a_pending_one() {
+        let harness = Harness::new();
+        *harness.probe.downloads.lock().unwrap() = (2, true);
+        harness.call("c1", true);
+        let events = harness.until(|events| events.iter().any(|event| matches!(event, Event::ListenFailed { .. })));
+        assert_eq!(
+            without_levels(&events),
+            [&Event::ListenFailed { id: "c1".into(), reason: ListenFailure::Unavailable, detail: "the download failed".into() }]
+        );
+        assert!(!harness.listening.active());
+        *harness.probe.downloads.lock().unwrap() = (usize::MAX, false);
+        harness.call("c2", false);
+        std::thread::sleep(Duration::from_millis(200));
+        harness.listening.end("c2");
+        harness.send(Job::Hangup { id: "c2".into() });
+        std::thread::sleep(Duration::from_millis(200));
+        let events = harness.close();
+        assert_eq!(events.len(), 1, "nothing for the hung-up call: {:?}", without_levels(&events));
+        assert!(!events.iter().any(|event| matches!(event, Event::CallListening { .. })));
     }
 
     /// #1265 review: talk-listen.json `micOwnerCases`. A call takes

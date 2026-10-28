@@ -9,6 +9,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -48,23 +49,27 @@ class VoiceCallTest {
         val c = VoiceCall.Copy
         val flat = mapOf(
             "call" to c.CALL,
-            "connecting" to c.CONNECTING,
+            "calling" to c.CALLING,
+            "gettingReady" to c.GETTING_READY,
+            "noSound" to c.NO_SOUND,
             "listening" to c.LISTENING,
             "thinking" to c.THINKING,
             "speaking" to c.SPEAKING,
             "muted" to c.MUTED,
-            "mutedLine" to c.MUTED_LINE,
             "mute" to c.MUTE,
             "unmute" to c.UNMUTE,
+            "speaker" to c.SPEAKER,
+            "speakerOff" to c.SPEAKER_OFF,
             "endCall" to c.END_CALL,
+            "cancel" to c.CANCEL,
             "queued" to c.QUEUED,
         )
         // A key added to the fixture must land here too.
-        assertEquals(copy.keys - setOf("reasons", "failed"), flat.keys)
+        assertEquals(copy.keys - setOf("reasons", "failed", "greeting"), flat.keys)
+        assertEquals(copy.getValue("greeting").jsonObject.strings(), c.greeting)
         flat.forEach { (key, value) -> assertEquals(key, copy.str(key), value) }
         val reasons = mapOf(
             "noVoiceDevice" to VoiceCall.Copy.Reasons.NO_VOICE_DEVICE,
-            "speakOff" to VoiceCall.Copy.Reasons.SPEAK_OFF,
             "offline" to VoiceCall.Copy.Reasons.OFFLINE,
             "notHere" to VoiceCall.Copy.Reasons.NOT_HERE,
             "preparing" to VoiceCall.Copy.Reasons.PREPARING,
@@ -84,11 +89,27 @@ class VoiceCallTest {
             "surface" to VoiceCall.TestIds.SURFACE,
             "mute" to VoiceCall.TestIds.MUTE,
             "end" to VoiceCall.TestIds.END,
+            "speaker" to VoiceCall.TestIds.SPEAKER,
+            "panel" to VoiceCall.TestIds.PANEL,
+            "pill" to VoiceCall.TestIds.PILL,
+            "timer" to VoiceCall.TestIds.TIMER,
         )
         assertEquals(obj("testIds").strings(), ids)
-        assertEquals(obj("icons").strings(), mapOf("call" to VoiceCall.Icons.CALL))
+        val i = VoiceCall.Icons
+        assertEquals(
+            obj("icons").strings(),
+            mapOf("call" to i.CALL, "mute" to i.MUTE, "unmute" to i.UNMUTE, "speaker" to i.SPEAKER, "speakerOff" to i.SPEAKER_OFF, "end" to i.END),
+        )
+        val pill = obj("pill")
+        assertEquals(
+            pill.keys.associateWith { pill.getValue(it).jsonPrimitive.int },
+            mapOf("width" to VoiceCall.Pill.WIDTH, "height" to VoiceCall.Pill.HEIGHT, "marginPx" to VoiceCall.Pill.MARGIN_PX),
+        )
         val k = VoiceCall.Constants
-        val constants = mapOf(
+        val constants = mapOf<String, Number>(
+            "ringMs" to k.RING_MS,
+            "maxRingMs" to k.MAX_RING_MS,
+            "noSoundLevel" to k.NO_SOUND_LEVEL,
             "ringTimeoutMs" to k.RING_TIMEOUT_MS,
             "minSilenceMs" to k.MIN_SILENCE_MS,
             "bargeInMs" to k.BARGE_IN_MS,
@@ -103,7 +124,10 @@ class VoiceCallTest {
             "idleTimeoutMs" to k.IDLE_TIMEOUT_MS,
         )
         val fixtureConstants = obj("constants")
-        assertEquals(fixtureConstants.keys.associateWith { fixtureConstants.getValue(it).jsonPrimitive.int }, constants)
+        assertEquals(fixtureConstants.keys, constants.keys)
+        for ((key, value) in constants) {
+            assertEquals(key, fixtureConstants.getValue(key).jsonPrimitive.double, value.toDouble(), 0.0)
+        }
         val wire = obj("wire")
         assertEquals(setOf("kinds", "maxFrameBytes", "control"), wire.keys)
         val kinds = wire.getValue("kinds").jsonObject
@@ -122,12 +146,12 @@ class VoiceCallTest {
     fun `surface specimens match the fixture`() {
         val specimens = cases("surfaceSpecimens").map { s ->
             VoiceCall.SurfaceSpecimen(
-                activity = VoiceCall.Activity.entries.single { it.wire == s.str("activity") },
+                name = s.str("name")!!,
+                agent = s.str("agent")!!,
+                timer = s.str("timer"),
                 level = s.getValue("level").jsonPrimitive.double,
                 bands = s.getValue("bands").jsonArray.map { it.jsonPrimitive.double },
-                state = s.str("state")!!,
-                line = s.str("line")!!,
-                mute = s.str("mute")!!,
+                view = view(s),
             )
         }
         assertEquals(specimens, VoiceCall.surfaceSpecimens)
@@ -141,7 +165,6 @@ class VoiceCallTest {
                 VoiceCall.AvailabilityInput(
                     platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
                     device = input.str("device"),
-                    speakReplies = input.getValue("speakReplies").jsonPrimitive.boolean,
                     online = input.getValue("online").jsonPrimitive.boolean,
                     here = input.getValue("here").jsonPrimitive.boolean,
                     speech = input.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
@@ -168,24 +191,42 @@ class VoiceCallTest {
                 assertNotNull("$name: $raw", event)
                 state = VoiceCall.callStep(state, event!!)
             }
-            val view = VoiceCall.callView(state)
+            val platform = VoiceCall.Platform.entries.single { it.wire == case.str("platform") }
+            val view = VoiceCall.callView(state, platform)
             val expected = case["view"]?.takeUnless { it is JsonNull }?.jsonObject
             if (expected == null) {
                 assertNull(name, view)
             } else {
-                assertEquals(
-                    name,
-                    VoiceCall.View(
-                        activity = VoiceCall.Activity.entries.single { it.wire == expected.str("activity") },
-                        state = expected.str("state")!!,
-                        line = expected.str("line")!!,
-                        mute = expected.str("mute")!!,
-                    ),
-                    view,
-                )
+                assertEquals(name, view(expected), view)
             }
             assertEquals(name, case.str("toast"), state.toast)
         }
+    }
+
+    private fun view(v: JsonObject) = VoiceCall.View(
+        activity = VoiceCall.Activity.entries.single { it.wire == v.str("activity") },
+        status = v.str("status"),
+        caption = v.str("caption")!!,
+        muted = v.getValue("muted").jsonPrimitive.boolean,
+        speaker = v.getValue("speaker").jsonPrimitive.boolean,
+        buttons = v.getValue("buttons").jsonArray.map { b -> VoiceCall.Button.entries.single { it.wire == b.jsonPrimitive.content } },
+        end = v.str("end")!!,
+    )
+
+    @Test
+    fun `every timer case matches the fixture`() {
+        for (case in cases("timerCases")) {
+            val ms = case.getValue("ms").jsonPrimitive.long
+            assertEquals("$ms", case.str("text"), VoiceCall.callTimer(ms))
+        }
+        assertEquals("00:00", VoiceCall.callTimer(-5))
+    }
+
+    @Test
+    fun `the greeting falls back to English`() {
+        assertEquals("Hallo?", VoiceCall.callGreeting("de"))
+        assertEquals("Hello?", VoiceCall.callGreeting(null))
+        assertEquals("Hello?", VoiceCall.callGreeting("fr"))
     }
 
     /** A code the fixture has no copy for (the relay's `no_such_call`) reads "dropped". */
@@ -199,7 +240,7 @@ class VoiceCallTest {
     /** The relay's `busy` error and its `max_length` / `idle` `call_end`s end a running call with their toast. */
     @Test
     fun `relay ends toast`() {
-        fun ended(last: VoiceCall.Event) = listOf(VoiceCall.Event.Start("mint"), VoiceCall.Event.Connected, last)
+        fun ended(last: VoiceCall.Event) = listOf(VoiceCall.Event.Start("mint"), VoiceCall.Event.Rang, VoiceCall.Event.Ready, VoiceCall.Event.ReplyFinished, last)
             .fold(VoiceCall.CALL_IDLE, VoiceCall::callStep)
         assertEquals("mint is in another call", ended(VoiceCall.Event.Failed("busy")).toast)
         // hangUpRules: ANY reason (one this build doesn't know too) drops.
@@ -251,7 +292,7 @@ class VoiceCallTest {
         val n = VoiceCall.Uplink.FRAME_SAMPLES
         val captured = ShortArray(n) { 900 }
         for (sends in listOf(true, false)) {
-            var state = listOf(VoiceCall.Event.Start("mint"), VoiceCall.Event.Connected, VoiceCall.Event.Mute)
+            var state = listOf(VoiceCall.Event.Start("mint"), VoiceCall.Event.Rang, VoiceCall.Event.Ready, VoiceCall.Event.ReplyFinished, VoiceCall.Event.Mute)
                 .fold(VoiceCall.CALL_IDLE, VoiceCall::callStep)
             var lastFrameAt = 0
             var frames = 0

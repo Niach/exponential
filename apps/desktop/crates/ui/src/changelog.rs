@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-28-voice-calls",
+    date: "2026-10-28",
+    title: "Calls like a phone call",
+    summary: "Calls ring first, your agent answers with Hello?, and the call screen looks like a phone call.",
+    body: r#"- **It rings first**: a call rings for 3 seconds while your voice device loads speech and the voice, then answers with Hello?; a voice that is still downloading keeps ringing until it is ready.
+- **A real call screen**: the agent's avatar, its name, the call's timer and what is being said, with round mute, speaker and red end buttons on web, iOS, Android and the desktop.
+- **Floating pill**: while the desktop app is minimized a small call pill stays on top; drag it anywhere, it remembers where you put it, and Esc or the tray's End call ends the call.
+- **Replies are always spoken**: Speak replies is gone; whatever you say by voice is answered by voice, typed messages never are.
+- **Your own push-to-talk key**: press any key or combination in Settings → Voice to bind it, like in a game; Backspace clears it.
+- **Wake word**: it now hears its phrase anywhere in what you say, and Settings → Voice tells you why it isn't listening."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_109: ChangelogEntry = ChangelogEntry {
     id: "2026-10-28-meeting-mode",
     date: "2026-10-28",
     title: "Meeting mode",

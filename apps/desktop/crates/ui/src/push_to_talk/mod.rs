@@ -1,15 +1,16 @@
 //! #NEW-54 (voice plan V3): push to talk on the voice device's IDE
 //! (`fixtures/voice.json` PUSH TO TALK, `pttFlowCases`, `utteranceCases`).
 //!
-//! Only on the member's voice device with Push to talk on
-//! (`speak_replies::listens_here`) does the IDE hold the shortcut
-//! ([`hotkey`]). A key-down asks the speech worker to Listen (which stops
+//! Only on the member's voice device with a key bound (S-3: no key = push
+//! to talk off, there is no toggle) does the IDE hold the shortcut
+//! ([`hotkey`]); while Settings → Voice records a new key the grab is let go
+//! ([`set_recording`]) so the old binding cannot fire. A key-down asks the speech worker to Listen (which stops
 //! any speech: barge-in) unless the tray's Mute is on; the release ends the
 //! Listen and the worker answers Heard or Empty. Heard text, trimmed, goes
 //! out as a plain message through `sessions.send`: into the member's
 //! conversation with the voice agent, or to the agent while there is none
 //! yet; a failed send keeps the text in that chat's composer
-//! ([`take_unsent`]). The agent's reply row ends Thinking; Speak replies
+//! ([`take_unsent`]). The agent's reply row ends Thinking; `speak_replies`
 //! reads it, and the overlay ([`overlay`], THE capsule in a never-focused
 //! window) shows every step, from [`domain::voice::ptt_step`].
 //!
@@ -23,6 +24,10 @@
 //! key-down for one turn: the same capsule, the same Heard or Empty, the
 //! same send. The worker ends that turn itself; the tray draws the open
 //! microphone from `WakeListening`.
+//!
+//! S-3 (voice.json WAKE DETAIL): [`wake_state`] says why the wake word is or
+//! is not listening (the worker's `WakeListening` and its reason, the tray's
+//! Mute, a call, a meeting) for the Wake word row and the doctor's `wake`.
 
 pub(crate) mod hotkey;
 pub(crate) mod overlay;
@@ -51,16 +56,24 @@ struct Armed {
 }
 
 fn armed_for(settings: &VoiceSettings, device_id: &str) -> Option<Armed> {
-    if !crate::speak_replies::listens_here(settings, device_id) {
+    let settings = settings.clone().clear_on_none();
+    if settings.voice_device_id.as_deref() != Some(device_id) {
         return None;
     }
-    let settings = settings.clone().clear_on_none();
-    Some(Armed {
-        shortcut: settings.push_to_talk.then(|| settings.ptt_shortcut.clone()),
-        agent_id: settings.agent_id.clone()?,
-        language: settings.language().to_string(),
-        wake_phrase: settings.wake_word.then(|| settings.wake_phrase.clone()),
-    })
+    // S-3: push to talk is on iff a key is bound.
+    let shortcut = settings.push_to_talk().then(|| settings.ptt_shortcut.clone());
+    let wake_phrase = settings.wake_word.then(|| settings.wake_phrase.clone());
+    if shortcut.is_none() && wake_phrase.is_none() {
+        return None;
+    }
+    Some(Armed { shortcut, agent_id: settings.agent_id.clone()?, language: settings.language().to_string(), wake_phrase })
+}
+
+/// NEW-78 / S-3: THIS device listens: it is the member's voice device with
+/// an agent and a bound key or the wake word (after voice.json
+/// `clearOnNone`). Mute shows then, and the doctor carries `microphone`.
+pub(crate) fn listens_here(settings: &VoiceSettings, device_id: &str) -> bool {
+    armed_for(settings, device_id).is_some()
 }
 
 /// The send this utterance made.
@@ -101,6 +114,11 @@ pub(crate) struct PushToTalk {
     wake_sent: Option<(String, String)>,
     /// #NEW-56: the worker holds the microphone open for the wake word.
     wake_listening: bool,
+    /// S-3: why the worker's last `WakeListening` said the microphone is not
+    /// open (None = no failure reported).
+    wake_reason: Option<talk::ListenFailure>,
+    /// S-3: Settings → Voice records a new key: the grab is let go.
+    recording: bool,
     /// #NEW-56: the utterance in flight is a wake turn.
     woken: bool,
     /// #NEW-56: the tray's Mute, mirrored here: the tray calls in from its
@@ -159,6 +177,8 @@ pub fn install(cx: &mut App) {
             worker_ready: false,
             wake_sent: None,
             wake_listening: false,
+            wake_reason: None,
+            recording: false,
             woken: false,
             muted: false,
             overlay: overlay::Overlay::default(),
@@ -237,6 +257,7 @@ pub(crate) fn worker_changed(ready: bool, cx: &mut App) {
         // A new worker knows no wake word; one that exited holds no microphone.
         this.wake_sent = None;
         this.wake_listening = false;
+        this.wake_reason = None;
         this.sync_wake(cx);
         cx.notify();
     });
@@ -257,6 +278,65 @@ pub(crate) fn wake_listening(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).wake_listening) || *DEV_WAKE_LISTENING
 }
 
+/// S-3: the wake word's state on THIS device (voice.json `wakeDetail`
+/// `state`): the tray's Mute, a call or a meeting holding the microphone,
+/// the worker's `WakeListening` and its reason; None = not reported yet.
+pub(crate) fn wake_state(cx: &App) -> Option<domain::voice::WakeState> {
+    use domain::voice::WakeState;
+    if wake_listening(cx) {
+        return Some(WakeState::Listening);
+    }
+    let entity = global(cx)?;
+    let this = entity.read(cx);
+    if this.muted {
+        return Some(WakeState::Muted);
+    }
+    if crate::voice_call::active(cx) {
+        return Some(WakeState::MicBusy);
+    }
+    if crate::meeting::state(cx).running {
+        return Some(WakeState::Meeting);
+    }
+    this.wake_reason.map(|reason| match reason {
+        talk::ListenFailure::NoMicrophone => WakeState::NoMicrophone,
+        talk::ListenFailure::NotGranted => WakeState::NotGranted,
+        talk::ListenFailure::Downloading => WakeState::Downloading,
+        talk::ListenFailure::Meeting => WakeState::Meeting,
+        talk::ListenFailure::Unavailable | talk::ListenFailure::Failed => WakeState::Unavailable,
+    })
+}
+
+/// S-3: the Wake word row's trailing detail on THIS device, which is the
+/// voice device (`domain::voice::wake_detail` over [`wake_state`]); the
+/// doctor's `wake` row carries the same text to every other client.
+pub(crate) fn own_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> Option<String> {
+    domain::voice::wake_detail(&domain::voice::WakeDetailContext {
+        wake_word: settings.wake_word,
+        agent: settings.agent_id.is_some(),
+        online: true,
+        device: device_name,
+        state: wake_state(cx),
+    })
+}
+
+/// S-3: Settings → Voice's recorder started (`true`) or ended: the grab is
+/// let go while it records, so the old binding cannot fire, and taken again
+/// after.
+pub(crate) fn set_recording(recording: bool, cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    entity.update(cx, |this, cx| {
+        if this.recording == recording {
+            return;
+        }
+        this.recording = recording;
+        if recording && this.held {
+            this.key_up(cx);
+        }
+        this.regrab();
+        cx.notify();
+    });
+}
+
 /// DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_WAKE_LISTENING=1`
 /// reads as if the speech worker held the wake word's microphone open (the
 /// tray dot, the rail's voice button dot, the Wake word row's Listening), so
@@ -269,11 +349,6 @@ pub(crate) fn on_worker_event(event: talk::Event, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.on_worker(event, cx));
     }
-}
-
-/// This IDE's OS and Linux session (the Shortcut picker's options).
-pub(crate) fn platform() -> (domain::voice::VoiceOs, Option<domain::voice::VoiceSession>) {
-    (hotkey::os(), hotkey::session())
 }
 
 /// How the shortcut is held (the tray item and the Shortcut row).
@@ -400,16 +475,22 @@ impl PushToTalk {
         let regrab = shortcut(&before) != shortcut(&armed);
         self.armed = armed;
         if regrab {
-            // Dropping the old grab lets the shortcut go.
-            self.grab = None;
-            self.held = false;
-            self.status = hotkey::Status::Idle;
-            if let Some(shortcut) = shortcut(&self.armed) {
-                self.grab = Some(hotkey::grab(&shortcut, self.tx.clone()));
-            }
+            self.regrab();
         }
         self.sync_wake(cx);
         cx.notify();
+    }
+
+    /// Drop the grab (letting the shortcut go) and take the armed one again,
+    /// unless Settings → Voice records a new key.
+    fn regrab(&mut self) {
+        self.grab = None;
+        self.held = false;
+        self.status = hotkey::Status::Idle;
+        let shortcut = self.armed.as_ref().and_then(|armed| armed.shortcut.clone()).filter(|_| !self.recording);
+        if let Some(shortcut) = shortcut {
+            self.grab = Some(hotkey::grab(&shortcut, self.tx.clone()));
+        }
     }
 
     /// #NEW-56: hand the worker the wake word this device wants now (the
@@ -435,8 +516,9 @@ impl PushToTalk {
             Some((phrase, language)) => client.wake(phrase.clone(), language.clone()),
             None => client.wake("", "en"),
         }
-        if wanted.is_none() && self.wake_listening {
+        if wanted.is_none() && (self.wake_listening || self.wake_reason.is_some()) {
             self.wake_listening = false;
+            self.wake_reason = None;
             cx.notify();
         }
         self.wake_sent = wanted;
@@ -472,7 +554,7 @@ impl PushToTalk {
     }
 
     fn key_down(&mut self, cx: &mut Context<Self>) {
-        if self.held {
+        if self.held || self.recording {
             return;
         }
         let Some(armed) = self.armed.clone() else { return };
@@ -545,9 +627,13 @@ impl PushToTalk {
                 if let Some(reason) = reason {
                     log::info!("[voice] wake word: the microphone is not open ({reason:?})");
                 }
-                if listening != self.wake_listening {
+                let reason = reason.filter(|_| !listening);
+                if listening != self.wake_listening || reason != self.wake_reason {
                     self.wake_listening = listening;
+                    self.wake_reason = reason;
                     cx.notify();
+                    // The Wake word row and the doctor's `wake` read it.
+                    cx.refresh_windows();
                 }
             }
             talk::Event::Heard { id, text } if ours(&id, &self.utterance) => {
@@ -645,6 +731,8 @@ impl PushToTalk {
                 }
                 match result {
                     Ok(output) => {
+                        // S-3: the reply to a spoken turn is read aloud.
+                        crate::speak_replies::voice_turn(&output.session_id, cx);
                         this.sent = Some(Sent { session_id: output.session_id, message_id: output.message_id });
                         this.step(PttEvent::Sent, cx);
                     }
@@ -683,6 +771,7 @@ impl PushToTalk {
                 match result {
                     // Thinking until the agent's next reply after the card.
                     Ok(()) => {
+                        crate::speak_replies::voice_turn(&sent.session_id, cx);
                         this.sent = Some(sent);
                         this.step(PttEvent::Sent, cx);
                     }
@@ -848,7 +937,6 @@ mod tests {
         VoiceSettings {
             voice_device_id: Some("d-mint".into()),
             agent_id: Some("a1".into()),
-            push_to_talk: true,
             ptt_shortcut: "ctrl+space".into(),
             ..Default::default()
         }
@@ -861,10 +949,11 @@ mod tests {
             Some(Armed { shortcut: Some("ctrl+space".into()), agent_id: "a1".into(), language: "en".into(), wake_phrase: None })
         );
         assert_eq!(armed_for(&settings(), "d-mac"), None, "another device");
-        assert_eq!(armed_for(&VoiceSettings { push_to_talk: false, ..settings() }, "d-mint"), None);
+        // S-3: no key bound = push to talk off.
+        assert_eq!(armed_for(&VoiceSettings { ptt_shortcut: String::new(), ..settings() }, "d-mint"), None);
         assert_eq!(armed_for(&VoiceSettings { agent_id: None, ..settings() }, "d-mint"), None, "clearOnNone");
         // #NEW-56: the wake word alone arms the device, without a shortcut.
-        let wake = VoiceSettings { push_to_talk: false, wake_word: true, wake_phrase: "Computer".into(), ..settings() };
+        let wake = VoiceSettings { ptt_shortcut: String::new(), wake_word: true, wake_phrase: "Computer".into(), ..settings() };
         let armed = armed_for(&wake, "d-mint").unwrap();
         assert_eq!((armed.shortcut, armed.wake_phrase.as_deref()), (None, Some("Computer")));
         assert_eq!(armed_for(&VoiceSettings { agent_id: None, ..wake }, "d-mint"), None, "clearOnNone");
