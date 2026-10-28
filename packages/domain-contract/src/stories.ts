@@ -24,6 +24,8 @@ export interface StorySessionInput {
   name: string
   agentId: string | null
   startedByAgentId: string | null
+  /** The root's CLI (the chat row's brand mark); the fold ignores it. */
+  cli?: string | null
 }
 
 export interface StoryAgentInput {

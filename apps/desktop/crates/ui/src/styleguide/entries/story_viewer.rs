@@ -16,7 +16,6 @@ use domain::stories::STORIES;
 
 use super::story_ring::{board_question_card, specimen_avatar, specimen_rings};
 use crate::markdown::ImageCache;
-use crate::story_ring::RING_GLYPH_PX;
 use crate::story_viewer::{story_content, story_panel, PanelHandlers};
 use crate::thread_screen::ThreadText;
 
@@ -43,7 +42,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let story = &ring.stories[0];
     let message = message();
     let content = story_content(story, Some(&message), 0, &ThreadText::default(), &images, window, cx);
-    let avatar = specimen_avatar(ring, RING_GLYPH_PX * 0.75, cx);
+    let avatar = specimen_avatar(ring, crate::story_viewer::HEADER_GLYPH, cx);
     let spec = &STORIES.viewer;
     let panel = story_panel(ring, story, 0, 0., avatar, content, PanelHandlers::default(), cx)
         .w(px(spec.width))

@@ -519,8 +519,9 @@ pub(crate) fn card_surface_view(
 
 /// The surface block: the `Preview` label (medium) ABOVE the surface in
 /// its own frame (`card.surface*`; a skeleton-height box until the view
-/// exists).
-fn surface_block(message_id: &str, cx: &App) -> AnyElement {
+/// exists). `labelled` false = the story viewer's look (stories.json: no
+/// label above the surface).
+fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyElement {
     let copy = model::copy();
     let card = model::card();
     let view = draft(message_id, cx).and_then(|draft| draft.surface.clone());
@@ -530,7 +531,7 @@ fn surface_block(message_id: &str, cx: &App) -> AnyElement {
         .w_full()
         .min_w_0()
         .gap(px(card.surface_label_gap))
-        .child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM))
+        .when(labelled, |block| block.child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM)))
         .child(
             div()
                 .w_full()
@@ -816,7 +817,7 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
     prepare_plan(facts, window, cx);
     let mut content: Vec<AnyElement> = Vec::new();
     if facts.surface.is_some() {
-        content.push(surface_block(message_id, cx));
+        content.push(surface_block(message_id, true, cx));
     }
     for question in facts.questions {
         let picked = plan_picked(facts, question, cx);
@@ -939,7 +940,7 @@ fn plan_sheet_with(
         None => {
             body = body.child(plan);
             if facts.surface.is_some() {
-                body = body.child(surface_block(message_id, cx));
+                body = body.child(surface_block(message_id, !story, cx));
             }
             if !stepped {
                 for question in facts.questions {
@@ -1211,11 +1212,11 @@ fn prepare_question(facts: &QuestionFacts, window: &Window, cx: &mut App) {
 }
 
 /// The question's surface, choose caption, options and free-text row.
-fn question_content(facts: &QuestionFacts, interactive: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, Vec<String>) {
+fn question_content(facts: &QuestionFacts, interactive: bool, labelled: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, Vec<String>) {
     let message_id = facts.message_id;
     let mut content: Vec<AnyElement> = Vec::new();
     if facts.surface.is_some() {
-        content.push(surface_block(message_id, cx));
+        content.push(surface_block(message_id, labelled, cx));
     }
     let picked = if facts.answered {
         closed_picks(facts.options, facts.answer, facts.answers)
@@ -1248,7 +1249,7 @@ pub(crate) fn question_parts(facts: &QuestionFacts, answer: bool, images: &Entit
     let answering = crate::thread_screen::answering(facts.message_id, cx);
     let interactive = answer && !facts.answered && !answering;
     prepare_question(facts, window, cx);
-    let (content, picked) = question_content(facts, interactive, images, window, cx);
+    let (content, picked) = question_content(facts, interactive, true, images, window, cx);
     let controls = if facts.answered {
         closed_answer(facts, &picked, cx)
     } else if answering {
@@ -1289,11 +1290,34 @@ pub(crate) fn question_sheet(
     window: &Window,
     cx: &mut App,
 ) -> crate::dock::SheetContent {
+    question_sheet_with(facts, question, false, images, window, cx)
+}
+
+/// S-3: the story viewer's question: the same sheet, its surface with no
+/// `Preview` label above it (stories.json VIEWER LOOK).
+pub(crate) fn question_story_sheet(
+    facts: &QuestionFacts,
+    question: AnyElement,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> crate::dock::SheetContent {
+    question_sheet_with(facts, question, true, images, window, cx)
+}
+
+fn question_sheet_with(
+    facts: &QuestionFacts,
+    question: AnyElement,
+    story: bool,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> crate::dock::SheetContent {
     let message_id = facts.message_id;
     let answering = crate::thread_screen::answering(message_id, cx);
     let interactive = !facts.answered && !answering;
     prepare_question(facts, window, cx);
-    let (content, picked) = question_content(facts, interactive, images, window, cx);
+    let (content, picked) = question_content(facts, interactive, !story, images, window, cx);
     let body = v_flex()
         .id(SharedString::from(format!("{}-{message_id}", model::test_ids().card)))
         .w_full()

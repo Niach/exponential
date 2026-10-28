@@ -29,9 +29,9 @@ pub(crate) fn specimen_input() -> Value {
         "now": 1_800_000_000_000_i64,
         "sessions": [
             { "id": "triage", "rootId": "triage", "name": "Triage", "agentId": "a-triage", "startedByAgentId": null },
-            { "id": "board", "rootId": "board", "name": "Board header polish", "agentId": null, "startedByAgentId": null },
+            { "id": "board", "rootId": "board", "name": "Board header polish", "agentId": null, "startedByAgentId": null, "cli": "claude" },
             { "id": "designer", "rootId": "designer", "name": "Designer", "agentId": "a-designer", "startedByAgentId": null },
-            { "id": "ship", "rootId": "ship", "name": "Ship the launch checklist", "agentId": null, "startedByAgentId": null }
+            { "id": "ship", "rootId": "ship", "name": "Ship the launch checklist", "agentId": null, "startedByAgentId": null, "cli": "claude" }
         ],
         "agents": [
             { "id": "a-triage", "name": "Triage", "assistant": false, "icon": "bug", "color": "#a855f7" },
@@ -111,7 +111,8 @@ pub(crate) fn specimen_rings() -> Vec<StoryRing> {
 }
 
 /// A specimen ring's avatar: an agent ring = its agent's icon + colour, a
-/// chat ring = the chat row's bare brand mark (no CLI = Claude's).
+/// chat ring = the chat row's bare brand mark (the specimen roots run `cli`
+/// claude).
 pub(crate) fn specimen_avatar(ring: &StoryRing, glyph: f32, cx: &App) -> gpui::AnyElement {
     let input = specimen_input();
     let agent = ring.agent_id.as_deref().and_then(|id| {
@@ -119,7 +120,7 @@ pub(crate) fn specimen_avatar(ring: &StoryRing, glyph: f32, cx: &App) -> gpui::A
     });
     match agent {
         Some(agent) => ring_avatar(Some((agent["icon"].as_str(), agent["color"].as_str())), None, glyph, cx),
-        None => ring_avatar(None, None, glyph, cx),
+        None => ring_avatar(None, Some(coding::CodingAgent::Claude), glyph, cx),
     }
 }
 
