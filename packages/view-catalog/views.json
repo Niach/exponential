@@ -5962,7 +5962,7 @@
       "group": "coding",
       "title": "Call controls",
       "blurb": "THE round icon-only call buttons (S-3, voice-call.json PHONE-CALL UI, eUI `CallButton`): mute (toggled = the inverted fill), speaker (phones), the red end (Cancel under it while ringing) at 56 px, and the compact row of the desktop's floating call pill.",
-      "order": 47,
+      "order": 49,
       "web": {
         "route": "/t/$teamSlug/agent?dev=call-controls",
         "anchor": {
@@ -6000,7 +6000,7 @@
       "group": "coding",
       "title": "Voice overlay",
       "blurb": "THE voice overlay (NEW-77): the push-to-talk capsule's four states (voice.json `overlaySpecimens`), then S-3's floating call pill (fixed `pill.width` × `pill.height`: drag handle, avatar, name over timer, VoiceWave sm, mute, red end) for each `surfaceSpecimens` row.",
-      "order": 48,
+      "order": 50,
       "web": {
         "route": "/t/$teamSlug/agent?dev=voice-call-overlay",
         "anchor": {
