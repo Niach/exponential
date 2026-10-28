@@ -49,7 +49,7 @@ public enum SettingsNav {
         Row(id: "boards", label: "Boards", icon: "settings-boards", group: "boards", visible: .all, phone: true, count: .boards),
         Row(id: "agents", label: "Agents", icon: "settings-agents", group: "agents", visible: .all, phone: true, count: .agents),
         Row(id: "mcp-servers", label: "MCP servers", icon: "settings-mcp", group: "agents", visible: .all, phone: false, count: nil),
-        Row(id: "devices", label: "Devices", icon: "nav-devices", group: "team", visible: .all, phone: true, count: nil),
+        Row(id: "devices", label: "Devices", icon: "nav-devices", group: "devices", visible: .all, phone: true, count: nil),
     ]
 
     public static let phoneRows: [Id] = [.general, .members, .labels, .repositories, .prompts, .boards, .agents, .devices]
