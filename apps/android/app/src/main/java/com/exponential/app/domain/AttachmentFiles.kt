@@ -68,6 +68,43 @@ fun isFileAttachment(contentType: String?, asFile: Boolean): Boolean =
     asFile || (!isInlineImage(contentType) && !isInlineMedia(contentType))
 
 /**
+ * NEW-83 (`fixtures/issue-files.json`, the ×4 mirror of the web's
+ * `issueFileRows`): the rows listed under the issue's Files. A row is listed
+ * iff it is issue-level (`commentId` null — a comment's rows render in that
+ * comment's strip, EXP-554) AND it is either a Files row
+ * ([isFileAttachment]) or an inline image/video/audio row that NO text of the
+ * issue links — neither the description nor any comment body contains
+ * `/api/attachments/<id>` (id compared case-insensitively; relative or
+ * absolute url, image or plain link alike). So an inline upload nobody
+ * embedded stays reachable instead of vanishing. [texts] = the description
+ * plus every comment body (null/empty ignored); [rows] keep the caller's order.
+ */
+fun <T> issueFileRows(
+    rows: List<T>,
+    texts: List<String?>,
+    id: (T) -> String,
+    contentType: (T) -> String?,
+    asFile: (T) -> Boolean,
+    commentId: (T) -> String?,
+): List<T> {
+    val linked = linkedAttachmentIds(texts)
+    return rows.filter { row ->
+        commentId(row) == null &&
+            (isFileAttachment(contentType(row), asFile(row)) || id(row).lowercase() !in linked)
+    }
+}
+
+/** Every attachment id (lowercased) an `/api/attachments/<id>` url in [texts] names. */
+private fun linkedAttachmentIds(texts: List<String?>): Set<String> =
+    texts.asSequence()
+        .filterNot { it.isNullOrEmpty() }
+        .flatMap { ATTACHMENT_URL.findAll(it!!) }
+        .map { it.groupValues[1].lowercase() }
+        .toSet()
+
+private val ATTACHMENT_URL = Regex("/api/attachments/([A-Za-z0-9_-]+)")
+
+/**
  * Canonical upload form of a picker-derived content type: lowercased media
  * essence with any `;`-parameter suffix stripped, falling back to
  * `application/octet-stream`. Mirrors the server's `canonicalizeContentType`

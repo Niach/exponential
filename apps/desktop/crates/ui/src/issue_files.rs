@@ -5,15 +5,18 @@
 //! **Classification (the cross-client contract).** A row is an *inline image*
 //! iff its `content_type` is exactly one of
 //! [`ACCEPTED_IMAGE_CONTENT_TYPES`] — those live in the description markdown
-//! as `![alt](/api/attachments/{id})` and are rendered by the editor, never
-//! listed here. EXP-824: a row is *inline media* iff its `content_type`
-//! starts with `video/` or `audio/` — those live in the markdown as a plain
-//! link on its own paragraph (`[clip.mp4](/api/attachments/{id})`) and render
-//! as a media tile, never listed here either. EVERYTHING else (pdf/zip/plain
-//! text, and also non-inline `image/*` types like tiff or svg) belongs to the
-//! Files section. EXP-1247: a row uploaded through a FILE button carries
-//! `as_file` and is never inline, whatever its type ([`is_file_row`]). Web,
-//! iOS and Android apply the identical rules.
+//! as `![alt](/api/attachments/{id})` and are rendered by the editor.
+//! EXP-824: a row is *inline media* iff its `content_type` starts with
+//! `video/` or `audio/` — those live in the markdown as a plain link on its
+//! own paragraph (`[clip.mp4](/api/attachments/{id})`) and render as a media
+//! tile. EVERYTHING else (pdf/zip/plain text, and also non-inline `image/*`
+//! types like tiff or svg) belongs to the Files section. EXP-1247: a row
+//! uploaded through a FILE button carries `as_file` and is never inline,
+//! whatever its type ([`is_file_row`]). NEW-83: an inline image/media row
+//! that NO text of the issue links (description or any comment body) is
+//! listed under Files too, so it never vanishes ([`issue_file_rows`], the
+//! `issue-files.json` fixture). Web, iOS and Android apply the identical
+//! rules.
 //!
 //! Nothing here talks to the network: uploads/downloads go through the
 //! [`crate::markdown::AttachmentTransport`] and deletion through
@@ -149,11 +152,46 @@ pub(crate) fn description_fragment(
     }
 }
 
-/// The issue's FILE attachments ([`is_file_row`]) from the synced
+/// Does any of `texts` link attachment `id` (`/api/attachments/<id>`, id
+/// compared case-insensitively, relative or absolute url, image or plain
+/// link alike)? A plain substring match on the lowercased texts, exactly
+/// like web `issueFileRows` (ids are UUIDs, so no prefix collides).
+fn is_linked(id: &str, texts: &[String]) -> bool {
+    let needle = format!("/api/attachments/{}", id.to_ascii_lowercase());
+    texts.iter().any(|text| text.contains(&needle))
+}
+
+/// NEW-83: the issue's Files list (`issue-files.json` ×4): issue-level rows
+/// (`comment_id` none, EXP-554) that are either a FILE row ([`is_file_row`])
+/// or an inline image/video/audio row that NO text links — so an upload
+/// nobody embedded stays reachable. `texts` = the description plus every
+/// comment body (`None`/empty ignored); `rows` keep the caller's order.
+pub(crate) fn issue_file_rows<'a, R, T>(rows: R, texts: T) -> Vec<&'a Attachment>
+where
+    R: IntoIterator<Item = &'a Attachment>,
+    T: IntoIterator<Item = Option<&'a str>>,
+{
+    let texts: Vec<String> = texts
+        .into_iter()
+        .flatten()
+        .filter(|text| !text.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    rows.into_iter()
+        .filter(|attachment| attachment.comment_id.is_none())
+        .filter(|attachment| {
+            is_file_row(attachment.content_type.as_deref(), is_as_file(attachment))
+                || !is_linked(&attachment.id, &texts)
+        })
+        .collect()
+}
+
+/// The issue's Files rows ([`issue_file_rows`]) from the synced
 /// `attachments` shape, oldest first — the exact list the Files section
-/// renders. Reads the collection the same way
-/// `markdown::attachment_natural_size` does, so an Electric delta re-renders
-/// the section through the detail view's existing collection observer.
+/// renders. Reads the attachments, the issue's description and its comments'
+/// bodies from the synced collections, so an Electric delta re-renders the
+/// section through the detail view's collection observers (attachments,
+/// issues, comments).
 ///
 /// EXP-554: rows carrying a `comment_id` belong to ONE comment and render in
 /// that comment's strip — the rail lists issue-level files only (web/iOS/
@@ -162,18 +200,26 @@ pub(crate) fn file_attachments(issue_id: &str, cx: &App) -> Vec<Attachment> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
-    let mut rows: Vec<Attachment> = store
-        .collections()
-        .attachments
-        .read(cx)
+    let collections = store.collections();
+    let attachments = collections.attachments.read(cx);
+    let issues = collections.issues.read(cx);
+    let comments = collections.comments.read(cx);
+    let description = issues
+        .get(issue_id)
+        .and_then(|issue| issue.description.as_deref());
+    let bodies = comments
         .iter()
-        .filter(|attachment| attachment.issue_id.as_deref() == Some(issue_id))
-        .filter(|attachment| attachment.comment_id.is_none())
-        .filter(|attachment| {
-            is_file_row(attachment.content_type.as_deref(), is_as_file(attachment))
-        })
-        .cloned()
-        .collect();
+        .filter(|comment| comment.issue_id == issue_id)
+        .map(|comment| comment.body.as_deref());
+    let mut rows: Vec<Attachment> = issue_file_rows(
+        attachments
+            .iter()
+            .filter(|attachment| attachment.issue_id.as_deref() == Some(issue_id)),
+        std::iter::once(description).chain(bodies),
+    )
+    .into_iter()
+    .cloned()
+    .collect();
     // `created_at` is an ISO-8601 UTC string — lexicographic order is
     // chronological. Ties (and missing timestamps) fall back to the id so the
     // list never reshuffles between frames.
@@ -190,8 +236,8 @@ pub(crate) fn file_attachments(issue_id: &str, cx: &App) -> Vec<Attachment> {
 /// EVERY synced attachment id of the issue — inline images included. This is
 /// the pending-row dedupe set: deduping against only the Files rows would
 /// leave a pending row spinning forever if its upload landed as an
-/// inline-image row (e.g. an MCP upload finishing concurrently), because
-/// `file_attachments` filters those out.
+/// linked inline-image row (e.g. an MCP upload finishing concurrently with
+/// its embed), because `file_attachments` filters those out.
 pub(crate) fn all_attachment_ids(issue_id: &str, cx: &App) -> std::collections::HashSet<String> {
     let Some(store) = Store::try_global(cx) else {
         return Default::default();
@@ -997,6 +1043,75 @@ mod tests {
         assert_eq!(description_embed_for("image/png", true), None);
         assert_eq!(description_embed_for("image/png", false), Some(DescriptionEmbed::Image));
         assert_eq!(description_embed_for("audio/mpeg", false), Some(DescriptionEmbed::Media));
+    }
+
+    /// NEW-83: the ONE contract fixture, replayed on every client (web
+    /// `issueFileRows`, iOS `AttachmentFiles.issueFileRows`, Android
+    /// `issueFileRows`) — the SAME case names everywhere.
+    const ISSUE_FILES_FIXTURE: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/issue-files.json");
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureRow {
+        id: String,
+        content_type: Option<String>,
+        as_file: bool,
+        comment_id: Option<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct FixtureCase {
+        name: String,
+        texts: Vec<Option<String>>,
+        rows: Vec<FixtureRow>,
+        files: Vec<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct IssueFilesFixture {
+        cases: Vec<FixtureCase>,
+    }
+
+    fn fixture_attachment(row: &FixtureRow) -> Attachment {
+        Attachment {
+            id: row.id.clone(),
+            team_id: None,
+            issue_id: Some("issue-1".into()),
+            board_id: None,
+            comment_id: row.comment_id.clone(),
+            uploader_id: None,
+            filename: None,
+            content_type: row.content_type.clone(),
+            size_bytes: None,
+            storage_key: None,
+            url: None,
+            width: None,
+            height: None,
+            duration_ms: None,
+            poster_storage_key: None,
+            as_file: Some(row.as_file),
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn issue_file_rows_replay_the_issue_files_fixture() {
+        let fixture: IssueFilesFixture =
+            serde_json::from_str(ISSUE_FILES_FIXTURE).expect("the issue-files fixture parses");
+        assert!(!fixture.cases.is_empty());
+        for case in &fixture.cases {
+            let rows: Vec<Attachment> = case.rows.iter().map(fixture_attachment).collect();
+            let listed: Vec<String> = issue_file_rows(
+                rows.iter(),
+                case.texts.iter().map(|text| text.as_deref()),
+            )
+            .into_iter()
+            .map(|attachment| attachment.id.clone())
+            .collect();
+            assert_eq!(listed, case.files, "{}", case.name);
+        }
     }
 
     #[test]

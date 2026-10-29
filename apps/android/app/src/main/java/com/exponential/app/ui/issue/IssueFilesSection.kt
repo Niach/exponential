@@ -43,9 +43,10 @@ import com.exponential.app.domain.Prompts
 /**
  * The issue's file attachments (EXP-297) — everything that is not one of the
  * five inline-embeddable raster types, plus (EXP-1247) every `as_file` upload
- * whatever its type (`isFileAttachment`). These rows never appear in the
- * markdown, so this section is the only place they exist for the user:
- * open in another app, share, delete.
+ * whatever its type (`isFileAttachment`), plus (NEW-83, `issueFileRows`) every
+ * inline image/video/audio upload that no text of the issue links. These rows
+ * do not render in the markdown, so this section is the only place they exist
+ * for the user: open in another app, share, delete.
  *
  * EXP-327: there is no attach button here any more, and no empty state. Files
  * are attached from the description editor's attach menu ("Photo library /
