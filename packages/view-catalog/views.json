@@ -6208,10 +6208,10 @@
       "web": {
         "route": "/t/$teamSlug/threads/$diffThreadId?tab=stories",
         "anchor": {
-          "testId": "story-tile",
-          "timeoutMs": 30000
+          "testId": "thread-stories-changes",
+          "timeoutMs": 60000
         },
-        "settleMs": 1500
+        "settleMs": 2500
       },
       "webMobile": "inherit",
       "ios": {

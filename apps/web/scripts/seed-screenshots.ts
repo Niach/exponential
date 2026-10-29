@@ -1240,7 +1240,7 @@ async function seedSessionTree(ctx: {
     attachmentId: entry.attachmentId!,
     width: entry.width ?? null,
     height: entry.height ?? null,
-    caption: index === 0 ? `Grouped by assignee` : null,
+    caption: index === 0 ? `Grouped by assignee` : `iPhone`,
   }))
   await db.insert(messages).values(
     ([

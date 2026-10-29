@@ -83,7 +83,6 @@ export function StoryTile({
                 <img
                   src={attachmentSrc(picture.attachmentId)}
                   alt={picture.caption ?? picture.label}
-                  loading="lazy"
                   draggable={false}
                   className="block border border-glass-stroke bg-muted object-cover object-top"
                   style={{ width, height: TILE.thumbHeight, borderRadius: TILE.radius }}
