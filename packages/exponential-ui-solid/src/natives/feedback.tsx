@@ -3,8 +3,8 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveChildBox, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
-import type { VoiceWaveActivity } from "@exponential_app/ui"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
+import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/ui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web"
 import type { Component } from "solid-js"
 import { useSurfaceContext, type SurfaceContextValue } from "../context"
@@ -173,6 +173,62 @@ export function TreeGuidesNative(props: NativeProps): JSX.Element {
  *  not under reduced motion) a frame clock drives the phase; the elapsed
  *  seconds count from the moment the wave started moving. */
 export function VoiceWaveNative(props: NativeProps): JSX.Element {
+  return (
+    <Show when={voiceWaveVariant(props.props.variant) === `bars`} fallback={<VoiceWaveRingNative {...props} />}>
+      <VoiceWaveBarsNative {...props} />
+    </Show>
+  )
+}
+
+/** VAPP-162 (round-5 contract §5; React's `VoiceWaveBarsNative`):
+ *  `variant: bars`, the horizontal level meter: the core's `voiceWaveBars`
+ *  per frame as rounded rects in the `bar` part colour; the root recipe
+ *  sizes the box; a child stays in the tree, never painted. While moving,
+ *  the frame clock moves each rect's `y` and `height` (fine-grained: only
+ *  those attributes are written). */
+function VoiceWaveBarsNative(props: NativeProps): JSX.Element {
+  const ctx = useSurfaceContext()
+  const part = parts(props)
+  const activity = createMemo((): VoiceWaveActivity => {
+    const a = str(props.props.activity)
+    return (VOICE_WAVE_ACTIVITIES as readonly string[]).includes(a) ? (a as VoiceWaveActivity) : `idle`
+  })
+  const [elapsed, setElapsed] = createSignal(0)
+  const animates = createMemo(() => voiceWaveAnimates(activity()) && !ctx.reducedMotion)
+  createEffect(() => {
+    if (!animates()) {
+      setElapsed(0)
+      return
+    }
+    onCleanup(voiceWaveClock(setElapsed))
+  })
+  const meter = createMemo(() =>
+    voiceWaveBars({
+      size: str(props.props.size, `md`) as VoiceWaveSizeName,
+      activity: activity(),
+      level: num(props.props.level, 0),
+      bands: arr<unknown>(props.props.bands).map((b) => num(b, 0)),
+      reducedMotion: ctx.reducedMotion,
+      elapsed: elapsed(),
+    })
+  )
+  const colour = () => String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: `bar`, props: nativeRecipeProps(`VoiceWave`, props.props) }, ctx.mode).color ?? `currentColor`)
+  const name = () => voiceWaveName(str(props.props.label) || undefined, activity())
+  return (
+    <span {...props.rootProps} role={name() ? `img` : undefined} aria-label={name()} aria-hidden={name() ? undefined : `true`} data-variant="bars" style={mergeStyle(props.rootProps, { width: meter().width, height: meter().height })}>
+      <svg viewBox={`0 0 ${meter().width} ${meter().height}`} width={meter().width} height={meter().height} aria-hidden="true" style={css({ color: colour() })}>
+        <Index each={meter().bars}>{(bar) => <rect {...part(`bar`)} x={bar().x} y={bar().y} width={bar().width} height={bar().height} rx={bar().radius} fill="currentColor" />}</Index>
+      </svg>
+      <Show when={props.node.children.length > 0}>
+        <span {...part(`child`)} data-hidden="true" aria-hidden="true">
+          {props.children}
+        </span>
+      </Show>
+    </span>
+  )
+}
+
+function VoiceWaveRingNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const activity = createMemo((): VoiceWaveActivity => {

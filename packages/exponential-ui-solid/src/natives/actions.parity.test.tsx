@@ -54,4 +54,34 @@ describe(`actions DOM parity with React`, () => {
   it(`loading with an icon and a pendingLabel, past the delay`, async () => expectPendingParity({ tree: { id: `b`, component: `Button`, props: { label: `Save`, icon: `star`, loading: true, pendingLabel: `Saving` } } }))
   for (const s of [`hover`, `focus`, `pressed`, `checked`, `open`, `disabled`, `invalid`]) it(`forced state ${s}`, async () => expectDomParity({ tree: bar, data: { on: false }, states: [s] }))
   it(`dark + rtl in the exponential theme`, async () => expectDomParity({ tree: bar, data: { on: true }, theme: `exponential`, mode: `dark`, direction: `rtl` }))
+  // VAPP-162 (round-5 contract §9): a hold Button idle, then held (pointer, Space), then released.
+  const holdTree: NestedNode = { id: `h`, component: `Button`, props: { label: `Hold to talk`, holdingLabel: `Holding…`, hold: true, icon: `star` }, on: { holdStart: { event: { name: `holdStart` } } } } as NestedNode
+  it(`Button hold: idle`, async () => expectDomParity({ tree: holdTree }))
+  for (const [name, down, up] of [
+    [`pointer`, (b: Element) => b.dispatchEvent(new MouseEvent(`pointerdown`, { bubbles: true, button: 0 })), (b: Element) => b.dispatchEvent(new MouseEvent(`pointerup`, { bubbles: true, button: 0, clientX: 1, clientY: 1 }))],
+    [`Space`, (b: Element) => b.dispatchEvent(new KeyboardEvent(`keydown`, { bubbles: true, key: ` ` })), (b: Element) => b.dispatchEvent(new KeyboardEvent(`keyup`, { bubbles: true, key: ` ` }))],
+  ] as const) {
+    it(`Button hold: held by ${name}, then released`, async () => {
+      const r = await renderReact({ tree: holdTree })
+      const s = await renderSolidSurface({ tree: holdTree })
+      const button = (root: Element) => root.querySelector(`[data-xui-id="h"]`)!
+      try {
+        await act(async () => {
+          down(button(r.root))
+          down(button(s.root))
+        })
+        expect(button(s.root).textContent).toBe(`Holding…`)
+        expect(serializeDom(s.root)).toBe(serializeDom(r.root))
+        await act(async () => {
+          up(button(r.root))
+          up(button(s.root))
+        })
+        expect(button(s.root).textContent).toBe(`Hold to talk`)
+        expect(serializeDom(s.root)).toBe(serializeDom(r.root))
+      } finally {
+        r.cleanup()
+        s.cleanup()
+      }
+    })
+  }
 })

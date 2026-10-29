@@ -14,7 +14,7 @@
 
 import { Show, createEffect, createMemo, createSignal, onCleanup, type Accessor, type Component, type JSX } from "solid-js"
 import { PENDING_DELAY_MS } from "@exponential_app/ui"
-import { linkHref } from "@exponential_app/ui/web"
+import { ButtonHold, linkHref } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
@@ -82,7 +82,12 @@ export function ButtonNative(props: NativeProps): JSX.Element {
     if (out) styled = true
     return out ?? (styled ? {} : undefined)
   }
-  const xs = () => [...(ctx.states ?? []), disabled() ? `disabled` : ``, pending() ? `pending` : ``].filter(Boolean).join(` `) || undefined
+  // VAPP-162 (round-5 contract §9): `hold` = holdStart/holdEnd/holdCancel, never `press`.
+  const hold = () => bool(props.props.hold)
+  const { held, handlers } = createHold(hold, disabled, (event) => props.emit(event))
+  const holdingLabel = () => str(props.props.holdingLabel)
+  const paintedLabel = () => (held() && holdingLabel() ? holdingLabel() : shownLabel())
+  const xs = () => [...(ctx.states ?? []), disabled() ? `disabled` : ``, pending() ? `pending` : ``, held() ? `pressed` : ``].filter(Boolean).join(` `) || undefined
   return (
     <button
       {...props.rootProps}
@@ -95,8 +100,18 @@ export function ButtonNative(props: NativeProps): JSX.Element {
       aria-label={iconOnly() && label() ? label() : undefined}
       data-xs={xs()}
       data-submit={submit() ? `true` : undefined}
+      data-hold={hold() ? `true` : undefined}
+      onPointerDown={handlers.onPointerDown}
+      onPointerMove={handlers.onPointerMove}
+      onPointerUp={handlers.onPointerUp}
+      onPointerCancel={handlers.onPointerCancel}
+      onKeyDown={handlers.onKeyDown}
+      onKeyUp={handlers.onKeyUp}
+      onBlur={handlers.onBlur}
+      onContextMenu={handlers.onContextMenu}
       onClick={(e) => {
         e.stopPropagation()
+        if (hold()) return
         track(props.emit(`press`))
         if (submit()) form!.submit()
       }}
@@ -110,11 +125,51 @@ export function ButtonNative(props: NativeProps): JSX.Element {
           <IconGlyph icons={ctx.host.icons} name={icon()} />
         </span>
       ) : null}
-      <Show when={hasChild()} fallback={!iconOnly() && shownLabel() ? <span {...part(`label`)}>{shownLabel()}</span> : null}>
+      <Show when={hasChild()} fallback={!iconOnly() && paintedLabel() ? <span {...part(`label`)}>{paintedLabel()}</span> : null}>
         {props.children}
       </Show>
     </button>
   )
+}
+
+/** THE hold machine (`@exponential_app/ui/web` ButtonHold, React's
+ *  `useHold`) wired to a button's DOM events: the pointer is captured on
+ *  down (a long-press or a scroll never steals it), the slop is measured
+ *  against the button's box, Space/Enter hold from key down to key up,
+ *  Escape and blur cancel. Every handler is inert while `hold` is off. */
+function createHold(enabled: Accessor<boolean>, disabled: Accessor<boolean>, emit: (event: string) => void | Promise<void>) {
+  const [held, setHeld] = createSignal(false)
+  const m = new ButtonHold((event) => void emit(event), setHeld, () => disabled())
+  createEffect(() => {
+    if (disabled() || !enabled()) m.reset()
+  })
+  onCleanup(() => m.reset())
+  const rect = (el: HTMLElement) => el.getBoundingClientRect()
+  const on = enabled
+  const handlers = {
+    onPointerDown: (e: PointerEvent & { currentTarget: HTMLButtonElement }) => {
+      if (!on()) return
+      if (e.button !== undefined && e.button !== 0) return
+      if (!m.pointerDown(e.pointerId ?? null)) return
+      try {
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      } catch {
+        // A synthetic pointer (tests) has no capture.
+      }
+    },
+    onPointerMove: (e: PointerEvent & { currentTarget: HTMLButtonElement }) => on() && m.pointerMove(rect(e.currentTarget), e.clientX ?? 0, e.clientY ?? 0, e.pointerId ?? null),
+    onPointerUp: (e: PointerEvent & { currentTarget: HTMLButtonElement }) => on() && m.pointerUp(rect(e.currentTarget), e.clientX ?? 0, e.clientY ?? 0, e.pointerId ?? null),
+    onPointerCancel: (e: PointerEvent) => on() && m.pointerCancel(e.pointerId ?? null),
+    onKeyDown: (e: KeyboardEvent) => {
+      if (on() && m.keyDown(e.key, e.repeat)) e.preventDefault()
+    },
+    onKeyUp: (e: KeyboardEvent) => {
+      if (on() && m.keyUp(e.key)) e.preventDefault()
+    },
+    onBlur: () => on() && m.blur(),
+    onContextMenu: (e: MouseEvent) => on() && e.preventDefault(),
+  }
+  return { held: () => enabled() && held(), handlers }
 }
 
 export function LinkNative(props: NativeProps): JSX.Element {

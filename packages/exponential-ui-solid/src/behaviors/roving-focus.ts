@@ -30,14 +30,17 @@ export function rovingFocusFirst(candidates: (HTMLElement | null | undefined)[])
   }
 }
 
+type Orientation = `horizontal` | `vertical` | undefined
+
 /** Radix's RovingFocusGroup: the group's own attributes + handlers, and
- *  each item's. `items()` = the item elements in order, `focusable(el)`,
+ *  each item's. `items()` = the item elements in order, `orientation` a value or an accessor, `focusable(el)`,
  *  `active(el)` = the selected one (the group's entry focus). */
-export function createRovingGroup(opts: { orientation?: `horizontal` | `vertical`; dir: () => `ltr` | `rtl`; loop: boolean; items: () => HTMLElement[]; focusable: (el: HTMLElement) => boolean; active: (el: HTMLElement) => boolean }) {
+export function createRovingGroup(opts: { orientation?: Orientation | (() => Orientation); dir: () => `ltr` | `rtl`; loop: boolean; items: () => HTMLElement[]; focusable: (el: HTMLElement) => boolean; active: (el: HTMLElement) => boolean }) {
+  const orientation = (): Orientation => (typeof opts.orientation === `function` ? opts.orientation() : opts.orientation)
   const [stop, setStop] = createSignal<HTMLElement | null>(null)
   const [tabbingBackOut, setTabbingBackOut] = createSignal(false)
   let clickFocus = false
-  const group = (): Record<string, unknown> => ({ tabindex: tabbingBackOut() ? -1 : 0, "data-orientation": opts.orientation })
+  const group = (): Record<string, unknown> => ({ tabindex: tabbingBackOut() ? -1 : 0, "data-orientation": orientation() })
   // React's onFocus/onBlur BUBBLE (focusin/focusout): a click on an item
   // resets the click flag through the group.
   const groupHandlers = {
@@ -67,7 +70,7 @@ export function createRovingGroup(opts: { orientation?: `horizontal` | `vertical
         return
       }
       if (e.target !== e.currentTarget) return
-      const intent = focusIntent(e, opts.orientation, opts.dir())
+      const intent = focusIntent(e, orientation(), opts.dir())
       if (intent === undefined) return
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
       e.preventDefault()

@@ -59,6 +59,28 @@ differences:
   `useHostSurface` is `createHostSurface`, and `defineReactExtension` is
   `defineSolidExtension`.
 
+## The QrScanner camera (`qrScanner` host option)
+
+The camera is the host's (VAPP-162, `docs/round-5-contract.md` §7), the same
+hook as React's:
+
+```ts
+host={{
+  qrScanner: {
+    // Render the live feed into `feed` (an empty element filling the
+    // viewfinder; append a <video>), decode codes of `formats` (default
+    // ["qr"]) and call onValue per decoded string. Return the stop.
+    start(feed: HTMLElement, formats: readonly string[], onValue: (value: string) => void): (() => void) | false | void
+  },
+}}
+```
+
+`onValue` dispatches `scanned {value}` once per distinct value (a code held
+in view reports once; a remount or re-enable reports it again) and announces
+it politely. The stop runs on unmount, on `disabled` and when `formats`
+change. No `qrScanner`, `start` returning `false` or throwing = the
+placeholder (`ui-scan` + `Camera unavailable`), no scan line.
+
 ## Layout
 
 | path | what |
@@ -67,7 +89,7 @@ differences:
 | `src/create-surface.ts` | `createSurface`: the reducer as a Solid store (tree and data in two signals) |
 | `src/node-view.tsx` | the bind pass as per-node memos, painter lookup through `<Dynamic>`, `NodeList` (children keyed by id) and `TemplateItems` (keyed by `template.key`), `runNodeAction`, the paint boundary |
 | `src/context.ts` | the surface context (an object of getters; `deriveContext` re-points fields), scope + instance accessors |
-| `src/natives/` | `shared.tsx` (`parts()`, the porting rules), `bound.ts`, the painters (`overlays.tsx`, `select.tsx`, `dates.tsx`, `nav.tsx`, `inputs.tsx`…), `index.ts` (the 48 keys) |
+| `src/natives/` | `shared.tsx` (`parts()`, the porting rules), `bound.ts`, the painters (`overlays.tsx`, `select.tsx`, `dates.tsx`, `nav.tsx`, `inputs.tsx`, `qr.tsx`…), `index.ts` (the 51 keys) |
 | `src/behaviors/` | the headless Radix machinery the natives and `src/primitives/` share, one concern per module: `portal`, `presence`, `dismissable-layer`, `focus-scope`, `focus-guards`, `scroll-lock`, `modal`, `popper`, `menu`, `roving-focus`, `listbox`, `typeahead`, `collapsible`, `picker-popover`, `bubble-input`, `slider`, `grace-area`, `visually-hidden`, `drag-to-dismiss`, `style-writer`, `element-size`, `image-loading-status`, `search-match` (`index.ts` names the Radix primitive each reproduces). Nothing in it reads the surface context; package-internal |
 | `src/primitives/` | the React primitive set on Solid (FEED-131), one module per React module but the six app-specific ones, on the shared recipes of `@exponential_app/ui/web/primitives` and on `src/behaviors/`; `index.ts` = `./primitives`; `bun run build:css` → `dist/exponential-ui-solid.css` |
 | `src/style.ts` | `css()`: React's inline-style semantics (camelCase, px for numbers, unitless list) |
