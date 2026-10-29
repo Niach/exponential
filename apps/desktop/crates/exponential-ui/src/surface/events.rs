@@ -325,6 +325,10 @@ impl Surface {
         if event == "contextmenu" {
             return self.context_menu(&n, payload);
         }
+        // VAPP-162: a `hold` Button never fires `press` (Surface::hold drives it).
+        if event == "press" && n.component == "Button" && n.part.is_none() && n.props.get("hold").and_then(Value::as_bool) == Some(true) {
+            return vec![];
+        }
         if event == "press" {
             if let Some(target) = n.trigger_for.clone() {
                 let mut out = self.fire(&n.id, "press", None);
@@ -643,6 +647,47 @@ impl Surface {
 
     /// The node, or the native owning it, is `disabled`/`loading` (its own
     /// props, a Form's injection, or the host's `disabled` state).
+    /// VAPP-162 (round-5 contract §9): one pointer / key / focus input on a
+    /// `hold: true` Button at layout node `index` ([`crate::hold::HoldInput`],
+    /// coordinates relative to the button's top-left; the box is the last
+    /// laid-out frame). Fires `holdStart` / `holdEnd` / `holdCancel`, and
+    /// while held the node carries the `pressed` state and paints its
+    /// `holdingLabel` (a relayout follows every start and stop). Anything
+    /// but an enabled hold Button: nothing.
+    pub fn hold(&mut self, index: u32, input: &crate::hold::HoldInput) -> Vec<OutEvent> {
+        self.ensure_reduced();
+        if !self.live.get(index as usize).copied().unwrap_or(false) {
+            return vec![];
+        }
+        let n = self.nodes[index as usize].clone();
+        if n.component != "Button" || n.part.is_some() || n.props.get("hold").and_then(Value::as_bool) != Some(true) {
+            return vec![];
+        }
+        if self.is_inert(&n) {
+            // A button disabled mid-hold drops the hold silently.
+            if self.local.holds.remove(&n.id).is_some_and(|t| t.active()) {
+                self.subtree_pending.insert(n.id.clone());
+                return vec![OutEvent::Relayout];
+            }
+            return vec![];
+        }
+        let frame = self.last_frame(index).unwrap_or_default();
+        let tracker = self.local.holds.entry(n.id.clone()).or_default();
+        let Some(fired) = tracker.input(input, frame.w, frame.h) else { return vec![] };
+        if !tracker.active() {
+            self.local.holds.remove(&n.id);
+        }
+        self.subtree_pending.insert(n.id.clone());
+        let mut out = self.fire(&n.id, fired.name(), None);
+        out.push(OutEvent::Relayout);
+        out
+    }
+
+    /// Whether a `hold` Button is held now.
+    pub fn is_held(&self, id: &str) -> bool {
+        self.local.holds.get(id).is_some_and(crate::hold::HoldTracker::active)
+    }
+
     fn is_inert(&self, n: &LNode) -> bool {
         let flagged = |p: &crate::types::Props| p.get("disabled").and_then(Value::as_bool) == Some(true) || p.get("loading").and_then(Value::as_bool) == Some(true);
         if flagged(&n.props) || self.states.get(&n.id).is_some_and(|s| s.iter().any(|x| x == "disabled")) {

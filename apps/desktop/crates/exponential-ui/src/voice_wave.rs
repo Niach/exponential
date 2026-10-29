@@ -231,3 +231,129 @@ pub fn voice_wave(input: &VoiceWaveInput) -> VoiceWave {
     VoiceWave { rings, child_size: child_size(size), phase: round2(ph), child: input.child.map(|c| child_box(size, c)) }
 }
 
+
+// ---------------------------------------------------------------------------
+// VAPP-162: `variant: bars`, the horizontal level meter (style.json
+// `voiceWave.bars`, src/voice-wave.ts voiceWaveBars). Same inputs as the
+// rings; no child (a child stays in the tree, unpainted).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceWaveBarsSize {
+    pub height: f64,
+    pub bar_width: f64,
+    pub gap: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceWaveBarsSpec {
+    pub count: usize,
+    pub min_fraction: f64,
+    pub envelope: f64,
+    pub shape_freq: f64,
+    pub shape_base: f64,
+    pub sizes: indexmap::IndexMap<String, VoiceWaveBarsSize>,
+}
+
+pub static VOICE_WAVE_BARS: LazyLock<VoiceWaveBarsSpec> = LazyLock::new(|| {
+    let style: serde_json::Value = serde_json::from_str(g::STYLE_JSON).expect("style.json");
+    serde_json::from_value(style["voiceWave"]["bars"].clone()).expect("style.json voiceWave.bars")
+});
+
+/// The `variant` prop (catalog enum): anything but `bars` is `ring`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", from = "String")]
+pub enum Variant {
+    #[default]
+    Ring,
+    Bars,
+}
+
+impl From<String> for Variant {
+    fn from(s: String) -> Self {
+        Self::parse(&s)
+    }
+}
+
+impl Variant {
+    pub fn parse(s: &str) -> Self {
+        if s == "bars" { Self::Bars } else { Self::Ring }
+    }
+}
+
+/// The input of [`voice_wave_bars`]: `size` = the size CLASS (`sm` `md`
+/// `lg` `xl`; anything else is `md`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceWaveBarsInput {
+    pub size: String,
+    pub activity: Activity,
+    #[serde(default)]
+    pub level: Option<f64>,
+    #[serde(default)]
+    pub bands: Option<Vec<f64>>,
+    #[serde(default)]
+    pub elapsed: Option<f64>,
+    #[serde(default)]
+    pub reduced_motion: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VoiceWaveBar {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub radius: f64,
+}
+
+/// One frame of the meter: the root box (count × barWidth + (count − 1) ×
+/// gap wide, `height` tall), the phase and every bar rect (px from the
+/// box's top-left), filled with the `bar` part colour.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VoiceWaveBars {
+    pub width: f64,
+    pub height: f64,
+    pub phase: f64,
+    pub bars: Vec<VoiceWaveBar>,
+}
+
+/// The box of a `bars` meter for a size class: (width, height, bar width, gap).
+pub fn voice_wave_bars_box(size: &str) -> (f64, f64, f64, f64) {
+    let b = &*VOICE_WAVE_BARS;
+    let spec = b.sizes.get(size).or_else(|| b.sizes.get("md")).copied().expect("style.json voiceWave.bars.sizes.md");
+    let n = b.count as f64;
+    (n * spec.bar_width + (n - 1.0) * spec.gap, spec.height, spec.bar_width, spec.gap)
+}
+
+/// The bars for one frame (style.json `voiceWave.bars` $comment).
+pub fn voice_wave_bars(input: &VoiceWaveBarsInput) -> VoiceWaveBars {
+    let v = &*VOICE_WAVE;
+    let b = &*VOICE_WAVE_BARS;
+    let (width, height, bar_width, gap) = voice_wave_bars_box(&input.size);
+    let level = clamp01(input.level.unwrap_or(0.0));
+    let bands: Vec<f64> = input.bands.as_deref().unwrap_or(&[]).iter().take(v.max_bands).map(|b| clamp01(*b)).collect();
+    let ph = phase(input.activity, input.elapsed.unwrap_or(0.0), input.reduced_motion.unwrap_or(false));
+    let full = v.amp_base + v.amp_level;
+    let drive = match input.activity {
+        Activity::Listening | Activity::Speaking => (v.amp_base + v.amp_level * level) / full,
+        Activity::Thinking => v.thinking_amp / full,
+        Activity::Idle | Activity::Muted => 0.0,
+    };
+    let flat = bands.is_empty() || input.activity == Activity::Thinking;
+    let n = b.count;
+    let bars = (0..n)
+        .map(|i| {
+            let fi = i as f64;
+            let band = if flat { 1.0 } else { bands[i % bands.len()] };
+            let envelope = 1.0 - b.envelope * ((2.0 * fi) / (n as f64 - 1.0) - 1.0).abs();
+            let shape = 0.5 + 0.5 * (b.shape_freq * fi + ph * (1.0 + (i % 3) as f64 * 0.5)).sin();
+            let fraction = b.min_fraction + (1.0 - b.min_fraction) * drive * band * envelope * (b.shape_base + (1.0 - b.shape_base) * shape);
+            let h = round2(height * fraction);
+            VoiceWaveBar { x: fi * (bar_width + gap), y: round2((height - h) / 2.0), width: bar_width, height: h, radius: bar_width / 2.0 }
+        })
+        .collect();
+    VoiceWaveBars { width, height, phase: round2(ph), bars }
+}

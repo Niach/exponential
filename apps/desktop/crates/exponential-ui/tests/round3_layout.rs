@@ -122,3 +122,28 @@ fn a_segmented_is_content_sized_unless_fill_or_bar() {
     assert_eq!(frame(&s, &out, "fill").w, 520.0);
     assert_eq!(frame(&s, &out, "bar").w, 520.0, "a bar always fills");
 }
+
+/// VAPP-162 (round-5 contract §3): a vertical `bar` is THE rail: 72 wide
+/// (the root recipe), one `$control.tabBar` (56) item per option, not
+/// stretched across a row parent; a horizontal bar still fills.
+#[test]
+fn a_vertical_bar_is_a_rail_of_fixed_items() {
+    use exponential_ui::themes::builtin_theme;
+    let items = json!([{"label": "Chats", "value": "c", "icon": "nav-inbox", "count": 3}, {"label": "Calls", "value": "k", "icon": "call-end"}, {"label": "You", "value": "y", "icon": "nav-settings"}]);
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "width": "100%", "height": 600}, "children": [
+        {"id": "rail", "component": "Segmented", "props": {"items": items, "variant": "bar", "orientation": "vertical", "value": "c"}},
+        {"id": "body", "component": "Box", "style": {"flexGrow": 1}}
+    ]}))
+    .unwrap();
+    for theme in ["neutral", "exponential", "playful", "orange"] {
+        let mut s = Surface::new("t", SurfaceOptions { theme: Some(builtin_theme(theme).expect("theme")), ..SurfaceOptions::default() });
+        let issues = s.set_nested(tree.clone()).issues;
+        assert!(issues.is_empty(), "{issues:?}");
+        s.set_viewport(800.0, 600.0, None);
+        let out = s.layout(&mut fixed());
+        let rail = frame(&s, &out, "rail");
+        assert_eq!((rail.w, rail.h), (72.0, 168.0), "{theme}");
+        assert_eq!(frame(&s, &out, "body").x, 72.0, "{theme}");
+    }
+    assert_eq!(exponential_ui::segmented::rail_item(2, 72.0, 56.0), (0.0, 112.0, 72.0, 56.0));
+}
