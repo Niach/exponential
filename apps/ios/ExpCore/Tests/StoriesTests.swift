@@ -86,8 +86,18 @@ final class StoriesTests: XCTestCase {
         ])
     }
 
+    private typealias Inputs = (
+        now: Double, sessions: [Stories.SessionInput], agents: [Stories.AgentInput],
+        messages: [Stories.MessageInput], reads: [Stories.ReadInput]
+    )
+
     /// `stories(input)` over a fixture input object.
     private func fold(_ input: [String: Any], _ name: String) throws -> [Stories.StoryRing] {
+        let i = try inputs(input, name)
+        return Stories.rings(now: i.now, sessions: i.sessions, agents: i.agents, messages: i.messages, reads: i.reads)
+    }
+
+    private func inputs(_ input: [String: Any], _ name: String) throws -> Inputs {
         let sessions = try XCTUnwrap(input["sessions"] as? [[String: Any]], name).map { raw in
             Stories.SessionInput(
                 id: raw["id"] as? String ?? "",
@@ -121,10 +131,61 @@ final class StoriesTests: XCTestCase {
                 storySeenAt: num(raw["storySeenAt"])
             )
         }
-        return Stories.rings(
-            now: try XCTUnwrap(num(input["now"]), name),
-            sessions: sessions, agents: agents, messages: messages, reads: reads
+        return (try XCTUnwrap(num(input["now"]), name), sessions, agents, messages, reads)
+    }
+
+    /// stories.json `tab`: copy, test ids and the phone tile geometry.
+    func testTabMatchesTheFixture() throws {
+        let tab = try XCTUnwrap(try fixture()["tab"] as? [String: Any])
+        XCTAssertEqual(tab["copy"] as? [String: String], [
+            "label": Stories.Tab.Copy.label, "empty": Stories.Tab.Copy.empty,
+            "approved": Stories.Tab.Copy.approved, "changed": Stories.Tab.Copy.changed,
+            "answered": Stories.Tab.Copy.answered, "superseded": Stories.Tab.Copy.superseded,
+            "changes": Stories.Tab.Copy.changes, "stack": Stories.Tab.Copy.stack,
+        ])
+        XCTAssertEqual(tab["testIds"] as? [String: String], [
+            "tab": Stories.Tab.TestIds.tab, "list": Stories.Tab.TestIds.list, "tile": Stories.Tab.TestIds.tile,
+            "changes": Stories.Tab.TestIds.changes, "stack": Stories.Tab.TestIds.stack,
+        ])
+        let tile = try XCTUnwrap(tab["tile"] as? [String: Any])
+        XCTAssertEqual((tile["thumbHeight"] as? [String: Double])?["phone"], Stories.Tab.Tile.thumbHeight)
+        XCTAssertEqual((tile["thumbMaxWidth"] as? [String: Double])?["phone"], Stories.Tab.Tile.thumbMaxWidth)
+        XCTAssertEqual(num(tile["gap"]), Stories.Tab.Tile.gap)
+        XCTAssertEqual(num(tile["radius"]), Stories.Tab.Tile.radius)
+        XCTAssertEqual(num(tile["listGap"]), Stories.Tab.Tile.listGap)
+        XCTAssertEqual(num(tile["leadGap"]), Stories.Tab.Tile.leadGap)
+        XCTAssertEqual(
+            num((tab["specimen"] as? [String: Any])?["case"]).map(Int.init), Stories.Tab.specimenCase
         )
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 1600, height: 1000), 224)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 1179, height: 2556), 65)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: 4000, height: 1000), 280)
+        XCTAssertEqual(Stories.Tab.Tile.thumbWidth(width: nil, height: nil), 187)
+    }
+
+    /// `storyTab(input + rootId)` over every `tabCases` entry, the WHOLE ring.
+    func testTabCases() throws {
+        let cases = try XCTUnwrap(try fixture()["tabCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? "?"
+            let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
+            let i = try inputs(input, name)
+            let ring = Stories.storyTab(
+                now: i.now, sessions: i.sessions, agents: i.agents, messages: i.messages, reads: i.reads,
+                rootId: try XCTUnwrap(input["rootId"] as? String, name)
+            )
+            if entry["expected"] is NSNull {
+                XCTAssertNil(ring, name)
+                continue
+            }
+            let expected = try XCTUnwrap(entry["expected"] as? [String: Any], name)
+            let actual = json(try XCTUnwrap(ring, name))
+            XCTAssertTrue(
+                NSDictionary(dictionary: actual).isEqual(to: expected),
+                "\(name)\nactual: \(actual)\nexpected: \(expected)"
+            )
+        }
     }
 
     func testCases() throws {

@@ -40,6 +40,7 @@ import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.Stories
 import com.exponential.app.domain.SearchList
 import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
@@ -81,6 +82,8 @@ import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenTestId
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenScreen
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryRingSpecimenScreen
+import com.exponential.app.ui.styleguide.StoryTabSpecimenScreen
+import com.exponential.app.ui.styleguide.StoryTabSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryRingSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryViewerSpecimenScreen
 import com.exponential.app.ui.styleguide.StoryViewerSpecimenTestId
@@ -133,7 +136,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
- *   sg_story-ring · sg_story-viewer
+ *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -223,6 +226,8 @@ class StyleguideScreenshotsTest {
             "sg_device-readiness",
             // S-3 STORIES: THE story ring row + THE story viewer.
             "sg_story-ring", "sg_story-viewer",
+            // stories.json STORIES TAB: THE tab body (tabCases[1]).
+            "sg_story-tab",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -569,6 +574,29 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(hasTestTag("issue-pr-row")).onFirst().performScrollTo()
         flow.settle()
         flow.screenshot("sg_pr-row")
+
+        // --- sg_thread-stories (stories.json STORIES TAB): APP-14's thread
+        // (web's `$diffThreadId`) on its Stories tab, the strip's last,
+        // icon-only: the Stack band + rail, the Changes row over the real
+        // PR's GitHub diff, then the seeded stories' tiles. The Changes row
+        // is the gate (the diff is the walk's one network dependency).
+        if (ScreenshotFlow.isShotWanted("sg_thread-stories")) {
+            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+            flow.waitFor(hasTestTag(Stories.Tab.TestIds.TAB), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag(Stories.Tab.TestIds.TAB)).performClick()
+            flow.waitFor(hasTestTag(Stories.Tab.TestIds.TILE), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag(Stories.Tab.TestIds.STACK), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag(Stories.Tab.TestIds.CHANGES), NETWORK_TIMEOUT)
+            flow.settle(longer = true)
+            flow.screenshot("sg_thread-stories")
+            // Thread → the issue page.
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("issue-pr-row"), NAV_TIMEOUT)
+            flow.settle()
+        }
 
         // Issue → board.
         composeRule.onNode(hasContentDescription("Back")).performClick()
@@ -1277,6 +1305,10 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_story-ring")
         show(StoryViewerSpecimenTestId) { StoryViewerSpecimenScreen() }
         flow.screenshot("sg_story-viewer")
+        // --- sg_story-tab (stories.json `tab.specimen`): THE Stories tab
+        // body over tabCases[1]'s ring, the phone size, no PR block.
+        show(StoryTabSpecimenTestId) { StoryTabSpecimenScreen() }
+        flow.screenshot("sg_story-tab")
 
         finished = true
     }

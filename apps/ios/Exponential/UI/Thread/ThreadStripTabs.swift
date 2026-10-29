@@ -59,8 +59,9 @@ struct ThreadStripFold: Identifiable, Equatable {
 /// EXP-1295/1316/1334: the thread header's ONE strip as the phone's pager
 /// tabs (fixture `session-thread.json` `tabs`), and it NEVER scrolls: the
 /// "+" (link or file an issue) and `Conversation` (ICON-ONLY on phones,
-/// `action-chat`) pinned left; S-3: the Guide tab is gone and the trailing
-/// zone is empty. After them the issue chips (status glyph + mono identifier, + the title while
+/// `action-chat`) pinned left; stories.json: the Stories tab (icon-only,
+/// `thread-stories`, a dot while `storyTab.unseen`) pinned right, where the
+/// Guide was. After them the issue chips (status glyph + mono identifier, + the title while
 /// everything fits) then the session chips (the row mark + name; a tap
 /// shows that session's page, EXP-1343), laid out by `SessionTree.partitionThreadStrip`
 /// over MEASURED widths (`ThreadStripMetrics`): titles go first, then each
@@ -92,6 +93,9 @@ struct ThreadStripTabs: View {
     var onOpenSession: ((String) -> Void)?
     /// A folded chip's tap or a "+N": the host presents THE Menu's sheet.
     var onOpenFold: (ThreadStripFold) -> Void = { _ in }
+    /// stories.json STORIES TAB: the Stories tab pinned right (nil = none,
+    /// an app editor's chat); true = its dot (`storyTab(input).unseen`).
+    var storiesDot: Bool?
 
     /// entity-chip.json `tab` size: every chip in the strip is one height —
     /// web `STRIP_TAB_CLASS` `h-8 rounded-md`: 32pt tall, the 10pt row radius
@@ -133,6 +137,10 @@ struct ThreadStripTabs: View {
                 }
                 .overlay(alignment: .leading) { middle }
                 .clipped()
+            if storiesDot != nil {
+                pageTab(.stories)
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -379,6 +387,26 @@ struct ThreadStripTabs: View {
         switch page {
         case .issue, .session:
             EmptyView()
+        case .stories:
+            // Phones: icon-only like Conversation (the word = the label),
+            // the Guide's emerald dot while a story is waiting or unseen.
+            ThreadStripTab(selected: selected, bordered: false, fresh: false) {
+                AppIcon(AppIcons.threadStories, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)
+                    .overlay(alignment: .topTrailing) {
+                        if storiesDot == true {
+                            Circle()
+                                .fill(DesignTokens.Semantic.green)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 4, y: -3)
+                                .accessibilityHidden(true)
+                        }
+                    }
+            }
+            .onTapGesture { onSelect(page) }
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(Stories.Tab.Copy.label)
+            .accessibilityIdentifier(Stories.Tab.TestIds.tab)
         case .conversation:
             ThreadStripTab(selected: selected, bordered: false, fresh: false) {
                 AppIcon(AppIcons.actionChat, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)

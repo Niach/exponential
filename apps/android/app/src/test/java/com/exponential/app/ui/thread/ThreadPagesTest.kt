@@ -78,4 +78,19 @@ class ThreadPagesTest {
         val tabs = listOf(ThreadTab.Conversation, ThreadTab.IssueTab("i1", "APP-1"))
         assertEquals(listOf("conversation", "issue:i1"), threadMainPages(threadPages(tabs), null).map(::threadTabKey))
     }
+
+    @Test
+    fun theStoriesTabIsTheLastPage() {
+        val tabs = listOf(
+            ThreadTab.Add,
+            ThreadTab.Conversation,
+            ThreadTab.IssueTab("i1", "APP-1"),
+            ThreadTab.SessionTab("s1", "Web", SessionTree.SessionState.Working),
+            ThreadTab.Stories,
+        )
+        assertEquals(
+            listOf("conversation", "issue:i1", "session:s1", "stories"),
+            threadPages(tabs).map(::threadTabKey),
+        )
+    }
 }

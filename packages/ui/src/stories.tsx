@@ -341,6 +341,7 @@ export function StoryViewerPanel({
   onDecide,
   onAnswer,
   onPause,
+  initialPicture = 0,
   className,
   style,
 }: {
@@ -365,12 +366,15 @@ export function StoryViewerPanel({
   onAnswer?: (answer: StoryAnswer) => void
   /** A long press holds the timer (true) / lets it go (false). */
   onPause?: (paused: boolean) => void
+  /** The picture the story opens on (a Stories tab thumbnail's index). */
+  initialPicture?: number
   className?: string
   style?: CSSProperties
 }) {
   const press = useRef<{ x: number; y: number; at: number; held: boolean; timer: number | null } | null>(null)
-  const [picture, setPicture] = useState(0)
-  useEffect(() => setPicture(0), [story.id])
+  const [picture, setPicture] = useState(initialPicture)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setPicture(initialPicture), [story.id])
 
   const endPress = () => {
     const current = press.current
@@ -698,6 +702,8 @@ export function stepStory(
 export function StoryViewer({
   rings,
   openRing,
+  openStory = null,
+  openPicture = 0,
   onClose,
   avatarFor,
   cardFor,
@@ -712,6 +718,11 @@ export function StoryViewer({
   rings: readonly StoryRingModel[]
   /** The ring the viewer opens at (null = closed). */
   openRing: string | null
+  /** The story of `openRing` it opens on (null = its first; the Stories
+   *  tab's tile). */
+  openStory?: string | null
+  /** The picture of `openStory` it opens on (a thumbnail's index). */
+  openPicture?: number
   onClose: () => void
   avatarFor: (ring: StoryRingModel) => ReactNode
   /** The story's raw card (its surface and options). */
@@ -736,7 +747,7 @@ export function StoryViewer({
       return
     }
     const ring = rings.find((entry) => entry.key === openRing)
-    const first = ring?.stories[0]
+    const first = ring?.stories.find((entry) => entry.id === openStory) ?? ring?.stories[0]
     if (!ring || !first) {
       onClose()
       return
@@ -745,7 +756,7 @@ export function StoryViewer({
     setPosition({ ringKey: ring.key, storyId: first.id })
     // Opening only: later changes of `rings` refresh the stories below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openRing])
+  }, [openRing, openStory])
 
   // Live stories by id (an answer's state, a fresher meta), else the snapshot's.
   const live = useMemo(() => {
@@ -889,6 +900,7 @@ export function StoryViewer({
                 onDecide={onDecide ? (decision) => void settle(onDecide(story, decision)) : undefined}
                 onAnswer={onAnswer ? (answer) => void settle(onAnswer(story, answer)) : undefined}
                 onPause={setPaused}
+                initialPicture={story.id === openStory ? openPicture : 0}
                 className={STORY_VIEWER_FRAME_CLASS}
                 style={STORY_VIEWER_FRAME_STYLE}
               />

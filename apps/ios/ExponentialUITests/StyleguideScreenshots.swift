@@ -234,6 +234,12 @@ final class StyleguideScreenshots: XCTestCase {
 
         // The FIRST sync after sign-in: the one long wait of the run.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
+        // The board tab opens the viewer's LAST board (server-side): another
+        // lane's walk may have left it on another board; land on the seeded one.
+        if !showcaseRowTitle.waitForExistence(timeout: Wait.sync),
+           !app.buttons["tab-board"].label.contains(Self.seededBoardName) {
+            switchBoard(app, to: Self.seededBoardName)
+        }
         expect(
             showcaseRowTitle,
             within: Wait.firstSync,
@@ -657,6 +663,17 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
+        // ── sg_thread-stories: APP-14's thread on its Stories tab ──────────
+        // stories.json STORIES TAB, LIVE: from Chats, APP-14's thread (the
+        // stack top over APP-15, the seeded PR with a real GitHub diff), then
+        // the strip's last tab (icon-only, pinned right). Gate on the Changes
+        // row (the PR's files loaded) and a tile.
+        if ScreenshotShots.isWanted("sg_thread-stories") {
+            walkThreadStories(app)
+            showBoard(app)
+            settle(1)
+        }
+
         // ── sg_settings-root: the TEAM tab (EXP-1373: the settings root moved
         // here) — the active team's header, the teams group, the team's
         // settings rows, the account rows.
@@ -943,12 +960,13 @@ final class StyleguideScreenshots: XCTestCase {
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) ·
         // sg_device-readiness (EXP-1375) · sg_session-xref ·
-        // sg_story-ring · sg_story-viewer (S-3, stories.json): the styleguide entries'
-        // specimens.
+        // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json): the
+        // styleguide entries' specimens.
         for entry in [
             "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
             "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
             "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
+            "story-tab",
         ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
@@ -967,6 +985,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "session-xref": snapshot("sg_session-xref", settle: 2)
             case "story-ring": snapshot("sg_story-ring", settle: 2)
             case "story-viewer": snapshot("sg_story-viewer", settle: 2)
+            case "story-tab": snapshot("sg_story-tab", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
@@ -1097,6 +1116,31 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_app-import", settle: 2)
         dismissSheet(app, whileVisible: app.staticTexts["Import an app"])
+        settle(1)
+    }
+
+    /// stories.json STORIES TAB: Chats → APP-14's thread → its Stories tab
+    /// (`sg_thread-stories`); ends back on the Chats list.
+    @MainActor
+    private func walkThreadStories(_ app: XCUIApplication) {
+        let threadsTab = app.buttons["tab-threads"]
+        expect(threadsTab, within: Wait.nav, "Threads tab missing")
+        threadsTab.tap()
+        let row = threadRow(app, containing: Self.guideTitle)
+        expect(row, within: Wait.sync, "The Chats list has no \"\(Self.guideTitle)\" thread — reseed with `bun run seed:screenshots`")
+        row.tap()
+        let tab = anyElement(app, identified: "thread-stories-tab")
+        expect(tab, within: Wait.sync, "The thread strip drew no Stories tab")
+        XCTAssertTrue(tab.isHittable, "The Stories tab is off screen — the strip must never scroll")
+        tab.tap()
+        expect(
+            anyElement(app, identified: "thread-stories-changes"),
+            within: Wait.network,
+            "The Stories tab drew no Changes row — are the seeded PR's files reachable on GitHub?"
+        )
+        expect(anyElement(app, identified: "story-tile"), within: Wait.sync, "The Stories tab drew no story tile")
+        snapshot("sg_thread-stories", settle: 3)
+        goBack(app)
         settle(1)
     }
 

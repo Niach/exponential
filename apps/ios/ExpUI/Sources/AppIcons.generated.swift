@@ -572,6 +572,7 @@ public enum AppIcons {
         "status-todo": "circle",
         "support-open": "circle-dot",
         "support-resolved": "circle-check",
+        "thread-stories": "images",
         "tool-script": "braces",
         "trace-background": "repeat",
         "trace-chevron": "chevron-right",
@@ -1026,6 +1027,8 @@ public enum AppIcons {
     public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
+    /// Concept `thread-stories`.
+    public static let threadStories: String = "images"
     /// Concept `tool-script`.
     public static let toolScript: String = "braces"
     /// Concept `trace-background`.

@@ -48,6 +48,19 @@ final class StoriesModel {
         )
     }
 
+    /// stories.json STORIES TAB: every story `rootId`'s tree ever posted
+    /// (`Stories.storyTab`), no time window; nil = the empty state.
+    func tab(now: Date, rootId: String) -> Stories.StoryRing? {
+        Stories.storyTab(
+            now: now.timeIntervalSince1970 * 1000,
+            sessions: input.sessions,
+            agents: input.agents,
+            messages: input.messages,
+            reads: input.reads,
+            rootId: rootId
+        )
+    }
+
     func card(_ storyId: String) -> TreeMessageCard? {
         input.cards[storyId]
     }

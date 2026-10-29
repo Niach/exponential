@@ -1228,6 +1228,44 @@ async function seedSessionTree(ctx: {
     `4. Re-measure cold start on the Pixel 6a and the CI device.`,
     `5. Open the PR with the before/after numbers.`,
   ].join(`\n`)
+  // STORIES TAB (stories.json, the `thread-stories` view): APP-14's thread
+  // keeps a settled history beside its waiting draft: a result with two
+  // real pictures (the board's committed web + iOS shots) and an approved
+  // plan. Both are older than the ring's keep window / settled, so the chat
+  // list's rings never change; the tab keeps them for good.
+  const assigneePictures = (
+    await seedDemoGuidePictures({ teamId, sessionId: ids.groupByAssignee, uploaderId: demoId, at: hoursAgo(27) })
+  ).map((entry, index) => ({
+    label: `${entry.label} assignee groups`,
+    attachmentId: entry.attachmentId!,
+    width: entry.width ?? null,
+    height: entry.height ?? null,
+    caption: index === 0 ? `Grouped by assignee` : `iPhone`,
+  }))
+  await db.insert(messages).values(
+    ([
+      {
+        sessionId: ids.groupByAssignee,
+        author: `agent`,
+        authorSessionId: ids.groupByAssignee,
+        card: { kind: `plan`, plan: `## Group by assignee\n\nA third grouping mode beside Status, remembered per board.`, decision: `approved` },
+        at: hoursAgo(30),
+      },
+      {
+        sessionId: ids.groupByAssignee,
+        author: `agent`,
+        authorSessionId: ids.groupByAssignee,
+        card: {
+          kind: `surface`,
+          story: true,
+          title: `Assignee groups`,
+          surface: { root: { id: `groups`, component: `Text`, props: { text: `Grouped by assignee` } }, data: {} },
+          pictures: assigneePictures,
+        },
+        at: hoursAgo(26),
+      },
+    ] as MessageSpec[]).map(message)
+  )
   await db.insert(messages).values(
     [
       // The cold-start thread (the `thread` view).

@@ -6160,6 +6160,84 @@
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-viewer`: the IDE styleguide entry drawn full-window.",
         "web-mobile": "Inherits web."
       }
+    },
+    {
+      "id": "story-tab",
+      "group": "coding",
+      "title": "Stories tab",
+      "blurb": "THE session screen's Stories tab body ×4 (stories.json STORIES TAB): one tile per story, waiting first then newest first, the title with its kind · outcome · age, a row of picture thumbnails with a short caption under each; no prose.",
+      "order": 51,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=story-tab",
+        "anchor": {
+          "testId": "story-tab-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_story-tab",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_story-tab",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:story-tab"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=story-tab` on the Agent route: `@exp/ui` `StoryTabSpecimen` = stories.json tabCases[1]: a waiting question, a result with two pictures, settled plans and an answered question, an old result.",
+        "ios": "The specimen in StorySpecimens / StyleguideScreenshots, shot sg_story-tab.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-tab`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web."
+      }
+    },
+    {
+      "id": "thread-stories",
+      "group": "coding",
+      "title": "Thread · Stories",
+      "blurb": "A thread on its Stories tab (stories.json STORIES TAB, the Guide's successor): the Stack band + THE StackRail and ONE Changes row over its pull request, then every story the thread posted (a waiting draft, a result with web + iOS pictures, an approved plan), pictures first, one line of text each.",
+      "order": 52,
+      "web": {
+        "route": "/t/$teamSlug/threads/$diffThreadId?tab=stories",
+        "anchor": {
+          "testId": "thread-stories-changes",
+          "timeoutMs": 60000
+        },
+        "settleMs": 2500
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_thread-stories",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_thread-stories",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "thread:$diffThread"
+        },
+        "env": {
+          "EXP_DEV_THREAD_CHILD": "stories"
+        }
+      },
+      "notes": {
+        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it a waiting draft, a 26 h old result with the board's web + iOS shots and an approved plan (both outside the ring's window: the chat list's rings never change).",
+        "ios": "The LIVE walk: APP-14's thread from Chats, then its Stories tab (the strip's last, icon-only).",
+        "android": "See ios.",
+        "desktop": "APP-14's thread opened on its Stories tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=stories`.",
+        "web-mobile": "Inherits web: the phone pager's last page (the icon-only Stories tab)."
+      }
     }
   ]
 }

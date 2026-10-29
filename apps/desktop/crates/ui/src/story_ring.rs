@@ -261,9 +261,51 @@ pub(crate) fn team_stories(team_id: &str, cx: &mut App) -> Rc<Vec<StoryRing>> {
             return rings.clone();
         }
     }
-    let rings = Rc::new(domain::stories::stories(&stories_input(team_id, cx)));
+    let rings = Rc::new(domain::stories::stories(&stories_input(StoryScope::Team(team_id), cx)));
     cx.global_mut::<StoriesMemo>().0 = Some((key, rings.clone()));
     rings
+}
+
+#[derive(Default)]
+struct TabMemo(HashMap<String, (StoriesKey, Rc<Option<StoryRing>>)>);
+
+impl gpui::Global for TabMemo {}
+
+/// THE Stories tab's ring of `root_id` (`domain::stories::story_tab`: every
+/// story the root's tree ever posted; `None` = the empty state), memoised
+/// per store change and minute.
+pub(crate) fn root_story_tab(root_id: &str, cx: &mut App) -> Rc<Option<StoryRing>> {
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Rc::new(None);
+    };
+    let collections = store.collections();
+    let key = StoriesKey {
+        team_id: root_id.to_string(),
+        revisions: [
+            collections.sessions.read(cx).revision(),
+            collections.messages.read(cx).revision(),
+            collections.conversations.read(cx).revision(),
+            collections.session_reads.read(cx).revision(),
+            collections.agents.read(cx).revision(),
+        ],
+        minute: crate::session_data::now_ms() / 60_000,
+    };
+    if let Some((cached, ring)) = cx.default_global::<TabMemo>().0.get(root_id) {
+        if *cached == key {
+            return ring.clone();
+        }
+    }
+    let ring = Rc::new(domain::stories::story_tab(&stories_input(StoryScope::Root(root_id), cx), root_id));
+    cx.global_mut::<TabMemo>().0.insert(root_id.to_string(), (key, ring.clone()));
+    ring
+}
+
+/// Which sessions a fold reads: a team's (the rings), or one root's tree
+/// (the Stories tab).
+#[derive(Clone, Copy)]
+enum StoryScope<'a> {
+    Team(&'a str),
+    Root(&'a str),
 }
 
 fn iso(value: Option<&str>) -> Option<i64> {
@@ -272,7 +314,7 @@ fn iso(value: Option<&str>) -> Option<i64> {
 
 /// The fold's input off the store: only the sessions that posted a story
 /// card (and their roots) are named.
-fn stories_input(team_id: &str, cx: &App) -> domain::stories::StoriesInput {
+fn stories_input(scope: StoryScope<'_>, cx: &App) -> domain::stories::StoriesInput {
     use domain::stories::{StoriesInput, StoryAgentInput, StoryMessageInput, StoryReadInput, StorySessionInput};
     let now = crate::session_data::now_ms();
     let empty = StoriesInput { now, sessions: Vec::new(), agents: Vec::new(), messages: Vec::new(), reads: Vec::new() };
@@ -283,7 +325,10 @@ fn stories_input(team_id: &str, cx: &App) -> domain::stories::StoriesInput {
     let sessions = collections.sessions.read(cx);
     let team: HashMap<&str, &domain::rows::SessionRow> = sessions
         .iter()
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
+        .filter(|session| match scope {
+            StoryScope::Team(team_id) => session.team_id.as_deref() == Some(team_id),
+            StoryScope::Root(root_id) => session.id == root_id || session.root_id.as_deref() == Some(root_id),
+        })
         .map(|session| (session.id.as_str(), session))
         .collect();
     let messages: Vec<StoryMessageInput> = crate::session_data::keyed_messages(cx, |owner, message| {
@@ -305,6 +350,11 @@ fn stories_input(team_id: &str, cx: &App) -> domain::stories::StoriesInput {
     .collect();
     let root_of = |session: &domain::rows::SessionRow| session.root_id.clone().unwrap_or_else(|| session.id.clone());
     let mut named: HashSet<String> = HashSet::new();
+    if let StoryScope::Root(root_id) = scope {
+        if team.contains_key(root_id) {
+            named.insert(root_id.to_string());
+        }
+    }
     for message in &messages {
         if let Some(session) = team.get(message.session_id.as_str()) {
             named.insert(session.id.clone());

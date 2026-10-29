@@ -108,13 +108,23 @@ fun StoryViewer(
     onOpenSession: (Stories.Story) -> Unit = {},
     /** The styleguide's still: the timer never runs, the progress stays at 0. */
     frozen: Boolean = false,
+    /** STORIES TAB: open at this story of [startKey]'s ring (null = its first)… */
+    startStoryId: String? = null,
+    /** …on this picture (a thumbnail's index). */
+    startPicture: Int = 0,
 ) {
     data class Entry(val ringKey: String, val storyId: String)
 
     val order = remember {
         rings.flatMap { ring -> ring.stories.map { Entry(ring.key, it.id) } }
     }
-    var position by remember { mutableIntStateOf(order.indexOfFirst { it.ringKey == startKey }.coerceAtLeast(0)) }
+    var position by remember {
+        mutableIntStateOf(
+            order.indexOfFirst { it.ringKey == startKey && (startStoryId == null || it.storyId == startStoryId) }
+                .takeIf { it >= 0 }
+                ?: order.indexOfFirst { it.ringKey == startKey }.coerceAtLeast(0),
+        )
+    }
     var elapsed by remember { mutableFloatStateOf(0f) }
     var paused by remember { mutableStateOf(false) }
     val shown = remember { HashSet<String>() }
@@ -194,7 +204,9 @@ fun StoryViewer(
                 onPause = { paused = it },
                 modifier = Modifier.weight(1f),
             ) {
-                StoryBody(story, rows[story.id])
+                androidx.compose.runtime.key(story.id) {
+                    StoryBody(story, rows[story.id], if (story.id == startStoryId) startPicture else 0)
+                }
             }
             androidx.compose.runtime.key(story.id) {
                 StoryAnswerFooter(rows[story.id], story.footer, onAnswer, onDecidePlan)
@@ -320,12 +332,12 @@ private fun StoryNavigable(
 
 /** A story's body: the pictures and/or the surface, else the plan text. */
 @Composable
-private fun StoryBody(story: Stories.Story, row: SessionTree.ThreadRow?) {
+private fun StoryBody(story: Stories.Story, row: SessionTree.ThreadRow?, initialPicture: Int = 0) {
     val surface = if (story.surface) storySurface(row) else null
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when {
             story.pictures.isNotEmpty() -> {
-                StoryPictures(story.pictures, Modifier.fillMaxWidth().weight(1f))
+                StoryPictures(story.pictures, Modifier.fillMaxWidth().weight(1f), initialPicture)
                 surface?.let { SurfaceCard(it, animate = false, onReply = {}) }
             }
             surface != null -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -350,8 +362,8 @@ private fun storySurface(row: SessionTree.ThreadRow?): SessionTree.ThreadRow.Sur
 /** The pictures, fitted: one alone, several in a horizontal pager; the
  *  current one's caption under it. */
 @Composable
-private fun StoryPictures(pictures: List<Stories.Picture>, modifier: Modifier = Modifier) {
-    val pager = rememberPagerState { pictures.size }
+private fun StoryPictures(pictures: List<Stories.Picture>, modifier: Modifier = Modifier, initialPage: Int = 0) {
+    val pager = rememberPagerState(initialPage = initialPage.coerceIn(0, pictures.lastIndex)) { pictures.size }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             if (pictures.size == 1) {

@@ -98,6 +98,7 @@ import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.Stories
 import com.exponential.app.domain.WorkCardInput
 import com.exponential.app.domain.WorkCardSpec
 import com.exponential.app.domain.WorkCards
@@ -155,11 +156,15 @@ internal object ThreadUiCopy {
 }
 
 /** A tab of the strip as its saveable page key. */
+/** The Stories tab's page key (`?tab=stories` on web). */
+const val STORIES_TAB_KEY = "stories"
+
 fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
     SessionTree.ThreadTab.Conversation -> "conversation"
     is SessionTree.ThreadTab.IssueTab -> "issue:${tab.issueId}"
     SessionTree.ThreadTab.Add -> "add"
     is SessionTree.ThreadTab.SessionTab -> "session:${tab.sessionId}"
+    SessionTree.ThreadTab.Stories -> STORIES_TAB_KEY
 }
 
 /** A `question` answer: (message id, the answer, settled(ok)); EXP-1280
@@ -294,6 +299,8 @@ fun ThreadTabStrip(
     issueTitle: (String) -> String? = { null },
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)? = null,
     onOpenSession: ((sessionId: String) -> Unit)? = null,
+    /** stories.json STORIES TAB: the tab's dot (`storyTab().unseen`). */
+    storiesDot: Boolean = false,
 ) {
     var sheet by remember { mutableStateOf<StripSheet?>(null) }
     val issueTabs = tabs.filterIsInstance<SessionTree.ThreadTab.IssueTab>()
@@ -345,6 +352,32 @@ fun ThreadTabStrip(
             onMore = { zone, hidden -> sheet = StripSheet.Hidden(zone, hidden) },
             modifier = Modifier.weight(1f),
         )
+        // stories.json STORIES TAB: pinned right where the Guide was, after
+        // the last chip; phones ICON-ONLY (`thread-stories`), the Guide's dot
+        // on the icon's corner while a story waits or is unseen.
+        if (SessionTree.ThreadTab.Stories in tabs) {
+            val storiesSelected = selectedKey == STORIES_TAB_KEY
+            ThreadTab(storiesSelected, { onSelect(STORIES_TAB_KEY) }, null, Stories.Tab.TestIds.TAB) {
+                Box {
+                    Icon(
+                        ExpIcons.threadStories,
+                        contentDescription = Stories.Tab.Copy.LABEL,
+                        tint = if (storiesSelected) MaterialTheme.colorScheme.onSurface else Secondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    if (storiesDot) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 3.dp, y = (-3).dp)
+                                .size(6.dp)
+                                .background(LiveGreen, CircleShape)
+                                .testTag("thread-stories-dot"),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     when (val open = sheet) {

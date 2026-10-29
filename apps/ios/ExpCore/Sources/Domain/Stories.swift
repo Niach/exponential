@@ -67,6 +67,50 @@ public enum Stories {
         public static let previous = "story-previous"
     }
 
+    /// The session screen's Stories tab (`tab`).
+    public enum Tab {
+        public enum Copy {
+            public static let label = "Stories"
+            public static let empty = "No stories yet"
+            public static let approved = "Approved"
+            public static let changed = "Changes asked"
+            public static let answered = "Answered"
+            public static let superseded = "Replaced"
+            public static let changes = "Changes"
+            public static let stack = "Stack"
+        }
+
+        public enum TestIds {
+            public static let tab = "thread-stories-tab"
+            public static let list = "thread-stories"
+            public static let tile = "story-tile"
+            public static let changes = "thread-stories-changes"
+            public static let stack = "thread-stories-stack"
+        }
+
+        /// A tile's geometry; iOS = the `phone` form factor.
+        public enum Tile {
+            public static let thumbHeight: Double = 140
+            public static let thumbMaxWidth: Double = 280
+            public static let gap: Double = 8
+            public static let radius: Double = 10
+            public static let listGap: Double = 16
+            public static let leadGap: Double = 24
+
+            /// A thumbnail's width: by aspect at `thumbHeight` (unknown = 4:3),
+            /// capped at `thumbMaxWidth`.
+            public static func thumbWidth(width: Double?, height: Double?) -> Double {
+                guard let width, let height, width > 0, height > 0 else {
+                    return min(thumbMaxWidth, (thumbHeight * 4 / 3).rounded())
+                }
+                return min(thumbMaxWidth, (thumbHeight * width / height).rounded())
+            }
+        }
+
+        /// The styleguide specimen draws `tabCases[specimen.case]`.
+        public static let specimenCase = 1
+    }
+
     // MARK: - Input
 
     public struct SessionInput: Equatable, Sendable {
@@ -260,78 +304,116 @@ public enum Stories {
         return trimmed
     }
 
+    /// How a plan/question was settled (nil while waiting, and for results).
+    enum Resolution: Equatable {
+        case approved, changed, answered, superseded
+    }
+
+    /// One message as a story (nil = not a story of a known root).
+    static func storyOf(
+        _ message: MessageInput, sessions: [String: SessionInput], marks: [String: Double], now: Double
+    ) -> (story: Story, root: SessionInput, resolution: Resolution?)? {
+        guard let author = message.authorSessionId, author == message.sessionId else { return nil }
+        guard isStoryCard(message.card), let card = message.card else { return nil }
+        guard let session = sessions[message.sessionId], let root = sessions[session.rootId] else { return nil }
+        let kind: Kind = card.kind == "plan" ? .plan : card.kind == "question" ? .question : .result
+        let waiting: Bool = switch kind {
+        case .plan: card.decision == nil
+        case .question: message.answeredAt == nil && card.answer == nil
+        case .result: false
+        }
+        let resolution: Resolution? = kind == .result || waiting
+            ? nil
+            : kind == .question ? .answered
+            : card.decision == "approved" ? .approved
+            : card.decision == "superseded" ? .superseded
+            : .changed
+        let pictures = resolvedPictures(card)
+        let surface = card.surface != nil
+        let title: String? = switch kind {
+        case .result: blank(card.title)
+        case .question: blank(card.question)
+        case .plan: blank(AskDock.title(card.plan ?? ""))
+        }
+        let ageText = age(message.createdAt, now: now)
+        let meta: String = switch resolution {
+        case .approved: "\(Copy.kind(kind)) · \(Tab.Copy.approved) · \(ageText)"
+        case .changed: "\(Copy.kind(kind)) · \(Tab.Copy.changed) · \(ageText)"
+        case .answered: "\(Copy.kind(kind)) · \(Tab.Copy.answered) · \(ageText)"
+        case .superseded, nil: "\(Copy.kind(kind)) · \(ageText)"
+        }
+        let footer: Footer = resolution != nil
+            ? .none
+            : kind == .plan ? .plan : kind == .question ? (card.options.isEmpty ? .reply : .choices) : .none
+        let story = Story(
+            id: message.id,
+            sessionId: session.id,
+            rootId: root.id,
+            sessionName: session.name,
+            kind: kind,
+            waiting: waiting,
+            // A settled plan/question was acted on: seen.
+            seen: resolution != nil || message.createdAt <= (marks[root.id] ?? -.infinity),
+            createdAt: message.createdAt,
+            meta: meta,
+            title: title,
+            pictures: pictures,
+            surface: surface,
+            text: kind == .plan && pictures.isEmpty && !surface ? card.plan : nil,
+            footer: footer,
+            autoAdvanceMs: kind == .result ? Constants.autoAdvanceMs : nil
+        )
+        return (story, root, resolution)
+    }
+
+    /// The ring a root's stories ride (an agent's, else the chat's), empty.
+    static func emptyRing(_ root: SessionInput, agents: [String: AgentInput]) -> StoryRing {
+        let agentId = root.agentId ?? root.startedByAgentId
+        let agent = agentId.flatMap { agents[$0] }
+        return StoryRing(
+            key: agentId.map { "agent:\($0)" } ?? "root:\(root.id)",
+            agentId: agentId,
+            rootId: agentId == nil ? root.id : nil,
+            title: agentId != nil ? (agent?.name ?? root.name) : root.name,
+            assistant: agent?.assistant ?? false,
+            waiting: 0,
+            unseen: false,
+            stories: []
+        )
+    }
+
+    private static func marksOf(_ reads: [ReadInput]) -> [String: Double] {
+        Dictionary(
+            reads.map { ($0.sessionId, max($0.readAt ?? -.infinity, $0.storySeenAt ?? -.infinity)) },
+            uniquingKeysWith: { _, last in last }
+        )
+    }
+
     /// THE fold: the viewer's story rings, in display order.
     public static func rings(
         now: Double, sessions: [SessionInput], agents: [AgentInput], messages: [MessageInput], reads: [ReadInput]
     ) -> [StoryRing] {
         let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         let agentsById = Dictionary(agents.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
-        let marks = Dictionary(
-            reads.map { ($0.sessionId, max($0.readAt ?? -.infinity, $0.storySeenAt ?? -.infinity)) },
-            uniquingKeysWith: { _, last in last }
-        )
+        let marks = marksOf(reads)
         var order: [String] = []
         var byKey: [String: StoryRing] = [:]
 
         for message in messages {
-            guard let author = message.authorSessionId, author == message.sessionId else { continue }
-            guard isStoryCard(message.card), let card = message.card else { continue }
-            guard let session = sessionsById[message.sessionId], let root = sessionsById[session.rootId] else {
-                continue
+            // A settled plan/question leaves the ring (the Stories tab keeps it).
+            guard let built = storyOf(message, sessions: sessionsById, marks: marks, now: now),
+                  built.resolution == nil else { continue }
+            let story = built.story
+            if story.kind == .result {
+                let keep = story.seen ? Constants.seenHours : Constants.unseenHours
+                if now - story.createdAt >= keep * hour { continue }
             }
-            let kind: Kind = card.kind == "plan" ? .plan : card.kind == "question" ? .question : .result
-            let waiting: Bool = switch kind {
-            case .plan: card.decision == nil
-            case .question: message.answeredAt == nil && card.answer == nil
-            case .result: false
+            let ring = emptyRing(built.root, agents: agentsById)
+            if byKey[ring.key] == nil {
+                order.append(ring.key)
+                byKey[ring.key] = ring
             }
-            if kind != .result, !waiting { continue }
-            let seen = message.createdAt <= (marks[root.id] ?? -.infinity)
-            if kind == .result {
-                let keep = seen ? Constants.seenHours : Constants.unseenHours
-                if now - message.createdAt >= keep * hour { continue }
-            }
-            let pictures = resolvedPictures(card)
-            let surface = card.surface != nil
-            let title: String? = switch kind {
-            case .result: blank(card.title)
-            case .question: blank(card.question)
-            case .plan: blank(AskDock.title(card.plan ?? ""))
-            }
-            let story = Story(
-                id: message.id,
-                sessionId: session.id,
-                rootId: root.id,
-                sessionName: session.name,
-                kind: kind,
-                waiting: waiting,
-                seen: seen,
-                createdAt: message.createdAt,
-                meta: "\(Copy.kind(kind)) · \(age(message.createdAt, now: now))",
-                title: title,
-                pictures: pictures,
-                surface: surface,
-                text: kind == .plan && pictures.isEmpty && !surface ? card.plan : nil,
-                footer: kind == .plan ? .plan : kind == .question ? (card.options.isEmpty ? .reply : .choices) : .none,
-                autoAdvanceMs: kind == .result ? Constants.autoAdvanceMs : nil
-            )
-            let agentId = root.agentId ?? root.startedByAgentId
-            let agent = agentId.flatMap { agentsById[$0] }
-            let key = agentId.map { "agent:\($0)" } ?? "root:\(root.id)"
-            if byKey[key] == nil {
-                order.append(key)
-                byKey[key] = StoryRing(
-                    key: key,
-                    agentId: agentId,
-                    rootId: agentId == nil ? root.id : nil,
-                    title: agentId != nil ? (agent?.name ?? root.name) : root.name,
-                    assistant: agent?.assistant ?? false,
-                    waiting: 0,
-                    unseen: false,
-                    stories: []
-                )
-            }
-            byKey[key]?.stories.append(story)
+            byKey[ring.key]?.stories.append(story)
         }
 
         var list: [StoryRing] = order.compactMap { byKey[$0] }
@@ -351,6 +433,36 @@ public enum Stories {
             if newest(a) != newest(b) { return newest(a) > newest(b) }
             return a.key < b.key
         }
+    }
+
+    /// THE Stories tab of a session screen (stories.json `tab`): every story
+    /// the root's tree ever posted, never expiring; settled plans/questions
+    /// stay (footer none, `meta` names the outcome), a superseded plan drops.
+    /// Waiting first (oldest first), then the rest newest first. ONE ring
+    /// (the root's, as `rings` keys it) so the viewer opens on it; nil = the
+    /// empty state. `unseen` = the tab's dot.
+    public static func storyTab(
+        now: Double, sessions: [SessionInput], agents: [AgentInput], messages: [MessageInput], reads: [ReadInput],
+        rootId: String
+    ) -> StoryRing? {
+        let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let agentsById = Dictionary(agents.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        guard let root = sessionsById[rootId], root.rootId == root.id else { return nil }
+        let marks = marksOf(reads)
+        var list: [Story] = []
+        for message in messages {
+            guard let built = storyOf(message, sessions: sessionsById, marks: marks, now: now),
+                  built.root.id == root.id, built.resolution != .superseded else { continue }
+            list.append(built.story)
+        }
+        if list.isEmpty { return nil }
+        let waiting = list.filter(\.waiting).sorted(by: byCreated)
+        let rest = list.filter { !$0.waiting }.sorted { byCreated($1, $0) }
+        var ring = emptyRing(root, agents: agentsById)
+        ring.waiting = waiting.count
+        ring.unseen = list.contains { $0.waiting || !$0.seen }
+        ring.stories = waiting + rest
+        return ring
     }
 
     /// The chats header row (chats.json BUBBLES + STORY RING): each agent

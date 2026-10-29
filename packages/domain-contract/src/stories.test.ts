@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/stories.json" with { type: "json" }
-import { bubbleRings, stories } from "./stories"
+import { bubbleRings, stories, storyTab } from "./stories"
 
 describe(`stories`, () => {
   for (const entry of fixture.cases) {
@@ -26,4 +26,12 @@ describe(`bubbleRings`, () => {
     expect([...byAgent.keys()]).toEqual([`ag2`])
     expect(rest.map((ring) => ring.key)).toEqual(rings.filter((ring) => ring.agentId !== `ag2`).map((ring) => ring.key))
   })
+})
+
+describe(`storyTab`, () => {
+  for (const entry of fixture.tabCases) {
+    test(entry.name, () => {
+      expect(storyTab(entry.input as never)).toEqual(entry.expected as never)
+    })
+  }
 })

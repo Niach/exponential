@@ -6,9 +6,13 @@ import SwiftUI
 
 /// EXP-1295: a thread screen's page — the strip's tabs as the phone's
 /// pager (Conversation · one per linked issue, EXP-1334: the folded
-/// sub-issues too · Guide; the "+" is a button).
+/// sub-issues too; the "+" is a button) · stories.json STORIES TAB: the
+/// Stories page, always the last.
 enum ThreadPage: Hashable {
     case conversation
+    /// stories.json STORIES TAB (not a session-thread.json tab: the host
+    /// pins it after the last chip).
+    case stories
     case issue(String)
     /// EXP-1343: a session chip (or a nested session) as a page — its raw
     /// work + composer under the thread's header.

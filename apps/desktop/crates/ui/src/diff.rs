@@ -107,7 +107,7 @@ pub struct DiffOptions {
 }
 
 impl DiffOptions {
-    /// A pull request's review:
+    /// A pull request's review (the Guide's section diff, [`crate::pr_diff`]):
     /// a stack of per-file cards, OPEN — a review is read top to bottom, and
     /// the file list beside it is how a big PR is navigated. Each card still
     /// folds on its own header.
@@ -1157,6 +1157,12 @@ pub struct DiffView {
     text_w: f32,
     h_scroll: HScroll,
     scroll: VirtualListScrollHandle,
+    /// EXP-1261: the Changes page's file tree height and the pane's, last
+    /// paint ([`crate::diff_pane::render`] measures both).
+    tree_metrics: Rc<std::cell::Cell<(f32, f32)>>,
+    /// Review #21: the file tree's OWN scroll, used only while the tree
+    /// outgrows what the diff's scroll can carry it through.
+    tree_scroll: gpui::ScrollHandle,
 }
 
 impl DiffView {
@@ -1179,6 +1185,8 @@ impl DiffView {
             text_w: 0.,
             h_scroll: HScroll::default(),
             scroll: VirtualListScrollHandle::new(),
+            tree_metrics: Rc::default(),
+            tree_scroll: gpui::ScrollHandle::new(),
         }
     }
 
@@ -1311,6 +1319,23 @@ impl DiffView {
     /// Per-file summaries in render order (drives an external file list).
     pub fn files(&self) -> &[FileSummary] {
         &self.files
+    }
+
+    /// EXP-1261 — the list's vertical scroll: the Changes page's file tree
+    /// rides it ([`crate::diff_pane::render`]), and the work body's top fade
+    /// waits for it to leave the top.
+    pub(crate) fn page_scroll(&self) -> gpui::ScrollHandle {
+        (*self.scroll).clone()
+    }
+
+    /// EXP-1261: (file tree height, pane height), last paint.
+    pub(crate) fn tree_metrics(&self) -> Rc<std::cell::Cell<(f32, f32)>> {
+        self.tree_metrics.clone()
+    }
+
+    /// Review #21: the file tree's own scroll ([`crate::diff_pane`]).
+    pub(crate) fn tree_scroll(&self) -> gpui::ScrollHandle {
+        self.tree_scroll.clone()
     }
 
     /// Scroll the diff so `file_ix`'s header row is at the top.

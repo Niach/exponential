@@ -25,6 +25,7 @@ import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_AGENT_ID,
   DEMO_DEVICE_ID,
+  DEMO_DIFF_THREAD_ID,
   DEMO_GUIDE_THREAD_ID,
   DEMO_SESSION_ID,
   DEMO_THREAD_ID,
@@ -90,12 +91,15 @@ export interface DemoIds {
    *                    desktop lane's `$steeredSession` still reads.
    *   threadId         DEMO_THREAD_ID: "Reduce cold start below 800 ms".
    *   guideThreadId    DEMO_GUIDE_THREAD_ID: APP-15's thread with a Guide.
+   *   diffThreadId     DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top,
+   *                    a real diff, the Stories tab's history).
    *   agentId          DEMO_AGENT_ID: the Triage agent.
    */
   sessionId?: string
   steeredSessionId?: string
   threadId?: string
   guideThreadId?: string
+  diffThreadId?: string
   agentId?: string
 }
 
@@ -189,7 +193,7 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(
       and(
         eq(sessions.teamId, team.id),
-        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID])
+        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID, DEMO_DIFF_THREAD_ID])
       )
     )
   // NEW-2: the demo agent is an `agents` row.
@@ -221,6 +225,7 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     steeredSessionId: ifPresent(DEMO_SESSION_ID),
     threadId: ifPresent(DEMO_THREAD_ID),
     guideThreadId: ifPresent(DEMO_GUIDE_THREAD_ID),
+    diffThreadId: ifPresent(DEMO_DIFF_THREAD_ID),
     agentId: ifPresent(DEMO_AGENT_ID),
   }
 }

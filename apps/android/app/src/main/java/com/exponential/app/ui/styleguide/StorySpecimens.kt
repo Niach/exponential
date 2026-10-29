@@ -19,6 +19,10 @@ import com.exponential.app.ui.components.StoryProgress
 import com.exponential.app.ui.components.StoryRing
 import com.exponential.app.ui.stories.StoryAvatar
 import com.exponential.app.ui.stories.StoryRingStrip
+import com.exponential.app.ui.stories.StoryTab
+import com.exponential.app.ui.theme.GlassTokens
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import com.exponential.app.ui.stories.StoryViewer
 import com.exponential.app.ui.theme.AppBackground
 import kotlinx.serialization.json.Json
@@ -181,3 +185,74 @@ fun StoryViewerSpecimenScreen() {
         )
     }
 }
+
+// ── story-tab (stories.json `tab.specimen` = tabCases[1]) ───────────────────
+
+const val StoryTabSpecimenTestId = "story-tab-specimen"
+
+private val TAB_SESSIONS = listOf(
+    Stories.SessionInput(id = "r1", rootId = "r1", name = "Batch-edit labels", agentId = null, startedByAgentId = null),
+    Stories.SessionInput(id = "c1", rootId = "r1", name = "Web draft", agentId = null, startedByAgentId = null),
+    Stories.SessionInput(id = "r2", rootId = "r2", name = "Other chat", agentId = null, startedByAgentId = null),
+)
+
+private const val CARD_SURFACE = """{"root": {"id": "c", "component": "Card"}}"""
+
+private fun tabMessage(id: String, session: String, created: Long, answered: Long?, json: String, author: String = session) =
+    Stories.MessageInput(id = id, sessionId = session, authorSessionId = author, createdAt = created, answeredAt = answered, card = card(json))
+
+/** `tabCases[1].input.messages`, verbatim. */
+private val TAB_MESSAGES = listOf(
+    tabMessage("q-wait", "r1", 1_799_999_400_000L, null, """{"kind": "question", "question": "Ship the picker as is?", "options": ["Ship", "Polish"], "answer": null}"""),
+    tabMessage(
+        "res-web", "c1", 1_799_992_800_000L, null,
+        """{"kind": "surface", "surface": $CARD_SURFACE, "title": "Label picker", "pictures": [
+            {"label": "web picker", "attachmentId": "att-w", "width": 1600, "height": 1000, "caption": "Mixed state"},
+            {"label": "ios picker", "attachmentId": "att-i", "width": 1179, "height": 2556, "caption": null},
+            {"label": "android picker", "attachmentId": null, "width": null, "height": null, "caption": null}]}""",
+    ),
+    tabMessage("plan-ok", "r1", 1_799_892_000_000L, 1_799_895_600_000L, """{"kind": "plan", "plan": "## Batch-edit labels\n\nOne request per change.", "decision": "approved"}"""),
+    tabMessage("plan-old", "r1", 1_799_888_400_000L, 1_799_892_000_000L, """{"kind": "plan", "plan": "Old plan", "decision": "superseded"}"""),
+    tabMessage("plan-no", "c1", 1_799_982_000_000L, 1_799_985_600_000L, """{"kind": "plan", "plan": "Drop the undo step", "decision": "rejected"}"""),
+    tabMessage("q-done", "c1", 1_799_989_200_000L, 1_799_989_800_000L, """{"kind": "question", "question": "Which board?", "options": [], "answer": "Mobile App"}"""),
+    tabMessage("old-result", "r1", 1_799_222_400_000L, null, """{"kind": "surface", "story": true, "surface": $CARD_SURFACE, "title": "First draft"}"""),
+    tabMessage("status", "r1", 1_799_999_940_000L, null, """{"kind": "surface", "surface": $CARD_SURFACE, "title": "Working"}"""),
+    tabMessage("relay", "c1", 1_799_998_800_000L, null, """{"kind": "question", "question": "Engine ask", "options": ["Yes"], "questionId": "q1"}"""),
+    tabMessage("mirror", "r1", 1_799_999_100_000L, null, """{"kind": "ask", "sessionId": "c1", "messageId": "plan-no"}""", author = "c1"),
+    tabMessage("elsewhere", "r2", 1_799_999_940_000L, null, """{"kind": "question", "question": "Not here", "options": ["A"]}"""),
+)
+
+/** `storyTab(tabCases[1].input)`: q-wait, res-web, q-done, plan-no, plan-ok, old-result. */
+private val TAB_RING: Stories.StoryRing? = Stories.storyTab(
+    now = NOW,
+    sessions = TAB_SESSIONS,
+    agents = emptyList(),
+    messages = TAB_MESSAGES,
+    reads = listOf(Stories.ReadInput("r1", readAt = 1_799_996_400_000L, storySeenAt = null)),
+    rootId = "r1",
+)
+
+/** `story-tab`: THE Stories tab body over tabCases[1]'s ring (the phone
+ *  size, no PR block) in the web specimen's card; the pictures are
+ *  placeholders (the thumbnail's muted fill alone). */
+@Composable
+fun StoryTabSpecimenScreen() {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+    AppBackground {
+        Box(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
+            Box(
+                Modifier
+                    .testTag(StoryTabSpecimenTestId)
+                    .specimenCard(shape)
+                    .padding(20.dp),
+            ) {
+                StoryTab(ring = TAB_RING, onOpen = { _, _ -> })
+            }
+        }
+    }
+}
+
+private fun Modifier.specimenCard(shape: androidx.compose.ui.graphics.Shape): Modifier =
+    this
+        .background(com.exponential.app.ui.theme.DesignTokens.Palette.Background, shape)
+        .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)

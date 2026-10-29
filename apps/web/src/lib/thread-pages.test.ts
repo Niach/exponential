@@ -11,10 +11,9 @@ describe(`threadPages`, () => {
     { kind: `issue` as const, issueId: `i1`, nested: [{ issueId: `i1a` }] },
     { kind: `issue` as const, issueId: `i2`, nested: [] },
     { kind: `session` as const, sessionId: `s1`, nested: [{ sessionId: `s1a` }, { sessionId: `s1b` }] },
-    { kind: `guide` as const },
   ]
 
-  it(`orders conversation, issues, sessions, guide`, () => {
+  it(`orders conversation, issues, sessions, stories last`, () => {
     expect(threadPages(tabs)).toEqual([
       `conversation`,
       `issue:i1`,
@@ -23,7 +22,7 @@ describe(`threadPages`, () => {
       `session:s1`,
       `session:s1a`,
       `session:s1b`,
-      `guide`,
+      `stories`,
     ])
   })
 
@@ -31,8 +30,8 @@ describe(`threadPages`, () => {
     const pages = threadPages(tabs)
     expect(swipeTarget(pages, `conversation`, `left`)).toBe(`issue:i1`)
     expect(swipeTarget(pages, `issue:i2`, `left`)).toBe(`session:s1`)
-    expect(swipeTarget(pages, `session:s1b`, `left`)).toBe(`guide`)
-    expect(swipeTarget(pages, `guide`, `left`)).toBeNull()
+    expect(swipeTarget(pages, `session:s1b`, `left`)).toBe(`stories`)
+    expect(swipeTarget(pages, `stories`, `left`)).toBeNull()
     expect(swipeTarget(pages, `conversation`, `right`)).toBeNull()
   })
 
@@ -44,8 +43,8 @@ describe(`threadPages`, () => {
           ? { kind: `issue` as const, issueId: search.issue! }
           : search.tab === `session`
             ? { kind: `session` as const, sessionId: search.session! }
-            : search.tab === `guide`
-              ? { kind: `guide` as const }
+            : search.tab === `stories`
+              ? { kind: `stories` as const }
               : { kind: `conversation` as const }
       expect(threadPageOf(tab)).toBe(page)
     }

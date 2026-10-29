@@ -55,6 +55,7 @@ export interface DemoIds {
   steeredSessionId?: string
   threadId?: string
   guideThreadId?: string
+  diffThreadId?: string
   agentId?: string
 }
 
@@ -69,6 +70,7 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   steeredSession: (ids) => ids.steeredSessionId ?? ids.sessionId,
   thread: (ids) => ids.threadId,
   guideThread: (ids) => ids.guideThreadId,
+  diffThread: (ids) => ids.diffThreadId,
   agent: (ids) => ids.agentId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
@@ -107,6 +109,7 @@ export function parseDemoIds(stdout: string): DemoIds {
     steeredSessionId: parsed.steeredSessionId,
     threadId: parsed.threadId,
     guideThreadId: parsed.guideThreadId,
+    diffThreadId: parsed.diffThreadId,
     agentId: parsed.agentId,
   }
 }

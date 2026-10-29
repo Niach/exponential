@@ -47,6 +47,14 @@ data class StoriesState(
     fun avatar(ring: Stories.StoryRing): StoryAvatar = avatars[ring.key] ?: StoryAvatar(null, null)
 }
 
+/** STORIES TAB: the root's ONE ring ([Stories.storyTab]; null = the empty
+ *  state) + what the viewer draws it with; [loading] until the first fold. */
+data class StoryTabState(
+    val ring: Stories.StoryRing? = null,
+    val draw: StoriesState = StoriesState(),
+    val loading: Boolean = true,
+)
+
 /**
  * S-3 STORIES (stories.json): the fold's input off the synced rows — the
  * `sessions` (named by THE session title, the chat list's rung over the
@@ -107,38 +115,78 @@ class StoriesViewModel @Inject constructor(
         }
     }
 
-    val state: StateFlow<StoriesState> = combine(
+    /** The fold's input off the synced rows (every team), plus what the
+     *  hosts draw with it (the cards, the agents, the CLIs). */
+    private class Inputs(
+        val now: Long,
+        val sessions: List<SessionTree.Session>,
+        val names: Map<String, String>,
+        val clis: Map<String, String?>,
+        val messages: List<SessionTree.Message>,
+        val defs: List<com.exponential.app.data.db.AgentDefinitionEntity>,
+        val reads: List<Stories.ReadInput>,
+        val team: String?,
+    ) {
+        fun sessionInputs(filter: (SessionTree.Session) -> Boolean) = sessions.filter(filter).map {
+            Stories.SessionInput(
+                id = it.id,
+                rootId = it.rootId,
+                name = names[it.id].orEmpty(),
+                agentId = it.agentId,
+                startedByAgentId = it.startedByAgentId,
+            )
+        }
+
+        fun messageInputs(ids: Set<String>?) = messages.filter { ids == null || it.sessionId in ids }.mapNotNull { m ->
+            val created = WireTimestamps.parseEpochMs(m.createdAt) ?: return@mapNotNull null
+            Stories.MessageInput(
+                id = m.id,
+                sessionId = m.sessionId,
+                authorSessionId = m.authorSessionId,
+                createdAt = created,
+                answeredAt = m.answeredAt?.let(WireTimestamps::parseEpochMs),
+                card = m.card,
+            )
+        }
+
+        val agents get() = defs.map { Stories.AgentInput(it.id, it.name, assistant = false) }
+
+        /** The rings' cards as THE thread rows + the rings' avatars. */
+        fun draw(rings: List<Stories.StoryRing>): StoriesState {
+            val shown = rings.flatMapTo(HashSet()) { ring -> ring.stories.map { it.id } }
+            val rows = messages.filter { it.id in shown }.mapNotNull { m ->
+                (SessionTree.surfaceRow(m) ?: SessionTree.askRow(m))?.let { m.id to it }
+            }.toMap()
+            val byAgent = defs.associateBy { it.id }
+            val avatars = rings.associate { ring ->
+                val agent = ring.agentId?.let { byAgent[it] }
+                ring.key to if (ring.agentId != null) {
+                    StoryAvatar(
+                        agent?.icon ?: SessionTree.ListCopy.AGENT_DEFAULT_ICON,
+                        agent?.color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR,
+                    )
+                } else {
+                    StoryAvatar(null, null, ring.rootId?.let { clis[it] })
+                }
+            }
+            return StoriesState(rings, rows, avatars)
+        }
+    }
+
+    private val inputs: Flow<Inputs> = combine(
         combine(sessions, titles, clis) { s, t, c -> Triple(s, t, c) },
         cards,
         combine(agents, reads) { a, r -> a to r },
         selection.selectedId,
         minuteClock,
     ) { (s, names, cliOf), messages, (defs, readRows), team, now ->
-        val inTeam = s.filter { team == null || it.teamId == team }
-        val ids = inTeam.mapTo(HashSet()) { it.id }
-        val rings = Stories.rings(
+        Inputs(
             now = now,
-            sessions = inTeam.map {
-                Stories.SessionInput(
-                    id = it.id,
-                    rootId = it.rootId,
-                    name = names[it.id].orEmpty(),
-                    agentId = it.agentId,
-                    startedByAgentId = it.startedByAgentId,
-                )
-            },
-            agents = defs.map { Stories.AgentInput(it.id, it.name, assistant = false) },
-            messages = messages.filter { it.sessionId in ids }.mapNotNull { m ->
-                val created = WireTimestamps.parseEpochMs(m.createdAt) ?: return@mapNotNull null
-                Stories.MessageInput(
-                    id = m.id,
-                    sessionId = m.sessionId,
-                    authorSessionId = m.authorSessionId,
-                    createdAt = created,
-                    answeredAt = m.answeredAt?.let(WireTimestamps::parseEpochMs),
-                    card = m.card,
-                )
-            },
+            sessions = s,
+            names = names,
+            clis = cliOf,
+            messages = messages,
+            defs = defs,
             reads = readRows.map {
                 Stories.ReadInput(
                     sessionId = it.sessionId,
@@ -146,25 +194,42 @@ class StoriesViewModel @Inject constructor(
                     storySeenAt = it.storySeenAt?.let(WireTimestamps::parseEpochMs),
                 )
             },
+            team = team,
         )
-        val shown = rings.flatMapTo(HashSet()) { ring -> ring.stories.map { it.id } }
-        val rows = messages.filter { it.id in shown }.mapNotNull { m ->
-            (SessionTree.surfaceRow(m) ?: SessionTree.askRow(m))?.let { m.id to it }
-        }.toMap()
-        val byAgent = defs.associateBy { it.id }
-        val avatars = rings.associate { ring ->
-            val agent = ring.agentId?.let { byAgent[it] }
-            ring.key to if (ring.agentId != null) {
-                StoryAvatar(
-                    agent?.icon ?: SessionTree.ListCopy.AGENT_DEFAULT_ICON,
-                    agent?.color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR,
-                )
-            } else {
-                StoryAvatar(null, null, ring.rootId?.let { cliOf[it] })
-            }
-        }
-        StoriesState(rings, rows, avatars)
+    }
+
+    val state: StateFlow<StoriesState> = inputs.map { input ->
+        val inTeam = input.sessionInputs { input.team == null || it.teamId == input.team }
+        val ids = inTeam.mapTo(HashSet()) { it.id }
+        input.draw(
+            Stories.rings(
+                now = input.now,
+                sessions = inTeam,
+                agents = input.agents,
+                messages = input.messageInputs(ids),
+                reads = input.reads,
+            ),
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoriesState())
+
+    private val tabs = HashMap<String, StateFlow<StoryTabState>>()
+
+    /** STORIES TAB: [Stories.storyTab] of [rootId] (the root's whole tree,
+     *  never expiring) as ONE ring the viewer opens on. */
+    fun tab(rootId: String): StateFlow<StoryTabState> = tabs.getOrPut(rootId) {
+        inputs.map { input ->
+            val tree = input.sessionInputs { it.rootId == rootId }
+            val ring = Stories.storyTab(
+                now = input.now,
+                sessions = tree,
+                agents = input.agents,
+                messages = input.messageInputs(tree.mapTo(HashSet()) { it.id }),
+                reads = input.reads,
+                rootId = rootId,
+            )
+            StoryTabState(ring = ring, draw = input.draw(listOfNotNull(ring)), loading = false)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoryTabState())
+    }
 
     private val _failure = MutableStateFlow<FailedAction?>(null)
     /** A refused answer, raised once as the fixture's toast. */

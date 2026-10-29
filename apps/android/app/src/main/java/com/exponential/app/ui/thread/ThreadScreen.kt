@@ -119,8 +119,11 @@ fun ThreadScreen(
     /** The agent menu's Agent settings (owners). */
     onOpenAgentSettings: ((agentId: String) -> Unit)? = null,
     viewModel: ThreadViewModel = hiltViewModel(),
+    storiesViewModel: com.exponential.app.ui.stories.StoriesViewModel = hiltViewModel(),
 ) {
     val view by viewModel.view.collectAsStateWithLifecycle()
+    // stories.json STORIES TAB: the root tree's stories as ONE ring.
+    val storyTab by remember(viewModel.rootId) { storiesViewModel.tab(viewModel.rootId) }.collectAsStateWithLifecycle()
     val root by viewModel.root.collectAsStateWithLifecycle()
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -427,6 +430,24 @@ fun ThreadScreen(
                 // S-3: an inter-session link PUSHES that session (another
                 // root as its thread, any other session as its view).
                 onOpenXref = openThreadSession,
+                storiesDot = storyTab.ring?.unseen == true,
+                storiesPage = if (agent == null) {
+                    { padding ->
+                        ThreadStoriesPage(
+                            tab = storyTab,
+                            storiesViewModel = storiesViewModel,
+                            pullRequests = pullRequests,
+                            teamPullRequests = teamPullRequests,
+                            pullRequestIssues = pullRequestIssues,
+                            issues = syncedIssues,
+                            padding = padding,
+                            onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
+                            onOpenSession = { story -> openThreadSession(story.sessionId) },
+                        )
+                    }
+                } else {
+                    null
+                },
                 suggestions = suggestionActions,
                 tail = liveActivity?.let { activity -> { SessionLiveTail(activity, root) } },
             )
@@ -605,7 +626,19 @@ fun ThreadContent(
     headerAction: (@Composable () -> Unit)? = null,
     /** S-3: an inter-session link pushes that session (null = inert). */
     onOpenXref: ((sessionId: String) -> Unit)? = null,
+    /** stories.json STORIES TAB: the strip's last tab's page (null = no
+     *  Stories tab, an agent channel) and its dot. */
+    storiesPage: (@Composable (padding: PaddingValues) -> Unit)? = null,
+    storiesDot: Boolean = false,
 ) {
+    // stories.json STORIES TAB: the host appends the Stories tab after the
+    // last chip (never part of session-thread.json `tabs`): the phones'
+    // pager's last page.
+    val stripTabs = remember(view?.tabs, agent != null, storiesPage != null) {
+        view?.tabs?.let { tabs ->
+            if (agent == null && storiesPage != null) tabs + SessionTree.ThreadTab.Stories else tabs
+        }
+    }
     // An agent channel is the conversation only. EXP-1334: a folded
     // sub-issue is a page too (right after its chip's). EXP-1343: phones
     // page through EVERY strip tab in strip order, the session chips (and
@@ -616,8 +649,8 @@ fun ThreadContent(
     // the Conversation tab active while it shows). An agent conversation
     // stays the Conversation.
     val mainSessionId = if (agent != null) null else view?.mainSessionId
-    val pages = remember(agent != null, view?.tabs, mainSessionId) {
-        threadMainPages(threadPages(if (agent != null) null else view?.tabs), mainSessionId)
+    val pages = remember(agent != null, stripTabs, mainSessionId) {
+        threadMainPages(threadPages(if (agent != null) null else stripTabs), mainSessionId)
     }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the first page: the conversation, or the main session's page.
@@ -657,7 +690,8 @@ fun ThreadContent(
                 tabs = if (agent == null && view != null) {
                     {
                         ThreadTabStrip(
-                            tabs = view.tabs,
+                            tabs = stripTabs.orEmpty(),
+                            storiesDot = storiesDot,
                             // NEW-46: the main session's page shows the
                             // Conversation tab selected.
                             selectedKey = threadTabKey(selected).let {
@@ -767,6 +801,7 @@ fun ThreadContent(
                 }
                 is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
                 is SessionTree.ThreadTab.SessionTab -> sessionPage(tab.sessionId, padding)
+                SessionTree.ThreadTab.Stories -> storiesPage?.invoke(padding)
                 SessionTree.ThreadTab.Add -> Unit
             }
         }

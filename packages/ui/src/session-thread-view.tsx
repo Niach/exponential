@@ -28,6 +28,7 @@ import {
   type PlanOption,
 } from "@exp/domain-contract/ask-dock"
 import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
+import { STORY_TAB } from "@exp/domain-contract/stories"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import {
   answerIssue,
@@ -79,9 +80,9 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //
 //   ThreadTabs           the header's ONE strip, nothing scrolls (EXP-1334):
 //                        "+" · Conversation | issue chips … +X | session
-//                        chips … +Y (S-3: the Guide tab is gone, stories
-//                        replace it); `pager` = the phones' tabs
-//                        (Conversation icon-only there). Chips = THE strip chip
+//                        chips … +Y | Stories (stories.json STORIES TAB: a
+//                        dot while a story is unseen); `pager` = the phones'
+//                        tabs (Conversation and Stories icon-only there). Chips = THE strip chip
 //                        (`strip-chip.tsx`); a folded chip opens its subtree
 //                        (`ThreadChipSubtree`) on a click
 //   ThreadConversation   the conversation rows: messages (a person's bubble
@@ -100,6 +101,7 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //   ChannelMessageRow    an agent channel's comment-style row
 
 const ConversationIcon = conceptIcon(`action-chat`)
+const StoriesIcon = conceptIcon(`thread-stories`)
 const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
@@ -161,19 +163,21 @@ function sameMeasure(a: StripMeasure | null, b: StripMeasure): boolean {
 
 /**
  * EXP-1334: the thread header's ONE strip ×4 — NOTHING scrolls. Pinned left:
- * the "+" (THE Menu: Link an issue ›, New issue) and Conversation (S-3: no
- * Guide tab any more; stories.json). Then two zones,
+ * the "+" (THE Menu: Link an issue ›, New issue) and Conversation; pinned
+ * right: Stories (stories.json STORIES TAB, a dot while a story is unseen).
+ * Between them two zones,
  * issues then sessions: everything full → the issues identifier-only → fold,
  * each zone with its own "+N" (`partitionThreadStrip`, the contract's
  * `stripCases`), the open chip always drawn. `pager` = the phones' header
- * band: Conversation ICON-ONLY (the strip chip box, the label as
- * aria-label/title).
+ * band: Conversation and Stories ICON-ONLY (the strip chip box, the label as
+ * aria-label/title, the Stories dot on the icon's corner).
  */
 export function ThreadTabs({
   conversation,
   issues,
   add,
   sessions = [],
+  stories,
   variant = `bar`,
   layout: forced,
   className,
@@ -186,6 +190,8 @@ export function ThreadTabs({
   add?: ReactNode
   /** The session chips (the dispatcher's direct children). */
   sessions?: readonly ThreadStripItem[]
+  /** The Stories tab, pinned right (absent = none). */
+  stories?: { label: string; active: boolean; dot: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
   variant?: `bar` | `pager`
   /** A fixed layout instead of the measured one (a static render — the
@@ -381,6 +387,47 @@ export function ThreadTabs({
           `thread-tabs-more-sessions`
         )}
       </div>
+      {stories && (
+        <>
+          {!pager && divider}
+          <Button
+            type="button"
+            variant="ghost"
+            role="tab"
+            aria-selected={stories.active}
+            data-testid={STORY_TAB.testIds.tab}
+            aria-label={pager ? stories.label : undefined}
+            title={pager ? stories.label : undefined}
+            className={cn(tabClass(stories.active, pager), pager && `px-2`)}
+            onClick={stories.onSelect}
+          >
+            {pager ? (
+              // Phones: the icon alone, the dot on its corner.
+              <span className="relative flex shrink-0">
+                <StoriesIcon className="size-3.5 shrink-0" />
+                {stories.dot && (
+                  <span
+                    data-testid="thread-stories-dot"
+                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400"
+                  >
+                    <span className="sr-only">Unseen stories</span>
+                  </span>
+                )}
+              </span>
+            ) : (
+              <>
+                <StoriesIcon className="size-3.5 shrink-0" />
+                {stories.label}
+                {stories.dot && (
+                  <span data-testid="thread-stories-dot" className="size-1.5 shrink-0 rounded-full bg-emerald-400">
+                    <span className="sr-only">Unseen stories</span>
+                  </span>
+                )}
+              </>
+            )}
+          </Button>
+        </>
+      )}
       </div>
     </div>
   )
