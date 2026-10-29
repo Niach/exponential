@@ -46,9 +46,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   /** #EXP-1383: the root's agent (null = not an agent conversation tree):
    *  the device tells agent-tree sessions apart by it. */
   rootAgentId: string | null
-  /** #NEW-79 (voice-policy.json): this session IS its member's conversation
-   *  with the agent picked in Settings → Voice, so the device launches it
-   *  under the launcher-enforced tool policy. */
+  /** This session IS its member's conversation with the agent picked in
+   *  Settings → Voice. It runs with permissions bypassed like every other
+   *  session (the voice tool policy is retired); the device reads it only
+   *  as `screenMemory`'s precondition. */
   voicePolicy: boolean
   /** NEW-58 (screen-memory.json TOOL): `voicePolicy` AND the conversation is
    *  private to its member (the agent on their own device shared with no
@@ -116,9 +117,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   }
 }
 
-/** #NEW-79: a ROOT agent conversation whose agent is its member's voice
- *  agent (`user_voice_settings.agent_id`). Children, threads and other
- *  agents' conversations keep today's posture. */
+/** A ROOT agent conversation whose agent is its member's voice agent
+ *  (`user_voice_settings.agent_id`): screen memory's precondition, and only
+ *  its member answers its cards. Children, threads and other agents'
+ *  conversations never count. */
 export async function isVoiceConversation(
   session: Pick<Session, `id` | `rootId` | `agentId` | `userId`>,
   database: Db = db

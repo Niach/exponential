@@ -874,8 +874,8 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(cards.map((c) => c.card)).toEqual([{ kind: `thread_started`, sessionId: spawned.sessionId }])
     const brief = await composeSessionBrief(agent.sessionId)
     expect(brief.agentInstructions).toBe(`Be brief.`)
-    // #NEW-79: only the member's conversation with their VOICE agent runs
-    // under the voice tool policy; the thread it spawned never does.
+    // Only the member's conversation with their VOICE agent is the voice
+    // conversation; the thread it spawned never is.
     expect(brief.voicePolicy).toBe(false)
     await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: ada!.id })
     expect((await composeSessionBrief(agent.sessionId)).voicePolicy).toBe(true)

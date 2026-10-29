@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-29-no-permission-prompts`,
+    date: `2026-10-29`,
+    title: `No more Allow or Deny cards in your voice agent's chat`,
+    summary: `Your voice agent runs like every other session: nothing waits on a permission card.`,
+    body: `- **Permissions bypassed everywhere**: the chat with the agent picked in Settings → Voice no longer stops at an Allow or Deny card before each tool call; it runs with permissions bypassed like every other session, on web, desktop, iOS and Android.
+- **Spoken answers**: "yes", "take two" and "reject one" are ordinary messages again, since no card waits on them.
+- **Any agent for voice**: a Codex agent can be your voice agent again.`,
+  },
+  {
     id: `2026-10-29-release-fixes`,
     date: `2026-10-29`,
     title: `Private Assistants, safer meetings, steadier agent chats`,

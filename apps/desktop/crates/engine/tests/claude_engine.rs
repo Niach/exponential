@@ -120,7 +120,6 @@ fn adapter_spec(scenario: &str, work: &Path, session_id: &str, exit: ChildExitLi
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
         confine_to: None,
-        voice_policy: false,
         aside: false,
         exit,
     }
@@ -152,7 +151,6 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
             servers: Vec::new(),
             mcp_secrets: Default::default(),
             confine_to: None,
-            voice_policy: false,
         },
         tab_title: "claude · EXP-12".to_string(),
         tab_title_prefix: "EXP-12".to_string(),

@@ -422,39 +422,6 @@ pub(crate) fn on_pill(cx: &mut App) {
     }
 }
 
-/// #NEW-79 (`voice-policy.json` VOICE ANSWERS): what a finalized utterance
-/// answers among the voice conversation's FRESH waiting proposal cards
-/// (push to talk and a call both route through it); `None` = not an
-/// answer, it goes out as a message.
-pub(crate) fn card_answers(session_id: &str, heard: &str, cx: &App) -> Option<Vec<domain::voice_policy::VoiceAnswer>> {
-    let store = Store::try_global(cx)?;
-    let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
-    let rows = store.collections().messages.read(cx);
-    // A card past its expiry was withdrawn: a "yes" never answers it.
-    let cards = domain::voice_policy::waiting_cards(
-        rows.iter().filter(|row| {
-            domain::message_conversation::session_of(row, &sessions).unwrap_or(row.session_id.as_str()) == session_id
-        }),
-        crate::session_data::now_ms(),
-    );
-    domain::voice_policy::match_answer(heard, &cards)
-}
-
-/// #NEW-79: post the answers through `sessions.answer`, one call per card.
-pub(crate) fn post_card_answers(
-    trpc: &api::TrpcClient,
-    answers: &[domain::voice_policy::VoiceAnswer],
-) -> Result<(), api::ApiError> {
-    answers.iter().try_for_each(|answer| {
-        let input = api::sessions::AnswerInput {
-            message_id: answer.id.clone(),
-            answer: Some(answer.answer.clone()),
-            ..Default::default()
-        };
-        api::sessions::answer(trpc, &input).map(|_| ())
-    })
-}
-
 impl PushToTalk {
     fn arm(&mut self, armed: Option<Armed>, cx: &mut Context<Self>) {
         if armed == self.armed {
@@ -701,13 +668,6 @@ impl PushToTalk {
     fn send(&mut self, heard: String, cx: &mut Context<Self>) {
         let Some(armed) = self.armed.clone() else { return };
         let conversation = crate::session_data::my_conversation(&armed.agent_id, cx).map(|row| row.id);
-        // #NEW-79: "take two", "reject one", "yes" answer the waiting
-        // proposal cards instead of going out as a message.
-        if let Some(session_id) = conversation.as_deref() {
-            if self.answer_cards(session_id, &armed.agent_id, &heard, cx) {
-                return;
-            }
-        }
         let team_id = Store::try_global(cx)
             .and_then(|store| {
                 store.collections().agents.read(cx).iter().find(|row| row.id == armed.agent_id).and_then(|row| row.team_id.clone())
@@ -749,46 +709,6 @@ impl PushToTalk {
             });
         })
         .detach();
-    }
-
-    /// #NEW-79 (`voice-policy.json` VOICE ANSWERS): a finalized utterance
-    /// that answers the voice conversation's waiting proposal cards goes to
-    /// `sessions.answer`, one call per card; `false` = not an answer.
-    fn answer_cards(&mut self, session_id: &str, agent_id: &str, heard: &str, cx: &mut Context<Self>) -> bool {
-        let Some(answers) = card_answers(session_id, heard, cx) else { return false };
-        let text = heard.trim().to_string();
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            self.send_failed(agent_id.to_string(), text, cx);
-            return true;
-        };
-        let generation = self.generation;
-        let agent_id = agent_id.to_string();
-        let sent = Sent { session_id: session_id.to_string(), message_id: answers.last().map(|answer| answer.id.clone()) };
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { post_card_answers(&trpc, &answers) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                match result {
-                    // Thinking until the agent's next reply after the card.
-                    Ok(()) => {
-                        crate::speak_replies::voice_turn(&sent.session_id, cx);
-                        this.sent = Some(sent);
-                        this.step(PttEvent::Sent, cx);
-                    }
-                    Err(err) => {
-                        log::warn!("[voice] push to talk: answering a card failed: {err}");
-                        this.send_failed(agent_id, text, cx);
-                    }
-                }
-            });
-        })
-        .detach();
-        true
     }
 
     /// Not sent: the overlay says so and the text waits in the chat's composer.
