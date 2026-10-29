@@ -94,6 +94,8 @@
     { "id": "session-xref", "class": "expressible", "with": "S-3: one compact Row (a muted Text kind label, Avatar (sm) or the session IconDisc, the name, a trailing chevron Icon); a tap pushes that session" },
     { "id": "story-ring", "class": "extension", "with": "S-3: an Avatar inside a segmented ring, one arc per story tinted by state (waiting / unseen / seen): a StoryRing painter in the app extension" },
     { "id": "story-viewer", "class": "expressible", "with": "S-3: a Dialog (full screen on phones) of a Row of Progress segments, a header Row (Avatar, name, kind · age Text, close Button), the draft as a nested surface and a footer Row of choice Buttons" },
+    { "id": "story-tab", "class": "expressible", "with": "List of Card tiles: a title Row (Text title, a muted kind · outcome · age Text), then a horizontal Stack of Image thumbnails each with a short caption Text" },
+    { "id": "thread-stories", "class": "expressible", "with": "the Stack band + StackRail (Section tree) and one Changes Row over the pull request, then the story-tab tiles (Card + Image thumbnails + one line of Text each)" },
     { "id": "pr-row", "class": "expressible", "with": "Row + Ring lead + depth (tree guides); the stack rail is Section tree" },
     { "id": "composer-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button" },
     { "id": "composer-dialog-menu", "class": "expressible", "with": "the same Menu with submenus inside a Dialog; that a desktop dialog's menu needs a window of its own is the host's (the gpui renderer), not the catalog's" },

@@ -254,6 +254,14 @@ export function WidgetConfigDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editTarget])
 
+  // The team's boards sync in after a fresh load; a dialog opened before
+  // they arrive still defaults to the first board once they do.
+  const firstBoardId = boards[0]?.id
+  useEffect(() => {
+    if (!open || editTarget || !firstBoardId) return
+    setFormBoardId((current) => current || firstBoardId)
+  }, [open, editTarget, firstBoardId])
+
   // The team's labels (Electric-synced) — the picker's source of truth AND
   // the preview's name/color lookup. Save derives labelIds from this list so
   // ids of since-deleted labels silently drop instead of failing validation.
