@@ -740,6 +740,12 @@ impl<'a, 'b> Builder<'a, 'b> {
             "Segmented" if !bool_prop(&self.nodes[index as usize].props, "fill") && str_prop(&self.nodes[index as usize].props, "variant") != Some("bar") => {
                 self.style_default(index, &[("alignSelf", json!("flex-start"))])
             }
+            // VAPP-162: a Button's one custom child sits centred in its box
+            // (the web's inline-flex button; CallSurface's round 56 px
+            // buttons hold a 24 px Icon).
+            "Button" if self.nodes[index as usize].kind == NodeKind::Container => {
+                self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("center")), ("justifyContent", json!("center"))])
+            }
             // NEW-77: the one child sits centred in the wave box at its own size.
             "VoiceWave" => self.style_default(index, &[("display", json!("flex")), ("alignItems", json!("center")), ("justifyContent", json!("center"))]),
             // TreeGuides: depth × `treeGuideColumn` wide, stretched to its row.

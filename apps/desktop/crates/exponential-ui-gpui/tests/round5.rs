@@ -396,3 +396,15 @@ fn the_new_macro_specimens_paint_from_natives(cx: &mut TestAppContext) {
         assert!(empty_leaves.is_empty(), "{id}: zero-sized leaves {empty_leaves:?}");
     }
 }
+
+/// A CallSurface's round buttons hold their 24 px Icon centred in the 56 px
+/// box (the core centres a Button's one custom child, like the web).
+#[gpui::test]
+fn a_call_buttons_icon_sits_centred(cx: &mut TestAppContext) {
+    let (view, _log, cx) = surface(cx, specimen("exponential-ui-call-surface"));
+    for (button, icon) in [("c0-call.controls.cancel.end", "c0-call.controls.cancel.end.endIcon"), ("c1-call.controls.muteTip.mute", "c1-call.controls.muteTip.mute.muteIcon")] {
+        let (b, i) = (frame(&view, cx, button), frame(&view, cx, icon));
+        assert_eq!((b.w, b.h, i.w, i.h), (56.0, 56.0, 24.0, 24.0), "{button}");
+        assert_eq!((i.x - b.x, i.y - b.y), (16.0, 16.0), "{icon} centred");
+    }
+}
