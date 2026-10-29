@@ -795,7 +795,7 @@ impl RailView {
         subscriptions.extend(crate::session_data::observe_session_collections(cx));
         // #NEW-97: the footer's voice button follows the tray (its host, the
         // wake word's microphone, Mute and the switches).
-        if let Some(tray) = crate::voice_tray::entity(cx) {
+        if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
             subscriptions.push(cx.observe(&tray, |_, _, cx| cx.notify()));
         }
         Self {
@@ -1256,7 +1256,7 @@ impl RailView {
     /// word holds the microphone open, and the tray's rows (minus Open and
     /// Quit) on the pointer menu, each running the tray's own handler.
     fn rail_voice_entry(&self, cx: &App) -> Option<gpui::AnyElement> {
-        let rail = crate::voice_tray::rail(cx)?;
+        let rail = etalk_gpui::voice_tray::rail(cx)?;
         let menu = |mut menu: gpui_component::menu::PopupMenu,
                     _window: &mut Window,
                     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
@@ -1265,7 +1265,7 @@ impl RailView {
             menu = menu
                 .min_w(px(theme::tokens::menu::pointer::MIN_WIDTH))
                 .max_w(px(theme::tokens::menu::pointer::MAX_WIDTH));
-            let Some(rail) = crate::voice_tray::rail(cx) else { return menu };
+            let Some(rail) = etalk_gpui::voice_tray::rail(cx) else { return menu };
             for item in rail.menu {
                 let row = match item {
                     etalk::voice::TrayItem::Check { id, label, checked, .. } => crate::controls::pointer_toggle_item(
@@ -1273,13 +1273,13 @@ impl RailView {
                         None,
                         label,
                         checked,
-                        move |_, _, cx| crate::voice_tray::click(id, cx),
+                        move |_, _, cx| etalk_gpui::voice_tray::click(id, cx),
                     ),
                     etalk::voice::TrayItem::Action { id, label, .. } => crate::controls::pointer_menu_item(
                         None,
                         label,
                         |_| None,
-                        move |_, cx| crate::voice_tray::click(id, cx),
+                        move |_, cx| etalk_gpui::voice_tray::click(id, cx),
                     ),
                     etalk::voice::TrayItem::Separator => continue,
                 };

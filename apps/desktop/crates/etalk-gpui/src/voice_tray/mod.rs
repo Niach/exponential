@@ -8,8 +8,8 @@
 //! `tray-icon` + `muda` on macOS and Windows (created on gpui's main thread).
 //! The rows come from [`etalk::voice::tray_menu`]; a toggle writes
 //! `voice.update` optimistically like Settings → Voice (the menu flips at
-//! once, the stored value goes to `speak_replies::set_settings`, a refusal
-//! reverts and toasts). Mute microphone is device-local (#NEW-86: kept in
+//! once, the host's [`crate::VoiceWrite`] hands the stored value to
+//! `speak_replies::set_settings`, a refusal reverts and toasts). Mute microphone is device-local (#NEW-86: kept in
 //! `{data_dir}/voice-tray.json` across restarts, never synced): it shows while a
 //! bound key or the wake word listens here and the speech worker is up
 //! (`micAvailable`), and push to talk never opens the microphone while it is
@@ -26,7 +26,7 @@
 //! clicked through [`click`] = the tray's own handlers.
 //! NEW-58: the Screen memory switch (`fixtures/screen-memory.json`): device-
 //! local and kept like Mute, default off; while on and this IDE is the voice
-//! device the `screen` crate captures ([`coding::screen::start`]); a sign-out,
+//! device the `screen` crate captures ([`screen::start`]); a sign-out,
 //! another account or another voice device turns it off and deletes the
 //! buffer; a failed start toasts and flips it back off.
 //! NEW-57 (`fixtures/meeting.json` TRAY): Meeting mode after Wake word
@@ -34,22 +34,37 @@
 //! opens an IDE window with THE consent dialog, unchecking stops at once.
 //! Pause listening · Ctrl + Alt + P shows while a meeting runs or screen
 //! memory is on, and the same keys are grabbed then
-//! (`meeting_mode::sync_pause_hotkey`).
+//! (`meeting::sync_pause_hotkey`).
+//!
+//! The icon and the title are the host's ([`crate::Brand`]).
+
+use std::sync::OnceLock;
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
 
-use api::voice::VoiceUpdate;
-use coding::screen;
 use etalk::voice::{
     rail_voice, tray_icon, tray_menu, MeetingTrayState, RailVoice, ScreenMemoryState, TrayContext, TrayIcon, TrayItem, TrayItemId,
     VoiceSettings,
 };
 
-/// The app icon (the one `desktop_integration` installs on Linux).
-const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/logo-white.svg");
+use crate::host::{self, Notice, Surface, VoiceWrite};
+
+/// The host's brand, taken once at [`install`] (the tray's own threads read it).
+static BRAND: OnceLock<crate::Brand> = OnceLock::new();
+
+/// A plain white disc, for a tray drawn before any host branded it.
+const PLAIN_SVG: &[u8] =
+    b"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"#ffffff\"></circle>\n</svg>";
+
+/// The app icon (Exponential: the one `desktop_integration` installs on Linux).
+fn icon_svg_bytes() -> &'static [u8] {
+    BRAND.get().map_or(PLAIN_SVG, |brand| brand.tray_icon_svg)
+}
 
 /// The tray's title / tooltip.
-const TITLE: &str = "Exponential";
+fn title() -> &'static str {
+    BRAND.get().map_or("eTalk", |brand| brand.name)
+}
 
 /// One rasterized icon frame, straight (not premultiplied) RGBA.
 struct IconFrame {
@@ -68,7 +83,7 @@ struct IconFrame {
 /// a light menu bar.
 fn icon_svg(icon: TrayIcon) -> std::borrow::Cow<'static, [u8]> {
     let ring = cfg!(target_os = "windows") || (cfg!(target_os = "macos") && icon == TrayIcon::Recording);
-    let svg = if ring { std::borrow::Cow::Owned(ringed(ICON_SVG)) } else { std::borrow::Cow::Borrowed(ICON_SVG) };
+    let svg = if ring { std::borrow::Cow::Owned(ringed(icon_svg_bytes())) } else { std::borrow::Cow::Borrowed(icon_svg_bytes()) };
     match icon {
         TrayIcon::App => svg,
         TrayIcon::Listening => std::borrow::Cow::Owned(dotted(&svg)),
@@ -154,7 +169,7 @@ fn icon_frames(icon: TrayIcon, sizes: &[u32]) -> Vec<IconFrame> {
 
 /// What the OS reports back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TrayEvent {
+pub enum TrayEvent {
     /// A menu entry was clicked.
     Item(TrayItemId),
     /// The icon itself was clicked (Linux `Activate`, a Windows left
@@ -375,7 +390,7 @@ impl ScreenMemory {
     }
 }
 
-pub(crate) struct VoiceTray {
+pub struct VoiceTray {
     /// Mute microphone: device-local, kept across restarts (#NEW-86).
     muted: bool,
     /// NEW-58: the Screen memory switch, kept like Mute.
@@ -407,11 +422,14 @@ struct VoiceTrayGlobal(Entity<VoiceTray>);
 impl Global for VoiceTrayGlobal {}
 
 /// Install the tray ONCE, after `speak_replies::install` (it follows the
-/// settings that watcher holds).
-pub fn install(cx: &mut App) {
+/// settings that watcher holds). The agents' names arrive through
+/// [`crate::agents_changed`].
+pub(crate) fn install(cx: &mut App) {
     let Some(speaker) = crate::speak_replies::entity(cx) else { return };
-    let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
-    let device_id = steer::persistent_device_id(&data_dir);
+    let Some(host) = host::host(cx) else { return };
+    let _ = BRAND.set(host.brand());
+    let data_dir = host.data_dir();
+    let device_id = host.device_id();
     // #NEW-86: Mute as this device left it; push to talk and the wake word
     // hear it before they first open the microphone.
     let state = load_state(&data_dir);
@@ -463,10 +481,6 @@ pub fn install(cx: &mut App) {
     });
     let entity = cx.new(|cx: &mut Context<VoiceTray>| {
         cx.observe(&speaker, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
-        // The agent's name labels Call and the wake phrase's placeholder.
-        if let Some(agents) = sync::Store::try_global(cx).map(|store| store.collections().agents.clone()) {
-            cx.observe(&agents, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
-        }
         // #NEW-54: the shortcut's grab status shapes the Push to talk item.
         if let Some(push_to_talk) = crate::push_to_talk::entity(cx) {
             cx.observe(&push_to_talk, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
@@ -517,13 +531,20 @@ fn global(cx: &App) -> Option<Entity<VoiceTray>> {
     cx.try_global::<VoiceTrayGlobal>().map(|global| global.0.clone())
 }
 
+/// The agent's name labels Call and the wake phrase's placeholder.
+pub(crate) fn on_agents(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.sync(cx));
+    }
+}
+
 /// The tray (Settings → Voice follows its Mute, #NEW-86).
-pub(crate) fn entity(cx: &App) -> Option<Entity<VoiceTray>> {
+pub fn entity(cx: &App) -> Option<Entity<VoiceTray>> {
     global(cx)
 }
 
 /// The tray is up: the last window closing keeps the IDE running.
-pub(crate) fn keeps_running(cx: &App) -> bool {
+pub fn keeps_running(cx: &App) -> bool {
     global(cx).is_some_and(|entity| {
         let tray = entity.read(cx);
         tray.menu.is_some() && tray.backend.registered()
@@ -531,12 +552,12 @@ pub(crate) fn keeps_running(cx: &App) -> bool {
 }
 
 /// Mute microphone: push to talk never opens the microphone while it is on.
-pub(crate) fn muted(cx: &App) -> bool {
+pub fn muted(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).muted)
 }
 
 /// #NEW-54: the overlay's Unmute.
-pub(crate) fn set_muted(muted: bool, cx: &mut App) {
+pub fn set_muted(muted: bool, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.set_muted(muted, cx));
     }
@@ -544,12 +565,12 @@ pub(crate) fn set_muted(muted: bool, cx: &mut App) {
 
 /// #NEW-97: the rail's voice button: this IDE is the voice device, the wake
 /// word is on and no tray host shows the tray.
-pub(crate) fn rail(cx: &App) -> Option<RailVoice> {
+pub fn rail(cx: &App) -> Option<RailVoice> {
     global(cx).and_then(|entity| entity.read(cx).rail.clone())
 }
 
 /// #NEW-97: a rail menu row: the tray's own handler.
-pub(crate) fn click(id: TrayItemId, cx: &mut App) {
+pub fn click(id: TrayItemId, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.on_click(id, cx));
     }
@@ -559,18 +580,14 @@ pub(crate) fn click(id: TrayItemId, cx: &mut App) {
 /// (the tray's Open Exponential, a click on its icon, a second launch).
 pub fn open_ide(cx: &mut App) {
     cx.activate(true);
-    if let Some(window) = crate::os_notifications::shell_window(cx) {
-        let _ = window.update(cx, |_, window, _| window.activate_window());
-        return;
-    }
-    crate::window_hooks::request_shell_window(cx);
+    host::open(Surface::Window, cx);
 }
 
 /// The voice agent's bare name (`Studio`, never the picker's `Studio ·
 /// Acme`): the tray's Call item and wake phrase, the overlay's pill.
-pub(crate) fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> {
+pub fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> {
     let agent_id = settings.agent_id.as_deref()?;
-    crate::settings::voice_prefs::voice_agents(cx).into_iter().find(|agent| agent.id == agent_id).map(|agent| agent.name)
+    host::agent(agent_id, cx).map(|agent| agent.name)
 }
 
 impl VoiceTray {
@@ -638,7 +655,7 @@ impl VoiceTray {
             self.screen.account = None;
             self.screen.running = false;
             self.save();
-            crate::action_error::failed_action("start", "screen memory", Some(reason), cx);
+            host::notify(Notice::Failed { verb: "start", noun: "screen memory", reason: Some(reason) }, cx);
             self.sync(cx);
         }
     }
@@ -674,10 +691,10 @@ impl VoiceTray {
         let who = if meeting_state.running && !meeting_state.who.is_empty() {
             meeting_state.who.clone()
         } else {
-            crate::meeting_mode::who_of(&settings, cx)
+            crate::meeting::who_of(&settings, cx)
         };
         let pausable = device_is_voice_device && (meeting_on || self.screen.on);
-        crate::meeting_mode::sync_pause_hotkey(pausable, cx);
+        crate::meeting::sync_pause_hotkey(pausable, cx);
         let context = TrayContext {
             agent: agent.as_deref(),
             muted: self.muted,
@@ -753,7 +770,7 @@ impl VoiceTray {
                     self.generation += 1;
                     let generation = self.generation;
                     self.sync(cx);
-                    crate::meeting_mode::stop(cx);
+                    crate::meeting::write(VoiceWrite::StopMeeting(None), cx);
                     // The speaker adopts the stored settings; drop the
                     // optimistic copy once it has had the time to.
                     cx.spawn(async move |this, cx| {
@@ -768,7 +785,7 @@ impl VoiceTray {
                     .detach();
                 } else {
                     self.backend.set(self.menu.clone());
-                    cx.defer(crate::meeting_mode::request_consent);
+                    cx.defer(|cx| host::open(Surface::MeetingConsent, cx));
                 }
             }
             TrayItemId::Pause => {
@@ -778,9 +795,7 @@ impl VoiceTray {
             TrayItemId::Open => open_ide(cx),
             // S-3: Push to talk · {key} is an action: the key is recorded in
             // Settings → Voice.
-            TrayItemId::Settings | TrayItemId::PushToTalk => {
-                crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx)
-            }
+            TrayItemId::Settings | TrayItemId::PushToTalk => host::open(Surface::VoiceSettings, cx),
             TrayItemId::Quit => cx.quit(),
             // NEW-55: call the voice agent (deferred: the call stops this
             // tray's speaker and redraws it).
@@ -802,34 +817,32 @@ impl VoiceTray {
             return;
         }
         let mut next = current.clone();
-        let mut update = VoiceUpdate::default();
-        match id {
+        let write = match id {
             TrayItemId::WakeWord => {
                 next.wake_word = !current.wake_word;
-                update.wake_word = Some(next.wake_word);
+                VoiceWrite::WakeWord(next.wake_word)
             }
             _ => return,
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
-        self.pending = Some(next);
-        self.generation += 1;
-        let generation = self.generation;
-        self.sync(cx);
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { api::voice::voice_update(&trpc, &update) }).await;
+        };
+        let Some(host) = host::host(cx) else { return };
+        let generation = self.generation + 1;
+        // The host hands the stored settings to the speaker (its notify
+        // re-syncs the menu) or says the save failed; then this runs.
+        let this = cx.entity().downgrade();
+        let done = Box::new(move |cx: &mut App| {
             let _ = this.update(cx, |this, cx| {
                 if this.generation == generation {
                     this.pending = None;
                 }
-                match result {
-                    // The speaker adopts it; its notify re-syncs the menu.
-                    Ok(stored) => crate::speak_replies::set_settings(stored, cx),
-                    Err(err) => crate::action_error::failed_action_err("save", "the voice settings", &err, cx),
-                }
                 this.sync(cx);
             });
-        })
-        .detach();
+        });
+        if !host.write(write, done, cx) {
+            return;
+        }
+        self.pending = Some(next);
+        self.generation = generation;
+        self.sync(cx);
     }
 }
 
@@ -957,7 +970,7 @@ mod backend {
                 tray.set_menu(Some(Box::new(menu)));
                 return;
             }
-            let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(super::TITLE);
+            let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(super::title());
             #[cfg(target_os = "windows")]
             {
                 builder = builder.with_menu_on_left_click(false);
@@ -1064,6 +1077,14 @@ mod tests {
         assert_eq!(item_of("voice-tray:nope"), None);
     }
 
+    /// Exponential's tray icon (the brand the tests draw).
+    const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/logo-white.svg");
+
+    /// The tests' brand: Exponential's.
+    fn branded() {
+        let _ = BRAND.set(crate::Brand { name: "Exponential", tray_icon_svg: ICON_SVG, app_id: "test" });
+    }
+
     #[test]
     fn the_windows_icon_carries_a_dark_ring() {
         let svg = ringed(ICON_SVG);
@@ -1077,6 +1098,7 @@ mod tests {
 
     #[test]
     fn the_app_icon_rasterizes() {
+        branded();
         let frames = icon_frames(TrayIcon::App, &[22, 64]);
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[1].rgba.len(), 64 * 64 * 4);
@@ -1087,6 +1109,7 @@ mod tests {
     /// corner, none in the plain icon.
     #[test]
     fn the_listening_icon_carries_the_microphone_dot() {
+        branded();
         let red = |frame: &IconFrame| {
             frame
                 .rgba
@@ -1119,6 +1142,7 @@ mod tests {
     /// EXP_TRAY_ICON_DIR=<dir>: write every state at 22 and 64 px for the PR.
     #[test]
     fn the_recording_icon_carries_the_record_dot() {
+        branded();
         let red_at = |frame: &IconFrame, corner: bool| {
             frame
                 .rgba

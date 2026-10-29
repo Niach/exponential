@@ -13,11 +13,11 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 /// The log's file under the IDE's data dir.
-pub(crate) const FILE: &str = "meeting.sqlite";
+pub const FILE: &str = "meeting.sqlite";
 
 /// One finalized segment as the log keeps it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LoggedSegment {
+pub struct LoggedSegment {
     pub meeting_id: String,
     pub channel: String,
     pub label: String,
@@ -28,7 +28,7 @@ pub(crate) struct LoggedSegment {
     pub words: String,
 }
 
-pub(crate) struct SegmentLog {
+pub struct SegmentLog {
     conn: Connection,
 }
 
@@ -37,7 +37,7 @@ fn sql(err: rusqlite::Error) -> String {
 }
 
 impl SegmentLog {
-    pub(crate) fn open(data_dir: &Path) -> Result<SegmentLog, String> {
+    pub fn open(data_dir: &Path) -> Result<SegmentLog, String> {
         std::fs::create_dir_all(data_dir).map_err(|err| format!("meeting log: {err}"))?;
         Self::with(Connection::open(data_dir.join(FILE)).map_err(sql)?)
     }
@@ -69,7 +69,7 @@ impl SegmentLog {
         Ok(SegmentLog { conn })
     }
 
-    pub(crate) fn insert(&self, segment: &LoggedSegment) -> Result<(), String> {
+    pub fn insert(&self, segment: &LoggedSegment) -> Result<(), String> {
         self.conn
             .execute(
                 "INSERT INTO meeting_segments (meeting_id, channel, label, start_ms, end_ms, text, words)
@@ -90,21 +90,21 @@ impl SegmentLog {
 
     /// Drop every segment that ended more than `days` before `now_ms`;
     /// answers how many went.
-    pub(crate) fn prune(&self, now_ms: i64, days: i64) -> Result<usize, String> {
+    pub fn prune(&self, now_ms: i64, days: i64) -> Result<usize, String> {
         let cutoff = now_ms - days * 86_400_000;
         self.conn.execute("DELETE FROM meeting_segments WHERE end_ms < ?1", params![cutoff]).map_err(sql)
     }
 
     /// meeting.json: a sign-out or an account switch deletes every segment
     /// (and VACUUMs, so nothing lingers in free pages); answers how many went.
-    pub(crate) fn clear(&self) -> Result<usize, String> {
+    pub fn clear(&self) -> Result<usize, String> {
         let gone = self.conn.execute("DELETE FROM meeting_segments", []).map_err(sql)?;
         let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
         Ok(gone)
     }
 
     /// #FEED-163 RESTART: the `meetingStartedAt` this IDE listened to last.
-    pub(crate) fn listened(&self) -> Result<Option<String>, String> {
+    pub fn listened(&self) -> Result<Option<String>, String> {
         let mut statement = self.conn.prepare("SELECT started_at FROM meeting_listened WHERE id = 1").map_err(sql)?;
         let mut rows = statement.query([]).map_err(sql)?;
         match rows.next().map_err(sql)? {
@@ -114,7 +114,7 @@ impl SegmentLog {
     }
 
     /// #FEED-163 RESTART: remember that this IDE listens to `started_at`.
-    pub(crate) fn set_listened(&self, started_at: &str) -> Result<(), String> {
+    pub fn set_listened(&self, started_at: &str) -> Result<(), String> {
         self.conn
             .execute(
                 "INSERT INTO meeting_listened (id, started_at) VALUES (1, ?1)
@@ -126,7 +126,7 @@ impl SegmentLog {
     }
 
     /// F22: the account the logged segments belong to (None = none known).
-    pub(crate) fn account(&self) -> Result<Option<String>, String> {
+    pub fn account(&self) -> Result<Option<String>, String> {
         let mut statement = self.conn.prepare("SELECT account FROM meeting_account WHERE id = 1").map_err(sql)?;
         let mut rows = statement.query([]).map_err(sql)?;
         match rows.next().map_err(sql)? {
@@ -136,7 +136,7 @@ impl SegmentLog {
     }
 
     /// F22: remember `account` as the log's owner (None forgets it).
-    pub(crate) fn set_account(&self, account: Option<&str>) -> Result<(), String> {
+    pub fn set_account(&self, account: Option<&str>) -> Result<(), String> {
         match account {
             Some(account) => self.conn.execute(
                 "INSERT INTO meeting_account (id, account) VALUES (1, ?1)

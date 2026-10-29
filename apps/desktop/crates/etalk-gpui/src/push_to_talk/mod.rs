@@ -29,19 +29,19 @@
 //! is not listening (the worker's `WakeListening` and its reason, the tray's
 //! Mute, a call, a meeting) for the Wake word row and the doctor's `wake`.
 
-pub(crate) mod hotkey;
-pub(crate) mod overlay;
+pub mod hotkey;
+pub mod overlay;
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
-use sync::{Collection, Store};
 
-use domain::rows::MessageRow;
-use etalk::voice::{ptt_overlay, ptt_step, PttEvent, PttOverlay, PttPhase, PttState, UtteranceTarget, VoiceSettings};
+use etalk::voice::{ptt_overlay, ptt_step, PttEvent, PttOverlay, PttPhase, PttState, VoiceSettings};
 
-pub(crate) use overlay::activity as overlay_activity;
+use crate::host;
+
+pub use overlay::activity as overlay_activity;
 
 /// What THIS device listens for (None = nothing listens here).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,7 +72,7 @@ fn armed_for(settings: &VoiceSettings, device_id: &str) -> Option<Armed> {
 /// NEW-78 / S-3: THIS device listens: it is the member's voice device with
 /// an agent and a bound key or the wake word (after voice.json
 /// `clearOnNone`). Mute shows then, and the doctor carries `microphone`.
-pub(crate) fn listens_here(settings: &VoiceSettings, device_id: &str) -> bool {
+pub fn listens_here(settings: &VoiceSettings, device_id: &str) -> bool {
     armed_for(settings, device_id).is_some()
 }
 
@@ -83,7 +83,7 @@ struct Sent {
     message_id: Option<String>,
 }
 
-pub(crate) struct PushToTalk {
+pub struct PushToTalk {
     device_id: String,
     client: Option<etalk::SpeechClient>,
     armed: Option<Armed>,
@@ -136,25 +136,22 @@ fn global(cx: &App) -> Option<Entity<PushToTalk>> {
 }
 
 /// The watcher (the tray observes it).
-pub(crate) fn entity(cx: &App) -> Option<Entity<PushToTalk>> {
+pub fn entity(cx: &App) -> Option<Entity<PushToTalk>> {
     global(cx)
 }
 
 /// Install ONCE, after `speak_replies::install` (it shares that worker).
-pub fn install(cx: &mut App) {
-    let Some(store) = Store::try_global(cx) else { return };
+/// The host's messages (the reply that ends Thinking) and its agents
+/// (#NEW-56: `Hey {agent}` needs the agent's name) arrive through
+/// [`crate::messages_changed`] and [`crate::agents_changed`].
+pub(crate) fn install(cx: &mut App) {
+    let Some(device_id) = host::device_id(cx) else { return };
     let Some(speaker) = crate::speak_replies::entity(cx) else { return };
-    let messages = store.collections().messages.clone();
-    let agents = store.collections().agents.clone();
-    let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
     let client = crate::speak_replies::client(cx);
     let (tx, rx) = flume::unbounded::<hotkey::HotkeyEvent>();
     let entity = cx.new(|cx: &mut Context<PushToTalk>| {
-        cx.observe(&messages, |this: &mut PushToTalk, collection, cx| this.on_messages(&collection, cx)).detach();
         // The voice ending (or Stop) ends Speaking.
         cx.observe(&speaker, |this: &mut PushToTalk, _, cx| this.on_speaker(cx)).detach();
-        // #NEW-56: `Hey {agent}` needs the agent's name.
-        cx.observe(&agents, |this: &mut PushToTalk, _, cx| this.sync_wake(cx)).detach();
         PushToTalk {
             device_id,
             client,
@@ -228,8 +225,22 @@ pub(crate) fn settings_changed(settings: &VoiceSettings, cx: &mut App) {
     });
 }
 
+/// The host's messages changed: the reply that ends Thinking.
+pub(crate) fn on_messages(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.on_messages(cx));
+    }
+}
+
+/// #NEW-56: the host's agents changed (`Hey {agent}` names one).
+pub(crate) fn on_agents(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.sync_wake(cx));
+    }
+}
+
 /// Sign-out or another account: drop the Listen, let the shortcut go.
-pub(crate) fn signed_out(cx: &mut App) {
+pub fn signed_out(cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     entity.update(cx, |this, cx| this.arm(None, cx));
 }
@@ -274,14 +285,14 @@ pub(crate) fn mute_changed(muted: bool, cx: &mut App) {
 }
 
 /// #NEW-56: the wake word holds the microphone open (the tray's dot).
-pub(crate) fn wake_listening(cx: &App) -> bool {
+pub fn wake_listening(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).wake_listening) || *DEV_WAKE_LISTENING
 }
 
 /// S-3: the wake word's state on THIS device (voice.json `wakeDetail`
 /// `state`): the tray's Mute, a call or a meeting holding the microphone,
 /// the worker's `WakeListening` and its reason; None = not reported yet.
-pub(crate) fn wake_state(cx: &App) -> Option<etalk::voice::WakeState> {
+pub fn wake_state(cx: &App) -> Option<etalk::voice::WakeState> {
     use etalk::voice::WakeState;
     if wake_listening(cx) {
         return Some(WakeState::Listening);
@@ -309,7 +320,7 @@ pub(crate) fn wake_state(cx: &App) -> Option<etalk::voice::WakeState> {
 /// S-3: the Wake word row's trailing detail on THIS device, which is the
 /// voice device (`etalk::voice::wake_detail` over [`wake_state`]); the
 /// doctor's `wake` row carries the same text to every other client.
-pub(crate) fn own_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> Option<String> {
+pub fn own_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> Option<String> {
     etalk::voice::wake_detail(&etalk::voice::WakeDetailContext {
         wake_word: settings.wake_word,
         agent: settings.agent_id.is_some(),
@@ -322,7 +333,7 @@ pub(crate) fn own_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &
 /// S-3: Settings → Voice's recorder started (`true`) or ended: the grab is
 /// let go while it records, so the old binding cannot fire, and taken again
 /// after.
-pub(crate) fn set_recording(recording: bool, cx: &mut App) {
+pub fn set_recording(recording: bool, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     entity.update(cx, |this, cx| {
         if this.recording == recording {
@@ -352,7 +363,7 @@ pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
 }
 
 /// How the shortcut is held (the tray item and the Shortcut row).
-pub(crate) fn status(cx: &App) -> hotkey::Status {
+pub fn status(cx: &App) -> hotkey::Status {
     global(cx).map(|entity| entity.read(cx).status.clone()).unwrap_or_default()
 }
 
@@ -367,7 +378,7 @@ fn focused_fallback(cx: &App) -> Option<hotkey::Shortcut> {
 
 /// The shell's capture listener: a key-down or key-up while an IDE window is
 /// focused. `true` = it was the push-to-talk key (consumed).
-pub(crate) fn on_focused_key(down: bool, keystroke: &gpui::Keystroke, cx: &mut App) -> bool {
+pub fn on_focused_key(down: bool, keystroke: &gpui::Keystroke, cx: &mut App) -> bool {
     let Some(shortcut) = focused_fallback(cx) else { return false };
     let hit = if down { shortcut.matches_keystroke(keystroke) } else { shortcut.key_matches(&keystroke.key) };
     if !hit {
@@ -383,33 +394,26 @@ pub(crate) fn on_focused_key(down: bool, keystroke: &gpui::Keystroke, cx: &mut A
 /// In the focused-window fallback that is the key-up gpui never delivers:
 /// the hold ends and the Listen with it. The global backends see the real
 /// release and are untouched.
-pub(crate) fn on_window_deactivated(cx: &mut App) {
+pub fn on_window_deactivated(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.focus_lost(cx));
     }
 }
 
-/// A failed send's text for the chat of session `session_id` (the member's
+/// A failed send left text waiting for a chat's composer.
+pub fn has_unsent(cx: &App) -> bool {
+    global(cx).is_some_and(|entity| !entity.read(cx).unsent.is_empty())
+}
+
+/// A failed send's text for the chat with `agent_id` (the member's
 /// conversation with that agent), taken once by its composer.
-pub(crate) fn take_unsent(session_id: &str, cx: &mut App) -> Option<String> {
+pub fn take_unsent(agent_id: &str, cx: &mut App) -> Option<String> {
     let entity = global(cx)?;
-    if entity.read(cx).unsent.is_empty() {
-        return None;
-    }
-    let me = crate::queries::active_account(cx)?.user_id;
-    let agent_id = Store::try_global(cx)?
-        .collections()
-        .sessions
-        .read(cx)
-        .iter()
-        .find(|row| row.id == session_id && row.is_root() && row.user_id.as_deref() == Some(me.as_str()))?
-        .agent_id
-        .clone()?;
-    entity.update(cx, |this, _| this.unsent.remove(&agent_id))
+    entity.update(cx, |this, _| this.unsent.remove(agent_id))
 }
 
 /// The overlay's pill: Stop while speaking, Unmute while muted.
-pub(crate) fn on_pill(cx: &mut App) {
+pub fn on_pill(cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     let phase = entity.read(cx).state.phase;
     match phase {
@@ -667,29 +671,20 @@ impl PushToTalk {
 
     fn send(&mut self, heard: String, cx: &mut Context<Self>) {
         let Some(armed) = self.armed.clone() else { return };
-        let conversation = crate::session_data::my_conversation(&armed.agent_id, cx).map(|row| row.id);
-        let team_id = Store::try_global(cx)
-            .and_then(|store| {
-                store.collections().agents.read(cx).iter().find(|row| row.id == armed.agent_id).and_then(|row| row.team_id.clone())
-            })
-            .unwrap_or_default();
-        let Some(target) = etalk::voice::utterance_input(&heard, &team_id, Some(&armed.agent_id), conversation.as_deref()) else {
+        let Some(outgoing) = host::outgoing(&armed.agent_id, &heard, cx) else {
             return;
         };
-        let (input, text) = match target {
-            UtteranceTarget::Session { session_id, text } => (api::sessions::SendInput::message(&session_id, &text, Vec::new()), text),
-            UtteranceTarget::Agent { team_id, agent_id, text } => {
-                (crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new()), text)
-            }
+        let text = match &outgoing.target {
+            etalk::voice::UtteranceTarget::Session { text, .. } | etalk::voice::UtteranceTarget::Agent { text, .. } => text.clone(),
         };
         let generation = self.generation;
         let agent_id = armed.agent_id.clone();
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
+        let Some(job) = host::send(outgoing, cx) else {
             self.send_failed(agent_id, text, cx);
             return;
         };
         cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+            let result = cx.background_executor().spawn(async move { job() }).await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return;
@@ -725,37 +720,32 @@ impl PushToTalk {
     /// Thinking ends when the agent's reply row lands in the conversation:
     /// its own message (the sent row) first, then the agent's next final
     /// reply after it.
-    fn on_messages(&mut self, collection: &Entity<Collection<MessageRow>>, cx: &mut Context<Self>) {
+    fn on_messages(&mut self, cx: &mut Context<Self>) {
         if self.state.phase != PttPhase::Thinking {
             return;
         }
         let Some(sent) = self.sent.clone() else { return };
-        let Some(store) = Store::try_global(cx) else { return };
-        let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
-        let reply = {
-            let rows = collection.read(cx);
-            let in_session = |row: &&MessageRow| {
-                domain::message_conversation::session_of(row, &sessions).unwrap_or(row.session_id.as_str()) == sent.session_id
-            };
-            let sent_at = sent
-                .message_id
-                .as_deref()
-                .and_then(|id| rows.iter().find(|row| row.id == id))
-                .and_then(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant));
-            let Some(sent_at) = sent_at else { return };
-            rows.iter()
-                .filter(in_session)
-                .filter(|row| {
-                    row.author_kind.as_deref() == Some("agent")
-                        && row.author_session_id.is_none()
-                        && !row.card.as_ref().is_some_and(|card| !card.is_null())
-                        && row.body.as_deref().is_some_and(|body| !body.trim().is_empty())
-                })
-                .filter_map(|row| Some((row.created_at.as_deref().and_then(etalk::voice::parse_instant)?, row)))
-                .filter(|(at, _)| *at > sent_at)
-                .min_by_key(|(at, _)| *at)
-                .map(|(_, row)| (row.id.clone(), row.body.clone().unwrap_or_default()))
-        };
+        let Some(host) = host::host(cx) else { return };
+        // One pass: the sent row's instant, and the agent's final replies
+        // in the conversation (the earliest after it wins).
+        let mut sent_at = None;
+        let mut replies: Vec<(i64, String, String)> = Vec::new();
+        host.messages(cx, &mut |row| {
+            let message = &row.message;
+            if sent.message_id.as_deref() == Some(row.id) && sent_at.is_none() {
+                sent_at = Some(message.created_at.and_then(etalk::voice::parse_instant));
+            }
+            let reply = message.session_id.unwrap_or("") == sent.session_id
+                && message.author_kind == Some("agent")
+                && message.author_session_id.is_none()
+                && !message.has_card
+                && message.body.is_some_and(|body| !body.trim().is_empty());
+            if let Some(at) = message.created_at.and_then(etalk::voice::parse_instant).filter(|_| reply) {
+                replies.push((at, row.id.to_string(), message.body.unwrap_or_default().to_string()));
+            }
+        });
+        let Some(Some(sent_at)) = sent_at else { return };
+        let reply = replies.into_iter().filter(|(at, _, _)| *at > sent_at).min_by_key(|(at, _, _)| *at).map(|(_, id, body)| (id, body));
         let Some((id, body)) = reply else { return };
         let speaking = crate::speak_replies::speaking(cx).is_some_and(|speaking| speaking.message_id == id);
         self.reply_id = Some(id);
@@ -846,7 +836,7 @@ fn listen_failure(reason: etalk::ListenFailure) -> etalk::voice::ListenFailure {
 }
 
 /// The wave's level and bands now (the overlay reads them each frame).
-pub(crate) fn level(cx: &App) -> (f32, Vec<f32>) {
+pub fn level(cx: &App) -> (f32, Vec<f32>) {
     global(cx).map(|entity| {
         let this = entity.read(cx);
         (this.level, this.bands.clone())

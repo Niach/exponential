@@ -4,8 +4,8 @@
 //! A call = a conversation with ONE agent by voice. It starts from the
 //! telephone in the agent chat's header (`agent_screen`), from the tray's
 //! `Call {agent}`, or, streamed from a phone or web, from the relay's
-//! `call_ring` on this device's control socket (the CALL HOST,
-//! `steer::call_host`). The speech worker listens without a key (`Call`):
+//! `call_ring` on this device's control socket (the CALL HOST: the host's
+//! [`CallLink`], Exponential's `steer::call_host`). The speech worker listens without a key (`Call`):
 //! every closed segment comes back as `Said` and goes out as a plain
 //! message through `sessions.send`, exactly like push to talk; an utterance
 //! said while the agent's turn runs rides the queue bar like a typed one.
@@ -37,15 +37,15 @@ use gpui::{
     div, App, AppContext as _, Context, Entity, FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Window,
 };
-use sync::Store;
 
-use etalk::voice::UtteranceTarget;
 use etalk::call::{
     call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
     VOICE_CALL,
 };
 
+use crate::host::{self, CallLink, CallLinkEvent, Notice};
 use crate::push_to_talk::overlay::{Face, Overlay};
+use crate::speak_replies::SpeechState;
 use crate::voice_overlay::{CallActions, CallFace, CallMark};
 
 /// The mic check listens at least this long after `CallListening`.
@@ -59,8 +59,8 @@ struct Active {
     /// The worker's call id.
     id: String,
     agent_id: String,
-    /// A streamed call's socket (None = this device's own microphone).
-    host: Option<steer::call_host::CallHost>,
+    /// A streamed call's link (None = this device's own microphone).
+    host: Option<Box<dyn CallLink>>,
     /// Utterances said while the agent's turn ran (the queue bar's share).
     queued: usize,
     /// The reply being spoken (its message id, or the greeting's).
@@ -79,13 +79,13 @@ struct Active {
 /// S-3: what changes many times a second (the microphone's level, the
 /// timer's second): only the call surfaces observe it.
 #[derive(Default)]
-pub(crate) struct CallLive {
+pub struct CallLive {
     level: f32,
     bands: Vec<f32>,
     timer: String,
 }
 
-pub(crate) struct VoiceCall {
+pub struct VoiceCall {
     state: CallState,
     active: Option<Active>,
     overlay: Overlay,
@@ -107,7 +107,7 @@ fn global(cx: &App) -> Option<Entity<VoiceCall>> {
 }
 
 /// Install ONCE, after `speak_replies::install`.
-pub fn install(cx: &mut App) {
+pub(crate) fn install(cx: &mut App) {
     let live = cx.new(|_| CallLive::default());
     let entity = cx.new(|cx: &mut Context<VoiceCall>| {
         if let Some(speaker) = crate::speak_replies::entity(cx) {
@@ -128,28 +128,28 @@ pub fn install(cx: &mut App) {
 }
 
 /// The controller (the tray observes it).
-pub(crate) fn entity(cx: &App) -> Option<Entity<VoiceCall>> {
+pub fn entity(cx: &App) -> Option<Entity<VoiceCall>> {
     global(cx)
 }
 
 /// A call runs on this device.
-pub(crate) fn active(cx: &App) -> bool {
+pub fn active(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).active.is_some())
 }
 
 /// The agent of the running call (Speak replies speaks its conversation).
-pub(crate) fn agent_id(cx: &App) -> Option<String> {
+pub fn agent_id(cx: &App) -> Option<String> {
     global(cx).and_then(|entity| entity.read(cx).active.as_ref().map(|active| active.agent_id.clone()))
 }
 
 /// S-3: THIS client runs a call with `agent_id` (its telephone shows the
 /// panel instead of dialing).
-pub(crate) fn runs_for(agent_id: &str, cx: &App) -> bool {
+pub fn runs_for(agent_id: &str, cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).active.as_ref().is_some_and(|active| active.agent_id == agent_id))
 }
 
 /// S-3: what the call surfaces show now (None = no call).
-pub(crate) fn face(cx: &App) -> Option<CallFace> {
+pub fn face(cx: &App) -> Option<CallFace> {
     global(cx)?.read(cx).face_now(cx)
 }
 
@@ -158,7 +158,7 @@ impl VoiceCall {
     fn face_now(&self, cx: &App) -> Option<CallFace> {
         let active = self.active.as_ref()?;
         let view = call_view(&self.state, CallPlatform::Desktop)?;
-        let agent = crate::session_data::agent_def(&active.agent_id, cx);
+        let agent = host::agent(&active.agent_id, cx);
         let live = self.live.read(cx);
         let (level, bands) = match view.activity {
             "listening" => (live.level, live.bands.clone()),
@@ -167,7 +167,7 @@ impl VoiceCall {
             _ => (0., Vec::new()),
         };
         Some(CallFace {
-            agent: SharedString::from(agent.as_ref().map(crate::agent_screen::agent_def_name).unwrap_or_default()),
+            agent: SharedString::from(agent.as_ref().map(|agent| agent.title.clone()).unwrap_or_default()),
             mark: CallMark {
                 icon: agent.as_ref().and_then(|agent| agent.icon.clone()),
                 color: agent.as_ref().and_then(|agent| agent.color.clone()),
@@ -199,26 +199,25 @@ fn answered_timer(answered_at: Option<Instant>) -> String {
 fn voice_device(cx: &App) -> (Option<String>, bool, bool) {
     let settings = crate::speak_replies::settings(cx);
     let Some(device_id) = settings.voice_device_id.clone() else { return (None, false, false) };
-    let own = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
-    let row = Store::try_global(cx).and_then(|store| {
-        store.collections().devices.read(cx).iter().find(|row| row.device_id.as_deref() == Some(device_id.as_str())).cloned()
-    });
+    let Some(host) = host::host(cx) else { return (Some(device_id), false, false) };
+    let own = host.device_id();
+    let row = host.device(&device_id, cx);
     let name = row.as_ref().and_then(|row| row.label.clone()).unwrap_or_else(|| device_id.clone());
     let here = device_id == own;
     // This machine is online by definition; another one by its presence.
-    let online = here || row.as_ref().is_some_and(|row| crate::device_settings::row_is_online(row.last_seen_at.as_deref(), chrono::Utc::now().timestamp_millis()));
+    let online = here || row.as_ref().is_some_and(|row| row.online);
     (Some(name), online, here)
 }
 
 /// None = the telephone is enabled; Some = disabled, with the reason
 /// (voice-call.json `availabilityCases`, the desktop's view). S-3: a voice
 /// still downloading rings until it is ready.
-pub(crate) fn unavailable(cx: &App) -> Option<String> {
+pub fn unavailable(cx: &App) -> Option<String> {
     let (device, online, here) = voice_device(cx);
     let speech = crate::speak_replies::speech_state(cx).map(|state| match state {
-        coding::device_doctor::SpeechState::Ready => CallSpeech::Ok,
-        coding::device_doctor::SpeechState::Downloading => CallSpeech::Preparing,
-        coding::device_doctor::SpeechState::NoGpu => CallSpeech::NoGpu,
+        SpeechState::Ready => CallSpeech::Ok,
+        SpeechState::Downloading => CallSpeech::Preparing,
+        SpeechState::NoGpu => CallSpeech::NoGpu,
     });
     call_unavailable(&CallAvailabilityInput {
         platform: CallPlatform::Desktop,
@@ -233,9 +232,9 @@ pub(crate) fn unavailable(cx: &App) -> Option<String> {
 }
 
 /// The telephone (header) or the tray's Call: call `agent_id` here.
-pub(crate) fn start(agent_id: String, cx: &mut App) {
+pub fn start(agent_id: String, cx: &mut App) {
     if let Some(reason) = unavailable(cx) {
-        crate::toast::show_in_active_window(crate::toast::Toast::error(reason), cx);
+        host::notify(Notice::Error(reason), cx);
         return;
     }
     let Some(entity) = global(cx) else { return };
@@ -243,7 +242,7 @@ pub(crate) fn start(agent_id: String, cx: &mut App) {
 }
 
 /// The surfaces' mute button.
-pub(crate) fn toggle_mute(cx: &mut App) {
+pub fn toggle_mute(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| {
             let muted = !this.state.muted;
@@ -254,7 +253,7 @@ pub(crate) fn toggle_mute(cx: &mut App) {
 
 /// End call / Cancel (the surfaces' red button, Esc, the tray, sign-out,
 /// a settings change).
-pub(crate) fn end(cx: &mut App) {
+pub fn end(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.hang_up(true, cx));
     }
@@ -264,7 +263,7 @@ pub(crate) fn end(cx: &mut App) {
 /// or web caller streams a call to `agent_id`. Busy or unable to speak =
 /// no answer (the relay tells the caller). S-3: a voice still downloading
 /// answers too (the call rings until it is ready).
-pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
+pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     let (_, _, here) = voice_device(cx);
     // #NEW-57: a call reaching the device mid-meeting fails with
     // `failed.meeting` (the caller's telephone should have been off).
@@ -273,28 +272,22 @@ pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
         return;
     }
     let speech = crate::speak_replies::speech_state(cx);
-    let can_speak = matches!(speech, Some(coding::device_doctor::SpeechState::Ready | coding::device_doctor::SpeechState::Downloading));
+    let can_speak = matches!(speech, Some(SpeechState::Ready | SpeechState::Downloading));
     if !here || active(cx) || !can_speak {
         log::info!("[voice] call {call_id}: not answered here");
         return;
     }
-    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
-    let Some(runtime) = crate::steer_wiring::runtime(cx) else { return };
     let Some(entity) = global(cx) else { return };
+    let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, cx)) else { return };
     let weak = entity.downgrade();
     cx.spawn(async move |cx| {
-        let ticket = cx.background_executor().spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id) }).await;
-        let ticket = match ticket {
-            Ok(ticket) => ticket,
+        let (host, rx) = match connecting.await {
+            Ok(connection) => (connection.link, connection.events),
             Err(err) => {
                 log::warn!("[voice] the call host ticket was refused: {err}");
                 return;
             }
         };
-        let (tx, rx) = flume::unbounded::<steer::call_host::CallHostEvent>();
-        let host = steer::call_host::connect(&runtime, ticket.url, move |event| {
-            let _ = tx.send(event);
-        });
         let started = weak.update(cx, |this, cx| {
             if this.active.is_some() {
                 host.end();
@@ -325,23 +318,18 @@ fn host_failed_event(code: &str) -> serde_json::Value {
 /// event the caller steps), then hang up.
 fn refuse_for_meeting(call_id: String, cx: &mut App) {
     log::info!("[voice] call {call_id}: refused, a meeting runs");
-    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
-    let Some(runtime) = crate::steer_wiring::runtime(cx) else { return };
+    let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, cx)) else { return };
     cx.spawn(async move |cx| {
-        let ticket = cx.background_executor().spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id) }).await;
-        let Ok(ticket) = ticket else { return };
-        let (tx, rx) = flume::unbounded::<steer::call_host::CallHostEvent>();
-        let host = steer::call_host::connect(&runtime, ticket.url, move |event| {
-            let _ = tx.send(event);
-        });
+        let Ok(connection) = connecting.await else { return };
+        let (host, rx) = (connection.link, connection.events);
         let started = std::time::Instant::now();
         while started.elapsed() < ring_timeout() {
             match rx.try_recv() {
-                Ok(steer::call_host::CallHostEvent::Ready) => {
+                Ok(CallLinkEvent::Ready) => {
                     host.send_event(host_failed_event("meeting"));
                     break;
                 }
-                Ok(steer::call_host::CallHostEvent::Ended { .. } | steer::call_host::CallHostEvent::Dropped(_))
+                Ok(CallLinkEvent::Ended { .. } | CallLinkEvent::Dropped(_))
                 | Err(flume::TryRecvError::Disconnected) => break,
                 Ok(_) | Err(flume::TryRecvError::Empty) => {
                     cx.background_executor().timer(Duration::from_millis(50)).await;
@@ -355,7 +343,7 @@ fn refuse_for_meeting(call_id: String, cx: &mut App) {
 
 /// A speech-worker event that belongs to the call (routed here before
 /// push to talk and Speak replies see it).
-pub(crate) fn owns(event: &etalk::Event, cx: &App) -> bool {
+pub fn owns(event: &etalk::Event, cx: &App) -> bool {
     let Some(entity) = global(cx) else { return false };
     let this = entity.read(cx);
     let Some(active) = this.active.as_ref() else { return false };
@@ -367,7 +355,7 @@ pub(crate) fn owns(event: &etalk::Event, cx: &App) -> bool {
     }
 }
 
-pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
+pub fn on_worker_event(event: etalk::Event, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.on_worker(event, cx));
     }
@@ -375,7 +363,7 @@ pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
 
 /// Settings changed or the account went away: a call that can no longer
 /// run here ends.
-pub(crate) fn settings_changed(cx: &mut App) {
+pub fn settings_changed(cx: &mut App) {
     if active(cx) && unavailable_ignoring_busy(cx).is_some() {
         end(cx);
     }
@@ -437,7 +425,7 @@ impl VoiceCall {
         if let Some(toast) = self.state.toast.take() {
             #[cfg(test)]
             self.toasts.push(toast.clone());
-            crate::toast::show_in_active_window(crate::toast::Toast::error(toast), cx);
+            host::notify(Notice::Error(toast), cx);
         }
         // S-3: rang and ready answered it: the device says its greeting.
         if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Speaking {
@@ -461,7 +449,7 @@ impl VoiceCall {
         }
     }
 
-    fn begin(&mut self, agent_id: String, host: Option<steer::call_host::CallHost>, cx: &mut Context<Self>) {
+    fn begin(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
         let (device, _, _) = voice_device(cx);
         // A held push to talk and anything being said stop first.
@@ -481,7 +469,7 @@ impl VoiceCall {
     }
 
     /// The call's bookkeeping (the worker's id, the clocks).
-    fn open(&mut self, agent_id: String, host: Option<steer::call_host::CallHost>, cx: &mut Context<Self>) -> String {
+    fn open(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, cx: &mut Context<Self>) -> String {
         self.counter += 1;
         let id = format!("call-{}", self.counter);
         self.active = Some(Active {
@@ -654,8 +642,8 @@ impl VoiceCall {
         self.step(CallEvent::Failed(code.to_string()), cx);
     }
 
-    fn on_host(&mut self, event: steer::call_host::CallHostEvent, cx: &mut Context<Self>) {
-        use steer::call_host::CallHostEvent;
+    fn on_host(&mut self, event: CallLinkEvent, cx: &mut Context<Self>) {
+        use CallLinkEvent as CallHostEvent;
         if self.active.as_ref().is_none_or(|active| active.host.is_none()) {
             return;
         }
@@ -755,28 +743,15 @@ impl VoiceCall {
     }
 
     fn send(&mut self, agent_id: String, text: String, cx: &mut Context<Self>) {
-        let conversation = crate::session_data::my_conversation(&agent_id, cx).map(|row| row.id);
-        let team_id = Store::try_global(cx)
-            .and_then(|store| store.collections().agents.read(cx).iter().find(|row| row.id == agent_id).and_then(|row| row.team_id.clone()))
-            .unwrap_or_default();
-        let Some(target) = etalk::voice::utterance_input(&text, &team_id, Some(&agent_id), conversation.as_deref()) else { return };
-        let input = match target {
-            UtteranceTarget::Session { session_id, text } => api::sessions::SendInput::message(&session_id, &text, Vec::new()),
-            UtteranceTarget::Agent { team_id, agent_id, text } => crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new()),
-        };
-        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        let Some(outgoing) = host::outgoing(&agent_id, &text, cx) else { return };
+        let Some(job) = host::send(outgoing, cx) else { return };
         cx.spawn(async move |_, cx| {
-            let result = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+            let result = cx.background_executor().spawn(async move { job() }).await;
             if let Err(err) = result {
                 // The call goes on; the words are in the log, never lost
                 // silently: a toast says the line did not go out.
                 log::warn!("[voice] call: the send failed: {err}");
-                let _ = cx.update(|cx| {
-                    crate::toast::show_in_active_window(
-                        crate::toast::Toast::error(etalk::voice::VOICE.ptt_copy.overlay_not_sent.clone()),
-                        cx,
-                    )
-                });
+                let _ = cx.update(|cx| host::notify(Notice::Error(etalk::voice::VOICE.ptt_copy.overlay_not_sent.clone()), cx));
             }
         })
         .detach();
@@ -786,7 +761,7 @@ impl VoiceCall {
     /// call's Speaking follows (only for the call's own conversation).
     fn on_speaker(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.as_ref() else { return };
-        let conversation = crate::session_data::my_conversation(&active.agent_id, cx).map(|row| row.id);
+        let conversation = host::conversation(&active.agent_id, cx);
         let greeting = active.greeting_id.clone();
         let speaking = crate::speak_replies::speaking(cx)
             .filter(|speaking| speaking.message_id == greeting || Some(&speaking.session_id) == conversation.as_ref());
@@ -833,14 +808,14 @@ fn ring_timeout() -> Duration {
 /// nothing otherwise. Esc in it ends the call; the header's telephone
 /// focuses it. It repaints on the call's steps and its live level/timer,
 /// never the chat around it.
-pub(crate) struct CallPanel {
+pub struct CallPanel {
     agent_id: Option<String>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl CallPanel {
-    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         let mut subscriptions = Vec::new();
         if let Some(call) = global(cx) {
             let live = call.read(cx).live.clone();
@@ -851,7 +826,7 @@ impl CallPanel {
     }
 
     /// The chat's agent (its screen resolves it).
-    pub(crate) fn set_agent(&mut self, agent_id: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_agent(&mut self, agent_id: Option<String>, cx: &mut Context<Self>) {
         if self.agent_id != agent_id {
             self.agent_id = agent_id;
             cx.notify();
@@ -859,7 +834,7 @@ impl CallPanel {
     }
 
     /// The panel shows (a call with this chat's agent runs here).
-    pub(crate) fn shown(&self, cx: &App) -> bool {
+    pub fn shown(&self, cx: &App) -> bool {
         self.agent_id.as_deref().is_some_and(|agent_id| runs_for(agent_id, cx))
     }
 }
@@ -1063,14 +1038,24 @@ mod tests {
         });
     }
 
+    /// A link to nobody (a streamed call in the tests).
+    struct Detached;
+
+    impl CallLink for Detached {
+        fn send_event(&self, _: serde_json::Value) {}
+        fn send_speech(&self, _: Vec<i16>, _: u32) {}
+        fn flush(&self) {}
+        fn end(&self) {}
+    }
+
     /// A streamed call (a detached host socket) and the caller's `call_end`.
     fn host_ended(reason: Option<&str>, cx: &mut gpui::TestAppContext) -> Vec<String> {
         running(cx);
         cx.update(|cx| {
             let entity = global(cx).unwrap();
             entity.update(cx, |this, cx| {
-                this.active.as_mut().unwrap().host = Some(steer::call_host::CallHost::detached());
-                this.on_host(steer::call_host::CallHostEvent::Ended { reason: reason.map(str::to_string) }, cx);
+                this.active.as_mut().unwrap().host = Some(Box::new(Detached));
+                this.on_host(CallLinkEvent::Ended { reason: reason.map(str::to_string) }, cx);
             });
             assert!(!active(cx));
             assert_eq!(entity.read(cx).state.phase, CallPhase::Hidden);

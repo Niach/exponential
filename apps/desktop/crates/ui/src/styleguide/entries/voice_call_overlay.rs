@@ -11,7 +11,7 @@ use etalk::voice::VOICE;
 use etalk::call::{CallButton, VOICE_CALL};
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 
-use crate::voice_overlay::{call_pill, capsule, specimen_face, CallActions, Capsule};
+use etalk_gpui::voice_overlay::{call_pill, capsule, specimen_face, CallActions, Capsule};
 
 pub(crate) const ID: &str = "voice-call-overlay";
 pub(crate) const OWNER: &str = "NEW-77";
@@ -21,7 +21,7 @@ fn rows() -> Vec<Capsule> {
         .overlay_specimens
         .iter()
         .map(|row| Capsule {
-            activity: crate::push_to_talk::overlay_activity(&row.activity),
+            activity: etalk_gpui::push_to_talk::overlay_activity(&row.activity),
             level: row.level,
             bands: row.bands.clone(),
             state: row.state.clone().into(),

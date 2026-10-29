@@ -312,7 +312,7 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                 // active one (a switch mid-beat never hands A's settings to B).
                 let _ = cx.update(|cx| {
                     if crate::queries::active_account(cx).is_some_and(|active| active.id == account_id) {
-                        crate::speak_replies::set_settings(voice, cx);
+                        crate::talk_host::set_voice_settings(voice, cx);
                     }
                 });
             }

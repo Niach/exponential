@@ -1,13 +1,14 @@
 //! NEW-53: exponentialTalk "Speak replies" in the IDE (`fixtures/voice.json`).
 //!
-//! Watches the synced `messages`: a row [`etalk::voice::should_speak`]
+//! Watches the host's messages ([`crate::messages_changed`]): a row
+//! [`etalk::voice::should_speak`]
 //! accepts (the agent's final reply in the member's conversation with the
 //! agent picked in Settings → Voice, spoken only on the member's voice
 //! device; `user_voice_settings`, delivered by every heartbeat) is
 //! reduced to [`etalk::voice::spoken_text`] and handed to the speech worker
 //! (`etalk::SpeechClient`, the IDE's own executable as `__speech-worker`).
 //! While it plays, the conversation's Dock shows the Speaking banner with
-//! Stop (`steer_viewer::dock_banners`). S-3: SPEAK-BACK IS ALWAYS ON (the
+//! Stop (Exponential's `steer_viewer::dock_banners`). S-3: SPEAK-BACK IS ALWAYS ON (the
 //! setting is gone): the voice device with an agent picked keeps the worker
 //! and the voice prepared, so the first reply does not wait for the
 //! download (~2-3 GB: the CrispASR runtime and Qwen3-TTS, NEW-74), and what
@@ -21,15 +22,26 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
-use sync::{Collection, Store};
 
-use domain::rows::MessageRow;
 use etalk::voice::{VoiceContext, VoiceMessage, VOICE};
+
+use crate::host::{self, Notice, TalkMessage};
+
+/// NEW-55: the doctor's `speech` row for THIS device (None = no row).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpeechState {
+    /// The worker speaks here.
+    Ready,
+    /// The voice downloads (a call rings until it is ready).
+    Downloading,
+    /// No usable GPU: replies are shown, never spoken.
+    NoGpu,
+}
 
 /// What THIS device speaks for: the member's voice settings
 /// (`user_voice_settings`, delivered by every heartbeat) seen from here.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DeviceVoice {
+pub struct DeviceVoice {
     pub agent_id: Option<String>,
     /// #NEW-54: push to talk or (#NEW-56) the wake word listens here.
     pub listen: bool,
@@ -40,7 +52,7 @@ pub(crate) struct DeviceVoice {
 impl DeviceVoice {
     /// The worker runs here: this is the voice device and an agent is
     /// picked (S-3: speak-back is always on).
-    pub(crate) fn active(&self) -> bool {
+    pub fn active(&self) -> bool {
         self.agent_id.is_some()
     }
 
@@ -51,7 +63,7 @@ impl DeviceVoice {
 }
 
 /// voice.json: only the member's voice device speaks.
-pub(crate) fn voice_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> DeviceVoice {
+pub fn voice_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> DeviceVoice {
     if settings.voice_device_id.as_deref() != Some(own_device_id) {
         return DeviceVoice::default();
     }
@@ -71,24 +83,24 @@ pub(crate) fn voice_here(settings: &etalk::voice::VoiceSettings, own_device_id: 
 /// NEW-78: THIS device listens: it is the member's voice device and Push to
 /// talk or (#NEW-56) the wake word is on (after voice.json `clearOnNone`).
 /// Only then does its doctor carry the `microphone` row.
-pub(crate) fn listens_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> bool {
+pub fn listens_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> bool {
     let settings = settings.clone().clear_on_none();
     (settings.push_to_talk() || settings.wake_word) && settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
 /// [`listens_here`] for the member's current settings (false before the
 /// first heartbeat delivered them).
-pub(crate) fn push_to_talk_here(cx: &App) -> bool {
+pub fn push_to_talk_here(cx: &App) -> bool {
     let Some(entity) = global(cx) else { return false };
-    let Some(auth) = cx.try_global::<crate::session::AuthContext>() else {
+    let Some(device_id) = host::device_id(cx) else {
         return false;
     };
-    listens_here(&entity.read(cx).settings, &steer::persistent_device_id(&auth.data_dir))
+    listens_here(&entity.read(cx).settings, &device_id)
 }
 
 /// The reply being spoken (for the Dock banner).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Speaking {
+pub struct Speaking {
     pub message_id: String,
     pub session_id: String,
     /// The spoken text's first sentence (the banner's title).
@@ -97,7 +109,7 @@ pub(crate) struct Speaking {
 
 /// The voice download, for the Speak replies row's trailing detail.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Download {
+pub enum Download {
     #[default]
     Idle,
     /// Bytes so far of the whole first-use download (`total` 0 = unknown).
@@ -116,6 +128,44 @@ fn restart_delay(crashes: u32) -> Duration {
     Duration::from_secs(1u64 << crashes.clamp(1, MAX_CRASHES))
 }
 
+/// A message row the gate let through, owned.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Row {
+    id: String,
+    author_kind: Option<String>,
+    body: Option<String>,
+    has_card: bool,
+    author_session_id: Option<String>,
+    session_id: Option<String>,
+    created_at: Option<String>,
+}
+
+impl Row {
+    fn of(row: &TalkMessage<'_>) -> Self {
+        let message = &row.message;
+        Row {
+            id: row.id.to_string(),
+            author_kind: message.author_kind.map(str::to_string),
+            body: message.body.map(str::to_string),
+            has_card: message.has_card,
+            author_session_id: message.author_session_id.map(str::to_string),
+            session_id: message.session_id.map(str::to_string),
+            created_at: message.created_at.map(str::to_string),
+        }
+    }
+
+    fn message(&self) -> VoiceMessage<'_> {
+        VoiceMessage {
+            author_kind: self.author_kind.as_deref(),
+            body: self.body.as_deref(),
+            has_card: self.has_card,
+            author_session_id: self.author_session_id.as_deref(),
+            session_id: self.session_id.as_deref(),
+            created_at: self.created_at.as_deref(),
+        }
+    }
+}
+
 /// Pure backfill gate: arms on the first ready observation (every row then
 /// present is history, the newest `created_at` is the arm watermark), then
 /// returns each row once.
@@ -127,28 +177,36 @@ struct Gate {
 }
 
 impl Gate {
-    fn observe<'a>(&mut self, ready: bool, rows: impl Iterator<Item = &'a MessageRow>) -> Vec<MessageRow> {
-        if !ready {
-            *self = Gate::default();
-            return Vec::new();
-        }
-        if !self.armed {
-            self.armed = true;
-            let mut newest: Option<(i64, String)> = None;
-            for row in rows {
-                self.seen.insert(row.id.clone());
-                if let Some(created) = row.created_at.as_deref() {
+    /// One look at the feed: `rows` visits every row and answers whether
+    /// the feed is ready (not ready = the gate starts over).
+    fn observe(&mut self, rows: impl FnOnce(&mut dyn FnMut(&TalkMessage<'_>)) -> bool) -> Vec<Row> {
+        let arming = !self.armed;
+        let mut newest: Option<(i64, String)> = None;
+        let mut fresh = Vec::new();
+        let ready = rows(&mut |row| {
+            let first = self.seen.insert(row.id.to_string());
+            if arming {
+                if let Some(created) = row.message.created_at {
                     if let Some(ms) = etalk::voice::parse_instant(created) {
                         if newest.as_ref().is_none_or(|(mark, _)| ms > *mark) {
                             newest = Some((ms, created.to_string()));
                         }
                     }
                 }
+            } else if first {
+                fresh.push(Row::of(row));
             }
+        });
+        if !ready {
+            *self = Gate::default();
+            return Vec::new();
+        }
+        if arming {
+            self.armed = true;
             self.watermark = newest.map(|(_, text)| text);
             return Vec::new();
         }
-        rows.filter(|row| self.seen.insert(row.id.clone())).cloned().collect()
+        fresh
     }
 
     /// The arm time `should_speak` compares against: the watermark, or the
@@ -158,7 +216,7 @@ impl Gate {
     }
 }
 
-pub(crate) struct SpeakReplies {
+pub struct SpeakReplies {
     gate: Gate,
     client: Option<etalk::SpeechClient>,
     /// The setting the worker was last prepared for (assistant + switch).
@@ -260,29 +318,23 @@ struct SpeakRepliesGlobal(Entity<SpeakReplies>);
 
 impl Global for SpeakRepliesGlobal {}
 
-/// Install the watcher ONCE, after `Store::open` and the `AuthContext`.
-pub fn install(cx: &mut App) {
-    let Some(store) = Store::try_global(cx) else { return };
-    let collections = store.collections();
-    let messages = collections.messages.clone();
+/// Install the watcher ONCE, after the host ([`crate::init`]).
+pub(crate) fn install(cx: &mut App) {
+    let Some(data_dir) = host::data_dir(cx) else { return };
     let (tx, rx) = flume::unbounded::<etalk::Event>();
     let client = std::env::current_exe().ok().map(|exe| {
-        let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
-        etalk::SpeechClient::new(exe, data_dir, move |event| {
+        etalk::SpeechClient::new(exe, data_dir.clone(), move |event| {
             let _ = tx.send(event);
         })
     });
-    let state = store.state();
     // #NEW-66: the account signed in now, so the first state notification
     // of an already-synced store is no account change (it would end a
     // worker that is still preparing, a download included).
     let account = session_account(cx);
-    let cleanup = Cleanup::load(&crate::session::AuthContext::global(cx).data_dir);
-    let entity = cx.new(|cx: &mut Context<SpeakReplies>| {
-        cx.observe(&messages, |this: &mut SpeakReplies, collection, cx| this.on_messages(&collection, cx))
-            .detach();
-        // A sign-out or another account ends the voice (and the worker).
-        cx.observe(&state, |this: &mut SpeakReplies, _, cx| this.on_session(cx)).detach();
+    let cleanup = Cleanup::load(&data_dir);
+    // The host's messages and its sign-ins arrive through
+    // `crate::messages_changed` and `crate::session_changed`.
+    let entity = cx.new(|_: &mut Context<SpeakReplies>| {
         SpeakReplies {
             gate: Gate::default(),
             client,
@@ -343,29 +395,29 @@ fn global(cx: &App) -> Option<Entity<SpeakReplies>> {
 }
 
 /// NEW-55: the doctor's `speech` row for THIS device.
-pub(crate) fn speech_state(cx: &App) -> Option<coding::device_doctor::SpeechState> {
+pub fn speech_state(cx: &App) -> Option<SpeechState> {
     global(cx)?.read(cx).speech_state(cx)
 }
 
 /// The watcher itself (the voice tray observes it).
-pub(crate) fn entity(cx: &App) -> Option<Entity<SpeakReplies>> {
+pub fn entity(cx: &App) -> Option<Entity<SpeakReplies>> {
     global(cx)
 }
 
 /// #NEW-68: the member's voice settings as the last heartbeat (or this
 /// device's own save) delivered them.
-pub(crate) fn settings(cx: &App) -> etalk::voice::VoiceSettings {
+pub fn settings(cx: &App) -> etalk::voice::VoiceSettings {
     global(cx).map(|entity| entity.read(cx).settings.clone()).unwrap_or_default()
 }
 
 /// NEW-58: [`settings`] came from the signed-in account (not the defaults
 /// before its first beat).
-pub(crate) fn settings_known(cx: &App) -> bool {
+pub fn settings_known(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).settings_known)
 }
 
 /// The reply being spoken, if any.
-pub(crate) fn speaking(cx: &App) -> Option<Speaking> {
+pub fn speaking(cx: &App) -> Option<Speaking> {
     global(cx).and_then(|entity| entity.read(cx).speaking.clone()).or_else(|| DEV_SPEAKING.clone())
 }
 
@@ -387,23 +439,23 @@ static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock
 
 /// #NEW-54: the speech worker, for push to talk's Listen / EndListen /
 /// CancelListen (one worker serves both).
-pub(crate) fn client(cx: &App) -> Option<etalk::SpeechClient> {
+pub fn client(cx: &App) -> Option<etalk::SpeechClient> {
     global(cx).and_then(|entity| entity.read(cx).client.clone())
 }
 
 /// #NEW-54: the worker is up (the tray's `micAvailable`).
-pub(crate) fn worker_ready(cx: &App) -> bool {
+pub fn worker_ready(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).worker_ready)
 }
 
 /// The voice download state (the Speak replies row's detail).
-pub(crate) fn download(cx: &App) -> Download {
+pub fn download(cx: &App) -> Download {
     global(cx).map(|entity| entity.read(cx).download.clone()).unwrap_or_default()
 }
 
 /// The Speak replies row's trailing detail while the voice downloads:
 /// voice.json `downloadProgress`, `None` when nothing downloads.
-pub(crate) fn download_detail(cx: &App) -> Option<String> {
+pub fn download_detail(cx: &App) -> Option<String> {
     match download(cx) {
         Download::Running { received, total } => Some(etalk::voice::download_progress(received, total)),
         _ => None,
@@ -411,7 +463,7 @@ pub(crate) fn download_detail(cx: &App) -> Option<String> {
 }
 
 /// The banner's Stop.
-pub(crate) fn stop(cx: &mut App) {
+pub fn stop(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, _| {
             if let Some(client) = this.client.as_ref() {
@@ -426,7 +478,7 @@ pub(crate) fn stop(cx: &mut App) {
 /// S-3: a push-to-talk / wake turn went out to `session_id` (the member's
 /// conversation with the voice agent): its reply is read aloud (voice.json
 /// `voiceTurn`; a typed message's never is).
-pub(crate) fn voice_turn(session_id: &str, cx: &mut App) {
+pub fn voice_turn(session_id: &str, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, _| {
             this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), at: std::time::Instant::now() });
@@ -438,7 +490,7 @@ pub(crate) fn voice_turn(session_id: &str, cx: &mut App) {
 /// call's output stream, tracked like a reply (`speaking`, its `Finished`)
 /// so the call's Speaking follows it, but no agent message and no banner
 /// (no session). False = nothing here can speak it.
-pub(crate) fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
+pub fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
     let Some(entity) = global(cx) else { return false };
     let spoken = entity.update(cx, |this, cx| {
         let Some(client) = this.client.as_ref() else { return false };
@@ -454,20 +506,21 @@ pub(crate) fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
 }
 
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
-/// Settings → Voice save): adopt them and start or stop the voice here.
-pub(crate) fn set_settings(settings: etalk::voice::VoiceSettings, cx: &mut App) {
+/// voice settings save): adopt them and start or stop the voice here. The
+/// host reports its readiness again when the voice moved here or away.
+pub fn set_settings(settings: etalk::voice::VoiceSettings, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
-    let rows = crate::device_readiness::voice_rows(cx);
+    let Some(host) = host::host(cx) else { return };
     // #NEW-54: push to talk first, so a Listen it drops is cancelled before
     // this may end the worker.
     crate::push_to_talk::settings_changed(&settings, cx);
     // #NEW-63: whose settings these are (the active account's: the
     // heartbeat delivers only its own), taken before the update.
-    let auth = crate::session::AuthContext::global(cx);
-    let data_dir = auth.data_dir.clone();
-    let names_here = settings_name_this_device(&settings, &steer::persistent_device_id(&data_dir));
-    let signed_in: Vec<String> = auth.auth.signed_in_accounts().into_iter().map(|account| account.id).collect();
-    let account = crate::queries::active_account(cx).map(|account| account.id);
+    let data_dir = host.data_dir();
+    let names_here = settings_name_this_device(&settings, &host.device_id());
+    let accounts = host.accounts(cx);
+    let signed_in = accounts.all;
+    let account = accounts.active;
     entity.update(cx, |this, cx| {
         if !this.settings_known {
             this.settings_known = true;
@@ -497,14 +550,6 @@ pub(crate) fn set_settings(settings: etalk::voice::VoiceSettings, cx: &mut App) 
             }
         });
     }
-    // NEW-78 / NEW-55: Push to talk or Speak replies moved here or away —
-    // the doctor's voice rows follow now (the refresh nudges the beat), not
-    // a beat later.
-    if crate::device_readiness::voice_rows(cx) != rows {
-        if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
-            crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
-        }
-    }
 }
 
 /// #NEW-63: delivered settings that pick this device as the voice device.
@@ -512,18 +557,29 @@ fn settings_name_this_device(settings: &etalk::voice::VoiceSettings, own_device_
     settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
-pub(crate) fn session_account(cx: &App) -> Option<String> {
-    match Store::try_global(cx)?.session(cx) {
-        sync::SessionPhase::Synced { account_id } => Some(account_id),
-        _ => None,
+/// The account signed in and synced now (None = signed out).
+pub fn session_account(cx: &App) -> Option<String> {
+    host::account(cx)
+}
+
+/// The host's messages changed.
+pub(crate) fn on_messages(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.on_messages(cx));
+    }
+}
+
+/// The signed-in account changed.
+pub(crate) fn on_session(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.on_session(cx));
     }
 }
 
 impl SpeakReplies {
     /// NEW-55: the doctor's `speech` row (None = no row: not the voice
     /// device, Speak replies off, or the worker has not answered yet).
-    fn speech_state(&self, cx: &App) -> Option<coding::device_doctor::SpeechState> {
-        use coding::device_doctor::SpeechState;
+    fn speech_state(&self, cx: &App) -> Option<SpeechState> {
         if !self.own_voice(cx).speaks() || self.download == Download::Unavailable {
             return None;
         }
@@ -540,7 +596,7 @@ impl SpeakReplies {
     /// read of the global: every caller already runs inside this entity's
     /// update, where a read panics.
     fn own_voice(&self, cx: &App) -> DeviceVoice {
-        let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
+        let device_id = host::device_id(cx).unwrap_or_default();
         voice_here(&self.settings, &device_id)
     }
 
@@ -631,11 +687,9 @@ impl SpeakReplies {
         cx.notify();
     }
 
-    fn on_messages(&mut self, collection: &Entity<Collection<MessageRow>>, cx: &mut Context<Self>) {
-        let fresh = {
-            let collection = collection.read(cx);
-            self.gate.observe(collection.is_ready(), collection.iter())
-        };
+    fn on_messages(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = host::host(cx) else { return };
+        let fresh = self.gate.observe(|visit| host.messages(cx, visit));
         if fresh.is_empty() {
             return;
         }
@@ -648,19 +702,17 @@ impl SpeakReplies {
         let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speaks()) else {
             return;
         };
-        let Some(conversation) = crate::session_data::my_conversation(agent_id, cx) else { return };
+        let Some(conversation) = host::conversation(agent_id, cx) else { return };
         // S-3: only a voice turn's reply: the call's conversation, or the
         // conversation a push-to-talk / wake turn went to.
         if self.voice_turn.as_ref().is_some_and(|turn| turn.at.elapsed() > VOICE_TURN_TTL) {
             self.voice_turn = None;
         }
-        let turn = self.voice_turn.as_ref().is_some_and(|turn| turn.session_id == conversation.id);
+        let turn = self.voice_turn.as_ref().is_some_and(|turn| turn.session_id == conversation);
         let voice_turn = call_agent.is_some() || turn;
-        let Some(store) = Store::try_global(cx) else { return };
-        let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
         let voices: Vec<&str> = self.voices.iter().map(String::as_str).collect();
         let context = VoiceContext {
-            agent_session_id: Some(conversation.id.as_str()),
+            agent_session_id: Some(conversation.as_str()),
             is_voice_device: true,
             voice_turn,
             language: self.settings.language(),
@@ -672,20 +724,7 @@ impl SpeakReplies {
         // A burst (a reconnect) speaks only its newest reply.
         let Some(row) = fresh
             .iter()
-            .filter(|row| {
-                let session = domain::message_conversation::session_of(row, &sessions);
-                etalk::voice::should_speak(
-                    &VoiceMessage {
-                        author_kind: row.author_kind.as_deref(),
-                        body: row.body.as_deref(),
-                        has_card: row.card.as_ref().is_some_and(|card| !card.is_null()),
-                        author_session_id: row.author_session_id.as_deref(),
-                        session_id: session,
-                        created_at: row.created_at.as_deref(),
-                    },
-                    &context,
-                )
-            })
+            .filter(|row| etalk::voice::should_speak(&row.message(), &context))
             .max_by_key(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant).unwrap_or(0))
         else {
             return;
@@ -702,7 +741,7 @@ impl SpeakReplies {
         }
         self.speaking = Some(Speaking {
             message_id: row.id.clone(),
-            session_id: conversation.id.clone(),
+            session_id: conversation.clone(),
             title: etalk::voice::first_sentence(&spoken).to_string(),
         });
         cx.notify();
@@ -729,7 +768,7 @@ impl SpeakReplies {
             etalk::Event::DownloadFailed { error } => {
                 log::warn!("[ui] speak replies: voice download failed: {error}");
                 if self.download != Download::Failed {
-                    crate::toast::show_in_active_window(crate::toast::Toast::error(VOICE.copy.download_failed.clone()), cx);
+                    host::notify(Notice::Error(VOICE.copy.download_failed.clone()), cx);
                 }
                 self.download = Download::Failed;
                 self.speaking = None;
@@ -776,11 +815,7 @@ impl SpeakReplies {
         // NEW-55: the doctor's speech row follows (callers enable the
         // telephone from it), now rather than a beat later.
         if self.speech_state(cx) != speech_before {
-            cx.defer(|cx| {
-                if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
-                    crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
-                }
-            });
+            cx.defer(host::readiness_changed);
         }
         // Settings → Voice draws the download, the Dock the Speaking banner:
         // the windows repaint only when one of them changed.
@@ -815,7 +850,7 @@ impl SpeakReplies {
             if let Some(client) = self.client.as_ref() {
                 client.shutdown();
             }
-            crate::toast::show_in_active_window(crate::toast::Toast::error(VOICE.copy.unavailable.clone()), cx);
+            host::notify(Notice::Error(VOICE.copy.unavailable.clone()), cx);
             return;
         }
         let delay = restart_delay(self.crashes);
@@ -868,26 +903,34 @@ mod tests {
         assert!(!listens_here(&no_agent, "mac"));
     }
 
-    fn message(id: &str, created: &str) -> MessageRow {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "conversation_id": "c1",
-            "created_at": created,
-        }))
-        .unwrap()
+    fn message(id: &str, created: &str) -> Row {
+        Row { id: id.into(), created_at: Some(created.into()), ..Row::default() }
+    }
+
+    /// The feed of `rows`, `ready` or not.
+    fn feed(rows: &[Row], ready: bool) -> impl FnOnce(&mut dyn FnMut(&TalkMessage<'_>)) -> bool + '_ {
+        move |visit| {
+            for row in rows {
+                visit(&TalkMessage { id: &row.id, message: row.message() });
+            }
+            ready
+        }
     }
 
     #[test]
     fn the_gate_treats_the_first_ready_batch_as_history() {
         let mut gate = Gate::default();
         let old = [message("m1", "2026-10-25 10:00:00+00"), message("m2", "2026-10-25 10:00:05+00")];
-        assert!(gate.observe(false, old.iter()).is_empty());
-        assert!(gate.observe(true, old.iter()).is_empty());
+        assert!(gate.observe(feed(&old, false)).is_empty());
+        assert!(gate.observe(feed(&old, true)).is_empty());
         assert_eq!(gate.armed_at(), "2026-10-25 10:00:05+00");
         let next = [old[0].clone(), old[1].clone(), message("m3", "2026-10-25 10:01:00+00")];
-        let fresh = gate.observe(true, next.iter());
+        let fresh = gate.observe(feed(&next, true));
         assert_eq!(fresh.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m3"]);
-        assert!(gate.observe(true, next.iter()).is_empty(), "each row once");
+        assert!(gate.observe(feed(&next, true)).is_empty(), "each row once");
+        // Not ready: the gate starts over (the next ready batch is history).
+        assert!(gate.observe(feed(&next, false)).is_empty());
+        assert!(gate.observe(feed(&next, true)).is_empty());
     }
 
     #[test]
@@ -902,7 +945,7 @@ mod tests {
     #[test]
     fn an_empty_collection_arms_at_the_epoch() {
         let mut gate = Gate::default();
-        assert!(gate.observe(true, std::iter::empty()).is_empty());
+        assert!(gate.observe(feed(&[], true)).is_empty());
         assert_eq!(gate.armed_at(), "1970-01-01T00:00:00Z");
     }
 

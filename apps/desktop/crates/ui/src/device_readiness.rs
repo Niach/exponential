@@ -230,7 +230,7 @@ fn own_device_shared(device_id: &str, cx: &gpui::App) -> bool {
 }
 
 pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
-    let settings = crate::speak_replies::settings(cx);
+    let settings = etalk_gpui::speak_replies::settings(cx);
     let device_id = cx
         .try_global::<crate::session::AuthContext>()
         .map(|auth| steer::persistent_device_id(&auth.data_dir));
@@ -238,11 +238,11 @@ pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
     let shared = device_id.as_deref().is_none_or(|id| own_device_shared(id, cx));
     let wake_word = settings.clone().clear_on_none().wake_word;
     VoiceRows {
-        listening: device_id.as_deref().is_some_and(|id| crate::push_to_talk::listens_here(&settings, id)),
-        speech: crate::speak_replies::speech_state(cx).filter(|_| voice_device),
+        listening: device_id.as_deref().is_some_and(|id| etalk_gpui::push_to_talk::listens_here(&settings, id)),
+        speech: crate::talk_host::speech_state(cx).filter(|_| voice_device),
         wake: (voice_device && settings.wake_word).then(|| WakeRow {
             agent: settings.agent_id.is_some(),
-            state: if wake_word { crate::push_to_talk::wake_state(cx) } else { None },
+            state: if wake_word { etalk_gpui::push_to_talk::wake_state(cx) } else { None },
         }),
         voice_device,
         desktop_audio: voice_device && settings.desktop_audio != etalk::meeting::DesktopAudio::Off,
