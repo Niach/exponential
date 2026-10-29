@@ -44,7 +44,7 @@ reset with `admin.clearDeviceKey({deviceId})`; the box's next register pins
 again. The operations runbook (credentials, Coolify app uuids, the target
 database URLs) lives outside this repository.
 
-One-off right AFTER the deploy that ships migrations 0206 + 0209 (FEED-165):
+One-off right AFTER the deploy that ships migrations 0206 + 0213 (FEED-165):
 `cd apps/web && DATABASE_URL=<target database> bun run audit:device-first-seen`
 (it prints the host/database it reads and refuses the local dev database
 without `--dev`). It is read-only (a READ ONLY transaction) and lists every
@@ -52,7 +52,7 @@ machine id whose first-seen account (the FEED-159 pin owner) is not the
 account with the earliest evidence (first session on the id, eldest
 `devices` row, the pin), and every id whose pin another account holds, with
 each candidate's evidence and the `admin.clearDeviceKey({deviceId, pinTo})`
-call that settles it. 0209 recomputes first-seen from that same rule but
+call that settles it. 0213 recomputes first-seen from that same rule but
 leaves three kinds of row alone, which the audit therefore lists as
 mismatches ON PURPOSE: a first-seen account that holds the pin (a migration
 never moves a live pin: a pre-deploy squat's pin and an owner's after a

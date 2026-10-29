@@ -1536,7 +1536,7 @@ export const deviceKeys = pgTable(`device_keys`, {
 // once the owner's Remove + relaunch made its row younger than a squat's. An
 // instance admin moves it (`admin.clearDeviceKey({pinTo})`). Deleting the
 // first-seen ACCOUNT frees the id (the FK cascades): the next account to
-// register it becomes first-seen. FEED-165: 0209 recomputed every row from
+// register it becomes first-seen. FEED-165: 0213 recomputed every row from
 // the earliest evidence (lib/device-first-seen-audit.ts). Server-only.
 export const deviceFirstSeen = pgTable(`device_first_seen`, {
   deviceId: varchar(`device_id`, { length: 128 }).primaryKey(),

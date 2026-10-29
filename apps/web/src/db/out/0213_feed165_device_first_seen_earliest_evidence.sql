@@ -17,7 +17,7 @@
 --
 -- Pin-owner rule (`pinDeviceKeyInTx`): the first-seen account's proven
 -- register takes a pin another account holds and withdraws its shares, so
--- 0209 never moves first-seen away from a pin holder (below).
+-- 0213 never moves first-seen away from a pin holder (below).
 -- An admin settles a disputed id with `admin.clearDeviceKey({pinTo})`.
 --
 -- Three guards (the audit applies none, so it lists these ids as

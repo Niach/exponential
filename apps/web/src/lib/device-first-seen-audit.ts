@@ -5,8 +5,8 @@ import type { db as Db } from "@/db/connection"
 // FEED-159 pin-owner signal), recomputed from the EARLIEST EVIDENCE instead
 // of 0206's "pin holder, else eldest live row" (which locked in a squat that
 // held the pin, or one whose row turned eldest after the owner's Remove +
-// relaunch). Migration 0209 runs the same rule as SQL (keep the two in step:
-// the real-db suite runs 0209 and expects this audit to agree with it).
+// relaunch). Migration 0213 runs the same rule as SQL (keep the two in step:
+// the real-db suite runs 0213 and expects this audit to agree with it).
 //
 // Candidates per id = the accounts with a `devices` row, a `device_removals`
 // row (a Remove hard-deletes the row; the removal keeps the account a
@@ -15,7 +15,7 @@ import type { db as Db } from "@/db/connection"
 // not candidates. A candidate's evidence = its first `sessions` row on the
 // id (`user_id` = the starter), its eldest `devices` row, the pin's
 // `created_at`, the current `first_seen_at`; the earliest wins, ties
-// sessions > devices > pin > first-seen, then the lower user id. 0209 then
+// sessions > devices > pin > first-seen, then the lower user id. 0213 then
 // skips three kinds of row this audit does NOT (so it lists them as
 // mismatches on purpose, for a person): a first-seen account holding the
 // pin, one with a removal for the id, and a row 0206 did not write (an
@@ -25,7 +25,7 @@ export const EVIDENCE_SOURCES = [`sessions`, `devices`, `pin`, `first_seen`] as 
 export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number]
 
 /** One `WITH` body naming `evidence` (every candidate's every source) and
- *  `earliest` (the winner per id); 0209 inlines the same text. */
+ *  `earliest` (the winner per id); 0213 inlines the same text. */
 export const EARLIEST_EVIDENCE_CTE = `
   candidates AS (
     SELECT device_id, user_id FROM devices
@@ -65,7 +65,7 @@ export type FirstSeenFinding = {
   evidence: { userId: string; source: EvidenceSource; at: string }[]
 }
 
-/** Read-only: the ids 0209's rule disagrees with, and the ids whose pin
+/** Read-only: the ids 0213's rule disagrees with, and the ids whose pin
  *  another account than the first-seen one holds. */
 export async function deviceFirstSeenFindings(database: Pick<typeof Db, `execute`>): Promise<FirstSeenFinding[]> {
   const result = await database.execute(
