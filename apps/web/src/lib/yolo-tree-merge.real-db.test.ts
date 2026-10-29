@@ -71,7 +71,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   merge.mockReset()
-  merge.mockResolvedValue({ queued: false })
+  // The merge lands in the DB, as the real one does: a pass a late edge
+  // re-runs (EXP-1418) finds nothing left to merge.
+  merge.mockImplementation(async ({ pullRequestId }: { pullRequestId: string }) => {
+    await db.update(pullRequests).set({ state: `merged` }).where(eq(pullRequests.id, pullRequestId))
+    return { queued: false }
+  })
   headSha.mockReset()
   headSha.mockResolvedValue(`sha-1`)
 })
@@ -263,6 +268,9 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     await t.report(t.child, { status: `idle`, busy: false })
     await t.report(t.root, { status: `idle`, busy: false })
     await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(1))
+    await drainYoloEdges()
+    // Open again, so an edge the repeats wrongly fired would merge it twice.
+    await db.update(pullRequests).set({ state: `open` }).where(eq(pullRequests.id, t.prId))
     await t.report(t.root, { status: `idle`, busy: false })
     await t.report(t.root, { status: `idle` })
     await drainYoloEdges()
