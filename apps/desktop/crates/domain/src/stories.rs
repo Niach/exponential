@@ -65,6 +65,60 @@ pub struct StoriesTestIds {
     pub previous: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StoryTabCopy {
+    pub label: String,
+    pub empty: String,
+    pub approved: String,
+    pub changed: String,
+    pub answered: String,
+    pub superseded: String,
+    pub changes: String,
+    pub stack: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StoryTabTestIds {
+    pub tab: String,
+    pub list: String,
+    pub tile: String,
+    pub changes: String,
+    pub stack: String,
+}
+
+/// A per-form-factor length (`wide` = web md+ and the IDE, `phone`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct FormFactorLength {
+    pub wide: f32,
+    pub phone: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryTileSpec {
+    pub thumb_height: FormFactorLength,
+    pub thumb_max_width: FormFactorLength,
+    pub gap: f32,
+    pub radius: f32,
+    pub list_gap: f32,
+    pub lead_gap: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct StoryTabSpecimen {
+    pub case: usize,
+}
+
+/// The `tab` block: the session screen's Stories tab.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryTabSpec {
+    pub copy: StoryTabCopy,
+    pub test_ids: StoryTabTestIds,
+    pub tile: StoryTileSpec,
+    pub specimen: StoryTabSpecimen,
+}
+
 /// `fixtures/stories.json` minus its cases.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +129,7 @@ pub struct StoriesSpec {
     pub progress: StoryProgressSpec,
     pub viewer: StoryViewerSpec,
     pub test_ids: StoriesTestIds,
+    pub tab: StoryTabSpec,
 }
 
 pub static STORIES: LazyLock<StoriesSpec> =
@@ -267,111 +322,166 @@ fn non_empty(value: Option<String>) -> Option<String> {
     value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
-/// THE fold: the viewer's story rings, in display order.
-pub fn stories(input: &StoriesInput) -> Vec<StoryRing> {
-    let sessions: HashMap<&str, &StorySessionInput> = input.sessions.iter().map(|s| (s.id.as_str(), s)).collect();
-    let agents: HashMap<&str, &StoryAgentInput> = input.agents.iter().map(|a| (a.id.as_str(), a)).collect();
-    let mut marks: HashMap<&str, Option<i64>> = HashMap::new();
-    for read in &input.reads {
-        marks.insert(read.session_id.as_str(), read.read_at.max(read.story_seen_at));
-    }
-    let mut rings: Vec<StoryRing> = Vec::new();
+/// How a plan/question was settled (`None` while waiting, and for results).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoryResolution {
+    Approved,
+    Changed,
+    Answered,
+    Superseded,
+}
 
-    for message in &input.messages {
-        if message.author_session_id.as_deref() != Some(message.session_id.as_str()) {
-            continue;
+impl StoryResolution {
+    fn label(self) -> &'static str {
+        match self {
+            StoryResolution::Approved => &STORIES.tab.copy.approved,
+            StoryResolution::Changed => &STORIES.tab.copy.changed,
+            StoryResolution::Answered => &STORIES.tab.copy.answered,
+            StoryResolution::Superseded => &STORIES.tab.copy.superseded,
         }
-        let card = &message.card;
-        if !is_story_card(card) {
-            continue;
-        }
-        let Some(session) = sessions.get(message.session_id.as_str()) else { continue };
-        let Some(root) = sessions.get(session.root_id.as_str()) else { continue };
-        let kind = match card.get("kind").and_then(Value::as_str) {
-            Some("plan") => StoryKind::Plan,
-            Some("question") => StoryKind::Question,
-            _ => StoryKind::Result,
-        };
-        let present = |key: &str| card.get(key).is_some_and(|v| !v.is_null());
-        let waiting = match kind {
-            StoryKind::Plan => !present("decision"),
-            StoryKind::Question => message.answered_at.is_none() && !present("answer"),
-            StoryKind::Result => false,
-        };
-        if kind != StoryKind::Result && !waiting {
-            continue;
-        }
-        let seen = marks
+    }
+}
+
+type Marks<'a> = HashMap<&'a str, Option<i64>>;
+
+fn marks_of(reads: &[StoryReadInput]) -> Marks<'_> {
+    reads.iter().map(|read| (read.session_id.as_str(), read.read_at.max(read.story_seen_at))).collect()
+}
+
+/// One message as a story (`None` = not a story of a known root), with its
+/// root and how it was settled.
+fn story_of<'a>(
+    message: &StoryMessageInput,
+    sessions: &HashMap<&str, &'a StorySessionInput>,
+    marks: &Marks<'_>,
+    now: i64,
+) -> Option<(Story, &'a StorySessionInput, Option<StoryResolution>)> {
+    if message.author_session_id.as_deref() != Some(message.session_id.as_str()) {
+        return None;
+    }
+    let card = &message.card;
+    if !is_story_card(card) {
+        return None;
+    }
+    let session = *sessions.get(message.session_id.as_str())?;
+    let root = *sessions.get(session.root_id.as_str())?;
+    let kind = match card.get("kind").and_then(Value::as_str) {
+        Some("plan") => StoryKind::Plan,
+        Some("question") => StoryKind::Question,
+        _ => StoryKind::Result,
+    };
+    let present = |key: &str| card.get(key).is_some_and(|v| !v.is_null());
+    let waiting = match kind {
+        StoryKind::Plan => !present("decision"),
+        StoryKind::Question => message.answered_at.is_none() && !present("answer"),
+        StoryKind::Result => false,
+    };
+    let resolution = match kind {
+        _ if waiting => None,
+        StoryKind::Result => None,
+        StoryKind::Question => Some(StoryResolution::Answered),
+        StoryKind::Plan => Some(match card.get("decision").and_then(Value::as_str) {
+            Some("approved") => StoryResolution::Approved,
+            Some("superseded") => StoryResolution::Superseded,
+            _ => StoryResolution::Changed,
+        }),
+    };
+    // A settled plan/question was acted on: seen.
+    let seen = resolution.is_some()
+        || marks
             .get(root.id.as_str())
             .copied()
             .flatten()
             .is_some_and(|mark| message.created_at <= mark);
-        let age = input.now - message.created_at;
-        if kind == StoryKind::Result {
-            let keep = if seen { STORIES.constants.seen_hours } else { STORIES.constants.unseen_hours };
-            if age >= keep * HOUR {
+    let pictures = resolved_pictures(card);
+    let surface = card.get("surface").is_some_and(Value::is_object);
+    let options = card.get("options").and_then(Value::as_array).map_or(0, Vec::len);
+    let title = match kind {
+        StoryKind::Result => non_empty(s(card, "title")),
+        StoryKind::Question => non_empty(s(card, "question")),
+        StoryKind::Plan => Some(ask_dock_title(&s(card, "plan").unwrap_or_default())).filter(|t| !t.is_empty()),
+    };
+    let age = story_age(message.created_at, now);
+    let story = Story {
+        id: message.id.clone(),
+        session_id: session.id.clone(),
+        root_id: root.id.clone(),
+        session_name: session.name.clone(),
+        kind,
+        waiting,
+        seen,
+        created_at: message.created_at,
+        meta: match resolution {
+            Some(resolution) if resolution != StoryResolution::Superseded => {
+                format!("{} · {} · {age}", kind.label(), resolution.label())
+            }
+            _ => format!("{} · {age}", kind.label()),
+        },
+        title,
+        text: if kind == StoryKind::Plan && pictures.is_empty() && !surface { s(card, "plan") } else { None },
+        pictures,
+        surface,
+        footer: match kind {
+            _ if resolution.is_some() => StoryFooter::None,
+            StoryKind::Plan => StoryFooter::Plan,
+            StoryKind::Question if options > 0 => StoryFooter::Choices,
+            StoryKind::Question => StoryFooter::Reply,
+            StoryKind::Result => StoryFooter::None,
+        },
+        auto_advance_ms: (kind == StoryKind::Result).then_some(STORIES.constants.auto_advance_ms),
+    };
+    Some((story, root, resolution))
+}
+
+/// The ring a root's stories ride (an agent's, else the chat's), empty.
+fn empty_ring(root: &StorySessionInput, agents: &HashMap<&str, &StoryAgentInput>) -> StoryRing {
+    let agent_id = root.agent_id.clone().or_else(|| root.started_by_agent_id.clone());
+    let agent = agent_id.as_deref().and_then(|id| agents.get(id));
+    StoryRing {
+        key: match &agent_id {
+            Some(id) => format!("agent:{id}"),
+            None => format!("root:{}", root.id),
+        },
+        root_id: if agent_id.is_some() { None } else { Some(root.id.clone()) },
+        title: match (&agent_id, agent) {
+            (Some(_), Some(agent)) => agent.name.clone(),
+            _ => root.name.clone(),
+        },
+        assistant: agent.is_some_and(|agent| agent.assistant),
+        agent_id,
+        waiting: 0,
+        unseen: false,
+        stories: Vec::new(),
+    }
+}
+
+fn by_created(a: &Story, b: &Story) -> std::cmp::Ordering {
+    a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id))
+}
+
+/// THE fold: the viewer's story rings, in display order.
+pub fn stories(input: &StoriesInput) -> Vec<StoryRing> {
+    let sessions: HashMap<&str, &StorySessionInput> = input.sessions.iter().map(|s| (s.id.as_str(), s)).collect();
+    let agents: HashMap<&str, &StoryAgentInput> = input.agents.iter().map(|a| (a.id.as_str(), a)).collect();
+    let marks = marks_of(&input.reads);
+    let mut rings: Vec<StoryRing> = Vec::new();
+
+    for message in &input.messages {
+        // A settled plan/question leaves the ring (the Stories tab keeps it).
+        let Some((story, root, None)) = story_of(message, &sessions, &marks, input.now) else { continue };
+        if story.kind == StoryKind::Result {
+            let keep = if story.seen { STORIES.constants.seen_hours } else { STORIES.constants.unseen_hours };
+            if input.now - story.created_at >= keep * HOUR {
                 continue;
             }
         }
-        let pictures = resolved_pictures(card);
-        let surface = card.get("surface").is_some_and(Value::is_object);
-        let options = card.get("options").and_then(Value::as_array).map_or(0, Vec::len);
-        let title = match kind {
-            StoryKind::Result => non_empty(s(card, "title")),
-            StoryKind::Question => non_empty(s(card, "question")),
-            StoryKind::Plan => Some(ask_dock_title(&s(card, "plan").unwrap_or_default())).filter(|t| !t.is_empty()),
-        };
-        let story = Story {
-            id: message.id.clone(),
-            session_id: session.id.clone(),
-            root_id: root.id.clone(),
-            session_name: session.name.clone(),
-            kind,
-            waiting,
-            seen,
-            created_at: message.created_at,
-            meta: format!("{} · {}", kind.label(), story_age(message.created_at, input.now)),
-            title,
-            text: if kind == StoryKind::Plan && pictures.is_empty() && !surface { s(card, "plan") } else { None },
-            pictures,
-            surface,
-            footer: match kind {
-                StoryKind::Plan => StoryFooter::Plan,
-                StoryKind::Question if options > 0 => StoryFooter::Choices,
-                StoryKind::Question => StoryFooter::Reply,
-                StoryKind::Result => StoryFooter::None,
-            },
-            auto_advance_ms: (kind == StoryKind::Result).then_some(STORIES.constants.auto_advance_ms),
-        };
-        let agent_id = root.agent_id.clone().or_else(|| root.started_by_agent_id.clone());
-        let agent = agent_id.as_deref().and_then(|id| agents.get(id));
-        let key = match &agent_id {
-            Some(id) => format!("agent:{id}"),
-            None => format!("root:{}", root.id),
-        };
-        let index = match rings.iter().position(|ring| ring.key == key) {
-            Some(index) => index,
-            None => {
-                rings.push(StoryRing {
-                    key,
-                    agent_id: agent_id.clone(),
-                    root_id: if agent_id.is_some() { None } else { Some(root.id.clone()) },
-                    title: match (&agent_id, agent) {
-                        (Some(_), Some(agent)) => agent.name.clone(),
-                        _ => root.name.clone(),
-                    },
-                    assistant: agent.is_some_and(|agent| agent.assistant),
-                    waiting: 0,
-                    unseen: false,
-                    stories: Vec::new(),
-                });
-                rings.len() - 1
-            }
-        };
-        rings[index].stories.push(story);
+        let ring = empty_ring(root, &agents);
+        match rings.iter_mut().find(|existing| existing.key == ring.key) {
+            Some(existing) => existing.stories.push(story),
+            None => rings.push(StoryRing { stories: vec![story], ..ring }),
+        }
     }
 
-    let by_created = |a: &Story, b: &Story| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id));
     for ring in &mut rings {
         let all = std::mem::take(&mut ring.stories);
         let (mut waiting, rest): (Vec<_>, Vec<_>) = all.into_iter().partition(|story| story.waiting);
@@ -402,6 +512,44 @@ pub fn stories(input: &StoriesInput) -> Vec<StoryRing> {
             .then_with(|| a.key.cmp(&b.key))
     });
     rings
+}
+
+/// THE Stories tab of a session screen (stories.json `tab`, web
+/// `storyTab`): every story the root's tree ever posted, never expiring;
+/// settled plans/questions stay (footer none, `meta` names the outcome), a
+/// superseded plan drops. Waiting first (oldest first), then the rest newest
+/// first. ONE ring (the root's, as `stories` keys it) so the viewer opens on
+/// it; `None` = the empty state. `unseen` = the tab chip's dot.
+pub fn story_tab(input: &StoriesInput, root_id: &str) -> Option<StoryRing> {
+    let sessions: HashMap<&str, &StorySessionInput> = input.sessions.iter().map(|s| (s.id.as_str(), s)).collect();
+    let agents: HashMap<&str, &StoryAgentInput> = input.agents.iter().map(|a| (a.id.as_str(), a)).collect();
+    let root = *sessions.get(root_id)?;
+    if root.root_id != root.id {
+        return None;
+    }
+    let marks = marks_of(&input.reads);
+    let list: Vec<Story> = input
+        .messages
+        .iter()
+        .filter_map(|message| story_of(message, &sessions, &marks, input.now))
+        .filter(|(_, story_root, resolution)| {
+            story_root.id == root.id && *resolution != Some(StoryResolution::Superseded)
+        })
+        .map(|(story, _, _)| story)
+        .collect();
+    if list.is_empty() {
+        return None;
+    }
+    let (mut waiting, mut rest): (Vec<_>, Vec<_>) = list.into_iter().partition(|story| story.waiting);
+    waiting.sort_by(by_created);
+    rest.sort_by(|a, b| by_created(b, a));
+    let unseen = waiting.iter().chain(&rest).any(|story| story.waiting || !story.seen);
+    Some(StoryRing {
+        waiting: waiting.len(),
+        unseen,
+        stories: waiting.into_iter().chain(rest).collect(),
+        ..empty_ring(root, &agents)
+    })
 }
 
 /// The viewer's place: (ring index, story index).
@@ -454,6 +602,16 @@ pub fn bubble_rings(bubble_agent_ids: &[&str], rings: &[StoryRing]) -> BubbleRin
     out
 }
 
+/// THE styleguide specimen of the Stories tab ×4 (`tab.specimen`): the
+/// expected ring of `tabCases[tab.specimen.case]`, folded from its input.
+pub fn story_tab_specimen() -> StoryRing {
+    let fixture: Value = serde_json::from_str(STORIES_JSON).expect("stories.json parses");
+    let case = &fixture["tabCases"][STORIES.tab.specimen.case];
+    let input: StoriesInput = serde_json::from_value(case["input"].clone()).expect("tab case input");
+    let root_id = case["input"]["rootId"].as_str().unwrap_or_default();
+    story_tab(&input, root_id).expect("the specimen case has stories")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,6 +633,29 @@ mod tests {
             let actual = serde_json::to_value(stories(&input)).unwrap();
             assert_eq!(actual, case["expected"], "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn tab_spec_parses() {
+        assert_eq!(STORIES.tab.copy.label, "Stories");
+        assert_eq!(STORIES.tab.tile.thumb_height.wide, 260.0);
+        assert_eq!(STORIES.tab.tile.thumb_max_width.wide, 560.0);
+        assert_eq!(STORIES.tab.test_ids.tab, "thread-stories-tab");
+    }
+
+    #[test]
+    fn story_tab_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(STORIES_JSON).unwrap();
+        let cases = fixture["tabCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input: StoriesInput = serde_json::from_value(case["input"].clone()).unwrap();
+            let root_id = case["input"]["rootId"].as_str().unwrap();
+            let actual = serde_json::to_value(story_tab(&input, root_id)).unwrap();
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
+        }
+        let specimen = serde_json::to_value(story_tab_specimen()).unwrap();
+        assert_eq!(specimen, cases[STORIES.tab.specimen.case]["expected"]);
     }
 
     #[test]
