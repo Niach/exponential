@@ -1,2 +1,2 @@
-- Tabblad Verhalen: elke vraag, elk plan en elk resultaat dat een sessie je liet zien, blijft in het laatste tabblad staan, met screenshots, en toont hoe het afliep
-- De wijzigingen en de Stack van de pull request staan boven de verhalen; tik op een verhaal of afbeelding om het groot te openen
+- Eén kaartstijl: antwoorden van agents en de kaarten die een sessie je toont hebben hetzelfde vlak, dezelfde hoeken en marges als in de andere apps
+- De titel van een kaart staat in de chat erboven

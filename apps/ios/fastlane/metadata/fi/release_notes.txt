@@ -1,2 +1,2 @@
-- Tarinat-välilehti: jokainen kysymys, suunnitelma ja tulos, jonka istunto näytti sinulle, säilyy sen viimeisellä välilehdellä kuvakaappauksineen ja kertoo, miten se päättyi
-- Pull requestin muutokset ja Stack ovat sen tarinoiden yläpuolella; avaa tarina tai kuva koko kokoon napauttamalla
+- Yhtenäinen korttien ulkoasu: agenttien vastauksilla ja istunnon näyttämillä korteilla on sama pinta, kulmat ja reunukset kuin muissa sovelluksissa
+- Kortin otsikko näkyy keskustelussa sen yläpuolella

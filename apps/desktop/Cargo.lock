@@ -282,7 +282,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "api"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "dirs",
  "domain",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "anyhow",
  "api",
@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "call-codec"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "log",
  "opus-rs",
@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "codemode"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "boa_engine",
  "domain",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "coding"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "anyhow",
  "api",
@@ -1574,7 +1574,7 @@ checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
 name = "computer"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "core-foundation 0.10.0",
  "core-graphics 0.24.0",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "crispasr"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "flate2",
  "libc",
@@ -2254,7 +2254,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "chrono",
  "regex",
@@ -2380,7 +2380,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -2545,7 +2545,7 @@ dependencies = [
 
 [[package]]
 name = "exp-cli"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "anyhow",
  "api",
@@ -7461,7 +7461,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screen"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "ashpd",
  "async-io",
@@ -8060,7 +8060,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steer"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "api",
  "call-codec",
@@ -8329,7 +8329,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "api",
  "domain",
@@ -8450,7 +8450,7 @@ checksum = "c0e973b34477b7823833469eb0f5a3a60370fef7a453e02d751b59180d0a5a05"
 
 [[package]]
 name = "talk"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -8548,7 +8548,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "anyhow",
  "flume 0.11.1",
@@ -8574,7 +8574,7 @@ dependencies = [
 
 [[package]]
 name = "theme"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "gpui",
  "gpui-component",
@@ -9463,7 +9463,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "anyhow",
  "api",
@@ -9737,7 +9737,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "anyhow",
  "dirs",
@@ -9922,7 +9922,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voice"
-version = "0.14.83"
+version = "0.14.84"
 dependencies = [
  "call-codec",
  "cpal",

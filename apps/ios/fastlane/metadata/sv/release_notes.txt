@@ -1,2 +1,2 @@
-- Fliken Berättelser: varje fråga, plan och resultat som en session visade dig stannar i dess sista flik, med skärmbilder, och visar hur det slutade
-- Pull requestens ändringar och Stack ligger ovanför dess berättelser; tryck på en berättelse eller bild för att öppna den i full storlek
+- Ett kortutseende: agentsvar och korten som en session visar dig har samma yta, hörn och marginaler som i de andra apparna
+- Ett korts titel står ovanför det i chatten

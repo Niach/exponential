@@ -1,2 +1,2 @@
-- Karta Príbehy: každá otázka, plán a výsledok, ktorý vám relácia ukázala, zostáva na jej poslednej karte aj so snímkami obrazovky a ukazuje, ako skončil
-- Zmeny a Stack pull requestu sú nad jeho príbehmi; ťuknutím otvoríte príbeh alebo obrázok na celú obrazovku
+- Jednotný vzhľad kariet: odpovede agentov a karty, ktoré vám relácia ukáže, majú rovnaký povrch, rohy a okraje ako v ostatných aplikáciách
+- Názov karty je v chate nad ňou

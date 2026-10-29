@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-one-card-look",
+    date: "2026-10-30",
+    title: "Chat cards look the same everywhere",
+    summary: "Agent replies and cards share one look on every app, and a few rough edges are gone.",
+    body: r#"- **One card look**: agent replies and the cards a session shows you wear the same surface, corners and padding on web, desktop, iOS and Android.
+- **Card titles**: a card's title sits above it in the chat, now on Android too.
+- **Deleting chats on Android**: deleting several chats at once always tells you how it went.
+- **New widget**: the New widget dialog picks a board as soon as your boards have loaded."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_112: ChangelogEntry = ChangelogEntry {
     id: "2026-10-29-stories-tab",
     date: "2026-10-29",
     title: "A Stories tab in every session",

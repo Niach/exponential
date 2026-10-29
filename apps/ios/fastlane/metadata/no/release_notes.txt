@@ -1,2 +1,2 @@
-- Fanen Historier: hvert spørsmål, hver plan og hvert resultat en økt viste deg, blir liggende i den siste fanen med skjermbilder og viser hvordan det endte
-- Pull requestens endringer og stack står over historiene; trykk på en historie eller et bilde for å åpne det i full størrelse
+- Ett kortutseende: agentsvar og kortene en økt viser deg har samme flate, hjørner og avstand som i de andre appene
+- Tittelen på et kort står over det i chatten

@@ -1,2 +1,2 @@
-- Scheda Storie: ogni domanda, piano e risultato che una sessione ti ha mostrato resta nella sua ultima scheda, con screenshot, e indica com'è finito
-- Le modifiche e lo Stack della pull request stanno sopra le sue storie; tocca una storia o un'immagine per aprirla a schermo intero
+- Un unico aspetto per le schede: le risposte degli agenti e le schede che una sessione ti mostra hanno la stessa superficie, gli stessi angoli e margini delle altre app
+- Il titolo di una scheda compare sopra di essa nella chat

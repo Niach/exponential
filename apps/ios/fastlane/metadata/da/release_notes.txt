@@ -1,2 +1,2 @@
-- Fanen Historier: hvert spørgsmål, hver plan og hvert resultat, en session viste dig, bliver i dens sidste fane med skærmbilleder og viser, hvordan det endte
-- Pull requestens ændringer og stack står over dens historier; tryk på en historie eller et billede for at åbne det i fuld størrelse
+- Ét kortudseende: agentsvar og de kort, en session viser dig, har samme flade, hjørner og afstand som i de andre apps
+- Et korts titel står over det i chatten

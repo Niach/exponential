@@ -1,2 +1,2 @@
-- Történetek lap: minden kérdés, terv és eredmény, amit egy munkamenet megmutatott, megmarad az utolsó lapján képernyőképekkel, és mutatja, hogyan zárult
-- A pull request módosításai és Stackje a történetei fölött vannak; koppints egy történetre vagy képre a teljes méretű megnyitáshoz
+- Egységes kártyamegjelenés: az ügynökök válaszai és a munkamenet által mutatott kártyák felülete, sarkai és térközei ugyanolyanok, mint a többi alkalmazásban
+- A kártya címe a csevegésben a kártya fölött jelenik meg

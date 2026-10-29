@@ -1,2 +1,2 @@
-- Onglet Stories : chaque question, plan et résultat qu'une session t'a montré reste dans son dernier onglet, avec captures d'écran, et indique comment il s'est terminé
-- Les modifications et le Stack de la pull request sont au-dessus de ses stories ; touche une story ou une image pour l'ouvrir en grand
+- Un seul style de carte : les réponses des agents et les cartes qu'une session te montre ont la même surface, les mêmes coins et les mêmes marges que dans les autres apps
+- Le titre d'une carte s'affiche au-dessus d'elle dans le chat

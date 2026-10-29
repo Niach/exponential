@@ -1,2 +1,2 @@
-- Pestaña Historias: cada pregunta, plan y resultado que te mostró una sesión se queda en su última pestaña, con capturas, e indica cómo terminó
-- Los cambios y el Stack de la pull request aparecen encima de sus historias; toca una historia o imagen para abrirla a tamaño completo
+- Un mismo aspecto de tarjeta: las respuestas de los agentes y las tarjetas que te muestra una sesión tienen la misma superficie, esquinas y márgenes que en las otras apps
+- El título de una tarjeta aparece encima de ella en el chat
