@@ -168,3 +168,57 @@ describe(`fixtures/interactions-round1.json select`, () => {
     })
   }
 })
+
+interface HoldStep {
+  do: string
+  x?: number
+  y?: number
+  key?: string
+  repeat?: boolean
+  events: string[]
+  pressed: boolean
+  label: string
+}
+
+// VAPP-162 (round-5 contract §9): the Button hold, step by step through the DOM.
+describe(`fixtures/interactions-round1.json buttonHold`, () => {
+  for (const c of fixture.buttonHold as { name: string; props?: Record<string, unknown>; steps: HoldStep[] }[]) {
+    it(c.name, () => {
+      const actions: SurfaceActionEvent[] = []
+      const base: Record<string, unknown> = { label: `Hold to talk`, holdingLabel: `Holding…`, hold: true }
+      for (const [k, v] of Object.entries(c.props ?? {})) {
+        if (v === null) delete base[k]
+        else base[k] = v
+      }
+      const on = Object.fromEntries([`press`, `holdStart`, `holdEnd`, `holdCancel`].map((e) => [e, { event: { name: e } }]))
+      const root = tree({ id: `b`, component: `Button`, props: base, on } as NestedNode)
+      const { container } = render(<ExponentialSurface root={root} theme="neutral" id="bh" host={{ onAction: (e) => void actions.push(e) }} />)
+      const button = container.querySelector(`[data-xui-id="b"]`) as HTMLButtonElement
+      button.getBoundingClientRect = () => ({ left: 0, top: 0, right: 120, bottom: 40, width: 120, height: 40, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+      for (const s of c.steps) {
+        const before = actions.length
+        const at = { clientX: s.x ?? 0, clientY: s.y ?? 0, pointerId: 1, button: 0 }
+        if (s.do === `pointerdown`) {
+          fireEvent.pointerDown(button, at)
+          fireEvent.mouseDown(button, at)
+        } else if (s.do === `pointermove`) fireEvent.pointerMove(button, at)
+        else if (s.do === `pointerup`) {
+          fireEvent.pointerUp(button, at)
+          fireEvent.mouseUp(button, at)
+          // The browser's click follows a release over the box.
+          if (s.x! >= 0 && s.x! <= 120 && s.y! >= 0 && s.y! <= 40) fireEvent.click(button, at)
+        } else if (s.do === `pointercancel`) fireEvent.pointerCancel(button, { pointerId: 1 })
+        else if (s.do === `keydown`) {
+          button.focus()
+          fireEvent.keyDown(button, { key: s.key, repeat: s.repeat === true })
+        } else if (s.do === `keyup`) fireEvent.keyUp(button, { key: s.key })
+        else if (s.do === `blur`) fireEvent.blur(button)
+        expect(actions.slice(before).map((a) => a.event), `${s.do} events`).toEqual(s.events)
+        const pressed = (button.getAttribute(`data-xs`) ?? ``).split(` `).includes(`pressed`)
+        // `hold: false` paints its press through :active (CSS), not data-xs.
+        if (base.hold === true) expect(pressed, `${s.do} pressed`).toBe(s.pressed)
+        expect(button.textContent, `${s.do} label`).toBe(s.label)
+      }
+    })
+  }
+})

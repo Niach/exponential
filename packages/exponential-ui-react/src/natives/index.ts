@@ -20,6 +20,7 @@ import { BoxNative, ListNative, UnknownNative } from "./layout"
 import { AudioPlayerNative, AvatarNative, CarouselNative, ImageNative, VideoNative } from "./media"
 import { AccordionNative, SegmentedNative, TabsNative } from "./nav"
 import { DialogNative, DrawerNative, MenuNative, PopoverNative, ToastNative, TooltipNative } from "./overlays"
+import { QrCodeNative, QrScannerNative } from "./qr"
 import { SearchListNative } from "./search"
 import { SelectNative } from "./select"
 import { TableNative } from "./table"
@@ -38,6 +39,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Video: VideoNative,
   AudioPlayer: AudioPlayerNative,
   Avatar: AvatarNative,
+  QrCode: QrCodeNative,
   Carousel: CarouselNative,
   Tabs: TabsNative,
   Segmented: SegmentedNative,
@@ -73,6 +75,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   DateRangePicker: DateRangePickerNative,
   TimePicker: TimePickerNative,
   FileUpload: FileUploadNative,
+  QrScanner: QrScannerNative,
   Composer: ComposerNative,
   TreeGuides: TreeGuidesNative,
   Unknown: UnknownNative,

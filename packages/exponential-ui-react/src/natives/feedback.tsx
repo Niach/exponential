@@ -1,8 +1,8 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx).
 
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveChildBox, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
-import type { VoiceWaveActivity } from "@exponential_app/ui"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
+import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/ui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
@@ -152,7 +152,72 @@ export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
  *  listening, thinking or speaking (and not under reduced motion) the
  *  frames write the paths' `d` directly, never a re-render; the elapsed
  *  seconds count from the moment the wave started moving. */
-export function VoiceWaveNative({ node, props, rootProps, children }: NativeProps) {
+export function VoiceWaveNative(p: NativeProps) {
+  return voiceWaveVariant(p.props.variant) === `bars` ? <VoiceWaveBarsNative {...p} /> : <VoiceWaveRingNative {...p} />
+}
+
+/** VAPP-162 (round-5 contract §5): `variant: bars`, the horizontal level
+ *  meter: the core's `voiceWaveBars` per frame as rounded rects in the
+ *  `bar` part colour; the root recipe sizes the box; a child stays in the
+ *  tree, never painted. While moving, the frames write each rect's `y` and
+ *  `height` directly, never a re-render. */
+function VoiceWaveBarsNative({ node, props, rootProps, children }: NativeProps) {
+  const ctx = useSurfaceContext()
+  const part = useParts(node, props)
+  const activity: VoiceWaveActivity = (VOICE_WAVE_ACTIVITIES as readonly string[]).includes(str(props.activity)) ? (str(props.activity) as VoiceWaveActivity) : `idle`
+  const input = { size: str(props.size, `md`) as VoiceWaveSizeName, activity, level: num(props.level, 0), bands: arr<unknown>(props.bands).map((b) => num(b, 0)), reducedMotion: ctx.reducedMotion }
+  const latest = useRef(input)
+  latest.current = input
+  const elapsed = useRef(0)
+  const rects = useRef<(SVGRectElement | null)[]>([])
+  const animates = voiceWaveAnimates(activity) && !ctx.reducedMotion
+  useEffect(() => {
+    if (!animates) {
+      elapsed.current = 0
+      return
+    }
+    return voiceWaveClock((t) => {
+      elapsed.current = t
+      voiceWaveBars({ ...latest.current, elapsed: t }).bars.forEach((bar, i) => {
+        const el = rects.current[i]
+        if (!el) return
+        el.setAttribute(`y`, String(bar.y))
+        el.setAttribute(`height`, String(bar.height))
+      })
+    })
+  }, [animates])
+  const meter = voiceWaveBars({ ...input, elapsed: elapsed.current })
+  const colour = String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: `bar`, props: nativeRecipeProps(`VoiceWave`, props) }, ctx.mode).color ?? `currentColor`)
+  const name = voiceWaveName(str(props.label) || undefined, activity)
+  return (
+    <span {...(rootProps as Record<string, unknown>)} role={name ? `img` : undefined} aria-label={name} aria-hidden={name ? undefined : `true`} data-variant="bars" style={mergeStyle(rootProps, { width: meter.width, height: meter.height })}>
+      <svg viewBox={`0 0 ${meter.width} ${meter.height}`} width={meter.width} height={meter.height} aria-hidden="true" style={{ color: colour }}>
+        {meter.bars.map((bar, i) => (
+          <rect
+            key={i}
+            ref={(el) => {
+              rects.current[i] = el
+            }}
+            {...(part(`bar`) as Record<string, string>)}
+            x={bar.x}
+            y={bar.y}
+            width={bar.width}
+            height={bar.height}
+            rx={bar.radius}
+            fill="currentColor"
+          />
+        ))}
+      </svg>
+      {node.children.length > 0 ? (
+        <span {...(part(`child`) as Record<string, string>)} data-hidden="true" aria-hidden="true">
+          {children}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function VoiceWaveRingNative({ node, props, rootProps, children }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const size = sizeOf(ctx, `VoiceWave`, `root`, props, 56)

@@ -11,6 +11,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
+import { segmentedBadge } from "@exponential_app/ui/web"
 
 interface Tab {
   label: string
@@ -108,6 +109,8 @@ interface Item {
   value: string
   icon?: string
   disabled?: boolean
+  /** VAPP-162: a `bar` item's count badge. */
+  count?: number
 }
 
 const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isArray(raw) ? next : next.join(`,`))
@@ -119,30 +122,40 @@ const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isA
  *  full-width bottom destinations: role navigation, each item a column
  *  button (icon above a caption label), the selected one
  *  `aria-current="page"`, the same roving keys. Parts: root, item, icon,
- *  label (the selected state rides every part of the selected item). */
+ *  label (the selected state rides every part of the selected item).
+ *  VAPP-162 (round-5 contract §3): `orientation: vertical` stacks every
+ *  variant top to bottom (ArrowUp/ArrowDown move focus); a vertical `bar`
+ *  is THE navigation rail (72 px items). A `bar` item's `count` paints the
+ *  `badge` at its icon's top-end corner (`99+` above 99, none at 0) and
+ *  reads after the label (`Chats, 3`). */
 export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const items = objects<Item>(props.items)
   const variant = str(props.variant, `segmented`)
   const bar = variant === `bar`
+  const vertical = props.orientation === `vertical`
   const multiple = !bar && props.type === `multiple`
   const externalRaw = props.value
   const external = multiple ? (Array.isArray(externalRaw) ? externalRaw.map(String) : externalRaw ? String(externalRaw).split(`,`) : []) : str(externalRaw)
   const [value, setBound] = useBoundState<string | string[]>(node, scope, `value`, external)
   const setValue = (next: string | string[]) => setBound(Array.isArray(next) ? (joinLike(externalRaw, next) as string[]) : next)
   const isSelected = (item: Item) => (multiple ? asArray(value).includes(item.value) : value === item.value)
-  const content = (item: Item, selected: boolean) => (
+  const content = (item: Item, selected: boolean) => {
+    const badge = bar ? segmentedBadge(item.count) : null
+    return (
     <>
       {item.icon ? (
         <span {...(part(`icon`, selected && `selected`) as Record<string, string>)} aria-hidden="true">
           <IconGlyph icons={ctx.host.icons} name={item.icon} className="xui-icon" width={bar ? 20 : 16} height={bar ? 20 : 16} />
+          {badge ? <span {...(part(`badge`, selected && `selected`) as Record<string, string>)}>{badge}</span> : null}
         </span>
       ) : null}
       {item.label ? <span {...(part(`label`, selected && `selected`) as Record<string, string>)}>{str(item.label)}</span> : null}
     </>
-  )
-  if (bar) return <SegmentedBar node={node} rootProps={rootProps} items={items} value={value as string} part={part} content={content} onPick={(next) => {
+    )
+  }
+  if (bar) return <SegmentedBar node={node} rootProps={rootProps} vertical={vertical} items={items} value={value as string} part={part} content={content} onPick={(next) => {
     setValue(next)
     void emit(`change`, { value: next }, { value: next })
   }} />
@@ -161,6 +174,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
         type="multiple"
         value={Array.isArray(value) ? value : asArray(value)}
         loop
+        orientation={vertical ? `vertical` : undefined}
         onValueChange={(next: string[]) => {
           setValue(next)
           void emit(`change`, { value: joinLike(externalRaw, next) }, { value: joinLike(externalRaw, next) })
@@ -177,6 +191,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
       type="single"
       value={value as string}
       loop
+      orientation={vertical ? `vertical` : undefined}
       onValueChange={(next: string) => {
         if (!next) return
         setValue(next)
@@ -191,7 +206,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
 
 /** The `bar` variant: a navigation landmark of buttons with ONE roving tab
  *  stop (the selected item, else the first enabled one). */
-function SegmentedBar({ rootProps, items, value, part, content, onPick }: { node: NativeProps[`node`]; rootProps: NativeProps[`rootProps`]; items: Item[]; value: string; part: PartFn; content: (item: Item, selected: boolean) => ReactNode; onPick: (value: string) => void }) {
+function SegmentedBar({ rootProps, vertical, items, value, part, content, onPick }: { node: NativeProps[`node`]; rootProps: NativeProps[`rootProps`]; vertical: boolean; items: Item[]; value: string; part: PartFn; content: (item: Item, selected: boolean) => ReactNode; onPick: (value: string) => void }) {
   const ctx = useSurfaceContext()
   const refs = useRef<(HTMLButtonElement | null)[]>([])
   const enabled = items.map((item, i) => (bool(item.disabled) ? -1 : i)).filter((i) => i >= 0)
@@ -202,8 +217,8 @@ function SegmentedBar({ rootProps, items, value, part, content, onPick }: { node
     if (!enabled.length) return
     const at = enabled.indexOf(from)
     const rtl = ctx.direction === `rtl`
-    const forward = key === `ArrowDown` || key === (rtl ? `ArrowLeft` : `ArrowRight`)
-    const back = key === `ArrowUp` || key === (rtl ? `ArrowRight` : `ArrowLeft`)
+    const forward = key === `ArrowDown` || (!vertical && key === (rtl ? `ArrowLeft` : `ArrowRight`))
+    const back = key === `ArrowUp` || (!vertical && key === (rtl ? `ArrowRight` : `ArrowLeft`))
     let next: number | null = null
     if (forward) next = enabled[(at + 1) % enabled.length]
     else if (back) next = enabled[(at - 1 + enabled.length) % enabled.length]
@@ -228,7 +243,7 @@ function SegmentedBar({ rootProps, items, value, part, content, onPick }: { node
             disabled={disabled}
             tabIndex={i === stop ? 0 : -1}
             aria-current={selected ? `page` : undefined}
-            aria-label={item.label ? undefined : item.value}
+            aria-label={segmentedBadge(item.count) ? `${str(item.label) || item.value}, ${segmentedBadge(item.count)}` : item.label ? undefined : item.value}
             onFocus={() => setFocusIndex(i)}
             onKeyDown={(e) => {
               if (move(i, e.key)) e.preventDefault()

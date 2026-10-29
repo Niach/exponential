@@ -138,6 +138,7 @@ interface HostPlugin {
   onUnknown?(node: UiNode): void
   onUpload?(files: File[], target: { nodeId, name }): void | Promise<void>   // FileUpload bytes (the event carries metadata only)
   optionSource?(source: string, query: string): Option[] | Promise<Option[]> // Select `source` (a host list)
+  qrScanner?: { start(feed: HTMLElement, formats: readonly string[], onValue: (value: string) => void): (() => void) | false | void } // QrScanner's camera
 }
 ```
 
@@ -312,6 +313,18 @@ A step = the scroll, the window's render flushed and the layout read back
 | Segmented | ONE row of segments (Radix ToggleGroup: radiogroup single / toolbar multiple, roving arrows), variants `segmented` (default) / `toggles` / `outline`; `bar` = a full-width `<nav>` of column buttons (icon above a caption label, `$control.tabBar` tall), `aria-current="page"`, the same roving keys; parts root, item, icon, label |
 | Menu | ONE painter for press and context menus (`openOn`); builtin glyphs `Menu.check`, `Menu.submenuIndicator` |
 | TreeGuides | a Row's `guides` part the CORE fills (`elbowAt`, `tee`, `passThrough`); `TREE_GUIDE_COLUMN` 14 px columns, the line at i·14 + 7, the elbow = one element (left + bottom borders) to the column's right edge with a `TREE_GUIDE_RADIUS` 3 px corner, every vertical starting `TREE_GUIDE_BRIDGE` 1 px above the part's top (overflow visible) |
+
+## Round 5 (VAPP-162, `docs/round-5-contract.md`)
+
+| item | web |
+|---|---|
+| macros | `MessageBubble`, `CallSurface`, `Plan` need no painter (they expand to Box/Text/Markdown/Icon/VoiceWave/Avatar/Tooltip/Button/Card/Trace/Progress) |
+| QrCode | ONE SVG path of the core's `qrMatrix` in module units (quiet zone 4, `shape-rendering: crispEdges`) over a `size` px plate; the lighter of the plate/module recipe colours fills the plate (`qrPaint`), so a dark theme still scans; `label` = caption + img name |
+| QrScanner | the viewfinder chrome (feed, four corner brackets, the scan line sweeping by CSS, still under reduced motion or `disabled`); THE CAMERA IS THE HOST'S: `host.qrScanner.start(feed, formats, onValue)` renders its feed into the `feed` element and returns the stop; every decoded string goes through `qrScanReporter` (once per distinct value) to `scanned {value}` and the polite live region; no `qrScanner` (or `start` returning `false`) = the `ui-scan` icon + `Camera unavailable` |
+| VoiceWave `bars` | the core's `voiceWaveBars` as 20 rounded rects in the `bar` colour, rAF writes `y`/`height` while it moves; a child stays unpainted |
+| Segmented | `orientation: vertical` stacks every variant (ArrowUp/ArrowDown); a vertical `bar` = the rail (72 × 56 items); `option.count` = the `badge` at a `bar` icon's top-end corner (`99+`, none at 0), read after the label |
+| Button `hold` | `ButtonHold` (the shared machine): pointer capture on down, 24 px slop, Space/Enter key down → up, Escape/blur/pointercancel cancel; `holdingLabel` while held; never `press` |
+| serif | `ui-serif` stays a CSS keyword: `font-family: ui-serif, Georgia, serif` |
 
 ## The primitive set
 
