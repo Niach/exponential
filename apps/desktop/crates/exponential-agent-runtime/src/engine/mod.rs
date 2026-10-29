@@ -9,7 +9,7 @@
 //! `context_layout` arithmetic, the result refs and the ACP `terminal/*`
 //! capability, and (part 4c) the ACP adapters themselves: a host starts the
 //! user's own `claude` / `codex` from a core [`LaunchSpec`] ([`adapters`],
-//! [`launch`]). The ACP host and the session follow behind `RunBackend`
+//! [`launch`]). The ACP host and the session follow (part 4d) behind `RunBackend`
 //! (see the README).
 
 pub mod adapters;
