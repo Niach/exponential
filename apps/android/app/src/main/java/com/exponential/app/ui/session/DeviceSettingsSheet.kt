@@ -63,7 +63,6 @@ import com.exponential.app.ui.components.seedModel
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.seedComputerUseModel
-import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -664,7 +663,6 @@ data class AgentDraft(
      *  agent's contract thread default (see [threadModelOf]). */
     val threadModel: String = "",
     val ultracode: Boolean,
-    val planMode: Boolean,
     /**
      * EXP-1005: claude's "Auto-rotate accounts" switch. Null = the stored row
      * has no key (the launcher reads that as ON); a flip stores the explicit
@@ -714,7 +712,6 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
             threadModel = defaultThreadModelFor(agent),
             effort = CLI_DEFAULT_EFFORT,
             ultracode = false,
-            planMode = false,
         )
     return AgentDraft(
         // Every model is explicit: a blank or unknown stored value reads as
@@ -731,7 +728,6 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
             DomainContract.deviceAgentDefaultsSubagentModel,
         ),
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
-        planMode = defaults.planMode && supportsPlanMode(agent),
         // EXP-1005: echoed as stored, never clamped or defaulted here.
         autoRotateAccounts = defaults.autoRotateAccounts,
     )
@@ -767,7 +763,6 @@ internal fun buildDefaults(
                 threadModel = defaultThreadModelFor(agent),
                 effort = CLI_DEFAULT_EFFORT,
                 ultracode = false,
-                planMode = false,
             )
         AgentLaunchDefaults(
             model = draft.model,
@@ -775,7 +770,6 @@ internal fun buildDefaults(
             subagentModel = draft.subagentModel.takeIf { supportsSubagentModel(agent) },
             threadModel = threadModelOf(draft, agent),
             ultracode = draft.ultracode && agent == DEFAULT_AGENT,
-            planMode = draft.planMode && supportsPlanMode(agent),
             // EXP-1005: the synced value rides back unchanged; absent stays
             // absent so the server keeps whatever the desktop stored.
             autoRotateAccounts = draft.autoRotateAccounts,

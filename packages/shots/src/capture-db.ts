@@ -102,3 +102,14 @@ export function captureDbEnv(): Record<string, string> {
   if (`refused` in resolved) throw new Error(resolved.refused)
   return resolved.env
 }
+
+/**
+ * The override the helpers need to touch the shared dev DB (F27: they refuse
+ * `localhost:54321/exponential` without `--shared-dev-db`). The default stack
+ * (no `SHOTS_DEV_URL` / `CAPTURE_BASE_URL` beyond :5173 / :3000) seeds the
+ * shared dev DB on purpose, so it passes the flag; a throwaway stack never
+ * does, so the helper refuses it as a second line behind `resolveCaptureDb`.
+ */
+export function sharedDevDbArgs(env: Record<string, string | undefined>): string[] {
+  return throwawayStackUrl(env) ? [] : [`--shared-dev-db`]
+}

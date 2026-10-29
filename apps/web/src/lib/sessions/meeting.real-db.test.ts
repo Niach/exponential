@@ -338,4 +338,18 @@ describe.skipIf(!ready.ok)(`#NEW-57 meeting sends`, () => {
     expect(await stopMeetingUnlessPrivate(db, w.owner)).toBe(true)
     expect((await voice(w.owner).get()).meetingStartedAt).toBeNull()
   })
+
+  it(`SHARING: a box shared with ANOTHER team holds no meeting either`, async () => {
+    const w = await world()
+    const elsewhere = await world()
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: w.ops, voiceDeviceId: w.deviceId })
+    expect((await voice(w.owner).startMeeting({ consent: true })).meetingStartedAt).not.toBeNull()
+    await db.update(devices).set({ sharedTeamIds: [elsewhere.teamId] }).where(eq(devices.deviceId, w.deviceId))
+    expect(await stopMeetingUnlessPrivate(db, w.owner)).toBe(true)
+    expect((await voice(w.owner).get()).meetingStartedAt).toBeNull()
+    await expect(voice(w.owner).startMeeting({ consent: true })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: MEETING_SHARED_REFUSED,
+    })
+  })
 })

@@ -295,6 +295,7 @@ fun IssueFace(
     // #EXP-1383: the team's agents (picker rows + an agent assignee), and the
     // solo rule: a solo team keeps the assignee control while it has agents.
     val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
+    val assignableAgents by viewModel.assignableAgents.collectAsStateWithLifecycle()
     val assigneeAgent = state.issue?.assigneeAgentId?.let { id -> teamAgents.firstOrNull { it.id == id }?.actorRow() }
     val hideAssignee = soloMemberId != null && teamAgents.isEmpty() && state.issue?.assigneeAgentId == null
     // EXP-630: the team's estimate scale — `none` hides the chip + sheet row.
@@ -952,7 +953,7 @@ fun IssueFace(
     if (activeSheet == IssueSheet.Assignee && issue != null && isModerator) {
         AssigneePicker(
             members = teamUsers.map { it.toPickerMember() },
-            agents = teamAgents.map { it.toPickerAgent() },
+            agents = assignableAgents.map { it.toPickerAgent() },
             value = assigneePickerValue(issue.assigneeId, issue.assigneeAgentId),
             // An empty set IS unassigned (the contract's single-mode arm).
             onChange = { picked -> viewModel.updateAssignee(assigneeFromPickerValue(picked.firstOrNull())) },

@@ -229,6 +229,29 @@ public struct ChatArchivedRow: View {
     }
 }
 
+/// S-3 (chats.json `copy.sections`): the Agents / Chats header over the
+/// list's two sections, only while an agent row exists. A plain muted
+/// caption (web `ChatSectionHeader` `pt-2 pb-1 text-xs font-medium
+/// text-muted-foreground`, Android `ChatSectionHeader`), never the filled
+/// Form band (`GlassSectionHeader`).
+public struct ChatSectionHeader: View {
+    let title: String
+
+    public init(_ title: String) {
+        self.title = title
+    }
+
+    public var body: some View {
+        Text(title)
+            .font(.system(size: DesignTokens.Typography.Size.xs, weight: .medium))
+            .foregroundStyle(DesignTokens.Palette.mutedForeground)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
 /// One agent of the Chats header's bubble row.
 public struct AgentBubbleItem: Identifiable, Equatable {
     public enum Ring: Equatable { case needsYou, unread, none }

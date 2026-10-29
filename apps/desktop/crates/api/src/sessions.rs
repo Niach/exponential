@@ -91,6 +91,11 @@ pub struct SendInput {
     /// the message's `expires_at` (`contract.meeting.retentionDays`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meeting: Option<bool>,
+    /// F21: the caller's stable id for this message (at most 64 chars),
+    /// reused across retries: the server dedupes a send it already took
+    /// (a meeting part whose answer was lost).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
 }
 
 impl SendInput {

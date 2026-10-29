@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { databaseUrlFromDotenv, resolveCaptureDb, sameDatabase } from "./capture-db.ts"
+import { databaseUrlFromDotenv, resolveCaptureDb, sameDatabase, sharedDevDbArgs } from "./capture-db.ts"
 
 const SHARED = `postgres://exp:exp@localhost:54321/exponential`
 const TEMP = `postgres://exp:exp@localhost:54321/exp_capture_tmp`
@@ -45,5 +45,17 @@ describe(`helpers`, () => {
   test(`sameDatabase compares host, port and name`, () => {
     expect(sameDatabase(SHARED, `postgres://a:b@127.0.0.1:54321/exponential`)).toBe(true)
     expect(sameDatabase(SHARED, TEMP)).toBe(false)
+  })
+})
+
+describe(`sharedDevDbArgs`, () => {
+  test(`passes --shared-dev-db on the default stack, which seeds the shared dev DB on purpose`, () => {
+    expect(sharedDevDbArgs({})).toEqual([`--shared-dev-db`])
+    expect(sharedDevDbArgs({ SHOTS_DEV_URL: `http://localhost:5173` })).toEqual([`--shared-dev-db`])
+  })
+
+  test(`never passes it for a throwaway stack, so the helper refuses the shared DB too`, () => {
+    expect(sharedDevDbArgs({ SHOTS_DEV_URL: `http://localhost:5181` })).toEqual([])
+    expect(sharedDevDbArgs({ CAPTURE_BASE_URL: `http://127.0.0.1:5181/` })).toEqual([])
   })
 })

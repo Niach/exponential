@@ -483,13 +483,19 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
 
 /// #EXP-1383 (agent-settings.json `assignee`): a team's agents as assignee
 /// options, in the picker's order (`assignee_options`: sortOrder, then name).
+/// S-3: another member's Assistant is never one (`visible_agent`); an
+/// assignment to it still reads through `agent_actor`.
 pub fn team_agents(cx: &App, team_id: &str) -> Vec<domain::agent_settings::AgentActorRow> {
+    let me = active_account(cx).map(|account| account.user_id);
     let collections = Store::global(cx).collections();
     let rows: Vec<domain::rows::AgentDefRow> = collections
         .agents
         .read(cx)
         .iter()
         .filter(|agent| agent.team_id.as_deref() == Some(team_id))
+        .filter(|agent| {
+            domain::agent_settings::visible_agent(Some(agent.role.as_str()), agent.owner_id.as_deref(), me.as_deref())
+        })
         .cloned()
         .collect();
     let keyed: Vec<(String, String, f64)> = rows

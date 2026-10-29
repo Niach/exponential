@@ -6,8 +6,8 @@
 //  1. `mintSignedAttachmentUpload` — the call WITHOUT `dataBase64`. The
 //     registry has resolved the issue and checked grant + membership; this
 //     function pre-allocates the attachment id and returns a signed upload
-//     URL, its expiry and a ready curl line: the shape
-//     `exponential_sessions_results` returns, so an agent that knows one knows
+//     URL, its expiry and a ready curl line: the shape of
+//     `exponential_show`'s picture uploads, so an agent that knows one knows
 //     both. The bytes never cross MCP. Nothing is written here: the row is
 //     inserted by `/api/attachment-uploads/$token` when the PUT lands, with
 //     the real size and the inline path's probes, so an abandoned mint leaves
@@ -50,7 +50,7 @@ export interface SignedAttachmentUploadInput {
   origin: string
 }
 
-/** Byte-compatible with `exponential_sessions_results`' upload grant. */
+/** The same {uploadUrl, curl} grant `exponential_show`'s picture uploads return. */
 export interface SignedAttachmentUploadResult {
   attachmentId: string
   uploadUrl: string

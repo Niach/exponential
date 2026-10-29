@@ -1,7 +1,6 @@
-- Call your agent (beta): call your voice device's agent from your iPhone, the web or the desktop app and talk to it hands free
-- Wake word (beta): say the wake phrase near your voice device to start talking, no shortcut needed
-- Spoken replies (beta): replies are read aloud in English and German, and German now starts speaking much faster
-- Voice proposals (beta): when your agent wants to change something by voice, it shows a card and waits for your yes
-- Interrupted sessions resume by themselves, queued sessions wait for their device, and plan and question cards reach your team agent
-- Select several chats to mark them read, archive or delete them; archiving only hides them for you
-- Every checkbox is now square, the Devices page shows one line per machine, and a refused merge appears in the thread with Retry
+- Stories: what your agents show you (questions, plans, results with screenshots) lands as stories on top of Chats; swipe through them and answer right there
+- Your Assistant: every member gets their own Assistant, with its own chat, voice and schedule; Settings are regrouped around it
+- Calls like a phone call: a call rings first, then answers with Hello?, on a call screen with round mute, speaker and end buttons
+- Meeting mode: your Assistant can follow a meeting you start on your desktop, with everyone's consent, and stops by itself after the time you pick
+- Linked chats: a message from another chat says where it came from; tap it to jump there and back
+- Fixes: chat headers match the other apps, a quick redial rings again, and plan mode is gone (plans are cards you answer)

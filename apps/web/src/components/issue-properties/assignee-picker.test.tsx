@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import type { User } from "@/db/schema"
 
+vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `u-1` } } }) }))
+
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -101,6 +103,27 @@ describe(`AssigneePicker`, () => {
     open(null, `g-1`)
     expect(rows()[3]!.querySelector(`[data-selected-glyph=check]`)).toBeTruthy()
     expect(rows()[1]!.querySelector(`[data-selected-glyph=check]`)).toBeFalsy()
+  })
+
+  // S-3 (agent-settings.json `assistant`): the viewer's own Assistant is a
+  // row, another member's never is (still read as the selected assignee).
+  it(`never lists another member's Assistant`, () => {
+    render(
+      <AssigneePicker
+        users={USERS}
+        agents={[
+          ...AGENTS,
+          { id: `a-mine`, name: `My Assistant`, icon: null, color: null, sortOrder: 0, role: `assistant`, ownerId: `u-1` },
+          { id: `a-theirs`, name: `Their Assistant`, icon: null, color: null, sortOrder: 0, role: `assistant`, ownerId: `u-2` },
+        ]}
+        selectedUserId={null}
+        selectedAgentId={`a-theirs`}
+        onSelect={onSelect}
+      />
+    )
+    expect(screen.getAllByRole(`button`)[0]!.textContent).toContain(`Their Assistant`)
+    fireEvent.click(screen.getAllByRole(`button`)[0]!)
+    expect(rows().map((row) => row.textContent).slice(3)).toEqual([`My Assistant`, `Sloppy`, `Zed`])
   })
 
   it(`searches agent names`, () => {

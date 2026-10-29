@@ -120,6 +120,9 @@ describe(`sessions allowlist`, () => {
   it(`keeps a meeting message's expiry server-only (NEW-57)`, () => {
     expect(MESSAGE_COLUMNS).not.toContain(`expires_at`)
   })
+  it(`keeps a send's idempotency key server-only (F21)`, () => {
+    expect(MESSAGE_COLUMNS).not.toContain(`client_message_id`)
+  })
   it(`keeps the never-written assignment column the shipped desktop names`, () => {
     expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)
   })

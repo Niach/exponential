@@ -151,7 +151,6 @@ class DeviceRowsTest {
         val claude = device.launchDefaults?.agents?.getValue("claude")
         assertEquals("claude", device.launchDefaults?.defaultAgent)
         assertEquals("fable", claude?.model)
-        assertTrue(claude!!.planMode)
     }
 
     // EXP-1005: the desktop's auto-rotate flag rides the synced row as a

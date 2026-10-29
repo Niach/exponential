@@ -210,6 +210,13 @@ final class VoiceCallClient {
             guard let json = frame["event"] as? [String: Any],
                   let event = VoiceCall.Event(json: json), event.isHostEvent
             else { return }
+            // The host could not get its voice ready: it fails the call
+            // with its code before its `call_end` (an empty code reads as
+            // `dropped`, voice-call.json).
+            if case let .failed(code) = event {
+                fail(code.isEmpty ? "dropped" : code)
+                return
+            }
             // Barge-in: the reply still buffered stops at once.
             if event == .speechStarted { audio?.flush() }
             step(event)
@@ -260,7 +267,8 @@ final class VoiceCallClient {
         if let audio {
             audio.stop()
         } else {
-            CallAudioSession.leave()
+            // On the audio queue like every enter (the ring's included).
+            VoiceCallAudio.sharedQueue.async { CallAudioSession.leave() }
         }
         audio = nil
         socket?.cancel(with: .normalClosure, reason: nil)

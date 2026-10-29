@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto"
+import { proxyAttestedClientIp } from "@/lib/widget/rate-limit"
 
 // Cookieless visitor identity (EXP-362), Plausible-style: a salted hash of
 // ip+ua where the salt rotates every UTC day. Deterministic within a day (so
@@ -16,12 +17,10 @@ export function dailyAnonymousIdFromHeaders(
 ): string | null {
   const secret = process.env.BETTER_AUTH_SECRET
   if (!secret) return null
-  const forwarded = headers.get(`x-forwarded-for`)
-  const hops = forwarded?.split(`,`) ?? []
-  const ip = hops[hops.length - 1]?.trim()
-  // Same last-hop rule as clientIpFromRequest (lib/widget/rate-limit.ts):
-  // only the proxy-attested rightmost entry counts. No proxy (bare dev
-  // server) → no stable identity → null, and callers skip recording.
+  // Same proxy-attested hop as the limiters (`proxyAttestedClientIp`,
+  // TRUSTED_PROXY_HOPS). No proxy (bare dev server) → no stable identity →
+  // null, and callers skip recording.
+  const ip = proxyAttestedClientIp(new Request(`http://local/`, { headers }))
   if (!ip) return null
   const ua = headers.get(`user-agent`) ?? ``
   return createHmac(`sha256`, dailySalt(secret, now))

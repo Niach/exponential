@@ -281,6 +281,19 @@ object VoiceCall {
         data class HungUp(val reason: String?) : Event
         data class Failed(val code: String) : Event
 
+        /**
+         * The events a HOST may send in a `call_event` frame; the caller
+         * owns start, mute, unmute, speaker, end and hungUp itself. A host
+         * that could not get a call ready sends `failed {code}` before its
+         * `call_end` (the caller fails with that code's toast).
+         */
+        val isHostEvent: Boolean
+            get() = when (this) {
+                Rang, Ready, NoSound, SpeechStarted, ReplyFinished,
+                is Partial, is Said, is Queued, is ReplyStarted, is Failed -> true
+                else -> false
+            }
+
         companion object {
             /** A wire event (`{t, …}`); null for an unknown `t`. */
             fun of(json: JsonObject): Event? {

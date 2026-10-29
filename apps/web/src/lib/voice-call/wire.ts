@@ -5,7 +5,7 @@
 // sequence that wraps, then ONE Opus packet of `frameMs`. JSON text frames
 // carry the control.
 
-import { VOICE_CALL_WIRE, type CallEvent } from "@exp/domain-contract/voice-call"
+import { VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/domain-contract/voice-call"
 
 export const KIND_UP = VOICE_CALL_WIRE.kinds.up
 export const KIND_DOWN = VOICE_CALL_WIRE.kinds.down
@@ -36,7 +36,8 @@ export function seqAfter(seq: number, last: number): boolean {
 }
 
 /** The flow events a HOST may send in `call_event` (wire.control): anything
- *  else, or a malformed one, is ignored. */
+ *  else, or a malformed one, is ignored. A host's `failed` keeps its code
+ *  when the fixture has copy for it, else it is `dropped`. */
 export function hostCallEvent(raw: unknown): CallEvent | null {
   if (!raw || typeof raw !== `object`) return null
   const event = raw as Record<string, unknown>
@@ -56,6 +57,10 @@ export function hostCallEvent(raw: unknown): CallEvent | null {
     case `ready`:
     case `noSound`:
       return { t: event.t }
+    case `failed`: {
+      const code = typeof event.code === `string` && Object.hasOwn(VOICE_CALL_COPY.failed, event.code) ? event.code : `dropped`
+      return { t: `failed`, code }
+    }
     default:
       return null
   }

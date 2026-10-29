@@ -270,18 +270,19 @@ export async function stopMeetingUnlessPrivate(database: Db, userId: string): Pr
 }
 
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):
- *  the agents a member can talk to. */
+ *  the agents a member can talk to. S-3: another member's Assistant is
+ *  theirs alone (`loadAgentForUser`'s rule). */
 async function memberAgentExists(database: Db, userId: string, agentId: string): Promise<boolean> {
   const memberTeams = database
     .select({ teamId: teamMembers.teamId })
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId))
   const [agent] = await database
-    .select({ id: agents.id })
+    .select({ role: agents.role, ownerId: agents.ownerId })
     .from(agents)
     .where(and(eq(agents.id, agentId), inArray(agents.teamId, memberTeams)))
     .limit(1)
-  return agent !== undefined
+  return agent !== undefined && (agent.role !== `assistant` || agent.ownerId === userId)
 }
 
 // NEW-55: `callSpeechOf` lives beside the web caller's availability
@@ -402,6 +403,16 @@ export const voiceRouter = router({
         throw new TRPCError({ code: `BAD_REQUEST`, message: MEETING_SHARED_REFUSED })
       }
       if (before.meetingStartedAt) return before
+      // FEED-163: a stored stamp that reads as expired is the old meeting's
+      // auto-stop: cleared (its stop note posted) before the new one starts.
+      const [stored] = await ctx.db
+        .select({ meetingStartedAt: userVoiceSettings.meetingStartedAt })
+        .from(userVoiceSettings)
+        .where(and(eq(userVoiceSettings.userId, userId), isNotNull(userVoiceSettings.meetingStartedAt)))
+        .limit(1)
+      if (stored?.meetingStartedAt) {
+        await clearMeeting(ctx.db, userId, new Date(stored.meetingStartedAt), `autoStop`)
+      }
       const next: VoiceSettings = { ...before, meetingStartedAt: new Date().toISOString() }
       await writeSettings(ctx.db, userId, next)
       nudge(userId, before.voiceDeviceId)
@@ -414,7 +425,8 @@ export const voiceRouter = router({
   // STORED stamp even when it already reads as expired, and the call that
   // cleared it posts the stop note (a manual stop posts none).
   stopMeeting: authedProcedure
-    .input(z.object({ reason: z.enum([`autoStop`, `restart`]).optional() }).optional())
+    // `nullish`: the desktop sends a `null` body for "no reason".
+    .input(z.object({ reason: z.enum([`autoStop`, `restart`]).optional() }).nullish())
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const [stored] = await ctx.db

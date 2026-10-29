@@ -1,7 +1,6 @@
-- Ring din agent (beta): ring agenten på din röstenhet från iPhone, webben eller skrivbordsappen och prata med den handsfree
-- Väckningsord (beta): säg väckningsfrasen nära din röstenhet för att börja prata, utan kortkommando
-- Upplästa svar (beta): svar läses upp på engelska och tyska, och tyska börjar nu tala mycket snabbare
-- Röstförslag (beta): när agenten vill ändra något via röst visar den ett kort och väntar på ditt ja
-- Avbrutna sessioner fortsätter av sig själva, köade sessioner väntar på sin enhet, och plan- och frågekort når fram till teamagenten
-- Markera flera chattar för att markera dem som lästa, arkivera eller radera dem; arkivering döljer dem bara för dig
-- Alla kryssrutor är nu fyrkantiga, sidan Enheter visar en rad per dator, och en nekad merge visas i tråden med Försök igen
+- Stories: det dina agenter visar dig (frågor, planer, resultat med skärmbilder) dyker upp som stories ovanför Chattar; svep igenom dem och svara direkt där
+- Din Assistent: varje medlem får en egen Assistent, med egen chatt, röst och schema; Inställningar är omgrupperade kring den
+- Samtal som ett telefonsamtal: ett samtal ringer först och svarar sedan med Hello?, på en samtalsskärm med runda knappar för ljud av, högtalare och lägg på
+- Mötesläge: din Assistent kan följa ett möte som du startar på din dator, med allas samtycke, och slutar av sig själv efter den tid du väljer
+- Länkade chattar: ett meddelande från en annan chatt visar var det kom ifrån; tryck på det för att hoppa dit och tillbaka
+- Korrigeringar: chattrubriker matchar de andra apparna, en snabb återuppringning ringer igen, och planläget är borta (planer är kort som du svarar på)

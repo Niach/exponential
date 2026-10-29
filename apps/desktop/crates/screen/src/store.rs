@@ -68,9 +68,45 @@ fn io(err: std::io::Error) -> String {
     format!("screen memory store: {err}")
 }
 
+/// The frames are the member's screen: on unix the directories are
+/// owner-only (0700, also one an older build left wider) …
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+    }
+    #[cfg(not(unix))]
+    fs::create_dir_all(dir)
+}
+
+/// … and every file (frames, the index and its WAL/SHM, which SQLite
+/// creates with the index's mode) is 0600.
+fn private_file(file: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        let opened = options.open(file)?;
+        opened.set_permissions(fs::Permissions::from_mode(0o600))?;
+        Ok(opened)
+    }
+    #[cfg(not(unix))]
+    options.open(file)
+}
+
 impl Store {
     pub(crate) fn open(data_dir: &Path) -> Result<Store, String> {
-        fs::create_dir_all(data_dir.join(FRAMES_DIR)).map_err(io)?;
+        private_dir(&data_dir.join(FRAMES_DIR)).map_err(io)?;
+        for suffix in ["", "-wal", "-shm"] {
+            let file = data_dir.join(format!("{INDEX_FILE}{suffix}"));
+            if suffix.is_empty() || file.exists() {
+                private_file(&file).map_err(io)?;
+            }
+        }
         let conn = Connection::open(data_dir.join(INDEX_FILE)).map_err(sql)?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -102,9 +138,14 @@ impl Store {
     pub(crate) fn insert(&self, row: &Row, webp: &[u8]) -> Result<(), String> {
         let file = self.file(row);
         if let Some(dir) = file.parent() {
-            fs::create_dir_all(dir).map_err(io)?;
+            private_dir(dir).map_err(io)?;
         }
-        fs::write(&file, webp).map_err(io)?;
+        {
+            use std::io::Write;
+            let mut out = private_file(&file).map_err(io)?;
+            out.set_len(0).map_err(io)?;
+            out.write_all(webp).map_err(io)?;
+        }
         let focus = row.focus;
         self.conn
             .execute(
@@ -270,6 +311,35 @@ pub(crate) mod tests {
             height: 2,
             focus: Some(Rect { x: 1, y: 0, width: 2, height: 2 }),
         }
+    }
+
+    /// The frames are the member's screen: owner-only on unix, also a
+    /// directory or an index an older build left wider.
+    #[cfg(unix)]
+    #[test]
+    fn the_store_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let dir = TempDir::new();
+        fs::create_dir_all(dir.0.join(FRAMES_DIR)).unwrap();
+        fs::set_permissions(dir.0.join(FRAMES_DIR), fs::Permissions::from_mode(0o755)).unwrap();
+        let store = Store::open(&dir.0).unwrap();
+        let at = 1_793_181_620_000;
+        store.insert(&row(at, 1), b"webp").unwrap();
+        let file = dir.0.join(relative_path(at, 1));
+        assert_eq!(mode(&dir.0.join(FRAMES_DIR)), 0o700);
+        assert_eq!(mode(file.parent().unwrap()), 0o700);
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(fs::read(&file).unwrap(), b"webp");
+        for suffix in ["", "-wal", "-shm"] {
+            let index = dir.0.join(format!("{INDEX_FILE}{suffix}"));
+            if index.exists() {
+                assert_eq!(mode(&index), 0o600, "{INDEX_FILE}{suffix}");
+            }
+        }
+        // A shorter frame rewritten in place leaves no tail.
+        store.insert(&row(at, 1), b"w").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"w");
     }
 
     #[test]

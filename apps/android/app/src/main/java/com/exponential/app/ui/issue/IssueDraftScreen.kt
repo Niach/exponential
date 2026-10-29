@@ -118,6 +118,7 @@ fun IssueDraftScreen(
     val labels by viewModel.labels.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
+    val assignableAgents by viewModel.assignableAgents.collectAsStateWithLifecycle()
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val board by viewModel.board.collectAsStateWithLifecycle()
     val teamBoards by viewModel.teamBoards.collectAsStateWithLifecycle()
@@ -562,7 +563,7 @@ fun IssueDraftScreen(
         )
         DraftSheet.Assignee -> AssigneePicker(
             members = teamUsers.map { it.toPickerMember() },
-            agents = teamAgents.map { it.toPickerAgent() },
+            agents = assignableAgents.map { it.toPickerAgent() },
             value = assigneePickerValue(state.assigneeId, state.assigneeAgentId),
             onChange = { picked ->
                 val next = assigneeFromPickerValue(picked.firstOrNull()).write()

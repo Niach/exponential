@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react"
-import { and, eq, gt, inArray, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, gt, inArray, isNull, not, useLiveQuery } from "@tanstack/react-db"
 import {
+  STORIES_CONSTANTS,
   stories as foldStories,
   isStoryCard,
   type Story,
@@ -33,13 +34,14 @@ import type { SessionRow } from "@/lib/session-tree"
 //   reads     the viewer's session_reads (`readAt`, `storySeenAt`)
 //
 // BACKGROUND SYNC (#EXP-1380: every messages query narrows by rootId): the
-// member's agent conversations and the recently active roots (≤ RECENT_MAX,
-// the last RECENT_DAYS) load their last week of messages eagerly, so a
-// result story shows without its chat being opened; everything else stays
-// on demand.
+// member's agent conversations and EVERY root whose tree was active within a
+// result's keep window (`constants.unseenHours`) load that window's
+// session-authored CARD rows (`author_session_id` + `card` set: the only
+// rows a story can be) eagerly, so every story the fold keeps shows without
+// its chat being opened, as on the natives (F40: no root cap); transcripts
+// stay on demand.
 
-const RECENT_DAYS = 7
-const RECENT_MAX = 30
+const WINDOW_MS = STORIES_CONSTANTS.unseenHours * 3_600_000
 const DAY = 86_400_000
 
 const ms = (value: unknown): number | null => {
@@ -51,29 +53,26 @@ const ms = (value: unknown): number | null => {
   return null
 }
 
-/** The roots whose messages sync in the background: the member's agent
- *  conversations, then the newest active roots of the last week (≤ max). */
+/** The roots whose story cards sync in the background: the member's agent
+ *  conversations, plus every root whose tree (the root or any session under
+ *  it) moved within the keep window. */
 export function backgroundStoryRoots(
   rows: readonly Pick<SessionRow, `id` | `rootId` | `agentId` | `userId` | `createdAt` | `updatedAt`>[],
   me: string | null,
-  now: number,
-  max: number = RECENT_MAX
+  now: number
 ): string[] {
-  const roots = rows.filter((row) => row.id === row.rootId)
-  const conversations = roots.filter((row) => row.agentId && row.userId === me).map((row) => row.id)
-  const since = now - RECENT_DAYS * DAY
-  const recent = roots
-    .filter((row) => !conversations.includes(row.id))
-    .map((row) => ({ id: row.id, at: ms(row.updatedAt) ?? ms(row.createdAt) ?? 0 }))
-    .filter((row) => row.at >= since)
-    .sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : 1))
-    .slice(0, Math.max(0, max - conversations.length))
-    .map((row) => row.id)
-  return [...conversations, ...recent].sort()
+  const since = now - WINDOW_MS
+  const out = new Set<string>()
+  for (const row of rows) {
+    if (row.id === row.rootId && row.agentId && row.userId === me) out.add(row.id)
+    if ((ms(row.updatedAt) ?? ms(row.createdAt) ?? 0) >= since) out.add(row.rootId)
+  }
+  return [...out].sort()
 }
 
 /** THE background sync: the member's agent conversations and the recently
- *  active roots, their last week of messages (narrowed by rootId, #EXP-1380).
+ *  active roots, their session-authored cards of the keep window (narrowed
+ *  by rootId, #EXP-1380).
  *  The team layout mounts it so a result is there before the chats page
  *  opens; `useStories` reads the same subset. */
 export function useStoryBackgroundSync(teamId: string | null | undefined): unknown[] | undefined {
@@ -85,7 +84,7 @@ export function useStoryBackgroundSync(teamId: string | null | undefined): unkno
   // move on the hour.
   const day = Math.floor(now / DAY)
   const hour = Math.floor(now / 3_600_000)
-  const since = useMemo(() => new Date((day - RECENT_DAYS) * DAY), [day])
+  const since = useMemo(() => new Date(day * DAY - WINDOW_MS), [day])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const roots = useMemo(() => backgroundStoryRoots(rows, me, now), [rows, me, hour])
   const rootKey = roots.join(`,`)
@@ -94,7 +93,14 @@ export function useStoryBackgroundSync(teamId: string | null | undefined): unkno
       roots.length > 0
         ? query
             .from({ messages: messageCollection })
-            .where(({ messages }) => and(inArray(messages.rootId, roots), gt(messages.createdAt, since)))
+            .where(({ messages }) =>
+              and(
+                inArray(messages.rootId, roots),
+                gt(messages.createdAt, since),
+                not(isNull(messages.authorSessionId)),
+                not(isNull(messages.card))
+              )
+            )
         : undefined,
     [rootKey, since.getTime()]
   )

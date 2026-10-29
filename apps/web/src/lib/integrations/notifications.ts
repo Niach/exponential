@@ -1006,7 +1006,8 @@ export async function notifySessionBlocked(
 /**
  * FEED-154: another account withdrew a member's share of their machine (a
  * team owner's `devices.dropShare`, an instance admin's drop, or the
- * machine's key holder proving a squat): the device OWNER is told instead
+ * machine's key holder proving a squat, an instance admin's key reset):
+ * the device OWNER is told instead
  * of the share vanishing silently. One issue-less, team-scoped row
  * (`agent_message`, the inbox's generic person-readable row; it opens
  * nothing), push-first like every row. A self-unshare tells nobody. Best
@@ -1019,8 +1020,10 @@ export async function notifyDeviceShareRemoved(args: {
   deviceLabel: string
   /** How many hosted sessions the withdrawal ended. */
   endedCount: number
-  /** `key`: the machine's key holder proved the share was not the box's. */
-  cause: `dropped` | `key`
+  /** `key`: the machine's key holder proved the share was not the box's.
+   *  `admin`: an instance admin reset the machine's key (no name: the admin
+   *  is no teammate). */
+  cause: `dropped` | `key` | `admin`
 }): Promise<void> {
   if (args.ownerId === args.actorId) return
   try {
@@ -1033,7 +1036,9 @@ export async function notifyDeviceShareRemoved(args: {
     const title =
       args.cause === `key`
         ? `Your share of ${args.deviceLabel} with ${team.name} was removed: another account proved it holds this machine`
-        : `${await actorName(args.actorId)} removed your share of ${args.deviceLabel} with ${team.name}`
+        : args.cause === `admin`
+          ? `An instance admin reset the key of ${args.deviceLabel}, which removed your share with ${team.name}`
+          : `${await actorName(args.actorId)} removed your share of ${args.deviceLabel} with ${team.name}`
     const body =
       args.endedCount === 0
         ? null

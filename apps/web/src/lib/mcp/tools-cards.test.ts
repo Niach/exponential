@@ -59,7 +59,8 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
   createAgentBugReport: vi.fn(),
 }))
 
-import { registerExponentialTools } from "@/lib/mcp/tools"
+import { picturesOnlySurface, registerExponentialTools } from "@/lib/mcp/tools"
+import { buildSurfaceCard } from "@/lib/sessions/plan"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
 import type { McpUser } from "@/lib/mcp/server"
@@ -97,5 +98,19 @@ describe(`the show tool's registration (S-3)`, () => {
   it(`does not register show outside a session`, () => {
     const names = registered({ ...ALL_MCP_TOOL_GATES, inSession: false })
     expect(names.has(`exponential_show`)).toBe(false)
+  })
+})
+
+describe(`exponential_show with pictures only (F38)`, () => {
+  it(`synthesizes a valid surface: a Card holding the title, else the labels`, () => {
+    const card = buildSurfaceCard({
+      surface: picturesOnlySurface(`Chats`, [{ label: `web chats` }]),
+      title: `Chats`,
+      pictures: [{ label: `web chats` }],
+    })
+    expect(card.surface?.root).toMatchObject({ component: `Card` })
+    expect(JSON.stringify(card.surface)).toContain(`"Chats"`)
+    expect(card.pictures?.map((picture) => picture.label)).toEqual([`web chats`])
+    expect(JSON.stringify(picturesOnlySurface(undefined, [{ label: `web a` }, { label: `ios a` }]))).toContain(`web a, ios a`)
   })
 })

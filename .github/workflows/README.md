@@ -61,11 +61,18 @@ row for the id (its Remove deleted its original row, so an older squat row
 could read as earliest), and a row an admin `pinTo` (or a register after
 the deploy) wrote. Review each by hand: keep it (no call) or settle it with
 the printed `pinTo`. Any OTHER mismatch means the rule and the migration
-drifted. Review the pin list by hand too. During the
+drifted. Review the pin list by hand too. Settling WITHDRAWS EVERY share of
+the id, the rightful owner's included (their hosted runs end, they are
+told): the owner re-shares the machine afterwards. The call is a raw tRPC
+POST as an instance admin, no transformer:
+`POST /api/trpc/admin.clearDeviceKey` with the JSON body
+`{"deviceId":"…","pinTo":"<userId>"}`. The audit refuses localhost:54321
+(the local dev DB), so a tunnel to the target database must listen on
+another local port. During the
 rolling deploy, old pods still register without writing first-seen (a short
 window: the next register on a new pod writes it).
 
-Steer relay order (#EXP-1415): deploy the relay BEFORE web, and roll web
+Steer relay order (#EXP-1405, the `live` ticket claim): deploy the relay BEFORE web, and roll web
 back with any relay rollback. Web mints `live` viewer tickets for idle
 sessions; a relay that ignores the claim shows those sessions as Ended.
 

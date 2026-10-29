@@ -1,7 +1,6 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.parseVersionTuple
 
 // EXP-1252: moving a live SESSION to another device, from its composer's
 // options line (the launch line's Device pin, placed before Model).
@@ -52,11 +51,6 @@ object SessionDeviceMove {
     const val REASON_OFFLINE = "This device is offline."
     const val REASON_VISIBILITY = "This device is shared differently, so the session can't move here."
     const val REASON_NO_LOGIN = "This device has no signed-in login for this agent."
-    const val REASON_UPDATE = "This device needs an update to receive sessions."
-
-    /** The first desktop/CLI build that receives a handoff (the server's
-     *  `MOVE_MIN_VERSION`); an unreported version = an old build. */
-    val MOVE_MIN_VERSION: List<Int> = listOf(0, 14, 73)
 
     /** The agent a session without a recorded `cli` runs (web parity). */
     private const val DEFAULT_AGENT = "claude"
@@ -84,24 +78,12 @@ object SessionDeviceMove {
     /** The device row is shared into the session's team. */
     fun sharedWithTeam(device: SteerDevice, teamId: String): Boolean = teamId in device.sharedTeamIds
 
-    /** Whether a device's reported marketing version is at least
-     *  [MOVE_MIN_VERSION] (web `deviceCanReceiveSession`): an unreported or
-     *  unparsable version = an old build. `major.minor.patch` with any
-     *  `-`/`+` suffix ignored, missing segments 0 (web `parseVersionTuple`). */
-    fun canReceiveSession(version: String?): Boolean {
-        val have = parseVersionTuple(version) ?: return false
-        for (i in 0 until 3) {
-            if (have[i] != MOVE_MIN_VERSION[i]) return have[i] > MOVE_MIN_VERSION[i]
-        }
-        return true
-    }
-
     /** One target's refusal, or null = movable. ORDER ×4: offline,
-     *  visibility, update (a build before [MOVE_MIN_VERSION]), no login. */
+     *  visibility, no login. Old builds are the CLIENT_MIN_VERSION floor's
+     *  job, never a refusal here. */
     fun targetReason(device: SteerDevice, teamId: String, shared: Boolean, cli: String?): String? {
         if (!device.online) return REASON_OFFLINE
         if (sharedWithTeam(device, teamId) != shared) return REASON_VISIBILITY
-        if (!canReceiveSession(device.version)) return REASON_UPDATE
         val agent = cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
         if (agent !in device.runnableAgents) return REASON_NO_LOGIN
         return null

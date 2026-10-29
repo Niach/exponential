@@ -97,9 +97,12 @@ async function deviceAgentAccounts(
 }
 
 export const agentsRouter = router({
-  /** Member read: the team's agents (MCP `agents_list`; clients sync the shape). */
+  /** Member read: the team's agents (MCP `agents_list`; clients sync the
+   *  shape). S-3: the caller's own Assistant + the team agents, never
+   *  another member's Assistant (`visibleAgent`: not theirs to pick). */
   list: authedProcedure.input(z.object({ teamId: uuid })).query(async ({ ctx, input }) => {
-    await assertTeamMember(ctx.session.user.id, input.teamId)
+    const userId = ctx.session.user.id
+    await assertTeamMember(userId, input.teamId)
     const rows = await ctx.db
       .select({
         id: agents.id,
@@ -120,7 +123,9 @@ export const agentsRouter = router({
         updatedAt: agents.updatedAt,
       })
       .from(agents)
-      .where(eq(agents.teamId, input.teamId))
+      .where(
+        and(eq(agents.teamId, input.teamId), or(eq(agents.role, `agent`), eq(agents.ownerId, userId)))
+      )
       .orderBy(asc(agents.sortOrder), asc(agents.name))
     return { agents: rows }
   }),
@@ -229,6 +234,10 @@ export const agentsRouter = router({
           cli ?? null,
           await deviceAgentAccounts(tx, ownerId, deviceId)
         )
+        // Only an explicit pick or a reconcile CHANGE writes the login: a
+        // rename / toggle / reorder never undoes a device-reported rotation
+        // of a conversation's account (EXP-849).
+        const accountWrite = input.account !== undefined || account !== agent.account ? { account } : {}
         const [updated] = await tx
           .update(agents)
           .set({
@@ -242,7 +251,7 @@ export const agentsRouter = router({
               : {}),
             ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
-            account,
+            ...accountWrite,
             ...(model !== undefined ? { model } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved ? { deviceId: input.deviceId } : {}),
@@ -259,7 +268,7 @@ export const agentsRouter = router({
             .set({
               ...agentMirror(updated!),
               ...(input.cli !== undefined ? { cli: input.cli } : {}),
-              account,
+              ...accountWrite,
               ...(model !== undefined ? { model } : {}),
               ...(moved
                 ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false, background: false }

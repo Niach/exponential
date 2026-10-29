@@ -61,6 +61,12 @@ pub struct SessionBrief {
     /// from a server that does not send it.
     #[serde(default)]
     pub voice_policy: bool,
+    /// NEW-58 (`fixtures/screen-memory.json` TOOL): the voice conversation is
+    /// private to its member (the agent on their own machine shared with no
+    /// team, the conversation not `shared`), so it may get screen memory;
+    /// `false` from a server that does not send it (fails closed).
+    #[serde(default)]
+    pub screen_memory: bool,
 }
 
 impl SessionBrief {
@@ -497,10 +503,17 @@ mod tests {
     }
 
     #[test]
+    fn brief_without_screen_memory_fails_closed() {
+        let brief: SessionBrief = serde_json::from_str(r#"{"brief":"Hi.","voicePolicy":true}"#).unwrap();
+        assert!(brief.voice_policy);
+        assert!(!brief.screen_memory, "an older server never grants screen memory");
+    }
+
+    #[test]
     fn brief_queries_with_the_session_id_and_decodes_the_layers() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true}}}"#,
+            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true}}}"#,
         );
         let brief = brief(&client(&base), SESSION).unwrap();
         assert_eq!(
@@ -512,6 +525,7 @@ mod tests {
                 parent_branch: Some("exp/EXP-0".to_string()),
                 root_agent_id: None,
                 voice_policy: true,
+                screen_memory: true,
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

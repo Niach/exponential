@@ -94,7 +94,7 @@ pub(crate) fn capturing(view: Option<&ScreenView>, paused: bool) -> Vec<u32> {
     view.work
         .iter()
         .copied()
-        .filter(|display| !view.tops.iter().any(|top| top.display == *display && ring::denied(&top.app, &top.app, &top.title)))
+        .filter(|display| !view.tops.iter().any(|top| top.display == *display && ring::denied(top.app_id.as_deref().unwrap_or(&top.app), &top.app, &top.title)))
         .collect()
 }
 

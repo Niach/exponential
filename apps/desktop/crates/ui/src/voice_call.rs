@@ -315,6 +315,12 @@ pub(crate) fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     .detach();
 }
 
+/// The `call_event` a host sends before hanging up on a call it failed
+/// (voice-call.json `wire.control`): the caller steps it as `failed`.
+fn host_failed_event(code: &str) -> serde_json::Value {
+    serde_json::json!({ "t": "failed", "code": code })
+}
+
 /// #NEW-57: join the call only to fail it as `meeting` (a `failed` flow
 /// event the caller steps), then hang up.
 fn refuse_for_meeting(call_id: String, cx: &mut App) {
@@ -332,7 +338,7 @@ fn refuse_for_meeting(call_id: String, cx: &mut App) {
         while started.elapsed() < ring_timeout() {
             match rx.try_recv() {
                 Ok(steer::call_host::CallHostEvent::Ready) => {
-                    host.send_event(serde_json::json!({ "t": "failed", "code": "meeting" }));
+                    host.send_event(host_failed_event("meeting"));
                     break;
                 }
                 Ok(steer::call_host::CallHostEvent::Ended { .. } | steer::call_host::CallHostEvent::Dropped(_))
@@ -639,7 +645,10 @@ impl VoiceCall {
         if active.speaking.is_some() {
             crate::speak_replies::stop(cx);
         }
+        // F41: a streamed caller fails with the same toast (voice-call.json
+        // `call_event` failed), never the reason-less hang-up's silent end.
         if let Some(host) = active.host.as_ref() {
+            host.send_event(host_failed_event(code));
             host.end();
         }
         self.step(CallEvent::Failed(code.to_string()), cx);
@@ -1119,5 +1128,12 @@ mod tests {
         assert!(wire_event(&CallEvent::Mute).is_none());
         assert!(wire_event(&CallEvent::End).is_none());
         assert!(wire_event(&CallEvent::Start { device: "mint".into(), language: None }).is_none());
+    }
+
+    /// F41: a host that fails the call names the code before `call_end`.
+    #[test]
+    fn a_failed_call_tells_the_caller_its_code() {
+        assert_eq!(host_failed_event("unavailable"), serde_json::json!({ "t": "failed", "code": "unavailable" }));
+        assert_eq!(host_failed_event("meeting")["t"], "failed");
     }
 }

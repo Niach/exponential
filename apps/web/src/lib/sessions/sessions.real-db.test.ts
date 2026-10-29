@@ -880,7 +880,26 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: ada!.id })
     expect((await composeSessionBrief(agent.sessionId)).voicePolicy).toBe(true)
     expect((await composeSessionBrief(spawned.sessionId)).voicePolicy).toBe(false)
-    await db.delete(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
+    // NEW-58 (screen-memory.json TOOL): screen memory only while the voice
+    // conversation is private: the agent's box shared with no team (ANY
+    // team), the conversation not `shared`; never a spawned thread.
+    expect((await composeSessionBrief(agent.sessionId)).screenMemory).toBe(true)
+    expect((await composeSessionBrief(spawned.sessionId)).screenMemory).toBe(false)
+    const elsewhere = await world()
+    await db.update(devices).set({ sharedTeamIds: [elsewhere.teamId] }).where(eq(devices.deviceId, w.deviceId))
+    expect(await composeSessionBrief(agent.sessionId)).toMatchObject({ voicePolicy: true, screenMemory: false })
+    await db.update(devices).set({ sharedTeamIds: [] }).where(eq(devices.deviceId, w.deviceId))
+    await db.update(sessions).set({ shared: true }).where(eq(sessions.id, agent.sessionId))
+    expect(await composeSessionBrief(agent.sessionId)).toMatchObject({ voicePolicy: true, screenMemory: false })
+    await db.update(sessions).set({ shared: false }).where(eq(sessions.id, agent.sessionId))
+    // A teammate whose voice agent lives on the owner's shared box never
+    // reads the owner's screen.
+    await db.update(devices).set({ sharedTeamIds: [w.teamId] }).where(eq(devices.deviceId, w.deviceId))
+    const mates = await sendSession({ userId: w.mate, input: { agentId: ada!.id, text: `hi` } })
+    await db.insert(userVoiceSettings).values({ userId: w.mate, agentId: ada!.id })
+    expect(await composeSessionBrief(mates.sessionId)).toMatchObject({ voicePolicy: true, screenMemory: false })
+    await db.update(devices).set({ sharedTeamIds: [] }).where(eq(devices.deviceId, w.deviceId))
+    await db.delete(userVoiceSettings).where(inArray(userVoiceSettings.userId, [w.owner, w.mate]))
   })
 })
 
@@ -2529,6 +2548,13 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .map((m) => m.body)
   const surface = (text: string) => buildSurfaceCard({ surface: { root: { id: `t`, component: `Text`, props: { text } } } })
+  // The device delivers every waiting input (the turn edge).
+  const deliver = async (host: ReturnType<typeof caller>, sessionId: string) => {
+    const waiting = (await db.select().from(messages).where(eq(messages.sessionId, sessionId))).filter(
+      (m) => m.authorKind === `user` && m.consumedAt === null
+    )
+    if (waiting.length) await host.consume({ sessionId, messageIds: waiting.map((m) => m.id) })
+  }
 
   it(`an agent conversation's later turn text edits the one since the last person message; a person message starts a new one`, async () => {
     const w = await world()
@@ -2544,8 +2570,43 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     expect(second.messageId).toBe(first.messageId)
     expect(await texts(convo.sessionId)).toEqual([`Half done.`])
     await sendSession({ userId: w.owner, input: { sessionId: convo.sessionId, text: `and now?` } })
+    await deliver(host, convo.sessionId)
     await host.reply({ sessionId: convo.sessionId, body: `Done.` })
     expect(await texts(convo.sessionId)).toEqual([`Half done.`, `Done.`])
+  })
+
+  it(`a message queued mid-turn belongs to the next turn: its reply never edits this turn's answer (F29)`, async () => {
+    const w = await world()
+    const [bot] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Bot`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const convo = await sendSession({ userId: w.owner, input: { agentId: bot!.id, text: `M1` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: convo.sessionId, deviceId: w.deviceId })
+    await deliver(host, convo.sessionId)
+    // M2 arrives while turn N runs; N's answer lands after it.
+    await sendSession({ userId: w.owner, input: { sessionId: convo.sessionId, text: `M2` } })
+    const answer1 = await host.reply({ sessionId: convo.sessionId, body: `Answer to M1.` })
+    await deliver(host, convo.sessionId)
+    const answer2 = await host.reply({ sessionId: convo.sessionId, body: `Answer to M2.` })
+    expect(answer2.messageId).not.toBe(answer1.messageId)
+    expect(await texts(convo.sessionId)).toEqual([`Answer to M1.`, `Answer to M2.`])
+  })
+
+  it(`replace edits the card of the running turn, not one a queued message precedes (F29)`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `show it` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
+    await deliver(host, sent.sessionId)
+    await sendSession({ userId: w.mate, input: { sessionId: sent.sessionId, text: `queued` } })
+    const first = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`a`), replace: true })
+    const same = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`b`), replace: true })
+    expect(same).toMatchObject({ messageId: first.messageId, replaced: true })
+    await deliver(host, sent.sessionId)
+    const next = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: surface(`c`), replace: true })
+    expect(next.replaced).toBe(false)
   })
 
   it(`a thread's turn texts stay separate bubbles; its relayed copy in the parent follows an edit of the origin`, async () => {
@@ -2642,5 +2703,36 @@ describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures
     expect((await loadStoryPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
     const sibling = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `web part` } })
     expect(await loadStoryPictures(root.sessionId, sibling.sessionId)).toEqual([])
+  })
+
+  it(`replace keeps the pictures already uploaded and grants only the new labels (F37)`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` } })
+    const posted = await postShowCard({
+      userId: w.owner,
+      sessionId: root.sessionId,
+      card: buildSurfaceCard({ surface, pictures: [{ label: `ios chats` }] }),
+      replace: false,
+    })
+    const attachmentId = crypto.randomUUID()
+    await publishCardPicture(
+      { messageId: posted.messageId, sessionId: root.sessionId, teamId: w.teamId, label: `ios chats`, uploaderId: w.owner },
+      { attachmentId, storageKey: `s3/${attachmentId}`, url: ``, width: 10, height: 20, contentType: `image/png`, sizeBytes: 1, filename: `a.png` }
+    )
+    const replaced = await postShowCard({
+      userId: w.owner,
+      sessionId: root.sessionId,
+      card: buildSurfaceCard({ surface, title: `Now`, pictures: [{ label: `ios chats` }, { label: `web chats` }] }),
+      replace: true,
+    })
+    expect(replaced).toMatchObject({ messageId: posted.messageId, replaced: true })
+    expect(replaced.uploads.map((upload) => upload.label)).toEqual([`web chats`])
+    const row = (await db.select().from(messages).where(eq(messages.id, posted.messageId)))[0]!
+    expect((row.card as { title: string; pictures: unknown[] }).title).toBe(`Now`)
+    expect((row.card as { pictures: unknown[] }).pictures).toMatchObject([
+      { label: `ios chats`, attachmentId, width: 10, height: 20 },
+      { label: `web chats`, attachmentId: null },
+    ])
+    expect((await loadStoryPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
   })
 })

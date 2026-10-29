@@ -51,3 +51,38 @@ export function assertLocalDatabase(consequence: string): void {
       `Point DATABASE_URL at the local dev database (localhost, 127.0.0.1, ::1, or port 54321), or pass ${ALLOW_REMOTE_FLAG} if you truly mean this one.`
   )
 }
+
+// F27 (2026-10-29): "local" is not enough. The SHARED dev DB (the compose
+// Postgres on :54321, database `exponential`) is every worktree's and every
+// lane's at once: a seed tears its demo team down under a live check, a prune
+// deletes device rows another run registered (twice on 2026-10-28). The
+// capture lanes run on temp DBs (`exp_<x>` on the same port) or a throwaway
+// stack; only the default `bun run shots` path, which seeds the shared DB on
+// purpose, types the override. packages/shots/src/capture-db.ts is the same
+// rule seen from the orchestrator (it refuses a throwaway stack pointed here).
+
+export const SHARED_DEV_DB_FLAG = `--shared-dev-db`
+
+/** Loopback (or any host) on :54321, database `exponential`: the shared dev DB. */
+export function databaseIsSharedDev(raw: string | undefined): boolean {
+  if (!raw) return false
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return false
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, ``).toLowerCase()
+  const loopback = host === `localhost` || host === `127.0.0.1` || host === `::1`
+  return loopback && url.port === `54321` && decodeURIComponent(url.pathname.replace(/^\//, ``)) === `exponential`
+}
+
+/** Throw when `DATABASE_URL` is the shared dev DB, unless `--shared-dev-db`. */
+export function assertNotSharedDevDatabase(consequence: string): void {
+  if (process.argv.includes(SHARED_DEV_DB_FLAG)) return
+  if (!databaseIsSharedDev(process.env.DATABASE_URL)) return
+  throw new Error(
+    `Refusing to run against the SHARED dev DB (localhost:54321/exponential): ${consequence} ` +
+      `Point DATABASE_URL at a temp DB (e.g. .../exp_<you> on the same port) or a throwaway stack, or pass ${SHARED_DEV_DB_FLAG} if you truly mean the shared one.`
+  )
+}

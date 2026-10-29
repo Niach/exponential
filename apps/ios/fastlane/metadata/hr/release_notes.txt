@@ -1,7 +1,6 @@
-- Nazovite agenta (beta): nazovite agenta svog glasovnog uređaja s iPhonea, weba ili desktop aplikacije i razgovarajte bez ruku
-- Riječ za buđenje (beta): izgovorite frazu za buđenje blizu glasovnog uređaja i počnite govoriti, bez prečaca
-- Izgovoreni odgovori (beta): odgovori se čitaju naglas na engleskom i njemačkom, a njemački sada počinje govoriti puno brže
-- Glasovni prijedlozi (beta): kad agent želi nešto promijeniti glasom, prikaže karticu i čeka vaše da
-- Prekinute sesije nastavljaju same, sesije u redu čekaju svoj uređaj, a kartice s planom i pitanjima stižu do agenta tima
-- Odaberite više razgovora da ih označite kao pročitane, arhivirate ili izbrišete; arhiviranje ih skriva samo vama
-- Svi potvrdni okviri sada su četvrtasti, stranica Uređaji prikazuje jedan redak po računalu, a odbijeni merge pojavljuje se u niti s opcijom Pokušaj ponovno
+- Stories: ono što vam agenti pokazuju (pitanja, planovi, rezultati sa snimkama zaslona) stiže kao stories iznad Razgovora; listajte ih i odgovorite odmah ondje
+- Vaš Asistent: svaki član dobiva vlastitog Asistenta, s vlastitim razgovorom, glasom i rasporedom; Postavke su nanovo grupirane oko njega
+- Pozivi kao telefonski: poziv najprije zvoni, a zatim se javlja s Hello?, na zaslonu poziva s okruglim tipkama za utišavanje, zvučnik i prekid
+- Način sastanka: vaš Asistent može pratiti sastanak koji pokrenete na desktopu, uz pristanak svih, i sam se zaustavlja nakon vremena koje odaberete
+- Povezani razgovori: poruka iz drugog razgovora pokazuje odakle dolazi; dodirnite je da skočite tamo i natrag
+- Ispravci: zaglavlja razgovora odgovaraju ostalim aplikacijama, brzi ponovni poziv opet zvoni, a način plana je uklonjen (planovi su kartice na koje odgovarate)

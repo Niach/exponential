@@ -45,7 +45,10 @@ final class VoiceCallAudio: @unchecked Sendable {
     /// The engine died mid-call (an interruption, a route it can't restart on).
     private let onFailure: @Sendable (_ code: String) -> Void
 
-    private static let sharedQueue = DispatchQueue(label: "at.exponential.voice-call.audio", qos: .userInteractive)
+    /// Also where the ring tone's `CallAudioSession.enter` and a call's
+    /// engine-less `leave` run, so a hang-up's leave always lands before an
+    /// immediate redial's enter.
+    static let sharedQueue = DispatchQueue(label: "at.exponential.voice-call.audio", qos: .userInteractive)
     private var queue: DispatchQueue { Self.sharedQueue }
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -533,26 +536,42 @@ enum CallAudioSession {
 
 /// S-3: the caller's ring tone (voice-call.json: plays on the CALLING
 /// client while the call rings): a generated two-tone burst, then silence,
-/// looped until the call is answered or ends.
+/// for `ringMs` (two periods), or less when the call is answered or ends
+/// first. The call itself keeps ringing on screen until `rang` + `ready`.
 @MainActor
 final class CallRingTone {
     private var player: AVAudioPlayer?
+    /// Bumped by every start and stop: a session that opened after a stop
+    /// plays nothing.
+    private var token = 0
 
     func start() {
         guard player == nil else { return }
-        do {
-            try CallAudioSession.enter()
-            let player = try AVAudioPlayer(data: Self.wav)
-            player.numberOfLoops = -1
-            player.volume = 0.6
-            player.play()
-            self.player = player
-        } catch {
-            // No tone is no failure: the call still rings on screen.
+        token += 1
+        let token = token
+        // The session opens on the audio queue, behind the previous call's
+        // `leave` (an immediate redial must not ring into a session that
+        // leave is about to deactivate).
+        VoiceCallAudio.sharedQueue.async {
+            let entered = (try? CallAudioSession.enter()) != nil
+            Task { @MainActor [weak self] in
+                guard let self, entered, token == self.token, self.player == nil else { return }
+                do {
+                    let player = try AVAudioPlayer(data: Self.wav)
+                    // Two periods = `ringMs`.
+                    player.numberOfLoops = 1
+                    player.volume = 0.6
+                    player.play()
+                    self.player = player
+                } catch {
+                    // No tone is no failure: the call still rings on screen.
+                }
+            }
         }
     }
 
     func stop() {
+        token += 1
         player?.stop()
         player = nil
     }

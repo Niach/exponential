@@ -20,7 +20,7 @@ class SessionDeviceMoveTest {
         shared: Boolean = false,
         agents: List<String>? = listOf("claude"),
         owner: DeviceOwner? = null,
-        version: String? = "0.14.73",
+        version: String? = null,
     ) = SteerDevice(
         deviceId = id,
         deviceLabel = id.uppercase(),
@@ -37,7 +37,6 @@ class SessionDeviceMoveTest {
         assertEquals("Couldn't move the session", SessionDeviceMove.MOVE_FAILED_TOAST)
         assertEquals("This device is offline.", SessionDeviceMove.REASON_OFFLINE)
         assertEquals("Agents move from Settings → Agents.", SessionDeviceMove.REASON_AGENT)
-        assertEquals("This device needs an update to receive sessions.", SessionDeviceMove.REASON_UPDATE)
     }
 
     @Test
@@ -68,36 +67,15 @@ class SessionDeviceMoveTest {
             SessionDeviceMove.REASON_VISIBILITY,
             SessionDeviceMove.targetReason(device("x", shared = true, agents = emptyList()), team, false, "claude"),
         )
-        // Update (a build before MOVE_MIN_VERSION) comes before no-login.
-        assertEquals(
-            SessionDeviceMove.REASON_UPDATE,
-            SessionDeviceMove.targetReason(device("x", agents = emptyList(), version = "0.14.72"), team, false, "claude"),
-        )
-        assertEquals(
-            SessionDeviceMove.REASON_UPDATE,
-            SessionDeviceMove.targetReason(device("x", version = null), team, false, "claude"),
-        )
+        // No version gate: an old or unreported build is never refused for it
+        // (the CLIENT_MIN_VERSION floor does that job).
+        assertNull(SessionDeviceMove.targetReason(device("x", version = "0.14.72"), team, false, "claude"))
+        assertNull(SessionDeviceMove.targetReason(device("x", version = null), team, false, "claude"))
         assertEquals(
             SessionDeviceMove.REASON_NO_LOGIN,
             SessionDeviceMove.targetReason(device("x", agents = listOf("codex")), team, false, "claude"),
         )
         assertNull(SessionDeviceMove.targetReason(device("x", shared = true), team, true, null))
-    }
-
-    // Web `deviceCanReceiveSession`: unreported or unparsable = old; a
-    // `-staging`/`+build` suffix is ignored; missing segments read as 0.
-    @Test
-    fun canReceiveSessionMatchesWebVersionRules() {
-        assertEquals(listOf(0, 14, 73), SessionDeviceMove.MOVE_MIN_VERSION)
-        assertFalse(SessionDeviceMove.canReceiveSession(null))
-        assertFalse(SessionDeviceMove.canReceiveSession(""))
-        assertFalse(SessionDeviceMove.canReceiveSession("dev"))
-        assertFalse(SessionDeviceMove.canReceiveSession("0.14.72"))
-        assertFalse(SessionDeviceMove.canReceiveSession("0.14"))
-        assertTrue(SessionDeviceMove.canReceiveSession("0.14.73"))
-        assertTrue(SessionDeviceMove.canReceiveSession("0.14.74-staging"))
-        assertTrue(SessionDeviceMove.canReceiveSession("0.15.0+abc123"))
-        assertTrue(SessionDeviceMove.canReceiveSession("1.0"))
     }
 
     @Test

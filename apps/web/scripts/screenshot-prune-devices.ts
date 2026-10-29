@@ -14,6 +14,9 @@
  *
  * Usage (from apps/web; the desktop lane calls it automatically when it ends):
  *   bun run screenshots:prune-devices
+ *
+ * It DELETES, so it refuses a non-local DATABASE_URL (`--allow-remote`) and the
+ * SHARED dev DB (`--shared-dev-db`; the default `bun run shots` path passes it).
  */
 import { and, inArray, not } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -25,6 +28,9 @@ import {
   NEWCOMER_EMAIL,
   STARTER_EMAIL,
 } from "./screenshot-demo"
+import { assertLocalDatabase, assertNotSharedDevDatabase } from "./lib/local-db-guard"
+
+const PRUNE_CONSEQUENCE = `screenshots:prune-devices DELETES the capture identities' device rows the seed did not create.`
 
 /** The machines the SEED owns. Everything else on either user is debris. */
 const SEEDED = [DEMO_DEVICE_ID, DEMO_SERVER_DEVICE_ID]
@@ -40,6 +46,8 @@ const SEEDED = [DEMO_DEVICE_ID, DEMO_SERVER_DEVICE_ID]
 const CAPTURE_IDENTITIES = [DEMO_EMAIL, NEWCOMER_EMAIL, STARTER_EMAIL]
 
 async function main() {
+  assertLocalDatabase(PRUNE_CONSEQUENCE)
+  assertNotSharedDevDatabase(PRUNE_CONSEQUENCE)
   const owners = await db
     .select({ id: users.id, email: users.email })
     .from(users)

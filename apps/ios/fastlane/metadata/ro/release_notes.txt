@@ -1,7 +1,6 @@
-- Sună-ți agentul (beta): sună agentul dispozitivului tău vocal de pe iPhone, din web sau din aplicația desktop și vorbește cu el fără mâini
-- Cuvânt de activare (beta): rostește fraza de activare lângă dispozitivul vocal ca să începi să vorbești, fără scurtătură
-- Răspunsuri vorbite (beta): răspunsurile sunt citite cu voce tare în engleză și germană, iar germana începe acum să vorbească mult mai repede
-- Propuneri vocale (beta): când agentul vrea să schimbe ceva prin voce, afișează un card și așteaptă acordul tău
-- Sesiunile întrerupte se reiau singure, sesiunile din coadă își așteaptă dispozitivul, iar cardurile de plan și de întrebare ajung la agentul echipei
-- Selectează mai multe conversații pentru a le marca drept citite, a le arhiva sau a le șterge; arhivarea le ascunde doar pentru tine
-- Toate casetele de bifat sunt acum pătrate, pagina Dispozitive arată un rând per calculator, iar un merge refuzat apare în fir cu Reîncearcă
+- Stories: ce îți arată agenții (întrebări, planuri, rezultate cu capturi de ecran) apare ca stories deasupra Conversațiilor; derulează-le și răspunde chiar acolo
+- Asistentul tău: fiecare membru primește propriul Asistent, cu conversație, voce și program proprii; Setările sunt regrupate în jurul lui
+- Apeluri ca la telefon: un apel sună întâi, apoi răspunde cu Hello?, pe un ecran de apel cu butoane rotunde pentru dezactivarea sunetului, difuzor și închidere
+- Modul întâlnire: Asistentul tău poate urmări o întâlnire pe care o pornești pe desktop, cu acordul tuturor, și se oprește singur după timpul ales
+- Conversații legate: un mesaj dintr-o altă conversație arată de unde vine; atinge-l ca să sari acolo și înapoi
+- Remedieri: anteturile conversațiilor se potrivesc cu celelalte aplicații, o reapelare rapidă sună din nou, iar modul plan a dispărut (planurile sunt carduri la care răspunzi)

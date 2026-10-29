@@ -17,6 +17,7 @@ import {
   devices,
   issues,
   mcpServers,
+  messages,
   prompts,
   repositories,
   sessions,
@@ -24,6 +25,7 @@ import {
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
@@ -579,6 +581,12 @@ export async function sendSession(args: {
    *  never on the MCP tool): its message expires after
    *  `contract.meeting.retentionDays` (`messages.expires_at`). */
   meeting?: boolean
+  /** F21: the sender's idempotency key (tRPC only): a send naming a key
+   *  its sender already posted returns that message's result, posting and
+   *  starting nothing (a retried meeting flush after a timeout). Stamped
+   *  on a message into a session, agent or app and a child's first one; a
+   *  new root's start carries no key. */
+  clientMessageId?: string
 }): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
   const starter = effectiveStarter(args.userId, caller)
@@ -588,18 +596,33 @@ export async function sendSession(args: {
   await assertAgentTreeTeam(input, caller)
   if (args.meeting) await assertMeetingSend(args.userId, input, args.viaMcp === true)
 
-  const extras = args.meeting ? withMeetingExpiry(args.extras ?? {}) : (args.extras ?? {})
+  const clientMessageId = args.viaMcp ? undefined : args.clientMessageId
+  if (clientMessageId) {
+    const sent = await clientMessageResult(uploaderIds, clientMessageId)
+    if (sent) return sent
+  }
+  let extras = args.meeting ? withMeetingExpiry(args.extras ?? {}) : (args.extras ?? {})
+  if (clientMessageId) extras = withClientMessageId(extras, clientMessageId)
   let outcome: SendOutcome
-  if (input.sessionId) {
-    outcome = await messageSession(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
-  } else if (input.agentId) {
-    outcome = await messageAgent(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
-  } else if (input.appId) {
-    outcome = await messageApp(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
-  } else if (input.parentId) {
-    outcome = await startChild(starter, uploaderIds, input, caller, extras)
-  } else {
-    outcome = await startRoot(starter, uploaderIds, input, caller)
+  try {
+    if (input.sessionId) {
+      outcome = await messageSession(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
+    } else if (input.agentId) {
+      outcome = await messageAgent(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
+    } else if (input.appId) {
+      outcome = await messageApp(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
+    } else if (input.parentId) {
+      outcome = await startChild(starter, uploaderIds, input, caller, extras)
+    } else {
+      outcome = await startRoot(starter, uploaderIds, input, caller)
+    }
+  } catch (err) {
+    // A concurrent retry committed the same key first: its result.
+    if (clientMessageId && uniqueViolationConstraint(err) === CLIENT_MESSAGE_ID_UNIQUE) {
+      const sent = await clientMessageResult(uploaderIds, clientMessageId)
+      if (sent) return sent
+    }
+    throw err
   }
 
   if (outcome.endedIds?.length) await relayKillSessionsBestEffort(outcome.endedIds)
@@ -658,6 +681,38 @@ async function assertMeetingSend(userId: string, input: SessionsSendInput, viaMc
   // Never into a team-visible conversation or onto a shared machine.
   if (!(await meetingAgentIsPrivate(db, userId, voiceAgentId!))) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: MEETING_SHARED_REFUSED })
+  }
+}
+
+const CLIENT_MESSAGE_ID_UNIQUE = `uq_messages_client_message_id`
+
+/** F21: the message the sender already posted under `clientMessageId`, as
+ *  the send's result (a fresh txid: nothing new to wait for). */
+async function clientMessageResult(
+  authorIds: string[],
+  clientMessageId: string
+): Promise<(SessionsSendResult & { txid: number }) | null> {
+  const [row] = await db
+    .select({ messageId: messages.id, sessionId: sessions.id, status: sessions.status })
+    .from(messages)
+    .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+    .where(and(eq(messages.clientMessageId, clientMessageId), inArray(messages.authorId, authorIds)))
+    .limit(1)
+  if (!row) return null
+  const txid = await db.transaction((tx) => generateTxId(tx))
+  return { sessionId: row.sessionId, messageId: row.messageId, status: row.status, txid }
+}
+
+/** F21: stamp the send's message with the sender's idempotency key (in
+ *  the send's transaction: a second insert under the key rolls it back). */
+function withClientMessageId(extras: SendExtras, clientMessageId: string): SendExtras {
+  return {
+    ...extras,
+    within: async (tx, result) => {
+      await extras.within?.(tx, result)
+      if (!result.messageId) return
+      await tx.update(messages).set({ clientMessageId }).where(eq(messages.id, result.messageId))
+    },
   }
 }
 
@@ -762,6 +817,8 @@ async function agentFreshThread(
   if (!caller || caller.rootId === target.rootId) return null
   if (target.parentId !== null || target.agentId || target.appId || isPersistent(target)) return null
   if (input.answer || !(input.text?.trim() || input.attachmentIds?.length)) return null
+  // A thread waiting on an answer: the reply answers it, never forks.
+  if (target.needsInput) return null
   if (!(await callerTreeAgentId(caller))) return null
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -769,22 +826,21 @@ async function agentFreshThread(
     .where(and(eq(sessions.rootId, target.id), ne(sessions.id, target.id)))
   const reason = agentReuseRefusal(target, count, new Date())
   if (!reason) return null
-  const outcome = await startRoot(
-    userId,
-    uploaderIds,
-    {
-      ...input,
-      sessionId: undefined,
-      teamId: target.teamId,
-      deviceId: input.deviceId ?? target.deviceId ?? undefined,
-      repositoryId: target.repositoryId ?? undefined,
-      cli: target.cli ?? undefined,
-      model: input.model ?? target.model ?? undefined,
-      effort: input.effort ?? target.effort ?? undefined,
-      account: input.account ?? target.account ?? undefined,
-    },
-    caller
-  )
+  const fresh: SessionsSendInput = {
+    ...input,
+    sessionId: undefined,
+    teamId: target.teamId,
+    deviceId: input.deviceId ?? target.deviceId ?? undefined,
+    repositoryId: target.repositoryId ?? undefined,
+    cli: target.cli ?? undefined,
+    model: input.model ?? target.model ?? undefined,
+    effort: input.effort ?? target.effort ?? undefined,
+    account: input.account ?? target.account ?? undefined,
+  }
+  // The send skipped the check (it named a session): the merged runner is
+  // a new start's, so it is checked like one.
+  assertRunnerVocabulary(fresh)
+  const outcome = await startRoot(userId, uploaderIds, fresh, caller)
   return {
     ...outcome,
     warning: `Started a fresh thread instead of reusing ${target.id}: ${reason}. You watch the new one.`,

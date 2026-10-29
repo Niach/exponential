@@ -12,8 +12,9 @@ import Foundation
 // MARK: - sessions.send
 
 /// The composer's runner pickers for a NEW session. Nil fields are omitted
-/// from the wire and mean the device's own default; `model: ""` / `effort:
-/// ""` is an explicit "CLI default".
+/// from the wire and mean the device's own default; `effort: ""` is an
+/// explicit "CLI default". A blank model is never sent (the key is omitted:
+/// the server reads absent and blank alike). S-3: no plan mode.
 public struct SessionLaunchOptions: Sendable, Equatable {
     /// Contract `codingAgent` (claude/codex).
     public var cli: String?
@@ -22,7 +23,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     public var account: String?
     public var model: String?
     public var effort: String?
-    public var planMode: Bool?
     /// nil = the device's own `launch_defaults.computerUse`.
     public var computerUse: Bool?
     /// Claude only.
@@ -35,7 +35,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         account: String? = nil,
         model: String? = nil,
         effort: String? = nil,
-        planMode: Bool? = nil,
         computerUse: Bool? = nil,
         ultracode: Bool? = nil,
         mcpServerIds: [String]? = nil
@@ -44,7 +43,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         self.account = account
         self.model = model
         self.effort = effort
-        self.planMode = planMode
         self.computerUse = computerUse
         self.ultracode = ultracode
         self.mcpServerIds = mcpServerIds
@@ -100,7 +98,7 @@ public enum SessionsSendInput: Sendable, Equatable {
 extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
-        case cli, account, model, effort, planMode, computerUse, ultracode, mcpServerIds
+        case cli, account, model, effort, computerUse, ultracode, mcpServerIds
         case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId
     }
 
@@ -109,9 +107,8 @@ extension SessionsSendInput: Encodable {
         func encodeOptions(_ options: SessionLaunchOptions) throws {
             try c.encodeIfPresent(options.cli, forKey: .cli)
             try c.encodeIfPresent(options.account, forKey: .account)
-            try c.encodeIfPresent(options.model, forKey: .model)
+            try c.encodeIfPresent(options.model.flatMap { $0.isEmpty ? nil : $0 }, forKey: .model)
             try c.encodeIfPresent(options.effort, forKey: .effort)
-            try c.encodeIfPresent(options.planMode, forKey: .planMode)
             try c.encodeIfPresent(options.computerUse, forKey: .computerUse)
             try c.encodeIfPresent(options.ultracode, forKey: .ultracode)
             try c.encodeIfPresent(options.mcpServerIds, forKey: .mcpServerIds)
@@ -274,7 +271,6 @@ private struct UnlinkIssueInput: Encodable {
 /// fields stay off the wire.
 public struct SessionConfigureInput: Encodable, Sendable, Equatable {
     public let sessionId: String
-    public var planMode: Bool?
     public var effort: String?
     public var ultracode: Bool?
     public var computerUse: Bool?
@@ -282,14 +278,12 @@ public struct SessionConfigureInput: Encodable, Sendable, Equatable {
 
     public init(
         sessionId: String,
-        planMode: Bool? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
         computerUse: Bool? = nil,
         mcpServerIds: [String]? = nil
     ) {
         self.sessionId = sessionId
-        self.planMode = planMode
         self.effort = effort
         self.ultracode = ultracode
         self.computerUse = computerUse

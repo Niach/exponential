@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import type { SyncedAgent } from "@/components/team/agents-section"
 import type { IssueAssignee } from "@/lib/issue-assignee"
+import { visibleAgent } from "@exp/domain-contract/agent-settings"
+import { useSession } from "@/hooks/use-session"
 
 const UnassignedGlyph = conceptIcon(`ui-unassigned`)
 
@@ -18,8 +20,10 @@ interface AssigneePickerProps {
   disabled?: boolean
   users: User[]
   /** #EXP-1383: the issue's TEAM's agents (`useAgentRows(teamId)`), listed
-   *  after the members. */
-  agents?: readonly Pick<SyncedAgent, `id` | `name` | `icon` | `color` | `sortOrder`>[]
+   *  after the members (S-3: another member's Assistant is dropped from the
+   *  rows, still read as the selected assignee). */
+  agents?: readonly (Pick<SyncedAgent, `id` | `name` | `icon` | `color` | `sortOrder`> &
+    Partial<Pick<SyncedAgent, `role` | `ownerId`>>)[]
   selectedUserId: string | null
   /** #EXP-1383: the agent assignee (exclusive with `selectedUserId`). */
   selectedAgentId?: string | null
@@ -52,6 +56,9 @@ export function AssigneePicker({
   triggerClassName,
   align = `start`,
 }: AssigneePickerProps) {
+  const { data: authSession } = useSession()
+  const me = authSession?.user?.id ?? null
+  const pickable = agents.filter((agent) => visibleAgent({ role: agent.role, ownerId: agent.ownerId ?? `` }, me))
   const members = users.map((user) => ({
     id: user.id,
     name: displayUserName(user, user.id),
@@ -68,7 +75,7 @@ export function AssigneePicker({
   return (
     <UiAssigneePicker
       members={members}
-      agents={agents}
+      agents={pickable}
       allowsNone
       value={assigneePickerValue({ assigneeId: selectedUserId, assigneeAgentId: selectedAgentId })}
       onChange={(value) => onSelect(assigneeFromPickerValue(value))}

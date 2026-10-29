@@ -1,7 +1,6 @@
-- Bel je agent (beta): bel de agent van je spraakapparaat vanaf je iPhone, het web of de desktop-app en praat handsfree
-- Wekwoord (beta): zeg de wekzin bij je spraakapparaat om te beginnen met praten, zonder sneltoets
-- Gesproken antwoorden (beta): antwoorden worden voorgelezen in het Engels en Duits, en Duits begint nu veel sneller te spreken
-- Spraakvoorstellen (beta): wil je agent iets via spraak wijzigen, dan toont hij een kaart en wacht hij op je ja
-- Onderbroken sessies gaan vanzelf verder, sessies in de wachtrij wachten op hun apparaat en plan- en vraagkaarten bereiken je teamagent
-- Selecteer meerdere chats om ze als gelezen te markeren, te archiveren of te verwijderen; archiveren verbergt ze alleen voor jou
-- Alle selectievakjes zijn nu vierkant, de pagina Apparaten toont één regel per machine en een geweigerde merge verschijnt in de thread met Opnieuw proberen
+- Stories: wat je agents je laten zien (vragen, plannen, resultaten met screenshots) verschijnt als stories boven Chats; swipe erdoorheen en antwoord meteen daar
+- Je Assistent: elk lid krijgt een eigen Assistent, met een eigen chat, stem en planning; Instellingen zijn eromheen opnieuw ingedeeld
+- Bellen zoals met de telefoon: een oproep gaat eerst over en neemt dan op met Hello?, op een belscherm met ronde knoppen voor dempen, luidspreker en ophangen
+- Vergadermodus: je Assistent kan een vergadering volgen die je op je desktop start, met ieders toestemming, en stopt vanzelf na de tijd die je kiest
+- Gekoppelde chats: een bericht uit een andere chat laat zien waar het vandaan komt; tik erop om erheen en terug te springen
+- Verbeteringen: chatkoppen komen overeen met de andere apps, snel terugbellen gaat weer over en de planmodus is weg (plannen zijn kaarten die je beantwoordt)

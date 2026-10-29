@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -235,6 +236,37 @@ class VoiceCallTest {
         val started = VoiceCall.callStep(VoiceCall.CALL_IDLE, VoiceCall.Event.Start("mint"))
         assertEquals(VoiceCall.Copy.Failed.DROPPED, VoiceCall.callStep(started, VoiceCall.Event.Failed("no_such_call")).toast)
         assertEquals("mint is offline", VoiceCall.callStep(started, VoiceCall.Event.Failed("device_offline")).toast)
+    }
+
+    /** A host's `call_event {failed {code}}` is a host event and fails the call with that code's toast; an unknown code reads "dropped". */
+    @Test
+    fun `a host failed event fails the call with its toast`() {
+        fun hostEvent(json: String) = VoiceCall.Event.of(Json.parseToJsonElement(json).jsonObject)
+        val ringing = listOf(VoiceCall.Event.Start("mint"), VoiceCall.Event.Rang).fold(VoiceCall.CALL_IDLE, VoiceCall::callStep)
+        val expected = mapOf(
+            "unavailable" to "mint couldn't get its voice ready",
+            "dropped" to "The call dropped",
+            "no_microphone" to "No microphone",
+            "not_granted" to "Microphone not allowed",
+            "meeting" to "mint is transcribing a meeting",
+            "worker_died" to "The call dropped",
+            "" to "The call dropped",
+        )
+        for ((code, toast) in expected) {
+            val event = hostEvent("""{"t":"failed","code":"$code"}""")
+            assertEquals(code, VoiceCall.Event.Failed(code), event)
+            assertTrue(code, event!!.isHostEvent)
+            val state = VoiceCall.callStep(ringing, event)
+            assertEquals(code, toast, state.toast)
+            assertNull(code, VoiceCall.callView(state))
+        }
+        // The caller's own lifecycle never comes from the host.
+        for (t in listOf("start", "mute", "unmute", "speaker", "end", "hungUp")) {
+            assertFalse(t, hostEvent("""{"t":"$t"}""")!!.isHostEvent)
+        }
+        for (t in listOf("rang", "ready", "noSound", "partial", "said", "queued", "replyStarted", "replyFinished", "speechStarted")) {
+            assertTrue(t, hostEvent("""{"t":"$t"}""")!!.isHostEvent)
+        }
     }
 
     /** The relay's `busy` error and its `max_length` / `idle` `call_end`s end a running call with their toast. */

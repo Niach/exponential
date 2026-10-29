@@ -217,14 +217,12 @@ struct ChatsView: View {
                 // S-3: the agent rows pinned on top, the section headers only
                 // while one exists.
                 if !agentRows.isEmpty {
-                    GlassSectionHeader(Chats.Copy.Sections.agents)
-                        .padding(.top, 8)
+                    ChatSectionHeader(Chats.Copy.Sections.agents)
                     ForEach(agentRows) { row in
                         agentChatRow(row)
                     }
                     if !list.rows.isEmpty || archivedEntry {
-                        GlassSectionHeader(Chats.Copy.Sections.chats)
-                            .padding(.top, 16)
+                        ChatSectionHeader(Chats.Copy.Sections.chats)
                     }
                 }
                 // #EXP-1388 THE ARCHIVED ENTRY: first while archived > 0 and

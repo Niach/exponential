@@ -20,7 +20,7 @@ final class SessionsApiWireTests: XCTestCase {
             deviceId: "dev-1",
             options: SessionLaunchOptions(
                 cli: "claude", account: "p-1", model: "fable", effort: "",
-                planMode: true, computerUse: false, ultracode: true, mcpServerIds: ["m-1"]
+                computerUse: false, ultracode: true, mcpServerIds: ["m-1"]
             ),
             text: "Fix it",
             attachmentIds: ["att-1"],
@@ -31,14 +31,19 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(
             full.keys.sorted(),
             ["account", "attachmentIds", "cli", "computerUse", "deviceId", "effort",
-             "issueIds", "mcpServerIds", "model", "planMode", "promptId", "repositoryId", "teamId",
+             "issueIds", "mcpServerIds", "model", "promptId", "repositoryId", "teamId",
              "text", "ultracode"]
         )
         XCTAssertEqual(full["issueIds"] as? [String], ["i-1", "i-2"])
         XCTAssertEqual(full["promptId"] as? String, "p-1")
         XCTAssertEqual(full["effort"] as? String, "")
-        XCTAssertEqual(full["planMode"] as? Bool, true)
         XCTAssertEqual(full["computerUse"] as? Bool, false)
+
+        // A blank model is never sent (absent = blank on the server).
+        let blank = try json(SessionsSendInput.newThread(
+            teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(model: "", effort: ""), text: "Go"
+        ))
+        XCTAssertEqual(blank.keys.sorted(), ["deviceId", "effort", "teamId", "text"])
     }
 
     /// NEW-2: a message to an agent names the agent and nothing of a runner

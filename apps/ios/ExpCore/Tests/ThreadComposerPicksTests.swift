@@ -43,49 +43,49 @@ final class ThreadComposerPicksTests: XCTestCase {
         var picks = ThreadComposerPicks()
         picks.apply(.init(sessionId: "s", effort: "high"))
         XCTAssertEqual(picks, ThreadComposerPicks(effort: "high"))
-        picks.apply(.init(sessionId: "s", planMode: true, mcpServerIds: ["m1"]))
-        XCTAssertEqual(picks, ThreadComposerPicks(planMode: true, effort: "high", mcpServerIds: ["m1"]))
+        picks.apply(.init(sessionId: "s", ultracode: true, mcpServerIds: ["m1"]))
+        XCTAssertEqual(picks, ThreadComposerPicks(effort: "high", ultracode: true, mcpServerIds: ["m1"]))
     }
 
     // MARK: - settle
 
     func testAPickGoesOnceTheRowReadsIt() {
-        var picks = ThreadComposerPicks(planMode: true, effort: "high", ultracode: true, computerUse: false)
-        picks.settle(.init(planMode: true, effort: "high", ultracode: true, computerUse: false))
+        var picks = ThreadComposerPicks(effort: "high", ultracode: true, computerUse: false)
+        picks.settle(.init(effort: "high", ultracode: true, computerUse: false))
         XCTAssertEqual(picks, ThreadComposerPicks())
     }
 
     func testAPickTheRowStillDisagreesWithStays() {
-        var picks = ThreadComposerPicks(planMode: true, effort: "high", ultracode: true, computerUse: true)
-        picks.settle(.init(planMode: false, effort: "low", ultracode: nil, computerUse: nil))
-        XCTAssertEqual(picks, ThreadComposerPicks(planMode: true, effort: "high", ultracode: true, computerUse: true))
+        var picks = ThreadComposerPicks(effort: "high", ultracode: true, computerUse: true)
+        picks.settle(.init(effort: "low", ultracode: nil, computerUse: nil))
+        XCTAssertEqual(picks, ThreadComposerPicks(effort: "high", ultracode: true, computerUse: true))
     }
 
     func testOnlyTheSettledKeysGo() {
-        var picks = ThreadComposerPicks(planMode: true, effort: "high", ultracode: true, computerUse: true)
-        picks.settle(.init(planMode: true, effort: "low", ultracode: true, computerUse: false))
+        var picks = ThreadComposerPicks(effort: "high", ultracode: true, computerUse: true)
+        picks.settle(.init(effort: "low", ultracode: true, computerUse: false))
         XCTAssertEqual(picks, ThreadComposerPicks(effort: "high", computerUse: true))
     }
 
     func testASentCliDefaultSettlesAgainstANullOrBlankRowEffort() {
         // The pick went out as "" (wireEffort); the row stores NULL.
         var picks = ThreadComposerPicks(effort: LaunchVocabulary.wireEffort(LaunchVocabulary.cliDefault))
-        picks.settle(.init(planMode: nil, effort: nil, ultracode: nil, computerUse: nil))
+        picks.settle(.init(effort: nil, ultracode: nil, computerUse: nil))
         XCTAssertNil(picks.effort)
 
         picks = ThreadComposerPicks(effort: "")
-        picks.settle(.init(planMode: nil, effort: "", ultracode: nil, computerUse: nil))
+        picks.settle(.init(effort: "", ultracode: nil, computerUse: nil))
         XCTAssertNil(picks.effort)
 
         // A row still on "high" keeps the CLI default pick up.
         picks = ThreadComposerPicks(effort: "")
-        picks.settle(.init(planMode: nil, effort: "high", ultracode: nil, computerUse: nil))
+        picks.settle(.init(effort: "high", ultracode: nil, computerUse: nil))
         XCTAssertEqual(picks.effort, "")
     }
 
     func testTheMcpPickNeverSettlesAgainstTheRow() {
         var picks = ThreadComposerPicks(mcpServerIds: ["m1"])
-        picks.settle(.init(planMode: nil, effort: nil, ultracode: nil, computerUse: nil))
+        picks.settle(.init(effort: nil, ultracode: nil, computerUse: nil))
         XCTAssertEqual(picks.mcpServerIds, ["m1"])
     }
 

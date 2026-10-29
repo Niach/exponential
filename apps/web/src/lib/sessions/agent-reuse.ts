@@ -11,14 +11,16 @@ const HOUR = 60 * 60 * 1000
  * S-3: may an AGENT's message reuse this thread root? Only while it is not
  * ended or ended less than `sessionsSend.reuseMaxEndedHours` ago, its last
  * turn (else activity) is under `reuseMaxIdleHours` old and the tree holds
- * fewer than `reuseMaxChildren` sub-sessions. Null = reuse; else the reason
- * (the fresh thread's `warning`).
+ * fewer than `reuseMaxChildren` sub-sessions. A thread waiting on an answer
+ * (`needsInput`) is always reused: the reply answers it, never forks. Null =
+ * reuse; else the reason (the fresh thread's `warning`).
  */
 export function agentReuseRefusal(
-  root: Pick<Session, `status` | `endedAt` | `lastTurnAt` | `lastActivityAt` | `updatedAt`>,
+  root: Pick<Session, `status` | `needsInput` | `endedAt` | `lastTurnAt` | `lastActivityAt` | `updatedAt`>,
   children: number,
   now: Date
 ): string | null {
+  if (root.needsInput) return null
   const rules = contract.sessionsSend
   const age = (at: Date | null) => (at ? now.getTime() - at.getTime() : 0)
   if (root.status === `ended` && age(root.endedAt ?? root.updatedAt) >= rules.reuseMaxEndedHours * HOUR) {

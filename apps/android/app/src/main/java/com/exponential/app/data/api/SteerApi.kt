@@ -40,7 +40,8 @@ data class DeviceOwner(
  * [model]/[effort] are contract values where an EMPTY string is the explicit
  * "CLI default" (omit the flag) — the same convention the start options use.
  * The booleans ride only when true, so an absent one IS false; capability
- * clamping (ultracode and plan mode are claude-only since EXP-849)
+ * clamping (ultracode is claude-only since EXP-849; S-3: no plan mode, a
+ * legacy stored `planMode` key is ignored on decode and never sent back)
  * stays the reader's job.
  */
 @Serializable
@@ -60,7 +61,6 @@ data class AgentLaunchDefaults(
      */
     @SerialName("threadModel") val threadModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean = false,
-    @SerialName("planMode") val planMode: Boolean = false,
     /**
      * EXP-1005: the desktop's auto-rotate-accounts toggle (claude only). This
      * client owns no UI for it and never invents a value: the synced one is

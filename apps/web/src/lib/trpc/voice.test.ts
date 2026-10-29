@@ -407,6 +407,35 @@ describe(`#NEW-57 meeting mode`, () => {
     expect(h.state.upserts).toHaveLength(0)
   })
 
+  it(`FEED-163: startMeeting over an EXPIRED stored stamp clears it with the autoStop note first`, async () => {
+    const old = new Date(Date.now() - meetingFixture.autoStop.afterMs - 1)
+    h.state.selectQueue = [[{ userId: `me`, ...stored, meetingStartedAt: old }], [{ meetingStartedAt: old }]]
+    h.state.updateQueue = [[{ agentId: AGENT, voiceDeviceId: `d-mint`, hours: 4 }]]
+    const next = await caller.startMeeting({ consent: true })
+    expect(h.state.updates[0]).toMatchObject({ meetingStartedAt: null })
+    expect(h.postMeetingStopNote).toHaveBeenCalledTimes(1)
+    expect(h.postMeetingStopNote).toHaveBeenCalledWith(h.db, `me`, AGENT, `autoStop`, 4)
+    // The new meeting is stamped now, after the old one's note.
+    expect(next.meetingStartedAt).not.toBeNull()
+    const set = h.state.upserts[0]?.set as { meetingStartedAt: Date }
+    expect(Math.abs(set.meetingStartedAt.getTime() - Date.now())).toBeLessThan(5000)
+  })
+
+  it(`startMeeting without a stored stamp posts no note`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }], []]
+    await caller.startMeeting({ consent: true })
+    expect(h.state.updates).toHaveLength(0)
+    expect(h.postMeetingStopNote).not.toHaveBeenCalled()
+  })
+
+  it(`stopMeeting takes a null input (the desktop's body for no reason)`, async () => {
+    h.state.selectQueue = [[{ meetingStartedAt: STARTED }], [{ userId: `me`, ...stored }]]
+    h.state.updateQueue = [[{ agentId: AGENT, voiceDeviceId: `d-mint`, hours: 4 }]]
+    expect((await caller.stopMeeting(null)).meetingStartedAt).toBeNull()
+    expect(h.state.updates[0]).toMatchObject({ meetingStartedAt: null })
+    expect(h.postMeetingStopNote).not.toHaveBeenCalled()
+  })
+
   it(`stopMeeting clears it and nudges the voice device; a manual stop posts no note`, async () => {
     h.state.selectQueue = [[{ meetingStartedAt: STARTED }], [{ userId: `me`, ...stored }]]
     h.state.updateQueue = [[{ agentId: AGENT, voiceDeviceId: `d-mint`, hours: 4 }]]
@@ -565,6 +594,15 @@ describe(`voice.startCall`, () => {
   it(`refuses an agent outside the member's teams`, async () => {
     h.state.selectQueue = [[]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`S-3: refuses another member's Assistant, takes the caller's own`, async () => {
+    h.state.selectQueue = [[{ role: `assistant`, ownerId: `someone-else` }]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    h.state.selectQueue = [[{ role: `assistant`, ownerId: `me` }], [{ userId: `me`, ...stored }], [deviceRow()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({
+      relayUrl: `https://relay.example`,
+    })
   })
 
   it(`refuses with the fixture's reason, first match wins`, async () => {

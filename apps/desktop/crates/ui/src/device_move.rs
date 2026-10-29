@@ -57,7 +57,6 @@ pub(crate) const REASON_OFFLINE: &str = "This device is offline.";
 pub(crate) const REASON_VISIBILITY: &str =
     "This device is shared differently, so the session can't move here.";
 pub(crate) const REASON_NO_LOGIN: &str = "This device has no signed-in login for this agent.";
-pub(crate) const REASON_UPDATE: &str = "This device needs an update to receive sessions.";
 
 /// The failure toast's verb + object: `Couldn't move the session`.
 pub(crate) const FAILURE_VERB: &str = "move";
@@ -104,38 +103,6 @@ pub(crate) struct MoveCandidate {
     pub shared_with_team: bool,
     /// The device has a signed-in, runnable login for the session's agent.
     pub has_login: bool,
-    /// The build it reported (`devices.version`); `None` = an old build.
-    pub version: Option<String>,
-}
-
-/// The first desktop/CLI build that receives a moved session (the server's
-/// `MOVE_MIN_VERSION`, web `session-device-move.ts`); an unreported version
-/// = an old build.
-pub(crate) const MOVE_MIN_VERSION: (u64, u64, u64) = (0, 14, 73);
-
-/// Web `parseVersionTuple`: the core before any `-pre` / `+build`, split on
-/// `.`; the major must be digits, a missing or non-numeric minor / patch
-/// is 0.
-fn version_tuple(version: &str) -> Option<(u64, u64, u64)> {
-    let core = version.split(['-', '+']).next().unwrap_or("");
-    let mut parts = core.split('.').map(|part| {
-        (!part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| part.parse::<u64>().ok())
-            .flatten()
-    });
-    let major = parts.next().flatten()?;
-    let minor = parts.next().flatten().unwrap_or(0);
-    let patch = parts.next().flatten().unwrap_or(0);
-    Some((major, minor, patch))
-}
-
-/// Web `deviceCanReceiveSession`: the device's reported version is at least
-/// [`MOVE_MIN_VERSION`].
-pub(crate) fn device_can_receive_session(version: Option<&str>) -> bool {
-    version
-        .filter(|version| !version.is_empty())
-        .and_then(version_tuple)
-        .is_some_and(|have| have >= MOVE_MIN_VERSION)
 }
 
 /// One picker row.
@@ -149,17 +116,14 @@ pub(crate) struct MoveRow {
 }
 
 /// Why `candidate` cannot take the session, in the ×4 order (web
-/// `deviceMoveTargetReason`): offline, visibility, update (a build before
-/// [`MOVE_MIN_VERSION`]), no login.
+/// `deviceMoveTargetReason`): offline, visibility, no login. Old builds are
+/// the CLIENT_MIN_VERSION floor's job, never a refusal here.
 pub(crate) fn refusal(candidate: &MoveCandidate, session_shared: bool) -> Option<&'static str> {
     if !candidate.online {
         return Some(REASON_OFFLINE);
     }
     if candidate.shared_with_team != session_shared {
         return Some(REASON_VISIBILITY);
-    }
-    if !device_can_receive_session(candidate.version.as_deref()) {
-        return Some(REASON_UPDATE);
     }
     if !candidate.has_login {
         return Some(REASON_NO_LOGIN);
@@ -269,17 +233,6 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
                 online: true,
                 shared_with_team: row.as_ref().is_some_and(|row| row.is_shared_with(&team_id)),
                 has_login: device.agents.contains(&agent),
-                // This IDE knows its own build even before its row synced.
-                version: row
-                    .as_ref()
-                    .and_then(|row| row.version.clone())
-                    .filter(|version| !version.is_empty())
-                    .or_else(|| {
-                        device
-                            .is_own
-                            .then(|| domain::client_version::current_version().to_string())
-                            .filter(|version| !version.is_empty())
-                    }),
             }
         })
         .collect();
@@ -311,7 +264,6 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
                 }),
                 shared_with_team: row.as_ref().is_some_and(|row| row.is_shared_with(&team_id)),
                 has_login: true,
-                version: row.as_ref().and_then(|row| row.version.clone()),
             });
         }
     }
@@ -439,7 +391,6 @@ mod tests {
             "This device is shared differently, so the session can't move here."
         );
         assert_eq!(REASON_NO_LOGIN, "This device has no signed-in login for this agent.");
-        assert_eq!(REASON_UPDATE, "This device needs an update to receive sessions.");
         assert_eq!(format!("Couldn't {FAILURE_VERB} {FAILURE_THING}"), "Couldn't move the session");
     }
 
@@ -459,50 +410,18 @@ mod tests {
             online,
             shared_with_team: shared,
             has_login: login,
-            version: Some("0.14.73".into()),
         }
     }
 
-    /// The refusal order: offline, then visibility, then update, then no
-    /// login.
+    /// The refusal order: offline, then visibility, then no login.
     #[test]
     fn refusals_follow_the_contract_order() {
-        let mut all_wrong = candidate("a", false, true, false);
-        all_wrong.version = None;
-        assert_eq!(refusal(&all_wrong, false), Some(REASON_OFFLINE));
-        let mut online = candidate("a", true, true, false);
-        online.version = None;
+        assert_eq!(refusal(&candidate("a", false, true, false), false), Some(REASON_OFFLINE));
+        let online = candidate("a", true, true, false);
         assert_eq!(refusal(&online, false), Some(REASON_VISIBILITY));
-        assert_eq!(refusal(&online, true), Some(REASON_UPDATE));
-        online.version = Some("0.14.73".into());
         assert_eq!(refusal(&online, true), Some(REASON_NO_LOGIN));
         assert_eq!(refusal(&candidate("a", true, false, true), false), None);
         assert_eq!(refusal(&candidate("a", true, true, true), true), None);
-    }
-
-    /// Web `deviceCanReceiveSession`: at least 0.14.73, parsed like
-    /// `parseVersionTuple`; unreported or unparsable = an old build.
-    #[test]
-    fn a_target_needs_the_move_build() {
-        for (version, ok) in [
-            (Some("0.14.73"), true),
-            (Some("0.14.74"), true),
-            (Some("0.15.0"), true),
-            (Some("1.0.0"), true),
-            (Some("0.14.73-beta.1+build.7"), true),
-            (Some("0.14.72"), false),
-            (Some("0.13.99"), false),
-            (Some("0.14"), false),
-            (Some("0.14.x"), false),
-            (Some("v0.14.73"), false),
-            (Some(""), false),
-            (None, false),
-        ] {
-            assert_eq!(device_can_receive_session(version), ok, "{version:?}");
-        }
-        let mut old = candidate("a", true, false, true);
-        old.version = Some("0.14.72".into());
-        assert_eq!(refusal(&old, false), Some(REASON_UPDATE));
     }
 
     /// A current device the candidates do not list (its row never synced,

@@ -102,7 +102,7 @@ Commands:
 
 Options for code/run:
   --agent claude|codex      --model <m>   --effort <e>
-  --plan                    --detach      (headless; steer it from the web)
+  --detach                  (headless; steer it from the web)
   --device <label|id>       start it on ANOTHER device instead (see `devices`);
                             with --account <profile> and --follow (tail it)
 Options for run:

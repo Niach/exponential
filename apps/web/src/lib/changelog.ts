@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-29-release-fixes`,
+    date: `2026-10-29`,
+    title: `Private Assistants, safer meetings, steadier agent chats`,
+    summary: `Your Assistant and screen memory stay yours, meetings never lose a line, and agent replies keep every answer.`,
+    body: `- **Your Assistant is yours**: teammates no longer see, pick or assign your Assistant, and a team agent your teammates use stays a team agent with its schedules.
+- **Screen memory stays private**: only your own Assistant on your own, unshared machine can look at your screen, and the buffer on disk is readable by you alone.
+- **Meetings**: turning Meeting mode off on the desktop works again, a machine shared with any team never holds a meeting, and no transcript line is lost or sent twice when the connection drops or you quit.
+- **Every answer kept**: a message you send while the agent works no longer lets its next reply overwrite the previous answer, and story screenshots stay when a card updates.
+- **Calls**: when your voice device can't get ready, web, iOS and Android all tell you so, and push to talk keeps working after you rebind its key.
+- **Move to any machine**: a session moves to any of your online machines; old builds update through the normal version check.
+- **Chats on iPhone**: the Agents and Chats headers match the other apps.`,
+  },
+  {
     id: `2026-10-28-quieter-agents`,
     date: `2026-10-28`,
     title: `Agent stories, quieter agents, linked chats, calls like a phone call`,

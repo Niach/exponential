@@ -379,7 +379,7 @@ export const issuesRouter = router({
         await assertAssigneeInTeam(input.assigneeId, board.teamId)
       }
       if (input.assigneeAgentId != null) {
-        await assertAgentInTeam(ctx.db, input.assigneeAgentId, board.teamId)
+        await assertAgentInTeam(ctx.db, input.assigneeAgentId, board.teamId, ctx.session.user.id)
       }
       const assigneeAgentId = input.assigneeAgentId ?? null
       // #EXP-1383: the acting agent (its session's root agent), resolved
@@ -816,7 +816,7 @@ export const issuesRouter = router({
         await assertAssigneeInTeam(updates.assigneeId, issueContext.teamId)
       }
       if (updates.assigneeAgentId != null) {
-        await assertAgentInTeam(ctx.db, updates.assigneeAgentId, issueContext.teamId)
+        await assertAgentInTeam(ctx.db, updates.assigneeAgentId, issueContext.teamId, ctx.session.user.id)
       }
       const origin = await eventOrigin(ctx)
 
@@ -1376,7 +1376,7 @@ export const issuesRouter = router({
         await assertAssigneeInTeam(input.assigneeId, teamId)
       }
       if (input.assigneeAgentId != null) {
-        await assertAgentInTeam(ctx.db, input.assigneeAgentId, teamId)
+        await assertAgentInTeam(ctx.db, input.assigneeAgentId, teamId, ctx.session.user.id)
       }
       const origin = await eventOrigin(ctx)
 

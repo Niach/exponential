@@ -6,6 +6,7 @@ import { formatDateForMutation, type IssueEstimation } from "@/lib/domain"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { assigneeWrite } from "@/lib/issue-assignee"
 import { useAgentRows } from "@/hooks/use-agent-row"
+import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
 import { deleteIssuePrompt, promptActions } from "@/lib/prompts"
 import {
@@ -91,6 +92,7 @@ export function IssueMenuSession({
   const { users, userMap } = useTeamUsers(team?.id)
   // #EXP-1383: the team's agents follow the members in the assignee rows.
   const agents = useAgentRows(team?.id)
+  const { data: authSession } = useSession()
   const { resolve: resolveStatus, options: statusOptions } =
     useTeamStatusesContext()
   const issueRefs = useIssueRefs()
@@ -217,6 +219,7 @@ export function IssueMenuSession({
               assigneeAgentId: issue.assigneeAgentId,
               orderedUsers,
               agents,
+              me: authSession?.user?.id ?? null,
               selectedAssignee,
               onSelect: (next) => void updateIssue(assigneeWrite(next)),
             }),

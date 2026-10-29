@@ -192,14 +192,17 @@ internal class VoiceCallAudio(
     }
 
     /**
-     * S-3: the ringback on the call's voice stream (it follows [speaker]),
-     * until [stopRing] or [release]; the cadence repeats while the voice
-     * device is still getting ready.
+     * S-3: the ringback on the call's voice stream (it follows [speaker])
+     * for `ringMs` (voice-call.json: the ring lasts `constants.ringMs`), or
+     * until [stopRing] / [release] first; the call itself keeps ringing on
+     * screen while the voice device is still getting ready.
      */
     fun ring() {
         if (released.get() || tone != null || !prepare()) return
         tone = runCatching {
-            ToneGenerator(AudioManager.STREAM_VOICE_CALL, RING_VOLUME).apply { startTone(ToneGenerator.TONE_SUP_RINGTONE) }
+            ToneGenerator(AudioManager.STREAM_VOICE_CALL, RING_VOLUME).apply {
+                startTone(ToneGenerator.TONE_SUP_RINGTONE, VoiceCall.Constants.RING_MS)
+            }
         }.onFailure { Log.w(TAG, "call ring tone failed", it) }.getOrNull()
     }
 

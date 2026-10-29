@@ -333,6 +333,10 @@ final class VoiceCallTests: XCTestCase {
         XCTAssertTrue(VoiceCall.Event(json: ["t": "speechStarted"])?.isHostEvent == true)
         XCTAssertTrue(VoiceCall.Event(json: ["t": "queued", "count": 2, "text": "x"])?.isHostEvent == true)
         XCTAssertFalse(VoiceCall.Event(json: ["t": "end"])?.isHostEvent == true)
+        XCTAssertFalse(VoiceCall.Event(json: ["t": "hungUp"])?.isHostEvent == true)
+        let failed = VoiceCall.Event(json: ["t": "failed", "code": "unavailable"])
+        XCTAssertEqual(failed, .failed(code: "unavailable"))
+        XCTAssertTrue(failed?.isHostEvent == true)
         XCTAssertNil(VoiceCall.Event(json: ["t": "nope"]))
     }
 

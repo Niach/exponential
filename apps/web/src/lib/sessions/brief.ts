@@ -4,6 +4,7 @@ import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brie
 import { db } from "@/db/connection"
 import { agents, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
 import { ASSISTANT } from "@exp/domain-contract/agent-settings"
+import { voiceAgentIsPrivate } from "@/lib/sessions/meeting-access"
 import { deriveSessionTitle } from "@/lib/sessions/title"
 import type { Db } from "@/lib/sessions/tx"
 
@@ -49,6 +50,11 @@ export async function composeSessionBrief(sessionId: string): Promise<{
    *  with the agent picked in Settings → Voice, so the device launches it
    *  under the launcher-enforced tool policy. */
   voicePolicy: boolean
+  /** NEW-58 (screen-memory.json TOOL): `voicePolicy` AND the conversation is
+   *  private to its member (the agent on their own device shared with no
+   *  team, the conversation not `shared`): only then may the device attach
+   *  `get_screenshots`. */
+  screenMemory: boolean
 }> {
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1)
   if (!session) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -92,9 +98,11 @@ export async function composeSessionBrief(sessionId: string): Promise<{
         .limit(1)
     : []
 
+  const voicePolicy = await isVoiceConversation(session)
   return {
     brief: composeBrief(input),
-    voicePolicy: await isVoiceConversation(session),
+    voicePolicy,
+    screenMemory: voicePolicy && !session.shared && (await voiceAgentIsPrivate(db, session.userId, session.agentId!)),
     teamPrompt: team?.agentPrompt?.trim() || null,
     // S-3: an Assistant's turns run on the server brief first
     // (agent-settings.json `assistant.brief`), then the member's own text.

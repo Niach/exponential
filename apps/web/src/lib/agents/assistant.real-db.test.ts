@@ -12,8 +12,8 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { db } from "@/db/connection"
-import { agents, devices, teamMembers, teams, userVoiceSettings } from "@/db/schema"
-import { inRollback, probeRealDb } from "@/test/real-db"
+import { agents, boards, devices, issues, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
+import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
 
 vi.mock(`@/lib/steer`, async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/steer")>()
@@ -35,6 +35,8 @@ if (!ready.ok) console.info(`[assistant.real-db] skipped: ${ready.reason}`)
 
 const { ensureAssistant } = await import(`@/lib/agents/assistant`)
 const { agentsRouter } = await import(`@/lib/trpc/agents`)
+const { conversationInTx } = await import(`@/lib/agents/conversation`)
+const { assertAgentInTeam, onIssueAssignedInTx } = await import(`@/lib/agents/assignment`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -190,6 +192,63 @@ describe.skipIf(!ready.ok)(`agents.update / delete on an Assistant (S-3)`, () =>
   })
 })
 
+describe.skipIf(!ready.ok)(`agents.update keeps a rotated conversation login (EXP-849)`, () => {
+  it(`a sortOrder-only update leaves a conversation's device-rotated account alone; an explicit pick writes it`, async () => {
+    const w = await world()
+    const box = await w.device(w.owner, `server`, 1)
+    const [bot] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Triage`, deviceId: box, ownerId: w.owner, account: `home` })
+      .returning()
+    const convo = (await db.transaction((tx) => conversationInTx(tx, bot!, w.owner))).session
+    // The device rotated the conversation onto another login.
+    await db.update(sessions).set({ account: `work` }).where(eq(sessions.id, convo.id))
+    const asOwner = agentsRouter.createCaller(person(w.owner) as never)
+    await asOwner.update({ id: bot!.id, sortOrder: 3 })
+    await asOwner.update({ id: bot!.id, name: `Triage bot` })
+    const account = async () => (await db.select().from(sessions).where(eq(sessions.id, convo.id)))[0]!.account
+    expect(await account()).toBe(`work`)
+    expect((await db.select().from(agents).where(eq(agents.id, bot!.id)))[0]).toMatchObject({ account: `home`, sortOrder: 3 })
+    await asOwner.update({ id: bot!.id, account: `home` })
+    expect(await account()).toBe(`home`)
+  })
+})
+
+describe.skipIf(!ready.ok)(`another member's Assistant is never an assignee (S-3)`, () => {
+  it(`assertAgentInTeam refuses it for anyone but its owner; onIssueAssignedInTx starts no turn on it`, async () => {
+    const w = await world()
+    const desktop = await w.device(w.mate, `desktop`, 1)
+    // Shared with the team: only the role rule keeps the owner's turn off it.
+    await db.update(devices).set({ sharedTeamIds: [w.teamId] }).where(eq(devices.deviceId, desktop))
+    const assistant = (await ensureAssistant(w.mate, w.teamId))!
+    await expect(assertAgentInTeam(db, assistant.id, w.teamId, w.owner)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(assertAgentInTeam(db, assistant.id, w.teamId, w.mate)).resolves.toBeUndefined()
+    const [board] = await db
+      .insert(boards)
+      .values({ teamId: w.teamId, name: `Core`, slug: `core-${id8()}`, prefix: `AS` })
+      .returning({ id: boards.id })
+    const [issue] = await db
+      .insert(issues)
+      .values({ boardId: board!.id, teamId: w.teamId, title: `Theirs`, creatorId: w.owner })
+      .returning({ id: issues.id })
+    await inRollback(async (tx) => {
+      await onIssueAssignedInTx(tx as never, {
+        issueId: issue!.id,
+        teamId: w.teamId,
+        actorUserId: w.owner,
+        assigneeId: null,
+        assigneeAgentId: assistant.id,
+      })
+      // No conversation for the owner with the mate's Assistant.
+      const turns = await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(and(eq(sessions.agentId, assistant.id), eq(sessions.userId, w.owner)))
+      expect(turns).toHaveLength(0)
+    })
+  })
+})
+
 // Migration 0208's DATA statements (everything after the DDL), replayed in
 // a rolled-back transaction over rows shaped like before it.
 const MIGRATION = readFileSync(join(__dirname, `../../db/out/0208_s3_assistant.sql`), `utf8`)
@@ -197,9 +256,88 @@ const MIGRATION = readFileSync(join(__dirname, `../../db/out/0208_s3_assistant.s
   .map((statement) => statement.trim())
   .filter((statement) => /^(--[^\n]*\n)*UPDATE/.test(statement))
 
+// A conversation session of `userId` with the agent.
+const conversation = async (
+  tx: RealDbTx,
+  teamId: string,
+  agentId: string,
+  userId: string,
+  deviceId: string
+) => {
+  const id = crypto.randomUUID()
+  await tx.insert(sessions).values({ id, rootId: id, teamId, agentId, userId, deviceId, kind: `agent` } as never)
+}
+
 describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
   it(`has the data statements`, () => {
     expect(MIGRATION.length).toBe(4)
+  })
+
+  it(`leaves a TEAM agent alone: another member's conversation or an event trigger keeps it role 'agent'`, async () => {
+    const w = await world()
+    const ownerDesktop = await w.device(w.owner, `desktop`, 1)
+    await inRollback(async (tx) => {
+      const triggers = [
+        { id: crypto.randomUUID(), kind: `schedule` as const, cron: `30 8 * * 1`, tz: `Europe/Vienna`, enabled: true },
+        { id: crypto.randomUUID(), kind: `schedule` as const, cron: `*/15 * * * *`, enabled: false },
+      ]
+      const [shared] = await tx
+        .insert(agents)
+        .values({ teamId: w.teamId, ownerId: w.owner, deviceId: ownerDesktop, name: `Triage`, icon: `bot`, color: `#ff0000`, triggers })
+        .returning()
+      // The mate talks to the owner's agent: it is a team agent.
+      await conversation(tx, w.teamId, shared!.id, w.mate, ownerDesktop)
+      const third = await user()
+      await tx.insert(teamMembers).values({ teamId: w.teamId, userId: third, role: `member` })
+      const eventTriggers = [{ id: crypto.randomUUID(), kind: `event` as const, name: `issue.created`, enabled: true }]
+      const [evented] = await tx
+        .insert(agents)
+        .values({ teamId: w.teamId, ownerId: third, deviceId: ownerDesktop, name: `Watcher`, icon: `eye`, triggers: eventTriggers })
+        .returning()
+      await tx.insert(userVoiceSettings).values([
+        { userId: w.owner, agentId: shared!.id, voiceDeviceId: ownerDesktop, speakReplies: true },
+        { userId: third, agentId: evented!.id, voiceDeviceId: ownerDesktop, speakReplies: true },
+      ])
+
+      for (const statement of MIGRATION) await tx.execute(sql.raw(statement))
+
+      const row = async (id: string) => (await tx.select().from(agents).where(eq(agents.id, id)))[0]!
+      expect(await row(shared!.id)).toMatchObject({ role: `agent`, icon: `bot`, color: `#ff0000`, triggers })
+      expect(await row(evented!.id)).toMatchObject({ role: `agent`, icon: `eye`, triggers: eventTriggers })
+      const voice = await tx.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
+      expect(voice[0]).toMatchObject({ agentId: null, voiceDeviceId: null, speakReplies: false })
+    })
+  })
+
+  it(`maps an enabled preset schedule to that preset and keeps its tz`, async () => {
+    const w = await world()
+    const desktop = await w.device(w.mate, `desktop`, 1)
+    await inRollback(async (tx) => {
+      const [own] = await tx
+        .insert(agents)
+        .values({
+          teamId: w.teamId,
+          ownerId: w.mate,
+          deviceId: desktop,
+          name: `Voice`,
+          triggers: [
+            { id: crypto.randomUUID(), kind: `schedule`, cron: `*/5 * * * *`, enabled: true },
+            { id: crypto.randomUUID(), kind: `schedule`, cron: `0 9 * * *`, tz: `Europe/Vienna`, enabled: true },
+          ],
+        })
+        .returning()
+      // Its owner's own conversation does not make it a team agent.
+      await conversation(tx, w.teamId, own!.id, w.mate, desktop)
+      await tx.insert(userVoiceSettings).values({ userId: w.mate, agentId: own!.id, voiceDeviceId: desktop })
+
+      for (const statement of MIGRATION) await tx.execute(sql.raw(statement))
+
+      const [after] = await tx.select().from(agents).where(eq(agents.id, own!.id))
+      expect(after).toMatchObject({ role: `assistant` })
+      expect(after!.triggers).toEqual([
+        { id: expect.any(String), kind: `schedule`, cron: `0 9 * * *`, tz: `Europe/Vienna`, enabled: true },
+      ])
+    })
   })
 
   it(`makes a member's own voice agent their Assistant and re-derives the mirror`, async () => {
@@ -214,14 +352,14 @@ describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
             .values({ teamId: w.teamId, name: `Voice`, icon: `bot`, color: `#ff0000`, ...values })
             .returning()
         )[0]!
-      // The mate's own voice agent with a paused + an event trigger and an
-      // enabled schedule: becomes their Assistant on the hourly preset.
+      // The mate's own voice agent with a paused schedule and an enabled
+      // custom cron: becomes their Assistant on the hourly preset.
       const mine = await insert({
         ownerId: w.mate,
         deviceId: desktop,
         triggers: [
+          { id: crypto.randomUUID(), kind: `schedule`, cron: `0 9 * * *`, enabled: false },
           { id: crypto.randomUUID(), kind: `schedule`, cron: `*/5 * * * *`, enabled: true },
-          { id: crypto.randomUUID(), kind: `event`, name: `issue.created`, enabled: true },
         ],
       })
       // The owner's voice agent is SOMEONE ELSE's agent: no Assistant, no voice.

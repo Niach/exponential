@@ -57,7 +57,7 @@ export interface NounSpec {
 
 const PREFIX = `exponential_`
 
-/** The 17. Order = the order the tools list. */
+/** The 16. Order = the order the tools list. */
 export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `issues`,
@@ -374,7 +374,22 @@ function unavailable(spec: NounSpec, op: string): string {
   return `${spec.name}.${op} is not available on this instance.`
 }
 
-/** Registers the 15 on the server for this caller. */
+/** F31: ops an older runbook (0.14.80) still teaches, by their new home. */
+const MOVED_OPS: Record<string, Record<string, string>> = {
+  session_self: {
+    ask: `exponential_show {ask}`,
+    plan: `exponential_show {plan}`,
+    show: `exponential_show {surface}`,
+  },
+}
+
+function unknownOp(spec: NounSpec, op: string, ops: readonly string[]): string {
+  const moved = MOVED_OPS[spec.name]?.[op]
+  if (moved) return `${spec.name}.${op} moved to ${moved}.`
+  return `Unknown op "${op}" for ${spec.name}; one of ${ops.join(`, `)}.`
+}
+
+/** Registers the 16 on the server for this caller. */
 export function registerNounTools(
   server: McpServer,
   user: McpUser,
@@ -423,15 +438,21 @@ export function registerNounTools(
       `${PREFIX}${spec.name}`,
       {
         description: nounDescription(spec, legacy, everything),
-        inputSchema: z.object({ op: z.enum(ops as [string, ...string[]]) }).passthrough(),
+        // The op enum's own refusal names a moved op's new home (the SDK
+        // validates before the handler runs).
+        inputSchema: z
+          .object({
+            op: z.enum(ops as [string, ...string[]], {
+              error: (issue) => (typeof issue.input === `string` ? unknownOp(spec, issue.input, ops) : undefined),
+            }),
+          })
+          .passthrough(),
         ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
       } as never,
       (async (args: Record<string, unknown>, extra: unknown) => {
         const { op, ...rest } = args
         const tool = routes.get(String(op))
-        if (tool === undefined) {
-          return err(new Error(`Unknown op "${String(op)}" for ${spec.name}; one of ${ops.join(`, `)}.`))
-        }
+        if (tool === undefined) return err(new Error(unknownOp(spec, String(op), ops)))
         if (tool === null) return err(new Error(unavailable(spec, String(op))))
         const schema = tool.def.inputSchema ?? z.strictObject({})
         const parsed = schema.safeParse(coerceScalars(rest, kinds.get(String(op)) ?? new Map()))

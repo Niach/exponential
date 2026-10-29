@@ -61,7 +61,7 @@ import {
 import { luminanceVariance } from "./encode.ts"
 import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
 import { killChild, run, sleep, track, type Child } from "./lib/proc.ts"
-import { captureDbEnv } from "./capture-db.ts"
+import { captureDbEnv, sharedDevDbArgs } from "./capture-db.ts"
 import { rawShotPath, repoRoot } from "./paths.ts"
 
 /** `[[bin]] name` of `apps/desktop/crates/app` — also the CGWindow owner name. */
@@ -377,7 +377,7 @@ function resolveDesktopVars(
 async function pruneStrayDevices(): Promise<void> {
   try {
     const result = await run({
-      cmd: [`bun`, `run`, `screenshots:prune-devices`],
+      cmd: [`bun`, `run`, `screenshots:prune-devices`, ...sharedDevDbArgs(process.env)],
       cwd: join(repoRoot(), `apps/web`),
       env: captureDbEnv(),
       timeoutMs: 60_000,

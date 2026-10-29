@@ -327,13 +327,16 @@ export type HostedEndReason = {
   actorId: string
   /** The machine's label, as its owner named it. */
   deviceLabel: string
-  cause: `unshared` | `removed` | `dropped`
+  /** `admin`: an instance admin reset the machine's key (FEED-159); the
+   *  line names no one, as the admin is no teammate. */
+  cause: `unshared` | `removed` | `dropped` | `admin`
 }
 
 /** FEED-154: the end reason a hosted run's Conversation (a server line) and
  *  its parent's report read, instead of a silent end. */
 export function hostedEndLine(actor: string, reason: Pick<HostedEndReason, `deviceLabel` | `cause`>): string {
   const machine = reason.deviceLabel
+  if (reason.cause === `admin`) return `Ended: An instance admin reset ${machine}'s key, which removed its share with this team.`
   if (reason.cause === `removed`) return `Ended: ${actor} removed ${machine}, the machine this session ran on.`
   if (reason.cause === `dropped`) return `Ended: ${actor} removed ${machine}'s share with this team.`
   return `Ended: ${actor} stopped sharing ${machine} with this team.`
@@ -346,7 +349,8 @@ export function hostedEndLine(actor: string, reason: Pick<HostedEndReason, `devi
 export async function endHostedSessions(ids: readonly string[], reason?: HostedEndReason): Promise<string[]> {
   if (ids.length === 0) return []
   let line: string | null = null
-  if (reason) {
+  if (reason?.cause === `admin`) line = hostedEndLine(``, reason)
+  else if (reason) {
     const [actor] = await db
       .select({ name: users.name, email: users.email })
       .from(users)

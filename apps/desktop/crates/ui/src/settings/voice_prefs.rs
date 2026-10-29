@@ -688,6 +688,14 @@ impl VoicePrefsPane {
         if let Some(tray) = crate::voice_tray::entity(cx) {
             cx.observe(&tray, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
         }
+        // F42: a pane dropped while it records gives the push-to-talk grab
+        // back (only stop_recording would otherwise).
+        cx.on_release(|this: &mut Self, cx| {
+            if this.capture.is_some() {
+                crate::push_to_talk::set_recording(false, cx);
+            }
+        })
+        .detach();
         Self {
             load: Load::Idle,
             generation: 0,

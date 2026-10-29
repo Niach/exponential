@@ -28,17 +28,13 @@ pub struct AgentFlags {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
-    pub plan: bool,
 }
 
 /// Resolve flags over the settings defaults with the desktop's capability
-/// masking. Detached (non-tty) runs default plan mode OFF — the F7 rule:
-/// an unattended session must never park at the plan-approval TUI unless
-/// explicitly asked to (`--plan`; it stays steerable from the web).
+/// masking. S-3: no plan mode (the defaults keep it off, the CLI never asks).
 pub fn agent_options(
     settings: &coding::Settings,
     flags: &AgentFlags,
-    interactive: bool,
 ) -> anyhow::Result<LaunchOptions> {
     let agent = match flags.agent.as_deref() {
         None => settings.default_agent,
@@ -51,13 +47,6 @@ pub fn agent_options(
     }
     if let Some(effort) = &flags.effort {
         options.effort = effort.clone();
-    }
-    if !interactive {
-        options.plan_mode = false;
-    }
-    // EXP-1280: plan mode is Exponential's, every agent's.
-    if flags.plan {
-        options.plan_mode = true;
     }
     Ok(options)
 }
@@ -498,14 +487,12 @@ fn poll_for_end(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     }
 }
 
-/// The device + pickers a foreground start sends: THIS device, the resolved
-/// agent and plan mode (the row's pickers win over the launch defaults, so
-/// the interactive plan default must ride), model/effort only when typed —
-/// absent = the device's own defaults.
+/// The device + pickers a foreground start sends: THIS device and the
+/// resolved agent, model/effort only when typed — absent = the device's own
+/// defaults. S-3: no plan mode on the wire.
 fn fill_foreground_input(input: &mut SessionsSendInput, device_id: &str, options: &LaunchOptions) {
     input.device_id = Some(device_id.to_string());
     input.cli = Some(options.agent.id().to_string());
-    input.plan_mode = Some(options.plan_mode);
 }
 
 /// Take [`FOREGROUND_START_LOCK`], waiting out another foreground start.
@@ -671,7 +658,7 @@ mod tests {
     }
 
     /// EXP-1292: the foreground start names this device and pins the
-    /// resolved agent + plan mode; untyped model/effort stay off the wire
+    /// resolved agent; untyped model/effort (and plan mode) stay off the wire
     /// (the device's own defaults).
     #[test]
     fn a_foreground_start_names_this_device_and_its_pickers() {
@@ -679,7 +666,6 @@ mod tests {
         let options = agent_options(
             &settings,
             &AgentFlags { agent: Some("codex".into()), ..AgentFlags::default() },
-            false,
         )
         .unwrap();
         let mut input = SessionsSendInput {
@@ -692,7 +678,6 @@ mod tests {
             serde_json::json!({
                 "deviceId": "cli-dev",
                 "cli": "codex",
-                "planMode": false,
                 "issueIds": ["i1"],
             })
         );

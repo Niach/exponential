@@ -3845,6 +3845,28 @@ describe(`live history rooms (#EXP-1405)`, () => {
     hub.destroy()
   })
 
+  test(`the backoff is per machine: a session that moved devices asks the new one at once`, () => {
+    const hub = new Hub()
+    const a = connectDevice(hub)
+    const b = connectDevice(hub, `user-1`, `dev-2`)
+    capturing(() => joinLive(hub))
+    hub.onMessage(a, JSON.stringify({ t: `history_none`, sessionId: `sess-idle` }))
+    // dev-1 is backed off for the session...
+    joinLive(hub)
+    expect(a.framesOf(`history_request`)).toHaveLength(1)
+    // ...but a ticket naming dev-2 (the session moved) reaches dev-2 now.
+    const { value: moved } = capturing(() => {
+      const sock = new FakeSocket()
+      hub.onOpen(sock, claims({ role: `viewer`, sub: `user-1`, sessionId: `sess-idle`, deviceId: `dev-2`, live: true }))
+      hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
+      return sock
+    })
+    expect(b.framesOf(`history_request`)).toHaveLength(1)
+    expect(moved.frames().map((f) => f.t)).toContain(`history_pending`)
+    expect(moved.closed).toBeNull()
+    hub.destroy()
+  })
+
   test(`a publisher for the session clears its backoff`, () => {
     const hub = new Hub()
     const device = connectDevice(hub)

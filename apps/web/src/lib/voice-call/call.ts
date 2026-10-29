@@ -206,6 +206,8 @@ export class VoiceCall {
       case `call_event`: {
         const event = hostCallEvent(frame.event)
         if (!event) return
+        // The host failed the call (its `call_end` follows): its toast.
+        if (event.t === `failed`) return this.fail(event.code)
         // Barge-in: the reply still queued must not keep talking over it.
         if (event.t === `speechStarted`) this.audio?.flush()
         return this.step(event)

@@ -34,7 +34,6 @@ data class SessionsSendInput(
     val account: String? = null,
     val model: String? = null,
     val effort: String? = null,
-    val planMode: Boolean? = null,
     val computerUse: Boolean? = null,
     val ultracode: Boolean? = null,
     val mcpServerIds: List<String>? = null,
@@ -68,7 +67,6 @@ data class SessionsSendInput(
             account: String? = null,
             model: String? = null,
             effort: String? = null,
-            planMode: Boolean? = null,
             computerUse: Boolean? = null,
             ultracode: Boolean? = null,
             mcpServerIds: List<String>? = null,
@@ -79,7 +77,6 @@ data class SessionsSendInput(
             account = account,
             model = model,
             effort = effort,
-            planMode = planMode,
             computerUse = computerUse,
             ultracode = ultracode,
             mcpServerIds = mcpServerIds?.takeIf { it.isNotEmpty() },
@@ -250,7 +247,6 @@ data class AnswerInput(
 @Serializable
 data class SessionConfigureInput(
     val sessionId: String,
-    val planMode: Boolean? = null,
     val effort: String? = null,
     val ultracode: Boolean? = null,
     val computerUse: Boolean? = null,
