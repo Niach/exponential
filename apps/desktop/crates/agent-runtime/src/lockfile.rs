@@ -475,7 +475,7 @@ fn jitter(max: Duration) -> Duration {
 
 /// The lock directory's modification time — the ONLY liveness signal
 /// `proper-lockfile` publishes.
-pub(crate) fn dir_mtime(path: &Path) -> io::Result<SystemTime> {
+pub fn dir_mtime(path: &Path) -> io::Result<SystemTime> {
     std::fs::metadata(path)?.modified()
 }
 
@@ -484,7 +484,7 @@ pub(crate) fn dir_mtime(path: &Path) -> io::Result<SystemTime> {
 /// Unix: a read-only handle on the directory is enough — `futimens` on the fd
 /// only needs ownership, which we have (we made it).
 #[cfg(unix)]
-pub(crate) fn set_dir_mtime(path: &Path, when: SystemTime) -> io::Result<()> {
+pub fn set_dir_mtime(path: &Path, when: SystemTime) -> io::Result<()> {
     std::fs::File::open(path)?.set_modified(when)
 }
 
@@ -497,7 +497,7 @@ pub(crate) fn set_dir_mtime(path: &Path, when: SystemTime) -> io::Result<()> {
 /// access denied here, the narrower `access_mode(FILE_WRITE_ATTRIBUTES)` is
 /// the next thing to try.
 #[cfg(windows)]
-pub(crate) fn set_dir_mtime(path: &Path, when: SystemTime) -> io::Result<()> {
+pub fn set_dir_mtime(path: &Path, when: SystemTime) -> io::Result<()> {
     use std::os::windows::fs::OpenOptionsExt;
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     std::fs::OpenOptions::new()
@@ -509,7 +509,7 @@ pub(crate) fn set_dir_mtime(path: &Path, when: SystemTime) -> io::Result<()> {
 
 /// Truncate to a whole second — see the module doc on why every mtime we
 /// write is one.
-pub(crate) fn whole_second(at: SystemTime) -> SystemTime {
+pub fn whole_second(at: SystemTime) -> SystemTime {
     match at.duration_since(UNIX_EPOCH) {
         Ok(since) => UNIX_EPOCH + Duration::from_secs(since.as_secs()),
         // Pre-epoch: a clock that broken has bigger problems than our lock.

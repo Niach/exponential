@@ -44,7 +44,7 @@ pub fn codex_sessions_root(home: Option<&Path>) -> Option<PathBuf> {
 /// The NEWEST recorded codex session whose meta `cwd` is `worktree`, and
 /// (EXP-637) whose meta `originator` is `originator` when one is given — the
 /// per-session value the launcher stamps into codex's rollout metas
-/// ([`crate::argv::CODEX_ORIGINATOR_ENV`]). A worktree can host several codex
+/// (`coding::argv::CODEX_ORIGINATOR_ENV`). A worktree can host several codex
 /// conversations (the run itself, then a resume, then a shell), so a resume
 /// reopens the one that BELONGS to the recorded run; `None` originator is the
 /// cwd-only match.

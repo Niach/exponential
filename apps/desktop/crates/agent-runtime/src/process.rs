@@ -6,7 +6,7 @@
 //! a plain `std::process::Command` allocates a **visible** conhost window for
 //! the few milliseconds it runs. [`background_command`] is the one Command
 //! constructor for captured/background spawns; interactive children go
-//! through the ConPTY path in [`crate::pty`] instead.
+//! through the ConPTY path in `terminal::pty` instead.
 //!
 //! [`refresh_windows_path`] solves the sibling problem: a running Windows
 //! process never sees PATH edits an installer wrote to the registry, so

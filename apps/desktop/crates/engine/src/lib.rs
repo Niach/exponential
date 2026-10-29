@@ -36,7 +36,7 @@ pub mod adapters;
 pub mod aside;
 // EXP-1206: the human-readable head of a command line (`git status`), the
 // detail a Bash row wears when the agent described nothing. Pure.
-pub mod command_head;
+pub use agent_runtime::command_head;
 // EXP-936: the run's own compaction ask — the verdict policy and the two
 // steps the command loop takes for an accepted one. Pure; `host` drives it.
 pub mod compaction;
@@ -53,7 +53,7 @@ pub mod local;
 pub mod mapper;
 pub mod outbox;
 /// NEW-17: each agent run in its own systemd scope on Linux.
-pub mod run_scope;
+pub use agent_runtime::run_scope;
 pub mod session;
 pub mod sink;
 // FEED-61: a turn that died on a transient API error is re-prompted by the
