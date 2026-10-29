@@ -136,6 +136,17 @@ export const test = base.extend<Fixtures>({
       await cleanupNamespace(app.emailPrefix)
     }
   },
+  // A page that dies mid-test leaves no snapshot: say how it went into the log.
+  page: async ({ page }, use) => {
+    const at = () => new URL(page.url()).pathname
+    page.on(`crash`, () => console.log(`[e2e] page crashed at ${at()}`))
+    page.on(`close`, () => console.log(`[e2e] page closed at ${at()}`))
+    page.on(`pageerror`, (err) => console.log(`[e2e] page error at ${at()}: ${err.stack ?? err.message}`))
+    page.on(`console`, (msg) => {
+      if (msg.type() === `error`) console.log(`[e2e] console error at ${at()}: ${msg.text()}`)
+    })
+    await use(page)
+  },
 })
 
 export { expect }
