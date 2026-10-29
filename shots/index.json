@@ -5089,6 +5089,13 @@
       }
     },
     "story-tab": {
+      "desktop": {
+        "file": "shots/story-tab/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 34184,
+        "sha256": "80ab21cfb6b9d8d7db81819bc83f09e2f9f022c17edefebc34620d1bed48b5de"
+      },
       "web": {
         "file": "shots/story-tab/web.webp",
         "width": 1800,
@@ -5241,6 +5248,13 @@
       }
     },
     "thread-stories": {
+      "desktop": {
+        "file": "shots/thread-stories/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 64460,
+        "sha256": "8cdffad5a292a6c7bf2c100a7901a189eece812d2df00fb20d29bcb5907c1069"
+      },
       "web": {
         "file": "shots/thread-stories/web.webp",
         "width": 1800,
