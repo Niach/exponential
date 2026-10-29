@@ -352,12 +352,23 @@ async function resolveNotificationBaseline(): Promise<
   { snapshot: readonly NotificationReadState[]; restore: () => Promise<void> } | undefined
 > {
   try {
-    const { snapshotDemoNotifications, restoreDemoNotifications } = await import(
-      `./lib/demo-notifications`
-    )
+    const {
+      snapshotDemoNotifications,
+      restoreDemoNotifications,
+      snapshotDemoChatArchives,
+      restoreDemoChatArchives,
+    } = await import(`./lib/demo-notifications`)
     const snapshot = await snapshotDemoNotifications()
-    if (snapshot.length === 0) return undefined
-    return { snapshot, restore: () => restoreDemoNotifications(snapshot) }
+    // #EXP-1388: and the archived chats (the chat-selection recipe archives one).
+    const archives = await snapshotDemoChatArchives()
+    if (snapshot.length === 0 && !archives) return undefined
+    return {
+      snapshot,
+      restore: async () => {
+        await restoreDemoNotifications(snapshot)
+        if (archives) await restoreDemoChatArchives(archives)
+      },
+    }
   } catch (err) {
     console.warn(
       `  not pinning the unread badge: ${err instanceof Error ? err.message : String(err)}`
@@ -526,6 +537,9 @@ async function main() {
     }
   } finally {
     await browser.close()
+    // The last view's side effects too: the native lanes capture over the
+    // same database after this one.
+    await notificationBaseline?.restore().catch(() => {})
   }
 
   if (results.length === 0) {

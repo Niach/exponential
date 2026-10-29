@@ -24,7 +24,7 @@
  */
 import { eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { notifications, users } from "@/db/schema"
+import { notifications, sessionReads, users } from "@/db/schema"
 import { DEMO_EMAIL } from "../screenshot-demo"
 
 /** One row's read state, as it stood before any view was driven. */
@@ -76,5 +76,45 @@ export async function restoreDemoNotifications(
       .update(notifications)
       .set({ readAt: row.readAt })
       .where(eq(notifications.id, row.id))
+  }
+}
+
+/**
+ * The same pin for the demo user's ARCHIVED chats (#EXP-1388,
+ * `session_reads.archived_at`). The `chat-selection` recipe archives a chat so
+ * its shot shows the Archived entry; left in place, that chat drops out of
+ * every later Chats list, here and in the native lanes that capture over the
+ * same database afterwards (Android's sg_threads gates on the ended APP-16
+ * chat). Keyed by the read row; a row the run created restores to NULL.
+ */
+export interface ChatArchiveState {
+  id: string
+  archivedAt: Date | null
+}
+
+export async function snapshotDemoChatArchives(): Promise<ChatArchiveState[] | undefined> {
+  const [demo] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, DEMO_EMAIL))
+    .limit(1)
+  if (!demo) return undefined
+  return db
+    .select({ id: sessionReads.id, archivedAt: sessionReads.archivedAt })
+    .from(sessionReads)
+    .where(eq(sessionReads.userId, demo.id))
+}
+
+export async function restoreDemoChatArchives(
+  snapshot: readonly ChatArchiveState[]
+): Promise<void> {
+  const wanted = new Map(snapshot.map((row) => [row.id, row.archivedAt?.getTime() ?? null]))
+  for (const row of (await snapshotDemoChatArchives()) ?? []) {
+    const target = wanted.get(row.id) ?? null
+    if ((row.archivedAt?.getTime() ?? null) === target) continue
+    await db
+      .update(sessionReads)
+      .set({ archivedAt: target === null ? null : new Date(target) })
+      .where(eq(sessionReads.id, row.id))
   }
 }

@@ -58,20 +58,33 @@ class ComposerAgentRowTest {
         }
     }
 
+    // `agentRow.seedCases` (TS `seedPick`): a seeded launch mounts on
+    // Temporary session, a plain or text-only mount on the default.
     @Test
-    fun `a seeded launch mounts on Temporary session, a plain mount on the default`() {
-        assertEquals(null, ComposerAgentRow.seedPick(AgentComposerSeed()))
-        assertEquals(null, ComposerAgentRow.seedPick(AgentComposerSeed(text = "hi")))
-        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.seedPick(AgentComposerSeed(issueIds = listOf("i-3"))))
-        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.seedPick(AgentComposerSeed(promptId = "p-1")))
-        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.seedPick(AgentComposerSeed(deviceId = "d-1")))
+    fun `seedCases match the fixture`() {
+        val cases = row.getValue("seedCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val seed = case.getValue("seed").jsonObject
+            val parsed = AgentComposerSeed(
+                text = seed.str("text"),
+                issueIds = seed["issueIds"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
+                promptId = seed.str("promptId"),
+                deviceId = seed.str("deviceId"),
+            )
+            assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.seedPick(parsed))
+        }
     }
 
+    // `agentRow.subjectCases` (TS `pickForSubject`): `subject` = the
+    // composer's subject kind (`issues` / `prompt` = a launch, null = none).
     @Test
-    fun `an issue or prompt subject moves the row to Temporary session`() {
-        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.pickForSubject(true, null))
-        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.pickForSubject(true, "g-me"))
-        assertEquals("g-me", ComposerAgentRow.pickForSubject(false, "g-me"))
-        assertEquals(null, ComposerAgentRow.pickForSubject(false, null))
+    fun `subjectCases match the fixture`() {
+        val cases = row.getValue("subjectCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val isLaunch = case.str("subject") in setOf("issues", "prompt")
+            assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.pickForSubject(isLaunch, case.str("current")))
+        }
     }
 }
