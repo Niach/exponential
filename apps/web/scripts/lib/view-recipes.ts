@@ -749,12 +749,12 @@ async function recipeOpenFirstBoardSettings(page: Page): Promise<void> {
 }
 
 /**
- * Settings → Assistant's Meeting mode block (meeting.json): Meeting mode, Stop
- * after, Desktop audio sit below the fold under the Voice rows, so centre the
- * Desktop audio row (`testIds.desktopAudio`) to frame the whole block.
+ * Settings → Assistant's Meeting mode block (meeting.json): Meeting mode and
+ * Stop after (and Desktop audio, with a voice device) sit below the fold under
+ * the Voice rows, so centre the Stop after row by its label.
  */
 async function recipeScrollToMeetingMode(page: Page): Promise<void> {
-  const target = page.getByTestId(`settings-voice-desktop-audio`).filter({ visible: true }).first()
+  const target = page.getByText(`Stop after`, { exact: true }).filter({ visible: true }).first()
   await target.waitFor({ timeout: 20_000 })
   await target.evaluate((el) => el.scrollIntoView({ block: `center` }))
 }
