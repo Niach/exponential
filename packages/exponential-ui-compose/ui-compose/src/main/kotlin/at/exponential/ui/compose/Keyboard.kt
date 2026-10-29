@@ -17,6 +17,9 @@ import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.carouselPage
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.fire
+import at.exponential.ui.model.holdInput
+import at.exponential.ui.model.isHeld
+import at.exponential.ui.model.isHoldButton
 import at.exponential.ui.model.nodeKey
 import at.exponential.ui.model.press
 import at.exponential.ui.model.scrollTo
@@ -54,10 +57,33 @@ internal fun keyName(e: KeyEvent): String? = when (e.key) {
  * follows composition = pre-order). Text fields keep their keys.
  */
 internal fun Modifier.surfaceKeys(model: SurfaceModel): Modifier = onPreviewKeyEvent { e ->
+    holdKey(model, e)?.let { return@onPreviewKeyEvent it }
     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
     val key = keyName(e)
     val typed = e.utf16CodePoint.takeIf { it > 32 }?.let { String(Character.toChars(it)) }
     handleKey(model, key, e.isShiftPressed, typed)
+}
+
+/**
+ * VAPP-162 (round-5 §9): Space / Enter down and up on a focused `hold`
+ * Button drive the core's hold (key repeat ignored there); Escape cancels a
+ * held one (otherwise it closes layers as usual). Null = not a hold key.
+ */
+private fun holdKey(model: SurfaceModel, e: KeyEvent): Boolean? {
+    val n = model.keyboardFocus?.let(model::indexOf)?.let(model::node) ?: return null
+    if (!n.isHoldButton()) return null
+    val key = when (e.key) {
+        Key.Spacebar -> " "
+        Key.Enter, Key.NumPadEnter -> "Enter"
+        Key.Escape -> if (model.isHeld(n.id)) "Escape" else return null
+        else -> return null
+    }
+    when (e.type) {
+        KeyEventType.KeyDown -> model.holdInput(n.index, "keydown", key, repeat = e.nativeKeyEvent.repeatCount > 0)
+        KeyEventType.KeyUp -> model.holdInput(n.index, "keyup", key)
+        else -> return null
+    }
+    return true
 }
 
 /** One key on the focused node; `true` = handled. */

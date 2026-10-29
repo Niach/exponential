@@ -245,6 +245,39 @@ class SurfaceMeasurer(
                 // stretches to its row, round 2 §7).
                 "TreeGuides" -> plain(max((props.num("depth") ?: 0.0).toFloat(), 0f) * TREE_GUIDE_COLUMN, 0f)
                 "Segmented" -> segmented(leaf).let { plain(it.width, it.height) }
+                // VAPP-162 (round-5 §6): the `size` plate over the label (a muted caption, `labelGap` apart).
+                "QrCode" -> if (p == null) {
+                    val edge = max((props.num("size") ?: 160.0).toFloat(), 0f)
+                    val label = shown(props.shownText("label"), leaf)
+                    if (label.isEmpty()) {
+                        plain(edge, edge)
+                    } else {
+                        val lp = part("QrCode", "label", props)
+                        val lts = ResolvedTextStyle(lp.px("fontSize") ?: 12f, (lp.props["fontWeight"]?.number ?: 400.0).toInt(), lp.px("lineHeight") ?: 16f, lp.fontFamily)
+                        val gap = leaf.control.gap.takeIf { it > 0f } ?: 8f
+                        val t = para(label, lts, inner?.let { max(it, edge) }, null)
+                        plain(max(edge, t.w), edge + gap + t.h)
+                    }
+                } else plain(0f, 0f)
+                // VAPP-162 (§7): a square viewfinder as wide as the box up to
+                // 280, the hint (a muted line) `hintGap` under it.
+                "QrScanner" -> if (p == null) {
+                    val w = when {
+                        inner == null -> 280f
+                        inner <= 0f -> 160f
+                        else -> min(inner, 280f)
+                    }
+                    val hint = shown(props.shownText("hint"), leaf)
+                    if (hint.isEmpty()) {
+                        plain(w, w)
+                    } else {
+                        val hp = part("QrScanner", "hint", props)
+                        val hts = ResolvedTextStyle(hp.px("fontSize") ?: 14f, 400, hp.px("lineHeight") ?: 20f, hp.fontFamily)
+                        val gap = leaf.control.gap.takeIf { it > 0f } ?: 12f
+                        val t = para(hint, hts, w, null)
+                        plain(w, w + gap + t.h)
+                    }
+                } else plain(0f, 0f)
                 "Unknown" -> {
                     val label = part("Unknown", "label", props)
                     val lts = ResolvedTextStyle(label.px("fontSize") ?: 12f, 400, label.px("lineHeight") ?: 16f, label.fontFamily)
@@ -484,7 +517,12 @@ class SurfaceMeasurer(
 
     private fun segmented(leaf: LeafRequest): Size {
         val props = leaf.props
-        if (props.str("variant") == "bar") return segmentedBar(leaf)
+        val vertical = props.str("orientation") == "vertical"
+        if (props.str("variant") == "bar") {
+            // VAPP-162: the rail = the root recipe's width (72) × items × `$control.tabBar` (the core fixes both).
+            if (vertical) return Size(part("Segmented", "root", props).width ?: 72f, props.list("items").count { it.obj != null } * control("tabBar", 56f))
+            return segmentedBar(leaf)
+        }
         val items = props.list("items")
         val item = part("Segmented", "item", props)
         val pad = item.px("paddingHorizontal") ?: item.px("padding") ?: 12f
@@ -501,9 +539,12 @@ class SurfaceMeasurer(
             val lw = if (label.isEmpty()) 0f else line(label, ts)
             val iw = if (hasIcon) 16f else 0f
             val innerGap = if (hasIcon && lw > 0f) itemGap else 0f
-            w += 2 * (pad + border) + iw + innerGap + lw
-            if (i > 0) w += leaf.control.gap
+            val iw2 = 2 * (pad + border) + iw + innerGap + lw
+            // VAPP-162: a vertical Segmented stacks its segments (as wide as the widest).
+            w = if (vertical) max(w, iw2) else w + iw2
+            if (i > 0 && !vertical) w += leaf.control.gap
         }
+        if (vertical) return Size(w, items.size * h + max(items.size - 1, 0) * leaf.control.gap)
         return Size(w, h)
     }
 

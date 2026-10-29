@@ -325,7 +325,21 @@ class ConformanceTest {
             component == "Segmented" -> {
                 val i = m.indexOf("c") ?: return null
                 val root = m.boxStyle(i)
-                val item = m.part("Segmented", "item", m.node(i)!!.props)
+                val props = m.node(i)!!.props
+                val item = m.part("Segmented", "item", props)
+                // VAPP-162: a vertical Segmented stacks its items (`gap` apart; the rail: none).
+                if (props["orientation"]?.string == "vertical") {
+                    val n = props["items"]?.array?.size?.coerceAtLeast(1) ?: 1
+                    val inner = m.frame(i).height - 2 * (root.paddingVertical + root.borderWidth)
+                    val gaps = if (props["variant"]?.string == "bar") 0f else root.gap * (n - 1)
+                    return mapOf(
+                        "width" to m.frame(i).width - 2 * root.paddingHorizontal,
+                        "height" to (inner - gaps) / n,
+                        "paddingHorizontal" to (item.px("paddingHorizontal") ?: item.px("padding") ?: 12f),
+                        "borderWidth" to item.style.borderWidth,
+                        "borderRadius" to item.style.radius,
+                    )
+                }
                 mapOf(
                     "height" to m.frame(i).height - 2 * (root.paddingVertical + root.borderWidth),
                     "paddingHorizontal" to (item.px("paddingHorizontal") ?: item.px("padding") ?: 12f),

@@ -88,6 +88,44 @@ private val users = outline(
     "M9 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8z",
 )
 
+// VAPP-162: the round-5 concepts (calls, pairing, push-to-talk) in Lucide geometry.
+private fun rect(x: Float, y: Float, w: Float, h: Float, r: Float) =
+    "M${x + r} ${y}h${w - 2 * r}a$r $r 0 0 1 $r ${r}v${h - 2 * r}a$r $r 0 0 1 -$r ${r}h-${w - 2 * r}a$r $r 0 0 1 -$r -${r}v-${h - 2 * r}a$r $r 0 0 1 $r -${r}z"
+private fun circle(cx: Float, cy: Float, r: Float) = "M$cx ${cy - r}a$r $r 0 1 0 0 ${2 * r}a$r $r 0 1 0 0 -${2 * r}z"
+
+private val mic = outline("mic", "M12 19v3", "M19 10v2a7 7 0 0 1-14 0v-2", rect(9f, 2f, 6f, 13f, 3f))
+private val micOff = outline("mic-off", "M12 19v3", "M15 9.34V5a3 3 0 0 0-5.68-1.33", "M16.95 16.95A7 7 0 0 1 5 12v-2", "M18.89 13.23A7 7 0 0 0 19 12v-2", "m2 2 20 20", "M9 9v3a3 3 0 0 0 5.12 2.12")
+private val phoneOff = outline(
+    "phone-off",
+    "M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272",
+    "M22 2 2 22",
+    "M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473",
+)
+private val phoneIncoming = outline(
+    "phone-incoming",
+    "M16 2v6h6",
+    "m22 2-6 6",
+    "M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384",
+)
+private val volume2 = outline("volume-2", "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z", "M16 9a5 5 0 0 1 0 6", "M19.364 18.364a9 9 0 0 0 0-12.728")
+private val ear = outline("ear", "M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0", "M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4")
+private val qrCode = outline(
+    "qr-code",
+    rect(3f, 3f, 5f, 5f, 1f), rect(16f, 3f, 5f, 5f, 1f), rect(3f, 16f, 5f, 5f, 1f),
+    "M21 16h-3a2 2 0 0 0-2 2v3", "M21 21v.01", "M12 7v3a2 2 0 0 1-2 2H7", "M3 12h.01", "M12 3h.01", "M12 16v.01", "M16 12h1", "M21 12v.01", "M12 21v-1",
+)
+private val scanLine = outline("scan-line", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M7 12h10")
+private val audioLines = outline("audio-lines", "M2 10v3", "M6 6v11", "M10 3v18", "M14 8v7", "M18 5v13", "M22 10v3")
+private val hand = outline("hand", "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", "M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8", "M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15")
+private val checkCheck = outline("check-check", "M18 6 7 17l-5-5", "m22 10-7.5 7.5L13 16")
+private val globe = outline("globe", circle(12f, 12f, 10f), "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", "M2 12h20")
+private val mail = outline("mail", "m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7", rect(2f, 4f, 20f, 16f, 2f))
+private val pencil = outline("pencil", "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4")
+private val layers = outline("layers", "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z", "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12", "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17")
+private val fileText = outline("file-text", "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4", "M10 9H8", "M16 13H8", "M16 17H8")
+private val bot = outline("bot", "M12 8V4H8", rect(4f, 8f, 16f, 12f, 2f), "M2 14h2", "M20 14h2", "M15 13v2", "M9 13v2")
+private val repeat = outline("repeat", "m17 2 4 4-4 4", "M3 11v-1a4 4 0 0 1 4-4h14", "m7 22-4-4 4-4", "M21 13v1a4 4 0 0 1-4 4H3")
+
 /** A filled 24-unit mark (icons.json `imported`/`custom`, `custom-icons.generated.ts`). */
 private fun mark(name: String, d: String): ImageVector =
     ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
@@ -201,6 +239,35 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "os-windows" to osWindows,
     "os-linux" to osLinux,
     "progress-2-4" to progress24,
+    // VAPP-162: the call, pairing and push-to-talk concepts (icons.json) and their bare Lucide names.
+    "call-mute" to mic,
+    "call-unmute" to micOff,
+    "call-end" to phoneOff,
+    "call-speaker" to volume2,
+    "call-speaker-off" to ear,
+    "call-incoming" to phoneIncoming,
+    "ui-qr-code" to qrCode,
+    "ui-scan" to scanLine,
+    "ui-read" to checkCheck,
+    "ui-hold" to hand,
+    "voice-level" to audioLines,
+    "mic" to mic,
+    "mic-off" to micOff,
+    "phone-off" to phoneOff,
+    "phone-incoming" to phoneIncoming,
+    "qr-code" to qrCode,
+    "scan-line" to scanLine,
+    "audio-lines" to audioLines,
+    "hand" to hand,
+    "check-check" to checkCheck,
+    // The Plan / Trace specimens' step glyphs.
+    "globe" to globe,
+    "mail" to mail,
+    "pencil" to pencil,
+    "layers" to layers,
+    "trace-read" to fileText,
+    "trace-subagent" to bot,
+    "trace-background" to repeat,
 )
 
 /**

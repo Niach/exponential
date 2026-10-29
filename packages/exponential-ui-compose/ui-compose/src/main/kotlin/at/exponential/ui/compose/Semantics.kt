@@ -34,6 +34,8 @@ import at.exponential.ui.json.str
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.checked
+import at.exponential.ui.model.holdInput
+import at.exponential.ui.model.isHoldButton
 import at.exponential.ui.model.nodeKey
 import at.exponential.ui.model.press
 import at.exponential.ui.model.radioChecked
@@ -265,6 +267,17 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
             if (c == "Ring") node.props.num("value")?.let { v -> progressBarRangeInfo = ProgressBarRangeInfo(v.toFloat().coerceIn(0f, 1f), 0f..1f) } else progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
         }
         node.isPickerTrigger || c == "Segmented" -> this
+        // VAPP-162: a QrCode is an image named by its label (decorative
+        // without one); a QrScanner names its own viewfinder (the camera
+        // state is the composable's).
+        c == "QrCode" -> {
+            val name = a.label ?: node.props.str("label").ifEmpty { null }
+            if (name == null) hiddenFromAccessibility() else clearAndSetSemantics {
+                contentDescription = name
+                role = Role.Image
+            }
+        }
+        c == "QrScanner" -> this
         c == "Link" -> {
             val index = node.index
             clearAndSetSemantics {
@@ -279,10 +292,20 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
             val disabledNow = model.isDisabled(node.index)
             val index = node.index
             val pressable = node.pressable
+            val hold = node.isHoldButton()
             clearAndSetSemantics {
                 contentDescription = desc ?: ""
                 if (button) role = Role.Button
-                if (pressable && !disabledNow) onClick { model.press(index); true }
+                // VAPP-162: a `hold` Button's accessibility click = one whole hold (start, end).
+                if (pressable && !disabledNow) onClick {
+                    if (hold) {
+                        model.holdInput(index, "keydown", "Enter")
+                        model.holdInput(index, "keyup", "Enter")
+                    } else {
+                        model.press(index)
+                    }
+                    true
+                }
                 if (c == "Toggle") toggleableState = ToggleableState(node.props["pressed"]?.bool == true)
                 applyA11y(a, live, model)
                 if (button && disabledNow) disabled()

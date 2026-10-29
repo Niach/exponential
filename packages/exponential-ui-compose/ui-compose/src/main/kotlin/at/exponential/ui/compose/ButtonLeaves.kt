@@ -7,6 +7,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -98,49 +106,65 @@ internal fun SegmentedLeaf(cx: LeafContext) {
         item.fontFamily,
     )
     val fill = bar || props.flag("fill")
+    // VAPP-162: `orientation: vertical` stacks the segments; a vertical
+    // `bar` is THE navigation rail (items as wide as the rail, each
+    // `$control.tabBar` tall, laid out by the core).
+    val vertical = props.str("orientation") == "vertical"
+    val railItem = if (bar && vertical) item.height ?: cx.control("tabBar", 56f) else h
     val disabledAll = cx.model.isDisabled(cx.index)
     val model = cx.model
     val index = cx.index
+    val segment: @Composable (Int, JsonValue, Modifier) -> Unit = { k, it, slot ->
+        val value = it["value"] ?: JsonValue.Str(it["label"]?.displayText ?: "")
+        val selected = values.contains(value.displayText)
+        val disabled = disabledAll || it["disabled"]?.bool == true
+        val states = buildList {
+            if (selected) add("selected")
+            if (disabled) add("disabled")
+        }
+        val st = cx.part("Segmented", "item", states)
+        val ink = st.color ?: cx.ink
+        val label = it["label"]?.displayText ?: ""
+        // A `bar` item's count badge reads after the label ("Chats, 3").
+        val badge = if (bar) segmentedBadge(it) else null
+        val select = Modifier
+            .selectable(selected = selected, enabled = !disabled, role = Role.Tab) { model.segmentedSelect(index, value) }
+            .semantics { contentDescription = segmentedItemLabel(label.ifEmpty { value.displayText }, badge) }
+        key(k) {
+            if (bar) {
+                SegmentedBarItem(cx, it, label, states, ink, if (vertical) railItem else h, badge, slot.leafPartBox(st.style).then(select))
+            } else {
+                Box(
+                    slot
+                        .height(h.dp)
+                        .leafPartBox(st.style)
+                        .then(select)
+                        .padding(horizontal = pad.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(itemGap.dp), verticalAlignment = Alignment.CenterVertically) {
+                        it["icon"]?.string?.let { name -> IconView(name, 16f, ink, model) }
+                        if (label.isNotEmpty()) LeafLine(cx, label, color = ink, ts = ts)
+                    }
+                }
+            }
+        }
+    }
+    if (vertical) {
+        InnerBox(cx, Alignment.TopStart) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (bar) 0.dp else cx.style.gap.dp)) {
+                for ((k, it) in items.withIndex()) segment(k, it, Modifier.fillMaxWidth())
+            }
+        }
+        return
+    }
     InnerBox(cx, Alignment.CenterStart) {
         Row(
             if (fill) Modifier.fillMaxWidth() else Modifier,
             horizontalArrangement = Arrangement.spacedBy(cx.style.gap.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            for ((k, it) in items.withIndex()) {
-                val value = it["value"] ?: JsonValue.Str(it["label"]?.displayText ?: "")
-                val selected = values.contains(value.displayText)
-                val disabled = disabledAll || it["disabled"]?.bool == true
-                val states = buildList {
-                    if (selected) add("selected")
-                    if (disabled) add("disabled")
-                }
-                val st = cx.part("Segmented", "item", states)
-                val ink = st.color ?: cx.ink
-                val label = it["label"]?.displayText ?: ""
-                val select = Modifier
-                    .selectable(selected = selected, enabled = !disabled, role = Role.Tab) { model.segmentedSelect(index, value) }
-                    .semantics { contentDescription = label.ifEmpty { value.displayText } }
-                key(k) {
-                    if (bar) {
-                        SegmentedBarItem(cx, it, label, states, ink, h, Modifier.weight(1f).leafPartBox(st.style).then(select))
-                    } else {
-                        Box(
-                            (if (fill) Modifier.weight(1f) else Modifier)
-                                .height(h.dp)
-                                .leafPartBox(st.style)
-                                .then(select)
-                                .padding(horizontal = pad.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(itemGap.dp), verticalAlignment = Alignment.CenterVertically) {
-                                it["icon"]?.string?.let { name -> IconView(name, 16f, ink, model) }
-                                if (label.isNotEmpty()) LeafLine(cx, label, color = ink, ts = ts)
-                            }
-                        }
-                    }
-                }
-            }
+            for ((k, it) in items.withIndex()) segment(k, it, if (fill) Modifier.weight(1f) else Modifier)
         }
     }
 }
@@ -151,7 +175,7 @@ internal fun SegmentedLeaf(cx: LeafContext) {
  * part in the caption text style, `xxs` apart, `xs` vertical padding.
  */
 @Composable
-private fun SegmentedBarItem(cx: LeafContext, item: JsonValue, label: String, states: List<String>, ink: Color, h: Float, modifier: Modifier) {
+private fun SegmentedBarItem(cx: LeafContext, item: JsonValue, label: String, states: List<String>, ink: Color, h: Float, badge: String?, modifier: Modifier) {
     val iconInk = cx.part("Segmented", "icon", states).color ?: ink
     val labelPart = cx.part("Segmented", "label", states)
     val labelInk = labelPart.color ?: ink
@@ -168,7 +192,54 @@ private fun SegmentedBarItem(cx: LeafContext, item: JsonValue, label: String, st
         verticalArrangement = Arrangement.spacedBy(cx.spacing("xxs").dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        item["icon"]?.string?.let { name -> IconView(name, iconSize, iconInk, cx.model) }
+        val icon = item["icon"]?.string
+        if (icon != null) {
+            Box(Modifier.size(iconSize.dp)) {
+                IconView(icon, iconSize, iconInk, cx.model)
+                if (badge != null) SegmentedBadge(cx, badge, Modifier.align(if (cx.rtl) Alignment.TopStart else Alignment.TopEnd))
+            }
+        }
         if (label.isNotEmpty()) LeafLine(cx, label, color = labelInk, ts = ts)
+    }
+}
+
+/**
+ * VAPP-162 (round-5 §3): a `bar` item's count badge, its CENTRE on the
+ * icon box's top-end corner ([modifier] aligns the zero-size anchor there;
+ * mirrored under RTL), the `Segmented/badge` part: min width 16, height 16,
+ * xxs horizontal padding, a full radius, the primary fill, xs medium text.
+ */
+@Composable
+private fun SegmentedBadge(cx: LeafContext, text: String, modifier: Modifier) {
+    val part = cx.part("Segmented", "badge")
+    val minW = part.px("minWidth") ?: 16f
+    val bh = part.height ?: 16f
+    val padH = part.px("paddingHorizontal") ?: part.px("padding") ?: cx.spacing("xxs")
+    val ts = ResolvedTextStyle(
+        part.px("fontSize") ?: 12f,
+        (part.props["fontWeight"]?.number ?: 500.0).toInt(),
+        part.px("lineHeight") ?: 16f,
+        part.fontFamily ?: cx.textStyle.fontFamily,
+    )
+    val fill = part.style.background ?: cx.themeColor("primary") ?: cx.ink
+    val ink = part.color ?: cx.themeColor("primaryForeground") ?: Color.White
+    Box(
+        modifier
+            .layout { measurable, _ ->
+                // A zero-size anchor at the corner: the badge is centred on it.
+                val placeable = measurable.measure(Constraints())
+                layout(0, 0) { placeable.place(-placeable.width / 2, -placeable.height / 2) }
+            },
+    ) {
+        Box(
+            Modifier
+                .widthIn(min = minW.dp)
+                .height(bh.dp)
+                .background(fill, RoundedCornerShape(50))
+                .padding(horizontal = padH.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            BasicText(text, style = cx.composeTextStyle(ts = ts, color = ink, align = TextAlign.Center), softWrap = false, maxLines = 1)
+        }
     }
 }

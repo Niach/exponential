@@ -81,7 +81,7 @@ class ComponentSnapshotImagesTest {
          * image of exactly these components is skipped (never recorded on a
          * dev machine). Empty this set once the workflow committed them.
          */
-        val PENDING_IMAGES = emptySet<String>() // NEW-77: VoiceWave recorded 2026-10-26 (N-12 DockCard recorded 2026-10-23)
+        val PENDING_IMAGES = setOf("CallSurface", "MessageBubble", "Plan", "QrCode", "QrScanner") // VAPP-162: the round-5 components, until record-compose-fixtures.yml records them on ubuntu (NEW-77 VoiceWave recorded 2026-10-26)
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {
@@ -169,18 +169,18 @@ class ComponentSnapshotImagesTest {
         compose.waitForIdle()
         assertEquals(0, m.issues.size)
         assertEquals(390f, m.width, 0.5f)
-        assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..9600f) // VAPP-126: + the layout macros card
+        assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..12000f) // VAPP-126: + the layout macros card; VAPP-162: + the call, chat, plan and QR cards
         // The real measure batches (the views' shaper, not the fixed one).
         assertTrue("upcalls ${m.stats.upcalls}", m.stats.upcalls <= 3)
         capture("kitchen-sink-$theme.png")
     }
 
     @Test
-    @Config(qualifiers = "w390dp-h9000dp-xhdpi")
+    @Config(qualifiers = "w390dp-h12000dp-xhdpi")
     fun kitchenSinkExponential() = kitchenSink("exponential")
 
     @Test
-    @Config(qualifiers = "w390dp-h9000dp-xhdpi")
+    @Config(qualifiers = "w390dp-h12000dp-xhdpi")
     fun kitchenSinkThemes() {
         for (theme in at.exponential.ui.ffi.builtinThemeIds()) if (theme != "exponential") kitchenSinkTheme(theme)
     }
@@ -204,7 +204,7 @@ class ComponentSnapshotImagesTest {
         }
         compose.waitForIdle()
         assertEquals("$theme issues", 0, m.issues.size)
-        assertTrue("$theme height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..9600f) // VAPP-126: + the layout macros card
+        assertTrue("$theme height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..12000f) // VAPP-126: + the layout macros card; VAPP-162: + the call, chat, plan and QR cards
         capture("kitchen-sink-$theme.png")
     }
 

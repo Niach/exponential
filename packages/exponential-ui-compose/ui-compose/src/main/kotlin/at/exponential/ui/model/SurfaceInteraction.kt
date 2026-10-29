@@ -200,6 +200,44 @@ fun SurfaceModel.nodeKey(index: Int, key: String) {
     fire(index, "key", JsonValue.Obj(mapOf("key" to JsonValue.Str(key))))
 }
 
+/** VAPP-162: a `hold: true` Button (round-5 contract §9; the core owns the hold, its `pressed` state and `holdingLabel`). */
+fun NodeInfo.isHoldButton(): Boolean = component == "Button" && part == null && props["hold"]?.bool == true
+
+/**
+ * VAPP-162: one input on a `hold` Button through the core's `Surface.hold`:
+ * `{do: pointerdown | pointermove | pointerup, x, y}` (dp from the button's
+ * top-left), `{do: pointercancel}`, `{do: keydown, key, repeat?}` (`" "`,
+ * `Enter`, `Escape`), `{do: keyup, key}`, `{do: blur}`. Dispatches the
+ * holdStart / holdEnd / holdCancel actions and relays out.
+ */
+fun SurfaceModel.hold(index: Int, input: JsonValue) {
+    val events = try {
+        surface.hold(index.toUInt(), input.orderedJson)
+    } catch (_: UiException) {
+        return
+    }
+    if (events.isNotEmpty()) dispatch(events)
+}
+
+/** [hold] with a pointer at ([x], [y]) dp from the button's top-left. */
+fun SurfaceModel.holdPointer(index: Int, phase: String, x: Float, y: Float) =
+    hold(index, JsonValue.Obj(linkedMapOf("do" to JsonValue.Str(phase), "x" to JsonValue.Num(x.toDouble()), "y" to JsonValue.Num(y.toDouble()))))
+
+/** [hold] with an input that carries only `do` (`pointercancel`, `blur`) or a key. */
+fun SurfaceModel.holdInput(index: Int, phase: String, key: String? = null, repeat: Boolean = false) =
+    hold(
+        index,
+        JsonValue.Obj(
+            linkedMapOf<String, JsonValue>("do" to JsonValue.Str(phase)).apply {
+                if (key != null) put("key", JsonValue.Str(key))
+                if (repeat) put("repeat", JsonValue.Bool(true))
+            },
+        ),
+    )
+
+/** Is the `hold` Button [id] held now (the core's state)? */
+fun SurfaceModel.isHeld(id: String): Boolean = runCatching { surface.isHeld(id) }.getOrDefault(false)
+
 /** Fire `event` on node `index` through the core and dispatch the result. */
 fun SurfaceModel.fire(index: Int, event: String, payload: JsonValue? = null) {
     val events = try {

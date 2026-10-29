@@ -114,10 +114,13 @@ internal class VoiceWaveSpec(val rings: List<VoiceWaveRingSpec>, val childSize: 
     }
 }
 
-/** The props a VoiceWave paints with, catalog defaults filled (activity idle, size md, level 0). */
-internal data class VoiceWaveProps(val activity: String, val size: String, val level: Double, val bands: List<Double>) {
-    /** The recipe props (`activity` + `size`). */
-    val recipeProps: Props get() = mapOf("activity" to JsonValue.Str(activity), "size" to JsonValue.Str(size))
+/** The props a VoiceWave paints with, catalog defaults filled (activity idle, size md, level 0, variant ring). */
+internal data class VoiceWaveProps(val activity: String, val size: String, val level: Double, val bands: List<Double>, val variant: String = "ring") {
+    /** The recipe props (`activity` + `size` + `variant`). */
+    val recipeProps: Props get() = mapOf("activity" to JsonValue.Str(activity), "size" to JsonValue.Str(size), "variant" to JsonValue.Str(variant))
+
+    /** VAPP-162: the horizontal level meter (no child painted). */
+    val bars: Boolean get() = variant == "bars"
 
     companion object {
         fun of(props: Props): VoiceWaveProps = VoiceWaveProps(
@@ -125,7 +128,58 @@ internal data class VoiceWaveProps(val activity: String, val size: String, val l
             size = props.str("size").ifEmpty { "md" },
             level = props.num("level") ?: 0.0,
             bands = props.list("bands").mapNotNull { it.number },
+            variant = props.str("variant").takeIf { it == "bars" } ?: "ring",
         )
+    }
+}
+
+/**
+ * VAPP-162 (round-5 contract §5): a `variant: bars` VoiceWave, the
+ * horizontal level meter: the core's 20 rounded bars for the size
+ * (`voiceWaveBarsJson`) centred in the root box, filled with the
+ * `VoiceWave/bar` colour, animated like the rings (one core frame per
+ * display frame unless still); the child stays in the tree, unpainted.
+ */
+@Composable
+private fun VoiceWaveBarsContent(index: Int, node: NodeInfo, model: SurfaceModel, size: Size, p: VoiceWaveProps) {
+    val mode = model.mode
+    val color = remember(p.activity, p.size, mode, model.effectiveTheme) {
+        model.part("VoiceWave", "bar", p.recipeProps).color ?: model.color("primary") ?: model.ink(index)
+    }
+    val still = model.reducedMotion || !VoiceWaveSpec.animates(p.activity)
+    val elapsed = remember(node.id) { mutableFloatStateOf(0f) }
+    if (!still) {
+        LaunchedEffect(node.id, p.activity) {
+            var start = -1L
+            while (true) {
+                val now = withInfiniteAnimationFrameNanos { it }
+                if (start < 0) start = now
+                elapsed.floatValue = (now - start) / 1e9f
+            }
+        }
+    }
+    val rest = remember(p, model.reducedMotion) {
+        VoiceWaveBarsSpec.of(VoiceWaveBarsSpec.input(p.size, p.activity, p.level, p.bands, 0.0, model.reducedMotion))
+    }
+    if (rest == null) {
+        SideEffect { model.paintFailed(node.id, "VoiceWave: the core refused the bars") }
+        return
+    }
+    Canvas(Modifier.fillMaxSize()) {
+        val t = if (still) 0f else elapsed.floatValue
+        val spec = if (t == 0f) rest else VoiceWaveBarsSpec.of(VoiceWaveBarsSpec.input(p.size, p.activity, p.level, p.bands, t.toDouble(), model.reducedMotion)) ?: rest
+        val origin = Offset((size.width - spec.width) / 2f * density, (size.height - spec.height) / 2f * density)
+        drawVoiceWaveBars(spec, origin, color)
+    }
+    // The child stays composed (like `sm`): no paint, no input, hidden from assistive tech.
+    val kids = (model.children.getOrNull(index) ?: emptyList()).filter { model.node(it)?.hidden == false }
+    if (kids.isEmpty()) return
+    val nodeOrigin = model.frame(index).topLeft
+    val frames = kids.associateWith { model.frame(it).translate(-nodeOrigin.x, -nodeOrigin.y) }
+    CompositionLocalProvider(LocalInvisible provides true) {
+        FrameLayout(size = size, frames = frames) {
+            for (k in kids) key(k) { NodeView(k, Modifier.frameIndex(k).voiceWaveChild(0f, TransformOrigin.Center)) }
+        }
     }
 }
 
@@ -144,6 +198,7 @@ internal data class VoiceWaveProps(val activity: String, val size: String, val l
 @Composable
 internal fun VoiceWaveContent(index: Int, node: NodeInfo, model: SurfaceModel, size: Size) {
     val p = VoiceWaveProps.of(node.props)
+    if (p.bars) return VoiceWaveBarsContent(index, node, model, size, p)
     val mode = model.mode
     val edge = model.part("VoiceWave", "root", p.recipeProps).width ?: min(size.width, size.height)
     val colors = remember(p.activity, p.size, mode, model.effectiveTheme) {
