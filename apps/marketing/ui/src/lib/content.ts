@@ -3,6 +3,7 @@
    the docs-style navs, and which guides/check.ts check compiles each guide. */
 import type { DocsNavEntry } from "@exp/site-shell"
 import { GUIDES, guidePath } from "./guides"
+import { otherLibrariesNav } from "./libraries"
 
 /** The docs sidebar of Concepts, Conformance and Numbers: the site's reading order. */
 export const LEARN_NAV: DocsNavEntry[] = [
@@ -15,6 +16,7 @@ export const LEARN_NAV: DocsNavEntry[] = [
   { path: `/ui/conformance/`, label: `Conformance` },
   { path: `/ui/eval/`, label: `Ergonomics eval` },
   { path: `/ui/numbers/`, label: `Numbers` },
+  ...otherLibrariesNav(`eUI`),
 ]
 
 /** The guides sidebar: the index, then every guide in nav order. */

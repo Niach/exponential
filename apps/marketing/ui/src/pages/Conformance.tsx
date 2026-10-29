@@ -95,11 +95,11 @@ export default function ConformancePage({ path }: PageProps) {
         </div>
       </section>
 
-      <DocsLayout nav={LEARN_NAV} title="Exponential UI" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={LEARN_NAV} title="eUI" sections={SECTIONS} currentPath={path}>
         <DocsSection id="meaning" num="01" label="What it means">
           <h2>What it means</h2>
           <p>
-            A renderer is <strong>Exponential UI conformant</strong> when its runner replays every suite of the
+            A renderer is <strong>eUI conformant</strong> when its runner replays every suite of the
             manifest and the report passes: every suite present, every case run, nothing failed or skipped. Then a
             surface means the same thing on it as on ours. The same tree comes out of the reducer, every macro expands
             the same way, a theme resolves to the same colours, a control measures to the same box, and the host

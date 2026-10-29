@@ -22,11 +22,11 @@ export default function Install({ path }: PageProps) {
           <h1>Install</h1>
         </div>
       </section>
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
         <DocsSection id="settings" num="01" label="Settings → Voice">
           <h2>Settings → Voice</h2>
           <p>
-            Talk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Voice on the web, the
+            eTalk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Voice on the web, the
             desktop app or your phone. The settings are yours, not your team&apos;s.
           </p>
           <DocShot view="settings-assistant" platform="desktop" caption="Settings → Assistant in the desktop app: its Voice block on your desktop." />

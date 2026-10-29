@@ -20,7 +20,7 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
       body: (
         <>
           <p>
-            Talk speaks in a voice cloned from ONE short clip, in English and in German. No training, no upload. The clip stays on
+            eTalk speaks in a voice cloned from ONE short clip, in English and in German. No training, no upload. The clip stays on
             your voice device. Settings → Voice stores only its path and its transcript.
           </p>
           <p>
@@ -196,7 +196,7 @@ export default function TalkGuide({ path }: PageProps) {
           <h1>{guide.title}</h1>
         </div>
       </section>
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={sections} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={sections} currentPath={path}>
         {sections.map((s) => (
           <DocsSection key={s.id} id={s.id} num={s.num} label={s.label}>
             <h2>{s.label}</h2>

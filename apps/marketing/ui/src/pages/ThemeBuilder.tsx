@@ -72,7 +72,7 @@ export default function ThemeBuilderPage(_: PageProps) {
         <dialog id="import" className="import">
           <h2>Import</h2>
           <p>
-            Paste a shadcn <code>globals.css</code> (v4 oklch or v3 HSL triplets), a tweakcn export, or an Exponential UI theme JSON. Colours, the radius ladder, fonts and shadows become
+            Paste a shadcn <code>globals.css</code> (v4 oklch or v3 HSL triplets), a tweakcn export, or an eUI theme JSON. Colours, the radius ladder, fonts and shadows become
             overrides on the current base.
           </p>
           <textarea id="import-text" className="mono" rows={14} spellCheck={false} placeholder={`:root {\n  --background: oklch(1 0 0);\n  --primary: oklch(0.55 0.2 260);\n  --radius: 0.625rem;\n}\n.dark { … }`} />

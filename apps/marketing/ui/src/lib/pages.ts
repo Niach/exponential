@@ -26,6 +26,10 @@ const PAGES: [RegExp, () => Promise<PageModule>][] = [
   [/^\/talk\/api\/$/, () => import("../talk/Api")],
   [/^\/talk\/numbers\/$/, () => import("../talk/Numbers")],
   [/^\/talk\/licences\/$/, () => import("../talk/Licences")],
+  /* EXP-1421: the one-page libs. */
+  [/^\/pilot\/$/, () => import("../libs/Pilot")],
+  [/^\/net\/$/, () => import("../libs/Net")],
+  [/^\/apps\/$/, () => import("../libs/Apps")],
 ]
 
 export function pageLoaderFor(path: string): (() => Promise<PageModule>) | undefined {

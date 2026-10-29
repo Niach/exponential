@@ -331,38 +331,6 @@
   cursor: ew-resize;
 }
 
-/* ── Status chip + issue link ── */
-.blog-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  vertical-align: 1px;
-  padding: 1px 8px 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--glass-fill-row);
-  border: 1px solid var(--glass-stroke-row);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: var(--fg-muted);
-  white-space: nowrap;
-}
-
-.blog-status i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--neutral);
-}
-
-.blog-status--shipped i {
-  background: var(--st-review);
-}
-
-.blog-status--in-progress i {
-  background: var(--st-progress);
-}
-
 /* ── Home strip ── */
 .home-blog {
   border-top: 1px solid var(--glass-stroke-section);

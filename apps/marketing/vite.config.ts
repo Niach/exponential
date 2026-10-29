@@ -27,7 +27,10 @@ function contentType(file: string): string {
   return `application/octet-stream`
 }
 
-/* The Exponential UI section (/ui/, formerly ui.exponential.at): ONE entry,
+/* The lib docs pages (EXP-1421) ride the /ui/ entry. */
+const SECTIONS = [`/ui`, `/talk`, `/pilot`, `/net`, `/apps`]
+
+/* The eUI section (/ui/, formerly ui.exponential.at): ONE entry,
    ui/index.html, routing by path. In dev a page navigation under /ui/ (an
    HTML request, never a module or asset) gets that entry, so the guide
    example projects' own index.html under ui/guides/ never answers. */
@@ -38,7 +41,8 @@ function uiSection(): Plugin {
       server.middlewares.use((req, _res, next) => {
         const path = (req.url ?? ``).split(`?`)[0]
         const isPage = req.method === `GET` && (req.headers.accept ?? ``).includes(`text/html`)
-        if (isPage && (path === `/ui` || path === `/talk` || ((path.startsWith(`/ui/`) || path.startsWith(`/talk/`)) && !/\.[a-z0-9]+$/i.test(path)))) req.url = `/ui/index.html`
+        const section = SECTIONS.find((s) => path === s || path.startsWith(`${s}/`))
+        if (isPage && section && (path === section || !/\.[a-z0-9]+$/i.test(path))) req.url = `/ui/index.html`
         next()
       })
     },

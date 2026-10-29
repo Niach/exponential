@@ -13,4 +13,4 @@ export const NAV = [
   { label: `Numbers`, href: `/ui/numbers/` },
 ] as const
 
-export const UI_SECTION: ShellSection = { label: `UI SDK`, href: `/ui/`, links: [...NAV] }
+export const UI_SECTION: ShellSection = { label: `eUI`, href: `/ui/`, links: [...NAV] }

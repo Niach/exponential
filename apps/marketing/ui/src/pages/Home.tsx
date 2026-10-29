@@ -2,7 +2,7 @@
    the app's phone chat answering with a surface generated node by node,
    beside the same surface's native shots) sits in the hero; the rest is the
    pitch, the six renderers, the entry points and the packages. The header's
-   "UI SDK" link opens this page (NEW-15). */
+   "eUI" link opens this page (NEW-15). */
 import manifest from "@exponential_app/ui/conformance/manifest.json"
 import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
@@ -77,7 +77,7 @@ export default function HomePage(_: PageProps) {
               <br />
               <em>native on every platform.</em>
             </h1>
-            <p className="home-sub">An agent sends A2UI JSON. Exponential UI paints it natively on web, iOS, Android and desktop, in your theme.</p>
+            <p className="home-sub">An agent sends A2UI JSON. eUI (Exponential UI) paints it natively on web, iOS, Android and desktop, in your theme.</p>
             <div className="home-cta">
               <a className="btn btn-primary" href={guidePath(`react`)}>
                 Get started <IcArrow />
@@ -133,7 +133,7 @@ export default function HomePage(_: PageProps) {
 
       <section className="home-section">
         <div className="shell">
-          <h2 className="section-title">Why Exponential UI</h2>
+          <h2 className="section-title">Why eUI</h2>
           <div className="home-pitch">
             {PITCH.map((p) => (
               <a key={p.title} className="home-pitch-item" href={p.href}>

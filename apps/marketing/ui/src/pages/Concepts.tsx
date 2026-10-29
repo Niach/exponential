@@ -93,7 +93,7 @@ export default function ConceptsPage({ path }: PageProps) {
         </div>
       </section>
 
-      <DocsLayout nav={LEARN_NAV} title="Exponential UI" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={LEARN_NAV} title="eUI" sections={SECTIONS} currentPath={path}>
         <DocsSection id="generative-ui" num="01" label="Generative UI">
           <h2>Generative UI</h2>
           <p>
@@ -104,7 +104,7 @@ export default function ConceptsPage({ path }: PageProps) {
           <p>
             <a href={LINKS.a2ui}>A2UI</a> is the open protocol for this. The agent sends UI as <strong>data</strong>,
             never as code: components from a catalog both sides agree on, a data model, and the actions it wants
-            back. A client renders that with its own components. Exponential UI is a set of A2UI clients: one
+            back. A client renders that with its own components. eUI is a set of A2UI clients: one
             catalog, a TypeScript reference and a Rust core, and native renderers for React, Solid, web
             components, SwiftUI, Jetpack Compose and gpui. It speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
           </p>
@@ -216,7 +216,7 @@ export default function ConceptsPage({ path }: PageProps) {
         <DocsSection id="basic" num="06" label="A2UI basic, mapped">
           <h2>A2UI basic, mapped</h2>
           <p>
-            A2UI ships a small <strong>basic catalog</strong>. Exponential UI vendors it unchanged and maps it onto
+            A2UI ships a small <strong>basic catalog</strong>. eUI vendors it unchanged and maps it onto
             the core catalog through one table, so a surface written for any A2UI client renders here too and
             painters only ever learn one vocabulary. Dynamic values pass through untouched, the basic icon names map
             onto the icon registry, and the {BASIC_FUNCTION_COUNT} basic functions are the same.

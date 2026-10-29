@@ -28,7 +28,7 @@ export default function Api({ path }: PageProps) {
           <h1>API</h1>
         </div>
       </section>
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
         <DocsSection id="crates" num="01" label="The crates">
           <h2>The crates</h2>
           <DocsTable

@@ -20,7 +20,7 @@ export default function HowItWorks({ path }: PageProps) {
           <h1>How it works</h1>
         </div>
       </section>
-      <DocsLayout nav={TALK_DOCS_NAV} title="Talk" sections={SECTIONS} currentPath={path}>
+      <DocsLayout nav={TALK_DOCS_NAV} title="eTalk" sections={SECTIONS} currentPath={path}>
         <DocsSection id="device" num="01" label="The voice device">
           <h2>The voice device</h2>
           <p>

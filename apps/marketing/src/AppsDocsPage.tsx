@@ -137,7 +137,7 @@ export function AppsDocsPage() {
               the IDE on that desktop sits in the system tray. Push to talk
               and spoken replies in English and German are in beta; calling
               from the phone and the wake word are coming. More on{` `}
-              <a href="/talk/">Exponential Talk</a>.
+              <a href="/talk/">eTalk</a>.
             </p>
             <DocShot
               view="settings-assistant"
