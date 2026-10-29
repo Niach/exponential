@@ -24,6 +24,7 @@ Server coupling becomes traits the hosts implement. Each lands with the first mo
 | `RunBackend` | report state, reply cards, consume queued messages, answers | `api::session_device` over tRPC | in memory |
 | `AccountEnv` | config dir + env for the spawn | multi-account rotation | the CLI's default home |
 | `McpProvider` | the MCP servers a run gets | team + device servers | the user's own list |
+| `HostTools` | the host's OWN tools: display row, subject key, preview spec, code-mode script log | `engine::ExpHostTools` (contract `expToolDisplay` / `expToolPreview`, `codemode` reports) | `NoHostTools` |
 
 ## What stays in Exponential
 
@@ -69,18 +70,33 @@ caller changes until a later cleanup.
      implements it for its `ActivitySender`), the local feed vocabulary (`local`) and the pure
      run policies (`stall`, `api_retry`, `compaction`). `engine` re-exports each under its old
      path.
-   - **4b, next.** `mapper`, `host`, `session`, `adapters/*`, `context_layout`, `exp_tool_refs`
-     and `terminals`. What they still pull from Exponential, i.e. the seams 4b defines:
-     `RunBackend` (`api::session_device` report / reply / consume, `ReplyCard` / `ReplyOption` /
-     `LostReason` / `SessionReport`, `AnswerInput`, `McpActor`, `TrpcClient`, `ApiError`); a core
-     launch spec filled from `coding::PreparedLaunch` / `AcpLaunch` (program, args, env, cwd,
-     agent, resume seed, MCP servers as `McpServerWire`, confine root, `ContextLayers`);
-     `coding::codemode` reports, `coding::agent_usage` (live rate limits), the claude transcript
-     locator, `mcp_json` / `argv` / `skill` / launcher flags; from `steer` the not-yet-moved
-     `RemoteAnswer`, `SessionBlocked`, `TurnSignal` / signals / links, `exp_tool*`, `journal`
-     caps, `answer_tap`, the publisher's image localizer / attachment hook and `SteerRuntime`;
-     `domain::contract` caps (inline + pin like `wire`) and `domain::plan_card`; and
-     `terminal::pty::open` for the ACP `terminal/*` capability (`terminals`).
+   - **4b, done.** The mapper and its leaves. `engine::mapper` (the ONE `SessionUpdate` → wire
+     mapper; `MapperConfig` carries `host_tools`, and `Mapper::new` takes `impl Into<MapperConfig>`
+     so Exponential's session-shaped `engine::MapperConfig` fills in `ExpHostTools`),
+     `engine::host_tools` (the `HostTools` seam plus `ScriptReport`), `engine::reply`
+     (`ReplyCard` / `ReplyOption`, out of `api::session_device`, which re-exports them),
+     `engine::context_layout` (plus `ContextLayers` / `ProjectMemoryFile` / `CarriedBase` out of
+     `coding`, which re-exports them), `engine::exp_tool_refs` (the rule; the spec comes from
+     `HostTools::preview_spec`, and `engine::exp_tool_refs` keeps the name-keyed entry and the
+     fixture lock), and `engine::terminals` (the ACP `terminal/*` capability). The headless PTY
+     (`Pty`, `open_pty`, `build_command`, `winsize`) moved out of `terminal::pty` into `spawn`;
+     the emulator stays in `terminal`. The wire got `RemoteAnswer`, `SessionBlocked` (the
+     `sessions.report` conversion is `steer::SessionBlockedReport`), `now_unix_millis`,
+     `iso_from_unix_millis` / `now_iso` (chrono-free, pinned to `coding`'s formatter in steer)
+     and `JOURNAL_WORKFLOW_CAP`. The contract values the mapper and refs inline are pinned in
+     `engine::mapper` / `engine::exp_tool_refs` tests.
+   - **4c, next.** `host`, `session` and `adapters/{mod,claude,claude_wire,codex,codex_wire}`.
+     What they still pull from Exponential, i.e. the seams 4c defines: `RunBackend`
+     (`api::session_device` report / reply / consume, `LostReason` / `SessionReport`,
+     `AnswerInput`, `McpActor`, `TrpcClient`, `ApiError`, `api::sessions`); a core launch spec
+     filled from `coding::PreparedLaunch` / `AcpLaunch` (program, args, env, cwd, agent, resume
+     seed, MCP servers as `McpServerWire`, confine root, `ContextLayers`); `coding::agent_usage`
+     (live rate limits), the claude transcript locator, `mcp_json` / `argv` / `skill` / launcher
+     flags, `run_registry`, `end_session`, `aside`; from `steer` `TurnSignal` / `CaptionSignal` /
+     `AgentTitleSignal` / links, `answer_tap`, the publisher's image localizer / attachment hook,
+     `workflow_caption`, `blocked_wall_expired` (chrono) and `SteerRuntime`; and
+     `domain::plan_card` / `session_kind`. `lifecycle`, `outbox`, `stop_save` and `aside` stay in
+     `engine`.
 5. A local backend and a runnable example: one turn plus the session history with your own login,
    no server.
 

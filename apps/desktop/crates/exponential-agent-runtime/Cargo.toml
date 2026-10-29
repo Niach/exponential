@@ -30,6 +30,8 @@ portable-pty = { workspace = true }
 regex = "1"
 # The ACP engine core (engine::): the transport's bounded line channels.
 flume = { workspace = true }
+# EXP-1426 part 4b: the mapper speaks ACP's `SessionUpdate` vocabulary.
+agent-client-protocol = { workspace = true }
 
 [dev-dependencies]
 # engine::child_exit's async waiter test.

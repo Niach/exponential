@@ -29,9 +29,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use terminal::pty::{ChildExit, Pty, SpawnSpec};
+use crate::spawn::{ChildExit, Pty, SpawnSpec};
 
-use crate::local::LocalFeedEvent;
+use super::local::LocalFeedEvent;
 
 /// The PTY a `terminal/create` command runs on. Wide and short on purpose: a
 /// terminal here is a scrollback buffer, not a grid anyone paints, so the
@@ -157,14 +157,14 @@ impl ChunkDecoder {
 /// Where a terminal's chunks go: the session's local feed. Built by the
 /// caller (from a `Weak<SessionCtx>`, so a live terminal never keeps the
 /// session it belongs to alive).
-pub(crate) type TerminalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
+pub type TerminalSink = Arc<dyn Fn(LocalFeedEvent) + Send + Sync>;
 
 /// The retained output of one terminal — the ACP contract's own shape:
 /// append, and once over `limit` drop from the START at a **char boundary**
 /// (a buffer cut mid-codepoint is not a valid `String` and the agent reads
 /// this back verbatim).
 #[derive(Debug)]
-pub(crate) struct OutputBuffer {
+pub struct OutputBuffer {
     text: String,
     truncated: bool,
     limit: usize,
@@ -219,7 +219,7 @@ struct TerminalHandle {
     state: Mutex<TerminalState>,
     /// Held until the child is reaped; dropping it is the signal
     /// [`TerminalHandle::exited`] waits on. Memoryful, like
-    /// [`crate::host::ChildExitLink`]: a waiter arriving after the exit
+    /// [`super::child_exit::ChildExitLink`]: a waiter arriving after the exit
     /// resolves immediately and keeps resolving.
     gate: Mutex<Option<flume::Sender<()>>>,
     signal: flume::Receiver<()>,
@@ -375,15 +375,15 @@ fn escalate_kill(pid: u32, reaped: Arc<AtomicBool>) {
 fn escalate_kill(_pid: u32, _reaped: Arc<AtomicBool>) {}
 
 /// What `terminal/output` answers with.
-pub(crate) struct TerminalSnapshot {
-    pub(crate) output: String,
-    pub(crate) truncated: bool,
-    pub(crate) exit: Option<ChildExit>,
+pub struct TerminalSnapshot {
+    pub output: String,
+    pub truncated: bool,
+    pub exit: Option<ChildExit>,
 }
 
 /// Every terminal this session created, owned by its `SessionCtx`.
 #[derive(Default)]
-pub(crate) struct Terminals {
+pub struct Terminals {
     live: Mutex<HashMap<String, Arc<TerminalHandle>>>,
     next: AtomicU64,
 }
@@ -392,16 +392,18 @@ impl Terminals {
     /// Spawn `spec` on a PTY and start streaming it. The returned id is what
     /// the agent embeds in its tool call; nothing reaches the feed until
     /// [`Terminals::bind`] names that call.
-    pub(crate) fn create(
+    pub fn create(
         &self,
         spec: &SpawnSpec,
         output_byte_limit: Option<u64>,
         sink: TerminalSink,
-    ) -> anyhow::Result<String> {
-        let mut pty = terminal::pty::open(spec, TERMINAL_COLS, TERMINAL_ROWS)?;
+    ) -> std::io::Result<String> {
+        let mut pty = crate::spawn::open_pty(spec, TERMINAL_COLS, TERMINAL_ROWS, crate::spawn::DEFAULT_CELL_PX)?;
         let mut reader = pty.take_reader();
-        let (wake, woken) = flume::unbounded();
-        let (exit_slot, _wait) = pty.spawn_wait_thread(wake)?;
+        let (wake, woken) = flume::unbounded::<()>();
+        let (exit_slot, _wait) = pty.spawn_wait_thread(move || {
+            let _ = wake.send(());
+        })?;
         let id = format!("term-{}", self.next.fetch_add(1, Ordering::SeqCst) + 1);
         let (gate, signal) = flume::bounded(0);
         // Nothing is ever SENT on this: the reader thread DROPPING it is the
@@ -450,7 +452,7 @@ impl Terminals {
                 // no chunk can land behind the exit code.
                 drop(drained);
             })
-            .map_err(|err| anyhow::anyhow!("spawn {name}: {err}"))?;
+            .map_err(|err| std::io::Error::other(format!("spawn {name}: {err}")))?;
 
         let waiting = Arc::clone(&handle);
         std::thread::Builder::new()
@@ -477,7 +479,7 @@ impl Terminals {
                 await_drain(&drain_edge, DRAIN_GRACE);
                 waiting.record_exit(exit);
             })
-            .map_err(|err| anyhow::anyhow!("spawn acp-term-wait-{id}: {err}"))?;
+            .map_err(|err| std::io::Error::other(format!("spawn acp-term-wait-{id}: {err}")))?;
 
         self.insert(id.clone(), handle);
         Ok(id)
@@ -485,18 +487,18 @@ impl Terminals {
 
     /// The `ToolCallContent::Terminal` edge: this terminal renders under
     /// `tool_call_id` from now on, and everything buffered so far flushes.
-    pub(crate) fn bind(&self, terminal_id: &str, tool_call_id: &str) {
+    pub fn bind(&self, terminal_id: &str, tool_call_id: &str) {
         if let Some(handle) = self.get(terminal_id) {
             handle.bind(tool_call_id);
         }
     }
 
-    pub(crate) fn snapshot(&self, terminal_id: &str) -> Option<TerminalSnapshot> {
+    pub fn snapshot(&self, terminal_id: &str) -> Option<TerminalSnapshot> {
         Some(self.get(terminal_id)?.snapshot())
     }
 
     /// `terminal/wait_for_exit`. `None` = no such terminal.
-    pub(crate) async fn wait(&self, terminal_id: &str) -> Option<ChildExit> {
+    pub async fn wait(&self, terminal_id: &str) -> Option<ChildExit> {
         let handle = self.get(terminal_id)?;
         handle.exited().await;
         Some(handle.snapshot().exit.unwrap_or(ChildExit {
@@ -507,7 +509,7 @@ impl Terminals {
     }
 
     /// `terminal/kill` — the child dies, the terminal stays readable.
-    pub(crate) fn kill(&self, terminal_id: &str) -> bool {
+    pub fn kill(&self, terminal_id: &str) -> bool {
         match self.get(terminal_id) {
             Some(handle) => {
                 handle.kill();
@@ -518,7 +520,7 @@ impl Terminals {
     }
 
     /// `terminal/release` — kill whatever is still running, then forget it.
-    pub(crate) fn release(&self, terminal_id: &str) -> bool {
+    pub fn release(&self, terminal_id: &str) -> bool {
         let handle = self
             .live
             .lock()
@@ -537,7 +539,7 @@ impl Terminals {
     /// running. The rows STAY — a killed terminal is still readable, and an
     /// agent that releases one after the cancel must not get an error for
     /// it; the whole registry goes away with the session.
-    pub(crate) fn kill_all(&self) {
+    pub fn kill_all(&self) {
         let handles: Vec<Arc<TerminalHandle>> = match self.live.lock() {
             Ok(live) => live.values().cloned().collect(),
             Err(_) => Vec::new(),

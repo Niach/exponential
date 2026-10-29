@@ -1,0 +1,7176 @@
+//! EXP-746 — the ONE `SessionUpdate` → `ActivityEvent` path.
+//!
+//! Pure: no channels, no sockets, no clock beyond what the caller passes in,
+//! so every adapter lane can test its frames against it with a fixture and a
+//! `Vec`. Three rules the fillers must not soften:
+//!
+//! 1. **Everything on the wire is derived, redacted and capped.** ACP hands
+//!    us `raw_input`, `raw_output` and `ToolCallContent::Diff` — real command
+//!    strings and patch bodies. Forwarding any of them verbatim would leak
+//!    strictly more to the relay (and thus web/iOS/Android) than the PTY path
+//!    ever did. `Tool { detail }` is a derivation (path / pattern / first
+//!    token / `input.description`), then `Redactor::redact`, then
+//!    `truncate`/`truncate_marked` at the existing caps in UTF-8 BYTES.
+//!    EXP-785/786 revised the "content stays local" half: a call's SETTLE
+//!    (`completed`/`failed`) and an `edit` call's per-file diff now ALSO ride
+//!    the wire as a `tool_update` log row — a unified diff BUILT here from
+//!    old/new text, redacted, then cut on line boundaries to the contract's
+//!    `toolDiffMaxLines`/`toolDiffMaxBytes`. Clients fold it into the tool
+//!    row by id; the local ACP content (whole patches, command output)
+//!    remains richer than the wire ever is.
+//! 2. **Chunks coalesce.** ACP streams are ~100x denser than the 1 s
+//!    transcript poll and the journal evicts at 2000 events / 4 MiB; narration
+//!    and thought chunks coalesce by `message_id` and flush on idle or turn
+//!    end, `ToolCallUpdate` publishes only on a SETTLE (never the pending →
+//!    in-progress churn), and `config_state`/`usage`/`rate_limit` are
+//!    latest-wins slots.
+//! 3. **Question ids are ACP ids** (D3): `id` = the tool-call id for a
+//!    permission, `<ask>#<n>` / `<ask>#submit` for an elicitation stepper, and
+//!    `QuestionOption::key` is the ACP option id — never a keystroke.
+//!
+//! Every emit goes through [`emit`], which puts the SAME event on the wire
+//! list and on the local list (as [`LocalFeedEvent::Activity`]) — the desktop
+//! feed and the relay room are then the same stream by construction, and a
+//! transcript replay (which has no relay room at all) renders identically.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use agent_client_protocol::schema::v1::{
+    AvailableCommand, ContentBlock, ContentChunk, CreateElicitationRequest, ElicitationMode,
+    ElicitationPropertySchema, PermissionOption, PermissionOptionKind, RequestPermissionRequest,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions,
+    SessionModeState, SessionNotification, SessionUpdate, StopReason, ToolCall, ToolCallContent,
+    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+};
+use serde_json::{Map, Value};
+use wire::activity::{
+    AGENT_TYPE_MAX, ANSWERS_MAX, ANSWER_MAX, ID_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX,
+    OPTION_LABEL_MAX, QUESTION_HEADER_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX, TOOL_NAME_MAX,
+};
+use wire::frames::CompactionPhase;
+use wire::frames::{ActivityEvent, QuestionOption, ToolKind as WireToolKind, ToolUpdateStatus};
+
+use crate::command_head::command_head;
+use crate::wire;
+
+use super::host_tools::{HostTools, CODEMODE_SERVER_NAME};
+use super::reply::{ReplyCard, ReplyOption};
+use super::local::{
+    EnginePhase, LocalFeedEvent, PlanEntryPriorityView, PlanEntryStatusView, PlanEntryView,
+    SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus,
+};
+
+/// How long a coalescer holds a partial message before [`Mapper::flush`]
+/// publishes it. A turn end flushes unconditionally, so this only bounds the
+/// gap INSIDE a turn (rule 2).
+/// The server's cap on one Conversation message body (contract
+/// `sessionsSend.messageBodyMax`); a turn's reply is cut to it.
+pub const REPLY_BODY_MAX: usize = 65536;
+
+/// How often a live turn's working token count republishes, at most
+/// (contract `steerWorking.tokenTickMs`).
+pub const WORKING_TOKEN_TICK_MS: u64 = 2000;
+
+/// The cap on a workflow's free text (contract `steerWorking.previewMax`).
+pub const WORKING_PREVIEW_MAX: usize = 160;
+
+/// The neutral line an empty turn leaves (contract `session-thread.json`
+/// `copy.emptyTurn`; `{reason}` = the ACP stop reason).
+pub const EMPTY_TURN_NOTICE: &str = "The agent ended its turn without a reply (stop: {reason})";
+
+pub const FLUSH_IDLE: Duration = Duration::from_millis(250);
+
+/// How long a started compaction may stay open before the mapper closes it
+/// itself. EXP-969: mirrors the clients' own backstop — `steer::feed::
+/// COMPACTION_TIMEOUT` and web `COMPACTION_TIMEOUT_MS` (180s, moved in
+/// lockstep) — so the device never holds the queue gate shut longer than the
+/// strip a viewer is looking at.
+pub const COMPACTION_MAX: Duration = Duration::from_secs(180);
+
+/// How many ANSWERED asks the mapper keeps for re-ack (EXP-766). A long
+/// unattended run answers thousands of permissions; each one held its options
+/// and, for a form, its whole field map for the rest of the session.
+pub const ANSWERED_ASKS_MAX: usize = 64;
+
+/// How many SETTLED tool calls keep their title/kind row. A settled call still
+/// gets trailing content-only updates (codex's `outputDelta` lands after the
+/// call reports completed), and those inherit their title and kind from this
+/// table, so the row outlives the settle and is evicted oldest-first instead.
+pub const SETTLED_TOOLS_MAX: usize = 256;
+
+/// The `_meta` key an adapter stamps a subagent edge under (see
+/// [`SubagentEdge`]).
+pub use super::local::{
+    BACKGROUND_TASKS_META_KEY, COMPACTION_TRIGGER_META_KEY, INJECTED_PROMPT_META_KEY,
+    SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
+    TURN_META_KEY, TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
+};
+
+/// Everything the mapper needs that is constant for a session.
+pub struct MapperConfig {
+    /// Session secrets (installation token, the `expu_` personal key) plus the
+    /// static patterns — every wire string passes through it. Shared
+    /// (`SessionCtx.redactor`) so the lifecycle's `diff` ticker masks with the
+    /// SAME secret set as the mapper (REV2-17).
+    pub redactor: Arc<wire::activity::Redactor>,
+    /// The worktree, for relativizing tool-call paths.
+    pub cwd: std::path::PathBuf,
+    /// Keys the command catalog and the codex sigil guard.
+    pub agent: wire::activity::SessionAgent,
+    /// Seed for `wire::activity::synthetic_question_id` when the agent stamps no id.
+    pub session_seed: String,
+    /// EXP-1426: the host's own tools (Exponential: its MCP surface and the
+    /// code-mode server), [`super::host_tools::NoHostTools`] for none.
+    pub host_tools: Arc<dyn HostTools>,
+}
+
+/// One mapping step's output. Wire events go to the relay through the
+/// [`super::sink::EventSink`]; local events go to the host's `LocalSink`;
+/// the two flags drive `sessions.needs_input` (EXP-214) and
+/// `steer::TurnSignal`.
+#[derive(Default)]
+pub struct MapOut {
+    pub wire: Vec<wire::frames::ActivityEvent>,
+    /// EXP-873: the ids of the `queue` entries this step saw the agent take
+    /// in (its replay of a message the host sent mid-turn) — the host drops
+    /// them from its queue and republishes the slot BEFORE these events go
+    /// out, so no client shows a message in the bar and as a row at once.
+    pub consumed: Vec<String>,
+    pub local: Vec<LocalFeedEvent>,
+    pub needs_input: Option<bool>,
+    pub idle: Option<bool>,
+    /// EXP-804: a CHANGE to the agent's usage wall — `Some(Some(..))` hit
+    /// one, `Some(None)` cleared it, `None` said nothing about it. Nested
+    /// exactly like `needs_input`'s `Option<bool>`: the outer layer is "did
+    /// this step speak", the inner one is the value.
+    pub blocked: Option<Option<wire::activity::SessionBlocked>>,
+    /// EXP-905: the agent's conversation name CHANGED to this (already
+    /// normalised). Never a clear: a `null` title says nothing here.
+    pub agent_title: Option<String>,
+    /// EXP-1051: a `context_layout` frame with a MEASURED `base` just went
+    /// out — `(tokens, model)`. The host records it on `runs.json`
+    /// (Exponential: `engine::lifecycle::record_context_base`) so the NEXT resume of this
+    /// conversation can draw its bar before its first request lands. A
+    /// carried base is recorded again too: re-writing the same number is
+    /// free, and the record is the only place it survives a restart.
+    pub context_base: Option<(u64, String)>,
+    /// EXP-1292: what this step adds to the Conversation (`messages` rows
+    /// with `author_kind = agent`), in order — a turn's final reply text at
+    /// its close, a question/plan card when the agent asks, a subagent card
+    /// when one completes, a picture the agent showed. The host posts them
+    /// through ONE ordered worker (`sessions.reply`); the wire events above
+    /// stay the live layer.
+    pub replies: Vec<Reply>,
+}
+
+/// EXP-1292: one agent row for the Conversation — `sessions.reply`'s input.
+/// `body` is the turn's final message (empty beside a card).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reply {
+    pub body: String,
+    pub card: Option<ReplyCard>,
+}
+
+impl Reply {
+    fn text(body: String) -> Reply {
+        Reply { body, card: None }
+    }
+
+    fn card(card: ReplyCard) -> Reply {
+        Reply {
+            body: String::new(),
+            card: Some(card),
+        }
+    }
+}
+
+/// EXP-1292: an answered question card mapped back onto the engine's open
+/// ask — the same [`wire::activity::RemoteAnswer`] a relay `answer` frame carries.
+/// (EXP-1280: plan cards are tool-posted now and answered by the device as
+/// the next turn, never through an open ask.)
+#[derive(Clone, Debug, PartialEq)]
+pub struct CardAnswer {
+    pub answer: wire::activity::RemoteAnswer,
+}
+
+/// Identifies one parked ask so an inbound `answer` frame can find the ACP
+/// `Responder` it must resolve. `question_id` is what every client echoes
+/// back; `ask_id` is set only for an elicitation stepper's steps.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PendingAskKey {
+    pub question_id: String,
+    pub ask_id: Option<String>,
+}
+
+impl PendingAskKey {
+    /// The key the HOST parks the ACP `Responder` under: one responder per
+    /// ELICITATION (all its steps resolve the same request), one per
+    /// permission.
+    pub fn responder_key(&self) -> &str {
+        self.ask_id.as_deref().unwrap_or(&self.question_id)
+    }
+}
+
+/// What the host should do with the parked `Responder` for an answer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AnswerDecision {
+    /// Resolve a `session/request_permission` with this ACP option id.
+    Permission { option_id: String },
+    /// Record one elicitation step. `submit` = this was the final step, so
+    /// the form goes back as `ElicitationAction::Accept`.
+    Elicitation {
+        fields: serde_json::Value,
+        submit: bool,
+    },
+    /// Already answered — re-ack only, never re-resolve (EXP-374).
+    ReAck,
+    /// Nothing is parked under that key; the answer is dropped.
+    Unknown,
+}
+
+/// The stateful half: chunk coalescers, the tool table, the subagent table,
+/// compaction state and the pending-ask registry.
+pub struct Mapper {
+    config: MapperConfig,
+    /// Agent message chunks, coalesced by `message_id`.
+    message: Coalescer,
+    /// Agent THOUGHT chunks — a separate buffer so a thought never merges
+    /// into the visible answer.
+    thought: Coalescer,
+    /// User message chunks (an agent replaying what it was sent).
+    user: Coalescer,
+    /// Prompts the HOST already published as `user_message` (it sends them,
+    /// so it need not wait for an echo): an agent that replays the user's
+    /// message (claude's `--replay-user-messages`) is deduped against this.
+    /// EXP-1098: ONE entry per prompt, holding every spelling its replay may
+    /// carry — the announced text and, for a prompt with images, the
+    /// localized `Image #N: <path>` text the agent actually received. Any
+    /// one of them matching retires the whole entry.
+    pending_echoes: std::collections::VecDeque<Vec<String>>,
+    /// EXP-873: prompts the host sent MID-TURN and has NOT published yet —
+    /// the `queue` bar's `sent` lines. The agent's replay of one is the
+    /// moment it took the message in (claude inserts it at its next tool
+    /// boundary), so the replay itself becomes the `user_message` row and
+    /// the host is told to drop the bar entry (`MapOut::consumed`).
+    pending_deliveries: std::collections::VecDeque<PendingDelivery>,
+    /// EXP-1342: the mid-turn messages of the CURRENT turn whose replay
+    /// already became their row. A Stop moves them (with the still-awaited
+    /// ones) into `cancelled_deliveries`; the turn's end forgets them.
+    delivered_this_turn: Vec<PendingDelivery>,
+    /// EXP-1342: mid-turn messages a Stop settled — either already a row
+    /// (`delivered_this_turn`) or handed back to the composer by every
+    /// client (the queue frame emptied). The CLI may still replay one around
+    /// its `interrupt{cancel_queued}` — on receipt, and again when the next
+    /// turn dequeues it — and each such replay used to paint a second,
+    /// identical row. A replay matching one is swallowed until the next
+    /// turn that completes without a Stop. Bounded at `QUEUE_MAX`.
+    cancelled_deliveries: std::collections::VecDeque<PendingDelivery>,
+    /// EXP-1342: every spelling of the last main-lane user row, cleared by
+    /// any agent output (narration, a thought, a tool call). A replay that
+    /// matches it with nothing from the agent in between is the same message
+    /// played back twice — never a second row.
+    last_user_row: Option<Vec<String>>,
+    tools: HashMap<String, ToolState>,
+    /// Settled tool calls in settle order, evicted past [`SETTLED_TOOLS_MAX`].
+    settled_tools: std::collections::VecDeque<String>,
+    subagents: HashMap<String, String>,
+    /// EXP-748: attributed tool calls per live subagent. The completed edge
+    /// reports the total, so a viewer whose replay lost the individual rows
+    /// (the journal drops them first) still captions "N tool calls".
+    subagent_tool_calls: HashMap<String, u32>,
+    /// EXP-773: subagents whose STARTING prompt has already been seen. A
+    /// subagent's first user turn IS the prompt the Task tool call already
+    /// says, so it is dropped instead of published twice.
+    subagent_prompts_seen: std::collections::HashSet<String>,
+    /// EXP-927: the task list last put on the wire — the `task_list` slot's
+    /// dedupe (`None` = never published).
+    task_list: Option<Vec<wire::frames::TaskListEntry>>,
+    permissions: HashMap<String, PermissionAsk>,
+    elicitations: HashMap<String, ElicitationAsk>,
+    /// question id → which ask owns it (a stepper registers one per step).
+    questions: HashMap<String, AskRef>,
+    /// EXP-766: answered asks in answer order. An answered ask is kept only
+    /// so a re-tap can re-ack it (EXP-374), so the oldest are evicted past
+    /// [`ANSWERED_ASKS_MAX`]; unanswered asks are NEVER evicted.
+    answered_asks: std::collections::VecDeque<RetiredAsk>,
+    /// The live `config_state` snapshot — always published WHOLE (D4).
+    config_state: ConfigSnapshot,
+    /// EXP-758: the last snapshot of each latest-wins slot that actually went
+    /// out. One `set_config` used to publish two identical `config_state`
+    /// frames and one `set_mode` three (the request's answer, the engine's
+    /// own mirror, the agent's echo of it), which every client then re-rendered
+    /// and the journal stored. An identical re-emit says nothing.
+    last_config_state: Option<ActivityEvent>,
+    last_usage: Option<ActivityEvent>,
+    /// EXP-1051: the `context_layout` slot's last published frame. The
+    /// adapters publish it once per conversation, but a resume and a
+    /// `/clear` both re-arm them — an identical re-emit is not news.
+    last_context_layout: Option<ActivityEvent>,
+    /// EXP-784: the rate-limit slot's last published snapshot.
+    last_rate_limit: Option<ActivityEvent>,
+    /// EXP-905: the agent's conversation name as last reported (normalised),
+    /// so an identical re-report is not a change.
+    agent_title: Option<String>,
+    /// EXP-848: the turn slot as last published. Deduped like the others — a
+    /// second `ended` for the same turn says nothing.
+    turn_state: wire::frames::TurnState,
+    /// EXP-1224: who holds the turn slot open. The HOST's prompt (opened by
+    /// [`Mapper::set_turn`] when it sends one, closed by [`Mapper::on_stop`])
+    /// and the AGENT's own continuation (claude runs a turn nobody prompted
+    /// after a background task's notification: [`TURN_META_KEY`], or the
+    /// output-while-ended fallback) each hold it; the slot reads `ended` only
+    /// once neither does. Before this, a prompt's completion ended the turn
+    /// while the continuation it raced kept streaming, and every client read
+    /// the working run as "Done".
+    prompt_turn_open: bool,
+    continuation_open: bool,
+    /// EXP-1224: the session is LIVE — the host seeded the slot. Before the
+    /// seed every update is history (a `session/load` replay), and history
+    /// must never move the turn slot.
+    turn_live: bool,
+    /// EXP-850 §5: the current turn's start (unix ms) and the tokens it has
+    /// produced, plus when the growing count was last republished — the ONE
+    /// exception to the slot's identical-edge dedupe.
+    turn_started_at: Option<i64>,
+    turn_tokens: u64,
+    turn_tokens_published_at: Option<Instant>,
+    /// EXP-850 §2/§3: the last snapshot of each new latest-wins slot that
+    /// actually went out — an identical re-emit says nothing, exactly like
+    /// `config_state`.
+    last_background_tasks: Option<ActivityEvent>,
+    /// EXP-1324: when the engine first saw each LISTED background task (unix
+    /// ms), by task id — the wire's `startedAt`. Pruned to the current list.
+    background_seen: HashMap<String, i64>,
+    /// EXP-1324: the thoughts open right now, one per lane (main = `None`
+    /// subagent). `started` went out; `ended` goes when the lane moves on.
+    open_thoughts: Vec<OpenThought>,
+    /// Keyed by workflow id and kept in first-appearance order, capped at
+    /// [`wire::frames::JOURNAL_WORKFLOW_CAP`] like every other fold of this
+    /// slot (the journal, the relay room, the local feed) — a mapper lives
+    /// for the whole run and a map that only grows is a leak.
+    last_workflows: Vec<(String, ActivityEvent)>,
+    compacting_since: Option<Instant>,
+    /// Disambiguates two synthetic ids whose text is identical.
+    ordinal: u32,
+    /// EXP-1292: the turn's LAST top-level assistant message so far (raw;
+    /// redacted and capped once, at the close) — the Conversation's reply.
+    /// A new `message_id`, a main-lane tool call, question or user message
+    /// starts it over; a turn start clears it.
+    turn_reply: String,
+    turn_reply_id: Option<String>,
+    /// FEED-153: the turn's `session/prompt` failed ([`Mapper::on_turn_error`]):
+    /// a turn that ends with nothing said replies the error instead.
+    turn_error: Option<String>,
+    /// S-3: the turn produced something of its own (prose, a thought, a tool
+    /// call, a plan, an ask). A turn that closes with none of it and no error
+    /// leaves the empty-turn notice instead of nothing.
+    turn_output: bool,
+    /// S-3: the ACP `stopReason` of the prompt that closed the turn (logged
+    /// and named in the empty-turn notice).
+    turn_stop: Option<StopReason>,
+    /// EXP-1418: the last turn to close was cut by an interrupt (a Stop,
+    /// the stall watchdog): its turn-end report says `interrupted`.
+    last_turn_interrupted: bool,
+    /// EXP-1292: the subagent/picture cards already posted (`subagent:<id>`,
+    /// `picture:<tool id>`), so a history reload re-streaming the same
+    /// edges never posts one twice.
+    carded: std::collections::HashSet<String>,
+}
+
+#[derive(Default)]
+struct ConfigSnapshot {
+    /// EXP-877: the live option list. EXP-772 emptied it (the mid-session
+    /// model/effort/fast pickers went), and EXP-877 brought back exactly ONE
+    /// entry — the `model` VALUE, so a viewer can say which model the run is
+    /// on. Nothing here is a menu: the adapters publish a value with no
+    /// `values`, switching is the `/model <alias>` prompt.
+    options: Vec<wire::frames::ConfigOption>,
+    current_mode: Option<String>,
+    modes: Option<Vec<wire::frames::ConfigMode>>,
+    commands: Option<Vec<wire::frames::ConfigCommand>>,
+}
+
+struct ToolState {
+    title: String,
+    kind: ToolKind,
+    /// EXP-895: what an `execute` call has printed so far, accumulated from
+    /// its `ToolCallContent::Content` blocks and published ONCE on the settle.
+    /// Bounded as it grows ([`Mapper::note_tool_output`]) — a `bun install`
+    /// writes megabytes and only its tail is ever sent.
+    output: String,
+    /// Lines [`Mapper::note_tool_output`] already dropped off the FRONT of
+    /// `output`, so the settle's marker counts them too.
+    output_dropped: usize,
+    /// EXP-920: the call's ACP `raw_input`, kept ONLY for an Exponential MCP
+    /// call — the settle's preview reads the `$`-rooted spec terms off it
+    /// (`pr_open` answers with a url, the input named the issue) — and
+    /// (EXP-1279) a code-mode `exec`, whose settle publishes the script and
+    /// finds its call log by it. `None` for every other tool, so a `Read` of
+    /// a megabyte file costs nothing here.
+    raw_input: Option<Value>,
+}
+
+struct PermissionAsk {
+    /// (option key, label) in published order — the answer's labels come
+    /// from here so `question_resolved` reads like the card did.
+    options: Vec<(String, String)>,
+    answered: bool,
+}
+
+struct ElicitationAsk {
+    steps: Vec<ElicitStep>,
+    /// The step a fresh answer applies to; `steps.len()` = the submit step.
+    current: usize,
+    fields: Map<String, Value>,
+    answered: bool,
+    message: String,
+}
+
+struct ElicitStep {
+    property: String,
+    text: String,
+    /// The property's title when it is not already the card text.
+    header: Option<String>,
+    options: Vec<QuestionOption>,
+    multi_select: bool,
+    kind: StepKind,
+    /// A free-text sibling folded into this step (claude's
+    /// `question_<n>_custom`): the card grows a "Type something." row and a
+    /// typed answer lands on THIS property instead of the choice.
+    custom_property: Option<String>,
+}
+
+/// How a step's answer is folded back into the elicitation's `content` map.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StepKind {
+    Text,
+    Bool,
+    Integer,
+    Number,
+    Strings,
+}
+
+enum AskRef {
+    Permission(String),
+    Elicitation(String),
+}
+
+/// EXP-873: one message the host handed to the agent mid-turn, awaiting the
+/// agent's replay of it. `agent_text` is what the agent received (EXP-825:
+/// image embeds localized into an `Image #N:` manifest), `announce` the text
+/// the row shows — the person's own words.
+struct PendingDelivery {
+    id: String,
+    agent_text: String,
+    announce: String,
+    /// EXP-1342 rfix: a cancelled entry whose text the person sent AGAIN
+    /// (`on_prompt` armed its echo): spent by the first replay it swallows,
+    /// never kept alive past it.
+    resent: bool,
+}
+
+impl PendingDelivery {
+    /// Whether a replay's text is this message under either spelling.
+    fn matches(&self, text: &str) -> bool {
+        self.agent_text == text || self.announce.trim() == text
+    }
+
+    /// Every spelling a replay of this message may carry.
+    fn spellings(&self) -> Vec<String> {
+        let mut spellings = vec![self.announce.trim().to_string()];
+        if self.agent_text != spellings[0] {
+            spellings.push(self.agent_text.clone());
+        }
+        spellings
+    }
+}
+
+/// An ask that has been answered (or cancelled), queued for eviction.
+enum RetiredAsk {
+    Permission(String),
+    Elicitation(String),
+}
+
+/// The chunk coalescer of rule 2: one buffer per `message_id`, flushed when
+/// the id changes, when the turn ends, or after [`FLUSH_IDLE`].
+#[derive(Default)]
+struct Coalescer {
+    message_id: Option<String>,
+    /// EXP-773: the subagent every chunk of the buffered message belongs to.
+    /// A change of owner is a message boundary like a new id.
+    subagent_id: Option<String>,
+    buf: String,
+    since: Option<Instant>,
+}
+
+/// EXP-1324: one thought in flight — the id its `started` edge carried, the
+/// agent message it belongs to (a new message id is a new thought), its lane
+/// and when it opened (the `ended` edge's `durationMs`).
+struct OpenThought {
+    id: String,
+    message_id: Option<String>,
+    subagent_id: Option<String>,
+    since: Instant,
+}
+
+/// One coalesced message, with the identity every event it produces carries:
+/// the agent's `messageId` (EXP-772, the clients' merge key) and the subagent
+/// it belongs to (EXP-773).
+struct Flushed {
+    text: String,
+    message_id: Option<String>,
+    subagent_id: Option<String>,
+}
+
+impl Coalescer {
+    /// Returns the text of a buffer that has to flush BEFORE this chunk (a
+    /// new `message_id` starts a new message).
+    ///
+    /// EXP-758: an ID-LESS chunk is a WHOLE message everywhere the adapters
+    /// produce one (an agent's error narration and notices, codex's
+    /// `codex error:` lines, claude's usage markdown): every streamed delta
+    /// carries an id. Two of them
+    /// in one flush window used to glue into
+    /// `error: …error: …`, so they are SEPARATED by a
+    /// newline instead. Deliberately not a hard boundary: an agent that
+    /// streams id-less deltas would then publish one feed row per delta,
+    /// which is the far worse failure.
+    fn push(
+        &mut self,
+        message_id: Option<String>,
+        subagent_id: Option<String>,
+        text: &str,
+    ) -> Option<Flushed> {
+        let boundary = (self.message_id != message_id || self.subagent_id != subagent_id)
+            && !self.buf.is_empty();
+        let flushed = boundary.then(|| Flushed {
+            text: std::mem::take(&mut self.buf),
+            message_id: self.message_id.clone(),
+            subagent_id: self.subagent_id.clone(),
+        });
+        let separate = message_id.is_none()
+            && self.message_id.is_none()
+            && !self.buf.is_empty()
+            && !self.buf.ends_with('\n')
+            && !text.starts_with('\n');
+        self.message_id = message_id;
+        self.subagent_id = subagent_id;
+        if separate {
+            self.buf.push('\n');
+        }
+        self.buf.push_str(text);
+        self.since = Some(Instant::now());
+        flushed
+    }
+
+    /// EXP-846: does this buffer belong to `subagent_id`'s lane? An EMPTY
+    /// buffer belongs to every lane (flushing it emits nothing), so callers
+    /// can ask without a second is-empty check.
+    fn is_scope(&self, subagent_id: Option<&str>) -> bool {
+        self.buf.is_empty() || self.subagent_id.as_deref() == subagent_id
+    }
+
+    fn take(&mut self) -> Option<Flushed> {
+        self.since = None;
+        let message_id = self.message_id.take();
+        let subagent_id = self.subagent_id.take();
+        (!self.buf.is_empty()).then(|| Flushed {
+            text: std::mem::take(&mut self.buf),
+            message_id,
+            subagent_id,
+        })
+    }
+
+    /// Take only if the buffer has been quiet for [`FLUSH_IDLE`].
+    fn take_if_idle(&mut self) -> Option<Flushed> {
+        match self.since {
+            Some(since) if since.elapsed() >= FLUSH_IDLE => self.take(),
+            _ => None,
+        }
+    }
+}
+
+/// Put one event on BOTH streams: the relay's and the host's local feed.
+/// `tool_call_id` names the ACP tool call the event belongs to so the desktop
+/// can hang a diff/output card off the feed row this appends.
+/// S-3: an ACP `stopReason` as its wire spelling (`end_turn`, `refusal`, …).
+fn stop_reason_name(stop: StopReason) -> String {
+    serde_json::to_value(stop)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{stop:?}"))
+}
+
+fn emit(out: &mut MapOut, event: ActivityEvent, tool_call_id: Option<String>) {
+    out.local.push(LocalFeedEvent::Activity {
+        event: event.clone(),
+        tool_call_id,
+    });
+    out.wire.push(event);
+}
+
+impl Mapper {
+    pub fn new(config: impl Into<MapperConfig>) -> Self {
+        Self {
+            config: config.into(),
+            message: Coalescer::default(),
+            thought: Coalescer::default(),
+            user: Coalescer::default(),
+            pending_echoes: std::collections::VecDeque::new(),
+            pending_deliveries: std::collections::VecDeque::new(),
+            delivered_this_turn: Vec::new(),
+            cancelled_deliveries: std::collections::VecDeque::new(),
+            last_user_row: None,
+            tools: HashMap::new(),
+            settled_tools: std::collections::VecDeque::new(),
+            subagents: HashMap::new(),
+            subagent_tool_calls: HashMap::new(),
+            subagent_prompts_seen: std::collections::HashSet::new(),
+            task_list: None,
+            permissions: HashMap::new(),
+            elicitations: HashMap::new(),
+            questions: HashMap::new(),
+            answered_asks: std::collections::VecDeque::new(),
+            config_state: ConfigSnapshot::default(),
+            last_config_state: None,
+            last_usage: None,
+            last_context_layout: None,
+            last_rate_limit: None,
+            agent_title: None,
+            turn_state: wire::frames::TurnState::default(),
+            prompt_turn_open: false,
+            continuation_open: false,
+            turn_live: false,
+            turn_started_at: None,
+            turn_tokens: 0,
+            turn_tokens_published_at: None,
+            last_background_tasks: None,
+            background_seen: HashMap::new(),
+            open_thoughts: Vec::new(),
+            last_workflows: Vec::new(),
+            compacting_since: None,
+            ordinal: 0,
+            turn_reply: String::new(),
+            turn_reply_id: None,
+            turn_error: None,
+            turn_output: false,
+            turn_stop: None,
+            last_turn_interrupted: false,
+            carded: std::collections::HashSet::new(),
+        }
+    }
+
+    /// The session's constants (redactor, cwd, agent, seed).
+    pub fn config(&self) -> &MapperConfig {
+        &self.config
+    }
+
+    /// Whether the call `id`'s `raw_input` is retained (only a host tool's
+    /// and a code-mode exec's are, for their settle); `None` = no such call.
+    pub fn retains_input(&self, id: &str) -> Option<bool> {
+        self.tools.get(id).map(|state| state.raw_input.is_some())
+    }
+
+    /// Redact, then truncate at `max` UTF-8 bytes — the order rule 1 fixes
+    /// (a truncation that cut a secret in half would leave the head of it on
+    /// the wire).
+    fn clean(&self, text: &str, max: usize) -> String {
+        wire::activity::truncate(&self.config.redactor.redact(text), max)
+    }
+
+    /// Same, but marks the cut (`[truncated]`) for text a human reads whole:
+    /// a plan body, a question.
+    fn clean_marked(&self, text: &str, max: usize) -> String {
+        wire::activity::truncate_marked(&self.config.redactor.redact(text), max)
+    }
+
+    /// The main path: one `session/update` notification.
+    pub fn on_update(&mut self, notification: &SessionNotification, out: &mut MapOut) {
+        // An adapter stamps its `_meta` on whichever carrier is natural to it:
+        // the notification (claude, whose edges ride no-op patches) or the
+        // update itself (codex, whose edges ride the subagent's own card).
+        if let Some(edge) = notification
+            .meta
+            .as_ref()
+            .and_then(SubagentEdge::from_meta)
+            .or_else(|| update_meta(&notification.update).and_then(SubagentEdge::from_meta))
+        {
+            self.on_subagent(&edge, out);
+        }
+        // EXP-850 §2/§3: the two new latest-wins slots ride `_meta` on
+        // whichever notification the adapter had to hand (claude uses a no-op
+        // `session_info_update`, like the rate-limit slot). Read HERE rather
+        // than in one update arm so an adapter may hang them off any carrier.
+        if let Some(tasks) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(BACKGROUND_TASKS_META_KEY))
+            .cloned()
+        {
+            self.emit_background_tasks(tasks, out);
+        }
+        if let Some(workflow) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(WORKFLOW_META_KEY))
+            .cloned()
+        {
+            self.emit_workflow(workflow, out);
+        }
+        // EXP-1224: the agent's own turn edge (claude's continuation), read
+        // BEFORE the token count it may ride beside, so a count for the new
+        // turn lands on the new turn.
+        if let Some(state) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TURN_META_KEY))
+            .and_then(|turn| turn.get("state"))
+            .and_then(Value::as_str)
+        {
+            match state {
+                "started" => self.on_agent_turn(wire::frames::TurnState::Started, out),
+                "ended" => self.on_agent_turn(wire::frames::TurnState::Ended, out),
+                _ => {}
+            }
+        }
+        if let Some(tokens) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TURN_TOKENS_META_KEY))
+            .and_then(Value::as_u64)
+        {
+            // EXP-1224 (C): thinking tokens are model output.
+            if tokens > 0 {
+                self.reopen_on_output(out);
+            }
+            self.note_turn_tokens(tokens, out);
+        }
+        // EXP-1051: the context-layout slot, on the same carrier as the
+        // rate-limit one (a no-op `session_info_update`) and read here for
+        // the same reason — the adapter picks whichever notification it has.
+        if let Some(slot) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(super::context_layout::CONTEXT_LAYOUT_META_KEY))
+            .cloned()
+        {
+            self.emit_context_layout(slot, out);
+        }
+        // EXP-773: prose and human turns are scoped to their subagent the same
+        // way tool calls are — off the chunk's own `_meta`, else the carrying
+        // notification's.
+        let chunk_subagent = notification
+            .meta
+            .as_ref()
+            .and_then(subagent_id_from_meta)
+            .or_else(|| update_meta(&notification.update).and_then(subagent_id_from_meta))
+            .map(|id| wire::activity::truncate(&id, ID_MAX));
+        // EXP-772: a prompt the ADAPTER typed for the user (`/clear`, the plan
+        // hand-off). It is not a human turn, so it publishes nothing — it only
+        // arms the echo dedupe the CLI's replay of it will hit.
+        if let SessionUpdate::UserMessageChunk(chunk) = &notification.update {
+            if notification
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(INJECTED_PROMPT_META_KEY))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                self.arm_echo(&chunk_text(chunk));
+                return;
+            }
+        }
+        // The three coalescers join chunks of ONE message each; a chunk of
+        // another kind ends whatever the other two hold, so a replay (or any
+        // burst inside one flush window) keeps its user → thought → message
+        // interleaving instead of grouping by kind at the next flush.
+        if matches!(
+            &notification.update,
+            SessionUpdate::AgentMessageChunk(_)
+                | SessionUpdate::AgentThoughtChunk(_)
+                | SessionUpdate::ToolCall(_)
+                | SessionUpdate::ToolCallUpdate(_)
+                | SessionUpdate::Plan(_)
+        ) {
+            self.turn_output = true;
+        }
+        match &notification.update {
+            SessionUpdate::UserMessageChunk(chunk) => {
+                self.flush_message(out);
+                self.flush_thought(out);
+                self.close_thought(chunk_subagent.as_deref(), out);
+                // EXP-873: an id-less USER chunk is a whole message (the
+                // adapters never stream a user message as deltas — claude
+                // replays each one as one entry, and its interrupt marker is
+                // an entry of its own), so it never joins the one before it:
+                // two replays inside one flush window used to glue into a
+                // single row that matched neither their echoes nor the
+                // interrupt filter.
+                if message_id(chunk).is_none() {
+                    self.flush_user(out);
+                }
+                if let Some(flushed) =
+                    self.user.push(message_id(chunk), chunk_subagent, &chunk_text(chunk))
+                {
+                    self.emit_user(&flushed, out);
+                }
+            }
+            SessionUpdate::AgentMessageChunk(chunk) => {
+                // EXP-1224 (C): narration is model output, main lane or a
+                // subagent's.
+                if !chunk_text(chunk).trim().is_empty() {
+                    self.reopen_on_output(out);
+                }
+                self.flush_user(out);
+                if !chunk_text(chunk).trim().is_empty() {
+                    self.last_user_row = None;
+                }
+                self.flush_thought(out);
+                self.close_thought(chunk_subagent.as_deref(), out);
+                if let Some(flushed) =
+                    self.message.push(message_id(chunk), chunk_subagent, &chunk_text(chunk))
+                {
+                    self.emit_narration(&flushed, out);
+                }
+            }
+            SessionUpdate::AgentThoughtChunk(chunk) => {
+                let text = chunk_text(chunk);
+                // Recent models stream signature-only thinking blocks: an
+                // empty thought is not a thought.
+                if text.trim().is_empty() {
+                    return;
+                }
+                self.reopen_on_output(out);
+                self.flush_user(out);
+                self.last_user_row = None;
+                self.flush_message(out);
+                let source_id = message_id(chunk);
+                if let Some(flushed) =
+                    self.thought.push(source_id.clone(), chunk_subagent.clone(), &text)
+                {
+                    self.emit_thought(&flushed, out);
+                }
+                self.open_thought(source_id, chunk_subagent, &text, out);
+            }
+            SessionUpdate::ToolCall(call) => {
+                // EXP-1224 (C): so is a tool call.
+                self.reopen_on_output(out);
+                // EXP-1324: the lane's thought ends where its work starts.
+                self.flush_scope(chunk_subagent.as_deref(), out);
+                self.last_user_row = None;
+                self.close_thought(chunk_subagent.as_deref(), out);
+                self.on_tool_call(call, notification.meta.as_ref(), out)
+            }
+            SessionUpdate::ToolCallUpdate(update) => self.on_tool_call_update(update, out),
+            SessionUpdate::Plan(plan) => {
+                let entries: Vec<PlanEntryView> = plan
+                    .entries
+                    .iter()
+                    .map(|entry| PlanEntryView {
+                        content: entry.content.clone(),
+                        priority: match entry.priority {
+                            agent_client_protocol::schema::v1::PlanEntryPriority::High => {
+                                PlanEntryPriorityView::High
+                            }
+                            agent_client_protocol::schema::v1::PlanEntryPriority::Low => {
+                                PlanEntryPriorityView::Low
+                            }
+                            _ => PlanEntryPriorityView::Medium,
+                        },
+                        status: match entry.status {
+                            agent_client_protocol::schema::v1::PlanEntryStatus::InProgress => {
+                                PlanEntryStatusView::InProgress
+                            }
+                            agent_client_protocol::schema::v1::PlanEntryStatus::Completed => {
+                                PlanEntryStatusView::Completed
+                            }
+                            _ => PlanEntryStatusView::Pending,
+                        },
+                    })
+                    .collect();
+                // EXP-927: the same list rides the wire as the `task_list`
+                // slot — the bottom strip's first block on every client. The
+                // slot is latest-wins, so an unchanged list is not restated.
+                let wire_entries: Vec<wire::frames::TaskListEntry> = entries
+                    .iter()
+                    .map(|entry| wire::frames::TaskListEntry {
+                        content: self.clean(entry.content.trim(), WORKFLOW_TEXT_MAX),
+                        status: match entry.status {
+                            PlanEntryStatusView::InProgress => wire::frames::TaskListStatus::InProgress,
+                            PlanEntryStatusView::Completed => wire::frames::TaskListStatus::Completed,
+                            PlanEntryStatusView::Pending => wire::frames::TaskListStatus::Pending,
+                        },
+                    })
+                    .filter(|entry| !entry.content.is_empty())
+                    .take(wire::frames::TASK_LIST_MAX)
+                    .collect();
+                out.local.push(LocalFeedEvent::Plan { entries });
+                if self.task_list.as_ref() != Some(&wire_entries) {
+                    self.task_list = Some(wire_entries.clone());
+                    emit(out, ActivityEvent::task_list(wire_entries), None);
+                }
+            }
+            SessionUpdate::AvailableCommandsUpdate(update) => {
+                self.config_state.commands = self.map_commands(&update.available_commands);
+                self.emit_config_state(out);
+            }
+            SessionUpdate::CurrentModeUpdate(update) => {
+                self.config_state.current_mode =
+                    Some(wire::activity::truncate(&update.current_mode_id.0, ID_MAX));
+                self.emit_config_state(out);
+            }
+            // EXP-877: the adapter republishes its options whenever the model
+            // moves (`/model`, a refusal fallback), and that is the ONLY way a
+            // viewer learns the current one — the snapshot is latest-wins, so
+            // an unchanged republish dedupes to nothing in `emit_config_state`.
+            SessionUpdate::ConfigOptionUpdate(update) => {
+                self.config_state.options = self.map_options(&update.config_options);
+                self.emit_config_state(out);
+            }
+            // A session-row fact, not a feed row — unless its `_meta` carries
+            // the EXP-784 rate-limit slot (claude's `rate_limit_event` and its
+            // synthetic "You've hit your…" notices ride a no-op one) or an
+            // inline API-error ROW (claude's synthetic `API Error: …`).
+            SessionUpdate::SessionInfoUpdate(update) => {
+                // EXP-905: a TITLE is the agent naming its conversation
+                // (claude's transcript `ai-title`, codex's
+                // `thread/name/updated`) — the synced `agent_title` column's
+                // one input. The no-op carriers leave it undefined; a `null`
+                // never clears (the name outlives whatever cleared it).
+                //
+                // REV2-17: a title is outbound text like any other, so it goes
+                // through the redactor FIRST and is normalised (collapse, cap)
+                // after — the launcher's secrets reach this column otherwise,
+                // and a title is synced, not merely relayed.
+                if let Some(title) = defined(&update.title)
+                    .map(|raw| self.config.redactor.redact(raw))
+                    .and_then(|raw| wire::activity::normalize_agent_title(&raw))
+                {
+                    if self.agent_title.as_deref() != Some(title.as_str()) {
+                        self.agent_title = Some(title.clone());
+                        out.agent_title = Some(title);
+                    }
+                }
+                if let Some(slot) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(RATE_LIMIT_META_KEY))
+                    .and_then(Value::as_object)
+                {
+                    self.emit_rate_limit(
+                        slot.get("status").and_then(Value::as_str).unwrap_or(""),
+                        slot.get("resetsAt").and_then(Value::as_i64),
+                        slot.get("message").and_then(Value::as_str),
+                        slot.get("window").and_then(Value::as_str),
+                        out,
+                    );
+                }
+                if let Some(slot) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(API_ERROR_META_KEY))
+                    .and_then(Value::as_object)
+                {
+                    self.emit_api_error(
+                        slot.get("message").and_then(Value::as_str).unwrap_or(""),
+                        slot.get("errorType").and_then(Value::as_str),
+                        chunk_subagent.clone(),
+                        out,
+                    );
+                }
+            }
+            SessionUpdate::UsageUpdate(usage) => {
+                let cost = usage
+                    .cost
+                    .as_ref()
+                    // The wire field is `costUsd`; a cost quoted in anything
+                    // else is not one this client can label.
+                    .filter(|cost| cost.currency.eq_ignore_ascii_case("usd"))
+                    .map(|cost| cost.amount);
+                self.emit_usage(usage.used, usage.size, cost, out);
+            }
+            SessionUpdate::CompactionUpdate(update) => {
+                use agent_client_protocol::schema::v1::CompactionStatus;
+                let trigger = notification
+                    .meta
+                    .as_ref()
+                    .or(defined(&update.meta))
+                    .and_then(|meta| meta.get(COMPACTION_TRIGGER_META_KEY))
+                    .and_then(Value::as_str);
+                match update.status {
+                    CompactionStatus::InProgress => self.start_compaction(trigger, out),
+                    _ => self.end_compaction(trigger, out),
+                }
+            }
+            SessionUpdate::CompactionSummaryChunk(_) => {}
+            // `SessionUpdate` is `#[non_exhaustive]`: an agent speaking a
+            // newer schema must never break this session.
+            _ => {}
+        }
+        self.close_stale_compaction(out);
+    }
+
+    /// A `session/request_permission`. Returns the key the host parks the
+    /// `Responder` under. EXP-1280: never a plan card — plan mode is
+    /// Exponential's (`exponential_plan_propose` posts the card), so no
+    /// `SwitchMode` permission arrives any more; one that does is a plain
+    /// question.
+    pub fn on_permission(
+        &mut self,
+        request: &RequestPermissionRequest,
+        out: &mut MapOut,
+    ) -> PendingAskKey {
+        self.turn_output = true;
+        // Whatever the agent was narrating belongs ABOVE the card it is now
+        // blocked on.
+        self.flush_all(out);
+        let fields = &request.tool_call.fields;
+        let title = fields.title.clone().unwrap_or_default();
+        let body = content_text(fields.content.as_deref().unwrap_or_default());
+        let raw_id = request.tool_call.tool_call_id.0.to_string();
+        let question_id = if raw_id.is_empty() {
+            self.synthetic_id("perm", &title)
+        } else {
+            wire::activity::truncate(&raw_id, ID_MAX)
+        };
+
+        let options = permission_options(&request.options)
+            .into_iter()
+            .map(|(key, label, description)| QuestionOption {
+                label: self.clean(&label, OPTION_LABEL_MAX),
+                key: wire::activity::truncate(&key, ID_MAX),
+                description: description.map(|d| self.clean(&d, OPTION_DESCRIPTION_MAX)),
+                free_text: false,
+            })
+            .collect::<Vec<_>>();
+
+        let text = if body.is_empty() {
+            self.clean_marked(&title, QUESTION_TEXT_MAX)
+        } else {
+            self.clean_marked(&body, QUESTION_TEXT_MAX)
+        };
+        let header = (!title.is_empty()).then(|| self.clean(&title, QUESTION_HEADER_MAX));
+
+        self.permissions.insert(
+            question_id.clone(),
+            PermissionAsk {
+                options: options
+                    .iter()
+                    .map(|option| (option.key.clone(), option.label.clone()))
+                    .collect(),
+                answered: false,
+            },
+        );
+        self.questions
+            .insert(question_id.clone(), AskRef::Permission(question_id.clone()));
+        // EXP-1292: the ask is a Conversation card too, answered IN the card
+        // (`answer_card`); the narration before it is no longer the reply.
+        self.reset_turn_reply();
+        out.replies.push(Reply::card(ReplyCard::Question {
+            question: text.clone(),
+            options: card_options(&options),
+            question_id: question_id.clone(),
+        }));
+
+        emit(
+            out,
+            ActivityEvent::Question {
+                text,
+                options,
+                multi_select: None,
+                plan_mode: None,
+                id: question_id.clone(),
+                ask_id: None,
+                index: None,
+                total: None,
+                header,
+                at: None,
+            },
+            Some(question_id.clone()),
+        );
+        out.needs_input = Some(true);
+        PendingAskKey {
+            question_id,
+            ask_id: None,
+        }
+    }
+
+    /// An `elicitation/create` form, published as a `<ask>#<n>` … `<ask>#submit`
+    /// stepper.
+    pub fn on_elicitation(
+        &mut self,
+        ask_id: &str,
+        request: &CreateElicitationRequest,
+        out: &mut MapOut,
+    ) -> PendingAskKey {
+        self.turn_output = true;
+        self.flush_all(out);
+        let ask_id = if ask_id.is_empty() {
+            self.synthetic_id("ask", &request.message)
+        } else {
+            wire::activity::truncate(ask_id, ID_MAX)
+        };
+        let steps = match &request.mode {
+            ElicitationMode::Form(form) => {
+                self.elicit_steps(&request.message, &form.requested_schema)
+            }
+            // A URL (or any newer) elicitation has nothing to step through:
+            // one confirm card, then the form goes back accepted.
+            _ => Vec::new(),
+        };
+        let ask = ElicitationAsk {
+            steps,
+            current: 0,
+            fields: Map::new(),
+            answered: false,
+            message: request.message.clone(),
+        };
+        self.elicitations.insert(ask_id.clone(), ask);
+        let question_id = self.publish_elicit_step(&ask_id, out);
+        out.needs_input = Some(true);
+        PendingAskKey {
+            question_id,
+            ask_id: Some(ask_id),
+        }
+    }
+
+    /// An inbound `answer` frame (relay or local composer). Publishes
+    /// `answer_ack` then `question_resolved` and tells the host what to do
+    /// with the parked responder.
+    pub fn on_answer(
+        &mut self,
+        key: &PendingAskKey,
+        answer: &wire::activity::RemoteAnswer,
+        out: &mut MapOut,
+    ) -> AnswerDecision {
+        match self.questions.get(&key.question_id) {
+            Some(AskRef::Permission(id)) => {
+                let id = id.clone();
+                self.answer_permission(&id, answer, out)
+            }
+            Some(AskRef::Elicitation(ask_id)) => {
+                let ask_id = ask_id.clone();
+                self.answer_elicitation(&ask_id, key, answer, out)
+            }
+            None => AnswerDecision::Unknown,
+        }
+    }
+
+    /// #NEW-79: the agent WITHDREW the elicitation `ask_id` (a voice proposal
+    /// card that expired or was replaced): the card is dismissed like a
+    /// cancel's. Returns the responder key to answer `Cancelled`, `None` when
+    /// no such card is waiting.
+    pub fn withdraw_ask(&mut self, ask_id: &str, out: &mut MapOut) -> Option<String> {
+        let ask = self.elicitations.get_mut(ask_id).filter(|ask| !ask.answered)?;
+        ask.answered = true;
+        let id = elicit_step_id(ask_id, ask.current, ask.steps.len());
+        self.retire_ask(RetiredAsk::Elicitation(ask_id.to_string()));
+        emit(
+            out,
+            ActivityEvent::QuestionResolved {
+                id: Some(id),
+                ask_id: Some(ask_id.to_string()),
+                answers: None,
+                dismissed: Some(true),
+                at: None,
+            },
+            None,
+        );
+        if self.pending_asks() == 0 {
+            out.needs_input = Some(false);
+        }
+        Some(ask_id.to_string())
+    }
+
+    /// `session/cancel`: the ACP contract REQUIRES answering every pending
+    /// permission with `Cancelled`, and every open card is dismissed.
+    pub fn on_cancel(&mut self, out: &mut MapOut) {
+        let mut dismissed: Vec<(String, Option<String>)> = Vec::new();
+        let mut retired: Vec<RetiredAsk> = Vec::new();
+        for (id, ask) in self.permissions.iter_mut() {
+            if !ask.answered {
+                ask.answered = true;
+                dismissed.push((id.clone(), None));
+                retired.push(RetiredAsk::Permission(id.clone()));
+            }
+        }
+        for (ask_id, ask) in self.elicitations.iter_mut() {
+            if !ask.answered {
+                ask.answered = true;
+                let id = elicit_step_id(ask_id, ask.current, ask.steps.len());
+                dismissed.push((id, Some(ask_id.clone())));
+                retired.push(RetiredAsk::Elicitation(ask_id.clone()));
+            }
+        }
+        for ask in retired {
+            self.retire_ask(ask);
+        }
+        for (id, ask_id) in dismissed {
+            emit(
+                out,
+                ActivityEvent::QuestionResolved {
+                    id: Some(id),
+                    ask_id,
+                    answers: None,
+                    dismissed: Some(true),
+                    at: None,
+                },
+                None,
+            );
+        }
+        self.flush_all(out);
+        self.end_compaction(None, out);
+        out.needs_input = Some(false);
+        // NOT idle: the agent is still finishing the prompt it was asked to
+        // interrupt. `on_stop` flips the turn signal when that prompt
+        // actually answers (`StopReason::Cancelled` routes back through
+        // here), so an `AfterTurn` kill cannot tear the run down while the
+        // interrupt is still settling.
+    }
+
+    /// A turn ended. EXP-848: publishes the `turn` slot's `ended` edge (the
+    /// spinner's one source of truth) beside moving `out.idle`; the stop
+    /// reason itself never reaches the wire.
+    pub fn on_stop(&mut self, stop: StopReason, out: &mut MapOut) {
+        self.flush_all(out);
+        let cancelled = matches!(stop, StopReason::Cancelled);
+        if cancelled {
+            self.on_cancel(out);
+        }
+        self.last_turn_interrupted = cancelled;
+        self.prompt_turn_open = false;
+        self.turn_stop = Some(stop);
+        if !cancelled {
+            // EXP-1342: a turn ran to its end after the Stop — any replay
+            // of what that Stop settled has landed by now.
+            self.cancelled_deliveries.clear();
+        }
+        // EXP-1224 (B): the agent already opened a turn of its own after this
+        // prompt's `result` (claude's continuation on a background task's
+        // notification, which races the prompt's answer). The prompt is
+        // done; the agent is NOT — the slot stays `started` until the
+        // continuation's own end. A Stop ends both: the interrupt kills the
+        // continuation with the prompt.
+        if self.continuation_open && !cancelled {
+            if out.needs_input.is_none() && self.pending_asks() == 0 {
+                out.needs_input = Some(false);
+            }
+            return;
+        }
+        self.continuation_open = false;
+        self.close_turn(out);
+    }
+
+    /// The turn slot's closing half, shared by a prompt's completion and the
+    /// end of the agent's own continuation (EXP-1224).
+    fn close_turn(&mut self, out: &mut MapOut) {
+        // EXP-969: an agent cannot be compacting BETWEEN turns, so the turn
+        // end closes a fold whose own `ended` edge never came (a manual
+        // `/compact` that lands no `compact_boundary`). The host's queue gate
+        // reads this edge: without it the held messages wait forever.
+        self.end_compaction(None, out);
+        // EXP-873: every prompt of the turn has answered, so a mid-turn
+        // message whose replay never came was still read (the CLI folded it
+        // without echoing) — it becomes its row now rather than sitting in
+        // the bar forever. A Stop cleared these first (`forget_deliveries`):
+        // a dropped message never renders as read.
+        while let Some(delivered) = self.pending_deliveries.pop_front() {
+            out.consumed.push(delivered.id.clone());
+            let text = self.clean(&delivered.announce, NARRATION_MAX);
+            self.last_user_row = Some(delivered.spellings());
+            emit(out, ActivityEvent::user_message(text), None);
+        }
+        self.delivered_this_turn.clear();
+        out.idle = Some(true);
+        // EXP-1292: the turn's last top-level message is its reply in the
+        // Conversation — redacted whole (a secret split across two chunks
+        // is still one secret) and capped at the server's body limit.
+        let reply = std::mem::take(&mut self.turn_reply);
+        self.turn_reply_id = None;
+        let error = self.turn_error.take();
+        if self.turn_live && !reply.trim().is_empty() {
+            out.replies.push(Reply::text(self.clean_marked(
+                reply.trim(),
+                REPLY_BODY_MAX,
+            )));
+        } else if let Some(error) = error.filter(|_| self.turn_live) {
+            out.replies.push(Reply::text(self.clean_marked(
+                &format!("Agent error: {}", error.trim()),
+                REPLY_BODY_MAX,
+            )));
+        } else if self.turn_live && !self.turn_output && !self.last_turn_interrupted {
+            // S-3: a turn that said, thought and did nothing ("the agent
+            // doesn't answer") leaves one neutral line naming its stopReason,
+            // so the silence is diagnosable from the transcript and the log.
+            let reason = self.turn_stop.map_or_else(|| "unknown".to_string(), stop_reason_name);
+            log::warn!("engine: turn ended empty (stopReason {reason})");
+            self.on_notice(
+                &EMPTY_TURN_NOTICE.replace("{reason}", &reason),
+                out,
+            );
+        }
+        self.turn_stop = None;
+        self.move_turn(wire::frames::TurnState::Ended, false, out);
+        if out.needs_input.is_none() && self.pending_asks() == 0 {
+            out.needs_input = Some(false);
+        }
+    }
+
+    /// EXP-848: move the latest-wins `turn` slot. Deduped (a repeat edge says
+    /// nothing), except for `seed`, which publishes unconditionally — the
+    /// session start plants `ended` so a viewer that joins before the first
+    /// prompt reads the slot instead of assuming.
+    ///
+    /// EXP-1224: this is the HOST's lever. `started` = a prompt went out (the
+    /// slot is held for it until [`Mapper::on_stop`]); `ended` = a hard close
+    /// (the seed, the session loop ending) that also drops the agent's own
+    /// continuation. The seed is also the moment the session turns live:
+    /// only from here on may agent output re-open an ended slot.
+    pub fn set_turn(&mut self, state: wire::frames::TurnState, seed: bool, out: &mut MapOut) {
+        match state {
+            wire::frames::TurnState::Started => self.prompt_turn_open = true,
+            wire::frames::TurnState::Ended => {
+                self.prompt_turn_open = false;
+                self.continuation_open = false;
+            }
+        }
+        if seed {
+            self.turn_live = true;
+        }
+        self.move_turn(state, seed, out);
+    }
+
+    /// EXP-1224: the agent opened (`started`) or closed (`ended`) a turn of
+    /// its own — the adapter's [`TURN_META_KEY`].
+    fn on_agent_turn(&mut self, state: wire::frames::TurnState, out: &mut MapOut) {
+        match state {
+            wire::frames::TurnState::Started => {
+                self.continuation_open = true;
+                if self.turn_state == wire::frames::TurnState::Ended {
+                    out.idle = Some(false);
+                    self.move_turn(wire::frames::TurnState::Started, false, out);
+                }
+            }
+            wire::frames::TurnState::Ended => {
+                if !self.continuation_open {
+                    return;
+                }
+                self.continuation_open = false;
+                // A prompt the host sent meanwhile still holds the slot;
+                // its own completion closes it.
+                if !self.prompt_turn_open && self.turn_state == wire::frames::TurnState::Started {
+                    self.flush_all(out);
+                    self.close_turn(out);
+                }
+            }
+        }
+    }
+
+    /// EXP-1224 (C): the backstop for a continuation the adapter never
+    /// announced — the agent PRODUCED something (a thought, narration, a tool
+    /// call, a thinking-token count) while the slot reads `ended`, so it is
+    /// working: the slot re-opens as an agent-held turn, closed by the
+    /// adapter's next turn end. Claude only: it is the agent that continues
+    /// on its own and whose adapter closes such a turn at its next `result`;
+    /// a codex turn ends at `turn/completed` and nothing would ever close a
+    /// re-opened one. Never before the session is live: a `session/load`
+    /// replay streams history through here.
+    fn reopen_on_output(&mut self, out: &mut MapOut) {
+        if !self.turn_live
+            || self.turn_state != wire::frames::TurnState::Ended
+            || self.config.agent != wire::activity::SessionAgent::Claude
+        {
+            return;
+        }
+        self.on_agent_turn(wire::frames::TurnState::Started, out);
+    }
+
+    /// Move the slot itself, deduped (see [`Mapper::set_turn`]).
+    fn move_turn(&mut self, state: wire::frames::TurnState, seed: bool, out: &mut MapOut) {
+        if !seed && self.turn_state == state {
+            return;
+        }
+        self.turn_state = state;
+        // EXP-850 §5: a turn START is the caption's clock zero and resets the
+        // token counter; the END keeps both so the final caption reads
+        // "worked 2m 04s · 1.2k tokens" instead of blanking.
+        if state == wire::frames::TurnState::Started {
+            self.turn_started_at = Some(wire::activity::now_unix_millis());
+            self.turn_tokens = 0;
+            self.turn_tokens_published_at = None;
+            // EXP-1292: a new turn, a new reply.
+            self.reset_turn_reply();
+            self.turn_error = None;
+            self.turn_output = false;
+        }
+        emit(out, self.turn_event(), None);
+    }
+
+    /// The `turn` slot as it stands — the state plus EXP-850's working-caption
+    /// inputs. `tokens` is omitted while zero: a caption with no number yet
+    /// draws no token group at all.
+    fn turn_event(&self) -> ActivityEvent {
+        ActivityEvent::turn_at(self.turn_state, self.turn_started_at, Some(self.turn_tokens))
+    }
+
+    /// EXP-850 §5: the output tokens this turn has produced so far, as an
+    /// adapter measured them. Monotone (a lower number is a re-count, never
+    /// news) and republished at most every `steerWorking.tokenTickMs` — the
+    /// slot is latest-wins, so a tick costs no feed growth, but one frame per
+    /// thinking-token report would be a hundred frames a turn.
+    pub fn note_turn_tokens(&mut self, tokens: u64, out: &mut MapOut) {
+        if self.turn_state != wire::frames::TurnState::Started || tokens <= self.turn_tokens {
+            return;
+        }
+        self.turn_tokens = tokens;
+        let tick = Duration::from_millis(
+            WORKING_TOKEN_TICK_MS,
+        );
+        if self
+            .turn_tokens_published_at
+            .is_some_and(|at| at.elapsed() < tick)
+        {
+            return;
+        }
+        self.turn_tokens_published_at = Some(Instant::now());
+        emit(out, self.turn_event(), None);
+    }
+
+    /// EXP-850 §2: the background-task slot, as the adapter's `_meta` carried
+    /// it. Clamped to the relay's caps and deduped: the CLI re-lists on every
+    /// change, and an identical list says nothing.
+    fn emit_background_tasks(&mut self, tasks: Value, out: &mut MapOut) {
+        let Ok(mut tasks) = serde_json::from_value::<Vec<wire::frames::BackgroundTask>>(tasks) else {
+            return;
+        };
+        tasks.truncate(wire::frames::BACKGROUND_TASKS_MAX);
+        for task in tasks.iter_mut() {
+            task.id = wire::activity::truncate(&task.id, ID_MAX);
+            task.description = self.clean(&task.description, WORKFLOW_TEXT_MAX);
+            task.tool_id = task
+                .tool_id
+                .as_deref()
+                .map(|id| wire::activity::truncate(id, ID_MAX))
+                .filter(|id| !id.is_empty());
+        }
+        // EXP-1324: the Queue's elapsed time counts from the engine's FIRST
+        // sight of a task id, kept across re-listings.
+        let now = wire::activity::now_unix_millis();
+        self.background_seen
+            .retain(|id, _| tasks.iter().any(|task| task.id == *id));
+        for task in tasks.iter_mut() {
+            let seen = *self.background_seen.entry(task.id.clone()).or_insert(now);
+            task.started_at = Some(seen);
+        }
+        let event = ActivityEvent::background_tasks(tasks);
+        if self.last_background_tasks.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_background_tasks = Some(event.clone());
+        emit(out, event, None);
+    }
+
+    /// EXP-850 §3: one workflow card, as the adapter's `_meta` carried it.
+    /// Latest-wins per id, clamped, and deduped per id.
+    fn emit_workflow(&mut self, workflow: Value, out: &mut MapOut) {
+        let Ok(mut workflow) = serde_json::from_value::<wire::workflow::WorkflowState>(workflow) else {
+            return;
+        };
+        if workflow.id.is_empty() {
+            return;
+        }
+        workflow.id = wire::activity::truncate(&workflow.id, ID_MAX);
+        workflow.name = self.clean(&workflow.name, WORKFLOW_TEXT_MAX);
+        workflow.description = workflow
+            .description
+            .as_deref()
+            .map(|text| self.clean(text, WORKFLOW_TEXT_MAX))
+            .filter(|text| !text.is_empty());
+        workflow.summary = workflow
+            .summary
+            .as_deref()
+            .map(|text| self.clean(text, WORKFLOW_TEXT_MAX))
+            .filter(|text| !text.is_empty());
+        workflow.phases.truncate(wire::workflow::WORKFLOW_PHASES_MAX);
+        for phase in workflow.phases.iter_mut() {
+            phase.title = self.clean(&phase.title, WORKFLOW_TEXT_MAX);
+        }
+        workflow.agents.truncate(wire::workflow::WORKFLOW_AGENTS_MAX);
+        for agent in workflow.agents.iter_mut() {
+            agent.label = self.clean(&agent.label, WORKFLOW_TEXT_MAX);
+            agent.agent_id = agent
+                .agent_id
+                .as_deref()
+                .map(|id| wire::activity::truncate(id, ID_MAX))
+                .filter(|id| !id.is_empty());
+            agent.model = agent
+                .model
+                .as_deref()
+                .map(|model| self.clean(model, WORKFLOW_TEXT_MAX));
+            for field in [
+                &mut agent.last_tool,
+                &mut agent.last_tool_summary,
+                &mut agent.result_preview,
+                &mut agent.error,
+            ] {
+                *field = field
+                    .as_deref()
+                    .map(|text| self.clean(text, WORKFLOW_TEXT_MAX))
+                    .filter(|text| !text.is_empty());
+            }
+        }
+        let id = workflow.id.clone();
+        let event = ActivityEvent::workflow(workflow);
+        match self.last_workflows.iter_mut().find(|(held, _)| *held == id) {
+            Some((_, last)) => {
+                if *last == event {
+                    return;
+                }
+                *last = event.clone();
+            }
+            None => {
+                self.last_workflows.push((id.clone(), event.clone()));
+                while self.last_workflows.len() > wire::frames::JOURNAL_WORKFLOW_CAP {
+                    self.last_workflows.remove(0);
+                }
+            }
+        }
+        // The card patches the `tool` row with the SAME id, so the local feed
+        // hangs it off that row exactly like a diff.
+        emit(out, event, Some(id));
+    }
+
+    /// The full config snapshot from `session/new`, `session/load`,
+    /// `session/set_config_option` or a `ConfigOptionUpdate` — always emitted
+    /// WHOLE and clamped (`wire::activity::clamp_config_state`), because
+    /// `config_state` is latest-wins state, not a delta.
+    ///
+    /// EXP-877: `options` folds again — the adapters publish exactly one
+    /// entry, the `model` VALUE (no `values`, so no client draws a menu off
+    /// it). An EMPTY list is not a clearing edge: `session/set_mode` answers
+    /// with modes alone, and dropping the model on it would blank the
+    /// composer's picker for the rest of the run.
+    pub fn on_session_state(
+        &mut self,
+        modes: Option<&SessionModeState>,
+        options: &[SessionConfigOption],
+        commands: &[AvailableCommand],
+        out: &mut MapOut,
+    ) {
+        if let Some(modes) = modes {
+            // EXP-927: a session start or resume forgets the `task_list`
+            // dedupe — the next list the agent publishes is restated whole,
+            // never swallowed as "unchanged" against a run that is gone.
+            self.task_list = None;
+            self.config_state.current_mode =
+                Some(wire::activity::truncate(&modes.current_mode_id.0, ID_MAX));
+            self.config_state.modes = Some(
+                modes
+                    .available_modes
+                    .iter()
+                    .map(|mode| wire::frames::ConfigMode {
+                        id: wire::activity::truncate(&mode.id.0, ID_MAX),
+                        label: self.clean(&mode.name, OPTION_LABEL_MAX),
+                        description: mode
+                            .description
+                            .as_ref()
+                            .map(|text| self.clean(text, OPTION_DESCRIPTION_MAX)),
+                    })
+                    .collect(),
+            );
+        }
+        if !options.is_empty() {
+            self.config_state.options = self.map_options(options);
+        }
+        if !commands.is_empty() {
+            self.config_state.commands = self.map_commands(commands);
+        }
+        self.emit_config_state(out);
+    }
+
+    /// `session/set_mode` answered with nothing, so the engine mirrors the
+    /// mode it just set: the re-emitted `config_state` is the ONLY
+    /// confirmation the wire has (D4). An agent that also pushes
+    /// `CurrentModeUpdate` then re-emits an identical snapshot, which is
+    /// latest-wins and therefore free.
+    /// EXP-1334: the mode the run is in (its last `config_state`), `None`
+    /// before the agent announced one.
+    pub fn current_mode(&self) -> Option<&str> {
+        self.config_state.current_mode.as_deref()
+    }
+
+    /// EXP-1334: the model the run is on (the `model` option's value, EXP-877),
+    /// `None` before the agent announced one or when it is blank.
+    pub fn current_model(&self) -> Option<&str> {
+        self.config_state
+            .options
+            .iter()
+            .find(|option| option.id == "model")
+            .and_then(|option| option.value.as_deref())
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+    }
+
+    pub fn set_current_mode(&mut self, mode_id: &str, out: &mut MapOut) {
+        self.config_state.current_mode = Some(wire::activity::truncate(mode_id, ID_MAX));
+        self.emit_config_state(out);
+    }
+
+    /// Debounce tick: emits whatever the coalescers have been holding.
+    pub fn flush(&mut self, out: &mut MapOut) {
+        if let Some(flushed) = self.message.take_if_idle() {
+            self.emit_narration(&flushed, out);
+        }
+        if let Some(flushed) = self.thought.take_if_idle() {
+            self.emit_thought(&flushed, out);
+        }
+        if let Some(flushed) = self.user.take_if_idle() {
+            self.emit_user(&flushed, out);
+        }
+        self.close_stale_compaction(out);
+    }
+
+    /// An adapter's subagent edge (`_meta`, see [`SubagentEdge`]).
+    pub fn on_subagent(&mut self, edge: &SubagentEdge, out: &mut MapOut) {
+        let id = wire::activity::truncate(&edge.id, ID_MAX);
+        // EXP-1225: a lane's last words go out BEFORE the edge that closes
+        // it (a workflow agent's result preview arrives one frame ahead of
+        // its completed edge, and a coalesced paragraph would otherwise trail
+        // the end of its own lane).
+        if edge.status == SubagentEdgeStatus::Completed {
+            self.flush_scope(Some(&id), out);
+        }
+        let agent_type = match edge.status {
+            SubagentEdgeStatus::Started => {
+                let agent_type = self.clean(&edge.agent_type, AGENT_TYPE_MAX);
+                self.subagents.insert(id.clone(), agent_type.clone());
+                agent_type
+            }
+            SubagentEdgeStatus::Completed => self
+                .subagents
+                .remove(&id)
+                .unwrap_or_else(|| self.clean(&edge.agent_type, AGENT_TYPE_MAX)),
+            // EXP-856: a WARNING about an id that is already live — it neither
+            // opens nor closes the run, so the table is left exactly as it is
+            // and the copy's own `started` still registers it.
+            SubagentEdgeStatus::Duplicate => self
+                .subagents
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.clean(&edge.agent_type, AGENT_TYPE_MAX)),
+        };
+        // EXP-748: the completed edge carries the run's tool-call total — what
+        // this mapper attributed, or the adapter's own number when it counted
+        // more (it sees calls that never reached a `session/update`).
+        let tool_calls = match edge.status {
+            SubagentEdgeStatus::Started | SubagentEdgeStatus::Duplicate => None,
+            SubagentEdgeStatus::Completed => {
+                self.subagent_prompts_seen.remove(&id);
+                let counted = self.subagent_tool_calls.remove(&id).unwrap_or(0);
+                Some(counted.max(edge.tool_calls.unwrap_or(0))).filter(|total| *total > 0)
+            }
+        };
+        // EXP-1292: a finished subagent is ONE Conversation card, posted at
+        // its completion (never at its start).
+        if edge.status == SubagentEdgeStatus::Completed && self.carded.insert(format!("subagent:{id}")) {
+            let title = edge
+                .title
+                .as_ref()
+                .map(|title| self.clean(title, TOOL_NAME_MAX))
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| agent_type.clone());
+            out.replies.push(Reply::card(ReplyCard::Subagent {
+                title,
+                status: wire::frames::SubagentStatus::Completed.as_str().to_string(),
+                summary: edge
+                    .detail
+                    .as_ref()
+                    .map(|detail| self.clean(detail, TOOL_DETAIL_MAX))
+                    .filter(|detail| !detail.trim().is_empty()),
+            }));
+        }
+        emit(
+            out,
+            ActivityEvent::Subagent {
+                id,
+                agent_type,
+                status: match edge.status {
+                    SubagentEdgeStatus::Started => wire::frames::SubagentStatus::Started,
+                    SubagentEdgeStatus::Completed => wire::frames::SubagentStatus::Completed,
+                    SubagentEdgeStatus::Duplicate => wire::frames::SubagentStatus::Duplicate,
+                },
+                detail: edge
+                    .detail
+                    .as_ref()
+                    .map(|detail| self.clean(detail, TOOL_DETAIL_MAX)),
+                at: None,
+                tool_calls,
+                // EXP-847: passed through, not remembered — the claude adapter
+                // stamps it on EVERY edge of a task (it is held on the task
+                // entry), so a completed edge names itself too.
+                title: edge
+                    .title
+                    .as_ref()
+                    .map(|title| self.clean(title, TOOL_NAME_MAX))
+                    .filter(|title| !title.is_empty()),
+                // EXP-850 §4: passed through like `title` — the adapter holds
+                // the workflow membership and stamps it on every edge of the
+                // agent, so a completed edge names its card too.
+                workflow_id: edge
+                    .workflow_id
+                    .as_ref()
+                    .map(|id| wire::activity::truncate(id, ID_MAX))
+                    .filter(|id| !id.is_empty()),
+            },
+            None,
+        );
+    }
+
+    /// EXP-1292: fold one flushed main-lane narration piece into the turn's
+    /// reply. Pieces of the SAME message append (the clients' fragment
+    /// merge, EXP-772); a piece of another message — or one with no id —
+    /// starts the reply over, so it ends up as the turn's LAST message.
+    fn note_turn_reply(&mut self, text: &str, message_id: Option<&str>) {
+        if !self.turn_live || text.trim().is_empty() {
+            return;
+        }
+        let continues = message_id.is_some_and(|id| !id.is_empty())
+            && self.turn_reply_id.as_deref() == message_id
+            && !self.turn_reply.is_empty();
+        if !continues {
+            self.turn_reply.clear();
+        }
+        // Bounded however long the message runs: the close caps it at the
+        // body limit anyway, and the tail past twice that is never sent.
+        if self.turn_reply.len() < REPLY_BODY_MAX * 2 {
+            self.turn_reply.push_str(text);
+        }
+        self.turn_reply_id = message_id.map(str::to_string);
+    }
+
+    /// EXP-1292: the reply so far is not the turn's last message any more.
+    fn reset_turn_reply(&mut self) {
+        self.turn_reply.clear();
+        self.turn_reply_id = None;
+    }
+
+    /// EXP-1292: the turn's reply as it stands (raw) — tests and hosts.
+    pub fn turn_reply(&self) -> &str {
+        &self.turn_reply
+    }
+
+    /// EXP-1292: an answered Conversation card (`messages.card` with
+    /// `answers`, or the joined legacy `answer`) as the answer the open ask
+    /// takes. A question's answer matches an option by label (or key),
+    /// case-insensitively; several picked labels (or a comma-separated
+    /// legacy answer) to a multi-select step pick every option they name;
+    /// anything else is the step's typed answer. `None` when nothing is open under `question_id` or the card
+    /// says nothing the ask can take.
+    pub fn card_answer(&self, question_id: &str, card: &Value) -> Option<CardAnswer> {
+        let text = |key: &str| {
+            card.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        };
+        // Release train 2026-10-23 (compat cleanup round 37, C1): read `answers` first; the joined `answer` is the pre-EXP-1322 form the server stops writing once CLIENT_MIN_VERSION_DESKTOP/CLI pass 0.14.76.
+        // `answers` also keeps a label with a comma in it whole, which the
+        // joined form cannot.
+        let answers = card
+            .get("answers")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|label| !label.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<String>>()
+            })
+            .filter(|labels| !labels.is_empty());
+        let remote = |ask_id: Option<String>, keys: Vec<String>, typed: Option<String>| {
+            wire::activity::RemoteAnswer {
+                question_id: question_id.to_string(),
+                ask_id,
+                keys,
+                text: typed,
+            }
+        };
+        match self.questions.get(question_id)? {
+            AskRef::Permission(id) => {
+                let ask = self.permissions.get(id)?;
+                let answer = match &answers {
+                    Some(labels) => labels[0].clone(),
+                    None => text("answer")?,
+                };
+                let key = ask
+                    .options
+                    .iter()
+                    .find(|(key, label)| {
+                        label.trim().eq_ignore_ascii_case(&answer) || key == &answer
+                    })?
+                    .0
+                    .clone();
+                Some(CardAnswer { answer: remote(None, vec![key], None) })
+            }
+            AskRef::Elicitation(ask_id) => {
+                let ask = self.elicitations.get(ask_id)?;
+                let step = elicit_step_index(ask_id, question_id)
+                    .and_then(|index| ask.steps.get(index))?;
+                let (answer, labels) = match answers {
+                    Some(labels) => (labels.join(", "), Some(labels)),
+                    None => (text("answer")?, None),
+                };
+                let find = |part: &str| {
+                    step.options
+                        .iter()
+                        .filter(|option| !option.free_text)
+                        .find(|option| {
+                            option.label.trim().eq_ignore_ascii_case(part.trim())
+                                || option.key == part.trim()
+                        })
+                        .map(|option| option.key.clone())
+                };
+                let keys = match labels.as_deref() {
+                    Some([label]) => find(label).map(|key| vec![key]),
+                    Some(labels) if step.multi_select => labels
+                        .iter()
+                        .map(|label| find(label))
+                        .collect::<Option<Vec<String>>>(),
+                    Some(_) => None,
+                    None => match find(&answer) {
+                        Some(key) => Some(vec![key]),
+                        None if step.multi_select => answer
+                            .split(',')
+                            .map(find)
+                            .collect::<Option<Vec<String>>>()
+                            .filter(|keys| !keys.is_empty()),
+                        None => None,
+                    },
+                };
+                let (keys, typed) = match keys {
+                    Some(keys) => (keys, None),
+                    None if step.options.iter().any(|option| option.free_text) => {
+                        (vec![FREE_TEXT_KEY.to_string()], Some(answer))
+                    }
+                    None => (Vec::new(), Some(answer)),
+                };
+                Some(CardAnswer { answer: remote(Some(ask_id.clone()), keys, typed) })
+            }
+        }
+    }
+
+    /// EXP-1292: the stepper `question_id` belongs to now waits only for its
+    /// submit marker (the card answered its last step) — the answer that
+    /// submits the form. The Conversation never shows the marker, so an
+    /// answered last step submits by itself.
+    pub fn pending_submit(&self, question_id: &str) -> Option<wire::activity::RemoteAnswer> {
+        let AskRef::Elicitation(ask_id) = self.questions.get(question_id)? else {
+            return None;
+        };
+        let ask = self.elicitations.get(ask_id)?;
+        (!ask.answered && ask.current >= ask.steps.len()).then(|| wire::activity::RemoteAnswer {
+            question_id: elicit_step_id(ask_id, ask.current, ask.steps.len()),
+            ask_id: Some(ask_id.clone()),
+            keys: vec!["submit".to_string()],
+            text: None,
+        })
+    }
+
+    /// An adapter or transport error worth showing: one capped narration,
+    /// prefixed so it reads as the session speaking, not the agent.
+    pub fn on_error(&mut self, message: &str, out: &mut MapOut) {
+        self.on_notice(&format!("Agent error: {message}"), out);
+    }
+
+    /// FEED-153: the turn's own `session/prompt` failed. Narrated like any
+    /// error, and remembered: a turn that closes with no reply of its own
+    /// replies the error, so the Conversation (and the parent, through the
+    /// bus) hears why the run went idle instead of reading a silent one.
+    /// EXP-1418: did an interrupt cut the last turn that closed?
+    pub fn last_turn_interrupted(&self) -> bool {
+        self.last_turn_interrupted
+    }
+
+    pub fn on_turn_error(&mut self, message: &str, out: &mut MapOut) {
+        self.on_error(message, out);
+        self.turn_error = Some(message.to_string());
+    }
+
+    /// The ENGINE itself speaking into the transcript (FEED-25: the stall
+    /// watchdog announcing the turn it just cancelled). The same row
+    /// [`Mapper::on_error`] uses — one capped narration, because narration is
+    /// the only notice kind the relay's activity schema has — flushed first
+    /// so the notice lands AFTER whatever text it is explaining.
+    pub fn on_notice(&mut self, message: &str, out: &mut MapOut) {
+        self.flush_all(out);
+        let text = self.clean(message, NARRATION_MAX);
+        emit(out, ActivityEvent::narration(text), None);
+    }
+
+    /// A compaction edge an adapter synthesized (claude hooks, codex
+    /// `context_compacted`) rather than sending as a
+    /// `CompactionUpdate`.
+    pub fn on_compaction(&mut self, phase: CompactionPhase, trigger: Option<&str>, out: &mut MapOut) {
+        match phase {
+            CompactionPhase::Started => self.start_compaction(trigger, out),
+            CompactionPhase::Ended => self.end_compaction(trigger, out),
+        }
+    }
+
+    /// The key an inbound answer resolves — `ask_id` filled in from the
+    /// mapper's own table, because a client only has to echo the card id.
+    pub fn ask_key(&self, answer: &wire::activity::RemoteAnswer) -> PendingAskKey {
+        match self.questions.get(&answer.question_id) {
+            Some(AskRef::Elicitation(ask_id)) => PendingAskKey {
+                question_id: answer.question_id.clone(),
+                ask_id: Some(ask_id.clone()),
+            },
+            _ => PendingAskKey {
+                question_id: answer.question_id.clone(),
+                ask_id: answer.ask_id.clone(),
+            },
+        }
+    }
+
+    /// How many cards are still open — the `needs_input` source of truth.
+    pub fn pending_asks(&self) -> usize {
+        self.permissions.values().filter(|ask| !ask.answered).count()
+            + self.elicitations.values().filter(|ask| !ask.answered).count()
+    }
+
+    /// Queue an answered ask for eviction and drop everything past
+    /// [`ANSWERED_ASKS_MAX`] (EXP-766). An evicted card answers as
+    /// `AnswerDecision::Unknown` on a re-tap instead of re-acking, which is
+    /// the same thing a client that reconnected past the journal sees.
+    fn retire_ask(&mut self, retired: RetiredAsk) {
+        self.answered_asks.push_back(retired);
+        while self.answered_asks.len() > ANSWERED_ASKS_MAX {
+            match self.answered_asks.pop_front() {
+                // An agent may REUSE an id for a new card. Evicting by id
+                // alone then deleted a live ask nobody had answered yet, so
+                // an entry that is unanswered is left alone: it owns the id
+                // now and gets retired by its own answer.
+                Some(RetiredAsk::Permission(id)) => {
+                    if self.permissions.get(&id).is_some_and(|ask| ask.answered) {
+                        self.permissions.remove(&id);
+                        self.questions.remove(&id);
+                    }
+                }
+                Some(RetiredAsk::Elicitation(ask_id)) => {
+                    if !self.elicitations.get(&ask_id).is_some_and(|ask| ask.answered) {
+                        continue;
+                    }
+                    if let Some(ask) = self.elicitations.remove(&ask_id) {
+                        let total = ask.steps.len();
+                        for step in 0..=total {
+                            self.questions.remove(&elicit_step_id(&ask_id, step, total));
+                        }
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+
+    /// The live `config_state`, for a caller that has to re-publish it (a
+    /// reconnect replays the journal, so this is only the local mirror).
+    pub fn config_state(&self) -> ActivityEvent {
+        self.build_config_state()
+    }
+
+    // -- internals ---------------------------------------------------------
+
+    fn flush_all(&mut self, out: &mut MapOut) {
+        self.flush_message(out);
+        self.flush_thought(out);
+        self.flush_user(out);
+        // EXP-1324: every caller is a hard boundary (a card, a prompt, a
+        // stop, a compaction): no thought outlives it.
+        self.close_all_thoughts(out);
+    }
+
+    /// EXP-1324: the `started` edge of a thought — once per thought. A chunk
+    /// of a NEW agent message in the same lane closes the old one first.
+    fn open_thought(
+        &mut self,
+        message_id: Option<String>,
+        subagent_id: Option<String>,
+        text: &str,
+        out: &mut MapOut,
+    ) {
+        if let Some(index) = self
+            .open_thoughts
+            .iter()
+            .position(|open| open.subagent_id == subagent_id)
+        {
+            let open = &self.open_thoughts[index];
+            if open.message_id == message_id || message_id.is_none() {
+                return;
+            }
+            // The push above already flushed the old message's text (a new
+            // id is a coalescer boundary); the buffer now holds the new one.
+            let open = self.open_thoughts.remove(index);
+            emit_thought_ended(open, out);
+        }
+        let id = match &message_id {
+            Some(id) => thought_message_id(id),
+            None => self.synthetic_id("thought", text),
+        };
+        emit(
+            out,
+            ActivityEvent::Thought {
+                id: id.clone(),
+                state: wire::frames::ThoughtState::Started,
+                duration_ms: None,
+                subagent_id: subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
+        self.open_thoughts.push(OpenThought {
+            id,
+            message_id,
+            subagent_id,
+            since: Instant::now(),
+        });
+    }
+
+    /// EXP-1324: the `ended` edge of `subagent_id`'s lane thought, if one is
+    /// open. Its text (the local half) flushes first.
+    fn close_thought(&mut self, subagent_id: Option<&str>, out: &mut MapOut) {
+        let Some(index) = self
+            .open_thoughts
+            .iter()
+            .position(|open| open.subagent_id.as_deref() == subagent_id)
+        else {
+            return;
+        };
+        if self.thought.subagent_id.as_deref() == subagent_id {
+            self.flush_thought(out);
+        }
+        let open = self.open_thoughts.remove(index);
+        emit_thought_ended(open, out);
+    }
+
+    fn close_all_thoughts(&mut self, out: &mut MapOut) {
+        for open in std::mem::take(&mut self.open_thoughts) {
+            emit_thought_ended(open, out);
+        }
+    }
+
+    /// EXP-846 — flush only the buffers in `subagent_id`'s OWN lane.
+    ///
+    /// The bug this fixes: a tool call flushes the coalescers so its row lands
+    /// after the prose that introduced it. But a SUBAGENT's tool row never
+    /// renders in the main transcript (it nests inside that subagent's card),
+    /// so flushing the MAIN message for it cannot fix any ordering — and it
+    /// shredded a streaming paragraph mid-word ("…so the new issues car" /
+    /// "ry the same labels"), because the client's same-id merge
+    /// (`steer::SteerFeed`, EXP-772) only joins a fragment to the row right
+    /// behind it and the subagent's rows sat in between.
+    fn flush_scope(&mut self, subagent_id: Option<&str>, out: &mut MapOut) {
+        if self.message.is_scope(subagent_id) {
+            self.flush_message(out);
+        }
+        if self.thought.is_scope(subagent_id) {
+            self.flush_thought(out);
+        }
+        if self.user.is_scope(subagent_id) {
+            self.flush_user(out);
+        }
+    }
+
+    fn flush_message(&mut self, out: &mut MapOut) {
+        if let Some(flushed) = self.message.take() {
+            self.emit_narration(&flushed, out);
+        }
+    }
+
+    fn flush_thought(&mut self, out: &mut MapOut) {
+        if let Some(flushed) = self.thought.take() {
+            self.emit_thought(&flushed, out);
+        }
+    }
+
+    fn flush_user(&mut self, out: &mut MapOut) {
+        if let Some(flushed) = self.user.take() {
+            self.emit_user(&flushed, out);
+        }
+    }
+
+    /// EXP-772: every piece of ONE message carries the agent's own message id,
+    /// so a client merges the pieces back into a single row instead of
+    /// painting one bubble per flush.
+    fn emit_narration(&mut self, flushed: &Flushed, out: &mut MapOut) {
+        if flushed.text.trim().is_empty() {
+            return;
+        }
+        if flushed.subagent_id.is_none() {
+            self.note_turn_reply(&flushed.text, flushed.message_id.as_deref());
+        }
+        let text = self.clean(&flushed.text, NARRATION_MAX);
+        emit(
+            out,
+            ActivityEvent::Narration {
+                text,
+                before_question_id: None,
+                message_id: flushed.message_id.clone(),
+                subagent_id: flushed.subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
+    }
+
+    /// The host is about to send `text` as a prompt (a seed, a steer, a
+    /// command): publish it as the user's message NOW, the way the PTY path
+    /// echoed typed input, and remember it so the agent's own replay of the
+    /// same message (claude) does not land twice. An agent that never echoes
+    /// (codex) gets its `user_message` from here alone.
+    pub fn on_prompt(&mut self, text: &str, out: &mut MapOut) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.flush_all(out);
+        self.arm_echo(text);
+        // EXP-1342 rfix: the person resends a text a Stop settled. Its echo
+        // is armed now, so the cancelled entry has one swallow left — the
+        // replay that lands after the echo expired under a burst of prompts
+        // — and goes with it, never persisting (a turn that ends in another
+        // Stop keeps the table) to swallow a later genuine message.
+        for cancelled in
+            self.cancelled_deliveries.iter_mut().filter(|cancelled| cancelled.matches(text.trim()))
+        {
+            cancelled.resent = true;
+        }
+        self.last_user_row = Some(vec![text.trim().to_string()]);
+        let text = self.clean(text, NARRATION_MAX);
+        emit(out, ActivityEvent::user_message(text), None);
+    }
+
+    /// EXP-1098: [`Mapper::on_prompt`] for a prompt whose AGENT text differs
+    /// from the announced one (image embeds localized into an
+    /// `Image #N: <path>` manifest). The row is the announce — the person's
+    /// own words, with the `![image](/api/attachments/…)` token every viewer
+    /// renders — and the agent's replay of EITHER text is swallowed. Without
+    /// the agent spelling armed, claude's replay of the localized text used
+    /// to land as a SECOND row showing a raw local path.
+    pub fn on_prompt_with_agent_text(&mut self, announce: &str, agent_text: &str, out: &mut MapOut) {
+        if announce.trim().is_empty() {
+            return;
+        }
+        self.on_prompt(announce, out);
+        self.also_echo(announce, agent_text);
+    }
+
+    /// EXP-1098: the prompt announced as `announce` reached the agent as
+    /// `agent_text` (a localization that finished AFTER the row went out):
+    /// its replay under that spelling is the same echo. A no-op when the
+    /// echo already retired or the two texts agree.
+    pub fn also_echo(&mut self, announce: &str, agent_text: &str) {
+        let announce = announce.trim();
+        let agent_text = agent_text.trim();
+        if agent_text.is_empty() || agent_text == announce {
+            return;
+        }
+        if let Some(row) = self.last_user_row.as_mut() {
+            if row.first().map(String::as_str) == Some(announce)
+                && !row.iter().any(|text| text == agent_text)
+            {
+                row.push(agent_text.to_string());
+            }
+        }
+        // The NEWEST entry for this announce: an older identical prompt's
+        // echo may still be outstanding, and it received its own text.
+        if let Some(entry) = self
+            .pending_echoes
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.first().map(String::as_str) == Some(announce))
+        {
+            if !entry.iter().any(|text| text == agent_text) {
+                entry.push(agent_text.to_string());
+            }
+        }
+    }
+
+    /// EXP-873: the host is sending `agent_text` to the agent MID-TURN as
+    /// queue entry `id` — publish nothing now. The agent's replay of it (the
+    /// moment it took the message in) becomes the `user_message` row, with
+    /// `announce` as its text, and names `id` in [`MapOut::consumed`].
+    pub fn on_prompt_sent(&mut self, agent_text: &str, announce: &str, id: &str) {
+        self.pending_deliveries.push_back(PendingDelivery {
+            id: id.to_string(),
+            agent_text: agent_text.trim().to_string(),
+            announce: announce.to_string(),
+            resent: false,
+        });
+        while self.pending_deliveries.len() > wire::frames::QUEUE_MAX {
+            self.pending_deliveries.pop_front();
+        }
+    }
+
+    /// EXP-873: a Stop — the agent drops what it held behind the turn
+    /// (claude `cancel_queued`), so nothing sent mid-turn is awaited any
+    /// more. The host drops the same entries from its queue and every client
+    /// hands their text back to the composer.
+    ///
+    /// EXP-1342: the CLI can still replay such a message around the
+    /// interrupt (it took it in on the very edge, or replays it again when
+    /// the next turn dequeues it). Those replays used to land as plain rows —
+    /// a second copy of a message already rendered, or a row for one the
+    /// composer now holds. Both kinds (awaited, and rendered this turn) are
+    /// remembered as cancelled so any later replay of them is swallowed.
+    pub fn forget_deliveries(&mut self) {
+        let settled = self
+            .delivered_this_turn
+            .drain(..)
+            .chain(self.pending_deliveries.drain(..))
+            .collect::<Vec<_>>();
+        for delivered in settled {
+            self.cancelled_deliveries.push_back(delivered);
+        }
+        while self.cancelled_deliveries.len() > wire::frames::QUEUE_MAX {
+            self.cancelled_deliveries.pop_front();
+        }
+    }
+
+    /// EXP-873: the ids of the mid-turn messages still awaiting a replay.
+    pub fn pending_delivery_ids(&self) -> Vec<String> {
+        self.pending_deliveries.iter().map(|sent| sent.id.clone()).collect()
+    }
+
+    /// Remember `text` so the agent's own replay of it is swallowed. Used by
+    /// [`Mapper::on_prompt`] and by the adapters' injected prompts (EXP-772).
+    fn arm_echo(&mut self, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.pending_echoes.push_back(vec![text.trim().to_string()]);
+        if self.pending_echoes.len() > PENDING_ECHOES_MAX {
+            self.pending_echoes.pop_front();
+        }
+    }
+
+    fn emit_user(&mut self, flushed: &Flushed, out: &mut MapOut) {
+        // EXP-873: a Stop right behind a message lands the CLI's replay of it
+        // and its `[Request interrupted by user]` entry inside one flush
+        // window, glued into one id-less user message — which matched
+        // neither the echo nor the interrupt filter and painted the message
+        // a second time with the marker under it. The marker lines are
+        // stripped BEFORE any matching; what remains is the message.
+        let text = strip_synthetic_interrupts(&flushed.text);
+        let text = text.as_str();
+        if text.trim().is_empty() {
+            return;
+        }
+        // EXP-1292: a main-lane user message (a person's message the agent
+        // took in mid-turn) — the reply is what comes after it.
+        if flushed.subagent_id.is_none() {
+            self.reset_turn_reply();
+        }
+        if let Some(at) = self
+            .pending_deliveries
+            .iter()
+            .position(|sent| sent.agent_text == text.trim() || sent.announce == text.trim())
+        {
+            // EXP-873: the agent took in a message the host sent mid-turn —
+            // THIS is the row (the person's own words, never the localized
+            // manifest), and the bar entry goes.
+            let delivered = self.pending_deliveries.remove(at).expect("a matched delivery");
+            out.consumed.push(delivered.id.clone());
+            let text = self.clean(&delivered.announce, NARRATION_MAX);
+            self.last_user_row = Some(delivered.spellings());
+            self.delivered_this_turn.push(delivered);
+            emit(out, ActivityEvent::user_message(text), None);
+            return;
+        }
+        if let Some(at) = self
+            .pending_echoes
+            .iter()
+            .position(|sent| sent.iter().any(|spelling| spelling == text.trim()))
+        {
+            // The agent replayed what the host already published.
+            self.pending_echoes.remove(at);
+            return;
+        }
+        if flushed.subagent_id.is_none() {
+            // EXP-1342: a replay of a message a Stop settled — already a
+            // row, or handed back to the composer — never renders (again).
+            // Not retired on a match: the CLI may replay it once more when
+            // the next turn dequeues it; the next completed turn forgets.
+            // Unless the person resent it (`resent`): then the first
+            // match spends the entry.
+            if let Some(at) =
+                self.cancelled_deliveries.iter().position(|sent| sent.matches(text.trim()))
+            {
+                if self.cancelled_deliveries[at].resent {
+                    self.cancelled_deliveries.remove(at);
+                }
+                return;
+            }
+            // EXP-1342: the same message played back twice in a row, with
+            // nothing from the agent between, is one message.
+            if self
+                .last_user_row
+                .as_ref()
+                .is_some_and(|row| row.iter().any(|spelling| spelling == text.trim()))
+            {
+                return;
+            }
+        }
+        // EXP-773: a subagent's FIRST turn is the prompt its Task tool call
+        // already names — publishing it would print the whole prompt twice.
+        if let Some(subagent_id) = &flushed.subagent_id {
+            if self.subagent_prompts_seen.insert(subagent_id.clone()) {
+                return;
+            }
+        }
+        if flushed.subagent_id.is_none() {
+            self.last_user_row = Some(vec![text.trim().to_string()]);
+        }
+        let text = self.clean(text, NARRATION_MAX);
+        emit(
+            out,
+            ActivityEvent::UserMessage {
+                text,
+                subagent_id: flushed.subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
+    }
+
+    /// A thought is BOTH a capped narration on the wire (viewers have always
+    /// seen the agent think) and a richer local item the desktop styles.
+    ///
+    /// The narration carries a DERIVED id, never the assistant message's own:
+    /// a thought and the answer that follows it share one `messageId`, and the
+    /// clients merge narration rows by that key, so the chain of thought
+    /// landed inside the answer bubble. Thoughts of one message still merge
+    /// with each other (same derived id) and never with the answer.
+    fn emit_thought(&mut self, flushed: &Flushed, out: &mut MapOut) {
+        if flushed.text.trim().is_empty() {
+            return;
+        }
+        let clean = self.clean(&flushed.text, NARRATION_MAX);
+        // The id of the thought this text belongs to — the open one in its
+        // lane (its `started` edge already went out), else the derived id.
+        let message_id = self
+            .open_thoughts
+            .iter()
+            .find(|open| open.subagent_id == flushed.subagent_id)
+            .map(|open| open.id.clone())
+            .or_else(|| flushed.message_id.as_ref().map(|id| thought_message_id(id)));
+        out.local.push(LocalFeedEvent::Thought {
+            message_id,
+            text: clean,
+        });
+    }
+
+    fn synthetic_id(&mut self, kind: &str, text: &str) -> String {
+        self.ordinal = self.ordinal.wrapping_add(1);
+        wire::activity::synthetic_question_id(&self.config.session_seed, kind, text, self.ordinal)
+    }
+
+    /// `notification_meta`: the carrying notification's `_meta`, the other
+    /// place an adapter may name the owning subagent.
+    fn on_tool_call(
+        &mut self,
+        call: &ToolCall,
+        notification_meta: Option<&BTreeMapLike>,
+        out: &mut MapOut,
+    ) {
+        // NEW-4: a noun tool's `op` composes the display name once, here.
+        let mut composed = call.clone();
+        composed.title = exp_tool_title(&*self.config.host_tools, &call.title, call.raw_input.as_ref());
+        let call = &composed;
+        let id = wire::activity::truncate(&call.tool_call_id.0, ID_MAX);
+        let subagent_id = call
+            .meta
+            .as_ref()
+            .and_then(subagent_id_from_meta)
+            .or_else(|| notification_meta.and_then(subagent_id_from_meta))
+            .map(|id| wire::activity::truncate(&id, ID_MAX));
+        // EXP-846: only this call's OWN lane — a subagent's tool row must not
+        // cut the main thread's streaming paragraph in half.
+        self.flush_scope(subagent_id.as_deref(), out);
+        // EXP-1292: a main-lane tool call ends the message before it — the
+        // reply is what the agent says AFTER its last tool.
+        if subagent_id.is_none() {
+            self.reset_turn_reply();
+        }
+        // EXP-748: count it for the subagent's completed edge — the rows
+        // themselves are the first thing a replay drops.
+        if let Some(subagent_id) = subagent_id.clone() {
+            *self.subagent_tool_calls.entry(subagent_id).or_insert(0) += 1;
+        }
+        // EXP-850 §1: ACP v1 has no `wait` kind, so an adapter names one in
+        // `_meta` and hands over the human label with it (a `TaskOutput`'s is
+        // resolved against the background-task list, which the mapper cannot
+        // see). Both fall back to the ACP derivation.
+        let meta_kind = call
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TOOL_KIND_META_KEY))
+            .or_else(|| notification_meta.and_then(|meta| meta.get(TOOL_KIND_META_KEY)))
+            .and_then(Value::as_str)
+            .and_then(WireToolKind::parse);
+        let meta_detail = call
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TOOL_DETAIL_META_KEY))
+            .or_else(|| notification_meta.and_then(|meta| meta.get(TOOL_DETAIL_META_KEY)))
+            .and_then(Value::as_str)
+            .map(|detail| self.clean(detail, TOOL_DETAIL_MAX))
+            .filter(|detail| !detail.is_empty());
+        let detail = meta_detail.or_else(|| {
+            self.tool_detail(call.kind, &call.title, &call.locations, call.raw_input.as_ref())
+        });
+        let name = self.wire_tool_name(call.kind, &call.title, detail.as_deref());
+        emit(
+            out,
+            ActivityEvent::Tool {
+                name: self.clean(&name, TOOL_NAME_MAX),
+                detail,
+                id: Some(id.clone()),
+                // EXP-1279: a code-mode `exec` is its own kind, `script`;
+                // ACP has no word for it.
+                tool_kind: Some(meta_kind.unwrap_or_else(|| {
+                    if is_script_tool(&call.title) {
+                        WireToolKind::Script
+                    } else {
+                        wire_tool_kind(call.kind)
+                    }
+                })),
+                subagent_id,
+                at: None,
+            },
+            Some(id.clone()),
+        );
+        out.local.push(LocalFeedEvent::ToolCall {
+            id: id.clone(),
+            title: call.title.clone(),
+            kind: meta_kind.map_or_else(|| card_kind(call.kind), wire_card_kind),
+            status: card_status(call.status),
+            locations: call
+                .locations
+                .iter()
+                .map(|location| location.path.clone())
+                .collect(),
+        });
+        // The id is LIVE again: an eviction queued by an earlier call under
+        // the same id would otherwise drop this one's row mid-flight.
+        self.settled_tools.retain(|settled| settled != &id);
+        self.tools.insert(
+            id.clone(),
+            ToolState {
+                title: call.title.clone(),
+                kind: call.kind,
+                output: String::new(),
+                output_dropped: 0,
+                raw_input: exp_tool_input(&*self.config.host_tools, &call.title, call.raw_input.as_ref()),
+            },
+        );
+        let diff = self.tool_content(&id, call.kind, &call.content, call.raw_output.as_ref(), out);
+        // A call that arrives already settled (an adapter that reports the
+        // whole call at once) never gets an update: settle it from here.
+        self.emit_tool_update(
+            &id,
+            settle_status(call.status),
+            diff,
+            call.raw_output.as_ref(),
+            out,
+        );
+    }
+
+    fn on_tool_call_update(&mut self, update: &ToolCallUpdate, out: &mut MapOut) {
+        let id = wire::activity::truncate(&update.tool_call_id.0, ID_MAX);
+        let ToolCallUpdateFields {
+            kind,
+            status,
+            title,
+            content,
+            locations,
+            raw_input,
+            raw_output,
+            ..
+        } = &update.fields;
+        let known = self.tools.get(&id);
+        let known_before = known.is_some();
+        let kind = kind.or_else(|| known.map(|state| state.kind)).unwrap_or(ToolKind::Other);
+        let title = title
+            .clone()
+            .or_else(|| known.map(|state| state.title.clone()))
+            .unwrap_or_default();
+        // NEW-4: the `op` may arrive with the input on a later update.
+        let title = exp_tool_title(
+            &*self.config.host_tools,
+            &title,
+            raw_input
+                .as_ref()
+                .or_else(|| known.and_then(|state| state.raw_input.as_ref())),
+        );
+        if let Some(state) = self.tools.get_mut(&id) {
+            state.kind = kind;
+            state.title.clone_from(&title);
+            // EXP-920: an adapter that names the input only on a later update
+            // (or titles the call only then) still gets it retained. EXP-1279:
+            // a script's input streams in, so a later one naming the script
+            // replaces an earlier one that did not.
+            let script_missing = || {
+                state.raw_input.as_ref().and_then(script_source).is_none() && is_script_tool(&title)
+            };
+            if state.raw_input.is_none() || script_missing() {
+                if let Some(input) = exp_tool_input(&*self.config.host_tools, &title, raw_input.as_ref()) {
+                    state.raw_input = Some(input);
+                }
+            }
+        }
+        // Rule 2: the pending → in-progress churn is a local card patch; only
+        // a SETTLE (and an edit's diff) becomes a wire row, below.
+        out.local.push(LocalFeedEvent::ToolCall {
+            id: id.clone(),
+            title,
+            kind: card_kind(kind),
+            status: card_status(status.unwrap_or(ToolCallStatus::InProgress)),
+            locations: locations
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|location| location.path.clone())
+                .collect(),
+        });
+        let diff = match content {
+            Some(content) => self.tool_content(&id, kind, content, raw_output.as_ref(), out),
+            None => None,
+        };
+        // EXP-785/786: one `tool_update` per settle/diff — only for a call
+        // this mapper announced (the clients hold exactly the rows it did,
+        // so an update for a call they never saw would only be dropped).
+        if known_before {
+            self.emit_tool_update(
+                &id,
+                status.and_then(settle_status),
+                diff,
+                raw_output.as_ref(),
+                out,
+            );
+        }
+        // A settled call still gets trailing content-only updates (codex
+        // streams `outputDelta` past the completed status), and dropping the
+        // row right here published those under an empty title and
+        // `ToolKind::Other`. It is retired instead: kept for the next updates
+        // and evicted oldest-first past [`SETTLED_TOOLS_MAX`] (EXP-766).
+        if matches!(status, Some(ToolCallStatus::Completed) | Some(ToolCallStatus::Failed)) {
+            self.retire_tool(id);
+        }
+    }
+
+    /// EXP-785/786: the `tool_update` row for `id`, when there is anything
+    /// to say — a settle, a diff, or both in ONE event.
+    ///
+    /// EXP-846: plus the SUBJECT an Exponential MCP call settled on, read off
+    /// its own JSON answer. Only our tools have a result shape we know, so
+    /// `preview` is `None` for everything else — including a settle with no
+    /// output at all.
+    ///
+    /// EXP-895: plus what an `execute` call PRINTED ([`Self::wire_tool_output`]),
+    /// on the settle and nowhere else — a viewer's row shows the verdict, the
+    /// live tail stays the runner's own card.
+    fn emit_tool_update(
+        &mut self,
+        id: &str,
+        status: Option<ToolUpdateStatus>,
+        diff: Option<String>,
+        result: Option<&Value>,
+        out: &mut MapOut,
+    ) {
+        // Only a SETTLE has a final answer to preview.
+        let preview = match (status, result) {
+            (Some(_), Some(result)) => self.exp_tool_preview(id, result),
+            _ => None,
+        };
+        let output = match status {
+            Some(_) => self.wire_tool_output(id),
+            None => None,
+        };
+        let script = match status {
+            Some(_) => self.script_log(id),
+            None => None,
+        };
+        if status.is_none() && diff.is_none() && preview.is_none() && output.is_none() {
+            return;
+        }
+        let event = match ActivityEvent::tool_update(id, status, diff) {
+            ActivityEvent::ToolUpdate { id, status, diff, at, .. } => {
+                ActivityEvent::ToolUpdate { id, status, diff, output, at, preview, script }
+            }
+            other => other,
+        };
+        emit(out, event, Some(id.to_string()));
+    }
+
+    /// EXP-895 — the settle's command output for `id`, when there is any: the
+    /// accumulated stdout of an `execute` call, redacted like every other free
+    /// text and TAIL-cut to the contract's caps (a command's verdict is its
+    /// last line). A cut output OPENS with `\ N more lines truncated`, the
+    /// marker a cut patch closes with, because the dropped lines were at the
+    /// front. `None` for every other kind and for a call that printed nothing.
+    fn wire_tool_output(&self, id: &str) -> Option<String> {
+        let state = self.tools.get(id)?;
+        if state.kind != ToolKind::Execute {
+            return None;
+        }
+        // Blank is nothing to say: every client's fold drops a blank `output`,
+        // so publishing one is pure wire.
+        if state.output.trim().is_empty() && state.output_dropped == 0 {
+            return None;
+        }
+        let redacted = self.config.redactor.redact(&state.output);
+        let (kept, omitted) = wire::tool_output::truncate_output(
+            &redacted,
+            wire::tool_output::TOOL_OUTPUT_MAX_LINES,
+            wire::tool_output::TOOL_OUTPUT_MAX_BYTES,
+        );
+        let omitted = omitted + state.output_dropped;
+        Some(if omitted > 0 {
+            format!("\\ {omitted} more lines truncated\n{kept}")
+        } else {
+            kept
+        })
+    }
+
+    /// Fold one output chunk of `id` into its accumulator, keeping the buffer
+    /// bounded: past twice the wire cap it is tail-cut in place and the
+    /// dropped lines are counted, so a command that prints for ten minutes
+    /// costs the same as one that prints once. Unknown ids (a chunk for a call
+    /// this mapper never announced) are dropped like every other update.
+    fn note_tool_output(&mut self, id: &str, chunk: &str) {
+        let Some(state) = self.tools.get_mut(id) else { return };
+        if state.kind != ToolKind::Execute {
+            return;
+        }
+        state.output.push_str(chunk);
+        if state.output.len() > wire::tool_output::TOOL_OUTPUT_MAX_BYTES.saturating_mul(2) {
+            let (kept, dropped) =
+                wire::tool_output::truncate_output(&state.output, usize::MAX, wire::tool_output::TOOL_OUTPUT_MAX_BYTES);
+            state.output = kept;
+            state.output_dropped += dropped;
+        }
+    }
+
+    /// EXP-846: the preview for a SETTLED call, when it is one of ours and its
+    /// answer names a subject. The tool's name is its ACP title (every adapter
+    /// titles an MCP call with the raw `mcp__exponential__exponential_*`), and
+    /// the strings are redacted-on-publish like any other free text, clamped
+    /// here to the wire cap.
+    ///
+    /// EXP-920: plus the entity `refs` the answer named
+    /// ([`super::exp_tool_refs::exp_tool_refs`], read off the answer and the
+    /// retained input) — the chips every client renders. The subject fields
+    /// stay beside them: they are no pre-EXP-920 relic, the web transcript's
+    /// SETTLED caption reads `title`/`identifier` even when refs are present
+    /// (`agent-session.tsx` `ExpToolRow`), and a preview with no refs renders
+    /// off them on every client. A preview with ONLY refs is still published.
+    fn exp_tool_preview(&self, id: &str, result: &Value) -> Option<wire::frames::ToolPreview> {
+        let state = self.tools.get(id)?;
+        let title = state.title.as_str();
+        self.config.host_tools.row(title)?;
+        let mut preview = exp_tool_preview(result).unwrap_or_default();
+        let no_input = Value::Object(Map::new());
+        let input = state.raw_input.as_ref().unwrap_or(&no_input);
+        preview.refs = super::exp_tool_refs::exp_tool_refs(
+            self.config.host_tools.preview_spec(title),
+            result,
+            input,
+        );
+        (!preview.is_empty()).then(|| preview.clamp())
+    }
+
+    /// EXP-1279 — the settle's log for a code-mode `exec` (`script` kind):
+    /// the script (its own `script` input) and what it did. The log is not
+    /// read off the call's result: the code-mode server runs in this very
+    /// process and files each finished exec's log under the run and the
+    /// script ([`HostTools::take_script_report`]), because an agent CLI does
+    /// not forward an MCP result's `_meta` whole. Every string is redacted,
+    /// then cut to the relay's caps. A script without a log (an older code
+    /// mode, a refused script, a replay) still publishes its source. `None`
+    /// for every other tool.
+    fn script_log(&self, id: &str) -> Option<wire::frames::ScriptLog> {
+        let state = self.tools.get(id)?;
+        if !is_script_tool(&state.title) {
+            return None;
+        }
+        let source = state.raw_input.as_ref().and_then(script_source)?;
+        let redact = |text: &str| self.config.redactor.redact(text);
+        let mut log = wire::frames::ScriptLog { source: Some(redact(source)), ..Default::default() };
+        if let Some(report) = self.config.host_tools.take_script_report(&self.config.session_seed, source) {
+            log.count = Some(u32::try_from(report.count).unwrap_or(u32::MAX));
+            log.elapsed_ms = Some(report.elapsed_ms);
+            log.calls = report
+                .calls
+                .iter()
+                .map(|call| wire::frames::ScriptLogCall {
+                    tool: redact(&call.tool),
+                    subject: call.subject.as_deref().map(redact),
+                    ok: call.ok,
+                    ms: call.ms,
+                })
+                .collect();
+        }
+        Some(log.clamp())
+    }
+
+    /// Queue a settled tool call for eviction. Re-settling one (a `failed`
+    /// after a `completed`) does not queue it twice.
+    fn retire_tool(&mut self, id: String) {
+        if !self.settled_tools.contains(&id) {
+            self.settled_tools.push_back(id);
+        }
+        while self.settled_tools.len() > SETTLED_TOOLS_MAX {
+            if let Some(evicted) = self.settled_tools.pop_front() {
+                self.tools.remove(&evicted);
+            }
+        }
+    }
+
+    /// Tool-call content is LOCAL first: a `Diff` carries a whole patch body
+    /// and `Content` on an `Execute` call carries command output, and the
+    /// local cards get both whole. EXP-786 sends ONE derived piece onward —
+    /// an `edit` call's diff, as a unified patch built from old/new text,
+    /// redacted, then cut to the contract's caps on line boundaries — and
+    /// returns it for the caller's `tool_update`; the wire `diff` stays the
+    /// debounced whole-worktree snapshot.
+    ///
+    /// EXP-895: an `execute` call's output goes on too, but not from here —
+    /// the chunks only ACCUMULATE ([`Self::note_tool_output`]) and the settle
+    /// publishes the tail once ([`Self::wire_tool_output`]). A chunk per event
+    /// would be a live stream on the wire, which is the local card's job.
+    /// (An agent's ACP `terminal/*` output never reaches this mapper at all —
+    /// `crate::terminals` writes `LocalFeedEvent::Output` straight to the
+    /// local feed from its PTY reader, and neither first-party adapter uses
+    /// the capability: both report command output as `Content` blocks.)
+    fn tool_content(
+        &mut self,
+        id: &str,
+        kind: ToolKind,
+        content: &[ToolCallContent],
+        raw_output: Option<&Value>,
+        out: &mut MapOut,
+    ) -> Option<String> {
+        let exit_code = raw_output
+            .and_then(|raw| raw.get("exit_code").or_else(|| raw.get("exitCode")))
+            .and_then(Value::as_i64)
+            .map(|code| code as i32);
+        // EXP-916: EVERY `Diff` of one update goes on the wire as one
+        // multi-section patch — codex's `apply_patch` reports a whole file set
+        // under a single `Edit` call (`file_change_updates`), and keeping only
+        // the last section made the transcript's edited-files card count one
+        // file where five changed. The sections are joined first and cut ONCE,
+        // so the contract caps bound the whole call, not each file.
+        let mut sections: Vec<String> = Vec::new();
+        for item in content {
+            match item {
+                ToolCallContent::Diff(diff) => {
+                    out.local.push(LocalFeedEvent::EditDiff {
+                        tool_call_id: id.to_string(),
+                        path: diff.path.clone(),
+                        old_text: diff.old_text.clone(),
+                        new_text: diff.new_text.clone(),
+                    });
+                    if kind == ToolKind::Edit {
+                        if let Some(section) = self.edit_patch(diff) {
+                            sections.push(section);
+                        }
+                    }
+                }
+                ToolCallContent::Content(block) if kind == ToolKind::Execute => {
+                    let chunk = block_text(&block.content);
+                    if !chunk.is_empty() {
+                        // EXP-895: the same bytes twice over — whole to the
+                        // local card, accumulated for the settle's wire tail.
+                        self.note_tool_output(id, &chunk);
+                        out.local.push(LocalFeedEvent::Output {
+                            tool_call_id: id.to_string(),
+                            chunk,
+                            exit_code,
+                        });
+                    }
+                }
+                // EXP-750: the client DOES run terminals, so a Terminal item
+                // names the live command this call renders — for any kind,
+                // since an agent is free to embed one under a tool card that
+                // is not `Execute`. Local like everything else here: the
+                // engine binds the terminal to this call and its output
+                // streams in as `Output` chunks.
+                ToolCallContent::Terminal(terminal) => {
+                    out.local.push(LocalFeedEvent::TerminalBound {
+                        tool_call_id: id.to_string(),
+                        terminal_id: terminal.terminal_id.0.to_string(),
+                    })
+                }
+                // Everything else is a card detail the local renderer
+                // already has.
+                _ => {}
+            }
+        }
+        if sections.is_empty() {
+            return None;
+        }
+        Some(self.wire_patch(&sections.concat()))
+    }
+
+    /// One file's section of the wire patch: the unified diff of its old and
+    /// new text, or `None` when the edit changed nothing.
+    fn edit_patch(&self, diff: &agent_client_protocol::schema::v1::Diff) -> Option<String> {
+        let path = self.display_path(&diff.path);
+        let patch = wire::tool_diff::unified_diff(&path, diff.old_text.as_deref(), &diff.new_text);
+        if patch.is_empty() {
+            return None;
+        }
+        Some(patch)
+    }
+
+    /// EXP-786: the per-call patch for the wire — redacted, then cut to the
+    /// contract caps. A cut patch ends in a `\ N more lines truncated` marker
+    /// line (a `\` line is unified-diff metadata, so a renderer shows it as a
+    /// note and never as a hunk).
+    fn wire_patch(&self, patch: &str) -> String {
+        let redacted = self.config.redactor.redact(patch);
+        let (mut kept, omitted) = wire::tool_diff::truncate_unified_diff(
+            &redacted,
+            wire::tool_diff::TOOL_DIFF_MAX_LINES,
+            wire::tool_diff::TOOL_DIFF_MAX_BYTES,
+        );
+        if omitted > 0 {
+            kept.push_str(&format!("\\ {omitted} more lines truncated\n"));
+        }
+        kept
+    }
+
+    /// The `Tool { detail }` DERIVATION (rule 1). Never `raw_input`'s command
+    /// string, never a patch body: a path, a pattern, the command's first
+    /// token, or the agent's own one-line description.
+    /// The wire `tool.name`: the PTY path's bare vocabulary, never a title
+    /// that quotes the command. An `Execute` card's title IS the command on
+    /// every adapter (claude `Bash`, codex `commandExecution`), so
+    /// it maps to the name the PTY path published for that agent; any other
+    /// title drops the detail it embeds (`Write smoke.txt` → `Write`).
+    fn wire_tool_name(&self, kind: ToolKind, title: &str, detail: Option<&str>) -> String {
+        if kind == ToolKind::Execute {
+            return match self.config.agent {
+                wire::activity::SessionAgent::Claude => "Bash",
+                wire::activity::SessionAgent::Codex => "exec_command",
+                _ => "Execute",
+            }
+            .to_string();
+        }
+        let title = title.trim();
+        if let Some(detail) = detail.filter(|detail| !detail.is_empty()) {
+            if let Some(at) = title.find(detail) {
+                let head = title[..at].trim();
+                if !head.is_empty() {
+                    return head.to_string();
+                }
+            }
+        }
+        title.to_string()
+    }
+
+    fn tool_detail(
+        &self,
+        kind: ToolKind,
+        title: &str,
+        locations: &[agent_client_protocol::schema::v1::ToolCallLocation],
+        raw_input: Option<&Value>,
+    ) -> Option<String> {
+        if let Some(location) = locations.first() {
+            return Some(self.clean(&self.display_path(&location.path), TOOL_DETAIL_MAX));
+        }
+        let Some(input) = raw_input.and_then(Value::as_object) else {
+            // No structured input (codex's commandExecution card): an Execute
+            // title IS the command, and its head is the detail.
+            return (kind == ToolKind::Execute)
+                .then(|| command_head(title))
+                .filter(|head| !head.is_empty())
+                .map(|head| self.clean(&head, TOOL_DETAIL_MAX));
+        };
+        let string = |key: &str| input.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+        if kind == ToolKind::Execute {
+            // The PTY path publishes the model's own description of a command
+            // (never the command); the command's head is the fallback below.
+            if let Some(description) = string("description") {
+                return Some(self.clean(description, TOOL_DETAIL_MAX));
+            }
+        }
+        // EXP-846: one of OUR MCP calls names its subject in a field the
+        // contract knows (`expToolSubjectKeys`: an issue's `title`, a comment's
+        // `issueId`), which is the only thing worth showing beside "Creating
+        // issue". Ahead of the generic keys below — `exponential_issues_update`
+        // carries an `id`, not a path or a pattern, and the generic pass would
+        // have found nothing at all.
+        if let Some(subject) = self.config.host_tools.subject_key(title).and_then(string) {
+            return Some(self.clean(subject, TOOL_DETAIL_MAX));
+        }
+        if let Some(path) = string("file_path").or_else(|| string("path")).or_else(|| string("filePath")) {
+            return Some(self.clean(&self.display_path(&PathBuf::from(path)), TOOL_DETAIL_MAX));
+        }
+        if let Some(pattern) = string("pattern").or_else(|| string("query")).or_else(|| string("url")) {
+            return Some(self.clean(pattern, TOOL_DETAIL_MAX));
+        }
+        if kind == ToolKind::Execute {
+            if let Some(command) = string("command") {
+                // EXP-1206: the HEAD only (`cd x && git status` reads as
+                // `git status`, `rm -rf …` as `rm`): no argument (a URL with a
+                // token in it, a heredoc) reaches the relay. codex wraps a
+                // command as `/bin/zsh -lc <command>`, which names the shell.
+                let head = command_head(command);
+                if !head.is_empty() {
+                    return Some(self.clean(&head, TOOL_DETAIL_MAX));
+                }
+            }
+        }
+        if let Some(description) = string("description") {
+            return Some(self.clean(description, TOOL_DETAIL_MAX));
+        }
+        None
+    }
+
+    /// Paths render relative to the worktree, like every other surface.
+    fn display_path(&self, path: &std::path::Path) -> String {
+        path.strip_prefix(&self.config.cwd)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    }
+
+    /// EXP-877: the agent's option list, wire-shaped. An EMPTY select list
+    /// maps to `values: None` — the wire's "read-only on this run" (a menu of
+    /// nothing is not a menu), which is exactly what the adapters publish for
+    /// `model` now that switching is a `/model <alias>` prompt.
+    fn map_options(&self, options: &[SessionConfigOption]) -> Vec<wire::frames::ConfigOption> {
+        options
+            .iter()
+            .map(|option| {
+                let (value, values) = match &option.kind {
+                    SessionConfigKind::Select(select) => {
+                        let values: Vec<wire::frames::ConfigValue> = match &select.options {
+                            SessionConfigSelectOptions::Ungrouped(list) => list
+                                .iter()
+                                .map(|value| wire::frames::ConfigValue {
+                                    id: wire::activity::truncate(&value.value.0, ID_MAX),
+                                    label: self.clean(&value.name, OPTION_LABEL_MAX),
+                                })
+                                .collect(),
+                            SessionConfigSelectOptions::Grouped(groups) => groups
+                                .iter()
+                                .flat_map(|group| group.options.iter())
+                                .map(|value| wire::frames::ConfigValue {
+                                    id: wire::activity::truncate(&value.value.0, ID_MAX),
+                                    label: self.clean(&value.name, OPTION_LABEL_MAX),
+                                })
+                                .collect(),
+                            // `#[non_exhaustive]`: an unknown grouping still
+                            // renders as a read-only chip.
+                            _ => Vec::new(),
+                        };
+                        (
+                            Some(wire::activity::truncate(&select.current_value.0, ID_MAX)),
+                            (!values.is_empty()).then_some(values),
+                        )
+                    }
+                    SessionConfigKind::Boolean(boolean) => (
+                        Some(boolean.current_value.to_string()),
+                        Some(vec![
+                            wire::frames::ConfigValue {
+                                id: "true".to_string(),
+                                label: "On".to_string(),
+                            },
+                            wire::frames::ConfigValue {
+                                id: "false".to_string(),
+                                label: "Off".to_string(),
+                            },
+                        ]),
+                    ),
+                    _ => (None, None),
+                };
+                wire::frames::ConfigOption {
+                    id: wire::activity::truncate(&option.id.0, ID_MAX),
+                    label: self.clean(&option.name, OPTION_LABEL_MAX),
+                    category: option.category.as_ref().map(category_id),
+                    value,
+                    values,
+                }
+            })
+            .collect()
+    }
+
+    /// The agent's own `/` commands (Claude Code skills, plugins, repo
+    /// `.claude/commands`). NEW-2 (owner 2026-10-21): they are HIDDEN on
+    /// every platform: the composer's `/` menu = the team's prompts plus
+    /// the contract's `steerCommands`, so the catalog is parsed off the ACP
+    /// update and never published (`config_state.commands` stays `None`).
+    fn map_commands(&self, _commands: &[AvailableCommand]) -> Option<Vec<wire::frames::ConfigCommand>> {
+        None
+    }
+
+    fn build_config_state(&self) -> ActivityEvent {
+        let mut event = ActivityEvent::ConfigState {
+            // EXP-877: the `model` VALUE and nothing else (EXP-772 emptied
+            // this and EXP-790 keeps every option launch-time). NEW-2: the
+            // agent's `/` catalog is never published (always `None`).
+            options: self.config_state.options.clone(),
+            current_mode: self.config_state.current_mode.clone(),
+            modes: self.config_state.modes.clone(),
+            commands: self.config_state.commands.clone(),
+            at: None,
+        };
+        // An over-cap frame does not degrade: the relay drops the WHOLE frame
+        // and no client ever paints a chip. Clamp before anyone sees it, so
+        // the local feed and the relay agree on what was published.
+        wire::activity::clamp_config_state(&mut event);
+        event
+    }
+
+    fn emit_config_state(&mut self, out: &mut MapOut) {
+        let event = self.build_config_state();
+        // EXP-758: latest-wins state that did not change is not news.
+        if self.last_config_state.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_config_state = Some(event.clone());
+        emit(out, event, None);
+    }
+
+    /// The context/spend meter, clamped to the relay's bounds and deduped
+    /// like the `config_state` slot above (EXP-758).
+    fn emit_usage(&mut self, used: u64, size: u64, cost: Option<f64>, out: &mut MapOut) {
+        let mut event = ActivityEvent::usage(
+            // SATURATING: a `u64` that does not fit an `i64` used to wrap to
+            // a NEGATIVE token count, which the relay's zod bounds reject,
+            // dropping the frame WHOLE and freezing every viewer's meter on
+            // the last good one.
+            i64::try_from(used).unwrap_or(i64::MAX),
+            i64::try_from(size).unwrap_or(i64::MAX),
+            cost,
+        );
+        clamp_usage(&mut event);
+        if self.last_usage.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_usage = Some(event.clone());
+        emit(out, event, None);
+    }
+
+    /// EXP-1051: the context-layout slot, clamped and deduped like `usage`
+    /// above. The payload comes off an adapter's `_meta`, so it is treated as
+    /// UNTRUSTED input: a segment whose key the wire does not know is
+    /// dropped (never the whole frame), a repeated key keeps its first
+    /// occurrence, the rest are sorted into contract order, and a payload
+    /// that does not parse at all publishes nothing.
+    fn emit_context_layout(&mut self, slot: Value, out: &mut MapOut) {
+        let Some(raw) = slot.get("segments").and_then(Value::as_array) else {
+            return;
+        };
+        let mut segments: Vec<wire::frames::ContextSegment> = Vec::new();
+        for entry in raw {
+            // Per ENTRY rather than the array as a whole: an agent (or a
+            // future engine) naming one segment we have no key for must not
+            // cost the frame its other five.
+            let Ok(mut segment) = serde_json::from_value::<wire::frames::ContextSegment>(entry.clone())
+            else {
+                continue;
+            };
+            if segments.iter().any(|kept| kept.key == segment.key) {
+                continue;
+            }
+            segment.detail = segment
+                .detail
+                .map(|detail| self.clean(detail.trim(), wire::frames::CONTEXT_SEGMENT_DETAIL_MAX))
+                .filter(|detail| !detail.is_empty());
+            segments.push(segment);
+        }
+        if segments.is_empty() {
+            return;
+        }
+        segments.sort_by_key(|segment| {
+            wire::frames::ContextSegmentKey::ALL
+                .iter()
+                .position(|key| *key == segment.key)
+                .unwrap_or(usize::MAX)
+        });
+        let mut event = ActivityEvent::context_layout(segments);
+        clamp_context_layout(&mut event);
+        if self.last_context_layout.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_context_layout = Some(event.clone());
+        // EXP-1051 resume carry: only a MEASURED base is worth recording —
+        // an estimate would be re-derived on the next launch anyway.
+        if let ActivityEvent::ContextLayout { segments, .. } = &event {
+            let base = segments.iter().find(|segment| {
+                segment.key == wire::frames::ContextSegmentKey::Base
+                    && segment.source == wire::frames::ContextSegmentSource::Measured
+            });
+            if let Some(base) = base {
+                let model = slot
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if !model.is_empty() {
+                    out.context_base = Some((base.tokens.max(0) as u64, model));
+                }
+            }
+        }
+        emit(out, event, None);
+    }
+
+    /// EXP-784: the rate-limit slot, deduped like `usage` above. `status` is
+    /// the agent's own word for the window; an empty/`ok` status is the
+    /// CLEAR frame (`wire::frames::rate_limit_clears`), published once. Fed by the
+    /// [`RATE_LIMIT_META_KEY`] `_meta` the claude adapter stamps on a no-op
+    /// `session_info_update`.
+    pub(crate) fn emit_rate_limit(
+        &mut self,
+        status: &str,
+        resets_at: Option<i64>,
+        message: Option<&str>,
+        window: Option<&str>,
+        out: &mut MapOut,
+    ) {
+        let status = self.clean(status.trim(), wire::activity::CONFIG_ID_MAX);
+        let message = message
+            .map(|message| self.clean(message.trim(), RATE_LIMIT_MESSAGE_MAX))
+            .filter(|message| !message.is_empty());
+        let clears = wire::frames::rate_limit_clears(&status);
+        let event = if clears {
+            ActivityEvent::rate_limit("", None, None)
+        } else {
+            ActivityEvent::rate_limit(status, resets_at.filter(|at| *at >= 0), message)
+        };
+        if self.last_rate_limit.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_rate_limit = Some(event.clone());
+        // EXP-804: the ROW's durable `blocked` rides the same edge as the
+        // viewer's banner. The banner only exists while somebody watches
+        // the stream; the row is what a teammate's list and a parent agent's
+        // `sessions_get` read, and it is the only place a walled run is
+        // distinguishable from a healthy one.
+        //
+        // FEED-35/37: only a WALL sets it (`wire::frames::rate_limit_is_wall` — the
+        // banner's own rule). Claude files `allowed_warning` on every turn
+        // past ~75% of a window while it keeps working; writing that as
+        // `blocked` marked healthy runs "rate limited" seconds after start
+        // and had parent agents kill them. Any non-wall report (the clear,
+        // a warning after a wall) lifts the row.
+        let wall = !clears
+            && wire::frames::rate_limit_is_wall(
+                match &event {
+                    ActivityEvent::RateLimit { status, .. } => status,
+                    _ => "",
+                },
+                match &event {
+                    ActivityEvent::RateLimit { message, .. } => message.as_deref(),
+                    _ => None,
+                },
+            );
+        out.blocked = Some(wall.then(|| {
+            wire::activity::SessionBlocked {
+                kind: wire::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),
+                agent: self.config.agent.id().to_string(),
+                // FEED-34: the window the producer named for this reset (claude:
+                // its `rateLimitType`), so `window` and `resetsAt` describe the
+                // same window. `session` stays the fallback for a producer that
+                // names none — claude's 5h credit frame is the wall a run
+                // actually hits.
+                window: window
+                    .map(str::trim)
+                    .filter(|window| !window.is_empty())
+                    .unwrap_or(wire::activity::BLOCKED_WINDOW_SESSION)
+                    .to_string(),
+                resets_at: resets_at.and_then(wire::activity::iso_from_unix_millis),
+                since: wire::activity::now_iso(),
+            }
+        }));
+        emit(out, event, None);
+    }
+
+    /// A transient API failure the agent reported inline: a transcript ROW
+    /// in its lane, after the prose that preceded it. NEVER a wall (no
+    /// `blocked`, no `rate_limit` slot) and never deduped — two failures
+    /// are two rows.
+    fn emit_api_error(
+        &mut self,
+        message: &str,
+        error_type: Option<&str>,
+        subagent_id: Option<String>,
+        out: &mut MapOut,
+    ) {
+        let message = self.clean(message.trim(), API_ERROR_MESSAGE_MAX);
+        if message.is_empty() {
+            return;
+        }
+        let error_type = error_type
+            .map(|error_type| self.clean(error_type.trim(), API_ERROR_TYPE_MAX))
+            .filter(|error_type| !error_type.is_empty());
+        self.flush_scope(subagent_id.as_deref(), out);
+        emit(
+            out,
+            ActivityEvent::ApiError { message, error_type, subagent_id, at: None },
+            None,
+        );
+    }
+
+    /// EXP-861: is a compaction open right now? The host's queue gate reads
+    /// it beside the turn signal — a message sent mid-compaction is held
+    /// exactly like one sent mid-turn.
+    pub fn compacting(&self) -> bool {
+        self.compacting_since.is_some()
+    }
+
+    /// EXP-861: publish the queue slot — the messages the agent has not
+    /// read yet (held on the host, or sent mid-turn and awaiting its replay,
+    /// EXP-873), in FULL (an empty list closes every client's bar). The
+    /// texts are the person's own words: redacted like a `user_message` and
+    /// cut to the relay's per-message cap.
+    pub fn publish_queue(&mut self, messages: &[wire::frames::QueuedMessage], out: &mut MapOut) {
+        let messages = messages
+            .iter()
+            .take(wire::frames::QUEUE_MAX)
+            .map(|message| wire::frames::QueuedMessage {
+                id: message.id.clone(),
+                text: self.clean(&message.text, wire::frames::QUEUE_TEXT_MAX),
+                sent: message.sent,
+            })
+            .collect();
+        emit(out, ActivityEvent::queue(messages), None);
+    }
+
+    fn start_compaction(&mut self, trigger: Option<&str>, out: &mut MapOut) {
+        if self.compacting_since.is_some() {
+            return;
+        }
+        self.flush_all(out);
+        self.compacting_since = Some(Instant::now());
+        emit(
+            out,
+            ActivityEvent::compaction(
+                CompactionPhase::Started,
+                wire::activity::normalize_compaction_trigger(trigger),
+            ),
+            None,
+        );
+    }
+
+    fn end_compaction(&mut self, trigger: Option<&str>, out: &mut MapOut) {
+        if self.compacting_since.take().is_none() {
+            return;
+        }
+        emit(
+            out,
+            ActivityEvent::compaction(
+                CompactionPhase::Ended,
+                wire::activity::normalize_compaction_trigger(trigger),
+            ),
+            None,
+        );
+    }
+
+    /// A compaction whose end never arrived (the agent died mid-compaction)
+    /// must not strand the clients' strip.
+    fn close_stale_compaction(&mut self, out: &mut MapOut) {
+        if self
+            .compacting_since
+            .is_some_and(|since| since.elapsed() >= COMPACTION_MAX)
+        {
+            self.end_compaction(None, out);
+        }
+    }
+
+    fn answer_permission(
+        &mut self,
+        id: &str,
+        answer: &wire::activity::RemoteAnswer,
+        out: &mut MapOut,
+    ) -> AnswerDecision {
+        let Some(ask) = self.permissions.get_mut(id) else {
+            return AnswerDecision::Unknown;
+        };
+        // EXP-374: a re-tap of an answered card re-acks and stops there —
+        // the ACP responder is long resolved.
+        if ask.answered {
+            emit(
+                out,
+                ActivityEvent::AnswerAck {
+                    id: id.to_string(),
+                    ask_id: None,
+                    at: None,
+                },
+                None,
+            );
+            return AnswerDecision::ReAck;
+        }
+        let Some(key) = answer.keys.first().cloned() else {
+            return AnswerDecision::Unknown;
+        };
+        let Some((option_id, label)) = ask
+            .options
+            .iter()
+            .find(|(option, _)| option == &key)
+            .cloned()
+        else {
+            // An option the card never offered cannot be forwarded to the
+            // agent: dropping it keeps the card answerable.
+            return AnswerDecision::Unknown;
+        };
+        ask.answered = true;
+        emit(
+            out,
+            ActivityEvent::AnswerAck {
+                id: id.to_string(),
+                ask_id: None,
+                at: None,
+            },
+            None,
+        );
+        emit(
+            out,
+            ActivityEvent::QuestionResolved {
+                id: Some(id.to_string()),
+                ask_id: None,
+                answers: Some(vec![wire::activity::truncate(&label, ANSWER_MAX)]),
+                dismissed: None,
+                at: None,
+            },
+            None,
+        );
+        if self.pending_asks() == 0 {
+            out.needs_input = Some(false);
+        }
+        self.retire_ask(RetiredAsk::Permission(id.to_string()));
+        AnswerDecision::Permission { option_id }
+    }
+
+    fn answer_elicitation(
+        &mut self,
+        ask_id: &str,
+        key: &PendingAskKey,
+        answer: &wire::activity::RemoteAnswer,
+        out: &mut MapOut,
+    ) -> AnswerDecision {
+        let Some(ask) = self.elicitations.get_mut(ask_id) else {
+            return AnswerDecision::Unknown;
+        };
+        if ask.answered {
+            emit(
+                out,
+                ActivityEvent::AnswerAck {
+                    id: key.question_id.clone(),
+                    ask_id: Some(ask_id.to_string()),
+                    at: None,
+                },
+                None,
+            );
+            return AnswerDecision::ReAck;
+        }
+        let expected = elicit_step_id(ask_id, ask.current, ask.steps.len());
+        if expected != key.question_id {
+            // EXP-820: an EARLIER step answered again — the stepper's
+            // back-and-forth. Its value is re-recorded and the card
+            // re-resolved with the new answer; the stepper stays where it is
+            // (the current step is still the one being asked).
+            let revisited = elicit_step_index(ask_id, &key.question_id)
+                .filter(|step| *step < ask.current && *step < ask.steps.len());
+            if let Some(step) = revisited {
+                emit(
+                    out,
+                    ActivityEvent::AnswerAck {
+                        id: key.question_id.clone(),
+                        ask_id: Some(ask_id.to_string()),
+                        at: None,
+                    },
+                    None,
+                );
+                let answers = record_step_answer(ask, step, answer);
+                emit_step_resolved(out, ask_id, &key.question_id, answers);
+                return AnswerDecision::Elicitation {
+                    fields: Value::Object(ask.fields.clone()),
+                    submit: false,
+                };
+            }
+            // A stale step (the submit marker of a finished ask, an id the
+            // ask never published) re-acks only.
+            emit(
+                out,
+                ActivityEvent::AnswerAck {
+                    id: key.question_id.clone(),
+                    ask_id: Some(ask_id.to_string()),
+                    at: None,
+                },
+                None,
+            );
+            return AnswerDecision::ReAck;
+        }
+        emit(
+            out,
+            ActivityEvent::AnswerAck {
+                id: key.question_id.clone(),
+                ask_id: Some(ask_id.to_string()),
+                at: None,
+            },
+            None,
+        );
+
+        let submit = ask.current >= ask.steps.len();
+        let answers: Vec<String> = if submit {
+            vec!["Submit".to_string()]
+        } else {
+            record_step_answer(ask, ask.current, answer)
+        };
+        emit_step_resolved(out, ask_id, &key.question_id, answers);
+
+        // A one-step form has nothing to review: its answer IS the submit,
+        // exactly the one tap the PTY card took.
+        let lone_step = ask.steps.len() == 1 && !submit;
+        if submit || lone_step {
+            ask.answered = true;
+            let fields = Value::Object(ask.fields.clone());
+            if self.pending_asks() == 0 {
+                out.needs_input = Some(false);
+            }
+            self.retire_ask(RetiredAsk::Elicitation(ask_id.to_string()));
+            return AnswerDecision::Elicitation {
+                fields,
+                submit: true,
+            };
+        }
+        ask.current += 1;
+        let fields = Value::Object(ask.fields.clone());
+        self.publish_elicit_step(ask_id, out);
+        AnswerDecision::Elicitation {
+            fields,
+            submit: false,
+        }
+    }
+
+    /// Publish the step the stepper is on (or its submit marker) and register
+    /// the question id. Returns that id.
+    fn publish_elicit_step(&mut self, ask_id: &str, out: &mut MapOut) -> String {
+        let Some(ask) = self.elicitations.get(ask_id) else {
+            return String::new();
+        };
+        let total = ask.steps.len();
+        let question_id = elicit_step_id(ask_id, ask.current, total);
+        let event = if ask.current >= total {
+            // The submit step: BOTH `index` and `total` absent — that is the
+            // marker every client keys on (D3).
+            ActivityEvent::Question {
+                text: self.clean_marked(&ask.message, QUESTION_TEXT_MAX),
+                options: vec![QuestionOption::new("Submit", "submit")],
+                multi_select: None,
+                plan_mode: None,
+                id: question_id.clone(),
+                ask_id: Some(ask_id.to_string()),
+                index: None,
+                total: None,
+                header: None,
+                at: None,
+            }
+        } else {
+            let step = &ask.steps[ask.current];
+            ActivityEvent::Question {
+                text: step.text.clone(),
+                options: step.options.clone(),
+                multi_select: step.multi_select.then_some(true),
+                plan_mode: None,
+                id: question_id.clone(),
+                ask_id: Some(ask_id.to_string()),
+                index: Some(ask.current as u32 + 1),
+                total: Some(total as u32),
+                header: step.header.clone(),
+                at: None,
+            }
+        };
+        self.questions
+            .insert(question_id.clone(), AskRef::Elicitation(ask_id.to_string()));
+        // EXP-1292: every real step is a Conversation card; the submit
+        // marker is not (an answered last step submits the form itself,
+        // `pending_submit`).
+        if let ActivityEvent::Question {
+            text,
+            options,
+            index: Some(_),
+            ..
+        } = &event
+        {
+            self.reset_turn_reply();
+            out.replies.push(Reply::card(ReplyCard::Question {
+                question: text.clone(),
+                options: card_options(&options),
+                question_id: question_id.clone(),
+            }));
+        }
+        emit(out, event, None);
+        question_id
+    }
+
+    /// One step per property, except that a plain-string property named
+    /// `<name>_custom` beside a choice `<name>` is FOLDED into that choice's
+    /// step as its free-text row (the shape claude's AskUserQuestion form
+    /// takes), so the card reads like the PTY path's: options plus "Type
+    /// something.", one tap. A single-step form reads the request message
+    /// as its text (the message IS the question) and the property title as
+    /// its header.
+    fn elicit_steps(
+        &self,
+        message: &str,
+        schema: &agent_client_protocol::schema::v1::ElicitationSchema,
+    ) -> Vec<ElicitStep> {
+        let is_plain_string = |property: &ElicitationPropertySchema| {
+            matches!(
+                property,
+                ElicitationPropertySchema::String(schema)
+                    if schema.one_of.as_ref().is_none_or(Vec::is_empty)
+                        && schema.enum_values.as_ref().is_none_or(Vec::is_empty)
+            )
+        };
+        let folded: std::collections::HashSet<String> = schema
+            .properties
+            .iter()
+            .filter_map(|(name, property)| {
+                let choice = name.strip_suffix("_custom")?;
+                let sibling = schema.properties.get(choice)?;
+                (is_plain_string(property) && !is_plain_string(sibling)).then(|| name.clone())
+            })
+            .collect();
+        let mut steps: Vec<ElicitStep> = schema
+            .properties
+            .iter()
+            .filter(|(name, _)| !folded.contains(*name))
+            .map(|(name, property)| {
+                let mut step = self.elicit_step(name, property);
+                let custom = format!("{name}_custom");
+                if folded.contains(&custom) {
+                    if !step.options.iter().any(|option| option.free_text) {
+                        step.options.push(QuestionOption {
+                            label: "Type something.".to_string(),
+                            key: FREE_TEXT_KEY.to_string(),
+                            description: None,
+                            free_text: true,
+                        });
+                    }
+                    step.custom_property = Some(custom);
+                }
+                step
+            })
+            .collect();
+        if steps.len() == 1 && !message.trim().is_empty() {
+            let step = &mut steps[0];
+            let text = self.clean_marked(message, QUESTION_TEXT_MAX);
+            if step.text != text {
+                let title = std::mem::replace(&mut step.text, text);
+                step.header = Some(self.clean(&title, QUESTION_HEADER_MAX));
+            }
+        }
+        steps
+    }
+
+    fn elicit_step(&self, name: &str, property: &ElicitationPropertySchema) -> ElicitStep {
+        let free_text = |label: &str| QuestionOption {
+            label: label.to_string(),
+            key: FREE_TEXT_KEY.to_string(),
+            description: None,
+            free_text: true,
+        };
+        match property {
+            ElicitationPropertySchema::String(schema) => {
+                // The description is the QUESTION when a form carries several
+                // (the title is its short header); a lone title is the text.
+                let (text, header) = match (schema.description.as_deref(), schema.title.as_deref()) {
+                    (Some(description), title) if !description.trim().is_empty() => (
+                        self.clean_marked(description, QUESTION_TEXT_MAX),
+                        title
+                            .filter(|title| !title.trim().is_empty())
+                            .map(|title| self.clean(title, QUESTION_HEADER_MAX)),
+                    ),
+                    (_, Some(title)) if !title.trim().is_empty() => {
+                        (self.clean_marked(title, QUESTION_TEXT_MAX), None)
+                    }
+                    _ => (self.clean_marked(name, QUESTION_TEXT_MAX), None),
+                };
+                let options = match (&schema.one_of, &schema.enum_values) {
+                    (Some(one_of), _) if !one_of.is_empty() => one_of
+                        .iter()
+                        .map(|option| QuestionOption {
+                            label: self.clean(&option.title, OPTION_LABEL_MAX),
+                            key: wire::activity::truncate(&option.value, ID_MAX),
+                            description: option
+                                .description
+                                .as_ref()
+                                .map(|text| self.clean(text, OPTION_DESCRIPTION_MAX)),
+                            free_text: false,
+                        })
+                        .collect(),
+                    (_, Some(values)) if !values.is_empty() => values
+                        .iter()
+                        .map(|value| QuestionOption {
+                            label: self.clean(value, OPTION_LABEL_MAX),
+                            key: wire::activity::truncate(value, ID_MAX),
+                            description: None,
+                            free_text: false,
+                        })
+                        .collect(),
+                    _ => vec![free_text("Type something.")],
+                };
+                ElicitStep {
+                    property: name.to_string(),
+                    text,
+                    header,
+                    options,
+                    multi_select: false,
+                    kind: StepKind::Text,
+                    custom_property: None,
+                }
+            }
+            ElicitationPropertySchema::Boolean(schema) => ElicitStep {
+                property: name.to_string(),
+                text: self.clean_marked(
+                    schema
+                        .title
+                        .as_deref()
+                        .or(schema.description.as_deref())
+                        .unwrap_or(name),
+                    QUESTION_TEXT_MAX,
+                ),
+                header: None,
+                options: vec![
+                    QuestionOption::new("Yes", "true"),
+                    QuestionOption::new("No", "false"),
+                ],
+                multi_select: false,
+                kind: StepKind::Bool,
+                custom_property: None,
+            },
+            ElicitationPropertySchema::Integer(_) => ElicitStep {
+                property: name.to_string(),
+                text: self.clean_marked(name, QUESTION_TEXT_MAX),
+                header: None,
+                options: vec![free_text("Type a number.")],
+                multi_select: false,
+                kind: StepKind::Integer,
+                custom_property: None,
+            },
+            ElicitationPropertySchema::Number(_) => ElicitStep {
+                property: name.to_string(),
+                text: self.clean_marked(name, QUESTION_TEXT_MAX),
+                header: None,
+                options: vec![free_text("Type a number.")],
+                multi_select: false,
+                kind: StepKind::Number,
+                custom_property: None,
+            },
+            ElicitationPropertySchema::Array(schema) => ElicitStep {
+                property: name.to_string(),
+                text: self.clean_marked(
+                    schema
+                        .title
+                        .as_deref()
+                        .or(schema.description.as_deref())
+                        .unwrap_or(name),
+                    QUESTION_TEXT_MAX,
+                ),
+                header: None,
+                options: multi_select_options(&schema.items)
+                    .into_iter()
+                    .map(|(value, label)| QuestionOption {
+                        label: self.clean(&label, OPTION_LABEL_MAX),
+                        key: wire::activity::truncate(&value, ID_MAX),
+                        description: None,
+                        free_text: false,
+                    })
+                    .collect(),
+                multi_select: true,
+                kind: StepKind::Strings,
+                custom_property: None,
+            },
+            // `#[non_exhaustive]`: an unknown property kind still gets a
+            // free-text step rather than silently dropping the question.
+            _ => ElicitStep {
+                property: name.to_string(),
+                text: self.clean_marked(name, QUESTION_TEXT_MAX),
+                header: None,
+                options: vec![free_text("Type something.")],
+                multi_select: false,
+                kind: StepKind::Text,
+                custom_property: None,
+            },
+        }
+    }
+}
+
+/// The CLI SYNTHESISES an interrupt marker into the conversation as a USER
+/// turn and `--replay-user-messages` plays it back at us. Nobody typed it, so
+/// no echo was ever armed for it and the echo FIFO ([`Mapper::arm_echo`])
+/// cannot swallow it — it surfaced as the user's own message, once per
+/// interrupt and again per replay (EXP-780). The clients already render the
+/// cancellation from the turn's stop reason.
+/// EXP-873: `text` without its synthetic interrupt lines — a replayed user
+/// message the CLI glued its `[Request interrupted by user]` entry onto
+/// (same flush window, both id-less) is the message alone again; a text
+/// that was only markers is empty.
+fn strip_synthetic_interrupts(text: &str) -> String {
+    if !text.contains('[') {
+        return text.to_string();
+    }
+    text.lines()
+        .filter(|line| !is_synthetic_interrupt(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn is_synthetic_interrupt(text: &str) -> bool {
+    let Some(inner) = text
+        .trim()
+        .strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+    else {
+        return false;
+    };
+    inner.trim().to_ascii_lowercase().starts_with("request interrupted")
+}
+
+/// How many host-sent prompts wait for their echo at once (a mid-turn steer
+/// queue is short; claude replays each message before the next turn).
+const PENDING_ECHOES_MAX: usize = 8;
+
+/// The option key of a free-text row. Never a VALUE: a typed answer rides
+/// `answer.text`, and picking the row with nothing typed means "no answer".
+const FREE_TEXT_KEY: &str = "text";
+
+/// EXP-1322: a question card's options = the feed options minus the
+/// free-text row, each carrying its description when it has one (the thread
+/// card shows it like the session view's card). `ReplyCard`'s serializer
+/// splits them into the wire pair: `options` (labels) + the
+/// `optionDescriptions` sidecar.
+fn card_options(options: &[QuestionOption]) -> Vec<ReplyOption> {
+    options
+        .iter()
+        .filter(|option| !option.free_text)
+        .map(|option| {
+            ReplyOption::new(option.label.clone(), option.description.as_deref())
+        })
+        .collect()
+}
+
+fn multi_select_options(
+    items: &agent_client_protocol::schema::v1::MultiSelectItems,
+) -> Vec<(String, String)> {
+    use agent_client_protocol::schema::v1::MultiSelectItems;
+    match items {
+        MultiSelectItems::String(items) => {
+            items.values.iter().map(|value| (value.clone(), value.clone())).collect()
+        }
+        MultiSelectItems::Titled(items) => items
+            .options
+            .iter()
+            .map(|option| (option.value.clone(), option.title.clone()))
+            .collect(),
+        // `#[non_exhaustive]`: an unknown item shape renders no options, so
+        // the step degrades to an unanswerable card rather than a wrong one.
+        _ => Vec::new(),
+    }
+}
+
+/// `<ask>#<n>` for a step, `<ask>#submit` for the final marker (D3).
+fn elicit_step_id(ask_id: &str, step: usize, total: usize) -> String {
+    if step >= total {
+        format!("{ask_id}#submit")
+    } else {
+        format!("{ask_id}#{step}")
+    }
+}
+
+/// The step an `<ask>#<n>` id names, or `None` for the submit marker and for
+/// ids of another shape.
+fn elicit_step_index(ask_id: &str, question_id: &str) -> Option<usize> {
+    question_id
+        .strip_prefix(ask_id)?
+        .strip_prefix('#')?
+        .parse::<usize>()
+        .ok()
+}
+
+/// Fold one step's answer into the ask's `content` map and return the
+/// labels its resolution shows. A re-answer (EXP-820) REPLACES the step's
+/// previous value — both the choice and its folded custom text — so a step
+/// first answered by typing and then by picking never keeps the typed text.
+fn record_step_answer(
+    ask: &mut ElicitationAsk,
+    step_index: usize,
+    answer: &wire::activity::RemoteAnswer,
+) -> Vec<String> {
+    let step = &ask.steps[step_index];
+    ask.fields.remove(&step.property);
+    if let Some(custom) = &step.custom_property {
+        ask.fields.remove(custom);
+    }
+    let labels: Vec<String> = answer
+        .keys
+        .iter()
+        .map(|key| {
+            step.options
+                .iter()
+                .find(|option| &option.key == key)
+                .map(|option| option.label.clone())
+                .unwrap_or_else(|| key.clone())
+        })
+        .collect();
+    let typed = answer.text.clone().filter(|text| !text.trim().is_empty());
+    let choice_keys: Vec<String> =
+        answer.keys.iter().filter(|key| *key != FREE_TEXT_KEY).cloned().collect();
+    match (&step.custom_property, &typed) {
+        // The folded free-text row: the typed answer is the custom field and
+        // the choice stays unanswered (claude's `applyAskElicitationResponse`
+        // lets the custom text win).
+        (Some(custom), Some(text)) => {
+            ask.fields.insert(custom.clone(), Value::String(text.clone()));
+        }
+        _ => {
+            let value = step_value(step, &choice_keys, typed.as_deref());
+            if !value.is_null() && value != Value::String(String::new()) {
+                ask.fields.insert(step.property.clone(), value);
+            }
+        }
+    }
+    match typed {
+        Some(text) => vec![text],
+        None => labels
+            .into_iter()
+            .filter(|label| {
+                answer.keys.iter().all(|key| key != FREE_TEXT_KEY) || label != "Type something."
+            })
+            .collect(),
+    }
+}
+
+/// The `question_resolved` a step's answer publishes (capped like every
+/// other answer text).
+fn emit_step_resolved(out: &mut MapOut, ask_id: &str, question_id: &str, answers: Vec<String>) {
+    emit(
+        out,
+        ActivityEvent::QuestionResolved {
+            id: Some(question_id.to_string()),
+            ask_id: Some(ask_id.to_string()),
+            answers: Some(
+                answers
+                    .into_iter()
+                    .take(ANSWERS_MAX)
+                    .map(|answer| wire::activity::truncate(&answer, ANSWER_MAX))
+                    .collect(),
+            ),
+            dismissed: None,
+            at: None,
+        },
+        None,
+    );
+}
+
+/// One step's answer, in the shape `elicitation/create`'s `content` map wants.
+fn step_value(step: &ElicitStep, keys: &[String], typed: Option<&str>) -> Value {
+    match step.kind {
+        StepKind::Bool => Value::Bool(keys.first().map(|key| key == "true").unwrap_or(false)),
+        StepKind::Integer => typed
+            .and_then(|text| text.trim().parse::<i64>().ok())
+            .map(Value::from)
+            .unwrap_or(Value::Null),
+        StepKind::Number => typed
+            .and_then(|text| text.trim().parse::<f64>().ok())
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        StepKind::Strings => Value::Array(keys.iter().cloned().map(Value::String).collect()),
+        StepKind::Text => match typed {
+            Some(text) if !text.is_empty() => Value::String(text.to_string()),
+            _ => Value::String(keys.first().cloned().unwrap_or_default()),
+        },
+    }
+}
+
+/// The `_meta` key an adapter puts a permission option's second line under
+/// (ACP's `PermissionOption` has no description field); the mapper publishes
+/// it as `QuestionOption.description`, which every client renders.
+pub const PERMISSION_OPTION_DESCRIPTION_META: &str = "description";
+
+/// EXP-788: a `session/request_permission` is a PERMISSION — an allow/reject
+/// card, ranked allow-first — when EVERY option carries an allow/reject kind.
+/// Duplicate kinds are legal (codex sends two `allow_always` options per exec
+/// approval, claude two for a plan); only an option of some OTHER kind makes
+/// the request the agent's own question, whose options keep the agent's
+/// order.
+fn is_user_question(options: &[PermissionOption]) -> bool {
+    options.iter().any(|option| {
+        !matches!(
+            option.kind,
+            PermissionOptionKind::AllowOnce
+                | PermissionOptionKind::AllowAlways
+                | PermissionOptionKind::RejectOnce
+                | PermissionOptionKind::RejectAlways
+        )
+    })
+}
+
+/// Permission options in the order the four clients read best: allow first,
+/// reject last (`PermissionOptionKind` has no relay field of its own). The
+/// sort is STABLE, so the agent's own order survives inside a rank — and a
+/// user question (see [`is_user_question`]) is not ranked at all.
+fn permission_options(options: &[PermissionOption]) -> Vec<(String, String, Option<String>)> {
+    let mut ranked: Vec<(usize, &PermissionOption)> = options
+        .iter()
+        .map(|option| {
+            let rank = match option.kind {
+                PermissionOptionKind::AllowOnce => 0,
+                PermissionOptionKind::AllowAlways => 1,
+                PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways => 3,
+                _ => 2,
+            };
+            (rank, option)
+        })
+        .collect();
+    if !is_user_question(options) {
+        ranked.sort_by_key(|(rank, _)| *rank);
+    }
+    ranked
+        .into_iter()
+        .take(wire::activity::QUESTION_OPTIONS_MAX)
+        .map(|(_, option)| {
+            let description = option
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(PERMISSION_OPTION_DESCRIPTION_META))
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty())
+                .map(str::to_string);
+            (option.option_id.0.to_string(), option.name.clone(), description)
+        })
+        .collect()
+}
+
+/// The relay's zod bounds on `usage` (`apps/steer-relay/src/protocol.ts`):
+/// `contextUsed`/`contextSize` are `int().min(0).max(1e9)` and `costUsd` is
+/// `number().min(0).max(1e6)`.
+const USAGE_TOKENS_MAX: i64 = 1_000_000_000;
+const USAGE_COST_MAX: f64 = 1_000_000.0;
+
+/// EXP-758: clamp an [`ActivityEvent::Usage`] to those bounds: the sibling
+/// of `wire::activity::clamp_config_state`, and for the same reason. `activityEvent`
+/// is a discriminated union, so an out-of-bounds meter is not clipped by the
+/// relay, it is DROPPED: the viewer's context pill then freezes on the last
+/// good frame for the rest of the run. An agent reporting a nonsense number
+/// (a `u64` sentinel, a negative cost) is worth a pinned meter, not a dead
+/// one. A no-op for every other kind.
+pub fn clamp_usage(event: &mut ActivityEvent) {
+    let ActivityEvent::Usage {
+        context_used,
+        context_size,
+        cost_usd,
+        ..
+    } = event
+    else {
+        return;
+    };
+    *context_used = (*context_used).clamp(0, USAGE_TOKENS_MAX);
+    *context_size = (*context_size).clamp(0, USAGE_TOKENS_MAX);
+    // NaN and the infinities have no JSON spelling zod would accept either.
+    *cost_usd = cost_usd
+        .filter(|cost| cost.is_finite())
+        .map(|cost| cost.clamp(0.0, USAGE_COST_MAX));
+}
+
+
+/// EXP-1051: clamp an [`ActivityEvent::ContextLayout`] to the relay's bounds,
+/// the sibling of [`clamp_usage`] and for the same reason — `activityEvent`
+/// is a discriminated union, so one out-of-range token count does not clip,
+/// it DROPS the frame and leaves every viewer without a bar for the rest of
+/// the run. The segment count is capped at the contract's key set (a payload
+/// cannot be longer than the vocabulary) and each `detail` at
+/// [`wire::frames::CONTEXT_SEGMENT_DETAIL_MAX`]. A no-op for every other kind.
+pub fn clamp_context_layout(event: &mut ActivityEvent) {
+    let ActivityEvent::ContextLayout { segments, .. } = event else {
+        return;
+    };
+    segments.truncate(wire::frames::ContextSegmentKey::ALL.len());
+    for segment in segments.iter_mut() {
+        segment.tokens = segment.tokens.clamp(0, USAGE_TOKENS_MAX);
+        segment.detail = segment
+            .detail
+            .take()
+            .map(|detail| wire::activity::truncate(&detail, wire::frames::CONTEXT_SEGMENT_DETAIL_MAX))
+            .filter(|detail| !detail.is_empty());
+    }
+}
+
+/// The wire's grouping hint for an option's ACP category — a machine field,
+/// so it is the id, never a label.
+fn category_id(category: &SessionConfigOptionCategory) -> String {
+    match category {
+        SessionConfigOptionCategory::Model => "model".to_string(),
+        SessionConfigOptionCategory::ThoughtLevel => "effort".to_string(),
+        SessionConfigOptionCategory::ModelConfig => "model_config".to_string(),
+        SessionConfigOptionCategory::Mode => "mode".to_string(),
+        SessionConfigOptionCategory::Other(other) => other.clone(),
+        _ => "other".to_string(),
+    }
+}
+
+fn message_id(chunk: &ContentChunk) -> Option<String> {
+    chunk.message_id.as_ref().map(|id| id.0.to_string())
+}
+
+/// EXP-1324: the `ended` edge of one thought.
+fn emit_thought_ended(open: OpenThought, out: &mut MapOut) {
+    let duration_ms = u64::try_from(open.since.elapsed().as_millis()).unwrap_or(u64::MAX);
+    emit(
+        out,
+        ActivityEvent::Thought {
+            id: open.id,
+            state: wire::frames::ThoughtState::Ended,
+            duration_ms: Some(duration_ms),
+            subagent_id: open.subagent_id,
+            at: None,
+        },
+        None,
+    );
+}
+
+/// The suffix that separates a thought's narration id from its message's.
+const THOUGHT_ID_SUFFIX: &str = "#thought";
+
+/// The id a thought's narration publishes under. The agent gives a thought and
+/// the answer that follows it the SAME `messageId`, and clients merge
+/// narration rows by it, so the thought needs an id of its own.
+fn thought_message_id(message_id: &str) -> String {
+    let head = wire::activity::truncate(message_id, ID_MAX - THOUGHT_ID_SUFFIX.len());
+    format!("{head}{THOUGHT_ID_SUFFIX}")
+}
+
+fn chunk_text(chunk: &ContentChunk) -> String {
+    block_text(&chunk.content)
+}
+
+fn block_text(block: &ContentBlock) -> String {
+    match block {
+        ContentBlock::Text(text) => text.text.clone(),
+        // An image/audio/resource chunk has no text the wire can carry; the
+        // local card keeps its own copy where it matters.
+        _ => String::new(),
+    }
+}
+
+fn content_text(content: &[ToolCallContent]) -> String {
+    content
+        .iter()
+        .filter_map(|item| match item {
+            ToolCallContent::Content(block) => Some(block_text(&block.content)),
+            _ => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn subagent_id_from_meta(meta: &BTreeMapLike) -> Option<String> {
+    meta.get(SUBAGENT_ID_META_KEY)
+        .or_else(|| meta.get("subagent_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// The `_meta` of the update a notification carries, for the variants an
+/// adapter may stamp instead of the notification itself.
+fn update_meta(update: &SessionUpdate) -> Option<&BTreeMapLike> {
+    match update {
+        SessionUpdate::ToolCall(call) => call.meta.as_ref(),
+        SessionUpdate::ToolCallUpdate(update) => update.meta.as_ref(),
+        SessionUpdate::CompactionUpdate(update) => defined(&update.meta),
+        _ => None,
+    }
+}
+
+/// A patch-shaped field (`MaybeUndefined`) read as plain presence.
+fn defined<T>(value: &agent_client_protocol::schema::MaybeUndefined<T>) -> Option<&T> {
+    match value {
+        agent_client_protocol::schema::MaybeUndefined::Value(value) => Some(value),
+        _ => None,
+    }
+}
+
+/// ACP's `_meta` is a `serde_json::Map`; named so the helper above reads.
+type BTreeMapLike = Map<String, Value>;
+
+/// EXP-784: the relay's cap on `rate_limit.message` (protocol.ts).
+const RATE_LIMIT_MESSAGE_MAX: usize = 1024;
+
+/// EXP-850: every workflow / background-task string is cut to the contract's
+/// `steerWorking.previewMax` — the relay's zod enforces the same number, so
+/// the producer cuts first.
+const WORKFLOW_TEXT_MAX: usize = WORKING_PREVIEW_MAX;
+
+/// EXP-784: the `_meta` key an adapter publishes the rate-limit slot under,
+/// on a no-op `session_info_update`: `{"status": <agent word>, "resetsAt":
+/// <unix ms>?, "message": <text>?}`; status empty/`ok` clears.
+pub const RATE_LIMIT_META_KEY: &str = "exponentialRateLimit";
+
+/// The relay's caps for an inline `api_error` row.
+const API_ERROR_MESSAGE_MAX: usize = 1024;
+const API_ERROR_TYPE_MAX: usize = 64;
+
+/// The `_meta` key an adapter publishes an inline API failure under, on a
+/// no-op `session_info_update`: `{"message": <text>, "errorType": <word>?}`
+/// (+ the subagent key for a subagent's). A ROW, never the rate-limit slot.
+pub const API_ERROR_META_KEY: &str = "exponentialApiError";
+
+/// EXP-785: the wire's kind bucket for an ACP kind — every ACP value has a
+/// contract twin; a future ACP kind lands on `Other`.
+fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
+    match kind {
+        ToolKind::Read => WireToolKind::Read,
+        ToolKind::Edit => WireToolKind::Edit,
+        ToolKind::Delete => WireToolKind::Delete,
+        ToolKind::Move => WireToolKind::Move,
+        ToolKind::Search => WireToolKind::Search,
+        ToolKind::Execute => WireToolKind::Execute,
+        ToolKind::Think => WireToolKind::Think,
+        ToolKind::Fetch => WireToolKind::Fetch,
+        ToolKind::SwitchMode => WireToolKind::SwitchMode,
+        _ => WireToolKind::Other,
+    }
+}
+
+/// EXP-846: the JSON an MCP answer actually carries — ONE rule with the refs
+/// ([`super::exp_tool_refs::tool_result_payload`]): the text behind the MCP
+/// envelope, a bare value as itself, an `isError` envelope as nothing (EXP-920:
+/// a failed call previews no subject either), anything unparseable as no
+/// preview.
+fn json_payload(result: &Value) -> Option<Value> {
+    super::exp_tool_refs::tool_result_payload(result)
+}
+
+/// NEW-4: an Exponential MCP call's DISPLAY name. The server's 15 noun
+/// tools take an `op` (`exponential_issues` + `{op: "get"}`); the contract's
+/// display rows are keyed `<noun>_<op>` (`issues_get`), so the mapper composes
+/// that name from the call's title and its input once, here, and every
+/// client's lookup (Exponential: `steer::exp_tool`) stays keyed by the row. A title that
+/// already names a row (a verb like `sessions_send`, or an older server's
+/// per-operation tool) and any other tool pass through unchanged.
+fn exp_tool_title(tools: &dyn HostTools, title: &str, raw_input: Option<&Value>) -> String {
+    let trimmed = title.trim();
+    if tools.row(trimmed).is_some() {
+        return title.to_string();
+    }
+    let Some(op) = raw_input
+        .and_then(Value::as_object)
+        .and_then(|input| input.get("op"))
+        .and_then(Value::as_str)
+    else {
+        return title.to_string();
+    };
+    let composed = format!("{trimmed}_{}", op.trim());
+    if tools.row(&composed).is_some() {
+        composed
+    } else {
+        title.to_string()
+    }
+}
+
+/// EXP-920: the ACP `raw_input` worth RETAINING on a tool's state — only an
+/// Exponential MCP call's, whose settle reads the `$`-rooted spec terms off
+/// it, and (EXP-1279) a code-mode `exec`'s; every other tool's input is read
+/// once for the row's detail and dropped.
+fn exp_tool_input(tools: &dyn HostTools, title: &str, raw_input: Option<&Value>) -> Option<Value> {
+    let raw_input = raw_input?;
+    (tools.row(title).is_some() || is_script_tool(title)).then(|| raw_input.clone())
+}
+
+/// EXP-1279: the code-mode tool, `exec` on the `codemode` server, as either
+/// adapter titles it: claude `mcp__codemode__exec` (contract
+/// `script-card.json` `toolNameSuffix`), codex `mcp.codemode.exec`.
+fn is_script_tool(title: &str) -> bool {
+    let title = title.trim();
+    let server = CODEMODE_SERVER_NAME;
+    title.ends_with(&format!("{server}__exec")) || title.ends_with(&format!("mcp.{server}.exec"))
+}
+
+/// The script a code-mode `exec` input carries.
+fn script_source(input: &Value) -> Option<&str> {
+    input.get("script").and_then(Value::as_str)
+}
+
+/// EXP-846: `{id, identifier, title, url, count, status}` out of one of our
+/// tools' answers. The fields are looked for on the payload itself and ONE
+/// hop into a named wrapper (`{"issue": {...}}` is what most of our tools
+/// answer with); `count` is a list answer's length, or its own `total`/`count`.
+/// `None` when nothing was named — an empty preview is never published.
+fn exp_tool_preview(result: &Value) -> Option<wire::frames::ToolPreview> {
+    let payload = json_payload(result)?;
+    let count = list_count(&payload);
+    let subject = subject_object(&payload);
+    let string = |keys: &[&str]| -> Option<String> {
+        let map = subject?;
+        keys.iter()
+            .filter_map(|key| map.get(*key).and_then(Value::as_str))
+            .map(str::trim)
+            .find(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let preview = wire::frames::ToolPreview {
+        id: string(&["id"]),
+        identifier: string(&["identifier"]),
+        title: string(&["title", "name"]),
+        url: string(&["prUrl", "url", "htmlUrl"]),
+        count,
+        status: string(&["status"]),
+        refs: vec![],
+    };
+    (!preview.is_empty()).then_some(preview)
+}
+
+/// EXP-846: how many rows a LIST answer carried — the array itself, its own
+/// `total`/`count`, or the single array a wrapper object holds.
+fn list_count(payload: &Value) -> Option<u32> {
+    let len = |len: usize| u32::try_from(len).ok();
+    match payload {
+        Value::Array(rows) => len(rows.len()),
+        Value::Object(map) => {
+            if let Some(total) = map
+                .get("total")
+                .or_else(|| map.get("count"))
+                .and_then(Value::as_u64)
+            {
+                return u32::try_from(total).ok();
+            }
+            let mut arrays = map.values().filter_map(Value::as_array);
+            let first = arrays.next()?;
+            arrays.next().is_none().then(|| len(first.len()))?
+        }
+        _ => None,
+    }
+}
+
+/// EXP-846: the object the preview's named fields live on — the payload, or
+/// the single object a one-key wrapper holds (`{"issue": {...}}`). One hop
+/// only: deeper guessing would put a nested row's id on the card.
+fn subject_object(payload: &Value) -> Option<&Map<String, Value>> {
+    let map = payload.as_object()?;
+    const NAMED: [&str; 6] = ["id", "identifier", "title", "name", "prUrl", "url"];
+    if NAMED.iter().any(|key| map.contains_key(*key)) {
+        return Some(map);
+    }
+    let mut objects = map.values().filter_map(Value::as_object);
+    let first = objects.next()?;
+    objects.next().is_none().then_some(first)
+}
+
+/// EXP-785: the two ACP statuses that SETTLE a call; anything else is churn.
+fn settle_status(status: ToolCallStatus) -> Option<ToolUpdateStatus> {
+    match status {
+        ToolCallStatus::Completed => Some(ToolUpdateStatus::Completed),
+        ToolCallStatus::Failed => Some(ToolUpdateStatus::Failed),
+        _ => None,
+    }
+}
+
+/// EXP-850 §1: the local card bucket for a WIRE kind an adapter named in
+/// `_meta` — the one path that can produce [`ToolCardKind::Wait`], which ACP
+/// cannot express.
+fn wire_card_kind(kind: WireToolKind) -> ToolCardKind {
+    match kind {
+        WireToolKind::Read => ToolCardKind::Read,
+        WireToolKind::Edit => ToolCardKind::Edit,
+        WireToolKind::Delete => ToolCardKind::Delete,
+        WireToolKind::Move => ToolCardKind::Move,
+        WireToolKind::Search => ToolCardKind::Search,
+        WireToolKind::Execute => ToolCardKind::Execute,
+        WireToolKind::Think => ToolCardKind::Think,
+        WireToolKind::Fetch => ToolCardKind::Fetch,
+        WireToolKind::SwitchMode => ToolCardKind::SwitchMode,
+        WireToolKind::Wait => ToolCardKind::Wait,
+        // EXP-1279: the local card has no script shape of its own.
+        WireToolKind::Script | WireToolKind::Other => ToolCardKind::Other,
+    }
+}
+
+fn card_kind(kind: ToolKind) -> ToolCardKind {
+    match kind {
+        ToolKind::Read => ToolCardKind::Read,
+        ToolKind::Edit => ToolCardKind::Edit,
+        ToolKind::Delete => ToolCardKind::Delete,
+        ToolKind::Move => ToolCardKind::Move,
+        ToolKind::Search => ToolCardKind::Search,
+        ToolKind::Execute => ToolCardKind::Execute,
+        ToolKind::Think => ToolCardKind::Think,
+        ToolKind::Fetch => ToolCardKind::Fetch,
+        ToolKind::SwitchMode => ToolCardKind::SwitchMode,
+        _ => ToolCardKind::Other,
+    }
+}
+
+fn card_status(status: ToolCallStatus) -> ToolCardStatus {
+    match status {
+        ToolCallStatus::Pending => ToolCardStatus::Pending,
+        ToolCallStatus::Completed => ToolCardStatus::Completed,
+        ToolCallStatus::Failed => ToolCardStatus::Failed,
+        _ => ToolCardStatus::InProgress,
+    }
+}
+
+/// The phase edge a host renders as a banner — re-exported here so the
+/// lifecycle and the mapper agree on one vocabulary.
+pub fn phase_event(phase: EnginePhase) -> LocalFeedEvent {
+    LocalFeedEvent::Phase(phase)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        ContentChunk, PermissionOption, PermissionOptionId, RequestPermissionRequest, SessionId,
+        SessionNotification, TextContent, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
+    };
+    use serde_json::json;
+
+    fn mapper() -> Mapper {
+        Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(vec!["expu_supersecretkey".to_string()])),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::activity::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        })
+    }
+
+    fn notify(update: SessionUpdate) -> SessionNotification {
+        SessionNotification::new(SessionId::new("acp-1"), update)
+    }
+
+    /// EXP-905: a session title is recorded (normalised) only when it
+    /// CHANGES; the no-op `_meta` carriers and a `null` title say nothing,
+    /// and the rate-limit slot still rides the same arm.
+    #[test]
+    fn a_session_title_surfaces_once_per_change_and_never_clears() {
+        use agent_client_protocol::schema::v1::SessionInfoUpdate;
+        let mut mapper = mapper();
+        let titled = |title: &str| {
+            notify(SessionUpdate::SessionInfoUpdate(
+                SessionInfoUpdate::new().title(title.to_string()),
+            ))
+        };
+        let mut out = MapOut::default();
+        mapper.on_update(&titled("  Fix the\n flaky test "), &mut out);
+        assert_eq!(out.agent_title.as_deref(), Some("Fix the flaky test"));
+        assert!(out.wire.is_empty(), "a title is a row fact, not a feed event");
+
+        let mut out = MapOut::default();
+        mapper.on_update(&titled("Fix the flaky test"), &mut out);
+        assert_eq!(out.agent_title, None, "an identical re-report is no change");
+
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::SessionInfoUpdate(
+                SessionInfoUpdate::new().title(None::<String>),
+            )),
+            &mut out,
+        );
+        mapper.on_update(&notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new())), &mut out);
+        mapper.on_update(&titled("   "), &mut out);
+        assert_eq!(out.agent_title, None);
+
+        let mut carrier = notify(SessionUpdate::SessionInfoUpdate(
+            SessionInfoUpdate::new().title("Renamed".to_string()),
+        ));
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            RATE_LIMIT_META_KEY.to_string(),
+            json!({ "status": "rejected", "resetsAt": 1_900_000_000_000_i64, "window": "session" }),
+        );
+        carrier.meta = Some(meta);
+        let mut out = MapOut::default();
+        mapper.on_update(&carrier, &mut out);
+        assert_eq!(out.agent_title.as_deref(), Some("Renamed"));
+        assert!(
+            out.wire.iter().any(|event| matches!(event, wire::frames::ActivityEvent::RateLimit { .. })),
+            "{:?}",
+            out.wire
+        );
+    }
+
+    /// EXP-969: a fold whose own `ended` edge never came (a manual
+    /// `/compact` that lands no `compact_boundary`) closes on the turn end —
+    /// an agent cannot be compacting between turns, and the host's queue
+    /// gate reads exactly that edge.
+    #[test]
+    fn a_turn_end_closes_a_compaction_whose_end_never_came() {
+        use agent_client_protocol::schema::v1::{
+            CompactionId, CompactionStatus, CompactionUpdate,
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                CompactionId::new("c-1"),
+                CompactionStatus::InProgress,
+            ))),
+            &mut out,
+        );
+        assert!(mapper.compacting(), "the fold is open");
+
+        let mut ended = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut ended);
+        assert!(!mapper.compacting(), "the turn end closed it");
+        assert!(
+            ended.wire.iter().any(|event| matches!(
+                event,
+                ActivityEvent::Compaction { phase: CompactionPhase::Ended, .. }
+            )),
+            "{:?}",
+            ended.wire
+        );
+
+        // The next turn end says nothing: the fold is already closed.
+        let mut again = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut again);
+        assert!(
+            !again.wire.iter().any(|event| matches!(event, ActivityEvent::Compaction { .. })),
+            "{:?}",
+            again.wire
+        );
+    }
+
+    fn chunk(text: &str, message_id: Option<&str>) -> ContentChunk {
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+        match message_id {
+            Some(id) => chunk.message_id(agent_client_protocol::schema::v1::MessageId::new(id)),
+            None => chunk,
+        }
+    }
+
+    /// The host publishes a prompt as the user's message itself, and an
+    /// agent that replays it (claude) is deduped; one that never echoes
+    /// (codex) still gets exactly one `user_message`.
+    #[test]
+    fn a_prompt_is_the_users_message_once_whether_or_not_the_agent_echoes_it() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_prompt("fix the login bug", &mut out);
+        assert_eq!(
+            out.wire.iter().filter(|event| matches!(event, ActivityEvent::UserMessage { .. })).count(),
+            1
+        );
+        // claude's replay of the same text: silent.
+        let mut echoed = MapOut::default();
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("fix the login bug")));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut echoed);
+        mapper.on_stop(StopReason::EndTurn, &mut echoed);
+        assert!(
+            !echoed.wire.iter().any(|event| matches!(event, ActivityEvent::UserMessage { .. })),
+            "{:?}",
+            echoed.wire
+        );
+        // A different user message the agent surfaces (a session/load
+        // replay) still publishes.
+        let mut other = MapOut::default();
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("and the signup page")));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut other);
+        mapper.on_stop(StopReason::EndTurn, &mut other);
+        assert_eq!(
+            other.wire.iter().filter(|event| matches!(event, ActivityEvent::UserMessage { .. })).count(),
+            1
+        );
+    }
+
+    /// EXP-1098: an image prompt's replay carries the LOCALIZED text. Armed
+    /// up front (`on_prompt_with_agent_text`) or once the localization lands
+    /// (`also_echo`, the `Localize` path), either spelling retires the ONE
+    /// echo: a single row, the announce, and the other spelling is no
+    /// longer swallowed afterwards.
+    #[test]
+    fn an_image_prompts_localized_replay_is_the_same_echo() {
+        let announce = "crop this\n![image](/api/attachments/0f1e2d3c-4b5a-4968-8776-655443322110)";
+        let agent = "crop this\n\nImage #1: /wt/.exp-steer-images/a.png";
+        let user_rows = |out: &MapOut| {
+            out.wire
+                .iter()
+                .filter(|event| matches!(event, ActivityEvent::UserMessage { .. }))
+                .count()
+        };
+        let replay = |mapper: &mut Mapper, text: &str| {
+            let mut out = MapOut::default();
+            let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+            mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            out
+        };
+        for late in [false, true] {
+            let mut mapper = mapper();
+            let mut out = MapOut::default();
+            if late {
+                mapper.on_prompt(announce, &mut out);
+                mapper.also_echo(announce, agent);
+            } else {
+                mapper.on_prompt_with_agent_text(announce, agent, &mut out);
+            }
+            assert_eq!(user_rows(&out), 1);
+            assert_eq!(user_rows(&replay(&mut mapper, agent)), 0, "late={late}");
+            // EXP-1342: the agent answers, so what follows is not a replay
+            // of the row above it.
+            let answer = ContentChunk::new(ContentBlock::Text(TextContent::new("Cropped.")));
+            mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(answer)), &mut out);
+            // The entry retired whole: the announce spelling is a new message.
+            assert_eq!(user_rows(&replay(&mut mapper, announce)), 1, "late={late}");
+        }
+    }
+
+    /// A replay (or any burst inside one flush window) delivers user,
+    /// thought and message chunks back to back: the wire keeps that order
+    /// instead of grouping the three coalescers' contents by kind.
+    #[test]
+    fn chunks_of_different_kinds_keep_their_arrival_order() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let user = ContentChunk::new(ContentBlock::Text(TextContent::new("fix the login bug")));
+        let thought = ContentChunk::new(ContentBlock::Text(TextContent::new("Planning the fix")));
+        let message = ContentChunk::new(ContentBlock::Text(TextContent::new("On it.")));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(user)), &mut out);
+        mapper.on_update(&notify(SessionUpdate::AgentThoughtChunk(thought)), &mut out);
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(message)), &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let kinds: Vec<String> = out
+            .wire
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
+            .collect();
+        // EXP-1324: the thought is its two edges on the wire, in place.
+        assert_eq!(
+            kinds,
+            vec!["user_message", "thought", "thought", "narration"],
+            "{:?}",
+            out.wire
+        );
+        let texts: Vec<String> = out
+            .wire
+            .iter()
+            .filter_map(|event| {
+                serde_json::to_value(event).unwrap()["text"].as_str().map(str::to_string)
+            })
+            .collect();
+        assert_eq!(texts, vec!["fix the login bug", "On it."]);
+        // The chain of thought stays local.
+        assert!(out.local.iter().any(|event| matches!(
+            event,
+            LocalFeedEvent::Thought { text, .. } if text == "Planning the fix"
+        )));
+    }
+
+    #[test]
+    fn message_chunks_coalesce_until_the_turn_ends() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Hello ", Some("m1")))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("world", Some("m1")))),
+            &mut out,
+        );
+        assert!(out.wire.is_empty(), "a partial message never publishes");
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(out.wire.len(), 1);
+        match &out.wire[0] {
+            ActivityEvent::Narration { text, .. } => assert_eq!(text, "Hello world"),
+            other => panic!("expected one narration, got {other:?}"),
+        }
+        assert_eq!(out.idle, Some(true));
+    }
+
+    #[test]
+    fn a_new_message_id_flushes_the_previous_message() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("first", Some("m1")))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("second", Some("m2")))),
+            &mut out,
+        );
+        assert_eq!(out.wire.len(), 1);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(out.wire.len(), 2);
+    }
+
+    #[test]
+    fn an_empty_thought_chunk_is_dropped() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("   ", None))),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(out.wire.is_empty());
+    }
+
+    #[test]
+    fn a_tool_detail_is_derived_never_the_raw_command() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-1"), "Run tests")
+            .kind(ToolKind::Execute)
+            .raw_input(json!({"command": "npm test --token expu_supersecretkey"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                // The PTY vocabulary for this agent, never the title/command.
+                assert_eq!(name, "Bash");
+                assert_eq!(detail.as_deref(), Some("npm test"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    /// EXP-1206: an undescribed command reads as its human head, past `cd`
+    /// chains, assignments and flags, never its first raw token.
+    #[test]
+    fn an_undescribed_command_reads_as_its_head() {
+        let cases = [
+            ("cd apps/web && bun run typecheck", "bun run typecheck"),
+            ("export PATH=\"/opt/node/bin:$PATH\" && cargo test -p engine", "cargo test"),
+            ("DATABASE_URL=postgres://x bun run test", "bun run test"),
+            ("GW=$(cat x) && curl -s -H \"Authorization: $GW\" https://h/api", "curl"),
+            ("git -C x status", "git status"),
+            ("cat Cargo.toml", "cat"),
+            ("cd apps/web && \\\n  bun run typecheck", "bun run typecheck"),
+            ("timeout 30 bun test", "bun test"),
+        ];
+        for (index, (command, head)) in cases.into_iter().enumerate() {
+            let mut mapper = mapper();
+            let mut out = MapOut::default();
+            let call = ToolCall::new(ToolCallId::new(format!("tc-head-{index}")), command)
+                .kind(ToolKind::Execute)
+                .raw_input(json!({ "command": command }));
+            mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+            match &out.wire[0] {
+                ActivityEvent::Tool { name, detail, .. } => {
+                    assert_eq!(name, "Bash");
+                    assert_eq!(detail.as_deref(), Some(head), "{command}");
+                }
+                other => panic!("expected a tool event, got {other:?}"),
+            }
+        }
+    }
+
+    /// The PTY path publishes the model's description of a command, never
+    /// the command; the command's head is only the fallback.
+    #[test]
+    fn a_command_description_is_the_detail_before_the_head() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-3"), "printf 'smoke %s' one two")
+            .kind(ToolKind::Execute)
+            .raw_input(json!({"command": "printf 'smoke %s' one two", "description": "Print the smoke lines"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "Bash");
+                assert_eq!(detail.as_deref(), Some("Print the smoke lines"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    /// A title that embeds the detail (`Write smoke.txt`) publishes as the
+    /// bare verb, so the clients' `name · detail` row reads like the PTY one.
+    #[test]
+    fn the_wire_tool_name_drops_the_detail_the_title_embeds() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-4"), "Write smoke.txt")
+            .kind(ToolKind::Edit)
+            .raw_input(json!({"file_path": "/tmp/worktree/smoke.txt", "content": "hello"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "Write");
+                assert_eq!(detail.as_deref(), Some("smoke.txt"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+        // codex wraps the command in a login shell: the detail is the
+        // command's own head, never the shell.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-7"), "printf 'smoke %s' one two")
+            .kind(ToolKind::Execute)
+            .raw_input(json!({"command": "/bin/zsh -lc \"printf 'smoke %s' one two\""}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { detail, .. } => assert_eq!(detail.as_deref(), Some("printf")),
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+        // codex's command card carries no raw input: the title IS the
+        // command and its head is the detail.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-6"), "printf 'smoke %s' one two").kind(ToolKind::Execute);
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "Bash");
+                assert_eq!(detail.as_deref(), Some("printf"));
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+        // A title with no embedded detail is published as it is.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-5"), "mcp.exponential.issues_get").kind(ToolKind::Other);
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { name, detail, .. } => {
+                assert_eq!(name, "mcp.exponential.issues_get");
+                assert_eq!(detail, &None);
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_secret_in_a_tool_path_is_redacted() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-2"), "Read")
+            .kind(ToolKind::Read)
+            .raw_input(json!({"file_path": "/tmp/worktree/expu_supersecretkey.txt"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Tool { detail, .. } => {
+                let detail = detail.as_deref().unwrap_or_default();
+                assert!(!detail.contains("expu_supersecretkey"), "{detail}");
+            }
+            other => panic!("expected a tool event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_tool_call_update_never_reaches_the_wire() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let update = ToolCallUpdate::new(
+            ToolCallId::new("tc-1"),
+            ToolCallUpdateFields::new().status(ToolCallStatus::Completed),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut out);
+        assert!(out.wire.is_empty());
+        assert!(matches!(
+            out.local.first(),
+            Some(LocalFeedEvent::ToolCall { .. })
+        ));
+    }
+
+    #[test]
+    fn a_permission_becomes_an_answerable_question_keyed_on_the_tool_call() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("tc-9"),
+                ToolCallUpdateFields::new().title("Write src/main.rs"),
+            ),
+            vec![
+                PermissionOption::new(
+                    PermissionOptionId::new("reject"),
+                    "No",
+                    PermissionOptionKind::RejectOnce,
+                ),
+                PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                ),
+            ],
+        );
+        let key = mapper.on_permission(&request, &mut out);
+        assert_eq!(key.question_id, "tc-9");
+        assert_eq!(out.needs_input, Some(true));
+        match &out.wire[0] {
+            ActivityEvent::Question { id, options, plan_mode, header, .. } => {
+                assert_eq!(id, "tc-9");
+                // Allow sorts first, reject last.
+                assert_eq!(options[0].key, "allow");
+                assert_eq!(options[1].key, "reject");
+                assert_eq!(*plan_mode, None);
+                assert_eq!(header.as_deref(), Some("Write src/main.rs"));
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+
+        let answer = wire::activity::RemoteAnswer {
+            question_id: "tc-9".to_string(),
+            ask_id: None,
+            keys: vec!["allow".to_string()],
+            text: None,
+        };
+        let mut answered = MapOut::default();
+        let decision = mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut answered);
+        assert_eq!(
+            decision,
+            AnswerDecision::Permission {
+                option_id: "allow".to_string()
+            }
+        );
+        assert!(matches!(answered.wire[0], ActivityEvent::AnswerAck { .. }));
+        assert!(matches!(
+            answered.wire[1],
+            ActivityEvent::QuestionResolved { .. }
+        ));
+        assert_eq!(answered.needs_input, Some(false));
+
+        // EXP-374: a re-tap re-acks and never re-resolves.
+        let mut again = MapOut::default();
+        assert_eq!(
+            mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut again),
+            AnswerDecision::ReAck
+        );
+        assert_eq!(again.wire.len(), 1);
+    }
+
+    /// EXP-788: codex's exec approval carries TWO `allow_always` options (the
+    /// execpolicy amendment and a network-policy one) next to its allow_once
+    /// and reject. Every option has an allow/reject kind, so it is a
+    /// permission — one answerable card, ranked allow-first with the agent's
+    /// order kept inside a rank — never re-read as the agent's own question.
+    #[test]
+    fn a_codex_approval_with_duplicate_allow_kinds_is_a_permission() {
+        let options = vec![
+            PermissionOption::new(
+                PermissionOptionId::new("reject"),
+                "No, and tell Codex what to do differently",
+                PermissionOptionKind::RejectOnce,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("allow_once"),
+                "Yes, run it",
+                PermissionOptionKind::AllowOnce,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("accept_execpolicy_amendment"),
+                "Yes, and don't ask again for commands that start with `cargo`",
+                PermissionOptionKind::AllowAlways,
+            ),
+            PermissionOption::new(
+                PermissionOptionId::new("apply_network_policy_amendment:0"),
+                "Yes, and allow crates.io in the future",
+                PermissionOptionKind::AllowAlways,
+            ),
+        ];
+        assert!(!is_user_question(&options));
+        assert!(!is_user_question(&[]));
+
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("call-7"),
+                ToolCallUpdateFields::new().title("cargo build"),
+            ),
+            options,
+        );
+        let key = mapper.on_permission(&request, &mut out);
+        assert_eq!(key.question_id, "call-7");
+        assert_eq!(out.wire.len(), 1);
+        match &out.wire[0] {
+            ActivityEvent::Question { options, plan_mode, .. } => {
+                let keys: Vec<&str> = options.iter().map(|option| option.key.as_str()).collect();
+                assert_eq!(
+                    keys,
+                    vec![
+                        "allow_once",
+                        "accept_execpolicy_amendment",
+                        "apply_network_policy_amendment:0",
+                        "reject",
+                    ]
+                );
+                assert!(options.iter().all(|option| option.description.is_none()));
+                assert_eq!(*plan_mode, None);
+            }
+            other => panic!("expected a permission card, got {other:?}"),
+        }
+        assert_eq!(out.needs_input, Some(true));
+    }
+
+    /// EXP-788: an adapter's option description rides `_meta` and lands on
+    /// the wire as `QuestionOption.description`; a blank one is dropped.
+    #[test]
+    fn an_option_description_in_meta_reaches_the_wire() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(ToolCallId::new("call-8"), ToolCallUpdateFields::new()),
+            vec![
+                PermissionOption::new(
+                    PermissionOptionId::new("yes"),
+                    "Yes",
+                    PermissionOptionKind::AllowAlways,
+                )
+                .meta(json!({"description": "   "}).as_object().cloned()),
+                PermissionOption::new(
+                    PermissionOptionId::new("no"),
+                    "No",
+                    PermissionOptionKind::RejectOnce,
+                )
+                .meta(json!({"description": "Sends your next message back to planning"}).as_object().cloned()),
+            ],
+        );
+        mapper.on_permission(&request, &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Question { options, .. } => {
+                assert_eq!(options[0].description, None);
+                assert_eq!(
+                    options[1].description.as_deref(),
+                    Some("Sends your next message back to planning")
+                );
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+    }
+
+    /// EXP-766: an unattended run answers thousands of permissions; only the
+    /// last [`ANSWERED_ASKS_MAX`] stay around for a re-ack, and an OPEN card
+    /// is never evicted.
+    #[test]
+    fn answered_permissions_are_bounded_and_open_ones_are_kept() {
+        let mut mapper = mapper();
+        for n in 0..200 {
+            let id = format!("tc-{n}");
+            let mut out = MapOut::default();
+            let request = RequestPermissionRequest::new(
+                SessionId::new("acp-1"),
+                ToolCallUpdate::new(
+                    ToolCallId::new(id.clone()),
+                    ToolCallUpdateFields::new().title("Write src/main.rs"),
+                ),
+                vec![PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                )],
+            );
+            mapper.on_permission(&request, &mut out);
+            let answer = wire::activity::RemoteAnswer {
+                question_id: id,
+                ask_id: None,
+                keys: vec!["allow".to_string()],
+                text: None,
+            };
+            let mut answered = MapOut::default();
+            mapper.on_answer(&mapper.ask_key(&answer), &answer, &mut answered);
+        }
+        // One card left OPEN at the end.
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("tc-open"),
+                ToolCallUpdateFields::new().title("Write src/main.rs"),
+            ),
+            vec![PermissionOption::new(
+                PermissionOptionId::new("allow"),
+                "Yes",
+                PermissionOptionKind::AllowOnce,
+            )],
+        );
+        mapper.on_permission(&request, &mut out);
+
+        let answered = mapper
+            .permissions
+            .values()
+            .filter(|ask| ask.answered)
+            .count();
+        assert!(answered <= ANSWERED_ASKS_MAX, "{answered} answered kept");
+        assert_eq!(mapper.pending_asks(), 1);
+        assert!(mapper.permissions.contains_key("tc-open"));
+        assert!(mapper.questions.contains_key("tc-open"));
+        // The oldest answered card is gone with its question registration.
+        assert!(!mapper.permissions.contains_key("tc-0"));
+        assert!(!mapper.questions.contains_key("tc-0"));
+        // The newest answered ones still re-ack.
+        assert!(mapper.permissions.contains_key("tc-199"));
+    }
+
+    /// EXP-1280: plan mode is Exponential's (`exponential_plan_propose`
+    /// posts the plan card), so a `SwitchMode` permission that still
+    /// arrives is a plain question: no `planMode`, no plan card.
+    #[test]
+    fn a_switch_mode_permission_is_a_plain_question() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("tc-plan"),
+                ToolCallUpdateFields::new()
+                    .kind(ToolKind::SwitchMode)
+                    .title("Ready to code?")
+                    .content(vec![ToolCallContent::from(ContentBlock::Text(
+                        TextContent::new("## Plan\n\n1. Do the thing"),
+                    ))]),
+            ),
+            vec![PermissionOption::new(
+                PermissionOptionId::new("approve"),
+                "Yes",
+                PermissionOptionKind::AllowAlways,
+            )],
+        );
+        mapper.on_permission(&request, &mut out);
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("the question serializes"),
+            json!({
+                "kind": "question",
+                "text": "## Plan\n\n1. Do the thing",
+                "options": [{"label": "Yes", "key": "approve"}],
+                "header": "Ready to code?",
+                "id": "tc-plan"
+            })
+        );
+        assert!(matches!(
+            out.replies.as_slice(),
+            [Reply { card: Some(ReplyCard::Question { .. }), .. }]
+        ));
+    }
+
+    #[test]
+    fn cancelling_dismisses_every_open_card() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(
+                ToolCallId::new("tc-3"),
+                ToolCallUpdateFields::new().title("Delete everything"),
+            ),
+            vec![PermissionOption::new(
+                PermissionOptionId::new("allow"),
+                "Yes",
+                PermissionOptionKind::AllowOnce,
+            )],
+        );
+        mapper.on_permission(&request, &mut out);
+        let mut cancelled = MapOut::default();
+        mapper.on_cancel(&mut cancelled);
+        match &cancelled.wire[0] {
+            ActivityEvent::QuestionResolved { id, dismissed, .. } => {
+                assert_eq!(id.as_deref(), Some("tc-3"));
+                assert_eq!(*dismissed, Some(true));
+            }
+            other => panic!("expected a dismissal, got {other:?}"),
+        }
+        assert_eq!(cancelled.needs_input, Some(false));
+    }
+
+    /// EXP-746: `session/cancel` asks the agent to stop, it does not stop it.
+    /// The turn signal only flips when the interrupted prompt actually
+    /// answers, or an `AfterTurn` kill (EXP-637) tears the run down while the
+    /// agent is still winding the turn up.
+    #[test]
+    fn a_cancel_stays_busy_until_the_cancelled_turn_answers() {
+        let mut mapper = mapper();
+        let mut cancelled = MapOut::default();
+        mapper.on_cancel(&mut cancelled);
+        assert_eq!(cancelled.idle, None, "the interrupt has not settled yet");
+
+        let mut stopped = MapOut::default();
+        mapper.on_stop(StopReason::Cancelled, &mut stopped);
+        assert_eq!(stopped.idle, Some(true));
+    }
+
+    /// EXP-846: the subject out of one of our answers — through the MCP text
+    /// envelope, through a named wrapper, and `count` for a list. Nothing named
+    /// means NO preview at all.
+    #[test]
+    fn exp_tool_preview_reads_the_subject_out_of_the_answer() {
+        // The MCP envelope: a text block whose text IS the JSON.
+        let envelope = json!({
+            "content": [{
+                "type": "text",
+                "text": "{\"issue\":{\"id\":\"i1\",\"identifier\":\"EXP-42\",\"title\":\"Fix it\",\"status\":\"in_progress\"}}"
+            }]
+        });
+        let preview = exp_tool_preview(&envelope).expect("a preview");
+        assert_eq!(preview.id.as_deref(), Some("i1"));
+        assert_eq!(preview.identifier.as_deref(), Some("EXP-42"));
+        assert_eq!(preview.title.as_deref(), Some("Fix it"));
+        assert_eq!(preview.status.as_deref(), Some("in_progress"));
+        assert_eq!(preview.count, None);
+
+        // A PR answer: `prUrl` before `url`.
+        let pr = json!({ "prUrl": "https://github.com/a/b/pull/7", "prNumber": 7 });
+        assert_eq!(
+            exp_tool_preview(&pr).and_then(|preview| preview.url),
+            Some("https://github.com/a/b/pull/7".to_string())
+        );
+
+        // A list: the array's own length, and a stated total wins over it.
+        assert_eq!(
+            exp_tool_preview(&json!({ "issues": [{ "id": "a" }, { "id": "b" }] }))
+                .and_then(|preview| preview.count),
+            Some(2)
+        );
+        assert_eq!(
+            exp_tool_preview(&json!({ "issues": [{ "id": "a" }], "total": 17 }))
+                .and_then(|preview| preview.count),
+            Some(17)
+        );
+        assert_eq!(
+            exp_tool_preview(&json!([{ "id": "a" }, { "id": "b" }, { "id": "c" }]))
+                .and_then(|preview| preview.count),
+            Some(3)
+        );
+
+        // Nothing we can name: no preview rather than an empty one.
+        assert!(exp_tool_preview(&json!({ "ok": true })).is_none());
+        assert!(exp_tool_preview(&json!("not json at all")).is_none());
+        assert!(exp_tool_preview(&Value::Null).is_none());
+    }
+
+    /// EXP-846: the cap is the producer's job — the relay drops a frame whose
+    /// preview is wider than the schema allows.
+    #[test]
+    fn a_preview_is_clamped_to_the_wire_cap() {
+        let long = "x".repeat(wire::frames::TOOL_PREVIEW_TEXT_MAX + 50);
+        let preview = exp_tool_preview(&json!({ "title": long, "id": "i1" }))
+            .expect("a preview")
+            .clamp();
+        assert_eq!(
+            preview.title.as_deref().map(str::chars).map(Iterator::count),
+            Some(wire::frames::TOOL_PREVIEW_TEXT_MAX)
+        );
+        assert_eq!(preview.id.as_deref(), Some("i1"));
+    }
+
+    /// EXP-1279: codex titles the same tool `mcp.codemode.exec`; with no log
+    /// filed (an older code mode, a refused script) the source still rides.
+    #[test]
+    fn a_codex_codemode_exec_without_a_log_publishes_its_source() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-script-2"), "mcp.codemode.exec")
+            .kind(ToolKind::Other)
+            .raw_input(json!({ "script": "return 'EXP-1279-b'" }));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(out.wire.iter().any(|event| matches!(
+            event,
+            ActivityEvent::Tool { tool_kind: Some(WireToolKind::Script), .. }
+        )));
+        let mut out = MapOut::default();
+        let settle = ToolCallUpdate::new(
+            ToolCallId::new("tc-script-2"),
+            ToolCallUpdateFields::new().status(ToolCallStatus::Failed),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(settle)), &mut out);
+        let script = out.wire.iter().find_map(|event| match event {
+            ActivityEvent::ToolUpdate { script, .. } => Some(script.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            script,
+            Some(Some(wire::frames::ScriptLog {
+                source: Some("return 'EXP-1279-b'".into()),
+                ..Default::default()
+            }))
+        );
+        // Every other tool's settle carries none.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-plain"), "mcp__linear__exec")
+            .kind(ToolKind::Other)
+            .status(ToolCallStatus::Completed)
+            .raw_input(json!({ "script": "x" }));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(out.wire.iter().all(|event| !matches!(event, ActivityEvent::ToolUpdate { script: Some(_), .. })));
+        assert!(out.wire.iter().all(|event| !matches!(
+            event,
+            ActivityEvent::Tool { tool_kind: Some(WireToolKind::Script), .. }
+        )));
+    }
+
+    /// EXP-848: the turn slot's edges — one `started` when the host opens a
+    /// turn, one `ended` when it settles, nothing for a repeat, and the
+    /// session-start SEED publishes `ended` even though that is already the
+    /// default (a late joiner must READ the slot, not infer it).
+    #[test]
+    fn the_turn_slot_publishes_one_edge_per_transition() {
+        let mut mapper = mapper();
+        let turns = |out: &MapOut| -> Vec<wire::frames::TurnState> {
+            out.wire
+                .iter()
+                .filter_map(|event| match event {
+                    ActivityEvent::Turn { state, .. } => Some(*state),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        // The seed: forced, even though `ended` is the default.
+        let mut seeded = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Ended, true, &mut seeded);
+        assert_eq!(turns(&seeded), vec![wire::frames::TurnState::Ended]);
+        // A non-seed repeat of the state in force says nothing.
+        let mut repeat = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Ended, false, &mut repeat);
+        assert!(turns(&repeat).is_empty(), "{:?}", repeat.wire);
+
+        // A turn opens, then ends through `on_stop` — and the local feed gets
+        // the same event the wire did (one slot, both sides).
+        let mut started = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut started);
+        assert_eq!(turns(&started), vec![wire::frames::TurnState::Started]);
+        assert_eq!(started.local.len(), 1);
+        // EXP-1273: the host's prompt path flips the busy signal itself and
+        // answers the computer-use Esc there; the mapper's `idle = Some(false)`
+        // edge is the AGENT-opened turn's alone (`on_agent_turn`), so a
+        // person-seeded start carries none.
+        assert_eq!(started.idle, None, "the prompt turn rides no idle edge");
+        let mut ended = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut ended);
+        assert_eq!(turns(&ended), vec![wire::frames::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+        // And a SECOND stop for the same idle run is silent.
+        let mut again = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut again);
+        assert!(turns(&again).is_empty(), "{:?}", again.wire);
+    }
+
+    #[test]
+    fn config_state_is_one_clamped_whole_snapshot_carrying_the_model_value() {
+        // EXP-877: the snapshot carries modes AND the `model` option the
+        // adapters publish — a VALUE with no `values`, because a switch is
+        // the `/model <alias>` prompt, not a menu pick. NEW-2: the agent's
+        // own commands are parsed and never published.
+        use agent_client_protocol::schema::v1::{
+            SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode, SessionModeId,
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let modes = SessionModeState::new(
+            SessionModeId::new("plan"),
+            vec![
+                SessionMode::new(SessionModeId::new("plan"), "Plan"),
+                SessionMode::new(SessionModeId::new("bypassPermissions"), "Build"),
+            ],
+        );
+        let options = vec![SessionConfigOption::select(
+            "model",
+            "Model",
+            "opus",
+            Vec::<SessionConfigSelectOption>::new(),
+        )
+        .category(SessionConfigOptionCategory::Model)];
+        let commands = vec![AvailableCommand::new("compact", "Compact the context")];
+        mapper.on_session_state(Some(&modes), &options, &commands, &mut out);
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("config_state serializes"),
+            json!({
+                "kind": "config_state",
+                "options": [{"id": "model", "label": "Model", "category": "model", "value": "opus"}],
+                "currentMode": "plan",
+                "modes": [
+                    {"id": "plan", "label": "Plan"},
+                    {"id": "bypassPermissions", "label": "Build"}
+                ]
+            })
+        );
+
+        // A `session/set_mode` answer carries modes alone — the model must
+        // SURVIVE it (an empty list is not a clearing edge).
+        let mut after_mode = MapOut::default();
+        let building = SessionModeState::new(
+            SessionModeId::new("bypassPermissions"),
+            vec![
+                SessionMode::new(SessionModeId::new("plan"), "Plan"),
+                SessionMode::new(SessionModeId::new("bypassPermissions"), "Build"),
+            ],
+        );
+        mapper.on_session_state(Some(&building), &[], &[], &mut after_mode);
+        let json = serde_json::to_value(&after_mode.wire[0]).expect("config_state serializes");
+        assert_eq!(json["options"][0]["value"], json!("opus"));
+        assert_eq!(json["currentMode"], json!("bypassPermissions"));
+    }
+
+    /// EXP-877: the model moves mid-run (`/model`, a refusal fallback), the
+    /// adapter republishes its options, and THAT re-emit is how a viewer
+    /// learns. An unchanged republish is still deduped (EXP-758).
+    #[test]
+    fn a_config_option_update_republishes_the_model_once() {
+        use agent_client_protocol::schema::v1::{
+            ConfigOptionUpdate, SessionConfigSelectOption,
+        };
+        let option = |value: &str| {
+            SessionConfigOption::select(
+                "model",
+                "Model",
+                value.to_string(),
+                Vec::<SessionConfigSelectOption>::new(),
+            )
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                vec![option("opus")],
+            ))),
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("config_state serializes")["options"],
+            json!([{"id": "model", "label": "Model", "value": "opus"}])
+        );
+
+        // The same options again say nothing.
+        let mut again = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                vec![option("opus")],
+            ))),
+            &mut again,
+        );
+        assert!(again.wire.is_empty(), "{:?}", again.wire);
+
+        // A real switch is one frame.
+        let mut switched = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
+                vec![option("sonnet")],
+            ))),
+            &mut switched,
+        );
+        assert_eq!(switched.wire.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&switched.wire[0]).expect("config_state serializes")["options"]
+                [0]["value"],
+            json!("sonnet")
+        );
+    }
+
+    #[test]
+    fn usage_carries_only_a_dollar_cost() {
+        use agent_client_protocol::schema::v1::{Cost, UsageUpdate};
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::UsageUpdate(
+                UsageUpdate::new(124_000, 200_000).cost(Cost::new(1.24, "USD")),
+            )),
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("usage serializes"),
+            json!({"kind": "usage", "contextUsed": 124_000, "contextSize": 200_000, "costUsd": 1.24})
+        );
+    }
+
+    /// EXP-927: the agent's task list rides the wire as the `task_list` slot,
+    /// whole and in order, and an unchanged list is not restated.
+    #[test]
+    fn a_plan_update_publishes_the_task_list_slot_once() {
+        use agent_client_protocol::schema::v1::{
+            Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
+        };
+        let plan = || {
+            SessionUpdate::Plan(Plan::new(vec![
+                PlanEntry::new("Read the issue", PlanEntryPriority::Medium, PlanEntryStatus::Completed),
+                PlanEntry::new(
+                    "Running the tests with expu_supersecretkey",
+                    PlanEntryPriority::Medium,
+                    PlanEntryStatus::InProgress,
+                ),
+                PlanEntry::new("  ", PlanEntryPriority::Medium, PlanEntryStatus::Pending),
+                PlanEntry::new("Open the PR", PlanEntryPriority::Medium, PlanEntryStatus::Pending),
+            ]))
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut out);
+        assert_eq!(out.wire.len(), 1);
+        let wire = serde_json::to_value(&out.wire[0]).expect("task_list serializes");
+        assert_eq!(wire["kind"], "task_list");
+        assert_eq!(
+            wire["entries"][0],
+            json!({"content": "Read the issue", "status": "completed"})
+        );
+        assert_eq!(wire["entries"][1]["status"], "in_progress");
+        assert!(!wire["entries"][1]["content"].as_str().unwrap().contains("expu_"));
+        // The blank entry is dropped, the order kept.
+        assert_eq!(wire["entries"][2], json!({"content": "Open the PR", "status": "pending"}));
+        assert_eq!(wire["entries"].as_array().unwrap().len(), 3);
+
+        let mut again = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut again);
+        assert!(again.wire.is_empty(), "an identical list is not republished");
+        assert!(matches!(again.local[0], LocalFeedEvent::Plan { .. }));
+    }
+
+    /// EXP-927 (release review R2): an EMPTY plan is a clearing edge — the
+    /// slot goes out as `entries: []` so a stale list unsticks on every
+    /// client — and a session (re)start forgets the dedupe, so the first list
+    /// of the new run is always restated.
+    #[test]
+    fn an_empty_plan_clears_the_slot_and_a_session_start_resets_the_dedupe() {
+        use agent_client_protocol::schema::v1::{
+            Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionMode, SessionModeId,
+        };
+        let plan = || {
+            SessionUpdate::Plan(Plan::new(vec![PlanEntry::new(
+                "Read the issue",
+                PlanEntryPriority::Medium,
+                PlanEntryStatus::Pending,
+            )]))
+        };
+        let kinds = |out: &MapOut| -> Vec<String> {
+            out.wire
+                .iter()
+                .map(|event| {
+                    serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string()
+                })
+                .collect()
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut out);
+        assert_eq!(kinds(&out), vec!["task_list"]);
+
+        // The clear: an empty list is published once, whole, as empty.
+        let mut cleared = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::Plan(Plan::new(Vec::new()))), &mut cleared);
+        assert_eq!(kinds(&cleared), vec!["task_list"]);
+        let wire = serde_json::to_value(&cleared.wire[0]).expect("task_list serializes");
+        assert_eq!(wire["entries"], json!([]));
+        assert!(
+            matches!(&cleared.local[0], LocalFeedEvent::Plan { entries } if entries.is_empty()),
+            "the local lane sees the empty plan too"
+        );
+        let mut again = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::Plan(Plan::new(Vec::new()))), &mut again);
+        assert!(again.wire.is_empty(), "an identical (empty) list is not republished");
+
+        // The session (re)starts: the dedupe forgets, the same list goes out again.
+        mapper.on_update(&notify(plan()), &mut MapOut::default());
+        let mut deduped = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut deduped);
+        assert!(deduped.wire.is_empty());
+        let modes = SessionModeState::new(
+            SessionModeId::new("bypassPermissions"),
+            vec![SessionMode::new(SessionModeId::new("bypassPermissions"), "Build")],
+        );
+        mapper.on_session_state(Some(&modes), &[], &[], &mut MapOut::default());
+        let mut restated = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut restated);
+        assert_eq!(kinds(&restated), vec!["task_list"], "restated after the (re)start");
+    }
+
+    #[test]
+    fn a_subagent_edge_rides_the_notification_meta() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let edge = SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentEdgeStatus::Started,
+            detail: None,
+            tool_calls: None,
+            title: None,
+            workflow_id: None,
+        };
+        let notification = notify(SessionUpdate::AgentMessageChunk(chunk("", None)))
+            .meta(edge.to_meta().clone());
+        mapper.on_update(&notification, &mut out);
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
+            json!({"kind": "subagent", "id": "task-1", "agentType": "explore", "status": "started"})
+        );
+    }
+
+    /// EXP-748: the journal drops a subagent's tool rows before anything of
+    /// the main transcript, so the completed edge has to carry the total the
+    /// caption falls back on.
+    #[test]
+    fn a_completed_subagent_edge_carries_its_tool_call_count() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let start = SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentEdgeStatus::Started,
+            detail: None,
+            tool_calls: None,
+            title: None,
+            workflow_id: None,
+        };
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("", None))).meta(start.to_meta()),
+            &mut out,
+        );
+
+        let mut owned = serde_json::Map::new();
+        owned.insert(
+            SUBAGENT_ID_META_KEY.to_string(),
+            json!("task-1"),
+        );
+        for i in 0..3 {
+            let call = ToolCall::new(ToolCallId::new(format!("tc-{i}")), "Read file.rs")
+                .kind(ToolKind::Read);
+            mapper.on_update(
+                &notify(SessionUpdate::ToolCall(call)).meta(owned.clone()),
+                &mut out,
+            );
+        }
+        // A call of the MAIN line is never attributed to the subagent.
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(
+                ToolCall::new(ToolCallId::new("tc-main"), "Read main.rs").kind(ToolKind::Read),
+            )),
+            &mut out,
+        );
+
+        let mut out = MapOut::default();
+        mapper.on_subagent(
+            &SubagentEdge {
+                status: SubagentEdgeStatus::Completed,
+                ..start
+            },
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
+            json!({
+                "kind": "subagent",
+                "id": "task-1",
+                "agentType": "explore",
+                "status": "completed",
+                "toolCalls": 3
+            })
+        );
+
+        // A subagent that ran no tools keeps the key off the wire entirely.
+        let mut out = MapOut::default();
+        mapper.on_subagent(
+            &SubagentEdge {
+                id: "task-2".to_string(),
+                agent_type: "plan".to_string(),
+                status: SubagentEdgeStatus::Completed,
+                detail: None,
+                tool_calls: None,
+                title: None,
+                workflow_id: None,
+            },
+            &mut out,
+        );
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("subagent serializes"),
+            json!({"kind": "subagent", "id": "task-2", "agentType": "plan", "status": "completed"})
+        );
+    }
+
+    /// EXP-772: two flushes of ONE message carry the SAME `messageId`, so a
+    /// client merges them back into one row.
+    #[test]
+    fn every_flush_of_one_message_carries_the_same_message_id() {
+        let mut mapper = mapper();
+        let mut first = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Looking", Some("msg-1")))),
+            &mut first,
+        );
+        // A turn end flushes the first half.
+        mapper.on_stop(StopReason::EndTurn, &mut first);
+        let mut second = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk(" at it.", Some("msg-1")))),
+            &mut second,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut second);
+        let ids: Vec<Option<String>> = first
+            .wire
+            .iter()
+            .chain(second.wire.iter())
+            .filter_map(|event| match event {
+                ActivityEvent::Narration { message_id, .. } => Some(message_id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, vec![Some("msg-1".to_string()), Some("msg-1".to_string())]);
+        // An id-less agent still publishes, without the merge key.
+        let mut plain = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("done", None))),
+            &mut plain,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut plain);
+        assert!(matches!(
+            &plain.wire[0],
+            ActivityEvent::Narration { message_id: None, .. }
+        ));
+    }
+
+    /// EXP-1324: a thought is a `thought` lifecycle on the wire — `started`
+    /// on its first chunk, `ended` with a duration when the answer begins —
+    /// and NEVER its text. The local item carries the text under the same id,
+    /// so the desktop's own Reasoning line opens to it.
+    #[test]
+    fn a_thought_is_its_edges_on_the_wire_and_its_text_stays_local() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("Weighing ", Some("msg-1")))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("it up", Some("msg-1")))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Here is the fix.", Some("msg-1")))),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let id = thought_message_id("msg-1");
+        let thoughts: Vec<&ActivityEvent> = out
+            .wire
+            .iter()
+            .filter(|event| matches!(event, ActivityEvent::Thought { .. }))
+            .collect();
+        assert_eq!(thoughts.len(), 2, "{:?}", out.wire);
+        assert!(matches!(
+            thoughts[0],
+            ActivityEvent::Thought { id: got, state: wire::frames::ThoughtState::Started, duration_ms: None, .. }
+                if *got == id
+        ));
+        assert!(matches!(
+            thoughts[1],
+            ActivityEvent::Thought { id: got, state: wire::frames::ThoughtState::Ended, duration_ms: Some(_), .. }
+                if *got == id
+        ));
+        // No thought text rides the wire: the one narration is the answer.
+        let narration: Vec<&str> = out
+            .wire
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Narration { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(narration, vec!["Here is the fix."]);
+        assert!(!serde_json::to_string(&out.wire).unwrap().contains("Weighing"));
+        // The local item carries the text under the wire's id.
+        assert!(out.local.iter().any(|event| matches!(
+            event,
+            LocalFeedEvent::Thought { message_id, text }
+                if message_id.as_deref() == Some(id.as_str()) && text == "Weighing it up"
+        )));
+        // A long id still fits the relay's id cap after the suffix.
+        assert!(thought_message_id(&"m".repeat(ID_MAX * 2)).len() <= ID_MAX);
+    }
+
+    /// EXP-1324: a subagent's thought closes in ITS lane only, and a turn end
+    /// closes every open one.
+    #[test]
+    fn thoughts_close_per_lane_and_at_the_turn_end() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("Main lane", Some("m-1")))),
+            &mut out,
+        );
+        let mut sub = notify(SessionUpdate::AgentMessageChunk(chunk("sub says", Some("s-1"))));
+        let mut meta = serde_json::Map::new();
+        meta.insert(SUBAGENT_ID_META_KEY.to_string(), serde_json::json!("task-1"));
+        sub.meta = Some(meta);
+        mapper.on_update(&sub, &mut out);
+        let ended = |out: &MapOut| {
+            out.wire
+                .iter()
+                .filter(|event| {
+                    matches!(event, ActivityEvent::Thought { state: wire::frames::ThoughtState::Ended, .. })
+                })
+                .count()
+        };
+        assert_eq!(ended(&out), 0, "a subagent's prose must not close the main thought");
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(ended(&out), 1);
+    }
+
+    /// EXP-1324: every listed background task carries the engine's first
+    /// sight of it, kept across re-listings.
+    #[test]
+    fn background_tasks_carry_their_first_sight() {
+        let mut mapper = mapper();
+        let task = |id: &str, description: &str| serde_json::json!({ "id": id, "kind": "shell", "description": description });
+        let mut out = MapOut::default();
+        mapper.emit_background_tasks(serde_json::json!([task("b1", "one")]), &mut out);
+        let first = match out.wire.last() {
+            Some(ActivityEvent::BackgroundTasks { tasks, .. }) => tasks[0].started_at,
+            other => panic!("{other:?}"),
+        };
+        assert!(first.is_some());
+        let mut out = MapOut::default();
+        mapper.emit_background_tasks(
+            serde_json::json!([task("b1", "one"), task("b2", "two")]),
+            &mut out,
+        );
+        match out.wire.last() {
+            Some(ActivityEvent::BackgroundTasks { tasks, .. }) => {
+                assert_eq!(tasks[0].started_at, first);
+                assert!(tasks[1].started_at.is_some());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// codex streams a tool call's output PAST its completed status: the
+    /// settled row is kept, so the trailing content-only update still knows
+    /// the card's title and kind (an `Execute` card's output is dropped
+    /// outright when the kind is lost).
+    #[test]
+    fn a_settled_tool_calls_trailing_output_still_lands_on_its_card() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-out"), "ls -la").kind(ToolKind::Execute);
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        let settled = ToolCallUpdate::new(
+            ToolCallId::new("tc-out"),
+            ToolCallUpdateFields::new().status(ToolCallStatus::Completed),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(settled)), &mut MapOut::default());
+
+        let trailing_update = ToolCallUpdate::new(
+            ToolCallId::new("tc-out"),
+            ToolCallUpdateFields::new().content(vec![ToolCallContent::from(ContentBlock::Text(
+                TextContent::new("total 8"),
+            ))]),
+        );
+        let mut trailing = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCallUpdate(trailing_update)),
+            &mut trailing,
+        );
+        assert!(
+            trailing.local.iter().any(|event| matches!(
+                event,
+                LocalFeedEvent::Output { tool_call_id, chunk, .. }
+                    if tool_call_id == "tc-out" && chunk == "total 8"
+            )),
+            "{:?}",
+            trailing.local
+        );
+        assert!(
+            trailing.local.iter().any(|event| matches!(
+                event,
+                LocalFeedEvent::ToolCall { title, .. } if title == "ls -la"
+            )),
+            "{:?}",
+            trailing.local
+        );
+    }
+
+    /// The retained rows are bounded, and an id the agent REUSES for a new
+    /// call is never evicted by the settle of the old one.
+    #[test]
+    fn settled_tool_rows_are_bounded_and_a_reused_id_is_kept() {
+        fn start(mapper: &mut Mapper, id: &str) {
+            let call = ToolCall::new(ToolCallId::new(id.to_string()), "ls -la").kind(ToolKind::Execute);
+            mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut MapOut::default());
+        }
+        fn settle(mapper: &mut Mapper, id: &str) {
+            let update = ToolCallUpdate::new(
+                ToolCallId::new(id.to_string()),
+                ToolCallUpdateFields::new().status(ToolCallStatus::Completed),
+            );
+            mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut MapOut::default());
+        }
+
+        let mut mapper = mapper();
+        // Settled once, then live again under the same id.
+        start(&mut mapper, "tc-reused");
+        settle(&mut mapper, "tc-reused");
+        start(&mut mapper, "tc-reused");
+
+        for n in 0..SETTLED_TOOLS_MAX + 8 {
+            let id = format!("tc-{n}");
+            start(&mut mapper, &id);
+            settle(&mut mapper, &id);
+        }
+        // The oldest settled rows are gone, the newest are kept.
+        assert!(!mapper.tools.contains_key("tc-0"));
+        assert!(mapper.tools.contains_key(&format!("tc-{}", SETTLED_TOOLS_MAX + 7)));
+        assert!(mapper.settled_tools.len() <= SETTLED_TOOLS_MAX);
+        // The reused id belongs to the LIVE call, which no eviction touches.
+        assert!(mapper.tools.contains_key("tc-reused"));
+    }
+
+    /// EXP-766 eviction is keyed on the ask id, and an agent may reuse one
+    /// for a NEW card: popping it must not delete an ask that is still open.
+    #[test]
+    fn a_reused_ask_id_survives_the_answered_ask_eviction() {
+        fn ask(mapper: &mut Mapper, id: &str) {
+            let request = RequestPermissionRequest::new(
+                SessionId::new("acp-1"),
+                ToolCallUpdate::new(
+                    ToolCallId::new(id.to_string()),
+                    ToolCallUpdateFields::new().title("Write src/main.rs"),
+                ),
+                vec![PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                )],
+            );
+            mapper.on_permission(&request, &mut MapOut::default());
+        }
+        fn answer(id: &str) -> wire::activity::RemoteAnswer {
+            wire::activity::RemoteAnswer {
+                question_id: id.to_string(),
+                ask_id: None,
+                keys: vec!["allow".to_string()],
+                text: None,
+            }
+        }
+
+        let mut mapper = mapper();
+        ask(&mut mapper, "tc-reused");
+        let answered = answer("tc-reused");
+        mapper.on_answer(&mapper.ask_key(&answered), &answered, &mut MapOut::default());
+        // The same id, a NEW open card.
+        ask(&mut mapper, "tc-reused");
+        // Enough answers to pop the retired entry that named it.
+        for n in 0..ANSWERED_ASKS_MAX {
+            let id = format!("tc-{n}");
+            ask(&mut mapper, &id);
+            let answered = answer(&id);
+            mapper.on_answer(&mapper.ask_key(&answered), &answered, &mut MapOut::default());
+        }
+        assert!(mapper.permissions.contains_key("tc-reused"));
+        assert!(mapper.questions.contains_key("tc-reused"));
+        assert_eq!(mapper.pending_asks(), 1);
+        // Still answerable, not a dropped card.
+        let answered = answer("tc-reused");
+        let mut out = MapOut::default();
+        assert_eq!(
+            mapper.on_answer(&mapper.ask_key(&answered), &answered, &mut out),
+            AnswerDecision::Permission {
+                option_id: "allow".to_string()
+            }
+        );
+    }
+
+    /// EXP-773: prose and turns inside a subagent are scoped to it, and the
+    /// subagent's FIRST user turn (its starting prompt) is dropped.
+    #[test]
+    fn subagent_prose_is_scoped_and_its_first_prompt_is_dropped() {
+        let mut mapper = mapper();
+        let mut meta = serde_json::Map::new();
+        meta.insert(SUBAGENT_ID_META_KEY.to_string(), json!("task-1"));
+
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::UserMessageChunk(chunk("Explore the repo", Some("u-1"))))
+                .meta(meta.clone()),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(
+            !out.wire.iter().any(|event| matches!(event, ActivityEvent::UserMessage { .. })),
+            "the starting prompt is the Task card's own title: {:?}",
+            out.wire
+        );
+
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Found it.", Some("m-1"))))
+                .meta(meta.clone()),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::UserMessageChunk(chunk("keep going", Some("u-2"))))
+                .meta(meta.clone()),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(
+            matches!(
+                &out.wire[0],
+                ActivityEvent::Narration { subagent_id: Some(id), .. } if id == "task-1"
+            ),
+            "{:?}",
+            out.wire
+        );
+        assert!(
+            matches!(
+                &out.wire[1],
+                ActivityEvent::UserMessage { subagent_id: Some(id), .. } if id == "task-1"
+            ),
+            "{:?}",
+            out.wire
+        );
+
+        // The main line stays unscoped.
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Back on the main thread.", Some("m-2")))),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(matches!(
+            &out.wire[0],
+            ActivityEvent::Narration { subagent_id: None, .. }
+        ));
+    }
+
+    #[test]
+    fn narration_truncates_at_the_relay_cap() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let long = "x".repeat(NARRATION_MAX + 1024);
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk(&long, None))),
+            &mut out,
+        );
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        match &out.wire[0] {
+            ActivityEvent::Narration { text, .. } => {
+                assert!(text.len() <= NARRATION_MAX, "{} bytes", text.len())
+            }
+            other => panic!("expected a narration, got {other:?}"),
+        }
+    }
+
+    /// EXP-784: the hook lane A calls — cleaned, deduped, and an empty/`ok`
+    /// status is the one CLEAR frame.
+    #[test]
+    fn emit_rate_limit_dedupes_and_clears_on_ok() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.emit_rate_limit(
+            " allowed_warning ",
+            Some(1_700_000_000_000),
+            Some("  80% of 5h used by expu_supersecretkey  "),
+            None,
+            &mut out,
+        );
+        mapper.emit_rate_limit("allowed_warning", Some(1_700_000_000_000), Some("80% of 5h used by expu_supersecretkey"), None, &mut out);
+        assert_eq!(out.wire.len(), 1, "an identical re-emit says nothing");
+        let first = serde_json::to_value(&out.wire[0]).unwrap();
+        assert_eq!(first["kind"], "rate_limit");
+        assert_eq!(first["status"], "allowed_warning");
+        assert_eq!(first["resetsAt"], 1_700_000_000_000i64);
+        let message = first["message"].as_str().unwrap();
+        assert!(!message.contains("expu_"), "{message}");
+        assert!(message.starts_with("80% of 5h used by"), "{message}");
+
+        mapper.emit_rate_limit("rejected", Some(-5), Some("   "), None, &mut out);
+        let second = serde_json::to_value(&out.wire[1]).unwrap();
+        assert_eq!(second, json!({"kind": "rate_limit", "status": "rejected"}));
+
+        mapper.emit_rate_limit("ok", Some(1), Some("fine"), None, &mut out);
+        mapper.emit_rate_limit("", None, None, None, &mut out);
+        assert_eq!(out.wire.len(), 3);
+        assert_eq!(
+            serde_json::to_value(&out.wire[2]).unwrap(),
+            json!({"kind": "rate_limit", "status": ""}),
+            "ok and empty are the same clear, sent once"
+        );
+        // The local feed saw the same three (the emit twin rule).
+        let local = out
+            .local
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    LocalFeedEvent::Activity { event: ActivityEvent::RateLimit { .. }, .. }
+                )
+            })
+            .count();
+        assert_eq!(local, 3);
+    }
+
+    /// An API failure is a transcript ROW after the prose before it: never
+    /// the rate-limit slot, never `blocked`, never deduped; a subagent's
+    /// carries its lane.
+    #[test]
+    fn an_api_error_is_an_inline_row_and_never_walls() {
+        use agent_client_protocol::schema::v1::SessionInfoUpdate;
+        let carrier = |subagent: Option<&str>| {
+            let mut note = notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()));
+            let mut meta = serde_json::Map::new();
+            meta.insert(
+                API_ERROR_META_KEY.to_string(),
+                json!({ "message": "  API Error: No response from API  ", "errorType": "server_error" }),
+            );
+            if let Some(id) = subagent {
+                meta.insert(SUBAGENT_ID_META_KEY.to_string(), json!(id));
+            }
+            note.meta = Some(meta);
+            note
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Looking at the tests.", Some("m1")))),
+            &mut out,
+        );
+        mapper.on_update(&carrier(None), &mut out);
+        mapper.on_update(&carrier(None), &mut out);
+        mapper.on_update(&carrier(Some("task-1")), &mut out);
+
+        let kinds: Vec<String> = out
+            .wire
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(kinds, ["narration", "api_error", "api_error", "api_error"], "{:?}", out.wire);
+        assert_eq!(out.blocked, None, "an API error never walls the run");
+        assert!(!out.wire.iter().any(|event| matches!(event, ActivityEvent::RateLimit { .. })));
+
+        let first = serde_json::to_value(&out.wire[1]).unwrap();
+        assert_eq!(
+            first,
+            json!({ "kind": "api_error", "message": "API Error: No response from API", "errorType": "server_error" })
+        );
+        assert_eq!(out.wire[1], out.wire[2], "two identical failures are two rows");
+        let scoped = serde_json::to_value(&out.wire[3]).unwrap();
+        assert_eq!(scoped["subagentId"], "task-1");
+    }
+
+    /// FEED-35/37: the row's `blocked` follows the WALL rule, not the slot.
+    /// Claude's per-turn `allowed_warning` keeps the slot (the viewer's
+    /// usage hint) but never walls the row; `rejected` does, naming the
+    /// window the producer paired with the reset (FEED-34) — and the next
+    /// non-wall report lifts it.
+    #[test]
+    fn blocked_is_set_only_by_a_wall_and_names_its_window() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        // 2026-09-16T09:00:00Z — the weekly reset FEED-34 measured.
+        let weekly_reset = 1_789_549_200_000i64;
+
+        mapper.emit_rate_limit("allowed_warning", Some(weekly_reset), None, Some("weekly"), &mut out);
+        assert_eq!(out.blocked, Some(None), "a warning is not a wall");
+        assert_eq!(out.wire.len(), 1, "the slot still shows the warning");
+
+        mapper.emit_rate_limit("rejected", Some(weekly_reset), None, Some("weekly"), &mut out);
+        let wall = out.blocked.clone().flatten().expect("a rejection walls the row");
+        assert_eq!(wall.kind, "rate_limit");
+        assert_eq!(wall.window, "weekly", "the window the reset belongs to");
+        assert_eq!(wall.resets_at.as_deref(), Some("2026-09-16T09:00:00.000Z"));
+
+        // The five-hour frame: `session` + ITS reset.
+        mapper.emit_rate_limit("rejected", Some(1_788_703_200_000), None, Some("session"), &mut out);
+        let wall = out.blocked.clone().flatten().unwrap();
+        assert_eq!(wall.window, "session");
+        assert_eq!(wall.resets_at.as_deref(), Some("2026-09-06T14:00:00.000Z"));
+
+        // A producer that names no window falls back to the 5h credit wall.
+        mapper.emit_rate_limit("rejected", None, Some("You've hit your limit"), None, &mut out);
+        let wall = out.blocked.clone().flatten().unwrap();
+        assert_eq!(wall.window, "session");
+        assert_eq!(wall.resets_at, None);
+
+        // A notice on a warning status is still a wall (the agent wrote it).
+        mapper.emit_rate_limit("allowed_warning", None, Some("You've hit your weekly limit"), Some("weekly"), &mut out);
+        assert_eq!(out.blocked.clone().flatten().map(|wall| wall.window), Some("weekly".to_string()));
+
+        // The warning after the wall lifts the row; the clear does too.
+        mapper.emit_rate_limit("allowed_warning", Some(weekly_reset), None, Some("weekly"), &mut out);
+        assert_eq!(out.blocked, Some(None), "a warning after a wall lifts it");
+        mapper.emit_rate_limit("ok", None, None, None, &mut out);
+        assert_eq!(out.blocked, Some(None));
+    }
+}
+
+#[cfg(test)]
+mod exp850_tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        SessionId, SessionInfoUpdate, SessionNotification, ToolCall as AcpToolCall, ToolCallId,
+    };
+    use serde_json::json;
+
+    fn mapper() -> Mapper {
+        Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(vec!["expu_supersecretkey".to_string()])),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::activity::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        })
+    }
+
+    /// The carrier every EXP-850 slot rides: a no-op `session_info_update`
+    /// with the adapter's `_meta`, exactly like the rate-limit slot.
+    fn slot(key: &str, value: Value) -> SessionNotification {
+        SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+        )
+        .meta(json!({ key: value }).as_object().cloned().expect("an object"))
+    }
+
+    /// EXP-850 §2: the strip's slot, clamped and deduped. An identical list
+    /// says nothing; an EMPTY one closes the strip and is news.
+    #[test]
+    fn background_tasks_are_clamped_and_deduped() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let long = "x".repeat(400);
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([
+                    { "id": "b1", "kind": "shell", "description": long, "toolId": "toolu_1" },
+                    { "id": "b2", "kind": "agent", "description": "expu_supersecretkey" },
+                ]),
+            ),
+            &mut out,
+        );
+        let ActivityEvent::BackgroundTasks { tasks, .. } = &out.wire[0] else {
+            panic!("expected a background_tasks event, got {:?}", out.wire);
+        };
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks[0].description.chars().count() <= WORKFLOW_TEXT_MAX + 1);
+        assert_eq!(tasks[0].tool_id.as_deref(), Some("toolu_1"));
+        // The adapter already folded the CLI's `task_type` onto the contract
+        // vocabulary (`BackgroundTaskKind::from_task_type`), so an unknown
+        // value here is a malformed frame and drops the WHOLE list — the
+        // relay's zod does the same. The redactor walked the description.
+        assert_eq!(tasks[1].kind, wire::frames::BackgroundTaskKind::Agent);
+        assert!(!tasks[1].description.contains("expu_supersecretkey"));
+        let mut malformed = MapOut::default();
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([{ "id": "b3", "kind": "quantum", "description": "?" }]),
+            ),
+            &mut malformed,
+        );
+        assert!(malformed.wire.is_empty(), "{:?}", malformed.wire);
+
+        // A repeat of the SAME list says nothing.
+        let mut repeat = MapOut::default();
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([{ "id": "b1", "kind": "shell", "description": "one" }]),
+            ),
+            &mut repeat,
+        );
+        let mut again = MapOut::default();
+        mapper.on_update(
+            &slot(
+                BACKGROUND_TASKS_META_KEY,
+                json!([{ "id": "b1", "kind": "shell", "description": "one" }]),
+            ),
+            &mut again,
+        );
+        assert_eq!(repeat.wire.len(), 1);
+        assert!(again.wire.is_empty(), "{:?}", again.wire);
+
+        // The empty list is a frame, not silence.
+        let mut emptied = MapOut::default();
+        mapper.on_update(&slot(BACKGROUND_TASKS_META_KEY, json!([])), &mut emptied);
+        assert_eq!(emptied.wire.len(), 1);
+    }
+
+    /// EXP-850 §3: the card is clamped, deduped PER ID, and tagged with its
+    /// own id on the LOCAL feed so the desktop can hang it off the tool row.
+    #[test]
+    fn a_workflow_card_is_clamped_and_deduped_per_id() {
+        let mut mapper = mapper();
+        let card = |id: &str, status: &str| {
+            json!({
+                "id": id,
+                "name": "wire-probe",
+                "status": status,
+                "phases": [{ "index": 1, "title": "Alpha" }],
+                "agents": [{
+                    "index": 1,
+                    "label": "alpha:one",
+                    "phaseIndex": 1,
+                    "state": "running",
+                    "resultPreview": "x".repeat(400),
+                    "error": "expu_supersecretkey leaked",
+                }],
+            })
+        };
+        let mut out = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-1", "running")), &mut out);
+        let ActivityEvent::Workflow(state) = &out.wire[0] else {
+            panic!("expected a workflow event, got {:?}", out.wire);
+        };
+        assert_eq!(state.id, "wf-1");
+        assert!(state.agents[0].result_preview.as_ref().is_some_and(
+            |preview| preview.chars().count() <= WORKFLOW_TEXT_MAX + 1
+        ));
+        assert!(!state.agents[0]
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("expu_supersecretkey"));
+        // The local twin names the tool row the card patches.
+        assert!(matches!(
+            &out.local[0],
+            LocalFeedEvent::Activity { tool_call_id: Some(id), .. } if id == "wf-1"
+        ));
+
+        let mut repeat = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-1", "running")), &mut repeat);
+        assert!(repeat.wire.is_empty(), "{:?}", repeat.wire);
+
+        // A different id is its own slot; a moved status is news.
+        let mut other = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-2", "running")), &mut other);
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-1", "completed")), &mut other);
+        assert_eq!(other.wire.len(), 2);
+
+        // A malformed card (unknown status, no id) is dropped whole.
+        let mut bad = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-3", "melting")), &mut bad);
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("", "running")), &mut bad);
+        assert!(bad.wire.is_empty(), "{:?}", bad.wire);
+    }
+
+    /// EXP-850 §3 review: the per-id dedupe map is capped like every other
+    /// fold of this slot. A mapper lives for the whole run, so an uncapped
+    /// map of whole card payloads is a leak; the OLDEST id goes, and its only
+    /// cost is that a re-sent identical card for it publishes once more.
+    #[test]
+    fn the_workflow_dedupe_map_is_capped_at_the_journal_cap() {
+        let mut mapper = mapper();
+        let card = |id: &str| json!({ "id": id, "name": "wire-probe", "status": "running", "phases": [], "agents": [] });
+        let total = wire::frames::JOURNAL_WORKFLOW_CAP + 4;
+        for index in 0..total {
+            let mut out = MapOut::default();
+            mapper.on_update(&slot(WORKFLOW_META_KEY, card(&format!("wf-{index}"))), &mut out);
+            assert_eq!(out.wire.len(), 1);
+        }
+        assert_eq!(mapper.last_workflows.len(), wire::frames::JOURNAL_WORKFLOW_CAP);
+        assert_eq!(
+            mapper.last_workflows.first().map(|(id, _)| id.as_str()),
+            Some("wf-4")
+        );
+        // A card still held is still deduped…
+        let mut repeat = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-4")), &mut repeat);
+        assert!(repeat.wire.is_empty(), "{:?}", repeat.wire);
+        // …and an evicted one simply publishes again.
+        let mut evicted = MapOut::default();
+        mapper.on_update(&slot(WORKFLOW_META_KEY, card("wf-0")), &mut evicted);
+        assert_eq!(evicted.wire.len(), 1);
+    }
+
+    /// EXP-850 §5: the turn slot stamps `startedAt`, counts tokens forward
+    /// only, and republishes at most once per `steerWorking.tokenTickMs`.
+    #[test]
+    fn the_turn_slot_stamps_a_start_and_ticks_its_tokens() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        let ActivityEvent::Turn { started_at, tokens, .. } = &out.wire[0] else {
+            panic!("expected a turn event, got {:?}", out.wire);
+        };
+        assert!(started_at.is_some(), "the turn's start is stamped");
+        assert_eq!(*tokens, None, "no tokens yet — the caption omits the group");
+        let started = *started_at;
+
+        // The first report publishes at once; a second inside the tick does
+        // not, and a LOWER number is never news.
+        let mut ticked = MapOut::default();
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(143)), &mut ticked);
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(512)), &mut ticked);
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(7)), &mut ticked);
+        assert_eq!(ticked.wire.len(), 1);
+        assert!(matches!(
+            &ticked.wire[0],
+            ActivityEvent::Turn { tokens: Some(143), started_at, .. } if *started_at == started
+        ));
+
+        // The turn END carries the final count and the same start.
+        let mut ended = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Ended, false, &mut ended);
+        assert!(matches!(
+            &ended.wire[0],
+            ActivityEvent::Turn {
+                state: wire::frames::TurnState::Ended,
+                tokens: Some(512),
+                started_at,
+                ..
+            } if *started_at == started
+        ));
+
+        // A token report between turns says nothing.
+        let mut idle = MapOut::default();
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(9_000)), &mut idle);
+        assert!(idle.wire.is_empty(), "{:?}", idle.wire);
+
+        // A NEW turn resets the counter.
+        let mut next = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut next);
+        assert!(matches!(&next.wire[0], ActivityEvent::Turn { tokens: None, .. }));
+    }
+
+    /// EXP-850 §1: ACP v1 cannot express `wait`, so the adapter names the
+    /// kind AND the human label in `_meta`; both win over the ACP derivation,
+    /// and the local card gets the same bucket.
+    #[test]
+    fn a_wait_row_takes_its_kind_and_detail_from_meta() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = AcpToolCall::new(ToolCallId::new("toolu_1"), "TaskOutput")
+            .kind(ToolKind::Other)
+            .raw_input(json!({ "task_id": "b4mwz6csc", "block": true }));
+        mapper.on_update(
+            &SessionNotification::new(
+                SessionId::new("acp-1"),
+                SessionUpdate::ToolCall(call),
+            )
+            .meta(
+                json!({
+                    TOOL_KIND_META_KEY: "wait",
+                    TOOL_DETAIL_META_KEY: "Sleep in the background",
+                })
+                .as_object()
+                .cloned()
+                .expect("an object"),
+            ),
+            &mut out,
+        );
+        let ActivityEvent::Tool { name, detail, tool_kind, .. } = &out.wire[0] else {
+            panic!("expected a tool event, got {:?}", out.wire);
+        };
+        assert_eq!(name, "TaskOutput");
+        assert_eq!(detail.as_deref(), Some("Sleep in the background"));
+        assert_eq!(*tool_kind, Some(wire::frames::ToolKind::Wait));
+        assert!(matches!(
+            &out.local[1],
+            LocalFeedEvent::ToolCall { kind: ToolCardKind::Wait, .. }
+        ));
+    }
+
+    /// EXP-853 rule 1 (kept): a `config_state` byte-identical to the last one
+    /// published says nothing. One `set_mode` used to publish three (the
+    /// request's answer, the engine's mirror, the agent's echo) and every
+    /// client re-rendered its chips for each.
+    #[test]
+    fn an_identical_config_state_is_dropped() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.set_current_mode("plan", &mut out);
+        mapper.set_current_mode("plan", &mut out);
+        mapper.set_current_mode("plan", &mut out);
+        assert_eq!(out.wire.len(), 1, "{:?}", out.wire);
+        // A REAL change is news again.
+        mapper.set_current_mode("bypassPermissions", &mut out);
+        assert_eq!(out.wire.len(), 2, "{:?}", out.wire);
+        // ... and going back to the first value is news too (the dedupe is
+        // against the LAST frame, never a set of everything ever sent).
+        mapper.set_current_mode("plan", &mut out);
+        assert_eq!(out.wire.len(), 3, "{:?}", out.wire);
+    }
+
+    /// EXP-856: the duplicate edge passes through with its workflow, its
+    /// title and its exact detail, and it neither opens nor closes the run
+    /// (no tool-call total is stamped on it).
+    #[test]
+    fn a_duplicate_subagent_edge_passes_through() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let edge = SubagentEdge {
+            id: "a55b7012793deae02".to_string(),
+            agent_type: "general-purpose".to_string(),
+            status: SubagentEdgeStatus::Duplicate,
+            detail: Some(
+                "Second copy of slowpoke started while the first is still running (resumed by SendMessage)"
+                    .to_string(),
+            ),
+            tool_calls: None,
+            title: Some("slowpoke".to_string()),
+            workflow_id: Some("toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()),
+        };
+        mapper.on_subagent(&edge, &mut out);
+        assert_eq!(
+            serde_json::to_value(&out.wire[0]).expect("it serializes"),
+            json!({
+                "kind": "subagent",
+                "id": "a55b7012793deae02",
+                "agentType": "general-purpose",
+                "status": "duplicate",
+                "detail": "Second copy of slowpoke started while the first is still running (resumed by SendMessage)",
+                "title": "slowpoke",
+                "workflowId": "toolu_017Lh63mYhRJ3MrA4A1PXytt",
+            })
+        );
+    }
+}
+
+/// EXP-1224: the agent's own turns. Claude continues on its own after a
+/// `result` whenever a background task's notification is pending — a turn no
+/// prompt opened. The slot must read `started` for it, or every client shows
+/// the working run as "Done".
+#[cfg(test)]
+mod exp1224_tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        SessionId, SessionInfoUpdate, SessionNotification, TextContent, ToolCall as AcpToolCall,
+        ToolCallId, UsageUpdate,
+    };
+    use serde_json::json;
+
+    fn mapper_for(agent: wire::activity::SessionAgent) -> Mapper {
+        Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        })
+    }
+
+    /// A LIVE claude session: the host seeded the slot, as `host.rs` does
+    /// once `session/new` answered.
+    fn live() -> Mapper {
+        let mut mapper = mapper_for(wire::activity::SessionAgent::Claude);
+        mapper.set_turn(wire::frames::TurnState::Ended, true, &mut MapOut::default());
+        mapper
+    }
+
+    fn notify(update: SessionUpdate) -> SessionNotification {
+        SessionNotification::new(SessionId::new("acp-1"), update)
+    }
+
+    fn slot(key: &str, value: Value) -> SessionNotification {
+        notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()))
+            .meta(json!({ key: value }).as_object().cloned().expect("an object"))
+    }
+
+    fn agent_turn(state: &str) -> SessionNotification {
+        slot(TURN_META_KEY, json!({ "state": state }))
+    }
+
+    fn text(text: &str) -> ContentChunk {
+        ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
+    }
+
+    fn turns(out: &MapOut) -> Vec<wire::frames::TurnState> {
+        out.wire
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Turn { state, .. } => Some(*state),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A prompted turn that has already answered: the slot reads `ended`.
+    fn after_a_prompt() -> Mapper {
+        let mut mapper = live();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut MapOut::default());
+        mapper.on_stop(StopReason::EndTurn, &mut MapOut::default());
+        mapper
+    }
+
+    #[test]
+    fn the_agents_own_turn_opens_and_closes_the_slot() {
+        let mut mapper = after_a_prompt();
+        let mut started = MapOut::default();
+        mapper.on_update(&agent_turn("started"), &mut started);
+        assert_eq!(turns(&started), vec![wire::frames::TurnState::Started]);
+        assert_eq!(started.idle, Some(false), "the run is busy again");
+
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![wire::frames::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+        // A second end says nothing.
+        let mut again = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut again);
+        assert!(turns(&again).is_empty(), "{:?}", again.wire);
+        assert_eq!(again.idle, None);
+    }
+
+    /// (C) narration while the slot reads `ended` re-opens it — main lane
+    /// and subagent lane alike.
+    #[test]
+    fn narration_while_ended_reopens_the_turn() {
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("still here"))), &mut out);
+        assert_eq!(turns(&out), vec![wire::frames::TurnState::Started]);
+        assert_eq!(out.idle, Some(false));
+        // The turn edge goes out BEFORE the row that re-opened it.
+        assert!(matches!(out.wire.first(), Some(ActivityEvent::Turn { .. })), "{:?}", out.wire);
+        // The adapter's next turn end closes it.
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![wire::frames::TurnState::Ended]);
+
+        // A subagent's narration counts too.
+        let mut lane = MapOut::default();
+        let scoped = notify(SessionUpdate::AgentMessageChunk(text("lane work"))).meta(
+            json!({ SUBAGENT_ID_META_KEY: "toolu_agent" }).as_object().cloned().expect("meta"),
+        );
+        mapper.on_update(&scoped, &mut lane);
+        assert_eq!(turns(&lane), vec![wire::frames::TurnState::Started]);
+    }
+
+    /// (C) thinking tokens and a tool call are model output too.
+    #[test]
+    fn thinking_tokens_and_tool_calls_while_ended_reopen_the_turn() {
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(50)), &mut out);
+        assert_eq!(turns(&out).first(), Some(&wire::frames::TurnState::Started), "{:?}", out.wire);
+        assert_eq!(out.idle, Some(false));
+
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(AcpToolCall::new(ToolCallId::new("t1"), "Read"))),
+            &mut out,
+        );
+        assert_eq!(turns(&out), vec![wire::frames::TurnState::Started]);
+    }
+
+    /// (C) state slots are NOT output: usage, the rate-limit slot, the
+    /// background-task strip and the user's own echo leave it ended.
+    #[test]
+    fn usage_and_state_slots_while_ended_do_not_reopen() {
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::UsageUpdate(UsageUpdate::new(1_000, 200_000))),
+            &mut out,
+        );
+        mapper.on_update(
+            &slot(RATE_LIMIT_META_KEY, json!({ "status": "allowed_warning", "resetsAt": 1 })),
+            &mut out,
+        );
+        mapper.on_update(&slot(BACKGROUND_TASKS_META_KEY, json!([])), &mut out);
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(text("echo"))), &mut out);
+        // An empty thought (a signature-only block) is no output either.
+        mapper.on_update(&notify(SessionUpdate::AgentThoughtChunk(text(" "))), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_ne!(out.idle, Some(false));
+    }
+
+    /// (B) the continuation opened after the prompt's `result` but BEFORE the
+    /// prompt's answer reached the host: the prompt's completion must not
+    /// end the turn the agent is still running.
+    #[test]
+    fn a_prompt_done_after_a_continuation_opened_keeps_the_turn() {
+        let mut mapper = live();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut MapOut::default());
+        let mut opened = MapOut::default();
+        mapper.on_update(&agent_turn("started"), &mut opened);
+        assert!(turns(&opened).is_empty(), "already started: {:?}", opened.wire);
+
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert!(turns(&done).is_empty(), "the prompt's end is not the turn's: {:?}", done.wire);
+        assert_eq!(done.idle, None, "the run stays busy");
+
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![wire::frames::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+    }
+
+    /// A prompt the host sent during a continuation holds the slot past the
+    /// continuation's own end.
+    #[test]
+    fn a_prompt_sent_during_a_continuation_outlives_its_end() {
+        let mut mapper = after_a_prompt();
+        mapper.on_update(&agent_turn("started"), &mut MapOut::default());
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut MapOut::default());
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert!(turns(&ended).is_empty(), "{:?}", ended.wire);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![wire::frames::TurnState::Ended]);
+    }
+
+    /// EXP-1224 review: a turn the mapper re-opened off output (C) that a
+    /// prompt is then sent into closes at the adapter's `ended` once the
+    /// prompt is done — whichever of the two reaches the mapper first. And
+    /// that `ended` never ends a prompt that is still running.
+    #[test]
+    fn a_prompt_sent_into_a_reopened_turn_ends_with_the_adapters_ended() {
+        let reopened_with_a_prompt = || {
+            let mut mapper = after_a_prompt();
+            let mut out = MapOut::default();
+            mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("late"))), &mut out);
+            assert_eq!(turns(&out), vec![wire::frames::TurnState::Started]);
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut MapOut::default());
+            mapper
+        };
+
+        // The prompt's answer first: the reopened slot outlives it…
+        let mut mapper = reopened_with_a_prompt();
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert!(turns(&done).is_empty(), "{:?}", done.wire);
+        // …until the adapter's `ended`.
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![wire::frames::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+
+        // The adapter's `ended` first: the live prompt keeps the slot, and
+        // its own answer closes it.
+        let mut mapper = reopened_with_a_prompt();
+        let mut early = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut early);
+        assert!(turns(&early).is_empty(), "never ends a live prompt: {:?}", early.wire);
+        assert_eq!(early.idle, None);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![wire::frames::TurnState::Ended]);
+    }
+
+    /// The agent's `ended` with nothing of its own open is a no-op, prompt
+    /// running or not: the adapter publishes one after every settled prompt.
+    #[test]
+    fn an_agent_ended_with_no_continuation_open_is_a_no_op() {
+        let mut mapper = live();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut MapOut::default());
+        let mut out = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_eq!(out.idle, None);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![wire::frames::TurnState::Ended]);
+        let mut after = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut after);
+        assert!(turns(&after).is_empty(), "{:?}", after.wire);
+        assert_eq!(after.idle, None);
+    }
+
+    /// A Stop ends the continuation with the prompt: the interrupt kills
+    /// both.
+    #[test]
+    fn a_stop_ends_the_continuation_too() {
+        let mut mapper = live();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut MapOut::default());
+        mapper.on_update(&agent_turn("started"), &mut MapOut::default());
+        let mut stopped = MapOut::default();
+        mapper.on_stop(StopReason::Cancelled, &mut stopped);
+        assert_eq!(turns(&stopped), vec![wire::frames::TurnState::Ended]);
+        assert_eq!(stopped.idle, Some(true));
+    }
+
+    /// History never moves the slot: before the seed every update is a
+    /// `session/load` replay.
+    #[test]
+    fn a_replay_never_reopens_the_turn() {
+        let mut mapper = mapper_for(wire::activity::SessionAgent::Claude);
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("history"))), &mut out);
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(50)), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_eq!(out.idle, None);
+    }
+
+    /// Only claude continues on its own; a codex turn ends at
+    /// `turn/completed` and nothing would ever close a re-opened one.
+    #[test]
+    fn a_codex_session_never_reopens_on_output() {
+        let mut mapper = mapper_for(wire::activity::SessionAgent::Codex);
+        mapper.set_turn(wire::frames::TurnState::Ended, true, &mut MapOut::default());
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("late"))), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+    }
+}
+
+/// EXP-1292: the Conversation half of the mapper — a turn's reply, the
+/// cards, and an answered card mapped back onto the open ask.
+#[cfg(test)]
+mod conversation_tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        ContentChunk, ElicitationFormMode, ElicitationSchema, ElicitationSessionScope,
+        PermissionOption, PermissionOptionId, RequestPermissionRequest, SessionId,
+        StringPropertySchema, TextContent, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
+    };
+    use ReplyCard;
+    use serde_json::json;
+
+    /// A mapper whose session is LIVE (the host seeded the turn slot).
+    fn live() -> Mapper {
+        let mut mapper = Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(vec!["expu_supersecretkey".to_string()])),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::activity::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        });
+        mapper.set_turn(wire::frames::TurnState::Ended, true, &mut MapOut::default());
+        mapper
+    }
+
+    fn notify(update: SessionUpdate) -> SessionNotification {
+        SessionNotification::new(SessionId::new("acp-1"), update)
+    }
+
+    fn say(mapper: &mut Mapper, text: &str, message_id: &str, out: &mut MapOut) {
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
+            .message_id(agent_client_protocol::schema::v1::MessageId::new(message_id));
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)), out);
+    }
+
+    fn read_call(mapper: &mut Mapper, id: &str, out: &mut MapOut) {
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(
+                ToolCall::new(ToolCallId::new(id), "Read src/lib.rs").kind(ToolKind::Read),
+            )),
+            out,
+        );
+    }
+
+    fn texts(replies: &[Reply]) -> Vec<String> {
+        replies
+            .iter()
+            .filter(|reply| reply.card.is_none())
+            .map(|reply| reply.body.clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_turn_reply_is_its_last_top_level_message() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "Looking around.", "m-1", &mut out);
+        read_call(&mut mapper, "tc-1", &mut out);
+        say(&mut mapper, "All ", "m-2", &mut out);
+        mapper.flush_all(&mut out);
+        say(&mut mapper, "done.", "m-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies), vec!["All done.".to_string()]);
+
+        // The next turn starts clean; a turn that ends on a tool call (no
+        // prose after it) has no reply at all.
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "Let me check.", "m-3", &mut out);
+        read_call(&mut mapper, "tc-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(texts(&out.replies).is_empty(), "{:?}", out.replies);
+    }
+
+    #[test]
+    fn a_new_message_id_replaces_the_reply_and_a_subagents_prose_never_counts() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "First thought.", "m-1", &mut out);
+        mapper.flush_all(&mut out);
+        say(&mut mapper, "Final answer with expu_supersecretkey inside.", "m-2", &mut out);
+        mapper.flush_all(&mut out);
+        let mut lane = serde_json::Map::new();
+        lane.insert(SUBAGENT_ID_META_KEY.to_string(), json!("task-1"));
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("subagent words")))
+            .message_id(agent_client_protocol::schema::v1::MessageId::new("m-sub"));
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)).meta(lane), &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let replies = texts(&out.replies);
+        assert_eq!(replies.len(), 1, "{replies:?}");
+        assert!(replies[0].starts_with("Final answer with "), "{replies:?}");
+        assert!(!replies[0].contains("expu_supersecretkey"), "redacted: {replies:?}");
+    }
+
+    fn narrations(out: &MapOut) -> Vec<String> {
+        out.wire
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Narration { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// S-3: a turn that said, thought and did nothing leaves ONE neutral
+    /// line naming its stopReason (session-thread.json `copy.emptyTurn`);
+    /// a turn that only worked (a tool call) or was Stopped leaves none.
+    #[test]
+    fn an_empty_turn_leaves_the_empty_turn_notice() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        mapper.on_stop(StopReason::Refusal, &mut out);
+        assert_eq!(
+            narrations(&out),
+            vec!["The agent ended its turn without a reply (stop: refusal)".to_string()]
+        );
+        assert!(out.replies.is_empty(), "{:?}", out.replies);
+
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        read_call(&mut mapper, "tc-1", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(narrations(&out).is_empty(), "{:?}", out.wire);
+
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        mapper.on_stop(StopReason::Cancelled, &mut out);
+        assert!(narrations(&out).is_empty(), "{:?}", out.wire);
+    }
+
+    /// History streamed before the session is live (a `session/load`) is
+    /// never a reply.
+    #[test]
+    fn history_before_the_session_is_live_is_no_reply() {
+        let mut mapper = Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::activity::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        });
+        let mut out = MapOut::default();
+        say(&mut mapper, "old words", "m-old", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(out.replies.is_empty(), "{:?}", out.replies);
+    }
+
+    fn permission(id: &str, kind: Option<ToolKind>, body: Option<&str>) -> RequestPermissionRequest {
+        let mut fields = ToolCallUpdateFields::new().title("Write src/main.rs");
+        if let Some(kind) = kind {
+            fields = fields.kind(kind);
+        }
+        if let Some(body) = body {
+            fields = fields.content(vec![ToolCallContent::from(ContentBlock::Text(
+                TextContent::new(body),
+            ))]);
+        }
+        RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(ToolCallId::new(id), fields),
+            vec![
+                PermissionOption::new(
+                    PermissionOptionId::new("reject"),
+                    "No, keep planning",
+                    PermissionOptionKind::RejectOnce,
+                ),
+                PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn card_options_carry_descriptions_and_drop_the_free_text_row() {
+        use ReplyOption;
+        let options = vec![
+            QuestionOption {
+                description: Some("~90ms more".into()),
+                ..QuestionOption::new("Lazy-load", "1")
+            },
+            QuestionOption::new("Open the PR", "2"),
+            QuestionOption {
+                free_text: true,
+                ..QuestionOption::new("Type something.", "3")
+            },
+        ];
+        assert_eq!(
+            card_options(&options),
+            vec![
+                ReplyOption::Described {
+                    label: "Lazy-load".into(),
+                    description: "~90ms more".into(),
+                },
+                ReplyOption::Label("Open the PR".into()),
+            ]
+        );
+        // The wire pair (EXP-1322 sidecar): labels in `options`, descriptions
+        // in the parallel `optionDescriptions` (null = none).
+        assert_eq!(
+            serde_json::to_value(ReplyCard::Question {
+                question: "Which?".into(),
+                options: card_options(&options),
+                question_id: "q-1".into(),
+            })
+            .unwrap(),
+            json!({
+                "kind": "question",
+                "question": "Which?",
+                "options": ["Lazy-load", "Open the PR"],
+                "optionDescriptions": ["~90ms more", null],
+                "questionId": "q-1",
+            })
+        );
+        // No description anywhere = no sidecar key at all.
+        assert_eq!(
+            serde_json::to_value(ReplyCard::Question {
+                question: "Which?".into(),
+                options: card_options(&options[1..]),
+                question_id: "q-2".into(),
+            })
+            .unwrap(),
+            json!({
+                "kind": "question",
+                "question": "Which?",
+                "options": ["Open the PR"],
+                "questionId": "q-2",
+            })
+        );
+    }
+
+    #[test]
+    fn a_permission_is_a_question_card_and_its_answer_maps_by_label() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        say(&mut mapper, "I need to write.", "m-1", &mut out);
+        mapper.on_permission(&permission("tc-perm", None, None), &mut out);
+        assert_eq!(
+            out.replies,
+            vec![Reply {
+                body: String::new(),
+                card: Some(ReplyCard::Question {
+                    question: "Write src/main.rs".into(),
+                    options: vec!["Yes".into(), "No, keep planning".into()],
+                    question_id: "tc-perm".into(),
+                }),
+            }]
+        );
+        assert_eq!(mapper.turn_reply(), "", "the prose before the card is not the reply");
+
+        let mapped = mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answer": " yes "}))
+            .expect("the label matches");
+        assert_eq!(mapped.answer.keys, vec!["allow".to_string()]);
+        assert_eq!(mapped.answer.question_id, "tc-perm");
+        assert!(mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answer": "maybe"}))
+            .is_none());
+        assert!(mapper
+            .card_answer("tc-unknown", &json!({"kind": "question", "answer": "Yes"}))
+            .is_none());
+        // Release train 2026-10-23 (C1): `answers` first, `answer` the fallback.
+        let answers_only = mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answers": ["No, keep planning"]}))
+            .expect("the label in `answers` matches");
+        assert_eq!(answers_only.answer.keys, vec!["reject".to_string()]);
+        let disagree = mapper
+            .card_answer(
+                "tc-perm",
+                &json!({"kind": "question", "answers": ["Yes"], "answer": "No, keep planning"}),
+            )
+            .expect("`answers` wins");
+        assert_eq!(disagree.answer.keys, vec!["allow".to_string()]);
+        let empty = mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answers": [], "answer": "Yes"}))
+            .expect("an empty `answers` falls back to `answer`");
+        assert_eq!(empty.answer.keys, vec!["allow".to_string()]);
+    }
+
+    /// Release train 2026-10-23 (compat cleanup round 37, C1): a multi-select
+    /// step reads `answers` first, so a label with a comma stays whole; the
+    /// joined `answer` is the fallback for older servers.
+    #[test]
+    fn a_multi_select_card_answer_reads_answers_first() {
+        use agent_client_protocol::schema::v1::{EnumOption, MultiSelectPropertySchema};
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new().property(
+                    "steps",
+                    ElicitationPropertySchema::Array(
+                        MultiSelectPropertySchema::titled(vec![
+                            EnumOption::new("tests", "Tests, then docs"),
+                            EnumOption::new("lint", "Lint"),
+                            EnumOption::new("docs", "Docs"),
+                        ])
+                        .title("Which steps?"),
+                    ),
+                    false,
+                ),
+            ),
+            "One question",
+        );
+        mapper.on_elicitation("ask-m", &request, &mut out);
+        let keys = |card: Value| mapper.card_answer("ask-m#0", &card).map(|mapped| mapped.answer);
+
+        let answers_only = keys(json!({"answers": ["Tests, then docs", "Lint"]})).expect("answers");
+        assert_eq!(answers_only.keys, vec!["tests".to_string(), "lint".to_string()]);
+        assert_eq!(answers_only.text, None);
+
+        let disagree = keys(json!({"answers": ["Docs"], "answer": "Lint"})).expect("answers wins");
+        assert_eq!(disagree.keys, vec!["docs".to_string()]);
+
+        let comma = keys(json!({"answers": ["Tests, then docs"], "answer": "Tests, then docs"}))
+            .expect("a comma inside one label");
+        assert_eq!(comma.keys, vec!["tests".to_string()]);
+
+        let fallback = keys(json!({"answer": "Lint, Docs"})).expect("the joined legacy answer");
+        assert_eq!(fallback.keys, vec!["lint".to_string(), "docs".to_string()]);
+        assert_eq!(fallback.text, None);
+    }
+
+    /// #NEW-79: a withdrawn card (expired, replaced) is dismissed once and
+    /// its responder handed back; an unknown or answered one is not.
+    #[test]
+    fn a_withdrawn_elicitation_is_dismissed_once() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new().property(
+                    "decision",
+                    ElicitationPropertySchema::String(
+                        StringPropertySchema::new()
+                            .title("Allow this?")
+                            .enum_values(vec!["Allow".into(), "Deny".into()]),
+                    ),
+                    false,
+                ),
+            ),
+            "Issue · update NEW-12 — priority: high.",
+        );
+        mapper.on_elicitation("toolu_9", &request, &mut out);
+        assert_eq!(mapper.pending_asks(), 1);
+        let mut withdrawn = MapOut::default();
+        assert_eq!(mapper.withdraw_ask("toolu_9", &mut withdrawn).as_deref(), Some("toolu_9"));
+        assert_eq!(mapper.pending_asks(), 0);
+        assert_eq!(withdrawn.needs_input, Some(false));
+        assert!(withdrawn.wire.iter().any(|event| matches!(
+            event,
+            ActivityEvent::QuestionResolved { id: Some(id), dismissed: Some(true), .. } if id == "toolu_9#0"
+        )));
+        assert_eq!(mapper.withdraw_ask("toolu_9", &mut MapOut::default()), None);
+        assert_eq!(mapper.withdraw_ask("nope", &mut MapOut::default()), None);
+    }
+
+    #[test]
+    fn every_elicitation_step_is_a_card_and_the_last_answer_owes_the_submit() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new()
+                    .property(
+                        "approach",
+                        ElicitationPropertySchema::String(
+                            StringPropertySchema::new()
+                                .title("Which approach?")
+                                .enum_values(vec!["rewrite".into(), "patch".into()]),
+                        ),
+                        false,
+                    )
+                    .property(
+                        "why",
+                        ElicitationPropertySchema::String(StringPropertySchema::new().title("Why?")),
+                        false,
+                    ),
+            ),
+            "Two questions",
+        );
+        mapper.on_elicitation("ask-1", &request, &mut out);
+        assert_eq!(
+            out.replies,
+            vec![Reply {
+                body: String::new(),
+                card: Some(ReplyCard::Question {
+                    question: "Which approach?".into(),
+                    options: vec!["rewrite".into(), "patch".into()],
+                    question_id: "ask-1#0".into(),
+                }),
+            }]
+        );
+        let first = mapper
+            .card_answer("ask-1#0", &json!({"answer": "Patch"}))
+            .expect("an option matches");
+        assert_eq!(first.answer.keys, vec!["patch".to_string()]);
+        assert_eq!(first.answer.ask_id.as_deref(), Some("ask-1"));
+        let mut step = MapOut::default();
+        let key = mapper.ask_key(&first.answer);
+        mapper.on_answer(&key, &first.answer, &mut step);
+        assert!(mapper.pending_submit("ask-1#0").is_none(), "a step is still open");
+        // The second step is a card of its own; its free text is the answer.
+        assert!(matches!(
+            &step.replies[..],
+            [Reply { card: Some(ReplyCard::Question { question_id, options, .. }), .. }]
+                if question_id == "ask-1#1" && options.is_empty()
+        ), "{:?}", step.replies);
+        let second = mapper
+            .card_answer("ask-1#1", &json!({"answer": "It is smaller"}))
+            .expect("free text");
+        assert_eq!(second.answer.text.as_deref(), Some("It is smaller"));
+        let mut done = MapOut::default();
+        let key = mapper.ask_key(&second.answer);
+        mapper.on_answer(&key, &second.answer, &mut done);
+        assert!(done.replies.is_empty(), "the submit marker is no card: {:?}", done.replies);
+        let submit = mapper.pending_submit("ask-1#1").expect("the form waits for its submit");
+        assert_eq!(submit.question_id, "ask-1#submit");
+        let key = mapper.ask_key(&submit);
+        assert!(matches!(
+            mapper.on_answer(&key, &submit, &mut MapOut::default()),
+            AnswerDecision::Elicitation { submit: true, .. }
+        ));
+        assert!(mapper.pending_submit("ask-1#1").is_none());
+    }
+
+    #[test]
+    fn a_subagent_is_one_card_at_its_completion() {
+        let mut mapper = live();
+        let edge = |status| SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status,
+            detail: Some("Found 3 call sites".to_string()),
+            tool_calls: None,
+            title: Some("Find the callers".to_string()),
+            workflow_id: None,
+        };
+        let mut out = MapOut::default();
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Started), &mut out);
+        assert!(out.replies.is_empty(), "no card at the start");
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Completed), &mut out);
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Completed), &mut out);
+        assert_eq!(
+            out.replies,
+            vec![Reply {
+                body: String::new(),
+                card: Some(ReplyCard::Subagent {
+                    title: "Find the callers".into(),
+                    status: "completed".into(),
+                    summary: Some("Found 3 call sites".into()),
+                }),
+            }]
+        );
+    }
+}

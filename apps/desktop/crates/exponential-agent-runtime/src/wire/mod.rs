@@ -18,8 +18,8 @@ pub mod workflow;
 
 pub use activity::{
     clamp_config_state, normalize_agent_title, normalize_compaction_trigger,
-    secrets_from_worktree, synthetic_question_id, truncate, truncate_marked, worktree_diff,
-    Redactor, SessionAgent, TRUNCATION_MARKER,
+    now_unix_millis, secrets_from_worktree, synthetic_question_id, truncate, truncate_marked, worktree_diff,
+    Redactor, RemoteAnswer, SessionAgent, SessionBlocked, TRUNCATION_MARKER,
 };
 pub use frames::{
     ActivityEvent, BackgroundTask, BackgroundTaskKind, ConfigCommand, ConfigMode, ConfigOption,

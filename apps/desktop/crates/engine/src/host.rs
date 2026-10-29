@@ -3127,8 +3127,7 @@ fn create_terminal(
             ctx.emit_local(event);
         }
     });
-    ctx.terminals
-        .create(&spec, request.output_byte_limit, sink)
+    Ok(ctx.terminals.create(&spec, request.output_byte_limit, sink)?)
 }
 
 /// A `ChildExit` in ACP's own shape. `exit_code` is `u32` there, so a signal

@@ -89,11 +89,8 @@ const SLOT_TASK_LIST: usize = 7;
 const SLOT_DIFF: usize = 8;
 const SLOT_COUNT: usize = 9;
 
-/// EXP-850 §3: how many workflow cards one session keeps. A run that starts
-/// more than this many workflows loses the OLDEST (its card is finished and
-/// its transcript rows are still in the log); the cap mirrors the relay's own
-/// `WORKFLOW_SLOT_CAP` and `history::JOURNAL_WORKFLOW_CAP`.
-pub const JOURNAL_WORKFLOW_CAP: usize = 16;
+// EXP-1426: in the core's wire vocabulary now (the engine's mapper folds by it).
+pub use exponential_agent_runtime::wire::frames::JOURNAL_WORKFLOW_CAP;
 
 /// Which slot an event owns, if any. The ONE place the latest-wins kinds are
 /// named. EXP-850: a `workflow` is latest-wins too but keyed by ID, so it has

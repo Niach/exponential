@@ -108,7 +108,7 @@ pub use activity::{
     AGENT_TITLE_RETRY_INTERVAL,
     ConfigChange, ConfigLink,
     BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
-    RemoteAnswer, SessionAgent, SessionBlocked, StatusForwarder, StatusHook, blocked_wall_expired,
+    RemoteAnswer, SessionAgent, SessionBlocked, SessionBlockedReport, StatusForwarder, StatusHook, blocked_wall_expired,
     iso_from_unix_millis,
     now_unix_millis,
     TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,

@@ -51,7 +51,7 @@ pub const SCROLLBACK_LINES: usize = 10_000;
 /// Nominal cell pixel metrics until a window reports real ones: the headless
 /// CLI never paints, but CSI 14t/16t must still answer something sane, and
 /// rio refuses to place sixels while the cell size is zero.
-pub const DEFAULT_CELL_PX: (u32, u32) = (8, 16);
+pub const DEFAULT_CELL_PX: (u32, u32) = exponential_agent_runtime::spawn::DEFAULT_CELL_PX;
 
 /// Grid + pixel dimensions for `Crosswords::new`/`resize`. The pixel form is
 /// mandatory for image protocols: placements derive their cell span from it.

@@ -663,6 +663,97 @@ pub fn truncate_marked(s: &str, max: usize) -> String {
     out
 }
 
+// ---------------------------------------------------------------------------
+// The engine's answer + usage-wall vocabulary (EXP-1426 part 4b, out of
+// `steer::activity`; the links, forwarders and the report conversion stay there)
+// ---------------------------------------------------------------------------
+
+/// A steerer's semantic answer, relayed verbatim by the publisher: the
+/// question's own id plus the option `key`s of THAT question. The emitter maps
+/// them onto whatever the TUI is showing right now — clients never guess
+/// keystrokes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteAnswer {
+    pub question_id: String,
+    pub ask_id: Option<String>,
+    pub keys: Vec<String>,
+    /// EXP-513: the typed reply for a `freeText` option — selected with
+    /// `keys`, typed into the TUI's inline editor, submitted with Enter.
+    pub text: Option<String>,
+}
+
+/// EXP-804: the agent's usage wall as the synced row records it
+/// (EXP-1292: `sessions.blocked`, written with `sessions.report`). The device
+/// is the only thing that can see it (the agent reports the wall on its own
+/// stream), and a walled run keeps status `running` with a moving
+/// `updated_at`, so without this write a rate-limited run is indistinguishable
+/// from a healthy one — the 2026-09-09 incident.
+///
+/// `resets_at` is an ISO string here even though every producer speaks a
+/// different unit: claude's own frame carries unix SECONDS, the relay wire
+/// unix MILLIS, and the column an ISO stamp matching `DeviceUsageWindow`.
+/// `steer`'s `BlockedForwarder` is the one place that conversion happens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionBlocked {
+    /// Contract `codingSessionBlocked.kinds` — `rate_limit` today.
+    pub kind: String,
+    pub agent: String,
+    /// Contract `codingSessionBlocked.windows`, when the agent named one.
+    pub window: String,
+    pub resets_at: Option<String>,
+    pub since: String,
+}
+
+/// The wall clock the expiry rule above compares against (unix ms).
+pub fn now_unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or_default()
+}
+
+/// Unix millis → `YYYY-MM-DDTHH:MM:SS.mmmZ`, UTC — the RFC 3339 shape every
+/// device-written stamp has (chrono's `to_rfc3339_opts(Millis, true)`; the
+/// core formats it by hand, `steer`'s `iso_tests` pin the two together).
+/// `None` outside the years 0000-9999.
+pub fn iso_from_millis(millis: i64) -> Option<String> {
+    let days = millis.div_euclid(86_400_000);
+    let rest = millis.rem_euclid(86_400_000);
+    // Howard Hinnant's `civil_from_days`.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    if !(0..=9999).contains(&year) {
+        return None;
+    }
+    let (hour, minute) = (rest / 3_600_000, rest / 60_000 % 60);
+    let (second, milli) = (rest / 1000 % 60, rest % 1000);
+    Some(format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{milli:03}Z"))
+}
+
+/// The wall clock as [`iso_from_millis`] writes it (a usage wall's `since`).
+pub fn now_iso() -> String {
+    iso_from_millis(now_unix_millis()).unwrap_or_default()
+}
+
+/// EXP-804: every producer of a reset stamp speaks a different unit — the
+/// relay wire unix MILLIS, claude's own frame unix SECONDS, the column an ISO
+/// string. Normalise ONCE, here, to whole seconds like the usage collector
+/// formats them, so the two never format differently. A non-positive stamp
+/// is "no reset named", never 1970.
+pub fn iso_from_unix_millis(millis: i64) -> Option<String> {
+    if millis <= 0 {
+        return None;
+    }
+    iso_from_millis(millis / 1000 * 1000)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
