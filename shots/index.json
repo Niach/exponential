@@ -1223,8 +1223,8 @@
         "file": "shots/exponential-ui-button/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 12996,
-        "sha256": "fd49696841280649a9ea2689de32948564f7a752b1e69835d985f3c4f7a0878d"
+        "bytes": 14244,
+        "sha256": "ab857ce0409fd4a4f58328d7bae4ea3d7a74a15d59c4ccb3255d3c1eae10f844"
       }
     },
     "exponential-ui-call-surface": {
@@ -1248,6 +1248,13 @@
         "height": 1800,
         "bytes": 28042,
         "sha256": "5c203392c154be656339f9132b5de76e5148005608af96b1949fbe3fc5e004eb"
+      },
+      "web": {
+        "file": "shots/exponential-ui-call-surface/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 20594,
+        "sha256": "475ab8d57deb80edcc26e8853cf139b8880711437f75e3163d93b8fcfc3b8ae5"
       }
     },
     "exponential-ui-card": {
@@ -2268,6 +2275,13 @@
         "height": 1800,
         "bytes": 25942,
         "sha256": "1647d32db3aa00a9b2886414546ca2f6acc26edfc6d860383e93537c4c87f496"
+      },
+      "web": {
+        "file": "shots/exponential-ui-message-bubble/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 16988,
+        "sha256": "d54bbc18992acc404509241b7ed67104bf80208a2e85da8e4f8dda307119d5c8"
       }
     },
     "exponential-ui-meter": {
@@ -2411,6 +2425,13 @@
         "height": 1800,
         "bytes": 31772,
         "sha256": "0442e0d4181f830588a7874d3d57bb4b10854d54509cc19c451cdaf6ba201b24"
+      },
+      "web": {
+        "file": "shots/exponential-ui-plan/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 22826,
+        "sha256": "329cfa9672460ee39e034eb6f7dae26bbdb5ba49ef9a9f349cc98a7df9b2108c"
       }
     },
     "exponential-ui-popover": {
@@ -2494,6 +2515,13 @@
         "height": 1800,
         "bytes": 17424,
         "sha256": "4c57c2c9aee3618b6e9e8ea52968f091afc0bbf1629553afd2598f1a1f84beec"
+      },
+      "web": {
+        "file": "shots/exponential-ui-qr-code/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 13770,
+        "sha256": "ee83eb42c0866f8288a76b4b47db4ea73e9845eb73968dd56943ee190d76cbb4"
       }
     },
     "exponential-ui-qr-scanner": {
@@ -2517,6 +2545,13 @@
         "height": 1800,
         "bytes": 13304,
         "sha256": "14705511a8e4813dccb0ded36e43edb6438cbc9d43736c31a684cd4818d6385b"
+      },
+      "web": {
+        "file": "shots/exponential-ui-qr-scanner/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 9258,
+        "sha256": "c6b0a1d6395d23d042b3ee2cd2468428fa79f2e23bc7c18be0b9af4ac540fb9e"
       }
     },
     "exponential-ui-radio": {
@@ -2755,8 +2790,8 @@
         "file": "shots/exponential-ui-segmented/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 14332,
-        "sha256": "296a2cf8d6591774279f97f3db30811d90a80b7c0333a7ccf87abbd771a80336"
+        "bytes": 18262,
+        "sha256": "2dab4f96c74d0661a47fb9396288c658190a360bd6de4949227656f419f79d78"
       }
     },
     "exponential-ui-select": {
@@ -3205,8 +3240,8 @@
         "file": "shots/exponential-ui-text/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 13192,
-        "sha256": "003084d71e039d7bc3632b21154bb7ca595d8f115fba6355722efd20cf1b37f5"
+        "bytes": 16492,
+        "sha256": "3ee4f42043626696faecd919d64f8798da98ead150cf690a560a2934ba54fb23"
       }
     },
     "exponential-ui-textarea": {
@@ -3445,8 +3480,8 @@
         "file": "shots/exponential-ui-trace-item/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 15568,
-        "sha256": "db112b68a53ac460ab4b14ea190e8a5a585dad70893ade39f2c4da325c8a33ac"
+        "bytes": 19510,
+        "sha256": "f5cc308fd1022ca2827a32417b79d288642a998782661eef0e819d1222528e6b"
       }
     },
     "exponential-ui-video": {
@@ -3505,8 +3540,8 @@
         "file": "shots/exponential-ui-voice-wave/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 13606,
-        "sha256": "f304818287113462e8bf8d4faf6f93cc3106a07a16cb40f4935a657928768b55"
+        "bytes": 20498,
+        "sha256": "2a68febfd4d938bd0c1d246c31854df6291ec33bc647dc8a7af82d61e94e07b9"
       }
     },
     "feedback-states": {
