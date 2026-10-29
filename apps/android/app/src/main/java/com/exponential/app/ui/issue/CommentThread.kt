@@ -489,7 +489,7 @@ internal fun TimelineGutter(
 // Both parse via WireTimestamps — Instant.parse alone rejected Electric's
 // Postgres text encoding, blanking every synced row's time (EXP-169).
 
-/** The long form: "5 seconds ago", "1 minute ago", "2 hours ago", "3 days ago", "2 months ago", "1 year ago". */
+/** The long form: "just now" (under a minute, or a future instant), "1 minute ago", "2 hours ago", "3 days ago", "2 months ago", "1 year ago". */
 internal fun relativeTime(wire: String, nowMs: Long = System.currentTimeMillis()): String {
     val thenMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(wire) ?: return ""
     return longRelativeTime(nowMs - thenMs)
@@ -504,7 +504,7 @@ internal fun compactRelativeTime(wire: String, nowMs: Long = System.currentTimeM
 internal fun longRelativeTime(diffMs: Long): String {
     val seconds = Math.round(diffMs.coerceAtLeast(0) / 1000.0)
     fun unit(n: Long, name: String) = "$n $name${if (n == 1L) "" else "s"} ago"
-    if (seconds < 60) return unit(seconds, "second")
+    if (seconds < 60) return "just now"
     val minutes = Math.round(seconds / 60.0)
     if (minutes < 60) return unit(minutes, "minute")
     val hours = Math.round(minutes / 60.0)

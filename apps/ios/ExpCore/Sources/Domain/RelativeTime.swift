@@ -24,11 +24,14 @@ public enum RelativeTime {
     }
 
     /// Long activity/comment caption: "5 minutes ago", "2 days ago".
+    /// Under a minute, or a future instant, reads "just now" ×4 (never the
+    /// formatter's "in 0 seconds").
     public static func long(_ date: Date, now: Date = Date()) -> String {
+        if now.timeIntervalSince(date) < 60 { return "just now" }
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = Locale(identifier: "en_US")
         formatter.unitsStyle = .full
-        return formatter.localizedString(for: min(date, now), relativeTo: now)
+        return formatter.localizedString(for: date, relativeTo: now)
     }
 
     /// Long caption off a synced wire timestamp; empty when it does not parse.

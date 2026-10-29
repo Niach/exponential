@@ -88,8 +88,9 @@ pub(crate) fn parse_epoch(timestamp: &str) -> Option<i64> {
 }
 
 /// Web `relativeTime` (date-fns `formatDistanceToNowStrict` + suffix):
-/// `"3 minutes ago"`, `"2 hours ago"`, `"in 5 days"`. Empty on unparseable
-/// input, exactly like the web helper.
+/// `"3 minutes ago"`, `"2 hours ago"`; under a minute or in the future (clock
+/// skew) `"just now"` ×4, never `"in 0 seconds"`. Empty on unparseable input,
+/// exactly like the web helper.
 pub(crate) fn relative_time(timestamp: &str, now_epoch: i64) -> String {
     let Some(then) = parse_epoch(timestamp) else {
         return String::new();
@@ -100,15 +101,11 @@ pub(crate) fn relative_time(timestamp: &str, now_epoch: i64) -> String {
 /// [`relative_time`]'s core, for callers that already hold epoch seconds
 /// (EXP-662: the run registry's `recorded_at`) instead of a wire timestamp.
 pub(crate) fn relative_time_epoch(then: i64, now_epoch: i64) -> String {
-    let delta = now_epoch - then;
-    let (magnitude, future) = if delta >= 0 {
-        (delta, false)
-    } else {
-        (-delta, true)
-    };
-    let (count, unit) = if magnitude < 60 {
-        (magnitude.max(0), "second")
-    } else if magnitude < 3_600 {
+    let magnitude = now_epoch - then;
+    if magnitude < 60 {
+        return "just now".to_string();
+    }
+    let (count, unit) = if magnitude < 3_600 {
         (magnitude / 60, "minute")
     } else if magnitude < 86_400 {
         (magnitude / 3_600, "hour")
@@ -124,11 +121,7 @@ pub(crate) fn relative_time_epoch(then: i64, now_epoch: i64) -> String {
     } else {
         format!("{unit}s")
     };
-    if future {
-        format!("in {count} {noun}")
-    } else {
-        format!("{count} {noun} ago")
-    }
+    format!("{count} {noun} ago")
 }
 
 // ---------------------------------------------------------------------------
@@ -1269,6 +1262,10 @@ mod tests {
         let t = chrono::DateTime::from_timestamp(now + 5 * 86_400, 0)
             .unwrap()
             .to_rfc3339();
-        assert_eq!(relative_time(&t, now), "in 5 days");
+        assert_eq!(relative_time(&t, now), "just now");
+        // A just-created comment (0 s, or a few seconds ahead) → "just now".
+        assert_eq!(relative_time_epoch(now, now), "just now");
+        assert_eq!(relative_time_epoch(now + 3, now), "just now");
+        assert_eq!(relative_time_epoch(now - 59, now), "just now");
     }
 }

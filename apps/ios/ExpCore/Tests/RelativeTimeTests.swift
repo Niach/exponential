@@ -14,6 +14,9 @@ final class RelativeTimeTests: XCTestCase {
     }
 
     func testLongIsTheSpelledOutForm() {
+        XCTAssertEqual(RelativeTime.long(now, now: now), "just now")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-30), now: now), "just now")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(4), now: now), "just now")
         XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-5 * 60), now: now), "5 minutes ago")
         XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-2 * 3600), now: now), "2 hours ago")
         XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-2 * 86400), now: now), "2 days ago")

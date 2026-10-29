@@ -16,14 +16,15 @@ class RelativeTimeTest {
 
     @Test
     fun `long form matches the web wording`() {
-        assertEquals("20 seconds ago", longRelativeTime(20 * s))
+        assertEquals("just now", longRelativeTime(20 * s))
+        assertEquals("just now", longRelativeTime(0))
         assertEquals("1 minute ago", longRelativeTime(1 * m))
         assertEquals("5 minutes ago", longRelativeTime(5 * m))
         assertEquals("2 hours ago", longRelativeTime(2 * h))
         assertEquals("1 day ago", longRelativeTime(26 * h))
         assertEquals("2 days ago", longRelativeTime(2 * d))
         assertEquals("2 months ago", longRelativeTime(60 * d))
-        assertEquals("0 seconds ago", longRelativeTime(-5 * s))
+        assertEquals("just now", longRelativeTime(-5 * s))
     }
 
     @Test

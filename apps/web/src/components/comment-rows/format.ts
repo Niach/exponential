@@ -11,6 +11,9 @@ export function relativeTime(date: Date | string | null | undefined): string {
   if (!date) return ``
   const value = typeof date === `string` ? new Date(date) : date
   if (Number.isNaN(value.getTime())) return ``
+  // Under a minute, or a future instant (clock skew, an optimistic row),
+  // reads "just now" ×4, never "in 0 seconds".
+  if (Date.now() - value.getTime() < 60_000) return `just now`
   return formatDistanceToNowStrict(value, { addSuffix: true })
 }
 
