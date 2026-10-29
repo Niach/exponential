@@ -207,3 +207,54 @@ pub fn router_cases() -> Vec<Case> {
     }
     out
 }
+
+fn same_text(got: &str, expected: &str) -> Result<(), String> {
+    if got == expected {
+        Ok(())
+    } else {
+        Err(format!("got {got:?} / expected {expected:?}"))
+    }
+}
+
+/// VAPP-161 `host-package.json`: recordsQuery, consent (rows + keys),
+/// toolCalls, extensions, canonical and signatures (`signedText`; the
+/// Ed25519 verdicts stay with the hosts' own curves).
+pub fn package_cases() -> Vec<Case> {
+    use exponential_ui::host::{canonical_json, package_file_signed_bytes, parse_records_source, tool_call, tool_consent, tool_consent_key, validate_package_with, AvailableExtension};
+    let f = fixture("host-package.json");
+    let mut out = Vec::new();
+    for c in list(&f, "recordsQuery") {
+        let source = c["source"].as_str().unwrap();
+        let got = parse_source(source).and_then(|s| parse_records_source(&s));
+        out.push((format!("recordsQuery: {source}"), same(&to_value(&got), &c["expected"])));
+    }
+    for c in list(&f, "consent") {
+        let package_id = c["packageId"].as_str().unwrap();
+        let mut result = same(&to_value(&tool_consent(&c["package"])), &c["expected"]);
+        let tools = c["package"].get("tools").and_then(Value::as_object).cloned().unwrap_or_default();
+        let keys: serde_json::Map<String, Value> = tools.iter().map(|(id, tool)| (id.clone(), Value::String(tool_consent_key(package_id, id, tool)))).collect();
+        result = result.and_then(|_| same(&Value::Object(keys), &c["keys"]).map_err(|e| format!("keys: {e}")));
+        out.push((format!("consent: {package_id}"), result));
+    }
+    for c in list(&f, "toolCalls") {
+        let name = c["name"].as_str().unwrap();
+        out.push((format!("toolCalls: {name}"), same(&to_value(&tool_call(name)), &c["expected"])));
+    }
+    for c in list(&f, "extensions") {
+        let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
+        let available: Option<Vec<AvailableExtension>> = c.get("available").map(|a| serde_json::from_value(a.clone()).unwrap());
+        let catalog_ids = supported_catalog_ids(&ids);
+        let pkg = serde_json::json!({"id": "x", "name": "X", "version": "1.0.0", "catalogId": catalog_ids[0], "templates": {"t": {"components": [{"id": "root", "component": "Text", "text": "Hi"}]}}, "extensions": c["extensions"]});
+        let got = validate_package_with(&pkg, &catalog_ids, available.as_deref());
+        out.push((format!("extensions: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+    }
+    for (i, c) in list(&f, "canonical").iter().enumerate() {
+        let value: Value = serde_json::from_str(c["text"].as_str().unwrap()).unwrap();
+        out.push((format!("canonical: {i}"), same_text(&canonical_json(&value), c["expected"].as_str().unwrap())));
+    }
+    for c in list(&f, "signatures") {
+        let bytes = package_file_signed_bytes(c["signed"].as_object().unwrap());
+        out.push((format!("signedText: {}", c["name"].as_str().unwrap()), same_text(&String::from_utf8(bytes).unwrap(), c["signedText"].as_str().unwrap())));
+    }
+    out
+}

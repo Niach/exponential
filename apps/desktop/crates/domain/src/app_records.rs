@@ -1,8 +1,8 @@
 //! VAPP-122 — app RECORDS, the Rust twin of
 //! `packages/domain-contract/src/app-records.ts` (iOS `AppRecords.swift`,
 //! Android `AppRecords.kt`), byte-locked by `fixtures/app-records.json`
-//! (`queryCases`, `valueCases`, `countLabelCases`). The `exp:records?…`
-//! binding's query grammar and the value it emits over the synced
+//! (`queryCases`, `valueCases`, `countLabelCases`, VAPP-161 `sourceCases`).
+//! The `exp:records?…` binding's (and the neutral `records:<kind>?…`) query grammar and the value it emits over the synced
 //! `app_records` rows. Pure: the app host feeds it rows, the viewer, the
 //! clock and the members' names.
 
@@ -130,6 +130,26 @@ fn js_number(text: &str) -> f64 {
     // Rust accepts `inf` / `nan` spellings JS does not; neither is finite,
     // so every caller treats them as "not a number" anyway.
     t.parse::<f64>().unwrap_or(f64::NAN)
+}
+
+/// VAPP-161: a parsed binding source (its scheme, name and params) → the
+/// params [`parse_records_query`] takes, for both spellings: the format's
+/// neutral `records:<kind>?q` (the name wins over a `kind` param) and
+/// `exp:records?kind=<kind>&q`; `None` = not a records source.
+pub fn records_source_params(
+    scheme: &str,
+    name: &str,
+    params: &BTreeMap<String, String>,
+) -> Option<BTreeMap<String, String>> {
+    match (scheme, name) {
+        ("records", kind) => {
+            let mut out = params.clone();
+            out.insert("kind".into(), kind.to_string());
+            Some(out)
+        }
+        ("exp", "records") => Some(params.clone()),
+        _ => None,
+    }
 }
 
 /// The `exp:records` query params (sorted keys, as the source parser gives
@@ -545,6 +565,20 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             let got = parse_records_query(&params(&case["params"]));
             let want: RecordsQuery = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(got, want, "{name}");
+        }
+    }
+
+    /// VAPP-161: parse the source, map it, parse the query.
+    #[test]
+    fn source_cases_replay_the_fixture() {
+        let all = cases("sourceCases");
+        assert!(!all.is_empty());
+        for case in all {
+            let name = case["name"].as_str().unwrap();
+            let source = exponential_ui::host::parse_source(case["source"].as_str().unwrap()).unwrap();
+            let got = records_source_params(&source.scheme, &source.name, &source.params).map(|p| parse_records_query(&p));
+            let want: Option<RecordsQuery> = serde_json::from_value(case["expected"].clone()).unwrap();
             assert_eq!(got, want, "{name}");
         }
     }

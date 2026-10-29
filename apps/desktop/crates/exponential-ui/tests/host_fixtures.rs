@@ -1,4 +1,4 @@
-//! VAPP-91: the host fixtures (`fixtures/host-{transport,policy,router}.json`)
+//! VAPP-91: the host fixtures (`fixtures/host-{transport,policy,router,package}.json`)
 //! replayed by the Rust core's `host` module with the structure of
 //! `packages/exponential-ui/src/host/host.test.ts`, the contract constants
 //! gated against `catalog/host.json`, and the surface's `functionCall` events.
@@ -35,6 +35,11 @@ fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_r
 #[test]
 fn host_router_every_validation_and_flow_equals_the_reference() {
     assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "flows"]));
+}
+
+#[test]
+fn host_package_every_records_query_consent_tool_call_extension_canonical_and_signed_text_case_equals_the_reference() {
+    assert_all(support::package_cases(), count("host-package.json", &["recordsQuery", "consent", "toolCalls", "extensions", "canonical", "signatures"]));
 }
 
 fn strip_comments(v: &Value) -> Value {
@@ -104,6 +109,26 @@ fn the_router_tracks_surfaces_packages_and_extensions() {
     assert_eq!(router.supported_catalog_ids().len(), 4);
     router.route(&json!({"version": "v0.9", "deleteSurface": {"surfaceId": "d"}}));
     assert_eq!(router.surface_ids(), ["free"]);
+}
+
+#[test]
+fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() {
+    let f = fixture("host-router.json");
+    let charts = &f["packages"]["acme.charts"];
+    let id = charts["extensions"][0]["id"].as_str().unwrap();
+    // Ids only: registered = installs.
+    let mut ids_only = host::HostRouter::new(&[id]);
+    assert!(ids_only.install_package(charts).is_empty());
+    // With availability: a registration without a version satisfies any, its components are checked.
+    let mut router = host::HostRouter::with_extensions::<&str>(&[], Some(Vec::new()));
+    router.register_extension_with(id, Some(host::AvailableExtension { id: id.into(), version: Some("1.3.0".into()), components: Some(vec![]) }));
+    let issues = router.install_package(charts);
+    assert!(issues.iter().any(|i| i.path == "/extensions/0/version"), "{issues:?}");
+    assert!(issues.iter().any(|i| i.path == "/extensions/0/components/0"), "{issues:?}");
+    let mut bare = host::HostRouter::with_extensions::<&str>(&[], Some(Vec::new()));
+    bare.register_extension(id);
+    assert!(bare.install_package(charts).is_empty());
+    assert!(host::version_satisfies("1.6.2", "1.4.0") && !host::version_satisfies("2.0.0", "1.4.0") && !host::version_satisfies("1.4", "1.4.0") && !host::version_satisfies("01.4.0", "1.4.0"));
 }
 
 #[test]

@@ -2257,6 +2257,7 @@ name = "domain"
 version = "0.14.84"
 dependencies = [
  "chrono",
+ "exponential-ui",
  "regex",
  "serde",
  "serde_json",

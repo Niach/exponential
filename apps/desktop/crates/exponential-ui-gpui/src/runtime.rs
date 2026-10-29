@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use exponential_ui::host::{
-    action_message, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
+    action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
     FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, FUNCTION_DENIED, FUNCTION_NOT_FOUND,
     RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
@@ -164,7 +164,7 @@ impl HostOptions {
     /// (what [`ExponentialHost::new`] would report and skip).
     pub fn validate_packages(&self) -> Result<(), PackageError> {
         let ids: Vec<&str> = self.extensions.iter().map(|e| e.id.as_str()).collect();
-        let mut router = HostRouter::new(&ids);
+        let mut router = HostRouter::with_extensions(&ids, Some(available_extensions(&self.extensions)));
         for pkg in &self.packages {
             let issues = router.install_package(pkg);
             if !issues.is_empty() {
@@ -283,7 +283,8 @@ impl ExponentialHost {
         });
         let ids: Vec<String> = options.extensions.iter().map(|e| e.id.clone()).collect();
         let mut host = ExponentialHost {
-            router: HostRouter::new(&ids),
+            // VAPP-161: a package's `extensions` are checked against their versions and components.
+            router: HostRouter::with_extensions(&ids, Some(available_extensions(&options.extensions))),
             surfaces: Vec::new(),
             subscriptions: HashMap::new(),
             transport: options.transport,
@@ -385,7 +386,7 @@ impl ExponentialHost {
         if self.extensions.iter().any(|e| e.id == ext.id) {
             return;
         }
-        self.router.register_extension(&ext.id);
+        self.router.register_extension_with(&ext.id, available_extensions(std::slice::from_ref(&ext)).pop());
         self.extensions.push(ext);
     }
 
