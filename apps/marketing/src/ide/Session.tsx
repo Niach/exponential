@@ -3,8 +3,7 @@
    · the HEADER (44px sides): the derived title "#EXP-8 <title>" (21px
      semibold), the Stop pill while the chat is not ended (chats.json STOP:
      `sessions.end` on the root), then the `…` chat menu; under it THE
-     strip — `+` · Conversation · the linked issue chip · … · Guide pinned
-     right after a divider — then a hairline;
+     strip — `+` · Conversation · the linked issue chip … — then a hairline;
    · the TRANSCRIPT, the one scroll, in the 896px work column: the agent's
      prose beside its sparkle mark, THE Trace lines between; a WAITING
      question is ALWAYS inline at its place too (chats.json FEED-140: the
@@ -26,7 +25,6 @@ import {
   IcChevRight,
   IcCircleX,
   IcClaude,
-  IcCode,
   IcEllipsis,
   IcMonitor,
   IcPlus,
@@ -356,12 +354,6 @@ export function SessionScreen() {
             <StatusIcon status={issue.status} size={10.5} />
             <span className="ide-stripchip-id">{issue.id}</span>
             <span className="ide-stripchip-title">{issue.title}</span>
-          </span>
-          <span className="ide-flex1" />
-          <span className="ide-strip-divider" />
-          <span className="ide-stripchip is-tab">
-            <IcCode size={10.5} />
-            Guide
           </span>
         </div>
         <div className="ide-thread-rule" />

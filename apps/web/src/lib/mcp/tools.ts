@@ -2506,7 +2506,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Read a session tree: the root (thread or agent) with its facets (title, issues, PRs, action), its child sessions and the last messages (count = messages, default 20). id = any session in the tree; omitted = your own session's root.`,
+      description: `Read a session tree: the root (thread or agent) with its facets (title, issues, PRs), its child sessions and the last messages (count = messages, default 20). id = any session in the tree; omitted = your own session's root.`,
       inputSchema: strictInput({
         id: uuidString.optional(),
         messages: z.number().int().min(0).max(100).default(20),

@@ -746,7 +746,7 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               </EnvVar>
               <EnvVar name="GITHUB_TOKEN">
                 Optional personal access token, used <strong>only</strong> for
-                public-repo reads (PR diffs, the Guide&apos;s Changes rows) on repos the
+                public-repo reads (PR diffs) on repos the
                 GitHub App is not installed on. It lifts GitHub&apos;s
                 anonymous 60 requests/hour per IP to 5000. No scopes needed.
               </EnvVar>
