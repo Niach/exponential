@@ -117,7 +117,6 @@ fun StoryTile(
                     Column(
                         Modifier
                             .width(width)
-                            .clip(TILE_SHAPE)
                             .clickable { onOpen(story, index) }
                             .testTag("story-tile-picture"),
                         verticalArrangement = Arrangement.spacedBy(6.dp),

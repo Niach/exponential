@@ -5089,6 +5089,13 @@
       }
     },
     "story-tab": {
+      "android": {
+        "file": "shots/story-tab/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 21462,
+        "sha256": "450117fe96aadbbe164931004f73aa714dfd95e632432b728319ba74eee290dc"
+      },
       "desktop": {
         "file": "shots/story-tab/desktop.webp",
         "width": 1800,
@@ -5248,6 +5255,13 @@
       }
     },
     "thread-stories": {
+      "android": {
+        "file": "shots/thread-stories/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 46828,
+        "sha256": "9b773ee02d72f8343efd3f8060f43dbe96404f5cf6ff6cd70129b0e9856df893"
+      },
       "desktop": {
         "file": "shots/thread-stories/desktop.webp",
         "width": 1800,
