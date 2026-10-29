@@ -1202,8 +1202,8 @@
         "file": "shots/exponential-ui-button/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 18592,
-        "sha256": "005cc1f054480f27cdd85974236a0c5a87c97a0d98120009d45dd6a60f9a2702"
+        "bytes": 20512,
+        "sha256": "2055ab52d3f8f69aff011fa026539e5ce099170ae2c4fca317915134d2d8b8c8"
       },
       "desktop": {
         "file": "shots/exponential-ui-button/desktop.webp",
@@ -1225,6 +1225,15 @@
         "height": 1200,
         "bytes": 12996,
         "sha256": "fd49696841280649a9ea2689de32948564f7a752b1e69835d985f3c4f7a0878d"
+      }
+    },
+    "exponential-ui-call-surface": {
+      "android": {
+        "file": "shots/exponential-ui-call-surface/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 28238,
+        "sha256": "aff7a0d417bffdf45e1b05da467d59914dca6eff0ef920e5f6aeb15bac1a36fe"
       }
     },
     "exponential-ui-card": {
@@ -2224,6 +2233,15 @@
         "sha256": "13b980a4baa07d95215fb33bcd45b1d4ecc94be11b8c93c06e0a2b5037fd96a9"
       }
     },
+    "exponential-ui-message-bubble": {
+      "android": {
+        "file": "shots/exponential-ui-message-bubble/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 25264,
+        "sha256": "552c1945cd8ea99bd6da610b715939b16667c91572aceb900acacd59799c2ff4"
+      }
+    },
     "exponential-ui-meter": {
       "android": {
         "file": "shots/exponential-ui-meter/android.webp",
@@ -2344,6 +2362,15 @@
         "sha256": "a1e20a4eeb4b381e6a88e51b7e19cd9beaae7f8bb40aaebf7e7261718ad7cf9b"
       }
     },
+    "exponential-ui-plan": {
+      "android": {
+        "file": "shots/exponential-ui-plan/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 30880,
+        "sha256": "66d0f4949d7bfd72bf50fc492a6dcf07f7052559a70ae76592d4425ab7c50fda"
+      }
+    },
     "exponential-ui-popover": {
       "android": {
         "file": "shots/exponential-ui-popover/android.webp",
@@ -2402,6 +2429,24 @@
         "height": 1200,
         "bytes": 12226,
         "sha256": "b3cb906ad54fa315bd25040f2d452bf69e231dffcb563329869d2861047b54e4"
+      }
+    },
+    "exponential-ui-qr-code": {
+      "android": {
+        "file": "shots/exponential-ui-qr-code/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 17202,
+        "sha256": "ff50aaa7af3449e6f4231490bb75d36bb96f8df3a456f8cf57d7d5f03e868620"
+      }
+    },
+    "exponential-ui-qr-scanner": {
+      "android": {
+        "file": "shots/exponential-ui-qr-scanner/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 12572,
+        "sha256": "98bc4e7f3a98ec975e93f8529595e0259f04e52ade86c4a70c21a90b839a6a58"
       }
     },
     "exponential-ui-radio": {
@@ -2619,8 +2664,8 @@
         "file": "shots/exponential-ui-segmented/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 20468,
-        "sha256": "94a45bea5678152de75dc31714ac82e2d81b3c0ee749a58e1b5265eed059ca7f"
+        "bytes": 26056,
+        "sha256": "64f26735bc2807b5f2e16ae237442b4ee638fa47c2c8c5e00ee3167cd3ca599c"
       },
       "desktop": {
         "file": "shots/exponential-ui-segmented/desktop.webp",
@@ -3069,8 +3114,8 @@
         "file": "shots/exponential-ui-text/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 19204,
-        "sha256": "72b8cd5618395fc27d90df88bd8894c62630793ae0b7c07464b44c8e462072c1"
+        "bytes": 24880,
+        "sha256": "7f26f7e5231bdc94ed914e1b1fa9fb606815b346dbaefacdcf55becf6fae5cc6"
       },
       "desktop": {
         "file": "shots/exponential-ui-text/desktop.webp",
@@ -3309,8 +3354,8 @@
         "file": "shots/exponential-ui-trace-item/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22422,
-        "sha256": "72ff62cfb18f18462a770472834427349f6a9094a404e6a7f722015f676a2f13"
+        "bytes": 28386,
+        "sha256": "1d06571fc97f5c994aa33b8651c34acb41cea029be73c47474295828e02f5a1b"
       },
       "desktop": {
         "file": "shots/exponential-ui-trace-item/desktop.webp",
@@ -3369,8 +3414,8 @@
         "file": "shots/exponential-ui-voice-wave/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 20500,
-        "sha256": "cef981a2dca0398ceddc72b9bac7509cd46cfe8429c2ff0d72327e18af2e9bba"
+        "bytes": 27972,
+        "sha256": "82618a2087b1ae3171746138caa7e72eb11d03a90596daa83b18fa7d5385d2f6"
       },
       "desktop": {
         "file": "shots/exponential-ui-voice-wave/desktop.webp",
