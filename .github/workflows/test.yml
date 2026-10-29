@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           if [ -z "$PR" ]; then echo "desktop=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
-          desktop='^(apps/desktop/|packages/(domain-contract|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
+          desktop='^(apps/desktop/|packages/(domain-contract|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import fixture from "@exp/domain-contract/fixtures/voice-call.json"
-import { callView, CALL_IDLE, callStep } from "@exp/domain-contract/voice-call"
+import fixture from "@exp/etalk/fixtures/voice-call.json"
+import { callView, CALL_IDLE, callStep } from "@exp/etalk/voice-call"
 
 import { CallControls, VoiceCallPill } from "./call-controls"
 import { TooltipProvider } from "./tooltip"

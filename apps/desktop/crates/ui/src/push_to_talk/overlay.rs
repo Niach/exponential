@@ -28,8 +28,8 @@ use gpui::{
 };
 use gpui_component::ActiveTheme as _;
 
-use domain::voice::PttOverlay;
-use domain::voice_call::VOICE_CALL;
+use etalk::voice::PttOverlay;
+use etalk::call::VOICE_CALL;
 
 use crate::voice_overlay::{call_pill, capsule, capsule_size, CallActions, CallFace, Capsule};
 
@@ -461,7 +461,7 @@ pub(crate) fn bottom_centre(area: Bounds<Pixels>, window: Size<Pixels>) -> Point
 /// moved off (or hidden from) a display with a fullscreen app.
 fn placement(cx: &App) -> Place {
     #[cfg(target_os = "linux")]
-    if super::hotkey::session() == Some(domain::voice::VoiceSession::X11) {
+    if super::hotkey::session() == Some(etalk::voice::VoiceSession::X11) {
         if let Some(place) = x11_place(cx) {
             return place;
         }

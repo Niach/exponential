@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use domain::voice::{TrayIcon, TrayItem};
+use etalk::voice::{TrayIcon, TrayItem};
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
@@ -568,7 +568,7 @@ impl DbusMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::voice::TrayItemId;
+    use etalk::voice::TrayItemId;
 
     fn menu(items: Vec<TrayItem>) -> (DbusMenu, flume::Receiver<TrayEvent>) {
         let (tx, rx) = flume::unbounded();

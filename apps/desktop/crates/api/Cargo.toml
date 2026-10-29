@@ -15,6 +15,8 @@ staging = []
 # EXP-1426: the single-account agent core (server-free); this crate re-exports
 # the modules that moved there, so every caller keeps its old path.
 exponential-agent-runtime = { path = "../exponential-agent-runtime" }
+# eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
+etalk = { path = "../etalk" }
 domain = { path = "../domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }

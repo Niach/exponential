@@ -19,7 +19,7 @@
 //! it matches with [`slide_match`] (the phrase within the first
 //! [`SLIDE_SKIP_WORDS`] + 1 words, [`SLIDE_EDIT_RATIO`]).
 //!
-//! Fixture-locked by `packages/domain-contract/fixtures/talk-listen.json`
+//! Fixture-locked by `packages/etalk/fixtures/talk-listen.json`
 //! (`wake`): only the voice device listens, so this is the one
 //! implementation.
 
@@ -433,7 +433,7 @@ pub fn turn_over(open: bool, quiet_ms: usize, has_command: bool, elapsed_ms: usi
 mod tests {
     use super::*;
 
-    const FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/talk-listen.json");
+    const FIXTURE: &str = include_str!("../../../../../packages/etalk/fixtures/talk-listen.json");
 
     fn wake() -> serde_json::Value {
         serde_json::from_str::<serde_json::Value>(FIXTURE).unwrap()["wake"].clone()

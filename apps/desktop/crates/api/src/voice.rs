@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use domain::voice::VoiceSettings;
+pub use etalk::voice::VoiceSettings;
 
 use crate::{ApiError, TrpcClient};
 
@@ -44,9 +44,9 @@ pub struct VoiceUpdate {
     /// #NEW-57: `meeting.json` `desktopAudioValues` (never the meeting
     /// itself: [`voice_start_meeting`] / [`voice_stop_meeting`]).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub desktop_audio: Option<domain::meeting::DesktopAudio>,
+    pub desktop_audio: Option<etalk::meeting::DesktopAudio>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub desktop_audio_apps: Option<Vec<domain::meeting::AudioApp>>,
+    pub desktop_audio_apps: Option<Vec<etalk::meeting::AudioApp>>,
     /// #FEED-163: `meeting.json` `autoStop.hoursValues`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meeting_auto_stop_hours: Option<i64>,
@@ -78,7 +78,7 @@ struct StopMeetingInput {
     /// None = a manual stop, sent as `{}` (the server's input is an
     /// optional object, so a bare `null` was a 400).
     #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<domain::meeting::MeetingStopReason>,
+    reason: Option<etalk::meeting::MeetingStopReason>,
 }
 
 /// #NEW-57: `voice.stopMeeting` — mutation; returns what is stored now.
@@ -86,7 +86,7 @@ struct StopMeetingInput {
 /// which the server posts the conversation note; None = a manual stop.
 pub fn voice_stop_meeting(
     trpc: &TrpcClient,
-    reason: Option<domain::meeting::MeetingStopReason>,
+    reason: Option<etalk::meeting::MeetingStopReason>,
 ) -> Result<VoiceSettings, ApiError> {
     trpc.mutation("voice.stopMeeting", &StopMeetingInput { reason })
 }
@@ -120,8 +120,8 @@ mod tests {
         let update = VoiceUpdate { agent_id: Some(None), ptt_shortcut: Some(String::new()), ..Default::default() };
         assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"agentId":null,"pttShortcut":""}"#);
         let update = VoiceUpdate {
-            desktop_audio: Some(domain::meeting::DesktopAudio::Include),
-            desktop_audio_apps: Some(vec![domain::meeting::AudioApp { id: "z".into(), name: "Zoom".into() }]),
+            desktop_audio: Some(etalk::meeting::DesktopAudio::Include),
+            desktop_audio_apps: Some(vec![etalk::meeting::AudioApp { id: "z".into(), name: "Zoom".into() }]),
             ..Default::default()
         };
         assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"desktopAudio":"include","desktopAudioApps":[{"id":"z","name":"Zoom"}]}"#);
@@ -129,9 +129,9 @@ mod tests {
 
     #[test]
     fn an_automatic_stop_names_its_reason() {
-        let input = StopMeetingInput { reason: Some(domain::meeting::MeetingStopReason::AutoStop) };
+        let input = StopMeetingInput { reason: Some(etalk::meeting::MeetingStopReason::AutoStop) };
         assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"reason":"autoStop"}"#);
-        let input = StopMeetingInput { reason: Some(domain::meeting::MeetingStopReason::Restart) };
+        let input = StopMeetingInput { reason: Some(etalk::meeting::MeetingStopReason::Restart) };
         assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"reason":"restart"}"#);
         let update = VoiceUpdate { meeting_auto_stop_hours: Some(8), ..Default::default() };
         assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"meetingAutoStopHours":8}"#);

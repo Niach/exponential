@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react"
-import { VOICE_CALL_TEST_IDS, type CallView } from "@exp/domain-contract/voice-call"
+import { VOICE_CALL_TEST_IDS, type CallView } from "@exp/etalk/voice-call"
 
 import { CallAvatar, CallControls } from "./call-controls"
 import { cn } from "./cn"

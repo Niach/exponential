@@ -66,6 +66,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@exp/domain-contract": "workspace:*",
+        "@exp/etalk": "workspace:*",
         "@exp/steer-ticket": "workspace:*",
         "hono": "^4.7.11",
         "zod": "^4.0.14",
@@ -82,6 +83,7 @@
       "dependencies": {
         "@exp/design-tokens": "workspace:*",
         "@exp/domain-contract": "workspace:*",
+        "@exp/etalk": "workspace:*",
         "@exp/icons": "workspace:*",
         "@exp/mcp-apps": "workspace:*",
         "@exp/ui": "workspace:*",
@@ -111,6 +113,7 @@
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
         "@exp/emoji": "workspace:*",
+        "@exp/etalk": "workspace:*",
         "@exp/icons": "workspace:*",
         "@exp/mcp-apps": "workspace:*",
         "@exp/steer-ticket": "workspace:*",
@@ -211,6 +214,13 @@
       "version": "0.0.0",
       "devDependencies": {
         "emojibase-data": "^16.0.3",
+      },
+    },
+    "packages/etalk": {
+      "name": "@exp/etalk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@exp/domain-contract": "workspace:*",
       },
     },
     "packages/exponential-ui": {
@@ -439,6 +449,7 @@
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
         "@exp/emoji": "workspace:*",
+        "@exp/etalk": "workspace:*",
         "@exp/icons": "workspace:*",
         "@exponential_app/ui": "workspace:*",
         "@exponential_app/ui-react": "workspace:*",
@@ -803,6 +814,8 @@
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
 
     "@exp/emoji": ["@exp/emoji@workspace:packages/emoji"],
+
+    "@exp/etalk": ["@exp/etalk@workspace:packages/etalk"],
 
     "@exp/icons": ["@exp/icons@workspace:packages/icons"],
 

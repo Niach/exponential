@@ -24,6 +24,7 @@
     "@exponential_app/ui-react": "workspace:*",
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
+    "@exp/etalk": "workspace:*",
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
     "@radix-ui/react-progress": "^1.1.7",

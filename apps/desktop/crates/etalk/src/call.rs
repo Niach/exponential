@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
-const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/voice-call.json");
+const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice-call.json");
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

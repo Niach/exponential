@@ -2071,7 +2071,7 @@ mod tests {
     /// refused. Never two microphones open at once.
     #[test]
     fn mic_owner_cases() {
-        const FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/talk-listen.json");
+        const FIXTURE: &str = include_str!("../../../../../packages/etalk/fixtures/talk-listen.json");
         let fixture: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         for case in fixture["micOwnerCases"]["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();

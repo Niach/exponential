@@ -12,6 +12,7 @@
   "dependencies": {
     "@exp/design-tokens": "workspace:*",
     "@exp/domain-contract": "workspace:*",
+    "@exp/etalk": "workspace:*",
     "@exp/icons": "workspace:*",
     "@exp/mcp-apps": "workspace:*",
     "@exp/ui": "workspace:*",

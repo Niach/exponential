@@ -12,7 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 
 /**
  * NEW-67 (voice plan v3, V1): THE Settings → Voice section. A port of the TS
- * reference `packages/domain-contract/src/voice.ts` (desktop `domain::voice`,
+ * reference `packages/etalk/src/voice.ts` (desktop `domain::voice`,
  * iOS `Voice.swift`), byte-locked by `fixtures/voice.json` (`copy`,
  * `testIds`, `shortcutGrammar`, `languages`, `limits`, `defaults`,
  * `languageNote`, the option builders and S-3's `shortcutCanonical` /

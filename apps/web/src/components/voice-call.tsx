@@ -17,7 +17,7 @@ import {
   VOICE_CALL_ICONS,
   VOICE_CALL_TEST_IDS,
   type CallAvailability,
-} from "@exp/domain-contract/voice-call"
+} from "@exp/etalk/voice-call"
 import { Button, cn, conceptIcon, IconTooltip, toast, VoiceCallSurface } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"

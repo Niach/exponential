@@ -4,7 +4,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { agents, conversations, devices, messages, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
-import { stopNote } from "@exp/domain-contract/meeting"
+import { stopNote } from "@exp/etalk/meeting"
 import { probeRealDb } from "@/test/real-db"
 
 // NEW-57 (meeting.json RESIDENCY) against the REAL migrated Postgres:

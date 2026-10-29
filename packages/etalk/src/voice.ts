@@ -3,7 +3,7 @@
 // `domain::voice` replays the same cases, the phones mirror `copy`.
 
 import fixture from "../fixtures/voice.json" with { type: "json" }
-import screenMemoryFixture from "../fixtures/screen-memory.json" with { type: "json" }
+import screenMemoryFixture from "@exp/domain-contract/fixtures/screen-memory.json" with { type: "json" }
 import meetingFixture from "../fixtures/meeting.json" with { type: "json" }
 
 export const VOICE_COPY = fixture.copy

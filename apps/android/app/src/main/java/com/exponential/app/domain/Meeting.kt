@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 // NEW-57: MEETING MODE on the member's voice device. Android mirrors `copy`,
 // `testIds` and the option / who / consent builders (the channels, the flush
 // and the transcript message live on the desktop). A pure port of
-// `packages/domain-contract/src/meeting.ts`, byte-locked by
+// `packages/etalk/src/meeting.ts`, byte-locked by
 // `fixtures/meeting.json` (`desktopAudioOptionCases`, `appOptionCases`,
 // `whoCases`, `consentCases`, replayed by MeetingTest). The fixture's
 // `$comment` holds the rules.

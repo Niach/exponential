@@ -1,5 +1,5 @@
 //! NEW-55 (voice V4): CALLER MODE on the voice device's IDE
-//! (`fixtures/voice-call.json`; the machine is `domain::voice_call`).
+//! (`fixtures/voice-call.json`; the machine is `etalk::call`).
 //!
 //! A call = a conversation with ONE agent by voice. It starts from the
 //! telephone in the agent chat's header (`agent_screen`), from the tray's
@@ -39,8 +39,8 @@ use gpui::{
 };
 use sync::Store;
 
-use domain::voice::UtteranceTarget;
-use domain::voice_call::{
+use etalk::voice::UtteranceTarget;
+use etalk::call::{
     call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
     VOICE_CALL,
 };
@@ -759,7 +759,7 @@ impl VoiceCall {
         let team_id = Store::try_global(cx)
             .and_then(|store| store.collections().agents.read(cx).iter().find(|row| row.id == agent_id).and_then(|row| row.team_id.clone()))
             .unwrap_or_default();
-        let Some(target) = domain::voice::utterance_input(&text, &team_id, Some(&agent_id), conversation.as_deref()) else { return };
+        let Some(target) = etalk::voice::utterance_input(&text, &team_id, Some(&agent_id), conversation.as_deref()) else { return };
         let input = match target {
             UtteranceTarget::Session { session_id, text } => api::sessions::SendInput::message(&session_id, &text, Vec::new()),
             UtteranceTarget::Agent { team_id, agent_id, text } => crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new()),
@@ -773,7 +773,7 @@ impl VoiceCall {
                 log::warn!("[voice] call: the send failed: {err}");
                 let _ = cx.update(|cx| {
                     crate::toast::show_in_active_window(
-                        crate::toast::Toast::error(domain::voice::VOICE.ptt_copy.overlay_not_sent.clone()),
+                        crate::toast::Toast::error(etalk::voice::VOICE.ptt_copy.overlay_not_sent.clone()),
                         cx,
                     )
                 });
@@ -1005,7 +1005,7 @@ mod tests {
             let face = face(cx).unwrap();
             assert_eq!(face.view.status, None, "answered: the timer");
             assert_eq!(face.timer.as_ref(), "00:00");
-            assert_eq!(face.view.buttons, vec![domain::voice_call::CallButton::Mute, domain::voice_call::CallButton::End]);
+            assert_eq!(face.view.buttons, vec![etalk::call::CallButton::Mute, etalk::call::CallButton::End]);
         });
     }
 

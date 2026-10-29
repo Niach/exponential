@@ -26,7 +26,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use domain::voice::{ShortcutReason, ShortcutSupport, VoiceOs, VoiceSession};
+use etalk::voice::{ShortcutReason, ShortcutSupport, VoiceOs, VoiceSession};
 
 /// What a grab reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -306,7 +306,7 @@ impl Drop for Grab {
 
 /// Hold `value` and report on `tx` (on any thread).
 pub(crate) fn grab(value: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
-    grab_as(value, PUSH_TO_TALK_ID, &domain::voice::VOICE.copy.push_to_talk, tx)
+    grab_as(value, PUSH_TO_TALK_ID, &etalk::voice::VOICE.copy.push_to_talk, tx)
 }
 
 /// The portal shortcut id push to talk binds.
@@ -327,7 +327,7 @@ pub(crate) fn grab_as(value: &str, id: &'static str, description: &str, tx: flum
         let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(ShortcutReason::Taken)));
         return grab;
     };
-    match domain::voice::shortcut_support(os(), session(), value, true) {
+    match etalk::voice::shortcut_support(os(), session(), value, true) {
         ShortcutSupport::Unavailable => {
             let _ = tx.send(HotkeyEvent::Status(Status::FocusedOnly(ShortcutReason::Mouse)));
         }
@@ -359,7 +359,7 @@ mod x11 {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use domain::voice::ShortcutReason;
+    use etalk::voice::ShortcutReason;
     use x11rb::connection::Connection as _;
     use x11rb::protocol::xproto::{ButtonIndex, ConnectionExt as _, EventMask, GrabMode, ModMask};
     use x11rb::protocol::Event;
@@ -532,7 +532,7 @@ mod portal {
 
     use ashpd::desktop::global_shortcuts::{BindShortcutsOptions, GlobalShortcuts, NewShortcut};
     use ashpd::desktop::CreateSessionOptions;
-    use domain::voice::ShortcutReason;
+    use etalk::voice::ShortcutReason;
     use futures_util::StreamExt as _;
 
     use super::{HotkeyEvent, Shortcut, Status};
@@ -621,7 +621,7 @@ mod native {
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
 
-    use domain::voice::ShortcutReason;
+    use etalk::voice::ShortcutReason;
     use global_hotkey::hotkey::{Code, HotKey, Modifiers};
     use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 
@@ -857,14 +857,14 @@ mod tests {
     #[test]
     fn every_grammar_value_parses() {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../../../packages/domain-contract/fixtures/voice.json")).unwrap();
+            serde_json::from_str(include_str!("../../../../../../packages/etalk/fixtures/voice.json")).unwrap();
         for case in fixture["shortcutParseCases"].as_array().unwrap() {
             if let Some(value) = case["value"].as_str().filter(|value| !value.is_empty()) {
                 assert!(Shortcut::parse(value).is_some(), "{value}");
             }
         }
         let named: Vec<&str> = NAMED.iter().map(|(name, ..)| *name).collect();
-        assert_eq!(named, domain::voice::VOICE.shortcut_grammar.named, "NAMED mirrors the grammar");
+        assert_eq!(named, etalk::voice::VOICE.shortcut_grammar.named, "NAMED mirrors the grammar");
         assert_eq!(
             Shortcut::parse("ctrl+shift+space"),
             Some(Shortcut { ctrl: true, alt: false, shift: true, super_key: false, key: Key::Named("space") })
@@ -878,7 +878,7 @@ mod tests {
             assert_eq!(Shortcut::parse(refused), None, "{refused}");
         }
         // #NEW-57: the pause hotkey.
-        let pause = Shortcut::parse(&domain::meeting::MEETING.pause.shortcut).unwrap();
+        let pause = Shortcut::parse(&etalk::meeting::MEETING.pause.shortcut).unwrap();
         assert_eq!(pause, Shortcut { ctrl: true, alt: true, shift: false, super_key: false, key: Key::Char(b'p') });
         assert_eq!(pause.portal_trigger(), "CTRL+ALT+p");
         assert!(pause.key_matches("p"));

@@ -87,9 +87,9 @@ pub struct DeviceDoctor {
 /// NEW-57: `doctor.desktopAudio` (absent = `none` and `[]`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DoctorDesktopAudio {
-    pub capability: domain::meeting::DesktopAudioCapability,
+    pub capability: etalk::meeting::DesktopAudioCapability,
     #[serde(default)]
-    pub apps: Vec<domain::meeting::AudioApp>,
+    pub apps: Vec<etalk::meeting::AudioApp>,
 }
 
 /// NEW-59: one entry of `doctor.displays`.
@@ -240,7 +240,7 @@ pub fn label(key: &str) -> &str {
         "speech" => "Speech",
         "wake" => "Wake word",
         "disk" => "Disk",
-        KEY_DESKTOP_AUDIO => &domain::meeting::MEETING.copy.doctor_label,
+        KEY_DESKTOP_AUDIO => &etalk::meeting::MEETING.copy.doctor_label,
         other => other,
     }
 }
@@ -646,7 +646,7 @@ pub enum DesktopAudioState {
 /// `meeting.json` DOCTOR). The IDE calls it only on the member's voice
 /// device with Desktop audio not off.
 pub fn add_desktop_audio(doctor: &mut DeviceDoctor, state: DesktopAudioState) {
-    let copy = &domain::meeting::MEETING.copy;
+    let copy = &etalk::meeting::MEETING.copy;
     let row = |state| item(KEY_DESKTOP_AUDIO, DoctorGroup::Voice, state);
     doctor.items.push(match state {
         DesktopAudioState::PerApp => row(DoctorState::Ok).detail(&copy.doctor_per_app),
@@ -1079,8 +1079,8 @@ mod tests {
         let bare = items_key(&doctor);
         assert!(!serde_json::to_string(&doctor).unwrap().contains("desktopAudio"));
         doctor.desktop_audio = Some(DoctorDesktopAudio {
-            capability: domain::meeting::DesktopAudioCapability::PerApp,
-            apps: vec![domain::meeting::AudioApp { id: "us.zoom.xos".into(), name: "zoom.us".into() }],
+            capability: etalk::meeting::DesktopAudioCapability::PerApp,
+            apps: vec![etalk::meeting::AudioApp { id: "us.zoom.xos".into(), name: "zoom.us".into() }],
         });
         assert_ne!(items_key(&doctor), bare, "a new live app rides the beat");
         let value = serde_json::to_value(&doctor).unwrap();

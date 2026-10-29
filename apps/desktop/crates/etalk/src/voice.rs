@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use regex::{Captures, Regex};
 use serde::Deserialize;
 
-const VOICE_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/voice.json");
+const VOICE_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice.json");
 /// #NEW-58: the Screen memory item's words (`screen-memory.json` `copy`).
 const SCREEN_MEMORY_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/screen-memory.json");
 
@@ -1175,6 +1175,9 @@ pub fn ptt_overlay(state: &PttState, agent: Option<&str>) -> Option<PttOverlay> 
 pub static VOICE: LazyLock<VoiceSpec> =
     LazyLock::new(|| serde_json::from_str(VOICE_JSON).expect("voice.json parses"));
 
+/// The author kind of an agent's message (the host's `messages.author_kind`).
+pub const AUTHOR_KIND_AGENT: &str = "agent";
+
 /// The fields of a synced `messages` row [`should_speak`] reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VoiceMessage<'a> {
@@ -1219,7 +1222,7 @@ pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> b
     if !context.voices.contains(&context.language) {
         return false;
     }
-    if message.author_kind != Some(crate::contract::MESSAGE_AUTHOR_KIND_AGENT) || message.has_card {
+    if message.author_kind != Some(AUTHOR_KIND_AGENT) || message.has_card {
         return false;
     }
     if message.body.map_or(true, |body| body.trim().is_empty()) {

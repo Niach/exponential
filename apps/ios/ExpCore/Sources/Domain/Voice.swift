@@ -1,7 +1,7 @@
 import Foundation
 
 // NEW-67 (voice plan v3, V1): THE Settings → Voice section. A port of the TS
-// reference `packages/domain-contract/src/voice.ts` (desktop `domain::voice`,
+// reference `packages/etalk/src/voice.ts` (desktop `domain::voice`,
 // Android `domain/Voice.kt`), byte-locked by `fixtures/voice.json` (`copy`,
 // `testIds`, `shortcutGrammar`, `languages`, `limits`, `defaults` and the option builders, replayed by
 // `VoiceTests`). The phones only show and edit the member's setting: speaking

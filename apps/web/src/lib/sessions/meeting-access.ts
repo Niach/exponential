@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm"
-import { MEETING_COPY, stopNote, type MeetingStopReason } from "@exp/domain-contract/meeting"
+import { MEETING_COPY, stopNote, type MeetingStopReason } from "@exp/etalk/meeting"
 import { agents, devices, sessions } from "@/db/schema"
 import { insertMessage } from "@/lib/sessions/messages"
 import type { Db } from "@/lib/sessions/tx"

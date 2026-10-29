@@ -1,7 +1,7 @@
 import Foundation
 
 // NEW-57: MEETING MODE on the member's voice device. A port of the TS
-// reference `packages/domain-contract/src/meeting.ts` (desktop
+// reference `packages/etalk/src/meeting.ts` (desktop
 // `domain::meeting`, Android `domain/Meeting.kt`), byte-locked by
 // `fixtures/meeting.json` (`copy`, `testIds`, `desktopAudioValues`, `limits`
 // and the option / who / consent builders, replayed by `MeetingTests`). The

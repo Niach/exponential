@@ -1252,7 +1252,7 @@ mod tests {
     #[test]
     fn speech_chunks_replay_voice_json() {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/voice.json")).unwrap();
+            serde_json::from_str(include_str!("../../../../../packages/etalk/fixtures/voice.json")).unwrap();
         let cases = fixture["speechChunkCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {

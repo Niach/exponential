@@ -251,7 +251,7 @@ pub fn session_cards(messages: &[MessageRow]) -> Vec<SessionCard> {
                 "surface" => (SessionCardKind::Surface, false),
                 _ => return None,
             };
-            let at = message.created_at.as_deref().and_then(crate::voice::parse_instant).unwrap_or(0);
+            let at = message.created_at.as_deref().and_then(crate::instant::parse_instant).unwrap_or(0);
             Some((at, message.id.as_str(), SessionCard { id: message.id.clone(), kind, waiting }))
         })
         .collect();

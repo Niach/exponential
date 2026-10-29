@@ -7,12 +7,14 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-const MEETING_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/meeting.json");
+const MEETING_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/meeting.json");
 
-/// How many days the server keeps a meeting transcript batch.
-pub const RETENTION_DAYS: i64 = crate::contract::MEETING_RETENTION_DAYS;
-/// How many days the voice device keeps its raw segments (`meeting_segments`).
-pub const LOCAL_RETENTION_DAYS: i64 = crate::contract::MEETING_LOCAL_RETENTION_DAYS;
+/// How many days the server keeps a meeting transcript batch (contract.json
+/// `meeting.retentionDays`; the test below locks the two together).
+pub const RETENTION_DAYS: i64 = 7;
+/// How many days the voice device keeps its raw segments (`meeting_segments`,
+/// contract.json `meeting.localRetentionDays`).
+pub const LOCAL_RETENTION_DAYS: i64 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -586,6 +588,14 @@ pub fn meeting_resume_asks(listened: Option<&str>, started_at: Option<&str>) -> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn retention_matches_the_contract() {
+        let contract: Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/contract.json")).unwrap();
+        assert_eq!(contract["meeting"]["retentionDays"].as_i64(), Some(RETENTION_DAYS));
+        assert_eq!(contract["meeting"]["localRetentionDays"].as_i64(), Some(LOCAL_RETENTION_DAYS));
+    }
 
     #[test]
     fn auto_stop_matches_the_fixture() {

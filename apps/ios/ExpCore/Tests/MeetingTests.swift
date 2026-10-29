@@ -24,7 +24,7 @@ final class MeetingTests: XCTestCase {
     }
 
     private func fixture() throws -> [String: Any] {
-        try json("packages/domain-contract/fixtures/meeting.json")
+        try json("packages/etalk/fixtures/meeting.json")
     }
 
     private func cases(_ key: String) throws -> [[String: Any]] {

@@ -1,4 +1,4 @@
-//! NEW-57: a MEETING's channels (`packages/domain-contract/fixtures/meeting.json`
+//! NEW-57: a MEETING's channels (`packages/etalk/fixtures/meeting.json`
 //! CHANNELS, RESIDENCY, PAUSE): the microphone (`you`) and every captured
 //! app (or the one `desktop` channel) each run the push-to-talk segment
 //! rules of talk-listen.json on their OWN VAD stream, never a mix. Every

@@ -1,4 +1,4 @@
-import call from "@exp/domain-contract/fixtures/voice-call.json"
+import call from "@exp/etalk/fixtures/voice-call.json"
 import { CallControlsSpecimen, TooltipProvider } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"

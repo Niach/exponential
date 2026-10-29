@@ -12,7 +12,7 @@ import {
   voiceDeviceOptions,
   wakeDetail,
   wakePhrasePlaceholder,
-} from "@exp/domain-contract/voice"
+} from "@exp/etalk/voice"
 import {
   appOptions,
   autoStopOptions,
@@ -22,7 +22,7 @@ import {
   MEETING_COPY,
   MEETING_TEST_IDS,
   who,
-} from "@exp/domain-contract/meeting"
+} from "@exp/etalk/meeting"
 import {
   Button,
   conceptIcon,

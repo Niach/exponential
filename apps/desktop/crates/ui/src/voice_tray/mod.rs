@@ -6,7 +6,7 @@
 //! ([`linux`]; no GTK, and not `ksni`, whose Unlicense is off deny.toml's
 //! allow-list; GNOME without the AppIndicator extension shows nothing),
 //! `tray-icon` + `muda` on macOS and Windows (created on gpui's main thread).
-//! The rows come from [`domain::voice::tray_menu`]; a toggle writes
+//! The rows come from [`etalk::voice::tray_menu`]; a toggle writes
 //! `voice.update` optimistically like Settings → Voice (the menu flips at
 //! once, the stored value goes to `speak_replies::set_settings`, a refusal
 //! reverts and toasts). Mute microphone is device-local (#NEW-86: kept in
@@ -19,10 +19,10 @@
 //! While the tray is up, closing the last window keeps the IDE running
 //! ([`keeps_running`], read by the shell) so the speech worker stays resident.
 //! #NEW-56: while the wake word holds the microphone open the icon carries a
-//! dot (`domain::voice::tray_icon`), and Mute takes the wake word's
+//! dot (`etalk::voice::tray_icon`), and Mute takes the wake word's
 //! microphone away too.
 //! #NEW-97: while no tray host shows the item (GNOME without AppIndicator)
-//! the rail's footer carries the same rows ([`rail`], `domain::voice::rail_voice`),
+//! the rail's footer carries the same rows ([`rail`], `etalk::voice::rail_voice`),
 //! clicked through [`click`] = the tray's own handlers.
 //! NEW-58: the Screen memory switch (`fixtures/screen-memory.json`): device-
 //! local and kept like Mute, default off; while on and this IDE is the voice
@@ -40,7 +40,7 @@ use gpui::{App, AppContext as _, Context, Entity, Global};
 
 use api::voice::VoiceUpdate;
 use coding::screen;
-use domain::voice::{
+use etalk::voice::{
     rail_voice, tray_icon, tray_menu, MeetingTrayState, RailVoice, ScreenMemoryState, TrayContext, TrayIcon, TrayItem, TrayItemId,
     VoiceSettings,
 };
@@ -842,7 +842,7 @@ use linux as backend;
 /// macOS and Windows: the native tray, on gpui's main thread.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod backend {
-    use domain::voice::{TrayIcon as IconState, TrayItem, TrayItemId};
+    use etalk::voice::{TrayIcon as IconState, TrayItem, TrayItemId};
     use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -1023,7 +1023,7 @@ mod backend {
 /// Elsewhere: no tray.
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 mod backend {
-    use domain::voice::{TrayIcon, TrayItem};
+    use etalk::voice::{TrayIcon, TrayItem};
 
     pub(super) struct Backend;
 

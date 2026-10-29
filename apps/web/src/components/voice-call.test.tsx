@@ -1,6 +1,6 @@
 import { fireEvent, render, renderHook, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import fixture from "@exp/domain-contract/fixtures/voice-call.json"
+import fixture from "@exp/etalk/fixtures/voice-call.json"
 import { TooltipProvider } from "@exp/ui"
 
 import { VoiceCall, type CallDeps } from "@/lib/voice-call/call"
