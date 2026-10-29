@@ -2736,3 +2736,18 @@ describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures
     expect((await loadStoryPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
   })
 })
+
+describe.skipIf(!ready.ok)(`sessions.delete — a batch of chats`, () => {
+  it(`deletes every selected root and its tree, one call per chat`, async () => {
+    const { deleteSession } = await import(`@/lib/sessions/lifecycle`)
+    const w = await world({ shared: true })
+    const roots: string[] = []
+    for (let i = 0; i < 10; i++) {
+      const sent = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `chat ${i}` } })
+      await sendSession({ userId: w.owner, input: { parentId: sent.sessionId, text: `child ${i}` } })
+      roots.push(sent.sessionId)
+    }
+    for (const id of roots) await deleteSession({ userId: w.owner, sessionId: id })
+    expect(await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.teamId, w.teamId))).toEqual([])
+  })
+})
