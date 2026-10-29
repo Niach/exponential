@@ -76,4 +76,21 @@ public enum ComposerAgentRow {
         let label = agent.map { Copy.to.replacingOccurrences(of: "{name}", with: $0.agentName) } ?? Copy.temporary
         return State(agents: ordered, options: options, selected: selected, agent: agent, label: label)
     }
+
+    /// The pick a page opened WITH a subject starts on (`agentRow.seedCases`):
+    /// issues, a prompt run or a device seed = a launch, so Temporary
+    /// session; nil = the default.
+    public static func seedPick(issueIds: [String], promptId: String?, deviceId: String?) -> String? {
+        !issueIds.isEmpty || promptId != nil || deviceId != nil ? temporaryPick : nil
+    }
+
+    /// The pick after the composer's subject changed (`agentRow.subjectCases`):
+    /// an issue or prompt subject is a launch, so the row follows to
+    /// Temporary session; any other subject keeps `current`.
+    public static func pickForSubject(_ subject: AgentComposerPrompt.Subject?, current: String?) -> String? {
+        switch subject {
+        case .issues?, .prompt?: temporaryPick
+        default: current
+        }
+    }
 }

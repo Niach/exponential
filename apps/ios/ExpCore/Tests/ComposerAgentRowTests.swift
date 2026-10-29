@@ -48,6 +48,38 @@ final class ComposerAgentRowTests: XCTestCase {
         }
     }
 
+    func testReplaysEverySeedCase() throws {
+        let cases = try XCTUnwrap(try block()["seedCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let seed = try XCTUnwrap(testCase["seed"] as? [String: Any])
+            let pick = ComposerAgentRow.seedPick(
+                issueIds: seed["issueIds"] as? [String] ?? [],
+                promptId: seed["promptId"] as? String,
+                deviceId: seed["deviceId"] as? String
+            )
+            XCTAssertEqual(pick, testCase["expected"] as? String, name)
+        }
+    }
+
+    func testReplaysEverySubjectCase() throws {
+        let cases = try XCTUnwrap(try block()["subjectCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let subject: AgentComposerPrompt.Subject?
+            switch testCase["subject"] as? String {
+            case "issues": subject = .issues(count: 1)
+            case "prompt": subject = .prompt
+            case nil: subject = nil
+            case let other?: return XCTFail("\(name): unknown subject \(other)")
+            }
+            let pick = ComposerAgentRow.pickForSubject(subject, current: testCase["current"] as? String)
+            XCTAssertEqual(pick, testCase["expected"] as? String, name)
+        }
+    }
+
     func testConstantsCopyAndTestIdsMatchTheFixture() throws {
         let block = try block()
         XCTAssertEqual(block["temporaryId"] as? String, ComposerAgentRow.temporaryPick)
