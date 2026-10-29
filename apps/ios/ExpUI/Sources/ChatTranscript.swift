@@ -150,12 +150,13 @@ public struct SurfaceCardFrame<Content: View>: View {
     }
 
     public var body: some View {
-        let shape = RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+        let shape = RoundedRectangle(cornerRadius: PlanCard.Card.surfaceRadius)
         let before = animate && !entered
         let glowing = animate && !settled && !motion.reduceMotion
         let enter = Chats.SurfaceEnter.Frame.self
         // The title = the plan card's surface caption (plan-card.json
-        // `card`: 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4.
+        // `card`: 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4;
+        // the frame = its `surfaceRadius` + `surfacePadding` ×4.
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             if let title, !title.isEmpty {
                 Text(title)
@@ -164,7 +165,7 @@ public struct SurfaceCardFrame<Content: View>: View {
                     .lineLimit(1)
             }
             content()
-                .padding(14)
+                .padding(PlanCard.Card.surfacePadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(GlassTokens.opaqueCardFill, in: shape)
                 .overlay(
