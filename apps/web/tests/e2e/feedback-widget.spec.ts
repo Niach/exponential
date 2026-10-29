@@ -69,7 +69,8 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   expect(allowedConfig.headers()[`access-control-allow-origin`]).toBe(
     `https://example.com`
   )
-  expect(allowedConfig.headers().vary).toContain(`Origin`)
+  // `Vary: Origin` is unit-tested (service.test.ts): the vite dev server
+  // this stack runs replaces it with its own `Vary: Accept-Encoding`.
   const configBody = (await allowedConfig.json()) as { enabled: boolean }
   expect(configBody.enabled).toBe(true)
 
@@ -99,7 +100,7 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
     multipart: {
       key,
       title: `Widget report ${app.namespace}`,
-      description: `Steps: clicked the broken button`,
+      message: `Steps: clicked the broken button`,
       email: `reporter@example.com`,
       name: `Rita Reporter`,
       customData: JSON.stringify({ plan: `pro` }),
@@ -188,18 +189,16 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
   await expect(fab).toBeVisible()
   await fab.click()
 
-  // Capture runs before the panel opens; chromium capture is deterministic
-  // on the demo page, so a preview image must appear.
+  // Screenshots are on demand: the panel opens on the plain form and Take
+  // screenshot captures the page straight into the annotation editor.
   const panel = page.locator(`.exp-panel`)
   await expect(panel).toBeVisible({ timeout: 20_000 })
-  const shot = panel.locator(`.exp-shot img`)
-  await expect(shot).toBeVisible({ timeout: 20_000 })
+  await panel.getByRole(`button`, { name: `Take screenshot` }).click()
 
   // Annotate: rectangle + arrow drawn over the screenshot, flattened on Done.
-  await panel.getByRole(`button`, { name: `Annotate` }).click()
   const annotator = page.locator(`.exp-annotator`)
-  await expect(annotator).toBeVisible()
-  const canvas = annotator.locator(`canvas`)
+  await expect(annotator).toBeVisible({ timeout: 20_000 })
+  const canvas = annotator.locator(`canvas`).first()
   await expect(canvas).toBeVisible()
   const box = (await canvas.boundingBox())!
   await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.15)
@@ -217,16 +216,15 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
   await page.mouse.up()
   await annotator.getByRole(`button`, { name: `Done` }).click()
   await expect(annotator).toBeHidden()
-  await expect(shot).toBeVisible()
+  await expect(panel.locator(`.exp-shot img`)).toBeVisible()
 
-  await panel.locator(`#exp-title`).fill(`In-widget report ${app.namespace}`)
+  // The issue is titled off the message's first line.
   await panel
-    .locator(`#exp-description`)
-    .fill(`Filed through the embedded widget`)
-  await panel.locator(`#exp-email`).fill(`widget-user@example.com`)
+    .locator(`#exp-message`)
+    .fill(`In-widget report ${app.namespace}\nFiled through the embedded widget`)
   await panel.getByRole(`button`, { name: `Send feedback` }).click()
 
-  await expect(page.getByText(`Thanks for the report!`)).toBeVisible({
+  await expect(page.getByText(`Thanks, your report is in.`)).toBeVisible({
     timeout: 15_000,
   })
 

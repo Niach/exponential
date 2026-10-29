@@ -1273,6 +1273,7 @@ describe(`widget endpoints: CORS + codes on every response`, () => {
   const expectCors = (res: Response, origin: string) => {
     expect(res.headers.get(`Access-Control-Allow-Origin`)).toBe(origin)
     expect(res.headers.get(`Access-Control-Expose-Headers`)).toBe(`Retry-After`)
+    expect(res.headers.get(`Vary`)).toBe(`Origin`)
     expect(res.headers.get(`Access-Control-Allow-Credentials`)).toBeNull()
   }
 
