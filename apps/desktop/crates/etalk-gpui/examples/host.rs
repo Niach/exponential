@@ -59,6 +59,7 @@ impl TalkHost for LocalHost {
             tray_icon_svg: br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#ffffff"></circle>
 </svg>"##,
             app_id: "app.spezl",
+            tray_id: "spezl-voice",
         }
     }
 

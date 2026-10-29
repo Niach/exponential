@@ -21,6 +21,8 @@ pub struct Brand {
     pub tray_icon_svg: &'static [u8],
     /// The X11/Wayland app id of the overlay and call pill windows.
     pub app_id: &'static str,
+    /// The Linux StatusNotifierItem id of the tray.
+    pub tray_id: &'static str,
 }
 
 /// The accounts signed in on this machine (the speech data cleanup).
