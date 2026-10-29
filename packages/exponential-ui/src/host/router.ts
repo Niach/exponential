@@ -8,7 +8,7 @@ import { A2UI_VERSION } from "../catalog"
 import { errorMessage, MESSAGE_KINDS } from "./contract"
 import type { HostOp, ServerMessage } from "./contract"
 import { sourceAllowed, supportedCatalogIds, templateMessages, validatePackage } from "./package"
-import type { PackageIssue, AppPackage } from "./package"
+import type { AvailableExtension, PackageIssue, AppPackage } from "./package"
 import { parseSource } from "./sources"
 import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
@@ -17,6 +17,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 export interface HostRouterOptions {
   /** Extension catalog ids the host registered (negotiation). */
   extensionIds?: readonly string[]
+  /** VAPP-161: their versions and components (a package's `extensions`
+   *  are checked against them; unset = only that the id is registered). */
+  extensions?: readonly AvailableExtension[]
 }
 
 export interface SurfaceInfo {
@@ -30,23 +33,26 @@ export class HostRouter {
   private extensionIds: string[]
   private surfaces = new Map<string, SurfaceInfo>()
   private packages = new Map<string, AppPackage>()
+  private extensions: AvailableExtension[] | undefined
 
   constructor(options: HostRouterOptions = {}) {
     this.extensionIds = [...(options.extensionIds ?? [])]
+    this.extensions = options.extensions ? [...options.extensions] : undefined
   }
 
   get supportedCatalogIds(): string[] {
     return supportedCatalogIds(this.extensionIds)
   }
 
-  registerExtension(id: string): void {
+  registerExtension(id: string, available?: AvailableExtension): void {
     if (!this.extensionIds.includes(id)) this.extensionIds.push(id)
+    if (this.extensions && !this.extensions.some((e) => e.id === id)) this.extensions.push(available ?? { id })
   }
 
   /** Install a declarative package: its templates become `applyTemplate`
    *  targets. Returns the validation issues (installed only when none). */
   installPackage(pkg: AppPackage): PackageIssue[] {
-    const issues = validatePackage(pkg, this.supportedCatalogIds)
+    const issues = validatePackage(pkg, this.supportedCatalogIds, this.extensions)
     if (!issues.length) this.packages.set(pkg.id, pkg)
     return issues
   }

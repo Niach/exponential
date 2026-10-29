@@ -16,11 +16,13 @@ import ExponentialUI
 //     host; VAPP-119 `exp:issues` / `boards` / `members` / `sessions` /
 //     `comments` / `attachments` over the team's rows (`AppSources`, the
 //     fixture's derivation); VAPP-122 `exp:records?kind=…` over the app's
-//     own rows (`AppRecords`);
+//     own rows (`AppRecords`), VAPP-161 also the format's neutral
+//     `records:<kind>?…` (`AppRecords.recordsSourceParams`);
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
 //     `harness.records.upsert` / `.delete` (tRPC `apps.records.*`, no
-//     consent card: the app's own rows; a refusal = the failed-action toast);
+//     consent card: the app's own rows; a refusal = the failed-action toast;
+//     VAPP-161 the neutral `records.upsert` / `.delete` = the same closures);
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
 //     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
 //     no built-in apps: only the team's packages install);
@@ -218,6 +220,47 @@ final class ExpAppHost {
         // plugin's `resolveUrl` already narrowed every src to the media rule).
         let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : []) + ["data"]
         let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient)
+        // VAPP-122: the app's own rows (no consent card); a refusal (the
+        // kind's schema, the caps, the plan quota) = the failed-action toast,
+        // and the call fails. VAPP-161: the format's neutral `records.upsert`
+        // / `.delete` are the same closures.
+        let recordsUpsert: HostFunction = { args, _ in
+            do {
+                guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
+                let data = args["data"]?.object.flatMap { object in
+                    CardJSON(any: try? JSONSerialization.jsonObject(with: Data(JSONValue.object(object).json.utf8)))?.objectValue
+                } ?? [:]
+                let result = try await appsApi.recordsUpsert(
+                    accountId: accountId,
+                    appId: appId,
+                    kind: args["kind"]?.displayText ?? "",
+                    data: data,
+                    recordId: args["id"]?.string
+                )
+                return ["id": result.id]
+            } catch {
+                Toaster.shared.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the record"),
+                    description: error.trpcUserMessage
+                )
+                throw error
+            }
+        }
+        let recordsDelete: HostFunction = { args, _ in
+            do {
+                guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
+                try await appsApi.recordsDelete(
+                    accountId: accountId, appId: appId, recordId: args["id"]?.displayText ?? ""
+                )
+                return nil
+            } catch {
+                Toaster.shared.error(
+                    FeedbackStates.Errors.title(verb: "delete", thing: "the record"),
+                    description: error.trpcUserMessage
+                )
+                throw error
+            }
+        }
         host = ExponentialHost(HostOptions(
             functions: actions.merging([
                 "harness.toast": { args, _ in
@@ -256,46 +299,10 @@ final class ExpAppHost {
                         httpClient: deps.httpClient
                     )
                 },
-                // VAPP-122: the app's own rows (no consent card); a refusal
-                // (the kind's schema, the caps, the plan quota) = the
-                // failed-action toast, and the call fails.
-                "harness.records.upsert": { args, _ in
-                    do {
-                        guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
-                        let data = args["data"]?.object.flatMap { object in
-                            CardJSON(any: try? JSONSerialization.jsonObject(with: Data(JSONValue.object(object).json.utf8)))?.objectValue
-                        } ?? [:]
-                        let result = try await appsApi.recordsUpsert(
-                            accountId: accountId,
-                            appId: appId,
-                            kind: args["kind"]?.displayText ?? "",
-                            data: data,
-                            recordId: args["id"]?.string
-                        )
-                        return ["id": result.id]
-                    } catch {
-                        Toaster.shared.error(
-                            FeedbackStates.Errors.title(verb: "save", thing: "the record"),
-                            description: error.trpcUserMessage
-                        )
-                        throw error
-                    }
-                },
-                "harness.records.delete": { args, _ in
-                    do {
-                        guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
-                        try await appsApi.recordsDelete(
-                            accountId: accountId, appId: appId, recordId: args["id"]?.displayText ?? ""
-                        )
-                        return nil
-                    } catch {
-                        Toaster.shared.error(
-                            FeedbackStates.Errors.title(verb: "delete", thing: "the record"),
-                            description: error.trpcUserMessage
-                        )
-                        throw error
-                    }
-                },
+                "harness.records.upsert": recordsUpsert,
+                "harness.records.delete": recordsDelete,
+                "records.upsert": recordsUpsert,
+                "records.delete": recordsDelete,
             ]) { _, own in own },
             sources: [
                 "exp": { source, emit in
@@ -309,6 +316,17 @@ final class ExpAppHost {
                         emit(.null)
                         return nil
                     }
+                },
+                // VAPP-161: the format's neutral `records:<kind>?…` =
+                // `exp:records?kind=<kind>&…` (the name wins).
+                "records": { source, emit in
+                    guard let params = AppRecords.recordsSourceParams(
+                        scheme: source.scheme, name: source.name, params: source.params
+                    ) else {
+                        emit(.null)
+                        return nil
+                    }
+                    return AppHostStore.records(pool: pool, scope: scope, params: params, emit: emit)
                 },
             ],
             extensions: extensions,

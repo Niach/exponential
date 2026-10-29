@@ -12,7 +12,7 @@ import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
 import { RENDER_FAILED, actionMessage, errorMessage } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
-import { clientCapabilities } from "./package"
+import { availableExtensions, clientCapabilities } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
 import { combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
@@ -236,7 +236,7 @@ export class ExponentialHost {
 
   constructor(private options: HostOptions = {}) {
     this.extensions = [...(options.extensions ?? [])]
-    this.router = new HostRouter({ extensionIds: this.extensions.map((e) => e.id) })
+    this.router = new HostRouter({ extensionIds: this.extensions.map((e) => e.id), extensions: availableExtensions(this.extensions) })
     this.functions = { ...(options.functions ?? {}) }
     this.sources = { ...(options.sources ?? {}) }
     for (const pkg of options.packages ?? []) {
@@ -268,7 +268,7 @@ export class ExponentialHost {
   registerExtension(ext: ExtensionDef): void {
     if (this.extensions.some((e) => e.id === ext.id)) return
     this.extensions.push(ext)
-    this.router.registerExtension(ext.id)
+    this.router.registerExtension(ext.id, availableExtensions([ext])[0])
     for (const store of this.stores.values()) store.invalidate()
   }
 

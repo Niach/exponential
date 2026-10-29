@@ -6,7 +6,8 @@
 //   - bindings: the `exp:` scheme over the synced Electric collections
 //     (`exp:devices`; VAPP-119 `exp:issues`, `exp:boards`, `exp:members`,
 //     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json;
-//     VAPP-122 `exp:records?kind=…` over the app's own rows: fixtures/app-records.json);
+//     VAPP-122 `exp:records?kind=…` over the app's own rows: fixtures/app-records.json;
+//     VAPP-161 the format's neutral `records:<kind>?…` + `records.*` = the same);
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
 //   - policy: `harness.mcp` asks first (the consent card), urls through the
@@ -21,7 +22,7 @@
 
 import { useState, useSyncExternalStore } from "react"
 import { ExponentialHost, isPrivateHost } from "@exponential_app/ui"
-import type { FunctionCallInfo, HostOptions, MediaRequest, ParsedSource, SourceEmit, Transport } from "@exponential_app/ui"
+import type { FunctionCallInfo, HostFunction, HostOptions, MediaRequest, ParsedSource, SourceEmit, Transport } from "@exponential_app/ui"
 import { useHostStatus } from "@exponential_app/ui-react"
 import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
 import type { AppPackage } from "@exponential_app/ui"
@@ -39,7 +40,7 @@ import {
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
-import { parseRecordsQuery, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
+import { parseRecordsQuery, recordsSourceParams, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { appMediaAllowed } from "@exp/domain-contract/apps"
@@ -262,7 +263,7 @@ export interface RecordsScope {
  *  change of the records, the users or the apps (an `app=` slug may sync
  *  later); a value equal to the last one is not re-emitted. */
 function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
-  const query = parseRecordsQuery(source.params)
+  const query = parseRecordsQuery(recordsSourceParams(source) ?? source.params)
   let last: string | null = null
   const push = () => {
     let appId = scope.appId
@@ -401,6 +402,30 @@ export function createAppHost(options: AppHostOptions): AppHost {
     if (!scope.appId) throw new Error(`No app to keep records for`)
     return { id: scope.appId }
   }
+  // VAPP-122: the app's own rows: no consent card; a refusal (the kind's
+  // schema, the caps, the plan quota) is a failed action = a toast.
+  const recordsUpsert: HostFunction = async ({ kind, data, id }) => {
+    try {
+      const result = await trpc.apps.records.upsert.mutate(
+        { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined },
+        SKIP_ERROR_TOAST
+      )
+      await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+      return { id: result.id }
+    } catch (error) {
+      failedAction(`save`, `the record`, error)
+      throw error
+    }
+  }
+  const recordsDelete: HostFunction = async ({ id }) => {
+    try {
+      const result = await trpc.apps.records.delete.mutate({ ...appRef(), recordId: String(id ?? ``) }, SKIP_ERROR_TOAST)
+      await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+    } catch (error) {
+      failedAction(`delete`, `the record`, error)
+      throw error
+    }
+  }
   return new AppHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
@@ -412,6 +437,8 @@ export function createAppHost(options: AppHostOptions): AppHost {
         if (APP_SOURCE_KINDS.includes(source.name)) return teamSource(source, emit, scope)
         emit(null)
       },
+      // VAPP-161: the package format's neutral spelling of `exp:records`.
+      records: (source, emit) => recordsSource(source, emit, scope),
     },
     functions: {
       "harness.toast": ({ message, tone }) => {
@@ -434,30 +461,11 @@ export function createAppHost(options: AppHostOptions): AppHost {
           return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args)]
         })
       ),
-      // VAPP-122: the app's own rows: no consent card; a refusal (the kind's
-      // schema, the caps, the plan quota) is a failed action = a toast.
-      "harness.records.upsert": async ({ kind, data, id }) => {
-        try {
-          const result = await trpc.apps.records.upsert.mutate(
-            { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined },
-            SKIP_ERROR_TOAST
-          )
-          await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-          return { id: result.id }
-        } catch (error) {
-          failedAction(`save`, `the record`, error)
-          throw error
-        }
-      },
-      "harness.records.delete": async ({ id }) => {
-        try {
-          const result = await trpc.apps.records.delete.mutate({ ...appRef(), recordId: String(id ?? ``) }, SKIP_ERROR_TOAST)
-          await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-        } catch (error) {
-          failedAction(`delete`, `the record`, error)
-          throw error
-        }
-      },
+      "harness.records.upsert": recordsUpsert,
+      "harness.records.delete": recordsDelete,
+      // VAPP-161: the package format's neutral names, the same writes.
+      "records.upsert": recordsUpsert,
+      "records.delete": recordsDelete,
     },
     policy: {
       functions: { ask: [`harness.mcp`, `exponential.*`] },

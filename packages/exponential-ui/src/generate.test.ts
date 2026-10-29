@@ -13,7 +13,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the forty-eight outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave)`, () => {
+  test(`renders the forty-nine outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs`,
       `../../apps/desktop/crates/exponential-ui/src/generated/descriptions.rs`,
@@ -33,6 +33,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/code-tokens.json`,
       `fixtures/control-geometry.json`,
       `fixtures/format.json`,
+      `fixtures/host-package.json`,
       `fixtures/host-policy.json`,
       `fixtures/host-router.json`,
       `fixtures/host-transport.json`,

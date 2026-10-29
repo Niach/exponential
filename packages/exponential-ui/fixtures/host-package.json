@@ -1,0 +1,1262 @@
+{
+  "$comment": "VAPP-161: the package format's pure rules beyond validation (docs/package-format.md; validation is fixtures/host-router.json). Inputs hand-written; `expected` (and `signed`, `signedText`) filled by scripts/generate-host.ts from src/host/ (record-store.ts, tools.ts, signature.ts), except `signatures[].expected`, which is hand-written and checked by the TS test against verifyPackageFile (WebCrypto is async; the generator signs with node:crypto). `recordsQuery`: parseRecordsSource(parseSource(source)) (null = not a records source). `recordsValue`: recordsValue(rows, parseRecordsSource(parseSource(source)), {me, names}). `consent`: toolConsent(package) and toolConsentKey per tool (`keys`, by id). `toolCalls`: toolCall(name). `extensions`: validatePackage(a one-template package with these `extensions`, catalogIds, available). `canonical`: canonicalJson(JSON.parse(text)) (RFC 8785; the input stays text so `1.0`, `-0.0` and escapes survive the generator). `signatures`: `file` signed with `key.seed` as `key.name` when `sign` (then `tamper` = [pointer, value] pairs applied), the result as `signed`; `signedText` = the context + the canonical JSON the signature covers (what a host's own Ed25519 signs and verifies); `expected` = verifyPackageFile(signed). The key is the RFC 8032 §7.1 TEST 1 keypair: public, NEVER a real author's. The Rust core replays recordsQuery, consent, toolCalls, extensions, canonical and signedText.",
+  "key": {
+    "name": "Test Author",
+    "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "publicKey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+  },
+  "recordsQuery": [
+    {
+      "source": "records:entry",
+      "expected": {
+        "kind": "entry",
+        "mine": false,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": []
+      }
+    },
+    {
+      "source": "records:entry?mine=1&sort=date&order=asc&limit=900&hours.gte=2&note=a&sum=hours&app=other",
+      "expected": {
+        "kind": "entry",
+        "mine": true,
+        "sort": "date",
+        "order": "asc",
+        "limit": 500,
+        "filters": [
+          {
+            "field": "hours",
+            "op": "gte",
+            "value": "2"
+          },
+          {
+            "field": "note",
+            "op": "eq",
+            "value": "a"
+          }
+        ]
+      }
+    },
+    {
+      "source": "records:entry?limit=0&order=up&kind=todo",
+      "expected": {
+        "kind": "entry",
+        "mine": false,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": []
+      }
+    },
+    {
+      "source": "RECORDS:todo?done=false",
+      "expected": {
+        "kind": "todo",
+        "mine": false,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": [
+          {
+            "field": "done",
+            "op": "eq",
+            "value": "false"
+          }
+        ]
+      }
+    },
+    {
+      "source": "exp:records?kind=entry",
+      "expected": null
+    }
+  ],
+  "recordsValue": [
+    {
+      "name": "newest first, ties by id",
+      "source": "records:entry",
+      "me": "u1",
+      "rows": [
+        {
+          "id": "r1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "r2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "r3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "r4",
+          "kind": "todo",
+          "data": {
+            "title": "x",
+            "done": false
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-04T09:00:00Z",
+          "updatedAt": "2026-10-04T09:00:00Z"
+        }
+      ],
+      "names": {
+        "u1": "Ada"
+      },
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b",
+            "id": "r2",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-03T09:00:00Z",
+            "createdBy": "u2",
+            "author": ""
+          },
+          {
+            "date": "2026-10-02",
+            "hours": 2,
+            "id": "r3",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-02T09:00:00Z",
+            "createdBy": "u1",
+            "author": "Ada"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a",
+            "id": "r1",
+            "createdAt": "2026-10-01T09:00:00Z",
+            "updatedAt": "2026-10-01T09:00:00Z",
+            "createdBy": "u1",
+            "author": "Ada"
+          }
+        ],
+        "count": 3
+      }
+    },
+    {
+      "name": "mine, by hours ascending",
+      "source": "records:entry?mine=1&sort=hours&order=asc",
+      "me": "u1",
+      "rows": [
+        {
+          "id": "r1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "r2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "r3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "r4",
+          "kind": "todo",
+          "data": {
+            "title": "x",
+            "done": false
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-04T09:00:00Z",
+          "updatedAt": "2026-10-04T09:00:00Z"
+        }
+      ],
+      "names": {
+        "u1": "Ada"
+      },
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-10-02",
+            "hours": 2,
+            "id": "r3",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-02T09:00:00Z",
+            "createdBy": "u1",
+            "author": "Ada"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a",
+            "id": "r1",
+            "createdAt": "2026-10-01T09:00:00Z",
+            "updatedAt": "2026-10-01T09:00:00Z",
+            "createdBy": "u1",
+            "author": "Ada"
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "signed out: mine matches nothing",
+      "source": "records:entry?mine=1",
+      "me": null,
+      "rows": [
+        {
+          "id": "r1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "r2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "r3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "r4",
+          "kind": "todo",
+          "data": {
+            "title": "x",
+            "done": false
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-04T09:00:00Z",
+          "updatedAt": "2026-10-04T09:00:00Z"
+        }
+      ],
+      "names": {},
+      "expected": {
+        "rows": [],
+        "count": 0
+      }
+    },
+    {
+      "name": "number and text filters, a limit",
+      "source": "records:entry?hours.gt=2&date=2026-10-02&limit=1",
+      "me": "u1",
+      "rows": [
+        {
+          "id": "r1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "r2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "r3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "r4",
+          "kind": "todo",
+          "data": {
+            "title": "x",
+            "done": false
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-04T09:00:00Z",
+          "updatedAt": "2026-10-04T09:00:00Z"
+        }
+      ],
+      "names": {},
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b",
+            "id": "r2",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-03T09:00:00Z",
+            "createdBy": "u2",
+            "author": ""
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "a reserved key never filters",
+      "source": "records:todo?sum=x&month=2026-10",
+      "me": "u1",
+      "rows": [
+        {
+          "id": "r1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3,
+            "note": "a"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "r2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 10,
+            "note": "b"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "r3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-02",
+            "hours": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "r4",
+          "kind": "todo",
+          "data": {
+            "title": "x",
+            "done": false
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-04T09:00:00Z",
+          "updatedAt": "2026-10-04T09:00:00Z"
+        }
+      ],
+      "names": {},
+      "expected": {
+        "rows": [
+          {
+            "title": "x",
+            "done": false,
+            "id": "r4",
+            "createdAt": "2026-10-04T09:00:00Z",
+            "updatedAt": "2026-10-04T09:00:00Z",
+            "createdBy": "u1",
+            "author": ""
+          }
+        ],
+        "count": 1
+      }
+    }
+  ],
+  "consent": [
+    {
+      "package": {
+        "tools": {
+          "weather": {
+            "kind": "mcp",
+            "title": "Weather",
+            "url": "https://mcp.example.com/weather"
+          },
+          "files": {
+            "kind": "mcp",
+            "title": "Files",
+            "description": "Reads your notes",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@modelcontextprotocol/server-filesystem",
+              "/tmp/my notes",
+              "",
+              "say \"hi\""
+            ],
+            "env": [
+              "HOME"
+            ]
+          },
+          "lint": {
+            "kind": "script",
+            "title": "Lint",
+            "command": "bun",
+            "args": [
+              "lint.ts"
+            ]
+          }
+        }
+      },
+      "packageId": "acme.v2",
+      "expected": [
+        {
+          "id": "files",
+          "kind": "mcp",
+          "transport": "stdio",
+          "title": "Files",
+          "description": "Reads your notes",
+          "target": "npx -y @modelcontextprotocol/server-filesystem \"/tmp/my notes\" \"\" \"say \\\"hi\\\"\"",
+          "env": [
+            "HOME"
+          ]
+        },
+        {
+          "id": "lint",
+          "kind": "script",
+          "transport": "script",
+          "title": "Lint",
+          "description": null,
+          "target": "bun lint.ts",
+          "env": []
+        },
+        {
+          "id": "weather",
+          "kind": "mcp",
+          "transport": "http",
+          "title": "Weather",
+          "description": null,
+          "target": "https://mcp.example.com/weather",
+          "env": []
+        }
+      ],
+      "keys": {
+        "files": "acme.v2/files:{\"args\":[\"-y\",\"@modelcontextprotocol/server-filesystem\",\"/tmp/my notes\",\"\",\"say \\\"hi\\\"\"],\"command\":\"npx\",\"description\":\"Reads your notes\",\"env\":[\"HOME\"],\"kind\":\"mcp\",\"title\":\"Files\"}",
+        "lint": "acme.v2/lint:{\"args\":[\"lint.ts\"],\"command\":\"bun\",\"kind\":\"script\",\"title\":\"Lint\"}",
+        "weather": "acme.v2/weather:{\"kind\":\"mcp\",\"title\":\"Weather\",\"url\":\"https://mcp.example.com/weather\"}"
+      }
+    },
+    {
+      "package": {},
+      "packageId": "acme.none",
+      "expected": [],
+      "keys": {}
+    }
+  ],
+  "toolCalls": [
+    {
+      "name": "tools.weather.forecast",
+      "expected": {
+        "toolId": "weather",
+        "tool": "forecast"
+      }
+    },
+    {
+      "name": "tools.lint",
+      "expected": {
+        "toolId": "lint",
+        "tool": null
+      }
+    },
+    {
+      "name": "tools.files.read_file.v2",
+      "expected": {
+        "toolId": "files",
+        "tool": "read_file.v2"
+      }
+    },
+    {
+      "name": "tools.Bad.x",
+      "expected": null
+    },
+    {
+      "name": "tools.",
+      "expected": null
+    },
+    {
+      "name": "harness.toast",
+      "expected": null
+    }
+  ],
+  "extensions": [
+    {
+      "name": "registered, compatible",
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.4.0",
+          "components": [
+            "Gantt"
+          ]
+        }
+      ],
+      "extensionIds": [
+        "https://acme.example/catalogs/charts/v1"
+      ],
+      "available": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.6.2",
+          "components": [
+            "Gantt",
+            "Burndown"
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "name": "a lower minor does not satisfy",
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.4.0"
+        }
+      ],
+      "extensionIds": [
+        "https://acme.example/catalogs/charts/v1"
+      ],
+      "available": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.3.9"
+        }
+      ],
+      "expected": [
+        {
+          "path": "/extensions/0/version",
+          "message": "extension https://acme.example/catalogs/charts/v1 1.3.9 does not satisfy ^1.4.0"
+        }
+      ]
+    },
+    {
+      "name": "a new major does not satisfy",
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.4.0"
+        }
+      ],
+      "extensionIds": [
+        "https://acme.example/catalogs/charts/v1"
+      ],
+      "available": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "2.0.0"
+        }
+      ],
+      "expected": [
+        {
+          "path": "/extensions/0/version",
+          "message": "extension https://acme.example/catalogs/charts/v1 2.0.0 does not satisfy ^1.4.0"
+        }
+      ]
+    },
+    {
+      "name": "an unversioned registration satisfies any",
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "9.9.9",
+          "components": [
+            "Gantt",
+            "Pie"
+          ]
+        }
+      ],
+      "extensionIds": [
+        "https://acme.example/catalogs/charts/v1"
+      ],
+      "available": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "components": [
+            "Gantt"
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "path": "/extensions/0/components/1",
+          "message": "extension https://acme.example/catalogs/charts/v1 has no component Pie"
+        }
+      ]
+    },
+    {
+      "name": "ids only: no version or component check",
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "9.9.9",
+          "components": [
+            "Pie"
+          ]
+        }
+      ],
+      "extensionIds": [
+        "https://acme.example/catalogs/charts/v1"
+      ],
+      "expected": []
+    },
+    {
+      "name": "not registered",
+      "extensions": [
+        {
+          "id": "https://acme.example/catalogs/charts/v1",
+          "version": "1.0.0"
+        }
+      ],
+      "extensionIds": [],
+      "available": [],
+      "expected": [
+        {
+          "path": "/extensions/0/id",
+          "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"
+        }
+      ]
+    }
+  ],
+  "canonical": [
+    {
+      "text": "{\"b\": 1, \"a\": [1.0, 1e21, 1E-7, -0.0, 0.1, 123456789012345680000, 5e-324, 1.5e300, {\"z\": null, \"y\": true}]}",
+      "expected": "{\"a\":[1,1e+21,1e-7,0,0.1,123456789012345680000,5e-324,1.5e+300,{\"y\":true,\"z\":null}],\"b\":1}"
+    },
+    {
+      "text": "{\"\\u20ac\": 1, \"\\ud83d\\ude00\": 2, \"\\u00e9\": 3, \"a\": 4, \"A\": 5, \"\": 6}",
+      "expected": "{\"\":6,\"A\":5,\"a\":4,\"é\":3,\"€\":1,\"😀\":2}"
+    },
+    {
+      "text": "[\"\\n\\t\\\"\\\\\\u0001\\u007f\\u2028\\/\", \"\\u00e9\", \"\\b\\f\\r\"]",
+      "expected": "[\"\\n\\t\\\"\\\\\\u0001 /\",\"é\",\"\\b\\f\\r\"]"
+    },
+    {
+      "text": "{\"nested\": {\"b\": [], \"a\": {}}, \"n\": -12.50}",
+      "expected": "{\"n\":-12.5,\"nested\":{\"a\":{},\"b\":[]}}"
+    }
+  ],
+  "signatures": [
+    {
+      "name": "unsigned: no signature",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "sign": false,
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "expected": {
+        "status": "unsigned"
+      }
+    },
+    {
+      "name": "an author alone is an unverified claim",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "author": {
+          "name": "Someone",
+          "key": "ed25519:nope"
+        }
+      },
+      "sign": false,
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "author": {
+          "name": "Someone",
+          "key": "ed25519:nope"
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:nope\",\"name\":\"Someone\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "expected": {
+        "status": "unsigned"
+      }
+    },
+    {
+      "name": "signed with the test key",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "records": [
+          {
+            "kind": "entry",
+            "data": {
+              "hours": 1.5,
+              "note": "€😀"
+            }
+          }
+        ]
+      },
+      "sign": true,
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "records": [
+          {
+            "kind": "entry",
+            "data": {
+              "hours": 1.5,
+              "note": "€😀"
+            }
+          }
+        ],
+        "author": {
+          "name": "Test Author",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "SMLDvQXlKpcHsuz9X9dvRjgYiDZX0_PbeaclSeQegikq0Tf68obvpYBGZbA28si_nIBauNd8Whr2gtZgnXaLCQ"
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"},\"records\":[{\"data\":{\"hours\":1.5,\"note\":\"€😀\"},\"kind\":\"entry\"}]}",
+      "expected": {
+        "status": "valid",
+        "author": {
+          "name": "Test Author",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        }
+      }
+    },
+    {
+      "name": "a changed package no longer verifies",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "sign": true,
+      "tamper": [
+        [
+          "/package/version",
+          "1.0.1"
+        ]
+      ],
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.1",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "author": {
+          "name": "Test Author",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "wUn9dYHXLdd8NvcBrVDTfn5r18-z1u-U8j_Plx6Y5LXa4O74wR3y_3OthcUYc_LOIbGbOQrZbgg1Ri9bgpEEBQ"
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.1\"}}",
+      "expected": {
+        "status": "invalid",
+        "issues": [
+          {
+            "path": "/signature",
+            "message": "does not verify against /author/key"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a changed author name no longer verifies",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "sign": true,
+      "tamper": [
+        [
+          "/author/name",
+          "Mallory"
+        ]
+      ],
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "author": {
+          "name": "Mallory",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "wUn9dYHXLdd8NvcBrVDTfn5r18-z1u-U8j_Plx6Y5LXa4O74wR3y_3OthcUYc_LOIbGbOQrZbgg1Ri9bgpEEBQ"
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Mallory\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "expected": {
+        "status": "invalid",
+        "issues": [
+          {
+            "path": "/signature",
+            "message": "does not verify against /author/key"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a malformed signature and author",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "author": {
+          "name": "",
+          "key": "ed25519:AAAA"
+        },
+        "signature": {
+          "alg": "rsa",
+          "value": "!!"
+        }
+      },
+      "sign": false,
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "author": {
+          "name": "",
+          "key": "ed25519:AAAA"
+        },
+        "signature": {
+          "alg": "rsa",
+          "value": "!!"
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:AAAA\",\"name\":\"\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "expected": {
+        "status": "invalid",
+        "issues": [
+          {
+            "path": "/signature/alg",
+            "message": "alg is ed25519"
+          },
+          {
+            "path": "/signature/value",
+            "message": "value is 64 bytes, base64url"
+          },
+          {
+            "path": "/author/name",
+            "message": "name is 1 to 80 characters"
+          },
+          {
+            "path": "/author/key",
+            "message": "key is ed25519: and 32 bytes, base64url"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no author",
+      "file": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "sign": false,
+      "signed": {
+        "format": "exponential-app/1",
+        "app": {
+          "name": "Hours",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "acme.hours",
+          "name": "Hours",
+          "version": "1.0.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "t": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "expected": {
+        "status": "invalid",
+        "issues": [
+          {
+            "path": "/author",
+            "message": "a signed file names its author {name, key}"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -98,7 +98,7 @@ describe(`host-router.json`, () => {
   })
 
   test(`the surface section matches the Formatter and the a11y commands`, () => {
-    expect(hostContract.version).toBe(2)
+    expect(hostContract.version).toBe(3)
     expect([...FORMATTER_METHODS].sort()).toEqual(Object.keys(englishFormatter()).filter((k) => k !== `locale`).sort())
     expect(SURFACE_COMMANDS).toEqual(Object.keys(A11Y_COMMANDS))
     for (const key of [`locale`, `timeZone`]) expect(SURFACE_SETTING_KEYS).toContain(key)

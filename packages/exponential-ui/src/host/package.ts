@@ -9,6 +9,15 @@ import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
 import { RECORD_KIND_PATTERN, validateRecordSchema } from "./records"
 import type { RecordKind } from "./records"
+import { RECORDS_SCHEME } from "./record-store"
+import { validateTools } from "./tools"
+import type { PackageTool } from "./tools"
+
+/** VAPP-161: the package format version this host reads
+ *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
+ *  A package without `formatVersion` is version 1; every version-1
+ *  package is a valid version-2 package. */
+export const PACKAGE_FORMAT_VERSION = 2
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */
@@ -55,6 +64,47 @@ export interface AppPackage {
    *  (`host/records.ts`); a record is validated against its kind before
    *  it is stored. A kind's name follows `RECORD_KIND_PATTERN`. */
   records?: Record<string, RecordKind>
+  /** VAPP-161: the format version the package was written for (default 1). */
+  formatVersion?: number
+  /** VAPP-161: MCP servers and scripts its functions call (`tools.<id>…`),
+   *  each behind the host's consent card (`host/tools.ts`). */
+  tools?: Record<string, PackageTool>
+  /** VAPP-161: the extension catalogs it needs beyond `catalogId`. */
+  extensions?: PackageExtension[]
+}
+
+/** VAPP-161: an extension catalog a package needs: its id, the minimum
+ *  `MAJOR.MINOR.PATCH` (caret) and the components it uses from it. */
+export interface PackageExtension {
+  id: string
+  version: string
+  components?: string[]
+}
+
+/** An extension as a host registered it (`availableExtensions`). */
+export interface AvailableExtension {
+  id: string
+  /** Unset = satisfies any version. */
+  version?: string
+  /** Unset = not checked. */
+  components?: readonly string[]
+}
+
+/** A host's extension catalogs as `validatePackage` checks them. */
+export function availableExtensions(defs: readonly { id: string; version?: string; components: Record<string, unknown>; macros?: Record<string, unknown> }[]): AvailableExtension[] {
+  return defs.map((d) => ({ id: d.id, ...(d.version ? { version: d.version } : {}), components: [...Object.keys(d.components), ...Object.keys(d.macros ?? {})] }))
+}
+
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+
+/** Caret: `have` has `want`'s major and is not lower. */
+export function versionSatisfies(have: string, want: string): boolean {
+  const h = SEMVER.exec(have)
+  const w = SEMVER.exec(want)
+  if (!h || !w) return false
+  const [hM, hm, hp] = [Number(h[1]), Number(h[2]), Number(h[3])]
+  const [wM, wm, wp] = [Number(w[1]), Number(w[2]), Number(w[3])]
+  return hM === wM && (hm > wm || (hm === wm && hp >= wp))
 }
 
 export interface PackageIssue {
@@ -65,10 +115,16 @@ export interface PackageIssue {
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 const POINTER = /^(\/([^/~]|~[01])*)*$/
 
-/** Every problem with a package, each with a JSON pointer into it. */
-export function validatePackage(pkg: unknown, catalogIds: readonly string[] = supportedCatalogIds()): PackageIssue[] {
+/** Every problem with a package, each with a JSON pointer into it.
+ *  `extensions` = the host's registered extensions (versions and
+ *  components); unset, a declared extension only has to be in `catalogIds`. */
+export function validatePackage(pkg: unknown, catalogIds: readonly string[] = supportedCatalogIds(), extensions?: readonly AvailableExtension[]): PackageIssue[] {
   const issues: PackageIssue[] = []
   if (!isObject(pkg)) return [{ path: ``, message: `a package is an object` }]
+  if (pkg.formatVersion !== undefined) {
+    if (typeof pkg.formatVersion !== `number` || !Number.isInteger(pkg.formatVersion) || pkg.formatVersion < 1) issues.push({ path: `/formatVersion`, message: `formatVersion is a positive integer` })
+    else if (pkg.formatVersion > PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is newer than this host (${PACKAGE_FORMAT_VERSION})` })
+  }
   for (const key of [`id`, `name`, `version`, `catalogId`])
     if (typeof pkg[key] !== `string` || !(pkg[key] as string)) issues.push({ path: `/${key}`, message: `${key} is a required string` })
   if (typeof pkg.catalogId === `string` && pkg.catalogId && !catalogIds.includes(pkg.catalogId))
@@ -125,6 +181,47 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `source ${b.source} is not in the package's sources` })
       })
     }
+  // VAPP-161: a `records:<kind>` binding names a declared kind.
+  if (isObject(pkg.templates))
+    for (const [id, template] of Object.entries(pkg.templates)) {
+      if (!isObject(template) || !Array.isArray(template.bindings)) continue
+      template.bindings.forEach((b, i) => {
+        const parsed = isObject(b) && typeof b.source === `string` ? parseSource(b.source) : null
+        if (parsed?.scheme !== RECORDS_SCHEME) return
+        if (!isObject(pkg.records) || !Object.prototype.hasOwnProperty.call(pkg.records, parsed.name))
+          issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `records:${parsed.name} names no declared kind` })
+      })
+    }
+  if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
+  if (pkg.extensions !== undefined) issues.push(...validateExtensions(pkg.extensions, catalogIds, extensions))
+  return issues
+}
+
+function validateExtensions(list: unknown, catalogIds: readonly string[], available: readonly AvailableExtension[] | undefined): PackageIssue[] {
+  if (!Array.isArray(list)) return [{ path: `/extensions`, message: `extensions is a list of {id, version, components?}` }]
+  const issues: PackageIssue[] = []
+  const seen = new Set<string>()
+  list.forEach((ext, i) => {
+    const at = `/extensions/${i}`
+    if (!isObject(ext)) return void issues.push({ path: at, message: `an extension is {id, version, components?}` })
+    const id = typeof ext.id === `string` && ext.id ? ext.id : null
+    if (!id) issues.push({ path: `${at}/id`, message: `id is a required string` })
+    const version = typeof ext.version === `string` && SEMVER.test(ext.version) ? ext.version : null
+    if (!version) issues.push({ path: `${at}/version`, message: `version is MAJOR.MINOR.PATCH` })
+    const components = ext.components === undefined ? [] : Array.isArray(ext.components) && ext.components.every((c) => typeof c === `string` && c) ? (ext.components as string[]) : null
+    if (!components) issues.push({ path: `${at}/components`, message: `components is a list of component names` })
+    if (!id) return
+    if (seen.has(id)) return void issues.push({ path: `${at}/id`, message: `duplicate extension ${id}` })
+    seen.add(id)
+    const have = available?.find((a) => a.id === id)
+    if (!catalogIds.includes(id) || (available && !have)) return void issues.push({ path: `${at}/id`, message: `extension ${id} is not available on this host` })
+    if (!have) return
+    if (version && have.version !== undefined && !versionSatisfies(have.version, version)) issues.push({ path: `${at}/version`, message: `extension ${id} ${have.version} does not satisfy ^${version}` })
+    if (have.components)
+      (components ?? []).forEach((name, j) => {
+        if (!have.components!.includes(name)) issues.push({ path: `${at}/components/${j}`, message: `extension ${id} has no component ${name}` })
+      })
+  })
   return issues
 }
 

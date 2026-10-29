@@ -1,7 +1,9 @@
 package com.exponential.app.domain
 
+import at.exponential.ui.host.ParsedSource
 import at.exponential.ui.json.JsonValue
 import java.io.File
+import java.net.URLDecoder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -53,6 +55,35 @@ class AppRecordsTest {
         for (case in all) {
             val got = queryJson(AppRecords.parseRecordsQuery(params(case["params"])))
             assertEquals(case["name"]!!.string, case["expected"]!!.json, got.json)
+        }
+    }
+
+    /** The core's source rule for the fixture's plain URIs (`scheme:name?k=v&…`,
+     *  keys sorted); the app's JVM tests do not load the facade dylib. */
+    private fun parseSource(uri: String): ParsedSource {
+        val colon = uri.indexOf(':')
+        val rest = uri.substring(colon + 1)
+        val q = rest.indexOf('?')
+        val params = if (q < 0) emptyMap() else rest.substring(q + 1).split('&').filter { it.isNotEmpty() }.associate {
+            val eq = it.indexOf('=')
+            val key = if (eq < 0) it else it.substring(0, eq)
+            URLDecoder.decode(key, "UTF-8") to (if (eq < 0) "" else URLDecoder.decode(it.substring(eq + 1), "UTF-8"))
+        }.toSortedMap()
+        return ParsedSource(uri, uri.substring(0, colon), if (q < 0) rest else rest.substring(0, q), params)
+    }
+
+    @Test
+    fun `recordsSourceParams replays sourceCases`() {
+        val all = cases("sourceCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val params = AppRecords.recordsSourceParams(parseSource(case["source"]!!.string!!))
+            val expected = case["expected"]!!
+            if (expected.isNull) {
+                assertNull(case["name"]!!.string, params)
+            } else {
+                assertEquals(case["name"]!!.string, expected.json, queryJson(AppRecords.parseRecordsQuery(params!!)).json)
+            }
         }
     }
 

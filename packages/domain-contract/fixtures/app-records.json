@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-122 app RECORDS ×4: an app's own data. A record = one JSON object (`data`) of a `kind` the app's manifest declares (`records: {<kind>: {schema}}`, the schema a JSON Schema subset the SDK validates: packages/exponential-ui host-router.json `records`), stored per TEAM under the app (`app_records`, one synced shape `app-records`, member-only, team-scoped, `deleted_at` + the `app_deleted_at` mirror = the static trash predicates: trash never reaches a client). READ = the binding `exp:records?kind=<kind>&…` every app host resolves over the synced rows (web TanStack DB, desktop store, GRDB, Room) with the SAME derivation: the TS reference `app-records.ts` (`parseRecordsQuery` + `recordsValue`); desktop `domain::app_records`, iOS `AppRecords.swift`, Android `AppRecords.kt` replay `queryCases` and `valueCases`. QUERY: `kind` (required; none = null, the value is null), `app=<slug>` (another app's records; default = the hosting app), `mine=1` (the viewer's own rows), `user=<id>`, `sort=<field|createdAt|updatedAt>` (`sortDefault`), `order=asc|desc` (`orderDefault`), `limit` (`limitDefault`, capped at `limitMax`), `sum=<field>` (Σ over the matching rows, before the limit), `by=<dateField>&month=YYYY-MM` (the month view: rows of that month only, `month` = {key, label, prev, next, today (now's date), days: every day of the month with its count and sum, labels/counts/sums: the same days as chart-ready arrays}; no `month` = the month of `now`), and any OTHER key = a filter on a data field: `<field>=v` equals (as text), `<field>.gt|gte|lt|lte=v` (numbers when both parse, else text). VALUE = {rows: [{…data, id, createdAt, updatedAt, createdBy, author}] sorted then cut at the limit (ties by id), count: the matches before the limit, sum?: number, month?}. The `rowKeys` are RESERVED: a kind's schema may not declare them. WRITE = the host functions `harness.records.upsert {kind, data, id?}` (create, or update = a shallow patch of `data` when `id` names the viewer's team's row) and `harness.records.delete {id}`, NO consent card (an app's own rows; the package still lists them in `functions`), tRPC `apps.records.*` as the viewer; the server validates `data` against the kind's schema, caps it at contract `apps.recordMaxBytes` and the team's quota (plan-limits `appRecords`; over = the plan-limit error → a toast, feedback-states.json). MCP: the apps noun's `records_list {slug, kind?, limit?, offset?}`, `records_upsert {slug, kind, data, id?}`, `records_delete {slug, id}` (an agent fills an app's data). Copy ×4 = apps.json `copy.records*`.",
+  "$comment": "VAPP-122 app RECORDS ×4: an app's own data. A record = one JSON object (`data`) of a `kind` the app's manifest declares (`records: {<kind>: {schema}}`, the schema a JSON Schema subset the SDK validates: packages/exponential-ui host-router.json `records`), stored per TEAM under the app (`app_records`, one synced shape `app-records`, member-only, team-scoped, `deleted_at` + the `app_deleted_at` mirror = the static trash predicates: trash never reaches a client). READ = the binding `exp:records?kind=<kind>&…` every app host resolves over the synced rows (web TanStack DB, desktop store, GRDB, Room) with the SAME derivation: the TS reference `app-records.ts` (`parseRecordsQuery` + `recordsValue`); desktop `domain::app_records`, iOS `AppRecords.swift`, Android `AppRecords.kt` replay `queryCases` and `valueCases`. QUERY: `kind` (required; none = null, the value is null), `app=<slug>` (another app's records; default = the hosting app), `mine=1` (the viewer's own rows), `user=<id>`, `sort=<field|createdAt|updatedAt>` (`sortDefault`), `order=asc|desc` (`orderDefault`), `limit` (`limitDefault`, capped at `limitMax`), `sum=<field>` (Σ over the matching rows, before the limit), `by=<dateField>&month=YYYY-MM` (the month view: rows of that month only, `month` = {key, label, prev, next, today (now's date), days: every day of the month with its count and sum, labels/counts/sums: the same days as chart-ready arrays}; no `month` = the month of `now`), and any OTHER key = a filter on a data field: `<field>=v` equals (as text), `<field>.gt|gte|lt|lte=v` (numbers when both parse, else text). VALUE = {rows: [{…data, id, createdAt, updatedAt, createdBy, author}] sorted then cut at the limit (ties by id), count: the matches before the limit, sum?: number, month?}. The `rowKeys` are RESERVED: a kind's schema may not declare them. WRITE = the host functions `harness.records.upsert {kind, data, id?}` (create, or update = a shallow patch of `data` when `id` names the viewer's team's row) and `harness.records.delete {id}`, NO consent card (an app's own rows; the package still lists them in `functions`), tRPC `apps.records.*` as the viewer; the server validates `data` against the kind's schema, caps it at contract `apps.recordMaxBytes` and the team's quota (plan-limits `appRecords`; over = the plan-limit error → a toast, feedback-states.json). MCP: the apps noun's `records_list {slug, kind?, limit?, offset?}`, `records_upsert {slug, kind, data, id?}`, `records_delete {slug, id}` (an agent fills an app's data). Copy ×4 = apps.json `copy.records*`. VAPP-161: the format's NEUTRAL spelling (packages/exponential-ui docs/package-format.md) is the same binding and the same writes: `records:<kind>?q` = `exp:records?kind=<kind>&q` (the name wins over a `kind` param; `recordsSourceParams` maps a parsed source to the params `parseRecordsQuery` takes, null = not a records source; every app host replays `sourceCases`: parse the source, map it, parse the query) and `records.upsert` / `records.delete` = `harness.records.upsert` / `.delete` (the same closures, the same allowlist rule).",
   "query": {
     "reserved": [
       "kind",
@@ -1120,6 +1120,87 @@
       "count": 1240,
       "max": 25000,
       "label": "1,240 of 25,000 records"
+    }
+  ],
+  "sourceCases": [
+    {
+      "name": "the neutral spelling",
+      "source": "records:entry",
+      "expected": {
+        "kind": "entry",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": [],
+        "sum": null,
+        "by": null,
+        "month": null
+      }
+    },
+    {
+      "name": "the neutral spelling with a query",
+      "source": "records:entry?mine=1&sort=date&order=asc&hours.gte=2",
+      "expected": {
+        "kind": "entry",
+        "app": null,
+        "mine": true,
+        "user": null,
+        "sort": "date",
+        "order": "asc",
+        "limit": 100,
+        "filters": [
+          {
+            "field": "hours",
+            "op": "gte",
+            "value": "2"
+          }
+        ],
+        "sum": null,
+        "by": null,
+        "month": null
+      }
+    },
+    {
+      "name": "the name wins over a kind param",
+      "source": "records:entry?kind=other&limit=5",
+      "expected": {
+        "kind": "entry",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 5,
+        "filters": [],
+        "sum": null,
+        "by": null,
+        "month": null
+      }
+    },
+    {
+      "name": "the Exponential spelling",
+      "source": "exp:records?kind=todo&by=date&month=2026-10",
+      "expected": {
+        "kind": "todo",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": [],
+        "sum": null,
+        "by": "date",
+        "month": "2026-10"
+      }
+    },
+    {
+      "name": "not a records source",
+      "source": "exp:issues?board=b1",
+      "expected": null
     }
   ]
 }

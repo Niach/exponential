@@ -112,10 +112,12 @@ import kotlinx.coroutines.launch
  *    `members` / `sessions` / `comments` / `attachments` over the scope
  *    team's synced rows, [AppSources]; VAPP-122
  *    `exp:records?kind=…` over the hosting app's synced records (or the
- *    `app=<slug>` app of the same team), [AppRecords];
+ *    `app=<slug>` app of the same team), [AppRecords]; VAPP-161 the
+ *    format's neutral `records:<kind>?…` = the same binding;
  *  - VAPP-122 `harness.records.upsert {kind, data, id?}` and
- *    `harness.records.delete {id}`: tRPC `apps.records.*` as the viewer, no
- *    consent card (the app's own rows), a refusal = the failed-action toast;
+ *    `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
+ *    `records.delete`): tRPC `apps.records.*` as the viewer, no consent card
+ *    (the app's own rows), a refusal = the failed-action toast;
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
  *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
  *    ships no built-in apps: only the team's packages are installed);
@@ -388,6 +390,26 @@ fun rememberAppHost(
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+        // VAPP-122: the `exp:records` value over the parsed query params.
+        fun recordsValues(params: Map<String, String>): Flow<JsonValue?> {
+            val query = AppRecords.parseRecordsQuery(params)
+            // The app whose records are read: the hosting app, or
+            // (`app=`) another app of the same team by slug (it may
+            // sync later, so the lookup follows the apps).
+            val target: Flow<String?> = if (query.app == null) {
+                flowOf(appId)
+            } else {
+                teamApps.map { rows -> rows.firstOrNull { it.slug == query.app }?.id }.distinctUntilChanged()
+            }
+            val rows = target.flatMapLatest { recordsOf(it) }
+            return combine(rows, users) { records, people ->
+                val mapped = records.map(AppRecords::row)
+                val wanted = mapped.mapNotNullTo(HashSet()) { it.createdBy }
+                val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
+                AppRecords.recordsValue(mapped, query, me, AppRecords.isoNow(), names)
+            }
+        }
+
         val exp = SourceResolver { source, emit ->
             val values: Flow<JsonValue?> = when (source.name) {
                 "devices" -> combine(devices, DeviceLiveness.ticker(AppHostValues.LIVENESS_TICK_MS)) { rows, now ->
@@ -396,26 +418,16 @@ fun rememberAppHost(
                 in AppSources.SOURCES -> sourceStore(source.name).map { store ->
                     AppSources.sourceValue(source.name, source.params, store, me)
                 }
-                "records" -> {
-                    val query = AppRecords.parseRecordsQuery(source.params)
-                    // The app whose records are read: the hosting app, or
-                    // (`app=`) another app of the same team by slug (it may
-                    // sync later, so the lookup follows the apps).
-                    val target: Flow<String?> = if (query.app == null) {
-                        flowOf(appId)
-                    } else {
-                        teamApps.map { rows -> rows.firstOrNull { it.slug == query.app }?.id }.distinctUntilChanged()
-                    }
-                    val rows = target.flatMapLatest { recordsOf(it) }
-                    combine(rows, users) { records, people ->
-                        val mapped = records.map(AppRecords::row)
-                        val wanted = mapped.mapNotNullTo(HashSet()) { it.createdBy }
-                        val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
-                        AppRecords.recordsValue(mapped, query, me, AppRecords.isoNow(), names)
-                    }
-                }
+                "records" -> recordsValues(AppRecords.recordsSourceParams(source) ?: source.params)
                 else -> flowOf(null)
             }
+            val job = scope.launch { values.distinctUntilChanged().collect { emit(it) } }
+            return@SourceResolver { job.cancel() }
+        }
+        // VAPP-161: the format's neutral spelling, `records:<kind>?…` = `exp:records?kind=<kind>&…`.
+        val records = SourceResolver { source, emit ->
+            val params = AppRecords.recordsSourceParams(source)
+            val values = if (params == null) flowOf(null) else recordsValues(params)
             val job = scope.launch { values.distinctUntilChanged().collect { emit(it) } }
             return@SourceResolver { job.cancel() }
         }
@@ -479,6 +491,9 @@ fun rememberAppHost(
         val functions = actions + mapOf(
             "harness.records.upsert" to recordsUpsert,
             "harness.records.delete" to recordsDelete,
+            // VAPP-161: the format's neutral spelling, the same closures.
+            "records.upsert" to recordsUpsert,
+            "records.delete" to recordsDelete,
             "harness.toast" to toast,
             "harness.openIssue" to openIssueFn,
             "harness.openDevice" to openDevice,
@@ -488,7 +503,7 @@ fun rememberAppHost(
         ExponentialHost(
             HostOptions(
                 functions = functions,
-                sources = mapOf("exp" to exp),
+                sources = mapOf("exp" to exp, "records" to records),
                 extensions = listOf(
                     HostExtension(
                         AppHostAssets.extensionJson(context),
