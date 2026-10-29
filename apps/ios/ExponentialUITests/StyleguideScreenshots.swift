@@ -234,6 +234,12 @@ final class StyleguideScreenshots: XCTestCase {
 
         // The FIRST sync after sign-in: the one long wait of the run.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
+        // The board tab opens the viewer's LAST board (server-side): another
+        // lane's walk may have left it on another board; land on the seeded one.
+        if !showcaseRowTitle.waitForExistence(timeout: Wait.sync),
+           !app.buttons["tab-board"].label.contains(Self.seededBoardName) {
+            switchBoard(app, to: Self.seededBoardName)
+        }
         expect(
             showcaseRowTitle,
             within: Wait.firstSync,
