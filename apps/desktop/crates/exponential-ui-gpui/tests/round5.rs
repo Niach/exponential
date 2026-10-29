@@ -309,9 +309,11 @@ fn button_hold_replays_the_fixture_through_pointer_and_keys(cx: &mut TestAppCont
                         other => panic!("{other}"),
                     };
                     if step["repeat"].as_bool() == Some(true) {
-                        // gpui's key repeat (`is_held`) never reaches the hold.
+                        // A repeat: a second key down on the held button
+                        // through the window (the view drops gpui's
+                        // `is_held` repeats before they reach the hold; a
+                        // fresh down on an active hold fires nothing either).
                         vcx.simulate_keystrokes(key);
-                        let _ = key;
                     } else {
                         vcx.update(|window, cx| view.update(cx, |v, cx| v.handle_key(key, false, None, window, cx)));
                     }
@@ -332,8 +334,6 @@ fn button_hold_replays_the_fixture_through_pointer_and_keys(cx: &mut TestAppCont
             draw(vcx);
             let fired: Vec<String> = log.actions.borrow()[before..].iter().map(|a| a.name.clone()).collect();
             let want: Vec<String> = step["events"].as_array().unwrap().iter().map(|e| e.as_str().unwrap().to_string()).collect();
-            // A repeat simulated as a keystroke is a fresh key down on the
-            // already-held button: the core ignores it as well.
             assert_eq!(fired, want, "{name} step {k}: events");
             let (pressed, label) = view.read_with(vcx, |v, _| {
                 let i = v.index_of("b").unwrap();
