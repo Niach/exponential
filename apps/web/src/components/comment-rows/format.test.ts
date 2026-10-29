@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/reporter-reply.json"
 import type { Comment, User } from "@/db/schema"
-import { authorLabel, commentCaption } from "./format"
+import { authorLabel, commentCaption, relativeTime } from "./format"
 
 // SLOP-4: the comment card's name and caption follow the pinned ×4 spec
 // (`fixtures/reporter-reply.json`); this locks the web against it.
@@ -68,5 +68,15 @@ describe(`authorLabel cases`, () => {
         )
       ).toBe(c.name === `{author}` ? `Ada Lovelace` : c.name)
     }
+  })
+})
+
+describe(`relativeTime`, () => {
+  it(`reads "just now" for a just-created or future instant, never "in 0 seconds"`, () => {
+    const now = Date.now()
+    expect(relativeTime(new Date(now))).toBe(`just now`)
+    expect(relativeTime(new Date(now + 3_000))).toBe(`just now`)
+    expect(relativeTime(new Date(now - 30_000))).toBe(`just now`)
+    expect(relativeTime(new Date(now - 5 * 60_000))).toBe(`5 minutes ago`)
   })
 })
