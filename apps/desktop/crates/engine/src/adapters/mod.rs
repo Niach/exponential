@@ -14,7 +14,7 @@ pub mod claude;
 pub mod claude_wire;
 pub mod codex;
 pub mod codex_wire;
-pub use agent_runtime::confine;
+pub use exponential_agent_runtime::confine;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

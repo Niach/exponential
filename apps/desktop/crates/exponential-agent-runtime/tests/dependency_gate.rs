@@ -1,4 +1,4 @@
-//! EXP-1426: agent-runtime stays server-free. Every Exponential app crate and
+//! EXP-1426: exponential-agent-runtime stays server-free. Every Exponential app crate and
 //! every UI toolkit is refused as a dependency, so the coupling the extraction
 //! removed cannot come back through a convenience import.
 
@@ -17,7 +17,7 @@ fn depends_on_no_app_crate_and_no_ui_toolkit() {
             let path_dep = deps[name].get("path").is_some();
             assert!(
                 !FORBIDDEN.contains(&name.as_str()) && !path_dep,
-                "agent-runtime must not depend on `{name}` ({section}): server and UI coupling \
+                "exponential-agent-runtime must not depend on `{name}` ({section}): server and UI coupling \
                  stays in the hosts (README.md)"
             );
         }

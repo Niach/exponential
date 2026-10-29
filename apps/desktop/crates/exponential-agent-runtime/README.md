@@ -1,4 +1,4 @@
-# agent-runtime
+# exponential-agent-runtime
 
 The single-account agent core shared by **Exponential** and **spezl** (EXP-1426, epic EXP-1420).
 It spawns the user's own, unmodified `claude` / `codex` binary over ACP, streams what the agent
@@ -47,4 +47,4 @@ caller changes until a later cleanup.
 5. A local backend and a runnable example: one turn plus the session history with your own login,
    no server.
 
-The crate name follows the shared-libs naming table (EXP-1421) once it lands.
+Named per the shared-libs table (`docs/libraries.md`, EXP-1421): crate `exponential-agent-runtime`, release tag `agent-runtime-v*`.

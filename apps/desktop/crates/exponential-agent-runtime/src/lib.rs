@@ -1,4 +1,4 @@
-//! agent-runtime (EXP-1426): the single-account agent core Exponential and
+//! exponential-agent-runtime (EXP-1426): the single-account agent core Exponential and
 //! spezl share. It spawns the user's own, unmodified `claude`/`codex` binary,
 //! streams what the agent does, reads the CLIs' own session history, runs
 //! their login in a PTY and wires MCP servers, for ONE local account and with

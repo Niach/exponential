@@ -170,17 +170,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agent-runtime"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "libc",
- "log",
- "serde_json",
- "toml 0.8.23",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -295,9 +284,9 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 name = "api"
 version = "0.14.84"
 dependencies = [
- "agent-runtime",
  "dirs",
  "domain",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "libc",
  "log",
@@ -1518,7 +1507,6 @@ dependencies = [
 name = "coding"
 version = "0.14.84"
 dependencies = [
- "agent-runtime",
  "anyhow",
  "api",
  "chrono",
@@ -1526,6 +1514,7 @@ dependencies = [
  "computer",
  "dirs",
  "domain",
+ "exponential-agent-runtime",
  "flate2",
  "libc",
  "log",
@@ -2396,11 +2385,11 @@ name = "engine"
 version = "0.14.84"
 dependencies = [
  "agent-client-protocol",
- "agent-runtime",
  "anyhow",
  "api",
  "coding",
  "domain",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "libc",
  "log",
@@ -2580,6 +2569,17 @@ dependencies = [
  "terminal",
  "updater",
  "uuid",
+]
+
+[[package]]
+name = "exponential-agent-runtime"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "log",
+ "serde_json",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -8564,8 +8564,8 @@ dependencies = [
 name = "terminal"
 version = "0.14.84"
 dependencies = [
- "agent-runtime",
  "anyhow",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "gpui",
  "gpui_platform",
