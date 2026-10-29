@@ -1479,8 +1479,8 @@
         "file": "shots/exponential-ui-composer/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 29578,
-        "sha256": "0491a078fb3f15d54ab2462637e79d6d30b10c9dea37eb8dcf1231f04c146993"
+        "bytes": 29982,
+        "sha256": "96d254f1744f41397f4185b540ef6baa920a0dff2c97bb1010d23dbe24a7f484"
       },
       "ios": {
         "file": "shots/exponential-ui-composer/ios.webp",
@@ -1899,8 +1899,8 @@
         "file": "shots/exponential-ui-heading/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 30374,
-        "sha256": "25ecd21e5b23a4b85a9b936d39551fd2ba33bcebfeac0cad4991cf5969a63b6c"
+        "bytes": 33416,
+        "sha256": "ea469c99df32155e9408f2d2c805c83184ace0fc3d5985b98996e5266b385177"
       },
       "ios": {
         "file": "shots/exponential-ui-heading/ios.webp",
@@ -1929,8 +1929,8 @@
         "file": "shots/exponential-ui-icon/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 29694,
-        "sha256": "5821c2b56fa8a8cb416eb8d87cc42526b0ecae480c958e1e5001937444388c82"
+        "bytes": 31514,
+        "sha256": "5177f2ddeb9ede0da63e45366e00c56d52f088ee0ace493b6f2f8c6fe73f543d"
       },
       "ios": {
         "file": "shots/exponential-ui-icon/ios.webp",
@@ -1989,8 +1989,8 @@
         "file": "shots/exponential-ui-input/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 39720,
-        "sha256": "eb9609b87bf949a4ad59bfe9744be5fad65d96f492ac434531b7d9926abc7707"
+        "bytes": 41446,
+        "sha256": "554acc26c4079e677db2db75f13b66ec83fe52c7f272045c1cb6e361aebe5084"
       },
       "ios": {
         "file": "shots/exponential-ui-input/ios.webp",
@@ -2626,8 +2626,8 @@
         "file": "shots/exponential-ui-segmented/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33098,
-        "sha256": "773d8f25a9390fe71be91c1d4914d1a8b4442b9849cd03585000468a89572070"
+        "bytes": 35854,
+        "sha256": "ee76a712a22f852e8501ee48629295e24c906e3fc896f1e717e222d356316237"
       },
       "ios": {
         "file": "shots/exponential-ui-segmented/ios.webp",
