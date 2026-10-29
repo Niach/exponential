@@ -67,14 +67,16 @@ describe(`components`, () => {
     const layout = [`Page`, `Toolbar`, `SplitView`, `FieldGroup`, `FormActions`, `StatTile`]
     // NEW-77: the voice level.
     const voice = [`VoiceWave`]
+    // VAPP-162: the chat, call, plan and pairing pieces.
+    const round5 = [`MessageBubble`, `CallSurface`, `Plan`, `QrCode`, `QrScanner`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {
@@ -110,7 +112,7 @@ describe(`components`, () => {
     const lite = coreLite()
     expect(lite).toEqual([...LITE_COMPONENTS] as string[])
     // Round 3 (VAPP-102): the app deleted these primitives; they stay in the full catalog only.
-    const rarer = [`Pagination`, `Accordion`, `Radio`, `Slider`, `Spinner`, `Table`, `Toggle`, `Carousel`, `ChoiceTiles`, `VoiceWave`]
+    const rarer = [`Pagination`, `Accordion`, `Radio`, `Slider`, `Spinner`, `Table`, `Toggle`, `Carousel`, `ChoiceTiles`, `VoiceWave`, `QrScanner`]
     for (const [name, def] of components) {
       if (def.hidden) {
         expect(lite.includes(name), name).toBe(false)

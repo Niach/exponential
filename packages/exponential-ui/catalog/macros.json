@@ -3412,6 +3412,741 @@
           }
         ]
       }
+    },
+    "CallSurface": {
+      "recipeProps": [
+        "state",
+        "muted"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group",
+          "label": "{props.name}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "center",
+          "width": "100%",
+          "height": "100%",
+          "minHeight": 0,
+          "paddingHorizontal": "$spacing.xl",
+          "paddingTop": "$spacing.xl3",
+          "paddingBottom": "$spacing.xl3"
+        },
+        "children": [
+          {
+            "part": "head",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "width": "100%",
+              "maxWidth": 384,
+              "minWidth": 0
+            },
+            "children": [
+              {
+                "part": "wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": {
+                    "$cond": [
+                      "props.muted",
+                      "muted",
+                      {
+                        "$map": {
+                          "from": "props.state",
+                          "cases": {
+                            "ringing": "thinking",
+                            "connecting": "thinking",
+                            "ended": "idle"
+                          },
+                          "default": "{props.activity|speaking}"
+                        }
+                      }
+                    ]
+                  },
+                  "level": "{props.level}",
+                  "bands": "{props.bands}",
+                  "size": "xl"
+                },
+                "$a11y": {
+                  "hidden": true
+                },
+                "children": [
+                  {
+                    "part": "avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "{props.name}",
+                      "src": "{props.avatar}",
+                      "size": "lg"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "name",
+                "component": "Text",
+                "$a11y": {
+                  "role": "heading",
+                  "level": 2
+                },
+                "props": {
+                  "text": "{props.name}",
+                  "variant": "title",
+                  "align": "center",
+                  "lines": 1
+                },
+                "style": {
+                  "marginTop": "$spacing.sm",
+                  "maxWidth": "100%"
+                }
+              },
+              {
+                "part": "status",
+                "component": "Text",
+                "$if": "props.status",
+                "props": {
+                  "text": "{props.status}",
+                  "variant": "muted",
+                  "align": "center",
+                  "lines": 1
+                },
+                "style": {
+                  "marginTop": "$spacing.xs"
+                }
+              },
+              {
+                "part": "caption",
+                "component": "Text",
+                "$if": "props.caption",
+                "props": {
+                  "text": "{props.caption}",
+                  "align": "center",
+                  "lines": 4,
+                  "live": "polite"
+                },
+                "style": {
+                  "marginTop": "$spacing.xl2",
+                  "maxWidth": "100%"
+                }
+              }
+            ]
+          },
+          {
+            "part": "spacer",
+            "component": "Box",
+            "style": {
+              "flexGrow": 1,
+              "minHeight": "$spacing.xl"
+            }
+          },
+          {
+            "part": "controls",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "justifyContent": "center",
+              "alignItems": "flex-start",
+              "gap": 32
+            },
+            "children": [
+              {
+                "part": "muteTip",
+                "component": "Tooltip",
+                "$if": {
+                  "$not": {
+                    "$eq": [
+                      "{props.state|talking}",
+                      "ringing"
+                    ]
+                  }
+                },
+                "props": {
+                  "content": {
+                    "$cond": [
+                      "props.muted",
+                      "$string.unmute",
+                      "$string.mute"
+                    ]
+                  }
+                },
+                "children": [
+                  {
+                    "part": "mute",
+                    "component": "Button",
+                    "props": {
+                      "variant": "secondary",
+                      "size": "icon"
+                    },
+                    "$a11y": {
+                      "label": {
+                        "$cond": [
+                          "props.muted",
+                          "$string.unmute",
+                          "$string.mute"
+                        ]
+                      }
+                    },
+                    "style": {
+                      "width": 56,
+                      "height": 56,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
+                    },
+                    "$on": {
+                      "press": "mute"
+                    },
+                    "$context": {
+                      "muted": "{!props.muted}"
+                    },
+                    "$set": {
+                      "press": {
+                        "prop": "muted",
+                        "value": "{!props.muted}"
+                      }
+                    },
+                    "children": [
+                      {
+                        "part": "muteIcon",
+                        "component": "Icon",
+                        "props": {
+                          "name": {
+                            "$cond": [
+                              "props.muted",
+                              "call-unmute",
+                              "call-mute"
+                            ]
+                          },
+                          "size": "lg"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "part": "speakerTip",
+                "component": "Tooltip",
+                "$if": [
+                  {
+                    "$not": {
+                      "$eq": [
+                        "{props.state|talking}",
+                        "ringing"
+                      ]
+                    }
+                  },
+                  {
+                    "$not": {
+                      "$eq": [
+                        "{props.speaker|none}",
+                        "none"
+                      ]
+                    }
+                  }
+                ],
+                "props": {
+                  "content": {
+                    "$cond": [
+                      "props.speaker",
+                      "$string.speaker",
+                      "$string.speakerOff"
+                    ]
+                  }
+                },
+                "children": [
+                  {
+                    "part": "speaker",
+                    "component": "Button",
+                    "props": {
+                      "variant": "secondary",
+                      "size": "icon"
+                    },
+                    "$a11y": {
+                      "label": {
+                        "$cond": [
+                          "props.speaker",
+                          "$string.speaker",
+                          "$string.speakerOff"
+                        ]
+                      }
+                    },
+                    "style": {
+                      "width": 56,
+                      "height": 56,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
+                    },
+                    "$on": {
+                      "press": "speaker"
+                    },
+                    "$context": {
+                      "speaker": "{!props.speaker}"
+                    },
+                    "$set": {
+                      "press": {
+                        "prop": "speaker",
+                        "value": "{!props.speaker}"
+                      }
+                    },
+                    "children": [
+                      {
+                        "part": "speakerIcon",
+                        "component": "Icon",
+                        "props": {
+                          "name": {
+                            "$cond": [
+                              "props.speaker",
+                              "call-speaker",
+                              "call-speaker-off"
+                            ]
+                          },
+                          "size": "lg"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "part": "endTip",
+                "component": "Tooltip",
+                "$if": {
+                  "$not": {
+                    "$eq": [
+                      "{props.state|talking}",
+                      "ringing"
+                    ]
+                  }
+                },
+                "props": {
+                  "content": "$string.endCall"
+                },
+                "children": [
+                  {
+                    "part": "end",
+                    "component": "Button",
+                    "props": {
+                      "variant": "destructive",
+                      "size": "icon"
+                    },
+                    "$a11y": {
+                      "label": "$string.endCall"
+                    },
+                    "style": {
+                      "width": 56,
+                      "height": 56,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
+                    },
+                    "$on": {
+                      "press": "hangUp"
+                    },
+                    "children": [
+                      {
+                        "part": "endIcon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "call-end",
+                          "size": "lg"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "part": "cancel",
+                "component": "Box",
+                "$if": {
+                  "$eq": [
+                    "{props.state|talking}",
+                    "ringing"
+                  ]
+                },
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "children": [
+                  {
+                    "part": "end",
+                    "component": "Button",
+                    "props": {
+                      "variant": "destructive",
+                      "size": "icon"
+                    },
+                    "$a11y": {
+                      "label": "$string.cancel"
+                    },
+                    "style": {
+                      "width": 56,
+                      "height": 56,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
+                    },
+                    "$on": {
+                      "press": "hangUp"
+                    },
+                    "children": [
+                      {
+                        "part": "endIcon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "call-end",
+                          "size": "lg"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "part": "cancelLabel",
+                    "component": "Text",
+                    "props": {
+                      "text": "$string.cancel",
+                      "variant": "caption"
+                    },
+                    "$a11y": {
+                      "hidden": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "MessageBubble": {
+      "recipeProps": [
+        "side",
+        "status"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group",
+          "label": {
+            "$coalesce": [
+              "{props.author}",
+              "{props.time}"
+            ]
+          }
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": {
+            "$map": {
+              "from": "props.side",
+              "cases": {
+                "out": "flex-end"
+              },
+              "default": "flex-start"
+            }
+          },
+          "width": "100%",
+          "minWidth": 0
+        },
+        "children": [
+          {
+            "part": "bubble",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": {
+                "$map": {
+                  "from": "props.side",
+                  "cases": {
+                    "out": "$radius.xl"
+                  },
+                  "default": 6
+                }
+              }
+            },
+            "children": [
+              {
+                "part": "author",
+                "component": "Text",
+                "$if": [
+                  "props.author",
+                  {
+                    "$not": {
+                      "$eq": [
+                        "{props.side|in}",
+                        "out"
+                      ]
+                    }
+                  }
+                ],
+                "props": {
+                  "text": "{props.author}",
+                  "variant": "caption",
+                  "lines": 1
+                }
+              },
+              "$slot:attachment",
+              {
+                "part": "text",
+                "component": "Markdown",
+                "props": {
+                  "text": "{props.text}"
+                }
+              },
+              {
+                "part": "footer",
+                "component": "Box",
+                "$any": [
+                  "props.time",
+                  "props.status"
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "children": [
+                  {
+                    "part": "time",
+                    "component": "Text",
+                    "$if": "props.time",
+                    "props": {
+                      "text": "{props.time}",
+                      "variant": "caption",
+                      "lines": 1
+                    }
+                  },
+                  {
+                    "part": "status",
+                    "component": "Icon",
+                    "$if": [
+                      "props.status",
+                      {
+                        "$eq": [
+                          "{props.side|in}",
+                          "out"
+                        ]
+                      }
+                    ],
+                    "props": {
+                      "name": {
+                        "$map": {
+                          "from": "props.status",
+                          "cases": {
+                            "sending": "ui-clock",
+                            "sent": "ui-check",
+                            "read": "ui-read"
+                          },
+                          "default": "ui-check"
+                        }
+                      },
+                      "size": "sm",
+                      "label": {
+                        "$map": {
+                          "from": "props.status",
+                          "cases": {
+                            "sending": "$string.sending",
+                            "sent": "$string.sent",
+                            "read": "$string.read"
+                          },
+                          "default": "$string.sent"
+                        }
+                      }
+                    },
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Plan": {
+      "recipeProps": [
+        "state"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group",
+          "label": "{props.title}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "children": [
+          {
+            "part": "card",
+            "component": "Card",
+            "children": [
+              {
+                "part": "header",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "minWidth": 0
+                },
+                "children": [
+                  {
+                    "part": "title",
+                    "component": "Heading",
+                    "props": {
+                      "text": "{props.title}",
+                      "level": "h3"
+                    }
+                  },
+                  {
+                    "part": "description",
+                    "component": "Text",
+                    "$if": "props.description",
+                    "props": {
+                      "text": "{props.description}",
+                      "variant": "muted"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "steps",
+                "component": "Trace",
+                "$if": "props.steps",
+                "children": [
+                  {
+                    "part": "step",
+                    "component": "TraceItem",
+                    "$each": "props.steps",
+                    "$as": "step",
+                    "props": {
+                      "title": "{step.title}",
+                      "icon": "{step.icon}",
+                      "description": "{step.detail}",
+                      "status": "{step.status}"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "footer",
+                "component": "Box",
+                "$if": {
+                  "$eq": [
+                    "{props.state|proposed}",
+                    "proposed"
+                  ]
+                },
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "flexWrap": "wrap",
+                  "gap": "$spacing.sm"
+                },
+                "children": [
+                  {
+                    "part": "decline",
+                    "component": "Button",
+                    "props": {
+                      "label": "{props.declineLabel|$string.no}",
+                      "variant": "outline"
+                    },
+                    "$on": {
+                      "press": "decline"
+                    }
+                  },
+                  {
+                    "part": "approve",
+                    "component": "Button",
+                    "props": {
+                      "label": "{props.approveLabel|$string.yes}",
+                      "icon": "ui-check",
+                      "variant": "default"
+                    },
+                    "$on": {
+                      "press": "approve"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "running",
+                "component": "Box",
+                "$if": {
+                  "$eq": [
+                    "{props.state|proposed}",
+                    "running"
+                  ]
+                },
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.md"
+                },
+                "children": [
+                  {
+                    "part": "progress",
+                    "component": "Progress",
+                    "props": {
+                      "value": "{props.progress|0}",
+                      "max": 1,
+                      "tone": "primary"
+                    },
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "flexBasis": 0,
+                      "minWidth": 0
+                    }
+                  },
+                  {
+                    "part": "stop",
+                    "component": "Button",
+                    "props": {
+                      "label": "{props.stopLabel|$string.stop}",
+                      "icon": "ui-stop",
+                      "variant": "destructive"
+                    },
+                    "$on": {
+                      "press": "stop"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   }
 }

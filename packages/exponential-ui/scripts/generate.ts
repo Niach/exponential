@@ -20,7 +20,8 @@
 //   fixtures/style-conditions.json        round 1: style × surface/state context → the flattened style
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
 //   fixtures/text-shimmer.json            EXP-1324: text colour × mode → the Text shimmer colours
-//   fixtures/voice-wave.json              NEW-77: size × activity × level × bands × time → the VoiceWave rings
+//   fixtures/voice-wave.json              NEW-77: size × activity × level × bands × time → the VoiceWave rings (VAPP-162: + the bars)
+//   fixtures/qr-code.json                 VAPP-162: value × level → the QrCode matrix
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
@@ -45,7 +46,8 @@ import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } fr
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
 import { textShimmer } from "../src/text-shimmer"
-import { voiceWave, type VoiceWaveInput } from "../src/voice-wave"
+import { voiceWave, voiceWaveBars, type VoiceWaveBarsInput, type VoiceWaveInput } from "../src/voice-wave"
+import { qrMatrix } from "../src/qr-code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
@@ -572,7 +574,7 @@ function componentCases(): ComponentCase[] {
  *  column instead of stretching across it. */
 const INLINE_SPECIMENS = new Set([
   `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
-  `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`,
+  `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`, `QrCode`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
 const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
@@ -677,6 +679,31 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `status · error`, node: { id: `item`, component: `TraceItem`, props: { title: `The general-purpose agent failed`, icon: `trace-subagent`, description: `9s`, status: `error` } } },
     { label: `status · pending`, node: { id: `item`, component: `TraceItem`, props: { title: `Waiting on the web captures`, icon: `trace-background`, status: `pending` } } },
     { label: `size · sm`, node: { id: `item`, component: `TraceItem`, props: { title: `Searched persistOnStop`, icon: `trace-search`, size: `sm`, collapsible: true } } },
+    // VAPP-162: the two Plan step states.
+    { label: `status · done`, node: { id: `item`, component: `TraceItem`, props: { title: `Opened augustiner-keller.de`, icon: `globe`, status: `done` } } },
+    { label: `status · skipped`, node: { id: `item`, component: `TraceItem`, props: { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `skipped` } } },
+  ],
+  // VAPP-162: the new low-level pieces, each with the states the drafts show.
+  MessageBubble: [
+    { label: `example`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Is the printer fixed?`, side: `out`, time: `18:00`, status: `read` }, style: { width: 360 } } },
+    { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
+  ],
+  CallSurface: [
+    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `ringing`, status: `Calling…` }, style: { height: 420, width: 360 } } },
+    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { height: 420, width: 360 } } },
+    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, status: `03:10`, muted: true }, style: { height: 420, width: 360 } } },
+  ],
+  Plan: [
+    { label: `state · proposed`, node: { id: `plan`, component: `Plan`, props: { title: `Here's my plan`, description: `I'll use your mouse and keyboard for about two minutes.`, state: `proposed`, approveLabel: `Yes, do it`, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `pending` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `pending` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }] }, style: { width: 480 } } },
+    { label: `state · running`, node: { id: `plan`, component: `Plan`, props: { title: `Working on it · step 2 of 4`, description: `Hands off the mouse for a moment. Esc stops me.`, state: `running`, progress: 0.4, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `done` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `running` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }, { title: `Add it to your calendar`, icon: `calendar`, status: `skipped` }] }, style: { width: 480 } } },
+  ],
+  QrCode: [
+    { label: `example`, node: { id: `qr`, component: `QrCode`, props: { value: `spezl://pair?host=macbook.local&key=Zm9vYmFy`, label: `Scan to pair` } } },
+    { label: `level · H · size 120`, node: { id: `qr`, component: `QrCode`, props: { value: `HELLO`, level: `H`, size: 120 } } },
+  ],
+  QrScanner: [
+    { label: `example`, node: { id: `scan`, component: `QrScanner`, props: { hint: `Point at the code on your computer` }, style: { width: 320 } } },
+    { label: `disabled · true`, node: { id: `scan`, component: `QrScanner`, props: { hint: `Paused`, disabled: true }, style: { width: 320 } } },
   ],
 }
 
@@ -697,9 +724,36 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `name · non-Lucide`,
     node: { id: `marks`, component: `Stack`, props: { direction: `horizontal`, gap: `md` }, children: [`os-apple`, `os-windows`, `os-linux`, `progress-2-4`].map((name) => ({ id: name, component: `Icon`, props: { name, size: `lg` } })) },
   }],
+  // VAPP-162: the navigation rail (a vertical bar) with counts.
   Segmented: [{
     label: `variant · bar · icons`,
     node: { id: `tabs`, component: `Segmented`, props: { variant: `bar`, value: `chats`, items: [{ label: `Chats`, value: `chats`, icon: `message-circle` }, { label: `Contacts`, value: `contacts`, icon: `users` }, { label: `Settings`, value: `settings`, icon: `settings` }] }, style: { width: 360 } },
+  }, {
+    label: `orientation · vertical · bar (the rail) · counts`,
+    node: { id: `rail`, component: `Segmented`, props: { variant: `bar`, orientation: `vertical`, value: `chats`, items: [{ label: `Chats`, value: `chats`, icon: `message-circle`, count: 3 }, { label: `Voices`, value: `voices`, icon: `mic` }, { label: `Library`, value: `library`, icon: `layers`, count: 12 }, { label: `Friends`, value: `friends`, icon: `users` }] } },
+  }],
+  VoiceWave: [`sm`, `md`, `lg`, `xl`].map((size) => ({
+    label: `variant · bars · ${size}`,
+    node: { id: `bars-${size}`, component: `VoiceWave`, props: { variant: `bars`, size, activity: `speaking`, level: 0.7, bands: [0.9, 0.5, 1, 0.6], label: `Voice` } },
+  })),
+  Button: [{
+    label: `hold · true`,
+    node: { id: `talk`, component: `Button`, props: { label: `Hold to talk`, icon: `call-mute`, hold: true, holdingLabel: `Holding…` } },
+  }],
+  // VAPP-162: a conversation (in, out, the three delivery states).
+  MessageBubble: [{
+    label: `a conversation`,
+    node: { id: `chat`, component: `Stack`, props: { gap: `sm` }, style: { width: 360 }, children: [
+      { id: `m1`, component: `MessageBubble`, props: { text: `Is the printer fixed?`, side: `out`, time: `18:00`, status: `read` } },
+      { id: `m2`, component: `MessageBubble`, props: { text: `Yes, driver's updated. Try again.`, time: `18:02` } },
+      { id: `m3`, component: `MessageBubble`, props: { text: `Send me the photo from the Wiesn I put on the desktop.`, side: `out`, time: `20:20`, status: `sent` } },
+      { id: `m4`, component: `MessageBubble`, props: { text: `On its way…`, side: `out`, time: `20:21`, status: `sending` } },
+    ] },
+  }],
+  // VAPP-162: the serif family token on a node style.
+  Text: [{
+    label: `fontFamily · serif`,
+    node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
   }],
   Input: [{
     label: `label · none`,
@@ -1089,10 +1143,24 @@ function shimmerCases(file: ShimmerCaseFile) {
 interface VoiceWaveCaseFile {
   $comment: string
   cases: { name: string; input: VoiceWaveInput; expected?: unknown }[]
+  bars: { name: string; input: VoiceWaveBarsInput; expected?: unknown }[]
 }
 
 function voiceWaveCases(file: VoiceWaveCaseFile) {
-  return { ...file, cases: file.cases.map((c) => ({ name: c.name, input: c.input, expected: voiceWave(c.input) })) }
+  return {
+    ...file,
+    cases: file.cases.map((c) => ({ name: c.name, input: c.input, expected: voiceWave(c.input) })),
+    bars: file.bars.map((c) => ({ name: c.name, input: c.input, expected: voiceWaveBars(c.input) })),
+  }
+}
+
+interface QrCaseFile {
+  $comment: string
+  cases: { name: string; value: string; level: string; expected?: unknown }[]
+}
+
+function qrCases(file: QrCaseFile) {
+  return { ...file, cases: file.cases.map((c) => ({ name: c.name, value: c.value, level: c.level, expected: qrMatrix(c.value, c.level) })) }
 }
 
 function promptBudget() {
@@ -1111,7 +1179,9 @@ function promptBudget() {
     // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
     // EXP-1324: Trace + TraceItem (descriptions trimmed first).
     // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens; VAPP-128 trims nine prop descriptions; the budget is the measured total (7,335), no slack.
-    budgetTokens: 7410,
+    // NEW-77: VoiceWave, the measured 7,410.
+    // VAPP-162 (a named budget exception): MessageBubble, CallSurface, Plan, QrCode, QrScanner + Segmented orientation, Button hold, VoiceWave variant: +1,967 chars / +490 tokens after trimming every new description; the budget is the measured total (7,900), no slack.
+    budgetTokens: 7900,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
@@ -1191,6 +1261,7 @@ function renderFiles(): Record<string, string> {
     "fixtures/code-tokens.json": json(codeCases(readJson<CodeCaseFile>(`fixtures/code-tokens.json`))),
     "fixtures/text-shimmer.json": json(shimmerCases(readJson<ShimmerCaseFile>(`fixtures/text-shimmer.json`))),
     "fixtures/voice-wave.json": json(voiceWaveCases(readJson<VoiceWaveCaseFile>(`fixtures/voice-wave.json`))),
+    "fixtures/qr-code.json": json(qrCases(readJson<QrCaseFile>(`fixtures/qr-code.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).

@@ -94,7 +94,7 @@
   "tokens": {
     "radius": { "sm": 10, "md": 14, "lg": 18, "xl": 24, "xl2": 28, "xl3": 32 },
     "type": {
-      "family": { "sans": "Nunito", "mono": "Fira Code" },
+      "family": { "sans": "Nunito", "mono": "Fira Code", "serif": "ui-serif" },
       "weight": { "regular": 400, "medium": 600, "semibold": 700, "bold": 700 }
     },
     "control": { "buttonSm": 32, "buttonMd": 40, "buttonLg": 48, "buttonIcon": 40, "input": 44, "pill": 28, "badge": 22, "chip": 32, "toggle": 40, "switch": 24, "checkbox": 20, "row": 44 },

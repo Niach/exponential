@@ -5140,6 +5140,266 @@
       }
     },
     {
+      "component": "QrCode",
+      "part": "root",
+      "props": {
+        "level": "M"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "gap": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 8
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "gap": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 8
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "gap": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 8
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "gap": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 8
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrCode",
+      "part": "plate",
+      "props": {
+        "level": "M"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "borderRadius": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#0a0a0a",
+              "borderRadius": 8
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "borderRadius": 10
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#0a0a0a",
+              "borderRadius": 10
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#fffbf5",
+              "borderRadius": 14
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#1a1033",
+              "borderRadius": 14
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "borderRadius": 10
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#0a0a0a",
+              "borderRadius": 10
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrCode",
+      "part": "module",
+      "props": {
+        "level": "M"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#1f1235"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#f5f3ff"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrCode",
+      "part": "label",
+      "props": {
+        "level": "M"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "fontFamily": "Nunito",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "fontFamily": "Nunito",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Carousel",
       "part": "root",
       "props": {
@@ -7595,7 +7855,8 @@
         "type": "single",
         "variant": "segmented",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -7679,7 +7940,8 @@
         "type": "single",
         "variant": "toggles",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -7739,7 +8001,8 @@
         "type": "single",
         "variant": "bar",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -7815,7 +8078,8 @@
         "type": "single",
         "variant": "segmented",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -8131,7 +8395,8 @@
         "type": "single",
         "variant": "toggles",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -8407,7 +8672,8 @@
         "type": "single",
         "variant": "outline",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -8731,7 +8997,8 @@
         "type": "single",
         "variant": "bar",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -8935,7 +9202,8 @@
         "type": "single",
         "variant": "segmented",
         "size": "sm",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -9251,7 +9519,8 @@
         "type": "single",
         "variant": "segmented",
         "size": "lg",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -9567,7 +9836,8 @@
         "type": "single",
         "variant": "bar",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -9653,7 +9923,8 @@
         "type": "single",
         "variant": "bar",
         "size": "default",
-        "fill": false
+        "fill": false,
+        "orientation": "horizontal"
       },
       "visuals": {
         "neutral": {
@@ -9732,6 +10003,131 @@
             },
             "selected": {
               "color": "#fafafa",
+              "fontWeight": 500
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Segmented",
+      "part": "badge",
+      "props": {
+        "type": "single",
+        "variant": "segmented",
+        "size": "default",
+        "fill": false,
+        "orientation": "horizontal"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#e5e5e5",
+              "color": "#171717",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#e5e5e5",
+              "color": "#171717",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#7c3aed",
+              "color": "#ffffff",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 600
+            }
+          },
+          "dark": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#c4b5fd",
+              "color": "#2e1065",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 600
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#ea580c",
+              "color": "#ffffff",
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "minWidth": 16,
+              "height": 16,
+              "paddingHorizontal": 2,
+              "borderRadius": 9999,
+              "backgroundColor": "#fb923c",
+              "color": "#431407",
+              "fontSize": 12,
+              "lineHeight": 16,
               "fontWeight": 500
             }
           }
@@ -16221,7 +16617,8 @@
       "part": "root",
       "props": {
         "activity": "listening",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16295,7 +16692,8 @@
       "part": "root",
       "props": {
         "activity": "idle",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16369,7 +16767,8 @@
       "part": "root",
       "props": {
         "activity": "listening",
-        "size": "sm"
+        "size": "sm",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16443,7 +16842,8 @@
       "part": "root",
       "props": {
         "activity": "listening",
-        "size": "md"
+        "size": "md",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16517,7 +16917,8 @@
       "part": "root",
       "props": {
         "activity": "listening",
-        "size": "xl"
+        "size": "xl",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16580,6 +16981,81 @@
             "default": {
               "width": 200,
               "height": 200,
+              "opacity": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "root",
+      "props": {
+        "activity": "listening",
+        "size": "lg",
+        "variant": "bars"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 156,
+              "height": 40,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 156,
+              "height": 40,
               "opacity": 1
             }
           }
@@ -16591,7 +17067,8 @@
       "part": "outer",
       "props": {
         "activity": "listening",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16649,7 +17126,8 @@
       "part": "outer",
       "props": {
         "activity": "idle",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16707,7 +17185,8 @@
       "part": "mid",
       "props": {
         "activity": "listening",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16765,7 +17244,8 @@
       "part": "mid",
       "props": {
         "activity": "idle",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16823,7 +17303,8 @@
       "part": "inner",
       "props": {
         "activity": "listening",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16881,7 +17362,8 @@
       "part": "inner",
       "props": {
         "activity": "idle",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16939,7 +17421,8 @@
       "part": "child",
       "props": {
         "activity": "listening",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -16997,7 +17480,126 @@
       "part": "child",
       "props": {
         "activity": "muted",
-        "size": "lg"
+        "size": "lg",
+        "variant": "ring"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "bar",
+      "props": {
+        "activity": "listening",
+        "size": "lg",
+        "variant": "ring"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#7c3aed"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#ea580c"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fb923c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "bar",
+      "props": {
+        "activity": "idle",
+        "size": "lg",
+        "variant": "ring"
       },
       "visuals": {
         "neutral": {
@@ -48739,6 +49341,575 @@
       }
     },
     {
+      "component": "QrScanner",
+      "part": "root",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "gap": 12
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "gap": 12
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "gap": 12
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "gap": 12
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "root",
+      "props": {
+        "disabled": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          },
+          "dark": {
+            "default": {
+              "gap": 12,
+              "opacity": 0.5
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "viewfinder",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "borderRadius": 14
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 14
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "borderRadius": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 16
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "borderRadius": 24
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 24
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "borderRadius": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "feed",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fafafa"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fafafa"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#1f1235"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#f5f3ff"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fafafa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "corner",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#7c3aed"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#ea580c"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fb923c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "scanLine",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#7c3aed"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ea580c"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fb923c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "placeholder",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "fontFamily": "Nunito",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "fontFamily": "Nunito",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "lineHeight": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "placeholderIcon",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "QrScanner",
+      "part": "hint",
+      "props": {
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "fontFamily": "Nunito",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "fontFamily": "Nunito",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "lineHeight": 20
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Composer",
       "part": "root",
       "props": {
@@ -52769,6 +53940,142 @@
     },
     {
       "component": "TraceItem",
+      "part": "icon",
+      "props": {
+        "status": "done",
+        "size": "default",
+        "collapsible": true,
+        "open": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#16a34a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#22c55e"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#22c55e"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#22c55e"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#059669"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#34d399"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#22c55e"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#22c55e"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "TraceItem",
+      "part": "title",
+      "props": {
+        "status": "skipped",
+        "size": "default",
+        "collapsible": true,
+        "open": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontWeight": 400,
+              "textDecoration": "line-through"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "TraceItem",
       "part": "chevron",
       "props": {
         "size": "default",
@@ -52877,6 +54184,120 @@
                 0,
                 1
               ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Progress",
+      "part": "track",
+      "props": {
+        "tone": "primary"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ccfbf1"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#134e4a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Progress",
+      "part": "fill",
+      "props": {
+        "tone": "primary"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#7c3aed"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ea580c"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fb923c"
             }
           }
         }
@@ -57085,120 +58506,6 @@
     },
     {
       "component": "Progress",
-      "part": "track",
-      "props": {
-        "tone": "primary"
-      },
-      "visuals": {
-        "neutral": {
-          "light": {
-            "default": {
-              "backgroundColor": "#f5f5f5"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#262626"
-            }
-          }
-        },
-        "exponential": {
-          "light": {
-            "default": {
-              "backgroundColor": "#f5f5f5"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#ffffff0a"
-            }
-          }
-        },
-        "playful": {
-          "light": {
-            "default": {
-              "backgroundColor": "#ccfbf1"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#134e4a"
-            }
-          }
-        },
-        "orange": {
-          "light": {
-            "default": {
-              "backgroundColor": "#f5f5f5"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#ffffff0a"
-            }
-          }
-        }
-      }
-    },
-    {
-      "component": "Progress",
-      "part": "fill",
-      "props": {
-        "tone": "primary"
-      },
-      "visuals": {
-        "neutral": {
-          "light": {
-            "default": {
-              "backgroundColor": "#171717"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#e5e5e5"
-            }
-          }
-        },
-        "exponential": {
-          "light": {
-            "default": {
-              "backgroundColor": "#171717"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#e5e5e5"
-            }
-          }
-        },
-        "playful": {
-          "light": {
-            "default": {
-              "backgroundColor": "#7c3aed"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#c4b5fd"
-            }
-          }
-        },
-        "orange": {
-          "light": {
-            "default": {
-              "backgroundColor": "#ea580c"
-            }
-          },
-          "dark": {
-            "default": {
-              "backgroundColor": "#fb923c"
-            }
-          }
-        }
-      }
-    },
-    {
-      "component": "Progress",
       "part": "fill",
       "props": {
         "tone": "neutral"
@@ -57646,6 +58953,566 @@
           "dark": {
             "default": {
               "backgroundColor": "#facc15"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "name",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 600
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 600
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 600
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 600
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 700
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 700
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 600
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 24,
+              "lineHeight": 32,
+              "fontWeight": 600
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "status",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "caption",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 16,
+              "lineHeight": 28,
+              "opacity": 0.9
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "mute",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ccfbf1",
+              "color": "#1f1235",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#134e4a",
+              "color": "#f5f3ff",
+              "boxShadow": []
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "end",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e7000b",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ff6467",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e7000b",
+              "color": "#ffffff",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ff6467",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e11d48",
+              "color": "#ffffff",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fb7185",
+              "color": "#4c0519",
+              "boxShadow": []
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e7000b",
+              "color": "#ffffff",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ff6467",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "cancelLabel",
+      "props": {
+        "state": "ringing",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "mute",
+      "props": {
+        "state": "talking",
+        "muted": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#0a0a0a",
+              "color": "#ffffff",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fafafa",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#0a0a0a",
+              "color": "#ffffff",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fafafa",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#1f1235",
+              "color": "#fffbf5",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#f5f3ff",
+              "color": "#1a1033",
+              "boxShadow": []
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#0a0a0a",
+              "color": "#ffffff",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#fafafa",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "speaker",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "boxShadow": []
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ccfbf1",
+              "color": "#1f1235",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#134e4a",
+              "color": "#f5f3ff",
+              "boxShadow": []
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#0a0a0a",
+              "boxShadow": []
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "boxShadow": []
             }
           }
         }
@@ -58479,6 +60346,286 @@
       }
     },
     {
+      "component": "MessageBubble",
+      "part": "bubble",
+      "props": {
+        "side": "out",
+        "status": "read"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#171717",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626",
+              "color": "#fafafa",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#171717",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ccfbf1",
+              "color": "#134e4a",
+              "borderWidth": 2,
+              "borderColor": "#e9d5ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#134e4a",
+              "color": "#ccfbf1",
+              "borderWidth": 2,
+              "borderColor": "#4c3a7a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#171717",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageBubble",
+      "part": "time",
+      "props": {
+        "side": "out",
+        "status": "read"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageBubble",
+      "part": "status",
+      "props": {
+        "side": "out",
+        "status": "read"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageBubble",
+      "part": "bubble",
+      "props": {
+        "side": "in",
+        "status": "read"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "color": "#0a0a0a",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "color": "#0a0a0a",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "color": "#1f1235",
+              "borderWidth": 2,
+              "borderColor": "#e9d5ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#2a1b4d",
+              "color": "#f5f3ff",
+              "borderWidth": 2,
+              "borderColor": "#4c3a7a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#ffffff",
+              "color": "#0a0a0a",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0f",
+              "color": "#fafafa",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Section",
       "part": "count",
       "props": {
@@ -59040,6 +61187,71 @@
           "dark": {
             "default": {
               "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageBubble",
+      "part": "author",
+      "props": {
+        "side": "in"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontWeight": 500
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontWeight": 500
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "fontWeight": 600
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "fontWeight": 600
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "fontWeight": 500
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "fontWeight": 500
             }
           }
         }

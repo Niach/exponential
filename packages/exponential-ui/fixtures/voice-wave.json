@@ -1,5 +1,5 @@
 {
-  "$comment": "NEW-77: the VoiceWave rings (catalog/style.json `voiceWave`). Inputs hand-written (size = the root recipe's px edge, activity, level, bands, elapsed seconds, reducedMotion); `expected` = src/voice-wave.ts voiceWave: per ring (outer, mid, inner) its steps + 1 points in px from the box's top-left, rounded to 0.01, its fill/stroke alpha and stroke width; the child's edge (0 = not painted); the phase. The Rust core (`voice_wave`) and every painter replay it; a painter's drawn path stays within 0.5 px of these points.",
+  "$comment": "NEW-77: the VoiceWave rings (catalog/style.json `voiceWave`). Inputs hand-written (size = the root recipe's px edge, activity, level, bands, elapsed seconds, reducedMotion); `expected` = src/voice-wave.ts voiceWave: per ring (outer, mid, inner) its steps + 1 points in px from the box's top-left, rounded to 0.01, its fill/stroke alpha and stroke width; the child's edge (0 = not painted); the phase. The Rust core (`voice_wave`) and every painter replay it; a painter's drawn path stays within 0.5 px of these points. VAPP-162: `bars` = the `variant: bars` level meter (src/voice-wave.ts voiceWaveBars: size class × activity × level × bands × time → the root box and every bar rect); same inputs, same phase rule.",
   "cases": [
     {
       "name": "md idle lies flat",
@@ -17963,6 +17963,1273 @@
           "height": 16.8,
           "scale": 0.7
         }
+      }
+    }
+  ],
+  "bars": [
+    {
+      "name": "md idle is a flat row of dots",
+      "input": {
+        "size": "md",
+        "activity": "idle",
+        "level": 1
+      },
+      "expected": {
+        "width": 117,
+        "height": 24,
+        "phase": 0,
+        "bars": [
+          {
+            "x": 0,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 6,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 12,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 18,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 24,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 30,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 36,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 42,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 48,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 54,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 60,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 66,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 72,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 78,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 84,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 90,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 96,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 102,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 108,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 114,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "md listening, level only",
+      "input": {
+        "size": "md",
+        "activity": "listening",
+        "level": 0.5
+      },
+      "expected": {
+        "width": 117,
+        "height": 24,
+        "phase": 0,
+        "bars": [
+          {
+            "x": 0,
+            "y": 8.33,
+            "width": 3,
+            "height": 7.34,
+            "radius": 1.5
+          },
+          {
+            "x": 6,
+            "y": 6.93,
+            "width": 3,
+            "height": 10.15,
+            "radius": 1.5
+          },
+          {
+            "x": 12,
+            "y": 8.2,
+            "width": 3,
+            "height": 7.61,
+            "radius": 1.5
+          },
+          {
+            "x": 18,
+            "y": 8.94,
+            "width": 3,
+            "height": 6.13,
+            "radius": 1.5
+          },
+          {
+            "x": 24,
+            "y": 6.64,
+            "width": 3,
+            "height": 10.72,
+            "radius": 1.5
+          },
+          {
+            "x": 30,
+            "y": 5.86,
+            "width": 3,
+            "height": 12.29,
+            "radius": 1.5
+          },
+          {
+            "x": 36,
+            "y": 8.15,
+            "width": 3,
+            "height": 7.7,
+            "radius": 1.5
+          },
+          {
+            "x": 42,
+            "y": 7.85,
+            "width": 3,
+            "height": 8.31,
+            "radius": 1.5
+          },
+          {
+            "x": 48,
+            "y": 4.76,
+            "width": 3,
+            "height": 14.48,
+            "radius": 1.5
+          },
+          {
+            "x": 54,
+            "y": 5.4,
+            "width": 3,
+            "height": 13.21,
+            "radius": 1.5
+          },
+          {
+            "x": 60,
+            "y": 8.23,
+            "width": 3,
+            "height": 7.54,
+            "radius": 1.5
+          },
+          {
+            "x": 66,
+            "y": 6.75,
+            "width": 3,
+            "height": 10.5,
+            "radius": 1.5
+          },
+          {
+            "x": 72,
+            "y": 4.83,
+            "width": 3,
+            "height": 14.34,
+            "radius": 1.5
+          },
+          {
+            "x": 78,
+            "y": 7.12,
+            "width": 3,
+            "height": 9.77,
+            "radius": 1.5
+          },
+          {
+            "x": 84,
+            "y": 8.75,
+            "width": 3,
+            "height": 6.5,
+            "radius": 1.5
+          },
+          {
+            "x": 90,
+            "y": 6.85,
+            "width": 3,
+            "height": 10.31,
+            "radius": 1.5
+          },
+          {
+            "x": 96,
+            "y": 6.39,
+            "width": 3,
+            "height": 11.22,
+            "radius": 1.5
+          },
+          {
+            "x": 102,
+            "y": 8.63,
+            "width": 3,
+            "height": 6.75,
+            "radius": 1.5
+          },
+          {
+            "x": 108,
+            "y": 8.96,
+            "width": 3,
+            "height": 6.08,
+            "radius": 1.5
+          },
+          {
+            "x": 114,
+            "y": 7.51,
+            "width": 3,
+            "height": 8.99,
+            "radius": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "lg speaking with bands at 1.2 s",
+      "input": {
+        "size": "lg",
+        "activity": "speaking",
+        "level": 0.8,
+        "bands": [
+          0.9,
+          0.4,
+          1,
+          0.6
+        ],
+        "elapsed": 1.2
+      },
+      "expected": {
+        "width": 156,
+        "height": 40,
+        "phase": 1.08,
+        "bars": [
+          {
+            "x": 0,
+            "y": 11.13,
+            "width": 4,
+            "height": 17.75,
+            "radius": 2
+          },
+          {
+            "x": 8,
+            "y": 15.56,
+            "width": 4,
+            "height": 8.88,
+            "radius": 2
+          },
+          {
+            "x": 16,
+            "y": 13.43,
+            "width": 4,
+            "height": 13.13,
+            "radius": 2
+          },
+          {
+            "x": 24,
+            "y": 13.81,
+            "width": 4,
+            "height": 12.38,
+            "radius": 2
+          },
+          {
+            "x": 32,
+            "y": 8.52,
+            "width": 4,
+            "height": 22.96,
+            "radius": 2
+          },
+          {
+            "x": 40,
+            "y": 15.92,
+            "width": 4,
+            "height": 8.16,
+            "radius": 2
+          },
+          {
+            "x": 48,
+            "y": 13.17,
+            "width": 4,
+            "height": 13.66,
+            "radius": 2
+          },
+          {
+            "x": 56,
+            "y": 10.27,
+            "width": 4,
+            "height": 19.46,
+            "radius": 2
+          },
+          {
+            "x": 64,
+            "y": 9.44,
+            "width": 4,
+            "height": 21.12,
+            "radius": 2
+          },
+          {
+            "x": 72,
+            "y": 14.85,
+            "width": 4,
+            "height": 10.31,
+            "radius": 2
+          },
+          {
+            "x": 80,
+            "y": 8.85,
+            "width": 4,
+            "height": 22.31,
+            "radius": 2
+          },
+          {
+            "x": 88,
+            "y": 9.59,
+            "width": 4,
+            "height": 20.82,
+            "radius": 2
+          },
+          {
+            "x": 96,
+            "y": 7.85,
+            "width": 4,
+            "height": 24.3,
+            "radius": 2
+          },
+          {
+            "x": 104,
+            "y": 15.87,
+            "width": 4,
+            "height": 8.26,
+            "radius": 2
+          },
+          {
+            "x": 112,
+            "y": 7.16,
+            "width": 4,
+            "height": 25.68,
+            "radius": 2
+          },
+          {
+            "x": 120,
+            "y": 11.24,
+            "width": 4,
+            "height": 17.52,
+            "radius": 2
+          },
+          {
+            "x": 128,
+            "y": 13.12,
+            "width": 4,
+            "height": 13.77,
+            "radius": 2
+          },
+          {
+            "x": 136,
+            "y": 15.57,
+            "width": 4,
+            "height": 8.87,
+            "radius": 2
+          },
+          {
+            "x": 144,
+            "y": 11.32,
+            "width": 4,
+            "height": 17.36,
+            "radius": 2
+          },
+          {
+            "x": 152,
+            "y": 13.7,
+            "width": 4,
+            "height": 12.6,
+            "radius": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "xl speaking, level and bands clamp",
+      "input": {
+        "size": "xl",
+        "activity": "speaking",
+        "level": 3,
+        "bands": [
+          2,
+          -1,
+          0.5,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0.2,
+          0.3
+        ]
+      },
+      "expected": {
+        "width": 195,
+        "height": 56,
+        "phase": 0,
+        "bars": [
+          {
+            "x": 0,
+            "y": 16.33,
+            "width": 5,
+            "height": 23.35,
+            "radius": 2.5
+          },
+          {
+            "x": 10,
+            "y": 24.64,
+            "width": 5,
+            "height": 6.72,
+            "radius": 2.5
+          },
+          {
+            "x": 20,
+            "y": 20.23,
+            "width": 5,
+            "height": 15.55,
+            "radius": 2.5
+          },
+          {
+            "x": 30,
+            "y": 18.58,
+            "width": 5,
+            "height": 18.85,
+            "radius": 2.5
+          },
+          {
+            "x": 40,
+            "y": 10.01,
+            "width": 5,
+            "height": 35.98,
+            "radius": 2.5
+          },
+          {
+            "x": 50,
+            "y": 7.07,
+            "width": 5,
+            "height": 41.87,
+            "radius": 2.5
+          },
+          {
+            "x": 60,
+            "y": 15.65,
+            "width": 5,
+            "height": 24.71,
+            "radius": 2.5
+          },
+          {
+            "x": 70,
+            "y": 14.5,
+            "width": 5,
+            "height": 27.01,
+            "radius": 2.5
+          },
+          {
+            "x": 80,
+            "y": 2.98,
+            "width": 5,
+            "height": 50.03,
+            "radius": 2.5
+          },
+          {
+            "x": 90,
+            "y": 24.64,
+            "width": 5,
+            "height": 6.72,
+            "radius": 2.5
+          },
+          {
+            "x": 100,
+            "y": 20.29,
+            "width": 5,
+            "height": 15.42,
+            "radius": 2.5
+          },
+          {
+            "x": 110,
+            "y": 10.42,
+            "width": 5,
+            "height": 35.16,
+            "radius": 2.5
+          },
+          {
+            "x": 120,
+            "y": 3.25,
+            "width": 5,
+            "height": 49.51,
+            "radius": 2.5
+          },
+          {
+            "x": 130,
+            "y": 11.78,
+            "width": 5,
+            "height": 32.44,
+            "radius": 2.5
+          },
+          {
+            "x": 140,
+            "y": 17.88,
+            "width": 5,
+            "height": 20.23,
+            "radius": 2.5
+          },
+          {
+            "x": 150,
+            "y": 10.78,
+            "width": 5,
+            "height": 34.44,
+            "radius": 2.5
+          },
+          {
+            "x": 160,
+            "y": 9.07,
+            "width": 5,
+            "height": 37.87,
+            "radius": 2.5
+          },
+          {
+            "x": 170,
+            "y": 24.64,
+            "width": 5,
+            "height": 6.72,
+            "radius": 2.5
+          },
+          {
+            "x": 180,
+            "y": 21.66,
+            "width": 5,
+            "height": 12.69,
+            "radius": 2.5
+          },
+          {
+            "x": 190,
+            "y": 13.23,
+            "width": 5,
+            "height": 29.54,
+            "radius": 2.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "sm thinking ignores level and bands",
+      "input": {
+        "size": "sm",
+        "activity": "thinking",
+        "level": 1,
+        "bands": [
+          0.1
+        ],
+        "elapsed": 2
+      },
+      "expected": {
+        "width": 78,
+        "height": 16,
+        "phase": 1.8,
+        "bars": [
+          {
+            "x": 0,
+            "y": 5.95,
+            "width": 2,
+            "height": 4.1,
+            "radius": 1
+          },
+          {
+            "x": 4,
+            "y": 6.6,
+            "width": 2,
+            "height": 2.81,
+            "radius": 1
+          },
+          {
+            "x": 8,
+            "y": 5.86,
+            "width": 2,
+            "height": 4.29,
+            "radius": 1
+          },
+          {
+            "x": 12,
+            "y": 5.79,
+            "width": 2,
+            "height": 4.42,
+            "radius": 1
+          },
+          {
+            "x": 16,
+            "y": 6.03,
+            "width": 2,
+            "height": 3.95,
+            "radius": 1
+          },
+          {
+            "x": 20,
+            "y": 6.15,
+            "width": 2,
+            "height": 3.7,
+            "radius": 1
+          },
+          {
+            "x": 24,
+            "y": 6.14,
+            "width": 2,
+            "height": 3.72,
+            "radius": 1
+          },
+          {
+            "x": 28,
+            "y": 5.2,
+            "width": 2,
+            "height": 5.61,
+            "radius": 1
+          },
+          {
+            "x": 32,
+            "y": 6.33,
+            "width": 2,
+            "height": 3.34,
+            "radius": 1
+          },
+          {
+            "x": 36,
+            "y": 6.28,
+            "width": 2,
+            "height": 3.44,
+            "radius": 1
+          },
+          {
+            "x": 40,
+            "y": 5.07,
+            "width": 2,
+            "height": 5.86,
+            "radius": 1
+          },
+          {
+            "x": 44,
+            "y": 5.87,
+            "width": 2,
+            "height": 4.26,
+            "radius": 1
+          },
+          {
+            "x": 48,
+            "y": 5.88,
+            "width": 2,
+            "height": 4.24,
+            "radius": 1
+          },
+          {
+            "x": 52,
+            "y": 6.02,
+            "width": 2,
+            "height": 3.96,
+            "radius": 1
+          },
+          {
+            "x": 56,
+            "y": 5.49,
+            "width": 2,
+            "height": 5.02,
+            "radius": 1
+          },
+          {
+            "x": 60,
+            "y": 5.57,
+            "width": 2,
+            "height": 4.87,
+            "radius": 1
+          },
+          {
+            "x": 64,
+            "y": 6.54,
+            "width": 2,
+            "height": 2.93,
+            "radius": 1
+          },
+          {
+            "x": 68,
+            "y": 5.76,
+            "width": 2,
+            "height": 4.48,
+            "radius": 1
+          },
+          {
+            "x": 72,
+            "y": 5.89,
+            "width": 2,
+            "height": 4.22,
+            "radius": 1
+          },
+          {
+            "x": 76,
+            "y": 6.45,
+            "width": 2,
+            "height": 3.1,
+            "radius": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "lg listening under reduced motion keeps phase 0",
+      "input": {
+        "size": "lg",
+        "activity": "listening",
+        "level": 0.7,
+        "elapsed": 3,
+        "reducedMotion": true
+      },
+      "expected": {
+        "width": 156,
+        "height": 40,
+        "phase": 0,
+        "bars": [
+          {
+            "x": 0,
+            "y": 13,
+            "width": 4,
+            "height": 14.01,
+            "radius": 2
+          },
+          {
+            "x": 8,
+            "y": 10.09,
+            "width": 4,
+            "height": 19.83,
+            "radius": 2
+          },
+          {
+            "x": 16,
+            "y": 12.72,
+            "width": 4,
+            "height": 14.57,
+            "radius": 2
+          },
+          {
+            "x": 24,
+            "y": 14.25,
+            "width": 4,
+            "height": 11.51,
+            "radius": 2
+          },
+          {
+            "x": 32,
+            "y": 9.5,
+            "width": 4,
+            "height": 21,
+            "radius": 2
+          },
+          {
+            "x": 40,
+            "y": 7.87,
+            "width": 4,
+            "height": 24.26,
+            "radius": 2
+          },
+          {
+            "x": 48,
+            "y": 12.62,
+            "width": 4,
+            "height": 14.76,
+            "radius": 2
+          },
+          {
+            "x": 56,
+            "y": 11.99,
+            "width": 4,
+            "height": 16.03,
+            "radius": 2
+          },
+          {
+            "x": 64,
+            "y": 5.61,
+            "width": 4,
+            "height": 28.78,
+            "radius": 2
+          },
+          {
+            "x": 72,
+            "y": 6.93,
+            "width": 4,
+            "height": 26.15,
+            "radius": 2
+          },
+          {
+            "x": 80,
+            "y": 12.79,
+            "width": 4,
+            "height": 14.43,
+            "radius": 2
+          },
+          {
+            "x": 88,
+            "y": 9.73,
+            "width": 4,
+            "height": 20.54,
+            "radius": 2
+          },
+          {
+            "x": 96,
+            "y": 5.76,
+            "width": 4,
+            "height": 28.49,
+            "radius": 2
+          },
+          {
+            "x": 104,
+            "y": 10.48,
+            "width": 4,
+            "height": 19.04,
+            "radius": 2
+          },
+          {
+            "x": 112,
+            "y": 13.86,
+            "width": 4,
+            "height": 12.28,
+            "radius": 2
+          },
+          {
+            "x": 120,
+            "y": 9.93,
+            "width": 4,
+            "height": 20.15,
+            "radius": 2
+          },
+          {
+            "x": 128,
+            "y": 8.98,
+            "width": 4,
+            "height": 22.04,
+            "radius": 2
+          },
+          {
+            "x": 136,
+            "y": 13.6,
+            "width": 4,
+            "height": 12.8,
+            "radius": 2
+          },
+          {
+            "x": 144,
+            "y": 14.3,
+            "width": 4,
+            "height": 11.41,
+            "radius": 2
+          },
+          {
+            "x": 152,
+            "y": 11.28,
+            "width": 4,
+            "height": 17.44,
+            "radius": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "md muted lies flat",
+      "input": {
+        "size": "md",
+        "activity": "muted",
+        "level": 0.9
+      },
+      "expected": {
+        "width": 117,
+        "height": 24,
+        "phase": 0,
+        "bars": [
+          {
+            "x": 0,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 6,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 12,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 18,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 24,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 30,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 36,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 42,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 48,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 54,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 60,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 66,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 72,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 78,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 84,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 90,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 96,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 102,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 108,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 114,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown size is md, an unknown activity idle",
+      "input": {
+        "size": "huge",
+        "activity": "shouting",
+        "level": 1
+      },
+      "expected": {
+        "width": 117,
+        "height": 24,
+        "phase": 0,
+        "bars": [
+          {
+            "x": 0,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 6,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 12,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 18,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 24,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 30,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 36,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 42,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 48,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 54,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 60,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 66,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 72,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 78,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 84,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 90,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 96,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 102,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 108,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          },
+          {
+            "x": 114,
+            "y": 10.56,
+            "width": 3,
+            "height": 2.88,
+            "radius": 1.5
+          }
+        ]
       }
     }
   ]

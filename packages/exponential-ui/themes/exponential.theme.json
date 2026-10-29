@@ -201,7 +201,8 @@
       },
       "family": {
         "sans": "Inter",
-        "mono": "ui-monospace"
+        "mono": "ui-monospace",
+        "serif": "ui-serif"
       }
     },
     "control": {
@@ -288,6 +289,10 @@
     },
     "ui-monospace": {
       "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
+      "source": "system"
+    },
+    "ui-serif": {
+      "fallback": "Georgia, serif",
       "source": "system"
     }
   },

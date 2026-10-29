@@ -1,5 +1,5 @@
 {
-  "$comment": "The conformance FONT SET: every theme font family name → the font files BOTH renderers lay text out with (the web as @font-face rules named after the family, served from these files; gpui as the ONLY fonts in a cosmic-text system without system fonts). Paths are repo-relative and committed. A family without committed files names a `substitute` (its metrics are the substitute's, on both sides — the comparison stays apples to apples, it no longer tests that family). CSS generic names the themes use as a family (`ui-monospace`) are mapped too. `default` = the face the desktop gets for `.SystemUIFont` and every unmapped family. Round 2: Nunito and Fira Code (the playful theme's families, SIL OFL 1.1, licences beside the files in conformance/fonts/) are real faces now; Nunito's statics are instances of Google Fonts' variable Nunito[wght].ttf (fonttools varLib.instancer --update-name-table), Fira Code's are the v6.2 release's. Not shipped in the npm package.",
+  "$comment": "The conformance FONT SET: every theme font family name → the font files BOTH renderers lay text out with (the web as @font-face rules named after the family, served from these files; gpui as the ONLY fonts in a cosmic-text system without system fonts). Paths are repo-relative and committed. A family without committed files names a `substitute` (its metrics are the substitute's, on both sides — the comparison stays apples to apples, it no longer tests that family). CSS generic names the themes use as a family (`ui-monospace`) are mapped too. VAPP-162: `ui-serif` (the system serif) has no committed serif face yet, so it measures as Inter on both sides. `default` = the face the desktop gets for `.SystemUIFont` and every unmapped family. Round 2: Nunito and Fira Code (the playful theme's families, SIL OFL 1.1, licences beside the files in conformance/fonts/) are real faces now; Nunito's statics are instances of Google Fonts' variable Nunito[wght].ttf (fonttools varLib.instancer --update-name-table), Fira Code's are the v6.2 release's. Not shipped in the npm package.",
   "default": "Inter",
   "families": {
     "Inter": {
@@ -79,6 +79,9 @@
     },
     "ui-monospace": {
       "substitute": "JetBrains Mono"
+    },
+    "ui-serif": {
+      "substitute": "Inter"
     },
     "Nunito": {
       "faces": [

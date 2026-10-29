@@ -26,6 +26,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         }
       }
     },
@@ -54,6 +58,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         },
         "Inter": {
           "fallback": "ui-sans-serif, system-ui, sans-serif",
@@ -96,6 +104,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         },
         "Nunito": {
           "fallback": "Avenir Next, Segoe UI, sans-serif",
@@ -142,6 +154,10 @@
             500
           ],
           "source": "host"
+        },
+        "ui-serif": {
+          "fallback": "Georgia, serif",
+          "source": "system"
         },
         "Inter": {
           "fallback": "ui-sans-serif, system-ui, sans-serif",
@@ -1268,6 +1284,16 @@
           "exponential": "ui-monospace",
           "playful": "Fira Code",
           "orange": "ui-monospace"
+        }
+      },
+      {
+        "name": "serif",
+        "ref": "$type.family.serif",
+        "values": {
+          "neutral": "ui-serif",
+          "exponential": "ui-serif",
+          "playful": "ui-serif",
+          "orange": "ui-serif"
         }
       }
     ],
@@ -2647,6 +2673,19 @@
       ]
     },
     {
+      "name": "QrCode",
+      "kind": "native",
+      "parts": [
+        "root",
+        "plate",
+        "module",
+        "label"
+      ],
+      "props": [
+        "level"
+      ]
+    },
+    {
       "name": "Carousel",
       "kind": "native",
       "parts": [
@@ -2687,13 +2726,15 @@
         "root",
         "item",
         "icon",
-        "label"
+        "label",
+        "badge"
       ],
       "props": [
         "type",
         "variant",
         "size",
-        "fill"
+        "fill",
+        "orientation"
       ]
     },
     {
@@ -2752,6 +2793,28 @@
         "size",
         "collapsible",
         "open"
+      ]
+    },
+    {
+      "name": "Plan",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "card",
+        "header",
+        "title",
+        "description",
+        "steps",
+        "step",
+        "footer",
+        "decline",
+        "approve",
+        "running",
+        "progress",
+        "stop"
+      ],
+      "props": [
+        "state"
       ]
     },
     {
@@ -3058,11 +3121,43 @@
         "outer",
         "mid",
         "inner",
-        "child"
+        "child",
+        "bar"
       ],
       "props": [
         "activity",
-        "size"
+        "size",
+        "variant"
+      ]
+    },
+    {
+      "name": "CallSurface",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "head",
+        "wave",
+        "avatar",
+        "name",
+        "status",
+        "caption",
+        "spacer",
+        "controls",
+        "muteTip",
+        "mute",
+        "muteIcon",
+        "speakerTip",
+        "speaker",
+        "speakerIcon",
+        "endTip",
+        "end",
+        "endIcon",
+        "cancel",
+        "cancelLabel"
+      ],
+      "props": [
+        "state",
+        "muted"
       ]
     },
     {
@@ -3458,6 +3553,23 @@
       ]
     },
     {
+      "name": "QrScanner",
+      "kind": "native",
+      "parts": [
+        "root",
+        "viewfinder",
+        "feed",
+        "corner",
+        "scanLine",
+        "placeholder",
+        "placeholderIcon",
+        "hint"
+      ],
+      "props": [
+        "disabled"
+      ]
+    },
+    {
       "name": "Composer",
       "kind": "native",
       "parts": [
@@ -3492,6 +3604,23 @@
         "density",
         "surface",
         "depth"
+      ]
+    },
+    {
+      "name": "MessageBubble",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "bubble",
+        "author",
+        "text",
+        "footer",
+        "time",
+        "status"
+      ],
+      "props": [
+        "side",
+        "status"
       ]
     },
     {

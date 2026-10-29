@@ -1938,6 +1938,36 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-text-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-text-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "fontFamily · serif",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-serif",
+                "component": "Text",
+                "props": {
+                  "text": "The quick brown fox jumps over the lazy dog.",
+                  "variant": "lead"
+                },
+                "style": {
+                  "fontFamily": "$type.family.serif"
+                }
+              }
+            ]
           }
         ]
       }
@@ -3059,6 +3089,79 @@
       }
     },
     {
+      "id": "exponential-ui-qr-code",
+      "component": "QrCode",
+      "title": "QrCode",
+      "node": {
+        "id": "specimen-qr-code",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-qr-code-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-qr-code-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-qr",
+                "component": "QrCode",
+                "props": {
+                  "value": "spezl://pair?host=macbook.local&key=Zm9vYmFy",
+                  "label": "Scan to pair"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-qr-code-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-qr-code-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "level · H · size 120",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-qr",
+                "component": "QrCode",
+                "props": {
+                  "value": "HELLO",
+                  "level": "H",
+                  "size": 120
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-carousel",
       "component": "Carousel",
       "title": "Carousel",
@@ -3517,6 +3620,58 @@
                 },
                 "style": {
                   "width": 360
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-segmented-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-segmented-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "orientation · vertical · bar (the rail) · counts",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-rail",
+                "component": "Segmented",
+                "props": {
+                  "variant": "bar",
+                  "orientation": "vertical",
+                  "value": "chats",
+                  "items": [
+                    {
+                      "label": "Chats",
+                      "value": "chats",
+                      "icon": "message-circle",
+                      "count": 3
+                    },
+                    {
+                      "label": "Voices",
+                      "value": "voices",
+                      "icon": "mic"
+                    },
+                    {
+                      "label": "Library",
+                      "value": "library",
+                      "icon": "layers",
+                      "count": 12
+                    },
+                    {
+                      "label": "Friends",
+                      "value": "friends",
+                      "icon": "users"
+                    }
+                  ]
                 }
               }
             ]
@@ -4054,6 +4209,183 @@
                   "icon": "trace-search",
                   "size": "sm",
                   "collapsible": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-item-case-5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-5-label",
+                "component": "Text",
+                "props": {
+                  "text": "status · done",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "Opened augustiner-keller.de",
+                  "icon": "globe",
+                  "status": "done"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-item-case-6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-6-label",
+                "component": "Text",
+                "props": {
+                  "text": "status · skipped",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "Mail the confirmation to Lisa",
+                  "icon": "mail",
+                  "status": "skipped"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-plan",
+      "component": "Plan",
+      "title": "Plan",
+      "node": {
+        "id": "specimen-plan",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-plan-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-plan-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "state · proposed",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-plan",
+                "component": "Plan",
+                "props": {
+                  "title": "Here's my plan",
+                  "description": "I'll use your mouse and keyboard for about two minutes.",
+                  "state": "proposed",
+                  "approveLabel": "Yes, do it",
+                  "steps": [
+                    {
+                      "title": "Open augustiner-keller.de in Safari",
+                      "icon": "globe",
+                      "status": "pending"
+                    },
+                    {
+                      "title": "Reserve Fri 20:00 for 4",
+                      "icon": "pencil",
+                      "status": "pending"
+                    },
+                    {
+                      "title": "Mail the confirmation to Lisa",
+                      "icon": "mail",
+                      "status": "pending"
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 480
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-plan-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-plan-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "state · running",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-plan",
+                "component": "Plan",
+                "props": {
+                  "title": "Working on it · step 2 of 4",
+                  "description": "Hands off the mouse for a moment. Esc stops me.",
+                  "state": "running",
+                  "progress": 0.4,
+                  "steps": [
+                    {
+                      "title": "Open augustiner-keller.de in Safari",
+                      "icon": "globe",
+                      "status": "done"
+                    },
+                    {
+                      "title": "Reserve Fri 20:00 for 4",
+                      "icon": "pencil",
+                      "status": "running"
+                    },
+                    {
+                      "title": "Mail the confirmation to Lisa",
+                      "icon": "mail",
+                      "status": "pending"
+                    },
+                    {
+                      "title": "Add it to your calendar",
+                      "icon": "calendar",
+                      "status": "skipped"
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 480
                 }
               }
             ]
@@ -6369,7 +6701,7 @@
                 "id": "specimen-voice-wave-case-1-label",
                 "component": "Text",
                 "props": {
-                  "text": "size · sm",
+                  "text": "variant · ring",
                   "variant": "caption"
                 }
               },
@@ -6385,7 +6717,8 @@
                     1,
                     0.5
                   ],
-                  "size": "sm"
+                  "size": "lg",
+                  "variant": "ring"
                 },
                 "children": [
                   {
@@ -6412,7 +6745,7 @@
                 "id": "specimen-voice-wave-case-2-label",
                 "component": "Text",
                 "props": {
-                  "text": "size · md",
+                  "text": "variant · bars",
                   "variant": "caption"
                 }
               },
@@ -6428,7 +6761,8 @@
                     1,
                     0.5
                   ],
-                  "size": "md"
+                  "size": "lg",
+                  "variant": "bars"
                 },
                 "children": [
                   {
@@ -6455,7 +6789,7 @@
                 "id": "specimen-voice-wave-case-3-label",
                 "component": "Text",
                 "props": {
-                  "text": "size · xl",
+                  "text": "size · sm",
                   "variant": "caption"
                 }
               },
@@ -6471,7 +6805,7 @@
                     1,
                     0.5
                   ],
-                  "size": "xl"
+                  "size": "sm"
                 },
                 "children": [
                   {
@@ -6482,6 +6816,361 @@
                     }
                   }
                 ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · md",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "size": "md"
+                },
+                "children": [
+                  {
+                    "id": "c4-voice-wave-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-5-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · xl",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5-voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "size": "xl"
+                },
+                "children": [
+                  {
+                    "id": "c5-voice-wave-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-6-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bars · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6-bars-sm",
+                "component": "VoiceWave",
+                "props": {
+                  "variant": "bars",
+                  "size": "sm",
+                  "activity": "speaking",
+                  "level": 0.7,
+                  "bands": [
+                    0.9,
+                    0.5,
+                    1,
+                    0.6
+                  ],
+                  "label": "Voice"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bars · md",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-bars-md",
+                "component": "VoiceWave",
+                "props": {
+                  "variant": "bars",
+                  "size": "md",
+                  "activity": "speaking",
+                  "level": 0.7,
+                  "bands": [
+                    0.9,
+                    0.5,
+                    1,
+                    0.6
+                  ],
+                  "label": "Voice"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bars · lg",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-bars-lg",
+                "component": "VoiceWave",
+                "props": {
+                  "variant": "bars",
+                  "size": "lg",
+                  "activity": "speaking",
+                  "level": 0.7,
+                  "bands": [
+                    0.9,
+                    0.5,
+                    1,
+                    0.6
+                  ],
+                  "label": "Voice"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-9-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bars · xl",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9-bars-xl",
+                "component": "VoiceWave",
+                "props": {
+                  "variant": "bars",
+                  "size": "xl",
+                  "activity": "speaking",
+                  "level": 0.7,
+                  "bands": [
+                    0.9,
+                    0.5,
+                    1,
+                    0.6
+                  ],
+                  "label": "Voice"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-call-surface",
+      "component": "CallSurface",
+      "title": "CallSurface",
+      "node": {
+        "id": "specimen-call-surface",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-call-surface-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-call-surface-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "state · ringing",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-call",
+                "component": "CallSurface",
+                "props": {
+                  "name": "Assistant",
+                  "state": "ringing",
+                  "status": "Calling…"
+                },
+                "style": {
+                  "height": 420,
+                  "width": 360
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-call-surface-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-call-surface-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "state · talking",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-call",
+                "component": "CallSurface",
+                "props": {
+                  "name": "Assistant",
+                  "state": "talking",
+                  "activity": "speaking",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.5,
+                    1,
+                    0.6
+                  ],
+                  "status": "01:24",
+                  "caption": "Sure, Friday at eight works. Shall I book it?",
+                  "speaker": true
+                },
+                "style": {
+                  "height": 420,
+                  "width": 360
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-call-surface-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-call-surface-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "muted · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-call",
+                "component": "CallSurface",
+                "props": {
+                  "name": "Assistant",
+                  "state": "talking",
+                  "status": "03:10",
+                  "muted": true
+                },
+                "style": {
+                  "height": 420,
+                  "width": 360
+                }
               }
             ]
           }
@@ -7563,6 +8252,35 @@
                   "label": "Submit",
                   "variant": "default",
                   "size": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-button-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-button-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "hold · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-talk",
+                "component": "Button",
+                "props": {
+                  "label": "Hold to talk",
+                  "icon": "call-mute",
+                  "hold": true,
+                  "holdingLabel": "Holding…"
                 }
               }
             ]
@@ -9740,6 +10458,83 @@
       }
     },
     {
+      "id": "exponential-ui-qr-scanner",
+      "component": "QrScanner",
+      "title": "QrScanner",
+      "node": {
+        "id": "specimen-qr-scanner",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-qr-scanner-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-qr-scanner-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-scan",
+                "component": "QrScanner",
+                "props": {
+                  "hint": "Point at the code on your computer"
+                },
+                "style": {
+                  "width": 320
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-qr-scanner-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-qr-scanner-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "disabled · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-scan",
+                "component": "QrScanner",
+                "props": {
+                  "hint": "Paused",
+                  "disabled": true
+                },
+                "style": {
+                  "width": 320
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-composer",
       "component": "Composer",
       "title": "Composer",
@@ -10051,6 +10846,167 @@
                   "pressable": true,
                   "selected": true
                 }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-message-bubble",
+      "component": "MessageBubble",
+      "title": "MessageBubble",
+      "node": {
+        "id": "specimen-message-bubble",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-message-bubble-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-message-bubble-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-bubble",
+                "component": "MessageBubble",
+                "props": {
+                  "text": "Is the printer fixed?",
+                  "side": "out",
+                  "time": "18:00",
+                  "status": "read"
+                },
+                "style": {
+                  "width": 360
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-message-bubble-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-message-bubble-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "side · in · author + attachment",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-bubble",
+                "component": "MessageBubble",
+                "props": {
+                  "text": "There you go.",
+                  "author": "spezl",
+                  "time": "20:21"
+                },
+                "style": {
+                  "width": 360
+                },
+                "slots": {
+                  "attachment": {
+                    "id": "c1-file",
+                    "component": "Chip",
+                    "props": {
+                      "label": "IMG_2041.jpg",
+                      "icon": "ui-file",
+                      "shape": "rect"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-message-bubble-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-message-bubble-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "a conversation",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-chat",
+                "component": "Stack",
+                "props": {
+                  "gap": "sm"
+                },
+                "style": {
+                  "width": 360
+                },
+                "children": [
+                  {
+                    "id": "c2-m1",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": "Is the printer fixed?",
+                      "side": "out",
+                      "time": "18:00",
+                      "status": "read"
+                    }
+                  },
+                  {
+                    "id": "c2-m2",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": "Yes, driver's updated. Try again.",
+                      "time": "18:02"
+                    }
+                  },
+                  {
+                    "id": "c2-m3",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": "Send me the photo from the Wiesn I put on the desktop.",
+                      "side": "out",
+                      "time": "20:20",
+                      "status": "sent"
+                    }
+                  },
+                  {
+                    "id": "c2-m4",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": "On its way…",
+                      "side": "out",
+                      "time": "20:21",
+                      "status": "sending"
+                    }
+                  }
+                ]
               }
             ]
           }

@@ -1714,6 +1714,66 @@
       "macro": null
     },
     {
+      "name": "QrCode",
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-qr-code",
+      "description": "A QR code of a value, dark on a light plate.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "value",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The text to encode."
+        },
+        {
+          "name": "size",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 160,
+          "description": "Edge in px."
+        },
+        {
+          "name": "level",
+          "type": "L | M | Q | H",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "M",
+          "description": "Error correction."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A caption under it and its accessibility label."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img named by `label`; without a label the code is decorative (hidden); never focusable",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "QrCode",
+        "value": "https://exponential.at",
+        "label": "Scan to pair"
+      },
+      "macro": null
+    },
+    {
       "name": "Carousel",
       "kind": "native",
       "group": "media",
@@ -1867,7 +1927,7 @@
       "group": "navigation",
       "lite": true,
       "specimenId": "exponential-ui-segmented",
-      "description": "ONE row of segments picking one or many values: a pill track, toggles, joined outline buttons or a bottom bar.",
+      "description": "ONE row or column of segments: a pill track, toggles, joined outline buttons, a bottom bar or a rail.",
       "children": "none",
       "slots": [],
       "events": [
@@ -1928,11 +1988,20 @@
           "responsive": false,
           "default": false,
           "description": "Stretches the segments across the width (a `bar` always does)."
+        },
+        {
+          "name": "orientation",
+          "type": "horizontal | vertical",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "horizontal",
+          "description": "vertical bar = a rail."
         }
       ],
       "accessibility": {
         "role": "radiogroup",
-        "notes": "radiogroup (single) or toolbar of toggle buttons (multiple); `bar` = navigation of buttons, the selected one aria-current=page",
+        "notes": "radiogroup (single) or toolbar of toggle buttons (multiple); `bar` = navigation of buttons, the selected one aria-current=page; `orientation: vertical` swaps the arrow keys to ArrowUp/ArrowDown; a `count` reads after the item label",
         "keys": [
           "Roving tab stop",
           "ArrowLeft/ArrowRight (ArrowUp/ArrowDown): move focus (wraps)",
@@ -2149,11 +2218,11 @@
         },
         {
           "name": "status",
-          "type": "running | error | pending",
+          "type": "running | error | pending | done | skipped",
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "running shimmers, error tints, pending dims."
+          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
         },
         {
           "name": "size",
@@ -2200,6 +2269,120 @@
         "open": true
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe TraceItem/<part>."
+    },
+    {
+      "name": "Plan",
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "specimenId": "exponential-ui-plan",
+      "description": "A plan card: steps to approve, then progress and Stop.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "approve",
+        "decline",
+        "stop"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The plan's heading."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A muted line under it."
+        },
+        {
+          "name": "steps",
+          "type": "[planStep]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The steps."
+        },
+        {
+          "name": "state",
+          "type": "proposed | running | done | declined",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": "proposed",
+          "description": "proposed asks, running shows progress."
+        },
+        {
+          "name": "progress",
+          "type": "number",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "0 to 1."
+        },
+        {
+          "name": "approveLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.yes",
+          "description": "Button text."
+        },
+        {
+          "name": "declineLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.no",
+          "description": "Button text."
+        },
+        {
+          "name": "stopLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.stop",
+          "description": "Button text."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by `title`; the steps are TraceItem lines; the progress bar is a progressbar",
+        "keys": [
+          "Tab reaches Decline, Approve (proposed) or Stop (running)"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Plan",
+        "title": "Here's my plan",
+        "description": "About two minutes.",
+        "steps": [
+          {
+            "title": "Open the site",
+            "icon": "globe"
+          },
+          {
+            "title": "Reserve a table",
+            "icon": "pencil"
+          },
+          {
+            "title": "Add it to your calendar",
+            "icon": "calendar"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Plan/<part>."
     },
     {
       "name": "Pagination",
@@ -3608,6 +3791,15 @@
           "description": "What the voice is doing."
         },
         {
+          "name": "variant",
+          "type": "ring | bars",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "ring",
+          "description": "bars = a level meter."
+        },
+        {
           "name": "level",
           "type": "number",
           "required": false,
@@ -3661,6 +3853,126 @@
         "size": "lg"
       },
       "macro": null
+    },
+    {
+      "name": "CallSurface",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-call-surface",
+      "description": "A voice call screen: wave, avatar, name, status, caption, call buttons.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "mute",
+        "speaker",
+        "hangUp"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Who is on the call."
+        },
+        {
+          "name": "avatar",
+          "type": "url",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picture URL."
+        },
+        {
+          "name": "state",
+          "type": "ringing | connecting | talking | ended",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": "talking",
+          "description": "ringing: Cancel only."
+        },
+        {
+          "name": "activity",
+          "type": "idle | listening | thinking | speaking | muted",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": "speaking",
+          "description": "The wave when talking."
+        },
+        {
+          "name": "level",
+          "type": "number",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Level 0 to 1."
+        },
+        {
+          "name": "bands",
+          "type": "[number]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Band levels."
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Calling… or a timer."
+        },
+        {
+          "name": "caption",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The live line."
+        },
+        {
+          "name": "muted",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Mic off; bind it."
+        },
+        {
+          "name": "speaker",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Shows the speaker toggle."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by `name`; the wave is hidden, the caption a polite live region; mute and speaker are toggle buttons (aria-pressed), every round button labelled by its tooltip text",
+        "keys": [
+          "Tab reaches mute, speaker, end in order",
+          "Enter, Space: press"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "CallSurface",
+        "name": "Assistant",
+        "state": "talking",
+        "activity": "speaking",
+        "level": 0.6,
+        "status": "01:24",
+        "caption": "Sure, Friday at eight works."
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe CallSurface/<part>."
     },
     {
       "name": "Table",
@@ -4115,7 +4427,10 @@
       "children": "one",
       "slots": [],
       "events": [
-        "press"
+        "press",
+        "holdStart",
+        "holdEnd",
+        "holdCancel"
       ],
       "basic": [
         "Button"
@@ -4189,11 +4504,28 @@
           "responsive": false,
           "default": false,
           "description": "Submits the enclosing Form on press."
+        },
+        {
+          "name": "hold",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "holdStart/holdEnd/holdCancel, no press."
+        },
+        {
+          "name": "holdingLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Label while held."
         }
       ],
       "accessibility": {
         "role": "button",
-        "notes": "button (aria-busy while loading)",
+        "notes": "button (aria-busy while loading); `hold`: still a button, Space/Enter key-down starts the hold, key-up ends it, Escape or blur cancels it",
         "keys": [
           "Enter, Space: press",
           "A `submit` button submits the enclosing Form"
@@ -6092,6 +6424,72 @@
       "macro": null
     },
     {
+      "name": "QrScanner",
+      "kind": "native",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-qr-scanner",
+      "description": "A QR scanner viewfinder; the host camera fires `scanned {value}`.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "scanned"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "hint",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Muted line below."
+        },
+        {
+          "name": "formats",
+          "type": "[string]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": [
+            "qr"
+          ],
+          "description": "Code formats."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.scanQrCode",
+          "description": "An accessibility label."
+        },
+        {
+          "name": "disabled",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Stops scanning."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img named by `label` (default `scanQrCode`); a decoded value is announced politely; without a host camera the label reads `cameraUnavailable`",
+        "keys": [
+          "None: scanning needs no key; the host's camera permission prompt is the platform's"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "QrScanner",
+        "hint": "Point at the code on your computer"
+      },
+      "macro": null
+    },
+    {
       "name": "Composer",
       "kind": "native",
       "group": "input",
@@ -6309,6 +6707,77 @@
         "pressable": true
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Row/<part>."
+    },
+    {
+      "name": "MessageBubble",
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "specimenId": "exponential-ui-message-bubble",
+      "description": "A chat message bubble, in (left) or out (right).",
+      "children": "none",
+      "slots": [
+        "attachment"
+      ],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "text",
+          "type": "markdown",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The message."
+        },
+        {
+          "name": "side",
+          "type": "in | out",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "in",
+          "description": "out = the viewer's."
+        },
+        {
+          "name": "time",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Under the text."
+        },
+        {
+          "name": "status",
+          "type": "sending | sent | read",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Delivery, out only."
+        },
+        {
+          "name": "author",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Caption above, in only."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by `author`, else `time`; the delivery icon is labelled `sending`/`sent`/`read`",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "MessageBubble",
+        "text": "Is the printer fixed?",
+        "side": "out",
+        "time": "18:00",
+        "status": "read"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe MessageBubble/<part>."
     }
   ]
 }

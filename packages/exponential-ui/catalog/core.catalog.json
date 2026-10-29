@@ -268,7 +268,9 @@
     "traceStatus": [
       "running",
       "error",
-      "pending"
+      "pending",
+      "done",
+      "skipped"
     ],
     "traceSize": [
       "default",
@@ -286,6 +288,37 @@
       "md",
       "lg",
       "xl"
+    ],
+    "messageSide": [
+      "in",
+      "out"
+    ],
+    "messageStatus": [
+      "sending",
+      "sent",
+      "read"
+    ],
+    "callState": [
+      "ringing",
+      "connecting",
+      "talking",
+      "ended"
+    ],
+    "voiceWaveVariant": [
+      "ring",
+      "bars"
+    ],
+    "qrLevel": [
+      "L",
+      "M",
+      "Q",
+      "H"
+    ],
+    "planState": [
+      "proposed",
+      "running",
+      "done",
+      "declined"
     ]
   },
   "defs": {
@@ -318,6 +351,11 @@
         "image": {
           "type": "url",
           "description": "A tile picture."
+        },
+        "count": {
+          "type": "number",
+          "bindable": true,
+          "description": "A badge on a bar item."
         }
       }
     },
@@ -635,6 +673,29 @@
         "url": {
           "type": "url",
           "description": "Where it was stored, for a preview link."
+        }
+      }
+    },
+    "planStep": {
+      "description": "One step of a Plan.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "What the step does."
+        },
+        "detail": {
+          "type": "string",
+          "description": "A muted detail."
+        },
+        "icon": {
+          "type": "icon",
+          "description": "The lead glyph."
+        },
+        "status": {
+          "type": "enum",
+          "enum": "traceStatus",
+          "description": "The step's state."
         }
       }
     }
@@ -1952,6 +2013,40 @@
         "size": "default"
       }
     },
+    "QrCode": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "description": "A QR code of a value, dark on a light plate.",
+      "props": {
+        "value": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The text to encode."
+        },
+        "size": {
+          "type": "number",
+          "default": 160,
+          "description": "Edge in px."
+        },
+        "level": {
+          "type": "enum",
+          "enum": "qrLevel",
+          "default": "M",
+          "description": "Error correction."
+        },
+        "label": {
+          "type": "string",
+          "description": "A caption under it and its accessibility label."
+        }
+      },
+      "example": {
+        "value": "https://exponential.at",
+        "label": "Scan to pair"
+      }
+    },
     "Carousel": {
       "kind": "native",
       "group": "media",
@@ -2046,7 +2141,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "ONE row of segments picking one or many values: a pill track, toggles, joined outline buttons or a bottom bar.",
+      "description": "ONE row or column of segments: a pill track, toggles, joined outline buttons, a bottom bar or a rail.",
       "props": {
         "items": {
           "type": "array",
@@ -2084,6 +2179,12 @@
           "type": "boolean",
           "default": false,
           "description": "Stretches the segments across the width (a `bar` always does)."
+        },
+        "orientation": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "horizontal",
+          "description": "vertical bar = a rail."
         }
       },
       "events": [
@@ -2218,7 +2319,7 @@
         "status": {
           "type": "enum",
           "enum": "traceStatus",
-          "description": "running shimmers, error tints, pending dims."
+          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
         },
         "size": {
           "type": "enum",
@@ -2247,6 +2348,84 @@
         "description": "4s",
         "collapsible": true,
         "open": true
+      }
+    },
+    "Plan": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "description": "A plan card: steps to approve, then progress and Stop.",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The plan's heading."
+        },
+        "description": {
+          "type": "string",
+          "bindable": true,
+          "description": "A muted line under it."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "planStep"
+          },
+          "description": "The steps."
+        },
+        "state": {
+          "type": "enum",
+          "enum": "planState",
+          "default": "proposed",
+          "bindable": true,
+          "description": "proposed asks, running shows progress."
+        },
+        "progress": {
+          "type": "number",
+          "bindable": true,
+          "description": "0 to 1."
+        },
+        "approveLabel": {
+          "type": "string",
+          "default": "$string.yes",
+          "description": "Button text."
+        },
+        "declineLabel": {
+          "type": "string",
+          "default": "$string.no",
+          "description": "Button text."
+        },
+        "stopLabel": {
+          "type": "string",
+          "default": "$string.stop",
+          "description": "Button text."
+        }
+      },
+      "events": [
+        "approve",
+        "decline",
+        "stop"
+      ],
+      "example": {
+        "title": "Here's my plan",
+        "description": "About two minutes.",
+        "steps": [
+          {
+            "title": "Open the site",
+            "icon": "globe"
+          },
+          {
+            "title": "Reserve a table",
+            "icon": "pencil"
+          },
+          {
+            "title": "Add it to your calendar",
+            "icon": "calendar"
+          }
+        ]
       }
     },
     "Pagination": {
@@ -3092,6 +3271,12 @@
           "bindable": true,
           "description": "What the voice is doing."
         },
+        "variant": {
+          "type": "enum",
+          "enum": "voiceWaveVariant",
+          "default": "ring",
+          "description": "bars = a level meter."
+        },
         "level": {
           "type": "number",
           "default": 0,
@@ -3127,6 +3312,87 @@
           0.5
         ],
         "size": "lg"
+      }
+    },
+    "CallSurface": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "description": "A voice call screen: wave, avatar, name, status, caption, call buttons.",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "Who is on the call."
+        },
+        "avatar": {
+          "type": "url",
+          "bindable": true,
+          "description": "Picture URL."
+        },
+        "state": {
+          "type": "enum",
+          "enum": "callState",
+          "default": "talking",
+          "bindable": true,
+          "description": "ringing: Cancel only."
+        },
+        "activity": {
+          "type": "enum",
+          "enum": "voiceWaveActivity",
+          "default": "speaking",
+          "bindable": true,
+          "description": "The wave when talking."
+        },
+        "level": {
+          "type": "number",
+          "bindable": true,
+          "description": "Level 0 to 1."
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true,
+          "description": "Band levels."
+        },
+        "status": {
+          "type": "string",
+          "bindable": true,
+          "description": "Calling… or a timer."
+        },
+        "caption": {
+          "type": "string",
+          "bindable": true,
+          "description": "The live line."
+        },
+        "muted": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Mic off; bind it."
+        },
+        "speaker": {
+          "type": "boolean",
+          "bindable": true,
+          "description": "Shows the speaker toggle."
+        }
+      },
+      "events": [
+        "mute",
+        "speaker",
+        "hangUp"
+      ],
+      "example": {
+        "name": "Assistant",
+        "state": "talking",
+        "activity": "speaking",
+        "level": 0.6,
+        "status": "01:24",
+        "caption": "Sure, Friday at eight works."
       }
     },
     "Table": {
@@ -3483,10 +3749,22 @@
           "type": "boolean",
           "default": false,
           "description": "Submits the enclosing Form on press."
+        },
+        "hold": {
+          "type": "boolean",
+          "default": false,
+          "description": "holdStart/holdEnd/holdCancel, no press."
+        },
+        "holdingLabel": {
+          "type": "string",
+          "description": "Label while held."
         }
       },
       "events": [
-        "press"
+        "press",
+        "holdStart",
+        "holdEnd",
+        "holdCancel"
       ],
       "example": {
         "label": "Submit",
@@ -4631,6 +4909,46 @@
         "multiple": true
       }
     },
+    "QrScanner": {
+      "kind": "native",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "description": "A QR scanner viewfinder; the host camera fires `scanned {value}`.",
+      "props": {
+        "hint": {
+          "type": "string",
+          "bindable": true,
+          "description": "Muted line below."
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "qr"
+          ],
+          "description": "Code formats."
+        },
+        "label": {
+          "type": "string",
+          "default": "$string.scanQrCode",
+          "description": "An accessibility label."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Stops scanning."
+        }
+      },
+      "events": [
+        "scanned"
+      ],
+      "example": {
+        "hint": "Point at the code on your computer"
+      }
+    },
     "Composer": {
       "kind": "native",
       "group": "input",
@@ -4761,6 +5079,52 @@
         "title": "r/selfhosted",
         "meta": "312 posts",
         "pressable": true
+      }
+    },
+    "MessageBubble": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "slots": [
+        "attachment"
+      ],
+      "description": "A chat message bubble, in (left) or out (right).",
+      "props": {
+        "text": {
+          "type": "markdown",
+          "required": true,
+          "bindable": true,
+          "description": "The message."
+        },
+        "side": {
+          "type": "enum",
+          "enum": "messageSide",
+          "default": "in",
+          "description": "out = the viewer's."
+        },
+        "time": {
+          "type": "string",
+          "bindable": true,
+          "description": "Under the text."
+        },
+        "status": {
+          "type": "enum",
+          "enum": "messageStatus",
+          "bindable": true,
+          "description": "Delivery, out only."
+        },
+        "author": {
+          "type": "string",
+          "bindable": true,
+          "description": "Caption above, in only."
+        }
+      },
+      "example": {
+        "text": "Is the printer fixed?",
+        "side": "out",
+        "time": "18:00",
+        "status": "read"
       }
     },
     "TreeGuides": {
