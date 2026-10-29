@@ -1,6 +1,2 @@
-- Stories : ce que vos agents vous montrent (questions, plans, résultats avec captures d'écran) arrive sous forme de stories au-dessus des Chats ; faites-les défiler et répondez sur place
-- Votre Assistant : chaque membre a son propre Assistant, avec son chat, sa voix et son planning ; les Réglages sont regroupés autour de lui
-- Des appels comme au téléphone : un appel sonne d'abord, puis répond par Hello?, sur un écran d'appel avec des boutons ronds pour couper le micro, le haut-parleur et raccrocher
-- Mode réunion : votre Assistant peut suivre une réunion que vous lancez sur votre desktop, avec l'accord de tous, et s'arrête seul après la durée choisie
-- Chats liés : un message venu d'un autre chat indique sa provenance ; touchez-le pour y aller et revenir
-- Corrections : les en-têtes de chat correspondent aux autres apps, un rappel rapide sonne à nouveau et le mode plan disparaît (les plans sont des cartes auxquelles vous répondez)
+- Onglet Stories : chaque question, plan et résultat qu'une session t'a montré reste dans son dernier onglet, avec captures d'écran, et indique comment il s'est terminé
+- Les modifications et le Stack de la pull request sont au-dessus de ses stories ; touche une story ou une image pour l'ouvrir en grand

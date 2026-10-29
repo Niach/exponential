@@ -1,6 +1,2 @@
-- Stories: o que os seus agentes lhe mostram (perguntas, planos, resultados com capturas de ecrã) aparece como stories por cima das Conversas; percorra-as e responda ali mesmo
-- O seu Assistente: cada membro tem o seu próprio Assistente, com conversa, voz e agenda próprias; as Definições foram reorganizadas à sua volta
-- Chamadas como ao telefone: uma chamada toca primeiro e depois atende com Hello?, num ecrã de chamada com botões redondos para silenciar, altifalante e desligar
-- Modo reunião: o seu Assistente pode acompanhar uma reunião que inicia no computador, com o consentimento de todos, e para sozinho após o tempo que escolher
-- Conversas ligadas: uma mensagem de outra conversa indica de onde veio; toque nela para ir até lá e voltar
-- Correções: os cabeçalhos das conversas coincidem com as outras apps, uma nova chamada rápida volta a tocar e o modo de plano desapareceu (os planos são cartões a que responde)
+- Separador Histórias: cada pergunta, plano e resultado que uma sessão te mostrou fica no seu último separador, com capturas de ecrã, e indica como terminou
+- As alterações e o Stack do pull request ficam por cima das suas histórias; toca numa história ou imagem para a abrir em tamanho completo

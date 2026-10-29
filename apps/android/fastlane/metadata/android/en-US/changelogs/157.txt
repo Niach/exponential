@@ -1,0 +1,2 @@
+- Stories tab: every question, plan and result a session showed you stays in its last tab, with screenshots
+- The pull request's Changes and Stack sit on top of its stories

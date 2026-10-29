@@ -1,6 +1,2 @@
-- Stories: det, dine agenter viser dig (spørgsmål, planer, resultater med skærmbilleder), lander som stories øverst i Chats; swipe igennem dem og svar direkte der
-- Din Assistent: hvert medlem får sin egen Assistent med egen chat, stemme og tidsplan; Indstillinger er grupperet om omkring den
-- Opkald som et telefonopkald: et opkald ringer først og svarer så med Hello?, på en opkaldsskærm med runde knapper til lydløs, højttaler og læg på
-- Mødetilstand: din Assistent kan følge et møde, du starter på din desktop, med alles samtykke, og stopper af sig selv efter den tid, du vælger
-- Forbundne chats: en besked fra en anden chat viser, hvor den kom fra; tryk på den for at hoppe derhen og tilbage
-- Rettelser: chatoverskrifter matcher de andre apps, en hurtig genopringning ringer igen, og plantilstand er væk (planer er kort, du svarer på)
+- Fanen Historier: hvert spørgsmål, hver plan og hvert resultat, en session viste dig, bliver i dens sidste fane med skærmbilleder og viser, hvordan det endte
+- Pull requestens ændringer og stack står over dens historier; tryk på en historie eller et billede for at åbne det i fuld størrelse

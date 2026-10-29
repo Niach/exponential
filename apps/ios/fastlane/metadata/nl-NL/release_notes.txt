@@ -1,6 +1,2 @@
-- Stories: wat je agents je laten zien (vragen, plannen, resultaten met screenshots) verschijnt als stories boven Chats; swipe erdoorheen en antwoord meteen daar
-- Je Assistent: elk lid krijgt een eigen Assistent, met een eigen chat, stem en planning; Instellingen zijn eromheen opnieuw ingedeeld
-- Bellen zoals met de telefoon: een oproep gaat eerst over en neemt dan op met Hello?, op een belscherm met ronde knoppen voor dempen, luidspreker en ophangen
-- Vergadermodus: je Assistent kan een vergadering volgen die je op je desktop start, met ieders toestemming, en stopt vanzelf na de tijd die je kiest
-- Gekoppelde chats: een bericht uit een andere chat laat zien waar het vandaan komt; tik erop om erheen en terug te springen
-- Verbeteringen: chatkoppen komen overeen met de andere apps, snel terugbellen gaat weer over en de planmodus is weg (plannen zijn kaarten die je beantwoordt)
+- Tabblad Verhalen: elke vraag, elk plan en elk resultaat dat een sessie je liet zien, blijft in het laatste tabblad staan, met screenshots, en toont hoe het afliep
+- De wijzigingen en de Stack van de pull request staan boven de verhalen; tik op een verhaal of afbeelding om het groot te openen

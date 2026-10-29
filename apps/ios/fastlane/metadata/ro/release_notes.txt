@@ -1,6 +1,2 @@
-- Stories: ce îți arată agenții (întrebări, planuri, rezultate cu capturi de ecran) apare ca stories deasupra Conversațiilor; derulează-le și răspunde chiar acolo
-- Asistentul tău: fiecare membru primește propriul Asistent, cu conversație, voce și program proprii; Setările sunt regrupate în jurul lui
-- Apeluri ca la telefon: un apel sună întâi, apoi răspunde cu Hello?, pe un ecran de apel cu butoane rotunde pentru dezactivarea sunetului, difuzor și închidere
-- Modul întâlnire: Asistentul tău poate urmări o întâlnire pe care o pornești pe desktop, cu acordul tuturor, și se oprește singur după timpul ales
-- Conversații legate: un mesaj dintr-o altă conversație arată de unde vine; atinge-l ca să sari acolo și înapoi
-- Remedieri: anteturile conversațiilor se potrivesc cu celelalte aplicații, o reapelare rapidă sună din nou, iar modul plan a dispărut (planurile sunt carduri la care răspunzi)
+- Fila Povești: fiecare întrebare, plan și rezultat pe care ți l-a arătat o sesiune rămâne în ultima ei filă, cu capturi de ecran, și arată cum s-a încheiat
+- Modificările și Stack-ul pull request-ului stau deasupra poveștilor lui; atinge o poveste sau o imagine ca s-o deschizi pe tot ecranul

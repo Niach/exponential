@@ -1,6 +1,2 @@
-- Stories: det dina agenter visar dig (frågor, planer, resultat med skärmbilder) dyker upp som stories ovanför Chattar; svep igenom dem och svara direkt där
-- Din Assistent: varje medlem får en egen Assistent, med egen chatt, röst och schema; Inställningar är omgrupperade kring den
-- Samtal som ett telefonsamtal: ett samtal ringer först och svarar sedan med Hello?, på en samtalsskärm med runda knappar för ljud av, högtalare och lägg på
-- Mötesläge: din Assistent kan följa ett möte som du startar på din dator, med allas samtycke, och slutar av sig själv efter den tid du väljer
-- Länkade chattar: ett meddelande från en annan chatt visar var det kom ifrån; tryck på det för att hoppa dit och tillbaka
-- Korrigeringar: chattrubriker matchar de andra apparna, en snabb återuppringning ringer igen, och planläget är borta (planer är kort som du svarar på)
+- Fliken Berättelser: varje fråga, plan och resultat som en session visade dig stannar i dess sista flik, med skärmbilder, och visar hur det slutade
+- Pull requestens ändringar och Stack ligger ovanför dess berättelser; tryck på en berättelse eller bild för att öppna den i full storlek

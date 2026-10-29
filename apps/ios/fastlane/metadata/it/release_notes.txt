@@ -1,6 +1,2 @@
-- Stories: ciò che i tuoi agenti ti mostrano (domande, piani, risultati con screenshot) arriva come stories sopra le Chat; scorrile e rispondi direttamente lì
-- Il tuo Assistente: ogni membro ha il proprio Assistente, con chat, voce e programmazione propri; le Impostazioni sono riorganizzate attorno a lui
-- Chiamate come al telefono: una chiamata prima squilla, poi risponde con Hello?, su una schermata di chiamata con pulsanti rotondi per silenzioso, altoparlante e chiudi
-- Modalità riunione: il tuo Assistente può seguire una riunione che avvii sul desktop, con il consenso di tutti, e si ferma da solo dopo il tempo che scegli
-- Chat collegate: un messaggio da un'altra chat indica da dove arriva; toccalo per andarci e tornare indietro
-- Correzioni: le intestazioni delle chat corrispondono alle altre app, una richiamata veloce squilla di nuovo e la modalità piano non c'è più (i piani sono schede a cui rispondi)
+- Scheda Storie: ogni domanda, piano e risultato che una sessione ti ha mostrato resta nella sua ultima scheda, con screenshot, e indica com'è finito
+- Le modifiche e lo Stack della pull request stanno sopra le sue storie; tocca una storia o un'immagine per aprirla a schermo intero
