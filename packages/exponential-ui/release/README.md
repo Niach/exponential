@@ -14,8 +14,12 @@ uploads what it would have published as a workflow artifact.
 
 Not published: `exponential-ui-ffi` (it ships INSIDE the Swift and Kotlin
 artifacts) and `exponential-ui-gpui` (`publish = false`: gpui and
-gpui-component are git dependencies, which crates.io refuses; it publishes
-once both have matching crates.io releases).
+gpui-component are git dependencies, which crates.io refuses, and neither
+pinned rev has a crates.io release). The painter ships as the `ui-v<semver>`
+tag itself: apps take it with `git = "https://github.com/Niach/exponential",
+tag = "ui-v<semver>"` and copy the gpui pins and the ztracing patch from its
+README's "gpui revisions" (the policy, the bump recipe and the gate
+`check-gpui-revs.ts`).
 
 ## Cutting a release
 

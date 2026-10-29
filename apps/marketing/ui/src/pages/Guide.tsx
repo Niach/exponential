@@ -435,13 +435,21 @@ targets: [
           <p>
             Two crates: <code>exponential-ui</code> (the core) and <code>exponential-ui-gpui</code> (the painter and
             host runtime). The painter depends on gpui and gpui-component as git dependencies, which crates.io
-            refuses, so it stays a git or path dependency until both are published there; the core is on crates.io
-            (<code>cargo add exponential-ui</code>), and the painter wants the core at its own revision, so an app
-            takes both from the repo. gpui needs Rust 1.96: pin it in <code>rust-toolchain.toml</code>.
+            refuses, so an app takes both crates from the release tag. Your app links the same gpui as the painter:
+            the same gpui-component rev, zed locked at the SDK's rev and the ztracing patch, all copied from one tag
+            (the {SDK_README(`apps/desktop/crates/exponential-ui-gpui/README.md`, `gpui revision policy`)}). gpui
+            needs Rust 1.96: pin it in <code>rust-toolchain.toml</code>.
           </p>
           <DocsCode language="toml">{`[dependencies]
 exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
-exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }`}</DocsCode>
+exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
+
+[patch."https://github.com/zed-industries/zed"]
+ztracing = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
+ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }`}</DocsCode>
+          <DocsCode language="sh">{`cargo update gpui --precise cc053a4a6fa2fd0e8793201ed9099466af1be0b1`}</DocsCode>
           <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for the git ones" />
         </>
       ),
