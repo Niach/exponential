@@ -81,7 +81,7 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       body: (
         <>
           <p>In Settings → Voice, with your desktop as the voice device:</p>
-          <DocShot view="settings-voice" platform="web" caption="Settings → Voice on the web: Language, Voice file and Transcript in the first group." />
+          <DocShot view="settings-assistant" platform="web" caption="Settings → Assistant on the web: its Voice block with Language, Voice file and Transcript." />
           <DocsTable
             head={[`Row`, `Value`]}
             rows={[
