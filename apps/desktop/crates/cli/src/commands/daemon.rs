@@ -390,10 +390,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // re-claim them, so they only go idle (the pre-NEW-5 rule).
     let reclaim = reconcile_stale_sessions(&ctx, sync_manager.is_some());
     lock_or_recover(&pickup.reclaiming).extend(reclaim);
+    // S-4: the sweep reads the synced rows too (`open_branches`).
+    let synced = Arc::new(SyncedShapes::default());
     let daemon_worker = sync_manager.as_ref().map(|manager| {
-        let synced = Arc::new(SyncedShapes::default());
         let worker = spawn_daemon_worker(Arc::clone(&pickup), Arc::clone(&synced));
-        spawn_delta_drain(manager, synced, worker.clone());
+        spawn_delta_drain(manager, Arc::clone(&synced), worker.clone());
         worker
     });
 
@@ -612,6 +613,16 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 };
             }
         }
+        // S-4: a chat nobody ends (no Stop/End in the UI) gives its agent
+        // process back once quiescent for `codingSession.idleReleaseMinutes`:
+        // suspended, so the row idles, the worktree stays (the reaper skips
+        // a suspended run) and the next message resumes the SAME row.
+        for session_id in pickup.live.release_idle(Instant::now(), coding::pickup::IDLE_RELEASE) {
+            log::info!(
+                "released session {session_id}'s agent process — idle for {}m, the next message resumes it",
+                coding::pickup::IDLE_RELEASE.as_secs() / 60
+            );
+        }
         // EXP-1005: walled runs rotate to another account between turns.
         rotation.tick(&doctor);
         // EXP-1353: the size walk can take seconds — never on this loop nor
@@ -641,12 +652,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         .collect(),
                 }
             };
+            // S-4: nothing ends an idle chat any more, so the sweep must
+            // know which worktrees open chats still resume in — no synced
+            // rows yet, no worktree sweep this beat.
+            let open = pickup
+                .store()
+                .filter(|_| synced.ready(SWEEP_SHAPES))
+                .map(|store| {
+                    coding::open_branches(
+                        &read_shape_rows::<SessionRow>(&store, "sessions"),
+                        &read_shape_rows::<domain::rows::PullRequestRow>(&store, "pull_requests"),
+                    )
+                });
             let data_dir = ctx.data_dir.clone();
             let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
                 sweep_cargo_targets(&repos_root);
-                sweep_stale_worktrees(&repos_root, &data_dir, live, &trpc);
+                if let Some(open) = open {
+                    sweep_stale_worktrees(&repos_root, &data_dir, live, open, &trpc);
+                }
                 running.store(false, Ordering::SeqCst);
             });
         }
@@ -2384,9 +2409,10 @@ fn sweep_stale_worktrees(
     repos_root: &Path,
     data_dir: &Path,
     live: coding::LiveHolders,
+    open: coding::OpenBranches,
     trpc: &api::TrpcClient,
 ) -> Vec<String> {
-    let policy = coding::SweepPolicy { live, ..coding::SweepPolicy::default() };
+    let policy = coding::SweepPolicy { live, open, ..coding::SweepPolicy::default() };
     let mut swept = Vec::new();
     for clone in coding::scan_clones(repos_root) {
         let Some(report) =
@@ -2473,7 +2499,12 @@ const DAEMON_SHAPES: &[&str] = &[
     "session_issues",
     "issues",
     "boards",
+    // S-4: the worktree sweep's merged-PR rule (`coding::open_branches`).
+    "pull_requests",
 ];
+
+/// S-4: the shapes the worktree sweep reads before it may run.
+const SWEEP_SHAPES: &[&str] = &["sessions", "pull_requests"];
 
 /// The shapes a pickup pass reads. It runs only once BOTH reached
 /// `up-to-date` in this process: `coding::pickup::plan` kills a live session

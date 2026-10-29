@@ -135,18 +135,21 @@ fn branch_prefix(cx: &App) -> String {
         .unwrap_or_else(|| coding::Settings::default().branch_prefix)
 }
 
-/// The branches of every working session (any device): a live run's tree is
-/// never a prune candidate.
+/// The branches of every open session (any device) whose tree is not idle
+/// with every PR merged (S-4, [`coding::open_branches`]): a working run's
+/// tree, and an idle chat's the next message resumes in, are never prune
+/// candidates.
 fn live_session_branches(cx: &App) -> Vec<String> {
-    Store::global(cx)
-        .collections()
-        .sessions
-        .read(cx)
-        .iter()
-        .filter(|session| crate::session_data::session_is_working(session))
-        .filter_map(|session| session.branch.clone())
-        .filter(|branch| !branch.is_empty())
-        .collect()
+    open_branches(cx).keep.into_iter().collect()
+}
+
+/// S-4: [`coding::open_branches`] over the synced rows — the prune's and the
+/// stale-worktree sweep's view of the chats nothing ends any more.
+pub(crate) fn open_branches(cx: &App) -> coding::OpenBranches {
+    let collections = Store::global(cx).collections().clone();
+    let sessions = collections.sessions.read(cx);
+    let pulls = collections.pull_requests.read(cx);
+    coding::open_branches(sessions.iter(), pulls.iter())
 }
 
 /// Snapshot the synced issues (optionally board-scoped) as [`IssueFacts`].

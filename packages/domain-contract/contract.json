@@ -244,7 +244,9 @@
     "windows": ["session", "weekly", "model"]
   },
   "codingSession": {
+    "$comment": "S-4: idleReleaseMinutes = a live session's agent process is released (suspended: the row idles, nothing ends, the workspace stays) once it sat quiescent (no turn, no background task, no open card) this long; the next message resumes it through the pickup's resume path.",
     "staleHours": 2,
+    "idleReleaseMinutes": 30,
     "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse"],
     "computerUseCap": "computer-use-run"
   },

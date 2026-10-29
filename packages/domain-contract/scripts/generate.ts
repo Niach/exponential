@@ -47,6 +47,7 @@ interface Contract {
   codingSessionBlocked: { kinds: string[]; windows: string[] }
   codingSession: {
     staleHours: number
+    idleReleaseMinutes: number
     launchKeys: string[]
     computerUseCap: string
   }
@@ -229,6 +230,8 @@ const contract: Contract = JSON.parse(
 // Client-side liveness window for `running` coding_sessions rows, in ms —
 // emitted pre-multiplied so no client does per-language time arithmetic.
 const codingSessionStaleMs = contract.codingSession.staleHours * 60 * 60 * 1000
+// S-4: how long a quiescent live session keeps its agent process (ms).
+const codingSessionIdleReleaseMs = contract.codingSession.idleReleaseMinutes * 60 * 1000
 
 // EXP-481: how fresh a devices row's last_seen_at must be to render "online"
 // (devices heartbeat ~30s; 90s = three missed beats). Pre-multiplied to ms.
@@ -567,6 +570,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
 
     public static let issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
+    public static let codingSessionIdleReleaseMs: Int = ${codingSessionIdleReleaseMs}
 ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
     public static let codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
     public static let deviceOnlineWindowMs: Int = ${deviceOnlineWindowMs}
@@ -736,6 +740,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
 
     const val issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
+    const val codingSessionIdleReleaseMs: Long = ${codingSessionIdleReleaseMs}L
 ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
     const val codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
     const val deviceOnlineWindowMs: Long = ${deviceOnlineWindowMs}L
@@ -909,6 +914,7 @@ pub const STEER_WORKING_PREVIEW_MAX: usize = ${contract.steerWorking.previewMax}
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.startedMax};
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
+pub const CODING_SESSION_IDLE_RELEASE_MS: i64 = ${codingSessionIdleReleaseMs};
 ${rustStrSlice("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
 pub const CODING_SESSION_COMPUTER_USE_CAP: &str = "${contract.codingSession.computerUseCap}";
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};

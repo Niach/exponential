@@ -96,7 +96,30 @@ pub(crate) fn install(cx: &mut App) {
     let local = LocalSessions::global(cx);
     cx.observe(&local, |_, cx| schedule(cx)).detach();
     schedule(cx);
+    // S-4: the daemon's idle release — a quiescent chat gives its agent
+    // process back (the row idles, the worktree stays, the next message
+    // resumes it). Off the UI thread; a release re-plans.
+    let live = Arc::clone(&cx.global::<PickupHost>().live);
+    cx.spawn(async move |cx| loop {
+        cx.background_executor().timer(IDLE_RELEASE_BEAT).await;
+        let live = Arc::clone(&live);
+        let released = cx
+            .background_executor()
+            .spawn(async move { live.release_idle(std::time::Instant::now(), pickup::IDLE_RELEASE) })
+            .await;
+        if released.is_empty() {
+            continue;
+        }
+        for session_id in &released {
+            log::info!("[pickup] released session {session_id}'s agent process (idle)");
+        }
+        cx.update(schedule);
+    })
+    .detach();
 }
+
+/// S-4: how often the IDE checks for quiescent chats to release.
+const IDLE_RELEASE_BEAT: Duration = Duration::from_secs(60);
 
 /// EXP-1316: a card answered in the session view (relay → this engine)
 /// closes its synced `messages` card on every client: the publisher's tap
