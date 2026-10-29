@@ -84,7 +84,7 @@ export function Post() {
           files it touched and a picture per platform. The Guide is a tab on the thread and the body of every pull
           request; opening a PR with a UI change and no picture is refused.
         </p>
-        <Shot view="guide" platform="web" caption="A thread's Guide: the stack, the summary, one topic with its web and iPhone captures." />
+        <Shot view="story-viewer" platform="web" caption="Stories have since replaced the Guide: a result story with its screenshots, and the pull request body is built from them." />
       </Section>
 
       <Section id="notifications" num="07" label="Notifications">

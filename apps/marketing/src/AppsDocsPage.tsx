@@ -140,9 +140,9 @@ export function AppsDocsPage() {
               <a href="/talk/">Exponential Talk</a>.
             </p>
             <DocShot
-              view="settings-voice"
+              view="settings-assistant"
               platform="desktop"
-              caption="Settings → Voice: the voice device, the agent, Speak replies and Language, and the tray group"
+              caption="Settings → Assistant: where your Assistant runs, its check-in, and its Voice block with the tray group"
             />
           </DocsSection>
 

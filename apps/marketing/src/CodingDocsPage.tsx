@@ -708,14 +708,9 @@ export function CodingDocsPage() {
             </p>
 
             <DocShot
-              view="guide"
+              view="story-viewer"
               platform="desktop"
-              caption="A chat's Guide in the desktop IDE: its stack, a section with its screenshots, Merge stack in the header"
-            />
-
-            <DocShot
-              view="review-diff"
-              caption="Show complete diff: the file tree with its filter beside every file's diff"
+              caption="A result story in the desktop IDE: what the agent shows you, with its screenshots"
             />
           </DocsSection>
 

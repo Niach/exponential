@@ -29,7 +29,7 @@ export default function Install({ path }: PageProps) {
             Talk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Voice on the web, the
             desktop app or your phone. The settings are yours, not your team&apos;s.
           </p>
-          <DocShot view="settings-voice" platform="desktop" caption="Settings → Voice in the desktop app, with a voice device picked." />
+          <DocShot view="settings-assistant" platform="desktop" caption="Settings → Assistant in the desktop app: its Voice block on your desktop." />
           <DocsTable
             head={[`Row`, `What it does`]}
             rows={[
