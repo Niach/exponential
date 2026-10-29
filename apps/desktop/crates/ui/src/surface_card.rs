@@ -285,8 +285,8 @@ pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Opti
     })
 }
 
-/// THE surface card: the title caption (else `copy.preview.surface`) over
-/// the surface in its rounded glass frame.
+/// THE surface card: the title caption (none when untitled) over the
+/// surface in its rounded glass frame.
 pub(crate) fn surface_row(
     id: &str,
     session_id: &str,
@@ -336,11 +336,9 @@ pub(crate) fn surface_frame(
     } else {
         stroke
     };
-    let caption = title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or(&CHATS.copy.preview.surface)
-        .to_string();
+    // The title = the plan card's surface caption (plan-card.json `card`:
+    // 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4.
+    let caption = title.map(str::trim).filter(|title| !title.is_empty()).map(str::to_string);
     v_flex()
         .id(SharedString::from(format!("{}-{id}", CHATS.test_ids.surface_card)))
         .relative()
@@ -350,13 +348,16 @@ pub(crate) fn surface_frame(
         .opacity(opacity)
         .min_w_0()
         .gap(px(card.surface_label_gap))
-        .child(
-            div()
-                .text_2xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(caption)),
-        )
+        .when_some(caption, |card, caption| {
+            card.child(
+                div()
+                    .text_2xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().muted_foreground)
+                    .truncate()
+                    .child(SharedString::from(caption)),
+            )
+        })
         .child(
             div()
                 .w_full()

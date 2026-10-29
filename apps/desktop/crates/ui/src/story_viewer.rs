@@ -701,8 +701,9 @@ pub(crate) fn story_content(
             }
             StoryContent { body: div().into_any_element(), footer: None }
         }
-        (Some(SessionThreadRow::Surface { id, session_id, title, surface }), StoryKind::Result) if story.surface => {
-            let card = crate::surface_card::surface_row(id, session_id, title.as_deref(), surface, window, cx);
+        (Some(SessionThreadRow::Surface { id, session_id, surface, .. }), StoryKind::Result) if story.surface => {
+            // The story's own header names it: no card title (×4).
+            let card = crate::surface_card::surface_row(id, session_id, None, surface, window, cx);
             StoryContent { body: crate::dock::sheet_body("story-body-scroll", lead.child(card)), footer: None }
         }
         _ => StoryContent { body: crate::dock::sheet_body("story-body-scroll", lead), footer: None },

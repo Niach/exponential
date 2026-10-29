@@ -129,7 +129,7 @@ private func motionDuration(_ name: String) -> TimeInterval {
 }
 
 /// THE inline surface card's frame: its own rounded glass frame, max width
-/// the column. `animate` = the card ARRIVED while the chat was open (its id
+/// the column, the title (if any) as the plan card's surface caption above it. `animate` = the card ARRIVED while the chat was open (its id
 /// was not in the first painted transcript): the frame fades in from
 /// `fromOpacity`, rises `fromTranslateY` and scales from `fromScale` over
 /// `slow` / `decelerate`, its hairline settling from the primary colour at
@@ -154,25 +154,29 @@ public struct SurfaceCardFrame<Content: View>: View {
         let before = animate && !entered
         let glowing = animate && !settled && !motion.reduceMotion
         let enter = Chats.SurfaceEnter.Frame.self
-        VStack(alignment: .leading, spacing: 10) {
+        // The title = the plan card's surface caption (plan-card.json
+        // `card`: 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4.
+        VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
             }
             content()
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(GlassTokens.opaqueCardFill, in: shape)
+                .overlay(
+                    shape.stroke(
+                        glowing
+                            ? DesignTokens.Palette.primary.opacity(Chats.SurfaceEnter.Glow.fromOpacity)
+                            : GlassTokens.strokeCard,
+                        lineWidth: glowing ? 1 : GlassTokens.hairline
+                    )
+                )
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(GlassTokens.opaqueCardFill, in: shape)
-        .overlay(
-            shape.stroke(
-                glowing
-                    ? DesignTokens.Palette.primary.opacity(Chats.SurfaceEnter.Glow.fromOpacity)
-                    : GlassTokens.strokeCard,
-                lineWidth: glowing ? 1 : GlassTokens.hairline
-            )
-        )
         .opacity(before ? enter.fromOpacity : 1)
         .offset(y: before && !motion.reduceMotion ? enter.fromTranslateY : 0)
         .scaleEffect(before && !motion.reduceMotion ? enter.fromScale : 1)
