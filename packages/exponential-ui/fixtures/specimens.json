@@ -2092,19 +2092,16 @@
                 },
                 "children": [
                   {
-                    "id": "c4-t1",
-                    "component": "Text",
+                    "id": "c4-heading",
+                    "component": "Heading",
                     "props": {
-                      "text": "A Box lays its children out by style.",
-                      "variant": "body"
-                    }
-                  },
-                  {
-                    "id": "c4-t2",
-                    "component": "Text",
-                    "props": {
-                      "text": "Flex, grid, spacing and colours come from the whitelist.",
-                      "variant": "muted"
+                      "text": "Welcome",
+                      "level": "h4"
+                    },
+                    "style": {
+                      "color": "$color.primaryForeground",
+                      "fontSize": "$type.size.xl3",
+                      "lineHeight": "$type.lineHeight.xl3"
                     }
                   }
                 ]
@@ -2834,27 +2831,35 @@
                 },
                 "children": [
                   {
-                    "id": "c8-a",
-                    "component": "Avatar",
+                    "id": "c8-os-apple",
+                    "component": "Icon",
                     "props": {
-                      "name": "Ada Lovelace",
-                      "size": "sm"
+                      "name": "os-apple",
+                      "size": "lg"
                     }
                   },
                   {
-                    "id": "c8-t",
-                    "component": "Text",
+                    "id": "c8-os-windows",
+                    "component": "Icon",
                     "props": {
-                      "text": "Ada Lovelace",
-                      "variant": "body"
+                      "name": "os-windows",
+                      "size": "lg"
                     }
                   },
                   {
-                    "id": "c8-b",
-                    "component": "Badge",
+                    "id": "c8-os-linux",
+                    "component": "Icon",
                     "props": {
-                      "text": "Owner",
-                      "variant": "outline"
+                      "name": "os-linux",
+                      "size": "lg"
+                    }
+                  },
+                  {
+                    "id": "c8-progress-2-4",
+                    "component": "Icon",
+                    "props": {
+                      "name": "progress-2-4",
+                      "size": "lg"
                     }
                   }
                 ]

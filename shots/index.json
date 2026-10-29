@@ -1913,8 +1913,8 @@
         "file": "shots/exponential-ui-heading/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 9392,
-        "sha256": "cdf1c741ef10fe99fb6a21390b6ee4bd42f9d894a18cb3441ae7228c56dfc03e"
+        "bytes": 11628,
+        "sha256": "12bf6c5f4cfc5a07fce95b4030d6c408c22b01172c5fe5b0d2c1088cf3778382"
       }
     },
     "exponential-ui-icon": {
@@ -1943,8 +1943,8 @@
         "file": "shots/exponential-ui-icon/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 8892,
-        "sha256": "f57bf4047a5ec7b53d3d909ea20bfdc2b8f6f13b97ab0e5ed78c46792cc4f652"
+        "bytes": 10358,
+        "sha256": "69acfd7945a914a0406f766242e84c6d1bbd117fa3ffeab3f93c01456e97cad5"
       }
     },
     "exponential-ui-image": {
@@ -2003,8 +2003,8 @@
         "file": "shots/exponential-ui-input/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 18016,
-        "sha256": "2e8070f799b2ce9edfc6966db7a5feb9d6df3d7f0f06dc6e85f01ae281c3417d"
+        "bytes": 18970,
+        "sha256": "137006099d99a17af5da282935a7663e5b992caaaf41928711566ce42f7927c1"
       }
     },
     "exponential-ui-kbd": {
@@ -2640,8 +2640,8 @@
         "file": "shots/exponential-ui-segmented/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 12072,
-        "sha256": "38e87699337b07b2f2b89b15def1f4ac91e66aa217d8af6fd5018b9b5bf24628"
+        "bytes": 14332,
+        "sha256": "296a2cf8d6591774279f97f3db30811d90a80b7c0333a7ccf87abbd771a80336"
       }
     },
     "exponential-ui-select": {

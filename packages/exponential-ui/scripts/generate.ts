@@ -758,7 +758,10 @@ function prefixIds(node: NestedNode, prefix: string): NestedNode {
  *  open; anything else its example, then up to two enum props × every value,
  *  then `true` for up to two booleans, deduplicated, at most SPECIMEN_MAX_CASES. */
 function specimenCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
-  return [...generatedCases(name, all), ...(SPECIMEN_EXTRA[name] ?? [])]
+  // The extras are authored whole: their wrapper Box/Stack must keep its own
+  // children, not the component's demo children (specimenContent).
+  const generated = generatedCases(name, all).map((c) => ({ ...c, node: specimenContent(c.node) }))
+  return [...generated, ...(SPECIMEN_EXTRA[name] ?? [])]
 }
 
 function generatedCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
@@ -802,7 +805,7 @@ function specimenNode(name: string, all: ComponentCase[]): NestedNode {
       props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
       children: [
         { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
-        prefixIds(specimenContent(c.node), `c${i}-`),
+        prefixIds(c.node, `c${i}-`),
       ],
     })),
   }
