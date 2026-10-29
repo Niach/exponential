@@ -155,4 +155,86 @@ class StoriesTest {
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(rings.map(::encode)))
         }
     }
+
+    private fun sessionsOf(input: JsonObject) = input.getValue("sessions").jsonArray.map { it.jsonObject }.map {
+        Stories.SessionInput(
+            id = it.str("id")!!,
+            rootId = it.str("rootId")!!,
+            name = it.str("name")!!,
+            agentId = it.str("agentId"),
+            startedByAgentId = it.str("startedByAgentId"),
+        )
+    }
+
+    private fun agentsOf(input: JsonObject) = input.getValue("agents").jsonArray.map { it.jsonObject }.map {
+        Stories.AgentInput(it.str("id")!!, it.str("name")!!, it.getValue("assistant").jsonPrimitive.boolean)
+    }
+
+    private fun messagesOf(input: JsonObject) = input.getValue("messages").jsonArray.map { it.jsonObject }.map {
+        Stories.MessageInput(
+            id = it.str("id")!!,
+            sessionId = it.str("sessionId")!!,
+            authorSessionId = it.str("authorSessionId"),
+            createdAt = it.long("createdAt")!!,
+            answeredAt = it.long("answeredAt"),
+            card = it["card"] as? JsonObject,
+        )
+    }
+
+    private fun readsOf(input: JsonObject) = input.getValue("reads").jsonArray.map { it.jsonObject }.map {
+        Stories.ReadInput(it.str("sessionId")!!, it.long("readAt"), it.long("storySeenAt"))
+    }
+
+    @Test
+    fun `tab constants match the fixture`() {
+        val tab = fixture.getValue("tab").jsonObject
+        val copy = tab.getValue("copy").jsonObject
+        assertEquals(
+            mapOf(
+                "label" to Stories.Tab.Copy.LABEL, "empty" to Stories.Tab.Copy.EMPTY,
+                "approved" to Stories.Tab.Copy.APPROVED, "changed" to Stories.Tab.Copy.CHANGED,
+                "answered" to Stories.Tab.Copy.ANSWERED, "superseded" to Stories.Tab.Copy.SUPERSEDED,
+                "changes" to Stories.Tab.Copy.CHANGES, "stack" to Stories.Tab.Copy.STACK,
+            ),
+            copy.mapValues { it.value.jsonPrimitive.content },
+        )
+        val ids = tab.getValue("testIds").jsonObject
+        assertEquals(
+            mapOf(
+                "tab" to Stories.Tab.TestIds.TAB, "list" to Stories.Tab.TestIds.LIST,
+                "tile" to Stories.Tab.TestIds.TILE, "changes" to Stories.Tab.TestIds.CHANGES,
+                "stack" to Stories.Tab.TestIds.STACK,
+            ),
+            ids.mapValues { it.value.jsonPrimitive.content },
+        )
+        val tile = tab.getValue("tile").jsonObject
+        assertEquals(tile.getValue("thumbHeight").jsonObject.str("phone")!!.toFloat(), Stories.Tab.Tile.THUMB_HEIGHT)
+        assertEquals(
+            tile.getValue("thumbMaxWidth").jsonObject.str("phone")!!.toFloat(),
+            Stories.Tab.Tile.THUMB_MAX_WIDTH,
+        )
+        assertEquals(tile.str("gap")!!.toFloat(), Stories.Tab.Tile.GAP)
+        assertEquals(tile.str("radius")!!.toFloat(), Stories.Tab.Tile.RADIUS)
+        assertEquals(tile.str("listGap")!!.toFloat(), Stories.Tab.Tile.LIST_GAP)
+        assertEquals(tile.str("leadGap")!!.toFloat(), Stories.Tab.Tile.LEAD_GAP)
+        assertEquals(tab.getValue("specimen").jsonObject.long("case")!!.toInt(), Stories.Tab.SPECIMEN_CASE)
+    }
+
+    @Test
+    fun `replays every tab case`() {
+        val cases = fixture.getValue("tabCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val ring = Stories.storyTab(
+                now = input.long("now")!!,
+                sessions = sessionsOf(input),
+                agents = agentsOf(input),
+                messages = messagesOf(input),
+                reads = readsOf(input),
+                rootId = input.str("rootId")!!,
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), ring?.let(::encode) ?: JsonNull)
+        }
+    }
 }

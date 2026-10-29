@@ -192,6 +192,103 @@ object Stories {
 
     private val byCreated = compareBy<Story>({ it.createdAt }, { it.id })
 
+    private enum class Resolution { Approved, Changed, Answered, Superseded }
+
+    private data class Built(val story: Story, val root: SessionInput, val resolution: Resolution?)
+
+    private fun marksOf(reads: List<ReadInput>): Map<String, Long> = reads.associate { read ->
+        read.sessionId to maxOf(read.readAt ?: Long.MIN_VALUE, read.storySeenAt ?: Long.MIN_VALUE)
+    }
+
+    /** One message as a story (null = not a story of a known root).
+     *  `resolution` = how a plan/question was settled (null while waiting,
+     *  and for results). */
+    private fun storyOf(
+        message: MessageInput,
+        sessionsById: Map<String, SessionInput>,
+        marks: Map<String, Long>,
+        now: Long,
+    ): Built? {
+        val author = message.authorSessionId ?: return null
+        if (author != message.sessionId) return null
+        if (!isStoryCard(message.card)) return null
+        val card = message.card ?: return null
+        val session = sessionsById[message.sessionId] ?: return null
+        val root = sessionsById[session.rootId] ?: return null
+        val kind = when (card.str("kind")) {
+            "plan" -> Kind.Plan
+            "question" -> Kind.Question
+            else -> Kind.Result
+        }
+        val waiting = when (kind) {
+            Kind.Plan -> card.isNull("decision")
+            Kind.Question -> message.answeredAt == null && card.isNull("answer")
+            Kind.Result -> false
+        }
+        val resolution = when {
+            kind == Kind.Result || waiting -> null
+            kind == Kind.Question -> Resolution.Answered
+            card.str("decision") == "approved" -> Resolution.Approved
+            card.str("decision") == "superseded" -> Resolution.Superseded
+            else -> Resolution.Changed
+        }
+        val pictures = resolvedPictures(card)
+        val surface = card["surface"] is JsonObject
+        val options = (card["options"] as? JsonArray).orEmpty()
+        val title = when (kind) {
+            Kind.Result -> card.str("title")?.trim()?.takeIf { it.isNotEmpty() }
+            Kind.Question -> card.str("question")?.trim()?.takeIf { it.isNotEmpty() }
+            Kind.Plan -> AskDock.askDockTitle(card.str("plan") ?: "").takeIf { it.isNotEmpty() }
+        }
+        val age = age(message.createdAt, now)
+        val outcome = when (resolution) {
+            Resolution.Approved -> Tab.Copy.APPROVED
+            Resolution.Changed -> Tab.Copy.CHANGED
+            Resolution.Answered -> Tab.Copy.ANSWERED
+            Resolution.Superseded, null -> null
+        }
+        val story = Story(
+            id = message.id,
+            sessionId = session.id,
+            rootId = root.id,
+            sessionName = session.name,
+            kind = kind,
+            waiting = waiting,
+            // A settled plan/question was acted on: seen.
+            seen = resolution != null || message.createdAt <= (marks[root.id] ?: Long.MIN_VALUE),
+            createdAt = message.createdAt,
+            meta = if (outcome != null) "${Copy.kind(kind)} · $outcome · $age" else "${Copy.kind(kind)} · $age",
+            title = title,
+            pictures = pictures,
+            surface = surface,
+            text = if (kind == Kind.Plan && pictures.isEmpty() && !surface) card.str("plan") else null,
+            footer = when {
+                resolution != null -> Footer.None
+                kind == Kind.Plan -> Footer.Plan
+                kind == Kind.Question -> if (options.isNotEmpty()) Footer.Choices else Footer.Reply
+                else -> Footer.None
+            },
+            autoAdvanceMs = if (kind == Kind.Result) Constants.AUTO_ADVANCE_MS else null,
+        )
+        return Built(story, root, resolution)
+    }
+
+    /** The ring a root's stories ride (an agent's, else the chat's), empty. */
+    private fun emptyRing(root: SessionInput, agentsById: Map<String, AgentInput>): StoryRing {
+        val agentId = root.agentId ?: root.startedByAgentId
+        val agent = agentId?.let { agentsById[it] }
+        return StoryRing(
+            key = if (agentId != null) "agent:$agentId" else "root:${root.id}",
+            agentId = agentId,
+            rootId = if (agentId == null) root.id else null,
+            title = if (agentId != null) agent?.name ?: root.name else root.name,
+            assistant = agent?.assistant ?: false,
+            waiting = 0,
+            unseen = false,
+            stories = emptyList(),
+        )
+    }
+
     /** THE fold: the viewer's story rings, in display order. */
     fun rings(
         now: Long,
@@ -202,82 +299,21 @@ object Stories {
     ): List<StoryRing> {
         val sessionsById = sessions.associateBy { it.id }
         val agentsById = agents.associateBy { it.id }
-        val marks = reads.associate { read ->
-            read.sessionId to maxOf(read.readAt ?: Long.MIN_VALUE, read.storySeenAt ?: Long.MIN_VALUE)
-        }
+        val marks = marksOf(reads)
         data class Draft(val head: StoryRing, val stories: MutableList<Story>)
         val drafts = LinkedHashMap<String, Draft>()
 
         for (message in messages) {
-            val author = message.authorSessionId ?: continue
-            if (author != message.sessionId) continue
-            if (!isStoryCard(message.card)) continue
-            val card = message.card ?: continue
-            val session = sessionsById[message.sessionId] ?: continue
-            val root = sessionsById[session.rootId] ?: continue
-            val kind = when (card.str("kind")) {
-                "plan" -> Kind.Plan
-                "question" -> Kind.Question
-                else -> Kind.Result
+            val built = storyOf(message, sessionsById, marks, now) ?: continue
+            // A settled plan/question leaves the ring (the Stories tab keeps it).
+            if (built.resolution != null) continue
+            val story = built.story
+            if (story.kind == Kind.Result) {
+                val keep = if (story.seen) Constants.SEEN_HOURS else Constants.UNSEEN_HOURS
+                if (now - story.createdAt >= keep * HOUR) continue
             }
-            val waiting = when (kind) {
-                Kind.Plan -> card.isNull("decision")
-                Kind.Question -> message.answeredAt == null && card.isNull("answer")
-                Kind.Result -> false
-            }
-            if (kind != Kind.Result && !waiting) continue
-            val seen = message.createdAt <= (marks[root.id] ?: Long.MIN_VALUE)
-            if (kind == Kind.Result) {
-                val keep = if (seen) Constants.SEEN_HOURS else Constants.UNSEEN_HOURS
-                if (now - message.createdAt >= keep * HOUR) continue
-            }
-            val pictures = resolvedPictures(card)
-            val surface = card["surface"] is JsonObject
-            val options = (card["options"] as? JsonArray).orEmpty()
-            val title = when (kind) {
-                Kind.Result -> card.str("title")?.trim()?.takeIf { it.isNotEmpty() }
-                Kind.Question -> card.str("question")?.trim()?.takeIf { it.isNotEmpty() }
-                Kind.Plan -> AskDock.askDockTitle(card.str("plan") ?: "").takeIf { it.isNotEmpty() }
-            }
-            val story = Story(
-                id = message.id,
-                sessionId = session.id,
-                rootId = root.id,
-                sessionName = session.name,
-                kind = kind,
-                waiting = waiting,
-                seen = seen,
-                createdAt = message.createdAt,
-                meta = "${Copy.kind(kind)} · ${age(message.createdAt, now)}",
-                title = title,
-                pictures = pictures,
-                surface = surface,
-                text = if (kind == Kind.Plan && pictures.isEmpty() && !surface) card.str("plan") else null,
-                footer = when (kind) {
-                    Kind.Plan -> Footer.Plan
-                    Kind.Question -> if (options.isNotEmpty()) Footer.Choices else Footer.Reply
-                    Kind.Result -> Footer.None
-                },
-                autoAdvanceMs = if (kind == Kind.Result) Constants.AUTO_ADVANCE_MS else null,
-            )
-            val agentId = root.agentId ?: root.startedByAgentId
-            val agent = agentId?.let { agentsById[it] }
-            val key = if (agentId != null) "agent:$agentId" else "root:${root.id}"
-            drafts.getOrPut(key) {
-                Draft(
-                    StoryRing(
-                        key = key,
-                        agentId = agentId,
-                        rootId = if (agentId == null) root.id else null,
-                        title = if (agentId != null) agent?.name ?: root.name else root.name,
-                        assistant = agent?.assistant ?: false,
-                        waiting = 0,
-                        unseen = false,
-                        stories = emptyList(),
-                    ),
-                    mutableListOf(),
-                )
-            }.stories.add(story)
+            val head = emptyRing(built.root, agentsById)
+            drafts.getOrPut(head.key) { Draft(head, mutableListOf()) }.stories.add(story)
         }
 
         val list = drafts.values.map { draft ->
@@ -301,6 +337,75 @@ object Stories {
         return list.sortedWith(
             compareBy<StoryRing>({ rank(it) }, { -newest(it) }, { it.key }),
         )
+    }
+
+    /** THE Stories tab of a session screen (stories.json `tab`): every story
+     *  the root's tree ever posted, never expiring; settled plans/questions
+     *  stay (footer none, `meta` names the outcome), a superseded plan drops.
+     *  Waiting first (oldest first), then the rest newest first. ONE ring
+     *  (the root's, as [rings] keys it) so the viewer opens on it; null = the
+     *  empty state. `unseen` = the tab's dot. */
+    fun storyTab(
+        now: Long,
+        sessions: List<SessionInput>,
+        agents: List<AgentInput>,
+        messages: List<MessageInput>,
+        reads: List<ReadInput>,
+        rootId: String,
+    ): StoryRing? {
+        val sessionsById = sessions.associateBy { it.id }
+        val agentsById = agents.associateBy { it.id }
+        val root = sessionsById[rootId] ?: return null
+        if (root.rootId != root.id) return null
+        val marks = marksOf(reads)
+        val list = messages.mapNotNull { message ->
+            storyOf(message, sessionsById, marks, now)
+                ?.takeIf { it.root.id == root.id && it.resolution != Resolution.Superseded }
+                ?.story
+        }
+        if (list.isEmpty()) return null
+        val waiting = list.filter { it.waiting }.sortedWith(byCreated)
+        val rest = list.filter { !it.waiting }.sortedWith(byCreated.reversed())
+        return emptyRing(root, agentsById).copy(
+            waiting = waiting.size,
+            unseen = list.any { it.waiting || !it.seen },
+            stories = waiting + rest,
+        )
+    }
+
+    /** THE Stories tab (stories.json `tab`): copy, testIds, tile geometry. */
+    object Tab {
+        object Copy {
+            const val LABEL = "Stories"
+            const val EMPTY = "No stories yet"
+            const val APPROVED = "Approved"
+            const val CHANGED = "Changes asked"
+            const val ANSWERED = "Answered"
+            const val SUPERSEDED = "Replaced"
+            const val CHANGES = "Changes"
+            const val STACK = "Stack"
+        }
+
+        object TestIds {
+            const val TAB = "thread-stories-tab"
+            const val LIST = "thread-stories"
+            const val TILE = "story-tile"
+            const val CHANGES = "thread-stories-changes"
+            const val STACK = "thread-stories-stack"
+        }
+
+        /** Tile geometry (dp); Android = the `phone` form factor. */
+        object Tile {
+            const val THUMB_HEIGHT = 140f
+            const val THUMB_MAX_WIDTH = 280f
+            const val GAP = 8f
+            const val RADIUS = 10f
+            const val LIST_GAP = 16f
+            const val LEAD_GAP = 24f
+        }
+
+        /** `tab.specimen.case`: the styleguide specimen draws this tabCase. */
+        const val SPECIMEN_CASE = 1
     }
 
     /** The chats header row (chats.json BUBBLES + STORY RING): each agent
