@@ -65,6 +65,11 @@ pub(crate) mod computer_use_banner;
 pub(crate) mod feedback_states;
 pub(crate) mod trace;
 pub(crate) mod code_block;
+// VAPP-162: the round-5 Exponential UI pieces, painted from the specimens.
+pub(crate) mod qr_code;
+pub(crate) mod qr_scanner;
+pub(crate) mod nav_rail;
+pub(crate) mod voice_level;
 pub(crate) mod agent_home;
 pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
@@ -136,6 +141,10 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
+    Entry { id: qr_code::ID, owner: qr_code::OWNER, render: qr_code::render },
+    Entry { id: qr_scanner::ID, owner: qr_scanner::OWNER, render: qr_scanner::render },
+    Entry { id: nav_rail::ID, owner: nav_rail::OWNER, render: nav_rail::render },
+    Entry { id: voice_level::ID, owner: voice_level::OWNER, render: voice_level::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },
