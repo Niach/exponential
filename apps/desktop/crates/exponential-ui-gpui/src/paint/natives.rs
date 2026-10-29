@@ -968,6 +968,7 @@ thread_local! {
 /// Record every ring [`voice_wave`] paints on this thread (a test aid).
 pub fn record_voice_wave(on: bool) {
     VOICE_RINGS.with(|t| *t.borrow_mut() = on.then(Vec::new));
+    VOICE_BARS.with(|t| *t.borrow_mut() = on.then(Vec::new));
 }
 
 /// The rings painted since the last call (recording stays on).
@@ -1073,6 +1074,77 @@ pub fn voice_wave(id: &str, props: &Map<String, Value>, theme: Option<&ResolvedT
         }
     });
     voice_wave_canvas(rings).absolute().left(px((w - size) / 2.0)).top(px((h - size) / 2.0)).size(px(size)).into_any_element()
+}
+
+/// One VoiceWave `bars` meter as painted (a test aid: [`record_voice_wave`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintedBars {
+    pub id: String,
+    pub phase: f64,
+    /// (x, y, width, height, radius) px from the meter's top-left.
+    pub bars: Vec<(f32, f32, f32, f32, f32)>,
+    pub fill: Hsla,
+}
+
+thread_local! {
+    static VOICE_BARS: RefCell<Option<Vec<PaintedBars>>> = const { RefCell::new(None) };
+}
+
+/// The bars meters painted since the last call (with [`record_voice_wave`] on).
+pub fn take_voice_wave_bars() -> Vec<PaintedBars> {
+    VOICE_BARS.with(|t| t.borrow_mut().as_mut().map(std::mem::take).unwrap_or_default())
+}
+
+/// Whether a VoiceWave node is the `bars` level meter.
+pub fn voice_wave_is_bars(props: &Map<String, Value>) -> bool {
+    props.get("variant").and_then(Value::as_str) == Some("bars")
+}
+
+/// VAPP-162 `VoiceWave variant: bars` (style.json `voiceWave.bars`): the
+/// core's `count` rounded vertical bars for this frame
+/// (`exponential_ui::voice_wave::voice_wave_bars`), each filled with the
+/// `bar` part colour; the meter centred in the node's box (the root recipe
+/// gives it the size class's exact box). No child is painted.
+#[allow(clippy::too_many_arguments)]
+pub fn voice_wave_bars(id: &str, props: &Map<String, Value>, theme: Option<&ResolvedTheme>, mode: Mode, w: f32, h: f32, elapsed: f64, reduced_motion: bool, ink: Hsla) -> AnyElement {
+    use exponential_ui::voice_wave::{voice_wave_bars as bars_of, VoiceWaveBarsInput};
+    let num = |v: &Value| match v {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    };
+    let input = VoiceWaveBarsInput {
+        size: props.get("size").and_then(Value::as_str).unwrap_or("md").to_string(),
+        activity: voice_wave_activity(props),
+        level: props.get("level").and_then(num),
+        bands: props.get("bands").and_then(Value::as_array).map(|b| b.iter().map(|v| num(v).unwrap_or(0.0)).collect()),
+        elapsed: Some(elapsed),
+        reduced_motion: Some(reduced_motion),
+    };
+    let meter = bars_of(&input);
+    let fill = color_of(part_props(theme, mode, "VoiceWave", "bar", props, &[]).get("color").and_then(Value::as_str)).unwrap_or(ink);
+    let rects: Vec<(f32, f32, f32, f32, f32)> = meter.bars.iter().map(|b| (b.x as f32, b.y as f32, b.width as f32, b.height as f32, b.radius as f32)).collect();
+    VOICE_BARS.with(|t| {
+        if let Some(v) = t.borrow_mut().as_mut() {
+            v.push(PaintedBars { id: id.to_string(), phase: meter.phase, bars: rects.clone(), fill });
+        }
+    });
+    let (mw, mh) = (meter.width as f32, meter.height as f32);
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let o = bounds.origin;
+            for (x, y, bw, bh, r) in &rects {
+                window.paint_quad(gpui::fill(Bounds { origin: o + point(px(*x), px(*y)), size: gpui::Size { width: px(*bw), height: px(*bh) } }, fill).corner_radii(px(r.min(bh / 2.0))));
+            }
+        },
+    )
+    .absolute()
+    .left(px((w - mw) / 2.0))
+    .top(px((h - mh) / 2.0))
+    .w(px(mw))
+    .h(px(mh))
+    .into_any_element()
 }
 
 /// `TreeGuides` (round 3,`layout.json` `treeGuideColumn` / `treeGuideRadius`

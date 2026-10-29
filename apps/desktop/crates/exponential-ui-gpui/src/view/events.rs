@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 
 use exponential_ui::layout_tree::{LayerClass, ToastSpec};
 use exponential_ui::surface::{Layer, OutEvent};
-use gpui::{ClipboardItem, Context, KeyDownEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollWheelEvent, Window};
+use exponential_ui::hold::HoldInput;
+use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollWheelEvent, Window};
 use serde_json::{json, Value};
 
 use super::state::{focus_order, is_focusable, is_text_field, next_focus, NodeFlags};
@@ -65,6 +66,21 @@ pub fn arrow_step(key: &str, rtl: bool, vertical: bool) -> Option<i64> {
         k if k == back => Some(-1),
         "down" if vertical => Some(1),
         "up" if vertical => Some(-1),
+        _ => None,
+    }
+}
+
+/// VAPP-162: a `hold: true` Button (the node itself, not a part).
+pub(crate) fn is_hold_button(n: &exponential_ui::surface::PlacedNode) -> bool {
+    n.component == "Button" && n.part.is_none() && n.props.get("hold").and_then(Value::as_bool) == Some(true)
+}
+
+/// A gpui key name → the hold machine's key (`" "`, `Enter`, `Escape`).
+fn hold_key_name(key: &str) -> Option<&'static str> {
+    match key {
+        "space" | " " => Some(" "),
+        "enter" => Some("Enter"),
+        "escape" => Some("Escape"),
         _ => None,
     }
 }
@@ -205,7 +221,7 @@ impl SurfaceView {
         self.copy_resets.insert(key, task);
     }
 
-    fn disabled(&self, index: u32) -> bool {
+    pub(crate) fn disabled(&self, index: u32) -> bool {
         let Some(n) = self.cache.node(index) else { return true };
         let off = |p: &serde_json::Map<String, Value>| matches!(p.get("disabled"), Some(Value::Bool(true)));
         off(&n.props) || NodeFlags::of(n).disabled || n.owner.as_deref().and_then(|o| self.cache.index_of(o)).and_then(|o| self.cache.node(o)).is_some_and(|o| off(&o.props) && n.part.as_deref() != Some("label"))
@@ -406,6 +422,10 @@ impl SurfaceView {
     /// a chart's keyboard tooltip closes (the web clears it on blur).
     fn leave_focus(&mut self, index: u32, cx: &mut Context<Self>) {
         let Some((id, chart)) = self.cache.node(index).map(|n| (n.id.clone(), n.component == "Chart")) else { return };
+        // VAPP-162: losing focus cancels a hold.
+        if self.cache.node(index).is_some_and(is_hold_button) && self.surface.is_held(&id) {
+            self.hold_input(index, HoldInput::Blur, cx);
+        }
         self.set_interaction(&id, |s| {
             s.focus = false;
             s.focus_visible = false;
@@ -567,13 +587,119 @@ impl SurfaceView {
             cx.stop_propagation();
             return;
         }
+        // VAPP-162: key repeat never restarts a hold.
+        if ev.is_held && matches!(ev.keystroke.key.as_str(), "space" | "enter") && self.focused_hold().is_some() {
+            cx.stop_propagation();
+            return;
+        }
         if self.handle_key(&ev.keystroke.key, ev.keystroke.modifiers.shift, ev.keystroke.key_char.as_deref(), window, cx) {
             cx.stop_propagation();
         }
     }
 
+    /// VAPP-162: a key released on the focused `hold` Button ends a hold
+    /// the same key started.
+    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.key_up(&ev.keystroke.key, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    /// A key up on the focused node (`true` = a hold Button took it).
+    pub fn key_up(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        let Some(index) = self.focused_hold() else { return false };
+        let Some(key) = hold_key_name(key) else { return false };
+        self.hold_input(index, HoldInput::KeyUp { key: key.to_string() }, cx)
+    }
+
+    /// The focused node when it is an enabled `hold: true` Button.
+    pub(crate) fn focused_hold(&self) -> Option<u32> {
+        self.focused.filter(|i| self.cache.node(*i).is_some_and(is_hold_button))
+    }
+
+    /// VAPP-162 (round-5 contract §9): one input to the hold of Button
+    /// `index` through the core (`Surface::hold`: holdStart / holdEnd /
+    /// holdCancel, the `pressed` state, the `holdingLabel`), dispatched.
+    /// `true` = it fired an event.
+    pub fn hold_input(&mut self, index: u32, input: HoldInput, cx: &mut Context<Self>) -> bool {
+        let Some(id) = self.cache.node(index).map(|n| n.id.clone()) else { return false };
+        let events = self.surface.hold(index, &input);
+        let fired = events.iter().any(|e| matches!(e, OutEvent::Action { .. }));
+        let held = self.surface.is_held(&id);
+        match input {
+            HoldInput::PointerDown { .. } if held => self.holding = Some(id),
+            _ if !held => {
+                if self.holding.as_deref() == Some(id.as_str()) {
+                    self.holding = None;
+                }
+            }
+            _ => {}
+        }
+        self.dispatch(events, None, cx);
+        fired
+    }
+
+    /// A pointer input at window `position` to the held button (relative
+    /// to its painted box).
+    pub(crate) fn hold_pointer(&mut self, at: Point<Pixels>, up: bool, cx: &mut Context<Self>) {
+        let Some(id) = self.holding.clone() else { return };
+        let Some(index) = self.cache.index_of(&id) else {
+            self.holding = None;
+            return;
+        };
+        let (x, y) = self.hold_point(&id, at);
+        let input = if up { HoldInput::PointerUp { x, y } } else { HoldInput::PointerMove { x, y } };
+        self.hold_input(index, input, cx);
+    }
+
+    /// Window `at` relative to the painted box of hold Button `id`.
+    pub(crate) fn hold_point(&self, id: &str, at: Point<Pixels>) -> (f32, f32) {
+        match self.hold_bounds.borrow().get(id) {
+            Some(b) => (f32::from(at.x - b.origin.x), f32::from(at.y - b.origin.y)),
+            None => (0.0, 0.0),
+        }
+    }
+
+    /// VAPP-162 (round-5 contract §7): the HOST decoded `value` in the
+    /// QrScanner `component_id`'s feed ([`crate::host::HostPlugin::qr_scanner_feed`]):
+    /// fires `scanned {value}` (announced politely) once per distinct value
+    /// until it changes or the scanner remounts; a disabled scanner, an
+    /// empty value or a repeat fires nothing. `true` = it fired.
+    pub fn qr_scanned(&mut self, component_id: &str, value: &str, cx: &mut Context<Self>) -> bool {
+        let Some(index) = self.cache.index_of(component_id) else { return false };
+        let Some(n) = self.cache.node(index) else { return false };
+        if n.component != "QrScanner" || value.is_empty() || self.disabled(index) {
+            return false;
+        }
+        // A scanner that left the tree reports afresh when it comes back.
+        let gone: Vec<String> = self.qr_last.keys().filter(|k| self.cache.index_of(k).is_none()).cloned().collect();
+        for k in gone {
+            self.qr_last.remove(&k);
+        }
+        if self.qr_last.get(component_id).map(String::as_str) == Some(value) {
+            return false;
+        }
+        self.qr_last.insert(component_id.to_string(), value.to_string());
+        let mut events = self.surface.event(index, "scanned", Some(json!({"value": value})));
+        events.push(OutEvent::Announce { text: value.to_string(), live: "polite".into() });
+        self.dispatch(events, None, cx);
+        true
+    }
+
     /// One key on the focused node (the a11y spec); `true` = handled.
     pub fn handle_key(&mut self, key: &str, shift: bool, typed: Option<&str>, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        // VAPP-162: Space / Enter down holds a focused `hold` Button (never
+        // a press); Escape cancels a hold in flight.
+        if let Some(index) = self.focused_hold() {
+            let held = self.cache.node(index).is_some_and(|n| self.surface.is_held(&n.id));
+            match hold_key_name(key) {
+                Some(k) if k != "Escape" || held => {
+                    self.hold_input(index, HoldInput::KeyDown { key: k.to_string(), repeat: false }, cx);
+                    return true;
+                }
+                _ => {}
+            }
+        }
         let focused = self.focused.and_then(|i| self.cache.node(i)).cloned();
         let in_field = focused.as_ref().is_some_and(is_text_field);
         let rtl = self.rtl;

@@ -232,6 +232,14 @@ view.update(cx, |v, cx| {
   - `on_unknown` fires once per structure version for each `Unknown` node.
   - `markdown` may return a richer renderer (`None` = the built-in one).
   - `font_family` maps a theme family name to a loaded family.
+  - `qr_scanner_feed(component_id, formats, window, cx)` (VAPP-162) is THE
+    camera of a QrScanner: return the live feed element (painted filling
+    the viewfinder under the corner brackets and the sweeping scan line),
+    or `None` (the default) for the placeholder (`ui-scan` + `Camera
+    unavailable`). The host decodes codes itself and hands each decoded
+    string to `SurfaceView::qr_scanned(component_id, value, cx)`, which
+    fires `scanned {value}` once per distinct value (a disabled scanner is
+    never asked for a feed and reports nothing).
 
 ## The measure path
 
@@ -402,6 +410,17 @@ Open layers (`LayoutOutput::layers`, in order) paint ABOVE the tree as gpui
 | formatting | `SurfaceViewOptions::formatter` / `set_formatter` (else the core's English one), also for chart ticks, values and tooltips; a view re-binds once a minute only while it shows a relative time (`ticks_minutely`); `set_clock` pins `now` |
 | direction | a leaf's text aligns by the core's physical `text_align` and shapes with the node's direction as its bidi paragraph direction (a leading RLM / LRM when the first strong character disagrees) |
 | strings | every built-in label a surface paints comes from the strings table (`controls::*` are IDE chrome, English) |
+
+## Round 5 (VAPP-162)
+
+| feature | gpui |
+|---|---|
+| QrCode | the core's `qr_matrix` (never a platform QR library) painted as one quad per dark run, module edges snapped to device pixels inside the 4-module quiet zone; the lighter of the plate / module recipe colours fills the plate; the label a centred caption under it and the img's name |
+| QrScanner | the viewfinder chrome (≤ 280 px square, the recipe radius, four round-capped brackets); the feed from `HostPlugin::qr_scanner_feed`, the scan line sweeping while it shows (static under reduced motion); without one the placeholder |
+| VoiceWave `bars` | the core's `voice_wave_bars` rects in the `bar` colour, the child laid out and unpainted |
+| Segmented `orientation` | a vertical column; a vertical `bar` = the rail (items rail-wide × `$control.tabBar`); `count` = the `badge` part centred on the icon's top-end corner, read after the label (`Chats, 3`) |
+| Button `hold` | pointer down → `Surface::hold`, the window follows the pointer for the 24 px slop and the release; Space / Enter (repeat ignored), Escape and blur; the `pressed` state and `holdingLabel` are the core's |
+| `ui-serif` | New York, else Georgia, Times New Roman (DejaVu / Liberation / Noto Serif on Linux) |
 
 ## Motion
 

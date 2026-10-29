@@ -329,6 +329,13 @@ pub struct SurfaceView {
     /// A host-driven entrance ([`SurfaceView::set_entrance`]).
     entrance: Option<NodeEntrance>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
+    /// VAPP-162: the `hold` Button a pointer is holding (its id), followed
+    /// anywhere in the window until release; its painted window bounds.
+    pub(crate) holding: Option<String>,
+    pub(crate) hold_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
+    /// VAPP-162: the last decoded value each QrScanner reported (`scanned`
+    /// fires once per distinct value).
+    pub(crate) qr_last: HashMap<String, String>,
     motion: Motion,
     toast_timers: HashMap<String, ToastTimer>,
     toast_hover: HashSet<String>,
@@ -519,6 +526,9 @@ impl SurfaceView {
             anim_start: RefCell::new(HashMap::new()),
             entrance: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
+            holding: None,
+            hold_bounds: Rc::new(RefCell::new(HashMap::new())),
+            qr_last: HashMap::new(),
             motion: Motion::default(),
             toast_timers: HashMap::new(),
             toast_hover: HashSet::new(),
@@ -722,6 +732,13 @@ impl SurfaceView {
         let mut shaper = crate::measure::Shaper::new(window, &self.fonts).tracked(ts);
         let lines = shaper.lines(&shown, &font, ts.font_size, Some((f.w - l - r).max(1.0))).len() as u32;
         Some(n.lines.filter(|c| *c > 0).map_or(lines, |c| lines.min(c)))
+    }
+
+    /// The font a node paints its text with (an inspection aid; VAPP-162:
+    /// `ui-serif` maps to a system serif).
+    pub fn node_font(&self, id: &str) -> Option<Font> {
+        let i = self.cache.index_of(id)? as usize;
+        self.node_fonts.get(i).cloned()
     }
 
     /// The content height of the last pass.
@@ -1354,6 +1371,7 @@ impl SurfaceView {
             .track_focus(&self.root_focus)
             .key_context("ExponentialUiSurface")
             .on_key_down(cx.listener(Self::on_key))
+            .on_key_up(cx.listener(Self::on_key_up))
             // Any pointer press ends keyboard mode (no `:focus-visible`) and
             // drops a Markdown selection (a press in Markdown starts anew).
             .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
@@ -1385,6 +1403,31 @@ impl SurfaceView {
                         window.on_mouse_event(move |ev: &gpui::MouseUpEvent, phase, window, cx| {
                             if phase == gpui::DispatchPhase::Capture && ev.button == gpui::MouseButton::Left {
                                 let _ = b.update(cx, |v, cx| v.on_pointer_up(ev, window, cx));
+                            }
+                        });
+                    },
+                )
+                .absolute()
+                .size_0(),
+            );
+        }
+        // VAPP-162: a pointer hold follows the pointer anywhere in the window
+        // (the slide-away cancel, the release outside the box).
+        if self.holding.is_some() {
+            let this = self.this.clone();
+            root = root.child(
+                gpui::canvas(
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        let (a, b) = (this.clone(), this.clone());
+                        window.on_mouse_event(move |ev: &gpui::MouseMoveEvent, phase, _, cx| {
+                            if phase == gpui::DispatchPhase::Capture {
+                                let _ = a.update(cx, |v, cx| v.hold_pointer(ev.position, false, cx));
+                            }
+                        });
+                        window.on_mouse_event(move |ev: &gpui::MouseUpEvent, phase, _, cx| {
+                            if phase == gpui::DispatchPhase::Capture && ev.button == gpui::MouseButton::Left {
+                                let _ = b.update(cx, |v, cx| v.hold_pointer(ev.position, true, cx));
                             }
                         });
                     },

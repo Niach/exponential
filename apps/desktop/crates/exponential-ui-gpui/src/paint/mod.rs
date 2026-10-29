@@ -14,6 +14,7 @@ pub mod icons;
 pub mod markdown;
 pub mod natives;
 pub mod parts;
+pub mod qr;
 
 use exponential_ui::style::{Transition, TransformOp, Visual};
 use gpui::{BoxShadow, CursorStyle, Hsla};

@@ -56,6 +56,11 @@ const SANS_FALLBACKS: [&str; 12] = [
 /// Mono families tried, in order, when the theme's mono cannot load.
 const MONO_CANDIDATES: [&str; 9] = ["SF Mono", "Menlo", "Monaco", "Consolas", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Courier New"];
 
+/// VAPP-162: the serif families `ui-serif` maps to, in order (macOS New
+/// York, then Georgia, Times New Roman; Linux DejaVu / Liberation /
+/// Noto Serif), else the system sans.
+const SERIF_CANDIDATES: [&str; 6] = ["New York", "Georgia", "Times New Roman", "DejaVu Serif", "Liberation Serif", "Noto Serif"];
+
 /// Is a family name a monospace one (the fallback chain it gets)?
 fn looks_mono(family: &str) -> bool {
     let f = family.to_ascii_lowercase();
@@ -146,6 +151,12 @@ impl Fonts {
         let generic = match name.trim() {
             "ui-monospace" | "monospace" | "ui-mono" => Some(true),
             "system-ui" | "sans-serif" | "ui-sans-serif" | "-apple-system" => Some(false),
+            // VAPP-162: `type.family.serif` = a system serif.
+            "ui-serif" | "serif" => {
+                let serif = SERIF_CANDIDATES.iter().map(|m| SharedString::from(*m)).find(|m| self.loads(m)).unwrap_or_else(|| SharedString::from(".SystemUIFont"));
+                self.map.borrow_mut().insert(name.to_string(), serif.clone());
+                return serif;
+            }
             _ => None,
         };
         let mapped = match generic {
@@ -846,6 +857,13 @@ impl<'a> GpuiMeasure<'a> {
 
     fn segmented(&mut self, leaf: &LeafRequest) -> (f32, f32) {
         let props = leaf.props;
+        // VAPP-162 §3: a vertical `bar` = THE rail (the core gives it
+        // `items × tabBar`; its width is the root recipe's, 72).
+        if exponential_ui::segmented::is_rail(props) {
+            let tab_bar = control(self.theme, "tabBar", 56.0);
+            let w = px_prop(&self.part("Segmented", "root", props, &[]), "width").unwrap_or(72.0);
+            return (w, exponential_ui::segmented::rail_height(props, tab_bar));
+        }
         if str_prop(props, "variant") == "bar" {
             return self.segmented_bar(leaf);
         }
@@ -868,19 +886,69 @@ impl<'a> GpuiMeasure<'a> {
         let gap = leaf.control.gap;
         // Icon ↔ label: the `Segmented/item` recipe's gap (none = 0, as the web).
         let item_gap = px_prop(&item, "gap").unwrap_or(0.0);
-        let mut w = 0.0;
-        for (i, it) in items.iter().enumerate() {
+        let mut widths = Vec::with_capacity(items.len());
+        for it in &items {
             let label = display_text(it.get("label"));
             let has_icon = it.get("icon").and_then(Value::as_str).is_some();
             let lw = if label.is_empty() { 0.0 } else { self.line(&label, &ts) };
             let iw = if has_icon { 16.0 } else { 0.0 };
             let inner_gap = if has_icon && lw > 0.0 { item_gap } else { 0.0 };
-            w += 2.0 * (pad + border) + iw + inner_gap + lw;
-            if i > 0 {
-                w += gap;
-            }
+            widths.push(2.0 * (pad + border) + iw + inner_gap + lw);
         }
-        (w, h)
+        let n = widths.len() as f32;
+        let gaps = (n - 1.0).max(0.0) * gap;
+        // VAPP-162 §3: `orientation: vertical` stacks the segments top to
+        // bottom (the widest sets the width).
+        if exponential_ui::segmented::is_vertical(props) {
+            return (widths.iter().copied().fold(0.0, f32::max), n * h + gaps);
+        }
+        (widths.iter().sum::<f32>() + gaps, h)
+    }
+
+    /// A part recipe's text style (a QrCode label, a QrScanner hint).
+    fn part_text(&self, component: &str, part: &str, props: &Map<String, Value>, base: &TextStyle) -> TextStyle {
+        let p = self.part(component, part, props, &[]);
+        TextStyle {
+            font_size: px_prop(&p, "fontSize").unwrap_or(12.0),
+            line_height: px_prop(&p, "lineHeight").unwrap_or(16.0),
+            font_weight: p.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(400),
+            font_family: p.get("fontFamily").and_then(Value::as_str).map(str::to_string).or_else(|| base.font_family.clone()),
+            letter_spacing: None,
+            text_transform: None,
+            font_style: None,
+        }
+    }
+
+    /// VAPP-162 §6 QrCode: the `size` px plate, then (with a label) the
+    /// root gap and the label wrapped no narrower than the plate.
+    fn qr_code(&mut self, leaf: &LeafRequest, inner: Option<f32>) -> (f32, f32) {
+        let size = crate::paint::qr::qr_size(leaf.props);
+        let label = str_prop(leaf.props, "label");
+        if label.is_empty() {
+            return (size, size);
+        }
+        let ts = self.part_text("QrCode", "label", leaf.props, leaf.text_style);
+        let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { exponential_ui::qr_code::QR_CODE.label_gap as f32 };
+        let (lw, lh, _) = self.para(label, &ts, Some(inner.map_or(size, |w| w.max(size))), None);
+        (size.max(lw), size + gap + lh)
+    }
+
+    /// VAPP-162 §7 QrScanner: the square viewfinder as wide as the box up
+    /// to maxWidth (max-content and min-content = maxWidth), then (with a
+    /// hint) the root gap and the hint.
+    fn qr_scanner(&mut self, leaf: &LeafRequest, inner: Option<f32>) -> (f32, f32) {
+        let edge = match inner {
+            Some(w) if w > 0.0 => crate::paint::qr::viewfinder_edge(w),
+            _ => crate::paint::qr::QR_SCANNER.max_width,
+        };
+        let hint = str_prop(leaf.props, "hint");
+        if hint.is_empty() {
+            return (edge, edge);
+        }
+        let ts = self.part_text("QrScanner", "hint", leaf.props, leaf.text_style);
+        let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { crate::paint::qr::QR_SCANNER.hint_gap };
+        let (_, hh, _) = self.para(hint, &ts, Some(inner.filter(|w| *w > 0.0).unwrap_or(edge).max(edge)), None);
+        (edge, edge + gap + hh)
     }
 
     /// A picker trigger (Select / DatePicker / DateRangePicker / TimePicker):
@@ -965,6 +1033,8 @@ impl<'a> GpuiMeasure<'a> {
                 plain((depth * exponential_ui::layout::TREE_GUIDE_COLUMN as f32, 0.0))
             }
             ("Segmented", _) => plain(self.segmented(leaf)),
+            ("QrCode", _) => plain(self.qr_code(leaf, inner)),
+            ("QrScanner", _) => plain(self.qr_scanner(leaf, inner)),
             ("Unknown", _) => {
                 let label = self.part("Unknown", "label", props, &[]);
                 let lts = TextStyle {

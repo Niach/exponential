@@ -173,6 +173,20 @@ pub trait HostPlugin: 'static {
     /// The host then reports its offset back through the visible region.
     fn scroll_surface(&self, _x: f32, _y: f32, _cx: &mut gpui::App) {}
 
+    /// VAPP-162 (round-5 contract §7): THE CAMERA of a QrScanner is the
+    /// host's. Asked on every paint of an enabled scanner `component_id`
+    /// with the code `formats` it wants (default `["qr"]`): return the live
+    /// feed element (painted filling the viewfinder, under the corner
+    /// brackets and the sweeping scan line), or `None` = no camera (the
+    /// placeholder: `ui-scan` + `cameraUnavailable`). The host decodes codes
+    /// itself and hands each decoded string to
+    /// [`crate::view::SurfaceView::qr_scanned`], which fires `scanned
+    /// {value}` once per distinct value. Default: no camera (the desktop has
+    /// no camera host yet).
+    fn qr_scanner_feed(&self, _component_id: &str, _formats: &[String], _window: &mut gpui::Window, _cx: &mut gpui::App) -> Option<gpui::AnyElement> {
+        None
+    }
+
     /// Open a file picker for a FileUpload. Return `true` when the host
     /// handles it (and later calls `SurfaceView::files_picked`); `false` =
     /// the painter opens the platform picker itself.

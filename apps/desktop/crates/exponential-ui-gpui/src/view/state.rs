@@ -331,6 +331,17 @@ pub fn a11y_label(n: &PlacedNode, strings: &StringTable) -> Option<SharedString>
             let activity = exponential_ui::voice_wave::Activity::parse(str_of(n, "activity").unwrap_or(""));
             return str_of(n, "label").map(|l| format!("{l}, {}", activity.as_str()).into());
         }
+        // VAPP-162: a QrCode is an img named by its label (decorative
+        // without one); a QrScanner's viewfinder by its label, default
+        // `$string.scanQrCode`.
+        "QrCode" => str_of(n, "label"),
+        "QrScanner" => {
+            let l = str_of(n, "label").unwrap_or("$string.scanQrCode");
+            return match l.strip_prefix("$string.") {
+                Some(key) => strings.get(key).cloned().or_else(|| exponential_ui::strings::default_string(key).map(str::to_string)).map(Into::into),
+                None => Some(l.to_string().into()),
+            };
+        }
         _ => str_of(n, "text").or_else(|| str_of(n, "label")).or_else(|| str_of(n, "title")).or_else(|| str_of(n, "placeholder")).or_else(|| str_of(n, "alt")),
     };
     s.map(|s| s.to_string().into())
@@ -431,6 +442,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         // NEW-77: an img named by its label; decorative without one.
         ("VoiceWave", None) if str_of(n, "label").is_some() => Role::Image,
         ("VoiceWave", None) => return None,
+        ("QrCode", None) if str_of(n, "label").is_some() => Role::Image,
+        ("QrCode", None) => return None,
+        ("QrScanner", None) => Role::Image,
         ("Unknown", _) => Role::Note,
         ("Box", Some("indicator")) => Role::TabList,
         ("Form", _) => Role::Form,
