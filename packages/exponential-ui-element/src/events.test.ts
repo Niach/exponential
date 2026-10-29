@@ -280,3 +280,51 @@ describe(`events`, () => {
     expect(event!.target).toBe(el)
   })
 })
+
+// VAPP-162 (round-5 contract §7): the QrScanner's camera is the page's
+// `plugin.qrScanner`; it reaches the Solid painter through the merged
+// plugin, a decoded value fires `scanned` as the plugin callback AND
+// `xui-action`, once per distinct value.
+describe(`plugin.qrScanner`, () => {
+  const scanner: NestedNode = { id: `scan`, component: `QrScanner`, props: { hint: `Point at the code` }, on: { scanned: { event: { name: `paired` } } } } as NestedNode
+
+  it(`without one: the placeholder, Camera unavailable`, async () => {
+    const el = mount(fixture(scanner))
+    await tick()
+    expect(el.querySelector(`.xui-QrScanner-placeholder`)?.textContent).toBe(`Camera unavailable`)
+    expect(el.querySelector(`.xui-QrScanner-scanLine`)).toBeNull()
+  })
+
+  it(`with one: the feed is the host's, a value fires scanned (plugin + xui-action) once until it changes; detach stops it`, async () => {
+    let push: (v: string) => void = () => {}
+    const stop = vi.fn()
+    const onAction = vi.fn()
+    const start = vi.fn((feed: HTMLElement, _formats: readonly string[], onValue: (v: string) => void) => {
+      feed.appendChild(document.createElement(`video`))
+      push = onValue
+      return stop
+    })
+    const seen: SurfaceActionDetail[] = []
+    const el = mount((e) => {
+      fixture(scanner)(e)
+      e.plugin = { qrScanner: { start }, onAction }
+    })
+    el.addEventListener(`xui-action`, (e) => void seen.push(e.detail))
+    await tick()
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(start.mock.calls[0]![0]).toBe(el.querySelector(`.xui-QrScanner-feed`))
+    expect(el.querySelector(`.xui-QrScanner-feed video`)).not.toBeNull()
+    expect(el.querySelector(`.xui-QrScanner-scanLine`)).not.toBeNull()
+    push(`exp://pair/1`)
+    push(`exp://pair/1`)
+    push(`exp://pair/2`)
+    await tick()
+    expect(seen.map((d) => [d.event, d.name, d.payload?.value])).toEqual([
+      [`scanned`, `paired`, `exp://pair/1`],
+      [`scanned`, `paired`, `exp://pair/2`],
+    ])
+    expect(onAction).toHaveBeenCalledTimes(2)
+    el.remove()
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+})
