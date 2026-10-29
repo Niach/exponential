@@ -5,7 +5,7 @@
 // Requires the widget artifacts in apps/web/public/widget/v1 (run
 // `bun run build:widget` from the repo root before the e2e suite).
 import type { Page } from "@playwright/test"
-import { registerUser } from "./helpers/auth"
+import { createTeamThroughOnboarding, registerUser } from "./helpers/auth"
 import { expect, test, type AppFixture } from "./fixtures"
 
 const tinyPngBase64 = `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==`
@@ -13,17 +13,6 @@ const tinyPngBase64 = `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42
 function getTeamSlug(currentUrl: string) {
   const [, , teamSlug] = new URL(currentUrl).pathname.split(`/`)
   return teamSlug
-}
-
-async function createBoard(page: Page, app: AppFixture) {
-  await page.getByLabel(`Create board`).click()
-  const dialog = page.getByRole(`dialog`).filter({
-    has: page.getByRole(`heading`, { name: `Create board` }),
-  })
-  await expect(dialog).toBeVisible()
-  await dialog.getByLabel(`Name`).fill(app.boardName)
-  await dialog.getByRole(`button`, { name: `Create board` }).click()
-  await expect(dialog).toBeHidden()
 }
 
 async function createWidget(
@@ -41,7 +30,7 @@ async function createWidget(
 
   await page.getByRole(`button`, { name: `New widget` }).click()
   const dialog = page.getByRole(`dialog`).filter({
-    has: page.getByRole(`heading`, { name: `New feedback widget` }),
+    has: page.getByRole(`heading`, { name: `New widget` }),
   })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel(`Name`).fill(`Widget ${app.namespace}`)
@@ -66,7 +55,7 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createBoard(page, app)
+  await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
   const teamSlug = getTeamSlug(page.url())
 
   const key = await createWidget(page, app, teamSlug, `example.com`)
@@ -181,7 +170,7 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createBoard(page, app)
+  await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
   const teamSlug = getTeamSlug(page.url())
 
   // localhost must be allowed for the demo page's origin.
