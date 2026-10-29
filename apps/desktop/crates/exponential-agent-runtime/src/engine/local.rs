@@ -2,12 +2,12 @@
 //! code`'s line printer).
 //!
 //! Everything here is host-local by construction. The wire half of a session
-//! is [`steer::ActivityEvent`] and nothing else: per-edit diffs, command
+//! is [`crate::wire::ActivityEvent`] and nothing else: per-edit diffs, command
 //! output, the pinned plan and thoughts are strictly richer than the relay
 //! contract and would leak raw patch bodies and command strings to every
 //! viewer if they rode it (§4.2). The one crossover is
 //! [`LocalFeedEvent::Activity`], which carries the SAME event the relay got so
-//! `steer::feed::SteerFeed::apply` works unchanged on the local path.
+//! Exponential's `steer::feed::SteerFeed::apply` works unchanged on the local path.
 //!
 //! Types land in P0; the producers are lane E1 (mapper + lifecycle).
 
@@ -21,7 +21,7 @@ pub enum LocalFeedEvent {
     /// local extras — a diff card, an output card — off the feed row the
     /// event appends. `config_state` and `usage` ride here too (D4).
     Activity {
-        event: steer::ActivityEvent,
+        event: crate::wire::ActivityEvent,
         tool_call_id: Option<String>,
     },
     /// A tool call surfaced or changed status — the collapsible card header.
@@ -147,7 +147,7 @@ pub enum PlanEntryStatusView {
 /// Subagents have no ACP shape of their own: an adapter that learns one
 /// (claude's `system/task_started`, codex's `subAgentActivity`) puts the edge
 /// into the `_meta` of ANY `session/update` notification it is already
-/// sending, and [`crate::mapper::Mapper::on_update`] turns it into the relay
+/// sending, and the mapper's `on_update` turns it into the relay
 /// `subagent` event. A tool call belonging to a subagent carries
 /// `_meta.subagentId` instead, which becomes `Tool { subagentId }`.
 pub const SUBAGENT_META_KEY: &str = "exponentialSubagent";
@@ -165,7 +165,7 @@ pub const SUBAGENT_ID_META_KEY: &str = "subagentId";
 pub const INJECTED_PROMPT_META_KEY: &str = "exponentialInjectedPrompt";
 
 /// EXP-850 §1: the `_meta` key an adapter stamps on a `ToolCall` (or the
-/// notification carrying it) to name a wire [`steer::ToolKind`] ACP itself
+/// notification carrying it) to name a wire [`crate::wire::ToolKind`] ACP itself
 /// cannot express — today only `"wait"`. The mapper prefers it over the ACP
 /// kind for BOTH the wire row and the local card.
 pub const TOOL_KIND_META_KEY: &str = "exponentialToolKind";
@@ -210,7 +210,7 @@ pub const TURN_META_KEY: &str = "exponentialTurn";
 
 /// The `_meta` key on a `CompactionUpdate` (or the notification carrying it)
 /// naming what triggered the compaction — ACP has no field for it. Folded by
-/// `steer::normalize_compaction_trigger` (`manual` stays, everything else is
+/// `crate::wire::normalize_compaction_trigger` (`manual` stays, everything else is
 /// `auto`).
 pub const COMPACTION_TRIGGER_META_KEY: &str = "trigger";
 
@@ -236,7 +236,7 @@ pub struct SubagentEdge {
     pub workflow_id: Option<String>,
 }
 
-/// A local mirror of `steer::SubagentStatus`, so an adapter never has to
+/// A local mirror of `crate::wire::frames::SubagentStatus`, so an adapter never has to
 /// name a relay type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubagentEdgeStatus {

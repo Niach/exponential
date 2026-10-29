@@ -33,11 +33,16 @@ pub mod codex_trust;
 pub mod command_head;
 // The cwd-confinement check the adapters answer file/terminal requests with.
 pub mod confine;
+// EXP-1426 part 4: the ACP engine core (transport, child exit, event sink,
+// local feed, run policies), moved out of `engine`.
+pub mod engine;
 pub mod lockfile;
 // EXP-419: the one `Command` constructor for background spawns.
 pub mod process;
 /// NEW-17: each agent run in its own systemd scope on Linux.
 pub mod run_scope;
+// EXP-1426 part 4: `SpawnSpec`, `ChildExit` and the login PATH (`terminal::pty`).
+pub mod spawn;
 // EXP-1426 part 2: the event vocabulary (`ActivityEvent`, the frames, the
 // redactor, the relay caps), moved out of `steer`.
 pub mod wire;

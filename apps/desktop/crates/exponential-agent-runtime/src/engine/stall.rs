@@ -23,7 +23,7 @@
 //!    those away, which is the opposite of rescuing the run.
 //! 2. A stalled turn that stays silent for another [`STALL_KILL_GRACE`] after
 //!    the interrupt is dead → the run ends with a
-//!    [`crate::local::EnginePhase::Failed`] banner that says why, so the
+//!    [`super::local::EnginePhase::Failed`] banner that says why, so the
 //!    session tab / CLI show the reason instead of an empty "ended", and the
 //!    user wakes it with a message (EXP-1292) rather than hunting a zombie.
 //!

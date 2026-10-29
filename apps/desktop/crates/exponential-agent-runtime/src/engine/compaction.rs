@@ -29,8 +29,8 @@
 
 use std::time::{Duration, Instant};
 
-use steer::frames::CompactionPhase;
-use steer::{ActivityEvent, CompactRefusal, CompactVerdict, TurnState};
+use crate::wire::frames::{CompactRefusal, CompactVerdict, CompactionPhase};
+use crate::wire::{ActivityEvent, TurnState};
 
 /// Below this share of the context window an ask is `too_early`.
 pub const COMPACT_MIN_CONTEXT_FRACTION: f64 = 0.5;

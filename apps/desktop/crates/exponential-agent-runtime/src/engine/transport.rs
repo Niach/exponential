@@ -15,10 +15,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use terminal::process::background_command;
-use terminal::pty::{login_path, ChildExit, SpawnSpec};
+use crate::process::background_command;
+use crate::spawn::{login_path, ChildExit, SpawnSpec};
 
-use crate::host::ChildExitLink;
+use super::child_exit::ChildExitLink;
 
 /// What to do with the child's stderr. Agent CLIs log diagnostics there and
 /// a wedged one can produce a lot of it, so nothing is ever buffered for
@@ -51,7 +51,7 @@ const DROP_LOG_EVERY: u64 = 1000;
 /// session-end hooks and codex tools died mid-write. Now the child first sees
 /// its stdin close (EOF is what every agent CLI shuts down on) and then a
 /// SIGTERM, and only a child that ignores both is killed. Deliberately
-/// shorter than [`crate::host::CHILD_EXIT_GRACE`]-scale patience: this one
+/// shorter than [`super::child_exit::CHILD_EXIT_GRACE`]-scale patience: this one
 /// blocks the thread that is tearing the run down.
 pub const CHILD_TERM_GRACE: Duration = Duration::from_millis(1500);
 
@@ -360,7 +360,7 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
         // its config on stderr would write them straight into the daemon's
         // journal. Same masking the wire gets (`steer::Redactor`), off this
         // spawn's OWN env.
-        let redactor = steer::Redactor::new(secret_env_values(&spec.env));
+        let redactor = crate::wire::Redactor::new(secret_env_values(&spec.env));
         std::thread::Builder::new()
             .name(format!("acp-stderr-{pid}"))
             .spawn(move || {
@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(secrets.len(), 4, "PATH is not a secret: {secrets:?}");
         assert!(!secrets.iter().any(|value| value == "/usr/bin"));
 
-        let redactor = steer::Redactor::new(secrets);
+        let redactor = crate::wire::Redactor::new(secrets);
         let masked = redactor.redact("config: token=expu_supersecretvalue path=/usr/bin");
         assert!(!masked.contains("expu_supersecretvalue"), "{masked}");
         assert!(masked.contains("/usr/bin"), "{masked}");

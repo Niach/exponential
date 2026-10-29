@@ -39,7 +39,9 @@ pub mod aside;
 pub use exponential_agent_runtime::command_head;
 // EXP-936: the run's own compaction ask — the verdict policy and the two
 // steps the command loop takes for an accepted one. Pure; `host` drives it.
-pub mod compaction;
+// EXP-1426 part 4: moved to the agent runtime with the rest of the
+// server-free core below (transport, sink, local feed, stall, api_retry).
+pub use exponential_agent_runtime::engine::compaction;
 // EXP-1051: the `context_layout` frame's arithmetic — bytes → tokens, the
 // launcher's layers as estimated segments, and `base` by subtraction from the
 // prefix the agent measured. Pure; the adapters stamp it, the mapper emits it.
@@ -49,25 +51,25 @@ pub mod context_layout;
 pub mod exp_tool_refs;
 pub mod host;
 pub mod lifecycle;
-pub mod local;
+pub use exponential_agent_runtime::engine::local;
 pub mod mapper;
 pub mod outbox;
 /// NEW-17: each agent run in its own systemd scope on Linux.
 pub use exponential_agent_runtime::run_scope;
 pub mod session;
-pub mod sink;
+pub use exponential_agent_runtime::engine::sink;
 // FEED-61: a turn that died on a transient API error is re-prompted by the
 // engine after a backoff. Pure; the lifecycle ticker drives it.
-pub mod api_retry;
+pub use exponential_agent_runtime::engine::api_retry;
 // FEED-25: the stall watchdog — a live turn silent for `STALL_AFTER` is
 // interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
 // run with a reason. Pure; the lifecycle ticker drives it.
-pub mod stall;
+pub use exponential_agent_runtime::engine::stall;
 pub mod stop_save;
 // EXP-750: the ACP `terminal/*` capability. Session-owned, host-local: the
 // registry lives on `SessionCtx` and nothing it produces leaves the machine.
 mod terminals;
-pub mod transport;
+pub use exponential_agent_runtime::engine::transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};
 pub use context_layout::{
