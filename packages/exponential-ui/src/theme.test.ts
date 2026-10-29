@@ -123,6 +123,45 @@ describe(`resolution`, () => {
     expect(resolveNodeStyle(neutral, root, `light`).color).toBe(`#ff0000`)
   })
 
+  describe(`VAPP-163: an author's style on a macro node wins over its part recipes`, () => {
+    const playful = builtinTheme(`playful`)
+    const expand = (node: NestedNode) => reduceNested(node, { catalogId: CORE_CATALOG_ID }).root
+    const heading = expand({ id: `h`, component: `Heading`, props: { text: `Hi`, level: `h1` }, style: { fontSize: 40, color: `$color.primaryForeground` } })
+
+    test(`the expander lists the author's keys, sorted, on the root's recipe`, () => {
+      expect(heading.recipe?.authored).toEqual([`color`, `fontSize`])
+      expect(expand({ id: `h`, component: `Heading`, props: { text: `Hi` } }).recipe?.authored).toBeUndefined()
+    })
+
+    test(`Heading: the author's colour and size beat Heading/root under playful and neutral`, () => {
+      for (const theme of [playful, neutral]) {
+        const style = resolveNodeStyle(theme, heading, `light`)
+        expect(style.fontSize).toBe(40)
+        expect(style.color).toBe(theme.modes.light.color.primaryForeground)
+        // An unauthored key keeps the part recipe's value.
+        expect(style.fontWeight).toBe(resolveRecipe(theme, { component: `Heading`, part: `root`, props: { level: `h1` } }, `light`).fontWeight)
+      }
+    })
+
+    test(`Badge: the author's backgroundColor beats Badge/root; the template's structure still loses to the recipe`, () => {
+      const badge = expand({ id: `b`, component: `Badge`, props: { text: `New` }, style: { backgroundColor: `#123456` } })
+      expect(badge.recipe?.authored).toEqual([`backgroundColor`])
+      expect(resolveNodeStyle(neutral, badge, `light`).backgroundColor).toBe(`#123456`)
+      const style = resolveNodeStyle(playful, badge, `light`)
+      expect(style.backgroundColor).toBe(`#123456`)
+      const recipe = resolveRecipe(playful, { component: `Badge`, part: `root`, props: { variant: `default` } }, `light`)
+      expect(badge.style?.borderRadius).not.toBeUndefined()
+      expect(style.borderRadius).toBe(recipe.borderRadius)
+    })
+
+    test(`an authored condition block wins too (its media key resolved)`, () => {
+      const node = expand({ id: `h`, component: `Heading`, props: { text: `Hi` }, style: { "@media (min-width: $breakpoint.md)": { color: `#00ff00` } } })
+      expect(node.recipe?.authored).toEqual([`@media (min-width: $breakpoint.md)`])
+      const style = resolveNodeStyle(playful, node, `light`) as Record<string, unknown>
+      expect(style[`@media (min-width: ${playful.tokens.breakpoint.md}px)`]).toEqual({ color: `#00ff00` })
+    })
+  })
+
   test(`every kitchen-sink node resolves under every built-in without a leftover token`, () => {
     const root = reduceNested(kitchenSink as unknown as NestedNode, { catalogId: CORE_CATALOG_ID }).root
     const walk = (n: UiNode, f: (n: UiNode) => void) => { f(n); n.children.forEach((c) => walk(c, f)); Object.values(n.slots ?? {}).forEach((s) => walk(s, f)) }

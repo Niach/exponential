@@ -48,6 +48,14 @@ impl Surface {
             for (k, v) in resolve_recipe(theme, &q, self.mode) {
                 out.insert(k, v);
             }
+            // VAPP-163: the style written ON the macro node wins over the
+            // macro's part recipe.
+            if !n.authored_keys.is_empty() {
+                let picked: Map<String, Value> = n.authored_keys.iter().filter_map(|k| n.base_style.get(k).map(|v| (k.clone(), v.clone()))).collect();
+                for (k, v) in resolve_style_values(theme, &picked, self.mode) {
+                    out.insert(k, v);
+                }
+            }
         }
         fade_to_gradient(n, &mut out);
         out
@@ -411,6 +419,7 @@ fn themed_key(n: &LNode, states: &[String]) -> u64 {
     let mut h = rustc_hash::FxHasher::default();
     hash_props(&n.base_style, &mut h);
     n.default_keys.hash(&mut h);
+    n.authored_keys.hash(&mut h);
     for q in [&n.own_query, &n.part_query] {
         match q {
             Some(q) => {
@@ -435,7 +444,7 @@ fn same_style_inputs(a: &LNode, b: &LNode) -> bool {
         (Some(x), Some(y)) => x.component == y.component && x.part == y.part && x.states == y.states && same_props(&x.props, &y.props),
         _ => false,
     };
-    a.part == b.part && a.owner_component == b.owner_component && a.default_keys == b.default_keys && same_props(&a.base_style, &b.base_style) && same_query(&a.own_query, &b.own_query) && same_query(&a.part_query, &b.part_query)
+    a.part == b.part && a.owner_component == b.owner_component && a.default_keys == b.default_keys && a.authored_keys == b.authored_keys && same_props(&a.base_style, &b.base_style) && same_query(&a.own_query, &b.own_query) && same_query(&a.part_query, &b.part_query)
 }
 
 /// Source order counts (serde_json's map equality ignores it).

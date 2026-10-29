@@ -372,6 +372,34 @@ fn a_theme_switch_re_resolves_visuals_and_relayouts_only_where_metrics_changed()
 }
 
 #[test]
+fn vapp163_an_authors_style_on_a_macro_node_wins_over_its_part_recipe_in_the_painted_visual() {
+    let tree: NestedNode = serde_json::from_value(json!({
+        "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
+        "children": [
+            {"id": "h", "component": "Heading", "props": {"text": "On a band", "level": "h1"}, "style": {"color": "$color.primaryForeground", "fontSize": 40}},
+            {"id": "plain", "component": "Heading", "props": {"text": "Plain", "level": "h1"}},
+            {"id": "b", "component": "Badge", "props": {"text": "New"}, "style": {"backgroundColor": "#123456"}}
+        ]
+    })).unwrap();
+    let mut surface = Surface::new("authored", SurfaceOptions::default());
+    surface.set_nested(tree);
+    surface.set_viewport(400.0, 0.0, None);
+    let mut measure = FixedMeasure::default();
+    let playful = exponential_ui::themes::builtin_theme("playful").unwrap();
+    surface.set_theme(Some(playful.clone()));
+    surface.layout(&mut measure);
+    let h = surface.index_of("h").unwrap();
+    let fg = playful.modes.light.color["primaryForeground"].clone();
+    assert_eq!(surface.visual(h).unwrap().color.as_deref(), Some(fg.as_str()));
+    assert_eq!(surface.text_style(h).unwrap().font_size, 40.0);
+    // Without an author style the part recipe paints (playful: primary).
+    let plain = surface.index_of("plain").unwrap();
+    assert_eq!(surface.visual(plain).unwrap().color.as_deref(), Some(playful.modes.light.color["primary"].as_str()));
+    let b = surface.index_of("b").unwrap();
+    assert_eq!(surface.visual(b).unwrap().background_color.as_deref(), Some("#123456"));
+}
+
+#[test]
 fn a2ui_messages_drive_the_surface_including_templates_and_basic_components() {
     let mut surface = Surface::new("s1", SurfaceOptions { catalog_id: exponential_ui::catalog::A2UI_BASIC_CATALOG_ID.into(), ..SurfaceOptions::default() });
     surface.apply(&json!({"version": "v0.9", "createSurface": {"surfaceId": "s1", "catalogId": exponential_ui::catalog::A2UI_BASIC_CATALOG_ID}})).unwrap();

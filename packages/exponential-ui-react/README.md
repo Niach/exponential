@@ -79,9 +79,10 @@ never touched):
    `variant`); `state` becomes the pseudo-class or Radix attribute AND the
    forced marker `[data-xs~="<state>"]` the builder's recipe sheet sets.
    Values stay `var(--xui-…)`, so a mode switch is one attribute flip.
-3. **Layers**: `@layer xui-base, xui-recipe, xui-node, xui-part` IS the painter
-   precedence of `resolveNodeStyle`: a native's own recipe < the node's `style`
-   < the macro part's recipe.
+3. **Layers**: `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author` IS
+   the painter precedence of `resolveNodeStyle`: a native's own recipe < the
+   node's `style` < the macro part's recipe < the style keys authored on the
+   macro node (`recipe.authored`).
 
 The node sheet (`compileNodeSheet`) is per surface: `.xui-s-<id> .xui-n-<nodeId>`
 rules from each node's whitelisted style (tokens as variables), then each

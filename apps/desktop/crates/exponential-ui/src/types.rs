@@ -31,6 +31,10 @@ pub struct Recipe {
     pub macro_: String,
     pub part: String,
     pub props: Props,
+    /// VAPP-163 (expansion roots only): the top-level style keys written ON
+    /// the macro node, sorted; they win over the part recipe.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authored: Vec<String>,
 }
 
 /// A node of the NORMALIZED tree every painter reads: core vocabulary, props

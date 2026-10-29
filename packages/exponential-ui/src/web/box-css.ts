@@ -12,7 +12,9 @@
 // A style value the macro expander left DYNAMIC (a binding or a call, e.g.
 // Progress `width: percent{…}`) becomes `var(--xd-<n>)`; `NodeView` sets
 // the resolved value on the element, so the layer order (native recipe <
-// node style < macro part) still holds. Template subtrees are included
+// node style < macro part < authored) still holds. VAPP-163: the keys a
+// macro node's author wrote (`recipe.authored`) are emitted AGAIN, the same
+// way, in the `xui-author` layer, which sits after `xui-part`. Template subtrees are included
 // (their items render under the template node's own class), so a templated
 // row wears its author and macro styles (audit bug B).
 
@@ -72,7 +74,9 @@ export interface NodeSheet {
    *  in `data-xq` when they hold (height, orientation). */
   queries: string[]
   /** VAPP-152: each styled node's rules by id, in walk order (`css` is
-   *  their concatenation inside the `xui-node` layer). */
+   *  their concatenation inside the `xui-node` layer). VAPP-163: a node
+   *  with authored keys appends `AUTHOR_SEP` + its `xui-author` rules;
+   *  `layeredCss` splits them into the two layers. */
   chunks: ReadonlyMap<string, string>
 }
 
@@ -115,6 +119,26 @@ function breakpointPx(value: string, theme: ResolvedTheme | undefined): number |
   return Number.isFinite(n) ? n : null
 }
 
+/** VAPP-163: separates a chunk's `xui-node` rules from its `xui-author`
+ *  rules (NUL never survives in CSS, so it never occurs in a rule). */
+export const AUTHOR_SEP = `\u0000`
+
+/** Chunks (`NodeSheet.chunks`) as one stylesheet: every node's rules in the
+ *  `xui-node` layer, then the authored ones in `xui-author`. */
+export function layeredCss(chunks: Iterable<string>): string {
+  const node: string[] = []
+  const author: string[] = []
+  for (const chunk of chunks) {
+    const at = chunk.indexOf(AUTHOR_SEP)
+    if (at < 0) node.push(chunk)
+    else {
+      node.push(chunk.slice(0, at))
+      author.push(chunk.slice(at + 1))
+    }
+  }
+  return `@layer xui-node{${node.join(``)}}${author.length ? `@layer xui-author{${author.join(``)}}` : ``}`
+}
+
 interface NodeChunk {
   css: string
   queries: readonly string[]
@@ -127,20 +151,48 @@ const chunkCache = new WeakMap<UiNode, { scope: string; theme: ResolvedTheme | u
 function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, theme: ResolvedTheme | undefined, fonts: Record<string, FontSpec>): NodeChunk {
   const hit = chunkCache.get(node)
   if (hit && hit.scope === scope && hit.theme === theme && hit.fonts === fonts) return hit.chunk
-  const rules: string[] = []
   const queries = new Set<string>()
+  // The variables are numbered over the WHOLE style, so the authored rules
+  // read the same `--xd-<n>` the element carries.
   const dyn = dynamicStyleEntries(style)
   const withVars = (block: string, s: Record<string, unknown>) => {
-    const mine = dyn.filter((d) => d.block === block)
+    const mine = dyn.filter((d) => d.block === block && d.key in s)
     if (mine.length === 0) return s
     const copy = { ...s }
     for (const d of mine) copy[d.key] = `var(${d.name})`
     return copy
   }
   const cls = nodeClass(node.id)
-  const sel = `${scope} .${cls}`
   const own = withVars(``, style)
-  const base = declarations(own, fonts)
+  let css = styleRules(style, own, withVars, scope, cls, theme, fonts, queries)
+  const authored = node.recipe?.authored
+  if (authored?.length) {
+    const picked: Record<string, unknown> = {}
+    for (const key of authored) if (key in style) picked[key] = style[key]
+    const author = styleRules(picked, own, withVars, scope, cls, theme, fonts, queries)
+    if (author) css += AUTHOR_SEP + author
+  }
+  const chunk = { css, queries: [...queries] }
+  chunkCache.set(node, { scope, theme, fonts, chunk })
+  return chunk
+}
+
+/** The rules of one style object (a node's whole style, or its authored
+ *  keys): base declarations, `@media` blocks, state blocks. `own` = the
+ *  node's whole base style (the context `declarations` reads). */
+function styleRules(
+  style: Record<string, unknown>,
+  own: Record<string, unknown>,
+  withVars: (block: string, s: Record<string, unknown>) => Record<string, unknown>,
+  scope: string,
+  cls: string,
+  theme: ResolvedTheme | undefined,
+  fonts: Record<string, FontSpec>,
+  queries: Set<string>
+): string {
+  const sel = `${scope} .${cls}`
+  const rules: string[] = []
+  const base = declarations(withVars(``, style), fonts, own)
   if (base.length) rules.push(rule(sel, base) + shimmerRule(sel, style))
   for (const [key, value] of Object.entries(style)) {
     if (!key.startsWith(`@`) || typeof value !== `object` || value === null) continue
@@ -196,9 +248,7 @@ function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, 
     const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
     if (block.length) rules.push(rule(selector, block) + shimmerRule(selector, value as Record<string, unknown>))
   }
-  const chunk = { css: rules.join(``), queries: [...queries] }
-  chunkCache.set(node, { scope, theme, fonts, chunk })
-  return chunk
+  return rules.join(``)
 }
 
 /** The node sheet for one tree (plus the template subtrees it renders). */
@@ -217,7 +267,7 @@ export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, th
       for (const q of chunk.queries) queries.add(q)
     }
   }
-  return { css: `@layer xui-node{${[...chunks.values()].join(``)}}`, queries: [...queries], chunks }
+  return { css: layeredCss(chunks.values()), queries: [...queries], chunks }
 }
 
 /** VAPP-152: one `<style>` of the node sheet: the rules of some nodes. */
@@ -226,7 +276,7 @@ export interface NodeSheetBatch {
   readonly css: string
 }
 
-const sheetBatch = (chunks: ReadonlyMap<string, string>): NodeSheetBatch => ({ chunks, css: `@layer xui-node{${[...chunks.values()].join(``)}}` })
+const sheetBatch = (chunks: ReadonlyMap<string, string>): NodeSheetBatch => ({ chunks, css: layeredCss(chunks.values()) })
 
 /** VAPP-152: the node sheet as `<style>` batches, the last ones kept. A
  *  rewritten stylesheet makes Chromium re-match every node its rules

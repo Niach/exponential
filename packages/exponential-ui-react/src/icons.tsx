@@ -40,8 +40,10 @@ import {
   TriangleAlert,
   Upload,
   X,
+  createLucideIcon,
 } from "lucide-react"
-import { lookupIcon } from "@exponential_app/ui/web"
+import type { IconNode } from "lucide-react"
+import { CUSTOM_ICON_NODES, lookupIcon } from "@exponential_app/ui/web"
 import type { IconComponent, IconMap } from "./host"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs (the
@@ -95,6 +97,9 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
   search: Search,
   upload: Upload,
   star: Star,
+  // VAPP-163: the icons.json names a Lucide registry has no glyph for (the
+  // OS marks, the progress pies), so an `Icon` paints them without a host map.
+  ...Object.fromEntries(Object.entries(CUSTOM_ICON_NODES).map(([name, node]) => [name, createLucideIcon(name, node as IconNode)])),
 }
 
 export function resolveIcon(icons: IconMap | undefined, name: string): IconComponent | undefined {

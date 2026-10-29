@@ -777,6 +777,29 @@ export function brandIcon(name: BrandIconName): BrandIcon {
 )
 
 // ---------------------------------------------------------------------------
+// 2b. Exponential UI web renderers — packages/exponential-ui/src/web/custom-icons.generated.ts
+// ---------------------------------------------------------------------------
+
+// VAPP-163: a host's icon registry is usually Lucide (lucide-react, an icon
+// sprite), which has no glyph for the non-Lucide names an `Icon` may carry
+// (the OS marks, the progress pies). The web renderers fall back to these
+// nodes (React: `createLucideIcon`, Solid: lucide-solid's `Icon`), so they
+// paint without a host mapping, as the native painters do.
+write(
+  join(repoRoot, "packages/exponential-ui/src/web/custom-icons.generated.ts"),
+  `${HEADER_COMMENT}
+
+/** One Lucide icon node: an element name and its attributes. */
+export type CustomIconNode = [string, Record<string, string>][]
+
+/** icons.json \`custom\` + \`imported\` names -> their Lucide icon nodes. */
+export const CUSTOM_ICON_NODES: Record<string, CustomIconNode> = {
+${customNames.map((n) => `  "${n}": ${JSON.stringify(customIcons[n])},`).join("\n")}
+}
+`
+)
+
+// ---------------------------------------------------------------------------
 // 3. Desktop — assets/icons/<name>.svg + crates/ui/src/icons.generated.rs
 // ---------------------------------------------------------------------------
 

@@ -660,7 +660,7 @@ fn bind_node(node: &UiNode, ctx: &ResolveContext, view: &CatalogView) -> Option<
         }
     }
     out.template = node.template.clone();
-    out.recipe = node.recipe.as_ref().map(|r| crate::types::Recipe { macro_: r.macro_.clone(), part: r.part.clone(), props: resolve_map(&r.props) });
+    out.recipe = node.recipe.as_ref().map(|r| crate::types::Recipe { macro_: r.macro_.clone(), part: r.part.clone(), props: resolve_map(&r.props), authored: r.authored.clone() });
     Some(out)
 }
 

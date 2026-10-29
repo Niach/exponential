@@ -295,6 +295,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
         macro_: exp.macro_.to_string(),
         part: tpl.part.clone(),
         props: recipe_props(exp, ctx, tpl.recipe.as_ref()),
+        authored: Vec::new(),
     });
     if let Some(routes) = &tpl.on {
         let mut on = IndexMap::new();
@@ -422,6 +423,15 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
         }
     }
     root.style = merge_style(root.style.as_ref(), node.style.as_ref()).filter(|s| !s.is_empty());
+    // VAPP-163: the style written ON the macro node wins over the macro's
+    // part recipes: its top-level keys (condition blocks included), SORTED,
+    // ride on the root's recipe as `authored`. A nested macro sees the outer
+    // template's merged style as its author's.
+    if let (Some(style), Some(recipe)) = (&node.style, root.recipe.as_mut()) {
+        let mut authored: Vec<String> = style.keys().cloned().collect();
+        authored.sort();
+        recipe.authored = authored;
+    }
     if let Some(visible) = &node.visible {
         root.visible = Some(visible.clone());
     }

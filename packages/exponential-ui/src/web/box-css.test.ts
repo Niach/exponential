@@ -1,8 +1,8 @@
 // VAPP-152: the node sheet per node, the `<style>` batches a streamed
 // update appends to, and the structural sharing between reduced trees.
 import { describe, expect, it } from "bun:test"
-import type { UiNode } from "@exponential_app/ui"
-import { compileNodeSheet, nodeSheetBatches, type NodeSheetBatch } from "./box-css"
+import { CORE_CATALOG_ID, reduceNested, type UiNode } from "@exponential_app/ui"
+import { AUTHOR_SEP, compileNodeSheet, nodeSheetBatches, type NodeSheetBatch } from "./box-css"
 import { share } from "./share"
 
 const node = (id: string, style?: Record<string, unknown>, children: UiNode[] = []): UiNode => ({ id, component: `Box`, props: {}, children, ...(style ? { style } : {}) }) as UiNode
@@ -77,5 +77,34 @@ describe(`share`, () => {
     expect(next.children[3]).toBe(prev.children[3])
     expect(next.children[4]).toEqual(card(3))
     expect(share(prev, structuredClone(prev))).toBe(prev)
+  })
+})
+
+describe(`VAPP-163: authored keys of a macro node`, () => {
+  const heading = () =>
+    reduceNested({ id: `h`, component: `Heading`, props: { text: `Hi`, level: `h1` }, style: { color: `$color.primaryForeground`, fontSize: 40, ":hover": { color: `#ff0000` } } }, { catalogId: CORE_CATALOG_ID }).root
+  it(`emits them again in the xui-author layer, after xui-node`, () => {
+    const sheet = compileNodeSheet([heading()], `s`)
+    expect(sheet.chunks.get(`h`)).toContain(AUTHOR_SEP)
+    const at = sheet.css.indexOf(`@layer xui-author{`)
+    expect(at).toBeGreaterThan(sheet.css.indexOf(`@layer xui-node{`))
+    const author = sheet.css.slice(at)
+    expect(author).toContain(`.xui-s-s .xui-n-h{`)
+    expect(author).toContain(`font-size:40px`)
+    expect(author).toContain(`color:var(--xui-color-primaryForeground)`)
+    expect(author).toContain(`:hover`)
+    expect(sheet.css).not.toContain(AUTHOR_SEP)
+  })
+  it(`a dynamic authored value reads the same variable as the node layer`, () => {
+    const root = reduceNested({ id: `b`, component: `Badge`, props: { text: `x` }, style: { padding: 2, width: { path: `/w` } } }, { catalogId: CORE_CATALOG_ID }).root
+    const css = compileNodeSheet([root], `s`).css
+    const author = css.slice(css.indexOf(`@layer xui-author{`))
+    expect(author).toMatch(/width:var\(--xd-0\)/)
+    expect(css.slice(0, css.indexOf(`@layer xui-author{`))).toMatch(/width:var\(--xd-0\)/)
+  })
+  it(`batches keep the two layers apart`, () => {
+    const b = nodeSheetBatches([], compileNodeSheet([node(`root`, { padding: 1 }, [heading()])], `s`).chunks)
+    expect(b[0].css.startsWith(`@layer xui-node{.xui-s-s .xui-n-root{padding:1px}`)).toBe(true)
+    expect(b[0].css).toContain(`}@layer xui-author{`)
   })
 })

@@ -40,7 +40,7 @@ describe(`compileTheme`, () => {
     // Values are variables, borders get a style.
     expect(recipe).toContain(`border-width:var(--xui-border-hairline);border-color:var(--xui-color-input)`)
     expect(recipe).toContain(`border-style:solid`)
-    expect(neutral.css.startsWith(`@layer xui-base, xui-recipe, xui-node, xui-part;`)).toBe(true)
+    expect(neutral.css.startsWith(`@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;`)).toBe(true)
   })
   it(`the playful theme restyles the same classes`, () => {
     const playful = compileTheme(builtinTheme(`playful`))

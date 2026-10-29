@@ -81,6 +81,9 @@ pub struct LNode {
     pub own_query: Option<RecipeQuery>,
     /// The macro or native PART recipe (Badge/label, Tabs/tab).
     pub part_query: Option<RecipeQuery>,
+    /// VAPP-163: the `base_style` keys the author wrote ON the macro node
+    /// (`recipe.authored`): they win over the part recipe.
+    pub authored_keys: Vec<String>,
     pub hidden: bool,
     pub lines: Option<u32>,
     pub pressable: bool,
@@ -512,6 +515,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            authored_keys: Vec::new(),
             hidden,
             lines: None,
             pressable: false,
@@ -695,6 +699,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.own_query = Some(RecipeQuery::new(node.component.clone(), "root", self.ctx.recipes.native_recipe_props(&node.component, &props), Vec::new()));
         if let Some(r) = &node.recipe {
             n.part_query = Some(RecipeQuery::new(r.macro_.clone(), r.part.clone(), self.resolve_map(&r.props, scope), Vec::new()));
+            n.authored_keys = r.authored.clone();
         }
         if node.component == "Form" {
             n.form = Some(node.id.clone());

@@ -290,6 +290,12 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   const [root] = expandTemplate(def.root, exp, ctx, node.id)
   root.style = mergeStyle(root.style, node.style)
   if (root.style && Object.keys(root.style).length === 0) delete root.style
+  // VAPP-163: the style written ON the macro node wins over the macro's part
+  // recipes: its top-level keys (condition blocks included), SORTED, ride on
+  // the root's recipe as `authored`. A nested macro (a template root that is
+  // itself a macro) sees the outer template's merged style as its author's.
+  const authored = Object.keys(node.style ?? {}).sort()
+  if (authored.length > 0 && root.recipe) root.recipe = { ...root.recipe, authored }
   if (node.visible !== undefined) root.visible = node.visible
   // The author's label/description (or an outer macro part's $a11y) win
   // over the root part's own.

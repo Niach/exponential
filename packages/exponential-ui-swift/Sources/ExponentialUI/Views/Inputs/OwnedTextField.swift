@@ -341,8 +341,18 @@ extension OwnedTextField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         if multiline {
-            let scroll = NSTextView.scrollableTextView()
-            let tv = scroll.documentView as! NSTextView
+            // `NSTextView.scrollableTextView()`, with the placeholder-drawing
+            // text view (AppKit's NSTextView has no public placeholder; the
+            // iOS twin is `PlaceholderTextView`'s label).
+            let scroll = NSScrollView()
+            let tv = PlaceholderTextView(frame: .zero)
+            tv.minSize = .zero
+            tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            tv.isVerticallyResizable = true
+            tv.isHorizontallyResizable = false
+            tv.autoresizingMask = [.width]
+            tv.textContainer?.widthTracksTextView = true
+            scroll.documentView = tv
             tv.delegate = context.coordinator
             tv.drawsBackground = false
             tv.isRichText = false
@@ -352,7 +362,7 @@ extension OwnedTextField: NSViewRepresentable {
             scroll.hasVerticalScroller = false
             return scroll
         }
-        let field = secure ? NSSecureTextField() : NSTextField()
+        let field = secure ? CenteredSecureTextField() : CenteredTextField()
         if secure { field.contentType = .password }
         field.delegate = context.coordinator
         field.isBordered = false
@@ -380,6 +390,10 @@ extension OwnedTextField: NSViewRepresentable {
             tv.textColor = color
             tv.isEditable = !disabled
             if wantsWrite, tv.string != text { tv.string = text }
+            if let ptv = tv as? PlaceholderTextView {
+                ptv.placeholder = placeholder.isEmpty ? nil : NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
+                ptv.placeholderLineHeight = lineHeight
+            }
         }
         if let serial = focusSerial, serial != context.coordinator.focusSerial {
             context.coordinator.focusSerial = serial
@@ -394,6 +408,98 @@ extension OwnedTextField: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 200, height: proposal.height ?? lineHeight)
+    }
+
+    /// An NSTextView that draws its placeholder while empty, at the top of
+    /// the text, centred in one `placeholderLineHeight` line (the iOS
+    /// `PlaceholderTextView` label's frame).
+    final class PlaceholderTextView: NSTextView {
+        var placeholder: NSAttributedString? { didSet { if placeholder != oldValue { needsDisplay = true } } }
+        var placeholderLineHeight: CGFloat = 0 { didSet { if placeholderLineHeight != oldValue { needsDisplay = true } } }
+
+        override var string: String { didSet { needsDisplay = true } }
+
+        override func didChangeText() {
+            super.didChangeText()
+            needsDisplay = true
+        }
+
+        /// The rect the placeholder draws in (nil = none shown).
+        var placeholderRect: CGRect? {
+            guard string.isEmpty, let placeholder, placeholder.length > 0 else { return nil }
+            let natural = ceil(placeholder.size().height)
+            let line = max(placeholderLineHeight, natural)
+            let inset = textContainerInset
+            let pad = textContainer?.lineFragmentPadding ?? 0
+            return CGRect(x: inset.width + pad, y: inset.height + (line - natural) / 2, width: max(0, bounds.width - 2 * (inset.width + pad)), height: natural)
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            if let rect = placeholderRect, let placeholder {
+                placeholder.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            }
+        }
+    }
+
+    /// A one-line NSTextField whose text (and placeholder, and field
+    /// editor) sit vertically CENTRED in the field box, as UITextField and
+    /// the web's input do; AppKit's cell draws at the top.
+    final class CenteredTextField: NSTextField {
+        override class var cellClass: AnyClass? {
+            get { CenteredTextFieldCell.self }
+            set {}
+        }
+    }
+
+    final class CenteredSecureTextField: NSSecureTextField {
+        override class var cellClass: AnyClass? {
+            get { CenteredSecureTextFieldCell.self }
+            set {}
+        }
+    }
+
+    final class CenteredTextFieldCell: NSTextFieldCell {
+        override func drawingRect(forBounds rect: NSRect) -> NSRect {
+            OwnedTextField.centered(super.drawingRect(forBounds: rect), font: font)
+        }
+
+        // The field editor follows the centred line (else the text jumps
+        // to the top while editing).
+        override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+            super.edit(withFrame: OwnedTextField.centered(rect, font: font), in: controlView, editor: textObj, delegate: delegate, event: event)
+        }
+
+        override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+            super.select(withFrame: OwnedTextField.centered(rect, font: font), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+        }
+    }
+
+    final class CenteredSecureTextFieldCell: NSSecureTextFieldCell {
+        override func drawingRect(forBounds rect: NSRect) -> NSRect {
+            OwnedTextField.centered(super.drawingRect(forBounds: rect), font: font)
+        }
+
+        // The field editor follows the centred line (else the text jumps
+        // to the top while editing).
+        override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+            super.edit(withFrame: OwnedTextField.centered(rect, font: font), in: controlView, editor: textObj, delegate: delegate, event: event)
+        }
+
+        override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+            super.select(withFrame: OwnedTextField.centered(rect, font: font), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+        }
+    }
+
+    /// `rect` narrowed to one line of `font`, centred vertically in it.
+    static func centered(_ rect: NSRect, font: NSFont?) -> NSRect {
+        guard let font else { return rect }
+        let line = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        guard rect.height > line else { return rect }
+        var r = rect
+        r.origin.y += floor((rect.height - line) / 2)
+        r.size.height = line
+        return r
     }
 }
 #endif

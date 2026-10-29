@@ -18,6 +18,8 @@ export { getPointer, setPointer, pointerTokens, absolutePath, resolveValue, reso
 export type { DataModel, DataBinding, FunctionCall, ClientFunction, ResolveContext } from "./data"
 export { linkHref, mediaRequestOf, mediaUrlAllowed, openAllowed, ownPrivateHosts, urlPolicyOf } from "./urls"
 export { lookupIcon } from "./host-types"
+export { CUSTOM_ICON_NODES } from "./custom-icons.generated"
+export type { CustomIconNode } from "./custom-icons.generated"
 export type { HostPlugin, AnyHostPlugin, IconMap, PaintError, SourceOption, SurfaceActionEvent, SurfaceInputEvent } from "./host-types"
 export { str, num, bool, arr, objects, phrase, formatFileSize, acceptsFile, failingChecks, failingCheck, builtinIconName, joinIds } from "./coerce"
 export { sortRows } from "./table"

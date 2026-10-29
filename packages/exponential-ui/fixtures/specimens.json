@@ -2064,6 +2064,52 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-heading-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-heading-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "style · on a band",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-band",
+                "component": "Box",
+                "style": {
+                  "backgroundColor": "$color.primary",
+                  "padding": "$spacing.lg",
+                  "borderRadius": "$radius.lg"
+                },
+                "children": [
+                  {
+                    "id": "c4-t1",
+                    "component": "Text",
+                    "props": {
+                      "text": "A Box lays its children out by style.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c4-t2",
+                    "component": "Text",
+                    "props": {
+                      "text": "Flex, grid, spacing and colours come from the whitelist.",
+                      "variant": "muted"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -2761,6 +2807,59 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-icon-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-icon-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "name · non-Lucide",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-marks",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "md"
+                },
+                "children": [
+                  {
+                    "id": "c8-a",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Ada Lovelace",
+                      "size": "sm"
+                    }
+                  },
+                  {
+                    "id": "c8-t",
+                    "component": "Text",
+                    "props": {
+                      "text": "Ada Lovelace",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c8-b",
+                    "component": "Badge",
+                    "props": {
+                      "text": "Owner",
+                      "variant": "outline"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -3366,6 +3465,53 @@
                   ],
                   "value": "list",
                   "type": "multiple"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-segmented-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-segmented-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bar · icons",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-tabs",
+                "component": "Segmented",
+                "props": {
+                  "variant": "bar",
+                  "value": "chats",
+                  "items": [
+                    {
+                      "label": "Chats",
+                      "value": "chats",
+                      "icon": "message-circle"
+                    },
+                    {
+                      "label": "Contacts",
+                      "value": "contacts",
+                      "icon": "users"
+                    },
+                    {
+                      "label": "Settings",
+                      "value": "settings",
+                      "icon": "settings"
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 360
                 }
               }
             ]
@@ -8246,6 +8392,35 @@
                   "type": "email",
                   "placeholder": "you@example.com",
                   "disabled": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-input-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-input-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "label · none",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-search",
+                "component": "Input",
+                "props": {
+                  "name": "q",
+                  "label": "",
+                  "type": "search",
+                  "placeholder": "Search"
                 }
               }
             ]
