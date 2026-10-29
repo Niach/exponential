@@ -1216,8 +1216,8 @@
         "file": "shots/exponential-ui-button/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 18752,
-        "sha256": "0fa975f8521d688d6fbfb24781d9d9265a00a6023ed19257f2960d8f1ee5ec3c"
+        "bytes": 20878,
+        "sha256": "bceb891f46a1128c35d3dd2f16cb209a83468f5a27d1c06d07a443c51b14b027"
       },
       "web": {
         "file": "shots/exponential-ui-button/web.webp",
@@ -1234,6 +1234,13 @@
         "height": 1800,
         "bytes": 28238,
         "sha256": "aff7a0d417bffdf45e1b05da467d59914dca6eff0ef920e5f6aeb15bac1a36fe"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-call-surface/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 27962,
+        "sha256": "fbcb7634edfe5cfd8891dd157fc2365d919df4981dff4c829a3cb75c76e86d9d"
       }
     },
     "exponential-ui-card": {
@@ -2240,6 +2247,13 @@
         "height": 1800,
         "bytes": 25264,
         "sha256": "552c1945cd8ea99bd6da610b715939b16667c91572aceb900acacd59799c2ff4"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-message-bubble/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 25942,
+        "sha256": "1647d32db3aa00a9b2886414546ca2f6acc26edfc6d860383e93537c4c87f496"
       }
     },
     "exponential-ui-meter": {
@@ -2369,6 +2383,13 @@
         "height": 1800,
         "bytes": 30880,
         "sha256": "66d0f4949d7bfd72bf50fc492a6dcf07f7052559a70ae76592d4425ab7c50fda"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-plan/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 31772,
+        "sha256": "0442e0d4181f830588a7874d3d57bb4b10854d54509cc19c451cdaf6ba201b24"
       }
     },
     "exponential-ui-popover": {
@@ -2438,6 +2459,13 @@
         "height": 1800,
         "bytes": 17202,
         "sha256": "ff50aaa7af3449e6f4231490bb75d36bb96f8df3a456f8cf57d7d5f03e868620"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-qr-code/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 17424,
+        "sha256": "4c57c2c9aee3618b6e9e8ea52968f091afc0bbf1629553afd2598f1a1f84beec"
       }
     },
     "exponential-ui-qr-scanner": {
@@ -2447,6 +2475,13 @@
         "height": 1800,
         "bytes": 12572,
         "sha256": "98bc4e7f3a98ec975e93f8529595e0259f04e52ade86c4a70c21a90b839a6a58"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-qr-scanner/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 13304,
+        "sha256": "14705511a8e4813dccb0ded36e43edb6438cbc9d43736c31a684cd4818d6385b"
       }
     },
     "exponential-ui-radio": {
@@ -2678,8 +2713,8 @@
         "file": "shots/exponential-ui-segmented/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20816,
-        "sha256": "9e5f34b08b90ca8534c5a42d96a6dfc3dc2a28cc13331f7d8d6f3c5ff14d6974"
+        "bytes": 27030,
+        "sha256": "995e5d9ef3a5afaba6908aa6f8e5ae136f5177fa1da026c00bec10f851f07b12"
       },
       "web": {
         "file": "shots/exponential-ui-segmented/web.webp",
@@ -3128,8 +3163,8 @@
         "file": "shots/exponential-ui-text/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 19158,
-        "sha256": "c8566d5e1e4ecb96cc5ac86122b05a757fb363cbd58a2f52021318252d3dfd7a"
+        "bytes": 24462,
+        "sha256": "bb3e34d845b8f54925ee6a2b2953fc52ebc9e6c839fe8a23279061f9a73e2a8a"
       },
       "web": {
         "file": "shots/exponential-ui-text/web.webp",
@@ -3368,8 +3403,8 @@
         "file": "shots/exponential-ui-trace-item/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 22760,
-        "sha256": "7fb801ce23b4f6b4849e1b0c6780e4d32355fba511f41aa3cd777cf2374f75cc"
+        "bytes": 28764,
+        "sha256": "e6f5abbdfb47598d00edf48563cb47de24a7e83c51da56b3d561424d78bd0c57"
       },
       "web": {
         "file": "shots/exponential-ui-trace-item/web.webp",
@@ -3428,8 +3463,8 @@
         "file": "shots/exponential-ui-voice-wave/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 19962,
-        "sha256": "ab17b5834be100725397a865a7d9cd0fbc56611f651295fdb45c417f582d822b"
+        "bytes": 28034,
+        "sha256": "f523e0fa208ec4d855e710ae0c108b53c3cb0eadc1024a764e3b9d2c27ed4dcd"
       },
       "web": {
         "file": "shots/exponential-ui-voice-wave/web.webp",
