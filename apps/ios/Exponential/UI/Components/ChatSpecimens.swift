@@ -168,8 +168,7 @@ struct ChatListSpecimens: View {
                         .padding(.bottom, 4)
                         let agentRows = shownAgents
                         if selection == nil, !agentRows.isEmpty {
-                            GlassSectionHeader(Chats.Copy.Sections.agents)
-                                .padding(.top, 8)
+                            ChatSectionHeader(Chats.Copy.Sections.agents)
                             ForEach(agentRows) { row in
                                 ChatRowView(
                                     title: row.name,
@@ -182,8 +181,7 @@ struct ChatListSpecimens: View {
                                 ) { AgentChatLead(row: row) }
                             }
                             if !shown.isEmpty {
-                                GlassSectionHeader(Chats.Copy.Sections.chats)
-                                    .padding(.top, 16)
+                                ChatSectionHeader(Chats.Copy.Sections.chats)
                             }
                         }
                         if selection != nil, filter == .all {

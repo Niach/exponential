@@ -1,7 +1,7 @@
 import crypto from "node:crypto"
 
 // EXP-929: short-lived signed UPLOAD URLs for issue attachments — the
-// sessions_results flow (session-result-token.ts) applied to
+// `exponential_show` picture flow (guide-upload-token.ts) applied to
 // `exponential_attachments_upload`.
 //
 // Without `dataBase64` the MCP tool hands the agent

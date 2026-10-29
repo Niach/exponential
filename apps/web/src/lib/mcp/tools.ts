@@ -392,6 +392,15 @@ const cardSurfaceInput = z
 // reply rule and the component names; props come from the apps catalog.
 const SHOW_TOOL_DESCRIPTION = `ONE card in your chat per turn (result, status, draft, choice); replace: true edits this turn's card. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event sends text as the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[...]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures); story: false = chat only. After ask/plan end your turn: the answer is your next message.`
 
+/** F38: `exponential_show {pictures}` with no surface: a Card holding the
+ *  title (else the picture labels) above the pictures. */
+export function picturesOnlySurface(title: string | undefined, pictures: readonly { label: string }[]) {
+  const text = title?.trim() || pictures.map((picture) => picture.label).join(`, `)
+  return {
+    root: { id: `c`, component: `Card`, children: [{ id: `h`, component: `Heading`, props: { text } }] },
+  }
+}
+
 // FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
 // plan mode (and any "ask before side effects" posture) raises a permission
 // card for a plain `*_get`/`*_list` — the batch run behind FEED-25 sat on one
@@ -2436,7 +2445,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Read a session tree: the root (thread or agent) with its facets (title, issues, PRs, Guide, action), its child sessions and the last messages (count = messages, default 20). id = any session in the tree; omitted = your own session's root.`,
+      description: `Read a session tree: the root (thread or agent) with its facets (title, issues, PRs, action), its child sessions and the last messages (count = messages, default 20). id = any session in the tree; omitted = your own session's root.`,
       inputSchema: strictInput({
         id: uuidString.optional(),
         messages: z.number().int().min(0).max(100).default(20),
@@ -2654,7 +2663,7 @@ export function registerExponentialTools(
     )
   }
 
-  // S-3: THE show verb (always loaded, a whole tool like the Guide): ONE
+  // S-3: THE show verb (always loaded, a whole tool): ONE
   // card on the caller's own session: a surface, ONE question (ask) or a
   // plan, edited in place with `replace`. A person answers ask/plan IN the
   // card and the answer arrives as the session's next message; plan mode
@@ -2704,12 +2713,15 @@ export function registerExponentialTools(
           if (!own) throw new Error(noSessionMessage(`exponential_show`))
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
           if (ask && plan) throw new Error(`Pass ask or plan, not both: one card per call.`)
-          if (!ask && !plan && !surface) throw new Error(`Pass surface, ask or plan.`)
+          if (!ask && !plan && !surface && !pictures?.length) throw new Error(`Pass surface, ask, plan or pictures.`)
+          // F38: pictures alone (a result story's screenshots) = a surface
+          // card whose surface is a Card holding the title.
+          const shown = surface ?? picturesOnlySurface(title, pictures ?? [])
           const card = plan
             ? buildPlanCard({ plan: plan.text, questions: plan.questions, pictures, surface })
             : ask
               ? buildQuestionCard({ ...ask, pictures, surface })
-              : buildSurfaceCard({ surface: surface!, title, pictures, ...(story !== undefined ? { story } : {}) })
+              : buildSurfaceCard({ surface: shown, title, pictures, ...(story !== undefined ? { story } : {}) })
           // S-3 stories.json: an explicit flag rides every kind.
           if (story !== undefined) card.story = story
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))
@@ -2861,7 +2873,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; a work session with no share takes the root issues no other work session linked; issues a merged PR closed are left out). repositoryId when there are none. Body = your thread's Guide once written. A diff touching UI needs a Guide picture per platform (label starts web, web-mobile, ios, android or desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
+      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR takes them all; a work session with no share takes the root issues no other work session linked; issues a merged PR closed are left out). repositoryId when there are none. Body = a server summary + your story pictures. A UI diff needs a story picture per platform (exponential_show pictures, label starts web/web-mobile/ios/android/desktop) or notRun naming the screen you could not run. Linked issues (the result's issues) take the team's PR-open status.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         title: z.string().min(1).max(255),

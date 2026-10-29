@@ -23,14 +23,17 @@ export function assigneeNudgeLine(issue: { identifier: string; title: string }):
   return ASSIGNEE_NUDGE_COPY.replace(`{identifier}`, issue.identifier).replace(`{title}`, issue.title)
 }
 
-/** The agent `agentId` when it belongs to `teamId` (BAD_REQUEST else). */
+/** The agent `agentId` when it belongs to `teamId` and `actorUserId` may
+ *  hand it work (BAD_REQUEST else): S-3, another member's Assistant is
+ *  theirs alone (agent-settings.json `assistant`), never an assignee. */
 export async function assertAgentInTeam(
   database: Pick<Tx, `select`>,
   agentId: string,
-  teamId: string
+  teamId: string,
+  actorUserId: string
 ): Promise<void> {
   const [row] = await database
-    .select({ teamId: agents.teamId })
+    .select({ teamId: agents.teamId, role: agents.role, ownerId: agents.ownerId })
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
@@ -38,6 +41,12 @@ export async function assertAgentInTeam(
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `The assignee agent must belong to the issue's team`,
+    })
+  }
+  if (row.role === `assistant` && row.ownerId !== actorUserId) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Another member's Assistant can't be assigned`,
     })
   }
 }
@@ -92,6 +101,8 @@ export async function onIssueAssignedInTx(
   if (!assignerId) return
   const [agent] = await tx.select().from(agents).where(eq(agents.id, args.assigneeAgentId)).limit(1)
   if (!agent || agent.teamId !== args.teamId) return
+  // S-3: never a turn for one member on another member's Assistant.
+  if (agent.role === `assistant` && agent.ownerId !== assignerId) return
   const [issue] = await tx
     .select({ identifier: issues.identifier, title: issues.title })
     .from(issues)

@@ -1543,6 +1543,12 @@ export const sessionsSendInputSchema = z
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
 
+/** F21: `sessions.send`'s idempotency key, tRPC only (never on the MCP
+ *  tool, like `meeting`): a sender-generated id per message; a retry naming
+ *  one its sender already posted gets that message's result back. */
+export const SESSIONS_SEND_CLIENT_MESSAGE_ID_MAX = 64
+export const sessionsSendClientMessageIdSchema = z.string().min(1).max(SESSIONS_SEND_CLIENT_MESSAGE_ID_MAX)
+
 /**
  * EXP-1334 `sessions.configure`: change a LIVE session's launch options
  * mid-session (same steer rule as messaging it; an ended session refuses).

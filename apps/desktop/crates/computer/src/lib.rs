@@ -249,6 +249,9 @@ pub struct TopWindow {
     /// 1-based.
     pub display: u32,
     pub app: String,
+    /// The app's id (macOS bundle id), like [`FocusedWindow::app_id`]; the
+    /// denylist matches it (#FEED-164).
+    pub app_id: Option<String>,
     pub title: String,
 }
 

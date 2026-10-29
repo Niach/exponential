@@ -475,6 +475,11 @@ impl PushToTalk {
         let regrab = shortcut(&before) != shortcut(&armed);
         self.armed = armed;
         if regrab {
+            // F43: a key held through the change ends its utterance (the
+            // regrab forgets the hold, so no key-up would come).
+            if self.held {
+                self.key_up(cx);
+            }
             self.regrab();
         }
         self.sync_wake(cx);

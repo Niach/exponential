@@ -14,6 +14,7 @@ import {
   questionCardOptionSchema,
   sessionsConfigureInputSchema,
   sessionsSendInputSchema,
+  sessionsSendClientMessageIdSchema,
   sessionStatusSchema,
   type CodingSessionBlocked,
   type MessageCard,
@@ -53,6 +54,7 @@ import {
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredOwnCard, editAgentTurnText, patchBusCopies, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
 import { clearBlockedInTx, interruption, INTERRUPTIONS } from "@/lib/sessions/watchdog"
 import {
@@ -141,12 +143,21 @@ async function loadDeviceSession(
 
 // NEW-57: `meeting: true` rides the tRPC send alone (meeting.json
 // RESIDENCY); the shared schema (and with it the MCP tool) never has it.
+// F21: so does `clientMessageId`, the sender's idempotency key.
 const sessionsSendTrpcInputSchema = z.intersection(
   sessionsSendInputSchema,
-  z.object({ meeting: z.literal(true).optional() })
+  z.object({ meeting: z.literal(true).optional(), clientMessageId: sessionsSendClientMessageIdSchema.optional() })
 )
 
 const noOpTx = (database: typeof db) => database.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
+
+/** F32: `after` mentions someone `before` did not (no `before` = a new
+ *  message: any mention counts). */
+export function addsMention(before: string | null, after: string): boolean {
+  if (before === null) return true
+  const had = new Set(extractMentionEmails(before))
+  return extractMentionEmails(after).some((email) => !had.has(email))
+}
 
 export const sessionsRouter = router({
   // ── people (and agents over MCP) ──────────────────────────────────────────
@@ -154,10 +165,11 @@ export const sessionsRouter = router({
   /** THE entrypoint. → { sessionId, messageId, txid }. */
   send: authedProcedure
     .input(sessionsSendTrpcInputSchema)
-    .mutation(({ ctx, input: { meeting, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
+    .mutation(({ ctx, input: { meeting, clientMessageId, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
       sendSession({
         userId: ctx.session.user.id,
         input,
+        clientMessageId,
         // NEW-57: a meeting transcript batch (tRPC only: the MCP tool never
         // carries it; `sendSession` refuses it over MCP anyway).
         meeting: meeting === true,
@@ -701,22 +713,9 @@ export const sessionsRouter = router({
       // was mid-turn the `restarted` INTERRUPTION (resume: its device
       // continues it; the watchdog's `resumeMinutes` rule puts it on a
       // person if it does not), said once to its parent. Not a yolo edge.
-      // An older device says neither: a process that ENDS while its turn
-      // is open (busy, not only background tasks; or `running`: the
-      // device's teardown clears busy before its end report) never
-      // finished it (an OOM kill, a crash; a finished turn goes idle
-      // first), so it reads lost too. A launch that never reached a turn
-      // (`lastTurnAt` null) still ends. A device that sends either new
-      // field is never guessed for, and its explicit `midTurn` wins over
-      // the row's state.
+      // The device's explicit `midTurn` wins over the row's state.
       const midTurn = input.midTurn ?? (session.busy || session.status === `running`)
-      const lost =
-        input.lost ??
-        (input.midTurn === undefined &&
-        input.status === `ended` &&
-        ((session.busy && !session.background) || (session.status === `running` && session.lastTurnAt !== null))
-          ? (`process_lost` as const)
-          : undefined)
+      const lost = input.lost
       if (lost) {
         const now = new Date()
         // A usage wall the device wrote stays (it names the real blocker).
@@ -930,10 +929,14 @@ export const sessionsRouter = router({
           // NEW-1: the turn's reply reaches the parent and watchers.
           await busRelayTurn(tx, session, input.body, messageId)
         }
-        return { messageId, txid }
+        return { messageId, txid, before: edited?.before ?? null }
       })
-      if (input.body.includes(`@`)) fireAndForgetSessionMessageNotify({ messageId: result.messageId })
-      return result
+      // An in-place edit re-notifies only for a mention it ADDED (a later
+      // turn's text repeats the earlier ones).
+      if (input.body.includes(`@`) && addsMention(result.before, input.body)) {
+        fireAndForgetSessionMessageNotify({ messageId: result.messageId })
+      }
+      return { messageId: result.messageId, txid: result.txid }
     }),
 
   /** The device delivered these pending inputs (person messages, another

@@ -23,10 +23,13 @@
  * running for the capture.
  *
  * The teardown is destructive, so the script refuses a DATABASE_URL that is
- * not obviously local (see assertLocalDatabase) unless `--allow-remote`.
+ * not obviously local (see assertLocalDatabase) unless `--allow-remote`, and
+ * the SHARED dev DB (localhost:54321/exponential, assertNotSharedDevDatabase)
+ * unless `--shared-dev-db` (the default `bun run shots` path passes it).
  *
  * Usage (from apps/web, local dev env with password signup enabled):
- *   bun run seed:screenshots
+ *   bun run seed:screenshots                  # temp DB / throwaway stack
+ *   bun run seed:screenshots --shared-dev-db  # the shared dev DB, on purpose
  *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
 import { ASSISTANT_COPY, assistantScheduleTriggers } from "@exp/domain-contract/agent-settings"
@@ -89,7 +92,7 @@ import {
 } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
-import { assertLocalDatabase } from "./lib/local-db-guard"
+import { assertLocalDatabase, assertNotSharedDevDatabase } from "./lib/local-db-guard"
 import {
   DEMO_API_KEYS,
   DEMO_ATTACHMENT_DATES,
@@ -1699,6 +1702,7 @@ async function seedSessionTree(ctx: {
 
 async function main() {
   assertLocalDatabase(SEED_CONSEQUENCE)
+  assertNotSharedDevDatabase(SEED_CONSEQUENCE)
   await teardown()
   const demoId = await ensureDemoUser()
   await ensureNewcomerUser()

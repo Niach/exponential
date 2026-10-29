@@ -1,7 +1,6 @@
-- Soita agentille (beta): soita puhelaitteesi agentille iPhonesta, verkosta tai työpöytäsovelluksesta ja puhu sille kädet vapaina
-- Herätesana (beta): sano herätelause puhelaitteesi lähellä ja aloita puhuminen ilman pikanäppäintä
-- Puhutut vastaukset (beta): vastaukset luetaan ääneen englanniksi ja saksaksi, ja saksa alkaa nyt puhua paljon nopeammin
-- Puheehdotukset (beta): kun agentti haluaa muuttaa jotain puheella, se näyttää kortin ja odottaa kyllä-vastaustasi
-- Keskeytyneet istunnot jatkuvat itsestään, jonossa olevat istunnot odottavat laitettaan, ja suunnitelma- ja kysymyskortit tavoittavat tiimin agentin
-- Valitse useita keskusteluja merkitäksesi ne luetuiksi, arkistoidaksesi tai poistaaksesi ne; arkistointi piilottaa ne vain sinulta
-- Kaikki valintaruudut ovat nyt neliöitä, Laitteet-sivu näyttää yhden rivin konetta kohden, ja hylätty merge näkyy ketjussa Yritä uudelleen -painikkeen kanssa
+- Stories: se, mitä agenttisi näyttävät sinulle (kysymykset, suunnitelmat, tulokset kuvakaappauksineen), tulee storyina Keskustelujen yläpuolelle; selaa niitä ja vastaa suoraan siellä
+- Oma Avustaja: jokainen jäsen saa oman Avustajan, jolla on oma keskustelu, ääni ja aikataulu; Asetukset on ryhmitelty uudelleen sen ympärille
+- Puhelut kuin puhelimessa: puhelu soi ensin ja vastaa sitten Hello?, puhelunäkymässä, jossa on pyöreät mykistys-, kaiutin- ja lopetuspainikkeet
+- Kokoustila: Avustajasi voi seurata kokousta, jonka aloitat työpöydällä, kaikkien suostumuksella, ja lopettaa itsestään valitsemasi ajan jälkeen
+- Linkitetyt keskustelut: toisesta keskustelusta tullut viesti kertoo, mistä se on peräisin; napauta sitä siirtyäksesi sinne ja takaisin
+- Korjaukset: keskustelujen otsikot vastaavat muita sovelluksia, nopea uudelleensoitto soi taas, ja suunnitelmatila on poistettu (suunnitelmat ovat kortteja, joihin vastaat)

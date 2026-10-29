@@ -23,7 +23,6 @@ pub fn run(args: &[String]) -> CommandResult {
         agent: take_value(&mut args, "--agent"),
         model: take_value(&mut args, "--model"),
         effort: take_value(&mut args, "--effort"),
-        plan: take_flag(&mut args, "--plan"),
     };
     let team_flag = take_value(&mut args, "--team");
     // EXP-825: the composer's free text, appended to the prompt's body in
@@ -53,7 +52,7 @@ pub fn run(args: &[String]) -> CommandResult {
         return super::remote::start(&ctx, &flags, &remote, subject);
     }
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
-    let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
+    let options = launch::agent_options(&ctx.settings, &flags)?;
     println!("Running prompt: {}", saved.name);
 
     let mut input = api::mcp_tools::SessionsSendInput {

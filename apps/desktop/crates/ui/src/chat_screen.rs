@@ -199,6 +199,19 @@ enum Subject {
     Action(ActionSubject),
 }
 
+/// S-3 (composer-home.json `agentRow.subjectCases`): the agent row's pick
+/// once `subject` became the subject: issues or a prompt = a launch, so
+/// Temporary session; no subject keeps `current`.
+fn agent_pick_after_subject(subject: &Subject, current: Option<&str>) -> Option<String> {
+    use domain::composer_agent_row::{pick_for_subject, ComposerSubjectKind as K};
+    let kind = match subject {
+        Subject::Issues(_) => K::Issues,
+        Subject::Action(_) => K::Prompt,
+        Subject::None => K::Other,
+    };
+    pick_for_subject(kind, current)
+}
+
 /// EXP-696: the machine the run starts on.
 #[derive(Default)]
 struct DevicePick {
@@ -712,6 +725,14 @@ impl ChatScreenView {
     /// Apply a [`ChatSeed`]: its issues become the subject, a device seed
     /// is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // S-3 (`agentRow.seedCases`): a seeded launch starts the agent row on
+        // Temporary session, so the send is a launch with the subject, never
+        // a message to the Assistant.
+        if let Some(pick) =
+            domain::composer_agent_row::seed_pick(!seed.issue_ids.is_empty(), false, seed.device_id.is_some())
+        {
+            self.agent_pick = Some(pick);
+        }
         if !seed.issue_ids.is_empty() {
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
@@ -754,6 +775,7 @@ impl ChatScreenView {
         for issue_id in checked {
             self.ensure_probe(issue_id, cx);
         }
+        self.agent_pick = agent_pick_after_subject(&self.subject, self.agent_pick.as_deref());
     }
 
     /// The issues the `#` picker currently has checked — the primitive's
@@ -775,6 +797,7 @@ impl ChatScreenView {
                 if on {
                     issues.checked.insert(issue_id.clone());
                     self.ensure_probe(issue_id, cx);
+                    self.agent_pick = agent_pick_after_subject(&self.subject, self.agent_pick.as_deref());
                 } else {
                     issues.checked.remove(&issue_id);
                     if issues.checked.is_empty() {
@@ -861,6 +884,9 @@ impl ChatScreenView {
     fn select_action(&mut self, action_id: String, cx: &mut gpui::Context<Self>) {
         self.probe_generation += 1;
         self.subject = Subject::Action(ActionSubject { action_id });
+        // S-3: a prompt starts a new root: the agent row moves to Temporary
+        // session (a message to an agent takes no prompt).
+        self.agent_pick = agent_pick_after_subject(&self.subject, self.agent_pick.as_deref());
         cx.notify();
     }
 
@@ -3479,6 +3505,25 @@ mod tests {
     /// `composerPlaceholder`: no subject asks the home's question, any
     /// picked subject takes extra instructions (NEW-2: prompts carry no
     /// composer hint).
+    /// S-3 — composer-home.json `agentRow.subjectCases`: issues or a prompt
+    /// as the subject move the agent row to Temporary session; no subject
+    /// keeps the pick.
+    #[test]
+    fn the_agent_row_follows_a_launch_subject() {
+        let temporary = Some("temporary".to_string());
+        let issues = Subject::Issues(IssueSubject {
+            rows: Rc::new(Vec::new()),
+            checked: HashSet::new(),
+            repos: HashMap::new(),
+        });
+        assert_eq!(agent_pick_after_subject(&issues, Some("g-me")), temporary);
+        assert_eq!(agent_pick_after_subject(&issues, None), temporary);
+        let prompt = Subject::Action(ActionSubject { action_id: "p-1".into() });
+        assert_eq!(agent_pick_after_subject(&prompt, Some("g-b")), temporary);
+        assert_eq!(agent_pick_after_subject(&Subject::None, Some("g-me")).as_deref(), Some("g-me"));
+        assert_eq!(agent_pick_after_subject(&Subject::None, None), None);
+    }
+
     #[test]
     fn composer_placeholder_follows_the_subject() {
         // EXP-1253: no subject = the home's question.

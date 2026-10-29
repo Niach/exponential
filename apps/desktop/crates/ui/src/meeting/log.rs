@@ -5,6 +5,8 @@
 //! hourly. Audio is never stored here. #FEED-163 RESTART: beside them,
 //! `meeting_listened` remembers the one `meetingStartedAt` this IDE listened
 //! to last, so the next process start can tell "the same sitting" apart.
+//! F22: `meeting_account` remembers the account the segments belong to, so a
+//! process that started signed out still purges them for another account.
 
 use std::path::Path;
 
@@ -57,6 +59,10 @@ impl SegmentLog {
              CREATE TABLE IF NOT EXISTS meeting_listened (
                  id INTEGER PRIMARY KEY CHECK (id = 1),
                  started_at TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS meeting_account (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 account TEXT NOT NULL
              );",
         )
         .map_err(sql)?;
@@ -117,6 +123,30 @@ impl SegmentLog {
             )
             .map(|_| ())
             .map_err(sql)
+    }
+
+    /// F22: the account the logged segments belong to (None = none known).
+    pub(crate) fn account(&self) -> Result<Option<String>, String> {
+        let mut statement = self.conn.prepare("SELECT account FROM meeting_account WHERE id = 1").map_err(sql)?;
+        let mut rows = statement.query([]).map_err(sql)?;
+        match rows.next().map_err(sql)? {
+            Some(row) => row.get(0).map(Some).map_err(sql),
+            None => Ok(None),
+        }
+    }
+
+    /// F22: remember `account` as the log's owner (None forgets it).
+    pub(crate) fn set_account(&self, account: Option<&str>) -> Result<(), String> {
+        match account {
+            Some(account) => self.conn.execute(
+                "INSERT INTO meeting_account (id, account) VALUES (1, ?1)
+                 ON CONFLICT (id) DO UPDATE SET account = excluded.account",
+                params![account],
+            ),
+            None => self.conn.execute("DELETE FROM meeting_account", []),
+        }
+        .map(|_| ())
+        .map_err(sql)
     }
 
     #[cfg(test)]
@@ -195,6 +225,17 @@ mod tests {
         let reopened = SegmentLog::open(&dir).unwrap();
         assert_eq!(reopened.listened().unwrap().as_deref(), Some("2026-10-28T10:00:00.000Z"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_log_remembers_its_account() {
+        let log = SegmentLog::with(Connection::open_in_memory().unwrap()).unwrap();
+        assert_eq!(log.account().unwrap(), None);
+        log.set_account(Some("acct-1")).unwrap();
+        log.set_account(Some("acct-2")).unwrap();
+        assert_eq!(log.account().unwrap().as_deref(), Some("acct-2"));
+        log.set_account(None).unwrap();
+        assert_eq!(log.account().unwrap(), None);
     }
 
     #[test]

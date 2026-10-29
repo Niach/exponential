@@ -1406,13 +1406,24 @@ fn attach_computer_use(
     }
 }
 
-/// NEW-58: give the member's voice conversation (`voice_policy`) this
-/// device's screen memory while the IDE captures here; [`screen::grant`]
-/// refuses while it is off (another device, the CLI daemon), so such a run
-/// launches without. Wired AFTER code mode so a script never reaches the
-/// screenshots. The engine revokes the grant when the run ends.
-fn attach_screen_memory(voice_policy: bool, team_mcp: &mut ResolvedMcp, session_id: &str) -> bool {
-    if !voice_policy {
+/// NEW-58 (`fixtures/screen-memory.json` TOOL): only the member's PRIVATE
+/// voice conversation may read this machine's screen: the server's brief
+/// says `voice_policy` AND `screen_memory` (the agent on the member's own
+/// machine shared with no team), and the row itself is not `shared`, so a
+/// teammate's agent on a shared machine never reads its owner's screen and
+/// no tool card lands in a team-visible conversation.
+fn screen_memory_allowed(req: &SessionLaunchRequest) -> bool {
+    req.brief.voice_policy && req.brief.screen_memory && !req.session.shared
+}
+
+/// NEW-58: give the member's private voice conversation
+/// ([`screen_memory_allowed`]) this device's screen memory while the IDE
+/// captures here; [`screen::grant`] refuses while it is off (another device,
+/// the CLI daemon), so such a run launches without. Wired AFTER code mode so
+/// a script never reaches the screenshots. The engine revokes the grant when
+/// the run ends.
+fn attach_screen_memory(allowed: bool, team_mcp: &mut ResolvedMcp, session_id: &str) -> bool {
+    if !allowed {
         return false;
     }
     match screen::grant(session_id) {
@@ -1921,7 +1932,7 @@ fn prepare_session(
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
-    attach_screen_memory(req.brief.voice_policy, &mut team_mcp, &session_id);
+    attach_screen_memory(screen_memory_allowed(req), &mut team_mcp, &session_id);
 
     // EXP-210: stamp THIS agent into the workspace's recorded-agent marker
     // (after every can-still-fail step) — a later resume reads it to decide
@@ -2585,7 +2596,7 @@ fn prepare_resume(
     let code_mode =
         !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
     if !aside {
-        attach_screen_memory(req.brief.voice_policy, &mut team_mcp, &session_id);
+        attach_screen_memory(screen_memory_allowed(req), &mut team_mcp, &session_id);
     }
 
     // Step 5 — the spawn spec, exactly like a fresh launch's.
@@ -4067,6 +4078,23 @@ mod tests {
         let refused = voice_policy_refusal(&req, CodingAgent::Codex).expect("refused");
         assert!(matches!(refused, DisabledReason::VoicePolicyUnsupported { .. }));
         assert!(refused.message().contains("voice conversation"), "{}", refused.message());
+    }
+
+    /// NEW-58 (screen-memory.json TOOL): screen memory only for a voice
+    /// conversation the server calls private, never on a `shared` row.
+    #[test]
+    fn screen_memory_needs_a_private_voice_conversation() {
+        let mut req = session_request(row("sess-s", None), &[]);
+        assert!(!screen_memory_allowed(&req), "not a voice conversation");
+        req.brief.voice_policy = true;
+        assert!(!screen_memory_allowed(&req), "the server did not grant it (a shared machine, an old server)");
+        req.brief.screen_memory = true;
+        assert!(screen_memory_allowed(&req));
+        req.session.shared = true;
+        assert!(!screen_memory_allowed(&req), "a team-visible conversation never gets it");
+        let mut mcp = ResolvedMcp::default();
+        assert!(!attach_screen_memory(false, &mut mcp, "sess-s"));
+        assert!(mcp.servers.is_empty());
     }
 
     /// N-5: a repo-less run denies the file tools on the repos root, and its

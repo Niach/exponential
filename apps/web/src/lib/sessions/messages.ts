@@ -110,8 +110,8 @@ export function postAgentMessage(
 /**
  * S-3 "one text + one card between two person messages": in an AGENT
  * conversation a turn's reply text EDITS the agent's text already posted
- * since the last person message (the trigger tick and a person's line are
- * both person-authored) instead of landing as another bubble. → the edited
+ * since the last DELIVERED input (the trigger tick and a person's line are
+ * both person-authored; a line still queued belongs to the next turn) instead of landing as another bubble. → the edited
  * row and its previous body, or null (nothing to edit: insert). Its bus
  * copies follow (`patchBusCopies`).
  */
@@ -120,11 +120,14 @@ export async function editAgentTurnText(
   sessionId: string,
   body: string
 ): Promise<{ id: string; before: string } | null> {
-  const [person] = await tx
-    .select({ at: messages.createdAt })
+  // The turn starts at the newest input the device DELIVERED (its
+  // `consumed_at`): a message still queued mid-turn is the NEXT turn's, so
+  // it must not cut this turn's answer off (F29).
+  const [delivered] = await tx
+    .select({ at: messages.consumedAt })
     .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.authorKind, `user`)))
-    .orderBy(desc(messages.createdAt))
+    .where(and(eq(messages.sessionId, sessionId), pendingInput(), isNotNull(messages.consumedAt)))
+    .orderBy(desc(messages.consumedAt))
     .limit(1)
   const [text] = await tx
     .select({ id: messages.id, body: messages.body })
@@ -135,7 +138,7 @@ export async function editAgentTurnText(
         eq(messages.authorKind, `agent`),
         isNull(messages.card),
         isNull(messages.authorSessionId),
-        ...(person ? [gt(messages.createdAt, person.at)] : [])
+        ...(delivered?.at ? [gt(messages.createdAt, delivered.at)] : [])
       )
     )
     .orderBy(desc(messages.createdAt))

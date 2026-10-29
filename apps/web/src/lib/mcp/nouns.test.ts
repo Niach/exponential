@@ -116,6 +116,19 @@ describe(`registerNounTools`, () => {
     expect(text(bad)).toContain(`Unknown op "explode"`)
   })
 
+  it(`points an old runbook's session_self ask/plan/show at exponential_show (F31)`, async () => {
+    const self = surface().get(`exponential_session_self`)!
+    const moved = await self.handler({ op: `ask` })
+    expect(moved.isError).toBe(true)
+    expect(text(moved)).toContain(`session_self.ask moved to exponential_show {ask}`)
+    // The SDK validates the op enum before the handler: its refusal says it too.
+    const schema = self.def.inputSchema as z.ZodType
+    const parsed = schema.safeParse({ op: `show` })
+    expect(parsed.success).toBe(false)
+    expect(parsed.error?.issues[0]?.message).toBe(`session_self.show moved to exponential_show {surface}.`)
+    expect(schema.safeParse({ op: `nope` }).error?.issues[0]?.message).toContain(`Unknown op "nope" for session_self`)
+  })
+
   it(`describes every op with its parameters, and only op in the JSON schema`, () => {
     const issues = surface().get(`exponential_issues`)!
     expect(issues.def.description).toContain(`get{id, commentsLimit?}`)

@@ -1,7 +1,6 @@
-- Zadzwoń do agenta (beta): dzwoń do agenta swojego urządzenia głosowego z iPhone'a, przeglądarki lub aplikacji desktopowej i rozmawiaj bez użycia rąk
-- Słowo wybudzające (beta): powiedz frazę wybudzającą przy urządzeniu głosowym, aby zacząć mówić, bez skrótu klawiszowego
-- Odpowiedzi głosowe (beta): odpowiedzi są czytane na głos po angielsku i niemiecku, a niemiecki zaczyna teraz mówić znacznie szybciej
-- Propozycje głosowe (beta): gdy agent chce coś zmienić głosowo, pokazuje kartę i czeka na Twoje tak
-- Przerwane sesje wznawiają się same, sesje w kolejce czekają na swoje urządzenie, a karty planu i pytań trafiają do agenta zespołu
-- Zaznacz kilka czatów, aby oznaczyć je jako przeczytane, zarchiwizować lub usunąć; archiwizacja ukrywa je tylko dla Ciebie
-- Wszystkie pola wyboru są teraz kwadratowe, strona Urządzenia pokazuje jeden wiersz na komputer, a odrzucony merge pojawia się w wątku z opcją Ponów
+- Stories: to, co pokazują Ci agenci (pytania, plany, wyniki ze zrzutami ekranu), trafia jako stories nad Czaty; przewijaj je i odpowiadaj od razu na miejscu
+- Twój Asystent: każdy członek dostaje własnego Asystenta, z własnym czatem, głosem i harmonogramem; Ustawienia zostały wokół niego na nowo pogrupowane
+- Połączenia jak przez telefon: połączenie najpierw dzwoni, a potem odbiera słowami Hello?, na ekranie połączenia z okrągłymi przyciskami wyciszenia, głośnika i rozłączenia
+- Tryb spotkania: Twój Asystent może śledzić spotkanie, które uruchomisz na desktopie, za zgodą wszystkich, i sam kończy po wybranym czasie
+- Powiązane czaty: wiadomość z innego czatu pokazuje, skąd pochodzi; stuknij ją, aby tam przejść i wrócić
+- Poprawki: nagłówki czatów pasują do innych aplikacji, szybkie ponowne połączenie znów dzwoni, a tryb planu zniknął (plany to karty, na które odpowiadasz)

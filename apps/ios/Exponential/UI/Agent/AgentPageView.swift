@@ -227,12 +227,8 @@ struct AgentPageView: View {
         // keeps its pick, so put it back; an issue or prompt subject picked
         // in the + menu is a launch: the row follows to Temporary session.
         .onChange(of: composer?.subject) { _, subject in
-            switch subject {
-            case .issues?, .prompt?:
-                if agentPick != ComposerAgentRow.temporaryPick { agentPick = ComposerAgentRow.temporaryPick }
-            default:
-                syncAgentPick()
-            }
+            let next = ComposerAgentRow.pickForSubject(subject, current: agentPick)
+            if next != agentPick { agentPick = next } else { syncAgentPick() }
         }
         // The resolved machine can change underneath the options (a
         // heartbeat dropping it, the pool arriving): reseed off the new one.
@@ -320,8 +316,10 @@ struct AgentPageView: View {
         if composer == nil, let devicesModel {
             composer = makeComposer(devicesModel: devicesModel, seed: seed)
             // A play button's subject is a launch: Temporary session.
-            if agentPick == nil, seed.promptId != nil || !seed.effectiveIssueIds.isEmpty || seed.deviceId != nil {
-                agentPick = ComposerAgentRow.temporaryPick
+            if agentPick == nil {
+                agentPick = ComposerAgentRow.seedPick(
+                    issueIds: seed.effectiveIssueIds, promptId: seed.promptId, deviceId: seed.deviceId
+                )
             }
         }
     }

@@ -61,7 +61,7 @@ import {
 import { luminanceVariance } from "./encode.ts"
 import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
 import { killChild, run, sleep, track, type Child } from "./lib/proc.ts"
-import { captureDbEnv } from "./capture-db.ts"
+import { captureDbEnv, sharedDevDbArgs } from "./capture-db.ts"
 import { rawShotPath, repoRoot } from "./paths.ts"
 
 /** `[[bin]] name` of `apps/desktop/crates/app` — also the CGWindow owner name. */
@@ -377,7 +377,7 @@ function resolveDesktopVars(
 async function pruneStrayDevices(): Promise<void> {
   try {
     const result = await run({
-      cmd: [`bun`, `run`, `screenshots:prune-devices`],
+      cmd: [`bun`, `run`, `screenshots:prune-devices`, ...sharedDevDbArgs(process.env)],
       cwd: join(repoRoot(), `apps/web`),
       env: captureDbEnv(),
       timeoutMs: 60_000,
@@ -696,6 +696,10 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
       // never within a 300ms grace. The second raise below is the guard
       // against something else having stolen the front in the meantime.
       await raiseWindow(child.pid)
+      // Release train 2026-10-29: the shutter photographs whatever row sits
+      // under the pointer HOVERED (a lit Chats / General row in every shot);
+      // park it outside the window before the settle repaints.
+      await parkPointer(rect)
       await sleep(options.anchorDelayMs + (attempt === 1 ? FLAT_RETRY_EXTRA_MS : 0))
       // Raise the window right before the shutter: `-R` photographs a screen
       // RECT, so anything overlapping it would end up in the store.
@@ -804,6 +808,14 @@ async function waitForWindowRect(pid: number): Promise<string | undefined> {
 }
 
 /** Bring the process's windows to the front so nothing overlaps the rect. */
+/** Move the pointer just past the window's bottom-right corner (best-effort:
+ *  `cliclick` is optional; without it the pointer stays where it is). */
+async function parkPointer(rect: string): Promise<void> {
+  const [x, y, w, h] = rect.split(`,`).map((part) => Number.parseInt(part, 10))
+  if (![x, y, w, h].every((value) => Number.isFinite(value))) return
+  await run({ cmd: [`cliclick`, `m:${x! + w! + 24},${y! + h! + 24}`], timeoutMs: 5_000 }).catch(() => undefined)
+}
+
 async function raiseWindow(pid: number): Promise<void> {
   await run({
     cmd: [

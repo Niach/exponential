@@ -1,7 +1,6 @@
-- Chiama il tuo agente (beta): chiama l'agente del tuo dispositivo vocale da iPhone, dal web o dall'app desktop e parlagli a mani libere
-- Parola di attivazione (beta): pronuncia la frase di attivazione vicino al dispositivo vocale per iniziare a parlare, senza scorciatoie
-- Risposte parlate (beta): le risposte vengono lette ad alta voce in inglese e tedesco, e il tedesco ora inizia a parlare molto prima
-- Proposte vocali (beta): quando l'agente vuole cambiare qualcosa a voce, mostra una scheda e attende il tuo sì
-- Le sessioni interrotte riprendono da sole, le sessioni in coda attendono il loro dispositivo e le schede di piano e di domanda arrivano all'agente del team
-- Seleziona più chat per segnarle come lette, archiviarle o eliminarle; l'archiviazione le nasconde solo a te
-- Tutte le caselle di controllo ora sono quadrate, la pagina Dispositivi mostra una riga per computer e un merge rifiutato compare nel thread con Riprova
+- Stories: ciò che i tuoi agenti ti mostrano (domande, piani, risultati con screenshot) arriva come stories sopra le Chat; scorrile e rispondi direttamente lì
+- Il tuo Assistente: ogni membro ha il proprio Assistente, con chat, voce e programmazione propri; le Impostazioni sono riorganizzate attorno a lui
+- Chiamate come al telefono: una chiamata prima squilla, poi risponde con Hello?, su una schermata di chiamata con pulsanti rotondi per silenzioso, altoparlante e chiudi
+- Modalità riunione: il tuo Assistente può seguire una riunione che avvii sul desktop, con il consenso di tutti, e si ferma da solo dopo il tempo che scegli
+- Chat collegate: un messaggio da un'altra chat indica da dove arriva; toccalo per andarci e tornare indietro
+- Correzioni: le intestazioni delle chat corrispondono alle altre app, una richiamata veloce squilla di nuovo e la modalità piano non c'è più (i piani sono schede a cui rispondi)

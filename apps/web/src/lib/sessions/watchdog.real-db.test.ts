@@ -306,7 +306,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
       needsInput: false,
       blocked: { kind: `device_offline`, since: NOW.toISOString(), resume: true, resumeSince: null },
     })
-    expect(await row(hosted)).toMatchObject({ busy: false, needsInput: true, blocked: null })
+    expect(await row(hosted)).toMatchObject({ status: `idle`, busy: false, needsInput: true, blocked: null })
     expect(await row(queued)).toMatchObject({ status: `queued`, blocked: null })
     // S-3: silent, no bus line.
     await runWatchdog(NOW)
@@ -831,14 +831,13 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(interrupted)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
   })
 
-  it(`NEW-17: a device reporting a run's process LOST mid-turn interrupts it (never an end, never "done"); an older device's end while running reads the same`, async () => {
+  it(`NEW-17: a device reporting a run's process LOST mid-turn interrupts it (never an end, never "done")`, async () => {
     const w = await world()
     const rootId = await w.root()
     const killed = await w.child(rootId, `OOM killed`)
-    const older = await w.child(rootId, `older device`)
     const refused = await w.child(rootId, `never ran`)
     const finished = await w.child(rootId, `finished`)
-    for (const id of [rootId, killed, older, refused, finished]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+    for (const id of [rootId, killed, refused, finished]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
     await w.host.report({ sessionId: killed, busy: true })
     await w.host.report({ sessionId: killed, deviceId: w.deviceId, status: `ended`, lost: `process_lost` })
     expect(await row(killed)).toMatchObject({
@@ -851,12 +850,6 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     // S-3: silent, its device continues it.
     expect(await lines(rootId, `session_interrupted`, killed)).toHaveLength(0)
 
-    // An older device sends no `lost`: its end report while a turn is open
-    // (running, after a turn ran) is the same interruption.
-    await w.host.report({ sessionId: older, busy: true })
-    await w.host.report({ sessionId: older, busy: false })
-    await w.host.report({ sessionId: older, status: `ended` })
-    expect(await row(older)).toMatchObject({ status: `idle`, blocked: { kind: `restarted` } })
     // A launch that never reached a turn still ends; so does a finished one.
     await w.host.report({ sessionId: refused, status: `ended` })
     expect(await row(refused)).toMatchObject({ status: `ended` })

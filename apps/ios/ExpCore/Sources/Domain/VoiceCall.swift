@@ -417,10 +417,12 @@ public enum VoiceCall {
         }
 
         /// The events a HOST may send in a `call_event` frame; the caller
-        /// owns start, mute, unmute, speaker, end, hungUp and failed itself.
+        /// owns start, mute, unmute, speaker, end and hungUp itself. A host
+        /// that could not get its voice ready sends `failed {code}` before
+        /// it ends the call (the caller fails with that code's toast).
         public var isHostEvent: Bool {
             switch self {
-            case .rang, .ready, .noSound, .partial, .said, .queued, .replyStarted, .replyFinished, .speechStarted: true
+            case .rang, .ready, .noSound, .partial, .said, .queued, .replyStarted, .replyFinished, .speechStarted, .failed: true
             default: false
             }
         }

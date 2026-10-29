@@ -267,6 +267,25 @@ describe(`the web caller's wire`, () => {
     expect(toasts).toEqual([fixture.copy.failed.busy.replace(`{device}`, `mint`)])
   })
 
+  it(`a host's failed event (then its call_end) ends it with the fixture's toast`, async () => {
+    const cases = [
+      [`unavailable`, fixture.copy.failed.unavailable.replace(`{device}`, `mint`)],
+      [`meeting`, fixture.copy.failed.meeting.replace(`{device}`, `mint`)],
+      [`no_such_code`, fixture.copy.failed.dropped],
+    ] as const
+    for (const [code, toast] of cases) {
+      const { call, socket, audio, toasts } = await dialed()
+      socket.text({ t: `call_ready` })
+      socket.text({ t: `call_event`, event: { t: `rang` } })
+      socket.text({ t: `call_event`, event: { t: `failed`, code } })
+      socket.text({ t: `call_end` })
+      expect(call.active).toBe(false)
+      expect(audio.closed).toBe(true)
+      expect(socket.closed).toBe(true)
+      expect(toasts).toEqual([toast])
+    }
+  })
+
   it(`the relay's idle timeout or max length toasts dropped, muted or not`, async () => {
     for (const reason of [`idle`, `max_length`]) {
       const { call, socket, audio, toasts } = await dialed()

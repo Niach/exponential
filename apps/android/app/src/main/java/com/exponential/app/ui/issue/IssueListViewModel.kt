@@ -201,6 +201,13 @@ class IssueListViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** S-3: the assignee picker's agents: another member's Assistant is never
+     *  one (`visibleAgent`); an assignment to it still reads off [teamAgents]. */
+    val assignableAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
+        combine(teamAgents, auth.userId) { rows, me ->
+            rows.filter { com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // EXP-50: the target team's lone member when it has exactly one — else
     // null. A solo team hides the assignee picker and defaults new issues to
     // that member (the server default-assigns anyway; the UI just stops

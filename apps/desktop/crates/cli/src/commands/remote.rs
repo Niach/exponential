@@ -51,15 +51,14 @@ impl RemoteFlags {
     }
 }
 
-/// Fold the agent flags into a start input. Only what was typed rides:
-/// `--plan` = plan mode on, nothing = the device's own default.
+/// Fold the agent flags into a start input. Only what was typed rides,
+/// nothing = the device's own default.
 pub fn start_input(device_id: &str, flags: &AgentFlags, remote: &RemoteFlags) -> SessionsSendInput {
     SessionsSendInput {
         device_id: Some(device_id.to_string()),
         cli: flags.agent.clone(),
         model: flags.model.clone(),
         effort: flags.effort.clone(),
-        plan_mode: flags.plan.then_some(true),
         account: remote.account.clone(),
         ..Default::default()
     }
@@ -129,7 +128,7 @@ mod tests {
             "box",
             "--account=work",
             "--follow",
-            "--plan",
+            "--detach",
         ]
         .iter()
         .map(|arg| arg.to_string())
@@ -143,7 +142,7 @@ mod tests {
                 follow: true,
             }
         );
-        assert_eq!(args, vec!["EXP-1".to_string(), "--plan".to_string()]);
+        assert_eq!(args, vec!["EXP-1".to_string(), "--detach".to_string()]);
         assert!(remote.reject_local().is_err());
         assert!(RemoteFlags::default().reject_local().is_ok());
     }
@@ -152,13 +151,12 @@ mod tests {
     fn only_typed_options_ride_the_start() {
         let flags = AgentFlags {
             agent: Some("codex".into()),
-            plan: true,
             ..Default::default()
         };
         let input = start_input("d1", &flags, &RemoteFlags::default());
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"deviceId":"d1","cli":"codex","planMode":true}"#
+            r#"{"deviceId":"d1","cli":"codex"}"#
         );
         let bare = start_input("d1", &AgentFlags::default(), &RemoteFlags::default());
         assert_eq!(

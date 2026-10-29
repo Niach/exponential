@@ -19,7 +19,9 @@ export const AGENT_COLUMNS = [
   `model`,
   `owner_id`,
   `sort_order`,
-  // S-3: assistant | agent (an Assistant lists for its owner only).
+  // S-3: assistant | agent. An Assistant LISTS for its owner only (the
+  // clients filter on `visibleAgent`), but every member keeps the row: the
+  // issue actor, an existing assignee and a shared session tree name it.
   `role`,
   // #EXP-1383: when the instructions last changed (chats.json `agentHint`).
   `instructions_updated_at`,

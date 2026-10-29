@@ -160,7 +160,7 @@
     }
   ],
   "agentRow": {
-    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
+    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. SEEDED (`seedCases`): a page opened WITH a subject (a start circle / Start chipping an issue, a prompt run, a device seed) starts on Temporary session, so the send is a normal launch with that subject, never a message to the Assistant. SUBJECT SWITCH (`subjectCases`): picking an issue or a prompt afterwards moves the row to Temporary session; any other subject change keeps the pick; tapping an agent afterwards picks it (the last tap wins). Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
     "size": 40,
     "ringWidth": 2,
     "ringGap": 3,
@@ -393,6 +393,75 @@
           "selected": "temporary",
           "label": "Temporary session"
         }
+      }
+    ],
+    "seedCases": [
+      {
+        "name": "a plain mount: the default",
+        "seed": {},
+        "expected": null
+      },
+      {
+        "name": "a text-only seed: the default",
+        "seed": {
+          "text": "hi"
+        },
+        "expected": null
+      },
+      {
+        "name": "an issue chipped by the start circle: Temporary session",
+        "seed": {
+          "issueIds": [
+            "i-3"
+          ]
+        },
+        "expected": "temporary"
+      },
+      {
+        "name": "a prompt run: Temporary session",
+        "seed": {
+          "promptId": "p-1"
+        },
+        "expected": "temporary"
+      },
+      {
+        "name": "a device seed: Temporary session",
+        "seed": {
+          "deviceId": "d-1"
+        },
+        "expected": "temporary"
+      }
+    ],
+    "subjectCases": [
+      {
+        "name": "an issue picked over the Assistant: Temporary session",
+        "subject": "issues",
+        "current": "g-me",
+        "expected": "temporary"
+      },
+      {
+        "name": "a prompt picked over a team agent: Temporary session",
+        "subject": "prompt",
+        "current": "g-b",
+        "expected": "temporary"
+      },
+      {
+        "name": "an issue picked on the default: Temporary session",
+        "subject": "issues",
+        "current": null,
+        "expected": "temporary"
+      },
+      {
+        "name": "the subject cleared: the pick stays",
+        "subject": null,
+        "current": "g-me",
+        "expected": "g-me"
+      },
+      {
+        "name": "no subject on the default: the default stays",
+        "subject": null,
+        "current": null,
+        "expected": null
       }
     ]
   }

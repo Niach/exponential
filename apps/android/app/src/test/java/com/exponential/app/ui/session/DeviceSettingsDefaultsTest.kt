@@ -112,24 +112,20 @@ class DeviceSettingsDefaultsTest {
         val built = buildDefaults(
             agents = listOf("claude", "codex", "pi"),
             drafts = mapOf(
-                "claude" to AgentDraft("fable", "", ultracode = true, planMode = true),
-                "codex" to AgentDraft("", "high", ultracode = true, planMode = true),
-                "pi" to AgentDraft("", "", ultracode = false, planMode = true),
+                "claude" to AgentDraft("fable", "", ultracode = true),
+                "codex" to AgentDraft("", "high", ultracode = true),
+                "pi" to AgentDraft("", "", ultracode = true),
             ),
         )
         // EXP-1158: the last used agent is the device's to write.
         assertNull(built.defaultAgent)
         assertTrue(built.agents.getValue("claude").ultracode)
-        assertTrue(built.agents.getValue("claude").planMode)
-        // codex: neither ultracode nor plan mode survives.
+        // codex: ultracode does not survive.
         val codex = built.agents.getValue("codex")
         assertFalse(codex.ultracode)
-        assertFalse(codex.planMode)
-        // EXP-849: plan mode is claude's alone now — a retired/unknown agent
-        // id keeps neither capability.
+        // EXP-849: a retired/unknown agent id keeps no claude capability.
         val retired = built.agents.getValue("pi")
         assertFalse(retired.ultracode)
-        assertFalse(retired.planMode)
     }
 
     /**
@@ -147,7 +143,6 @@ class DeviceSettingsDefaultsTest {
                 subagentModel = "sonnet",
                 threadModel = "opus",
                 ultracode = true,
-                planMode = true,
             ),
             // The effort keeps its CLI default ("") through the round trip.
             "codex" to AgentDraft(
@@ -155,7 +150,6 @@ class DeviceSettingsDefaultsTest {
                 effort = "",
                 threadModel = DomainContract.codexModelValues[0],
                 ultracode = false,
-                planMode = false,
             ),
         )
         val echoed = device(
@@ -226,7 +220,7 @@ class DeviceSettingsDefaultsTest {
         assertNull(drafts.getValue("codex").autoRotateAccounts)
 
         // An edit elsewhere on the draft keeps the echoed flag.
-        val edited = drafts + ("claude" to drafts.getValue("claude").copy(planMode = true))
+        val edited = drafts + ("claude" to drafts.getValue("claude").copy(ultracode = true))
         val sent = setLaunchDefaultsInput(
             deviceId = "dev-1",
             defaults = buildDefaults(
@@ -245,7 +239,7 @@ class DeviceSettingsDefaultsTest {
             defaults = buildDefaults(
                 agents = listOf("claude"),
                 drafts = mapOf(
-                    "claude" to AgentDraft("fable", "", ultracode = false, planMode = false, autoRotateAccounts = true),
+                    "claude" to AgentDraft("fable", "", ultracode = false, autoRotateAccounts = true),
                 ),
             ),
         ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject

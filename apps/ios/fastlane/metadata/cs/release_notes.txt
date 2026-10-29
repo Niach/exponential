@@ -1,7 +1,6 @@
-- Volání agenta (beta): zavolejte agentovi svého hlasového zařízení z iPhonu, webu nebo desktopové aplikace a mluvte s ním bez rukou
-- Probouzecí slovo (beta): řekněte probouzecí frázi u svého hlasového zařízení a začněte mluvit, bez klávesové zkratky
-- Mluvené odpovědi (beta): odpovědi se čtou nahlas anglicky a německy, němčina nyní začne mluvit mnohem rychleji
-- Hlasové návrhy (beta): když chce agent hlasem něco změnit, ukáže kartu a počká na vaše ano
-- Přerušené relace pokračují samy, relace ve frontě čekají na své zařízení a karty s plánem a otázkami dorazí k týmovému agentovi
-- Vyberte více chatů a označte je jako přečtené, archivujte nebo smažte; archivace je skryje jen vám
-- Všechna zaškrtávací políčka jsou nyní hranatá, stránka Zařízení ukazuje jeden řádek na počítač a odmítnutý merge se objeví ve vlákně s možností Zkusit znovu
+- Stories: co vám agenti ukazují (otázky, plány, výsledky se snímky obrazovky), se objeví jako stories nad Chaty; listujte jimi a odpovídejte přímo tam
+- Váš Asistent: každý člen dostane vlastního Asistenta s vlastním chatem, hlasem a rozvrhem; Nastavení jsou kolem něj nově uspořádána
+- Hovory jako po telefonu: hovor nejdřív zazvoní, pak se ozve Hello?, na obrazovce hovoru s kulatými tlačítky pro ztlumení, reproduktor a zavěšení
+- Režim schůzky: váš Asistent může sledovat schůzku, kterou spustíte na desktopu, se souhlasem všech, a po zvoleném čase se sám zastaví
+- Propojené chaty: zpráva z jiného chatu ukazuje, odkud pochází; klepněte na ni a přejděte tam a zpět
+- Opravy: záhlaví chatů odpovídají ostatním aplikacím, rychlé opětovné vytočení znovu zazvoní a režim plánu zmizel (plány jsou karty, na které odpovídáte)

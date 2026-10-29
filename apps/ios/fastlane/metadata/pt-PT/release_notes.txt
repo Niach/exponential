@@ -1,7 +1,6 @@
-- Ligar ao seu agente (beta): ligue ao agente do seu dispositivo de voz a partir do iPhone, da web ou da app de computador e fale com ele sem usar as mãos
-- Palavra de ativação (beta): diga a frase de ativação perto do seu dispositivo de voz para começar a falar, sem atalho
-- Respostas faladas (beta): as respostas são lidas em voz alta em inglês e alemão, e o alemão começa agora a falar muito mais depressa
-- Propostas por voz (beta): quando o agente quer alterar algo por voz, mostra um cartão e espera pelo seu sim
-- As sessões interrompidas retomam sozinhas, as sessões em fila esperam pelo seu dispositivo e os cartões de plano e de pergunta chegam ao agente da equipa
-- Selecione várias conversas para as marcar como lidas, arquivar ou eliminar; arquivar só as oculta para si
-- Todas as caixas de verificação são agora quadradas, a página Dispositivos mostra uma linha por máquina e um merge recusado aparece na conversa com Tentar novamente
+- Stories: o que os seus agentes lhe mostram (perguntas, planos, resultados com capturas de ecrã) aparece como stories por cima das Conversas; percorra-as e responda ali mesmo
+- O seu Assistente: cada membro tem o seu próprio Assistente, com conversa, voz e agenda próprias; as Definições foram reorganizadas à sua volta
+- Chamadas como ao telefone: uma chamada toca primeiro e depois atende com Hello?, num ecrã de chamada com botões redondos para silenciar, altifalante e desligar
+- Modo reunião: o seu Assistente pode acompanhar uma reunião que inicia no computador, com o consentimento de todos, e para sozinho após o tempo que escolher
+- Conversas ligadas: uma mensagem de outra conversa indica de onde veio; toque nela para ir até lá e voltar
+- Correções: os cabeçalhos das conversas coincidem com as outras apps, uma nova chamada rápida volta a tocar e o modo de plano desapareceu (os planos são cartões a que responde)

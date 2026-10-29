@@ -1529,6 +1529,28 @@
       }
     },
     {
+      "id": "settings-assistant-meeting",
+      "group": "settings",
+      "title": "Settings · Assistant · Meeting mode",
+      "blurb": "NEW-57 + FEED-163 (meeting.json): the Assistant's Voice block scrolled to its Meeting mode rows: Meeting mode, Stop after (the auto-stop hours) and Desktop audio.",
+      "order": 29,
+      "web": {
+        "route": "/t/$teamSlug/settings/assistant",
+        "anchor": {
+          "text": "Stop after",
+          "timeoutMs": 20000
+        },
+        "recipe": "scrollToMeetingMode",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "The settings drive opens a pane at its top; the Meeting rows sit below the fold and no drive scrolls yet, so desktop is not driven.",
+        "ios": "The sg_settings-assistant specimen covers the Assistant page; no scrolled native shot.",
+        "android": "As iOS: sg_settings-assistant covers the page; no scrolled native shot."
+      }
+    },
+    {
       "id": "settings-api-keys",
       "group": "settings",
       "title": "Settings · Security",

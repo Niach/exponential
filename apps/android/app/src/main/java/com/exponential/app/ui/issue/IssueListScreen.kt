@@ -258,6 +258,7 @@ fun IssueListScreen(
     // #EXP-1383: the team's agents; a solo team hides its assignee control
     // only while it has none (an agent is someone to assign to).
     val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
+    val assignableAgents by viewModel.assignableAgents.collectAsStateWithLifecycle()
     val soloMemberId = soloMemberIdRaw.takeIf { teamAgents.isEmpty() }
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
@@ -570,7 +571,7 @@ fun IssueListScreen(
         )
         BulkSheet.Assignee -> AssigneePicker(
             members = state.teamUsers.map { it.toPickerMember() },
-            agents = teamAgents.map { it.toPickerAgent() },
+            agents = assignableAgents.map { it.toPickerAgent() },
             value = sharedAssignee.orEmpty(),
             onChange = { picked ->
                 viewModel.bulkUpdateAssignee(selectedIds, assigneeFromPickerValue(picked.firstOrNull()))

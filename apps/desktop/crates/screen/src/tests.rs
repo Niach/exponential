@@ -507,12 +507,12 @@ fn only_work_displays_are_captured_each_with_its_own_label() {
     assert_eq!(count(&rig.memory), none_at, "no work display, no frame");
 
     // Display 2 shows Notes on top: its frames say so.
-    let notes = TopWindow { display: 2, app: "Notes".into(), title: "Shopping list".into() };
+    let notes = TopWindow { display: 2, app: "Notes".into(), app_id: None, title: "Shopping list".into() };
     *rig.view.lock().unwrap() = Some(ScreenView { focused: Some(window("Zed", "main.rs")), work: vec![1, 2], tops: vec![notes] });
     wait_until(|| rig.rows().iter().any(|row| row.display == 2 && row.app == "Notes"));
     assert!(rig.rows().iter().filter(|row| row.display == 2).last().is_some_and(|row| row.title == "Shopping list"));
     // A vault on top of display 2: display 1 goes on, display 2 stops.
-    let vault = TopWindow { display: 2, app: "Bitwarden".into(), title: "Vault".into() };
+    let vault = TopWindow { display: 2, app: "Bitwarden".into(), app_id: None, title: "Vault".into() };
     *rig.view.lock().unwrap() = Some(ScreenView { focused: Some(window_on(1, "Zed", "main.rs")), work: vec![1, 2], tops: vec![vault] });
     std::thread::sleep(Duration::from_millis(60));
     wait_until(|| !rig.memory.encoding());
@@ -522,6 +522,16 @@ fn only_work_displays_are_captured_each_with_its_own_label() {
     assert_eq!(rig.rows().iter().filter(|row| row.display == 2).count(), twos, "the vault's display is skipped");
     assert!(rig.rows().iter().all(|row| row.app != "Bitwarden"));
     rig.memory.stop(true);
+}
+
+/// #FEED-164: a display whose top window is denylisted BY ITS APP ID (the
+/// macOS bundle id; the name says nothing) is skipped, like PAUSE and MASK.
+#[test]
+fn a_top_window_denylisted_by_its_app_id_skips_its_display() {
+    let top = |app_id: Option<&str>| TopWindow { display: 2, app: "Desktop".into(), app_id: app_id.map(Into::into), title: "Vault".into() };
+    let with = |top| ScreenView { focused: Some(window("Zed", "main.rs")), work: vec![1, 2], tops: vec![top] };
+    assert_eq!(engine::capturing(Some(&with(top(None))), false), [1, 2]);
+    assert_eq!(engine::capturing(Some(&with(top(Some("com.bitwarden.desktop")))), false), [1]);
 }
 
 #[test]

@@ -142,7 +142,7 @@ export const issueDraftsRouter = router({
         })
       }
       if (input.assigneeAgentId) {
-        await assertAgentInTeam(ctx.db, input.assigneeAgentId, input.teamId)
+        await assertAgentInTeam(ctx.db, input.assigneeAgentId, input.teamId, ctx.session.user.id)
       }
 
       let threadRootId: string | null | undefined = input.sessionId

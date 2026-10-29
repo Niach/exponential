@@ -14,6 +14,8 @@ import { useTeamRepos } from "@/hooks/use-team-repos"
 import { usePrompts } from "@/hooks/use-prompts"
 import {
   composerAgentRow,
+  pickForSubject,
+  seedPick,
   TEMPORARY_PICK,
   type ComposerAgentRowState,
 } from "@exp/domain-contract/composer-agent-row"
@@ -343,6 +345,12 @@ export function useLaunchComposer({
     // NEW-2 prompts start a new root: never a message to an agent.
     if (id !== TEMPORARY_PICK) setSubject((current) => (current?.kind === `prompt` ? null : current))
   }, [])
+  // S-3 (composer-home.json `agentRow.subjectCases`): an issue or prompt
+  // subject is a launch: the row follows to Temporary session (a later tap
+  // on an agent still wins: it changes no subject).
+  useEffect(() => {
+    setPicked((current) => pickForSubject(subject?.kind, current))
+  }, [subject])
 
   // Codeable issues live on boards that HAVE a repo (coding gates on repo
   // presence). Sorted ids keep the dep string stable.
@@ -443,6 +451,11 @@ export function useLaunchComposer({
 
   useEffect(() => {
     if (!seed) return
+    // S-3 (`agentRow.seedCases`): a seeded launch starts on Temporary
+    // session, so the send is a launch with the subject, never a message to
+    // the Assistant.
+    const seedPicked = seedPick(seed)
+    if (seedPicked) setPicked(seedPicked)
     if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
     }
@@ -473,10 +486,9 @@ export function useLaunchComposer({
   // NEW-2: the `/` menu's pick. The prompt replaces whatever subject is up
   // (issues included: picking the other kind swaps).
   const pickPrompt = useCallback((promptId: string) => {
-    setSubject({ kind: `prompt`, id: promptId })
     // S-3: a prompt starts a new root: the agent row moves to Temporary
-    // session (a message to an agent takes no prompt).
-    setPicked(TEMPORARY_PICK)
+    // session (a message to an agent takes no prompt; the subject effect).
+    setSubject({ kind: `prompt`, id: promptId })
   }, [])
 
   const clearPrompt = useCallback(() => {

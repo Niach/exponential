@@ -127,8 +127,7 @@ final class LaunchOptionsStateTests: XCTestCase {
         state.ultracode = true
         let claude = state.buildOptions()
         XCTAssertEqual(claude.cli, "claude")
-        // S-3: plan mode left the launch keys.
-        XCTAssertNil(claude.planMode)
+        // S-3: plan mode left the launch keys (and the type).
         XCTAssertEqual(claude.ultracode, true)
         XCTAssertNil(claude.mcpServerIds)
         XCTAssertNil(claude.computerUse)

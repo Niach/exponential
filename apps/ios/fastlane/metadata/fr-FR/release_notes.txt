@@ -1,7 +1,6 @@
-- Appeler votre agent (beta) : appelez l'agent de votre appareil vocal depuis l'iPhone, le web ou l'app de bureau et parlez-lui les mains libres
-- Mot d'activation (beta) : dites la phrase d'activation près de votre appareil vocal pour parler, sans raccourci
-- Réponses parlées (beta) : les réponses sont lues à voix haute en anglais et en allemand, et l'allemand commence désormais à parler bien plus vite
-- Propositions vocales (beta) : quand votre agent veut modifier quelque chose à la voix, il affiche une carte et attend votre oui
-- Les sessions interrompues reprennent seules, les sessions en file attendent leur appareil et les cartes de plan et de question arrivent à l'agent de votre équipe
-- Sélectionnez plusieurs chats pour les marquer comme lus, les archiver ou les supprimer ; l'archivage ne les masque que pour vous
-- Toutes les cases à cocher sont désormais carrées, la page Appareils affiche une ligne par machine et un merge refusé apparaît dans le fil avec Réessayer
+- Stories : ce que vos agents vous montrent (questions, plans, résultats avec captures d'écran) arrive sous forme de stories au-dessus des Chats ; faites-les défiler et répondez sur place
+- Votre Assistant : chaque membre a son propre Assistant, avec son chat, sa voix et son planning ; les Réglages sont regroupés autour de lui
+- Des appels comme au téléphone : un appel sonne d'abord, puis répond par Hello?, sur un écran d'appel avec des boutons ronds pour couper le micro, le haut-parleur et raccrocher
+- Mode réunion : votre Assistant peut suivre une réunion que vous lancez sur votre desktop, avec l'accord de tous, et s'arrête seul après la durée choisie
+- Chats liés : un message venu d'un autre chat indique sa provenance ; touchez-le pour y aller et revenir
+- Corrections : les en-têtes de chat correspondent aux autres apps, un rappel rapide sonne à nouveau et le mode plan disparaît (les plans sont des cartes auxquelles vous répondez)

@@ -16,6 +16,7 @@ import {
   type PlanCardQuestion,
 } from "@exp/db-schema/domain"
 import { PLAN_CARD_COPY, resolveUpload, type AskCardLike } from "@exp/domain-contract/plan-card"
+import { isStoryCard } from "@exp/domain-contract/stories"
 import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -307,7 +308,8 @@ const isAsk = (card: { kind: string }) => card.kind === `plan` || card.kind === 
 
 /**
  * S-3 `exponential_show {replace: true}`: the session's own card of the
- * CURRENT turn (newer than the last input the device delivered to it) is
+ * CURRENT turn (newer than WHEN the device delivered its last input: a
+ * message still queued mid-turn is the next turn's, F29) is
  * edited in place: the same row, so every client's card updates instead of
  * a new one landing. A card a person already answered is final (refused);
  * a card of the other family (a plain surface vs an ask/plan) or none this
@@ -319,10 +321,10 @@ export async function replaceTarget(
   card: ShowCard
 ): Promise<{ id: string; card: MessageCard } | null> {
   const [input] = await tx
-    .select({ at: messages.createdAt })
+    .select({ at: messages.consumedAt })
     .from(messages)
     .where(and(eq(messages.sessionId, sessionId), pendingInput(), isNotNull(messages.consumedAt)))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.consumedAt))
     .limit(1)
   const [row] = await tx
     .select({ id: messages.id, card: messages.card, answeredAt: messages.answeredAt })
@@ -332,7 +334,7 @@ export async function replaceTarget(
         eq(messages.sessionId, sessionId),
         eq(messages.authorSessionId, sessionId),
         sql`${messages.card}->>'kind' IN ('surface', 'question', 'plan')`,
-        ...(input ? [gt(messages.createdAt, input.at)] : [])
+        ...(input?.at ? [gt(messages.createdAt, input.at)] : [])
       )
     )
     .orderBy(desc(messages.createdAt))
@@ -347,6 +349,24 @@ export async function replaceTarget(
   }
   if (isAsk(row.card) !== isAsk(card)) return null
   return { id: row.id, card: row.card }
+}
+
+/** S-3 (F37): a replaced card keeps the pictures already uploaded to the
+ *  row (same label = same picture): their attachment, size and a plan's
+ *  `upload:<label>` embeds resolve on the new card too. */
+export function carryPictures(before: MessageCard, card: ShowCard): ShowCard {
+  if (!hasCardPictures(before)) return card
+  let next = card
+  for (const picture of before.pictures ?? []) {
+    if (!picture.attachmentId) continue
+    next = resolveUpload(next as AskCardLike, {
+      label: picture.label,
+      attachmentId: picture.attachmentId,
+      width: picture.width ?? null,
+      height: picture.height ?? null,
+    }) as ShowCard
+  }
+  return next
 }
 
 /** S-3: THE show path (`exponential_show`): a plain surface, a question or
@@ -375,14 +395,15 @@ export async function postShowCard(args: {
         if (!target) return null
         await generateTxId(tx)
         const now = new Date()
-        await tx.update(messages).set({ card: args.card, updatedAt: now }).where(eq(messages.id, target.id))
+        const card = carryPictures(target.card, args.card)
+        await tx.update(messages).set({ card, updatedAt: now }).where(eq(messages.id, target.id))
         if (isAsk(args.card)) {
           // The parent's / watchers' ask mirrors keep pointing at the row;
           // their text follows (a neutral private line stays as it is).
           const before = askText(session, target.card as Extract<MessageCard, { kind: `question` | `plan` }>)
           await tx
             .update(messages)
-            .set({ body: askText(session, args.card as Extract<MessageCard, { kind: `question` | `plan` }>), updatedAt: now })
+            .set({ body: askText(session, card as Extract<MessageCard, { kind: `question` | `plan` }>), updatedAt: now })
             .where(
               and(
                 eq(messages.authorSessionId, session.id),
@@ -392,18 +413,19 @@ export async function postShowCard(args: {
               )
             )
         }
-        return target.id
+        return { id: target.id, card }
       })
     : null
   if (replaced) {
     return {
-      messageId: replaced,
+      messageId: replaced.id,
       replaced: true,
+      // Only the labels still waiting: a carried picture is already filed.
       uploads: mintCardUploads({
         userId: args.userId,
         sessionId: args.sessionId,
-        messageId: replaced,
-        labels: (args.card.pictures ?? []).map((picture) => picture.label),
+        messageId: replaced.id,
+        labels: (replaced.card.pictures ?? []).filter((picture) => !picture.attachmentId).map((picture) => picture.label),
       }),
       ...(isAsk(args.card) ? { next: PLAN_CARD_COPY.proposeNext } : {}),
     }
@@ -620,7 +642,8 @@ export async function publishCardPicture(
   }
   // S-3: a story picture is a PR picture: the thread's live PR bodies
   // re-render (lib/pull-requests.ts, lazily: it imports this module's peers).
-  void import(`@/lib/pull-requests`)
+  // A card outside the stories (`story: false`, an engine ask) is no PR picture.
+  if (isStoryCard(published.card)) void import(`@/lib/pull-requests`)
     .then(({ syncPullRequestBodies }) => syncPullRequestBodies(published.rootId))
     .catch((error: unknown) => console.error(`[stories] PR body sync failed`, error))
   return { label: published.label, card: published.card }

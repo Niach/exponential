@@ -170,20 +170,14 @@ export const SLIDES: Slide[] = [
     },
   },
   {
-    id: `review`,
-    index: 5,
-    shot: `review`,
-    eyebrow: `Reviews`,
-    headline: [`Review`, `and merge`],
-    sub: `Every open PR, one tap to squash-merge`,
-    forms: PHONES,
-  },
-  {
     // Release train 2026-10-23: actions are retired (prompts replaced them,
-    // NEW-7 dropped the 06_actions capture), so the sixth slide is the inbox
-    // the lanes already photograph (07_inbox) and store-crops.ts already frames.
+    // NEW-7 dropped the 06_actions capture), so the inbox the lanes already
+    // photograph (07_inbox) and store-crops.ts already frames took its place.
+    // Release train 2026-10-29: the PR review slide is retired with the Guide
+    // tab it walked (S-3, both store tests dropped 05_review), so the inbox is
+    // the fifth slide.
     id: `inbox`,
-    index: 6,
+    index: 5,
     shot: `inbox`,
     eyebrow: `Inbox`,
     headline: [`What needs you,`, `in one list`],

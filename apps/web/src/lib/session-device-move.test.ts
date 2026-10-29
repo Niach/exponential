@@ -23,7 +23,6 @@ import {
   REASON_NO_LOGIN,
   REASON_OFFLINE,
   REASON_STEER,
-  REASON_UPDATE,
   REASON_VISIBILITY,
   sessionDeviceMoveRows,
 } from "@/lib/session-device-move"
@@ -42,7 +41,6 @@ const SHARED = [
   REASON_AGENT,
   REASON_OFFLINE,
   REASON_VISIBILITY,
-  REASON_UPDATE,
   REASON_NO_LOGIN,
   MOVE_FAILED_TOAST,
 ]
@@ -80,8 +78,6 @@ const device = (
     deviceLabel: `Mac`,
     online: true,
     sharedTeamIds: [],
-    // The first handoff-capable build (`MOVE_MIN_VERSION`).
-    version: `0.14.73`,
     agentAccounts: logins(...agents),
     ...rest,
   }
@@ -147,20 +143,12 @@ describe(`deviceMoveTargetReason`, () => {
     expect(
       deviceMoveTargetReason(device({ sharedTeamIds: [`other-team`] }), session())
     ).toBeNull()
-    // A build before the first handoff-capable one (an unreported version
-    // is an old build) is refused before its logins are looked at.
+    // No version gate: an old or unreported build is never refused for it
+    // (the CLIENT_MIN_VERSION floor does that job).
     expect(
-      deviceMoveTargetReason(
-        device({ version: `0.14.72`, logins: [] }),
-        session()
-      )
-    ).toBe(REASON_UPDATE)
-    expect(
-      deviceMoveTargetReason(device({ version: null, logins: [] }), session())
-    ).toBe(REASON_UPDATE)
-    expect(
-      deviceMoveTargetReason(device({ version: `0.15.0` }), session())
+      deviceMoveTargetReason(device({ version: `0.14.72` }), session())
     ).toBeNull()
+    expect(deviceMoveTargetReason(device({ version: null }), session())).toBeNull()
     expect(deviceMoveTargetReason(device({ logins: [`codex`] }), session())).toBe(
       REASON_NO_LOGIN
     )
@@ -202,7 +190,7 @@ describe(`sessionDeviceMoveRows`, () => {
       [`box`, `Box`, false, null],
       [`old`, `Old`, false, REASON_OFFLINE],
       [`srv`, `Build — Ada`, false, REASON_VISIBILITY],
-      [`stale`, `Stale`, false, REASON_UPDATE],
+      [`stale`, `Stale`, false, null],
     ])
   })
 

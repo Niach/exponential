@@ -239,6 +239,11 @@ class StoreScreenshotsTest {
         Espresso.pressBack()
         flow.settle(longer = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
+        // The clock is paused (EXP-1154): pump until the pop lands on the
+        // board and its tab bar is back (the retired 5_review block's first
+        // waitFor used to do this).
+        flow.waitFor(hasTestTag("tab-threads"), NAV_TIMEOUT)
+        flow.settle()
 
         // S-3: the PR review slide (5_review) is retired with the Guide tab
         // it walked (stories replace the Guide; iOS retired 05_review too).

@@ -7,6 +7,7 @@ const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 60 * 60 * 1000)
 type Root = Parameters<typeof agentReuseRefusal>[0]
 const root = (over: Partial<Root> = {}): Root => ({
   status: `idle`,
+  needsInput: false,
   endedAt: null,
   lastTurnAt: hoursAgo(1),
   lastActivityAt: hoursAgo(1),
@@ -34,5 +35,9 @@ describe(`S-3 agent session reuse`, () => {
   it(`refuses a tree with reuseMaxChildren sub-sessions`, () => {
     expect(agentReuseRefusal(root(), rules.reuseMaxChildren - 1, NOW)).toBeNull()
     expect(agentReuseRefusal(root(), rules.reuseMaxChildren, NOW)).toMatch(/sub-sessions/)
+  })
+  it(`always reuses a thread waiting on an answer (the reply answers it)`, () => {
+    const waiting = root({ needsInput: true, lastTurnAt: hoursAgo(rules.reuseMaxIdleHours + 1) })
+    expect(agentReuseRefusal(waiting, rules.reuseMaxChildren, NOW)).toBeNull()
   })
 })

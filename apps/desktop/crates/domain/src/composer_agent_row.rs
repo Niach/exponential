@@ -109,6 +109,31 @@ pub fn composer_agent_row<'a>(
     }
 }
 
+/// The pick a page mount starts on (TS `seedPick`, `agentRow.seedCases`):
+/// a seed with a subject (issues, a prompt, a device) is a LAUNCH, so the
+/// row starts on Temporary session; anything else = None (the default).
+pub fn seed_pick(has_issues: bool, has_prompt: bool, has_device: bool) -> Option<String> {
+    (has_issues || has_prompt || has_device).then(|| COMPOSER_AGENT_ROW.temporary_id.clone())
+}
+
+/// The kind of subject the composer holds, for [`pick_for_subject`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerSubjectKind {
+    Issues,
+    Prompt,
+    Other,
+}
+
+/// The pick after the composer's subject changed (TS `pickForSubject`,
+/// `agentRow.subjectCases`): an issue or prompt subject is a launch, so the
+/// row follows to Temporary session; any other subject keeps `current`.
+pub fn pick_for_subject(subject: ComposerSubjectKind, current: Option<&str>) -> Option<String> {
+    match subject {
+        ComposerSubjectKind::Issues | ComposerSubjectKind::Prompt => Some(COMPOSER_AGENT_ROW.temporary_id.clone()),
+        ComposerSubjectKind::Other => current.map(str::to_string),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,6 +171,35 @@ mod tests {
             assert_eq!(state.selected, expected["selected"].as_str().unwrap(), "{}", case["name"]);
             assert_eq!(state.label, expected["label"].as_str().unwrap(), "{}", case["name"]);
             assert_eq!(state.temporary(), state.selected == "temporary");
+        }
+    }
+
+    #[test]
+    fn agent_row_seed_cases_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(COMPOSER_HOME_JSON).unwrap();
+        let cases = fixture["agentRow"]["seedCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let seed = &case["seed"];
+            let has_issues = seed["issueIds"].as_array().is_some_and(|ids| !ids.is_empty());
+            let pick = seed_pick(has_issues, seed["promptId"].is_string(), seed["deviceId"].is_string());
+            assert_eq!(pick.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn agent_row_subject_cases_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(COMPOSER_HOME_JSON).unwrap();
+        let cases = fixture["agentRow"]["subjectCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let subject = match case["subject"].as_str() {
+                Some("issues") => ComposerSubjectKind::Issues,
+                Some("prompt") => ComposerSubjectKind::Prompt,
+                _ => ComposerSubjectKind::Other,
+            };
+            let pick = pick_for_subject(subject, case["current"].as_str());
+            assert_eq!(pick.as_deref(), case["expected"].as_str(), "{}", case["name"]);
         }
     }
 }

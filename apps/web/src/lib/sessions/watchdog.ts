@@ -232,8 +232,9 @@ export function silentMinutes(alive: number, now: Date): number {
  *  busy, `device_offline` + `resume` (its next heartbeat clears it; its
  *  device continues it when back, `restoreDeviceSessionsInTx`). EXP-1374:
  *  an INTERRUPTION, not on a person (`needs_input` untouched). S-3: an idle
- *  session has nothing to interrupt and is never flagged, and the flag is
- *  silent (no bus line: an interruption is invisible ×4). */
+ *  session has nothing to interrupt and is never flagged (a `running` one
+ *  between turns just reads `idle`), and the flag is silent (no bus line:
+ *  an interruption is invisible ×4). */
 async function flagOffline(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
@@ -263,6 +264,20 @@ async function flagOffline(now: Date): Promise<number> {
         })
         .where(eq(sessions.id, row.id))
     }
+    // A claimed session between turns (`running`, not busy) on the same dead
+    // host reads `idle`: nothing to interrupt, so no flag and no bus line,
+    // but older phones read "running" from `status` alone.
+    await tx
+      .update(sessions)
+      .set({ status: `idle`, updatedAt: now })
+      .where(
+        and(
+          eq(sessions.status, `running`),
+          eq(sessions.busy, false),
+          isNotNull(sessions.deviceId),
+          sql`NOT EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${cutoff})`
+        )
+      )
     return rows.length
   })
 }

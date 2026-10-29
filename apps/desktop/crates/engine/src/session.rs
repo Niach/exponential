@@ -737,6 +737,12 @@ impl coding::pickup::LiveEngine for EngineSession {
         !self.agent_busy() && self.turn_signal().is_idle() && EngineSession::open_cards(self).is_empty()
     }
 
+    /// S-4: FEED-25's activity clock — the idle release never counts a
+    /// chat quiet from before its last output.
+    fn last_activity(&self) -> Option<std::time::Instant> {
+        Some(self.0.ctx.last_activity())
+    }
+
     /// EXP-1292: the account switch's stop — the row idles, never ends.
     fn suspend(&self) {
         EngineSession::kill(self, crate::lifecycle::SUSPEND_OUTCOME);

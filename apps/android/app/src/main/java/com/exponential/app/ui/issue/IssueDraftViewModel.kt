@@ -226,6 +226,13 @@ class IssueDraftViewModel @Inject constructor(
         teamQuery(emptyList()) { db, team -> db.agentDefinitionDao().observeByTeam(team) }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** S-3: the assignee picker's agents: another member's Assistant is never
+     *  one (`visibleAgent`); an assignment to it still reads off [teamAgents]. */
+    val assignableAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
+        combine(teamAgents, auth.userId) { rows, me ->
+            rows.filter { com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me) }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** EXP-50: the lone member of a solo team — hides the assignee chip. */
     val soloMemberId: StateFlow<String?> = members
         .map { rows -> rows.map { it.userId }.singleOrNull() }

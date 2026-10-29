@@ -1,7 +1,6 @@
-- Ring agenten din (beta): ring agenten på taleenheten din fra iPhone, nettet eller skrivebordsappen og snakk med den håndfritt
-- Vekkeord (beta): si vekkefrasen nær taleenheten din for å begynne å snakke, uten hurtigtast
-- Opplest svar (beta): svar leses høyt på engelsk og tysk, og tysk begynner nå å snakke mye raskere
-- Taleforslag (beta): når agenten vil endre noe med tale, viser den et kort og venter på ja fra deg
-- Avbrutte økter fortsetter av seg selv, økter i kø venter på enheten sin, og plan- og spørsmålskort når frem til teamagenten
-- Velg flere chatter for å merke dem som lest, arkivere eller slette dem; arkivering skjuler dem bare for deg
-- Alle avkrysningsbokser er nå firkantede, siden Enheter viser én linje per maskin, og en avvist merge vises i tråden med Prøv igjen
+- Stories: det agentene dine viser deg (spørsmål, planer, resultater med skjermbilder), kommer som stories øverst i Chatter; sveip gjennom dem og svar rett der
+- Din Assistent: hvert medlem får sin egen Assistent, med egen chat, stemme og tidsplan; Innstillinger er omgruppert rundt den
+- Samtaler som en telefonsamtale: en samtale ringer først og svarer så med Hello?, på en samtaleskjerm med runde knapper for demp, høyttaler og legg på
+- Møtemodus: Assistenten din kan følge et møte du starter på skrivebordet, med alles samtykke, og stopper av seg selv etter tiden du velger
+- Koblede chatter: en melding fra en annen chat viser hvor den kom fra; trykk på den for å hoppe dit og tilbake
+- Rettelser: chatoverskrifter samsvarer med de andre appene, en rask gjenoppringing ringer igjen, og planmodus er borte (planer er kort du svarer på)

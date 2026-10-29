@@ -351,7 +351,7 @@ pub(crate) fn screen_view() -> Option<crate::ScreenView> {
 
 /// [`screen_view`] off one display set (with pixel sizes) and one window
 /// list (top first); `app_id` names a pid's app (asked for the focused
-/// window only).
+/// window and each display's top window).
 pub(crate) fn view_of(
     displays: &[(DisplayInfo, (u32, u32))],
     windows: &[WindowInfo],
@@ -366,7 +366,12 @@ pub(crate) fn view_of(
         if let Some(index) = window_display(&infos, window) {
             let display = index as u32 + 1;
             if !tops.iter().any(|top| top.display == display) {
-                tops.push(crate::TopWindow { display, app: window.app.clone(), title: window.title.clone() });
+                tops.push(crate::TopWindow {
+                    display,
+                    app: window.app.clone(),
+                    app_id: window.pid.and_then(&app_id),
+                    title: window.title.clone(),
+                });
             }
         }
     }
@@ -626,8 +631,9 @@ mod tests {
         assert_eq!((focused.app.as_str(), focused.app_id.as_deref(), focused.display), ("Passwords", Some("app.7"), 1));
         assert_eq!(focused.rect, crate::ScreenRect { x: 200, y: 0, width: 1000, height: 1000 });
         assert_eq!(view.work, [1, 2]);
-        let tops: Vec<(u32, &str)> = view.tops.iter().map(|top| (top.display, top.app.as_str())).collect();
-        assert_eq!(tops, [(1, "Passwords"), (2, "Notes")]);
+        let tops: Vec<(u32, &str, Option<&str>)> =
+            view.tops.iter().map(|top| (top.display, top.app.as_str(), top.app_id.as_deref())).collect();
+        assert_eq!(tops, [(1, "Passwords", Some("app.7")), (2, "Notes", Some("app.7"))]);
         // A picked display that is gone: no work display; no focus = None.
         let view = view_of(&displays, &windows[..1], Some("id-unplugged"), |_| None);
         assert_eq!((view.focused, view.work), (None, vec![]));

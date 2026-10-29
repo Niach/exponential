@@ -53,6 +53,7 @@ vi.mock(`@/lib/metrics/registry`, () => ({
 import { sendToUsers } from "@/lib/integrations/fcm"
 import {
   deliverableRecipients,
+  notifyDeviceShareRemoved,
   notifySessionBlocked,
   sendAgentMessage,
 } from "./notifications"
@@ -163,6 +164,34 @@ describe(`sendAgentMessage — blocked recipients never get a row, self always p
 
 // EXP-980: a walled run tells its OWNER — every run, not only a child's
 // parent agent.
+// FEED-159: an instance admin's key reset tells the owner without naming the
+// admin (no actor lookup at all); a team owner's drop names them.
+describe(`notifyDeviceShareRemoved — an admin key reset names no one`, () => {
+  const args = { ownerId: `owner`, actorId: `admin`, teamId: `team-1`, deviceLabel: `box`, endedCount: 1 }
+
+  it(`reads the neutral line for cause admin`, async () => {
+    selectResults.push([{ slug: `acme`, name: `Acme` }]) // the team
+    selectResults.push([{ id: `owner` }]) // membership guard
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([]) // push prefs
+    await notifyDeviceShareRemoved({ ...args, cause: `admin` })
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1]).toMatchObject({
+      title: `An instance admin reset the key of box, which removed your share with Acme`,
+      body: `1 session running on it for a teammate ended.`,
+    })
+  })
+
+  it(`names a team owner's drop`, async () => {
+    selectResults.push([{ slug: `acme`, name: `Acme` }])
+    selectResults.push([{ name: `Ada`, email: `ada@example.com` }]) // the actor
+    selectResults.push([{ id: `owner` }])
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([])
+    await notifyDeviceShareRemoved({ ...args, cause: `dropped` })
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Ada removed your share of box with Acme`)
+  })
+})
+
 describe(`notifySessionBlocked — the run's owner gets a row and a push that route to the run`, () => {
   const blocked = {
     kind: `rate_limit`,

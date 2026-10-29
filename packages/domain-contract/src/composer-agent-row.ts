@@ -44,3 +44,25 @@ export function composerAgentRow<T extends ComposerAgentRowAgent>(input: {
   const label = agent ? fixture.agentRow.copy.to.replace(`{name}`, () => agent.name) : fixture.agentRow.copy.temporary
   return { agents, options, selected, agent, label }
 }
+
+/** The pick a page mount starts on (`agentRow.seedCases`): a seed with a
+ *  subject (issues, a prompt, a device) is a LAUNCH, so the row starts on
+ *  Temporary session and the subject stays the headline; anything else =
+ *  null (the default). */
+export function seedPick(seed: {
+  issueIds?: readonly string[]
+  promptId?: string | null
+  deviceId?: string | null
+}): string | null {
+  return (seed.issueIds?.length ?? 0) > 0 || seed.promptId || seed.deviceId ? TEMPORARY_PICK : null
+}
+
+/** The pick after the composer's subject changed (`agentRow.subjectCases`):
+ *  an issue or prompt subject is a launch, so the row follows to Temporary
+ *  session; any other subject keeps `current`. */
+export function pickForSubject(
+  subject: `issues` | `prompt` | string | null | undefined,
+  current: string | null
+): string | null {
+  return subject === `issues` || subject === `prompt` ? TEMPORARY_PICK : current
+}

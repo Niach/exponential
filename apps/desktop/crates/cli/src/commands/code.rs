@@ -25,14 +25,13 @@ pub fn run(args: &[String]) -> CommandResult {
         agent: take_value(&mut args, "--agent"),
         model: take_value(&mut args, "--model"),
         effort: take_value(&mut args, "--effort"),
-        plan: take_flag(&mut args, "--plan"),
     };
     let detach = take_flag(&mut args, "--detach");
     // EXP-1110: `--device` starts the run on another registered machine.
     let remote = super::remote::RemoteFlags::take(&mut args);
     reject_unknown_flags(&args)?;
     let Some(issue_ref) = args.first() else {
-        anyhow::bail!("usage: exponential code <ISSUE> [--device <label|id> [--account <profile>] [--follow]] [--agent claude|codex] [--model m] [--effort e] [--plan] [--detach]");
+        anyhow::bail!("usage: exponential code <ISSUE> [--device <label|id> [--account <profile>] [--follow]] [--agent claude|codex] [--model m] [--effort e] [--detach]");
     };
 
     if remote.device.is_none() {
@@ -54,7 +53,7 @@ pub fn run(args: &[String]) -> CommandResult {
         });
     }
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
-    let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
+    let options = launch::agent_options(&ctx.settings, &flags)?;
     println!("Starting {} — {}", issue.identifier, issue.title);
 
     let input = api::mcp_tools::SessionsSendInput {

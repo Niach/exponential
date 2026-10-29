@@ -1,0 +1,6 @@
+- Stories: agent questions, plans and results with screenshots land as stories on top of Chats
+- Your own Assistant with its own chat, voice and schedule; Settings regrouped around it
+- Calls ring first and open a phone-style call screen
+- Meeting mode with consent and a Stop after limit
+- Linked chats: jump to the chat a message came from
+- Fixes: calls that can't start tell you why, plan mode removed

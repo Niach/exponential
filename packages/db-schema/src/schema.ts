@@ -2537,9 +2537,18 @@ export const messages = pgTable(
     // expires `contract.meeting.retentionDays` after it lands; the watchdog
     // deletes it then. NULL = kept. SERVER-ONLY: never in the shape's columns.
     expiresAt: timestamp(`expires_at`, { withTimezone: true }),
+    // F21: the sender's idempotency key (`sessions.send {clientMessageId}`,
+    // tRPC only): a retried send naming it again returns this row instead
+    // of posting twice. SERVER-ONLY: never in the shape's columns.
+    clientMessageId: varchar(`client_message_id`, { length: 64 }),
     ...timestamps,
   },
   (table) => [
+    // F21: one row per (conversation, client message id); the key leads
+    // (a retry looks it up by key + sender).
+    uniqueIndex(`uq_messages_client_message_id`)
+      .on(table.clientMessageId, table.conversationId)
+      .where(sql`client_message_id IS NOT NULL`),
     // #NEW-57: the watchdog's prune.
     index(`idx_messages_expires`).on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
     index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
@@ -3659,6 +3668,8 @@ export const selectSyncedMessageSchema = selectMessageSchema.omit({
   ownerId: true,
   // #NEW-57: server-only (the meeting prune), never synced.
   expiresAt: true,
+  // F21: server-only (the send's idempotency key), never synced.
+  clientMessageId: true,
 })
 export const selectSessionReadSchema = createSelectSchema(sessionReads)
 // FEED-160: `github_updated_at` is server-only (outside the shape allowlist).

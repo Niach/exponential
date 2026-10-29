@@ -134,6 +134,7 @@ const h = vi.hoisted(() => {
     foreignHostedSessionIds: vi.fn(async (..._args: unknown[]) => [] as string[]),
     endHostedSessions: vi.fn(async (..._args: unknown[]) => [] as string[]),
     pauseDeviceTriggers: vi.fn(async (..._args: unknown[]) => {}),
+    stopMeetingUnlessPrivate: vi.fn(async (..._args: unknown[]) => false),
   }
 })
 
@@ -163,6 +164,12 @@ vi.mock(`@/lib/sessions/lifecycle`, () => ({
 // FEED-154: the device owner's notice (notifications tests cover delivery).
 vi.mock(`@/lib/integrations/notifications`, () => ({
   notifyDeviceShareRemoved: vi.fn(async () => {}),
+}))
+// NEW-57: the meeting stop after a share (meeting.real-db.test.ts covers the
+// private-agent rule against Postgres).
+vi.mock(`@/lib/trpc/voice`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/trpc/voice")>()),
+  stopMeetingUnlessPrivate: h.stopMeetingUnlessPrivate,
 }))
 vi.mock(`@/lib/client-version`, () => ({
   versionPayload: () => ({
@@ -657,6 +664,16 @@ describe(`devices.setShared`, () => {
     expect(h.state.updates[0]?.set).toMatchObject({
       sharedTeamIds: [`11111111-1111-4111-8111-111111111111`],
     })
+  })
+
+  it(`a share with ANY team stops a running meeting (meeting.json SHARING); a withdrawal does not`, async () => {
+    h.state.selectQueue = sharedProbe()
+    await caller.setShared({ deviceId: `dev-1`, teamId: `11111111-1111-4111-8111-111111111111`, shared: true })
+    expect(h.stopMeetingUnlessPrivate).toHaveBeenCalledWith(h.db, `actor`)
+    h.stopMeetingUnlessPrivate.mockClear()
+    h.state.selectQueue = sharedProbe(`11111111-1111-4111-8111-111111111111`)
+    await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
+    expect(h.stopMeetingUnlessPrivate).not.toHaveBeenCalled()
   })
 
   it(`clears the share with teamId: null without a membership check`, async () => {
@@ -3049,13 +3066,13 @@ describe(`clearDeviceKey`, () => {
     expect(h.state.deletes).toBe(1)
     // One share withdrawal per row (the update mock records every write).
     expect(h.state.updates.filter((u) => `sharedTeamIds` in (u.set as object))).toHaveLength(2)
-    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-a`], { actorId: `admin`, deviceLabel: `box`, cause: `dropped` })
-    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-b`], { actorId: `admin`, deviceLabel: `box`, cause: `dropped` })
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-a`], { actorId: `admin`, deviceLabel: `box`, cause: `admin` })
+    expect(h.endHostedSessions).toHaveBeenCalledWith([`s-b`], { actorId: `admin`, deviceLabel: `box`, cause: `admin` })
     expect(notifyDeviceShareRemoved).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerId: `owner-a`, actorId: `admin`, teamId: TEAM_A, endedCount: 1, cause: `dropped` })
+      expect.objectContaining({ ownerId: `owner-a`, actorId: `admin`, teamId: TEAM_A, endedCount: 1, cause: `admin` })
     )
     expect(notifyDeviceShareRemoved).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerId: `owner-b`, actorId: `admin`, teamId: TEAM_B, endedCount: 1, cause: `dropped` })
+      expect.objectContaining({ ownerId: `owner-b`, actorId: `admin`, teamId: TEAM_B, endedCount: 1, cause: `admin` })
     )
   })
 

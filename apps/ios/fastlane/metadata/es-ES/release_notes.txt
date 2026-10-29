@@ -1,7 +1,6 @@
-- Llama a tu agente (beta): llama al agente de tu dispositivo de voz desde el iPhone, la web o la app de escritorio y háblale con las manos libres
-- Palabra de activación (beta): di la frase de activación cerca de tu dispositivo de voz para empezar a hablar, sin atajo
-- Respuestas habladas (beta): las respuestas se leen en voz alta en inglés y alemán, y el alemán ahora empieza a hablar mucho antes
-- Propuestas por voz (beta): cuando tu agente quiere cambiar algo por voz, muestra una tarjeta y espera tu sí
-- Las sesiones interrumpidas se reanudan solas, las sesiones en cola esperan a su dispositivo y las tarjetas de plan y de pregunta llegan a tu agente de equipo
-- Selecciona varios chats para marcarlos como leídos, archivarlos o eliminarlos; archivar solo los oculta para ti
-- Todas las casillas son ahora cuadradas, la página Dispositivos muestra una línea por equipo y un merge rechazado aparece en el hilo con Reintentar
+- Stories: lo que te muestran tus agentes (preguntas, planes, resultados con capturas) aparece como stories encima de Chats; deslízate por ellas y responde ahí mismo
+- Tu Asistente: cada miembro tiene su propio Asistente, con su propio chat, voz y horario; los Ajustes se reorganizan a su alrededor
+- Llamadas como por teléfono: una llamada suena primero y luego contesta con Hello?, en una pantalla de llamada con botones redondos de silencio, altavoz y colgar
+- Modo reunión: tu Asistente puede seguir una reunión que inicies en tu escritorio, con el consentimiento de todos, y se detiene solo pasado el tiempo que elijas
+- Chats enlazados: un mensaje de otro chat indica de dónde viene; tócalo para ir allí y volver
+- Correcciones: las cabeceras de chat coinciden con las otras apps, una rellamada rápida vuelve a sonar y el modo plan desaparece (los planes son tarjetas que respondes)

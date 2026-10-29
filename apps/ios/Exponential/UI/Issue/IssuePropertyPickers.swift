@@ -42,6 +42,7 @@ protocol IssuePropertyActions: AnyObject {
 /// - `onSelectBoard`: the face parks the board for its "Move issue" confirm;
 ///   the draft just takes it.
 struct IssuePropertyPickers<Model: IssuePropertyActions>: View {
+    @Environment(AppDependencies.self) private var deps
     let model: Model
     let child: Binding<IssuePropertyChild?>
     var boardPickerTitle: String = "Move to board"
@@ -93,7 +94,10 @@ struct IssuePropertyPickers<Model: IssuePropertyActions>: View {
 
             AssigneePicker(
                 members: model.teamUsers.map(AssigneePickerMember.init),
-                agents: model.teamAgents.map(AssigneePickerAgent.init),
+                // S-3: another member's Assistant is never an assignee option.
+                agents: model.teamAgents
+                    .filter { AgentSettings.visibleAgent($0, me: deps.auth.userId) }
+                    .map(AssigneePickerAgent.init),
                 // An EMPTY set is unassigned; the picker offers the row that
                 // clears the pick and reports it back as nothing. An agent
                 // row's value is `agent:<id>` (#EXP-1383).

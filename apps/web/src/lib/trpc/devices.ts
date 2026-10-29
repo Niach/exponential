@@ -633,14 +633,14 @@ async function settleSquats(
   actorId: string,
   squats: readonly SquatRow[],
   ending: ReadonlyMap<string, HostedByTeam>,
-  cause: `key` | `dropped` = `key`
+  cause: `key` | `dropped` | `admin` = `key`
 ): Promise<void> {
   for (const squat of squats) {
     const hosted = ending.get(squat.id) ?? []
     const ended = await endHostedSessions(hostedIds(hosted), {
       actorId,
       deviceLabel: squat.label,
-      cause: `dropped`,
+      cause: cause === `admin` ? `admin` : `dropped`,
     })
     for (const { teamId, ids } of hosted) {
       await notifyDeviceShareRemoved({
@@ -711,7 +711,9 @@ export async function clearDeviceKey(
     }
     return { txid: id, withdrawn, ending }
   })
-  await settleSquats(input.actorId, withdrawn, ending, `dropped`)
+  // FEED-159: an instance admin is no teammate: the owners and the ended
+  // runs read a neutral line, never the admin's name.
+  await settleSquats(input.actorId, withdrawn, ending, `admin`)
   return { ok: true, txid }
 }
 

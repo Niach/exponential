@@ -57,4 +57,34 @@ class ComposerAgentRowTest {
             assertEquals(name, expected.str("label"), state.label)
         }
     }
+
+    // `agentRow.seedCases` (TS `seedPick`): a seeded launch mounts on
+    // Temporary session, a plain or text-only mount on the default.
+    @Test
+    fun `seedCases match the fixture`() {
+        val cases = row.getValue("seedCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val seed = case.getValue("seed").jsonObject
+            val parsed = AgentComposerSeed(
+                text = seed.str("text"),
+                issueIds = seed["issueIds"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
+                promptId = seed.str("promptId"),
+                deviceId = seed.str("deviceId"),
+            )
+            assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.seedPick(parsed))
+        }
+    }
+
+    // `agentRow.subjectCases` (TS `pickForSubject`): `subject` = the
+    // composer's subject kind (`issues` / `prompt` = a launch, null = none).
+    @Test
+    fun `subjectCases match the fixture`() {
+        val cases = row.getValue("subjectCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val isLaunch = case.str("subject") in setOf("issues", "prompt")
+            assertEquals(case.str("name"), case.str("expected"), ComposerAgentRow.pickForSubject(isLaunch, case.str("current")))
+        }
+    }
 }

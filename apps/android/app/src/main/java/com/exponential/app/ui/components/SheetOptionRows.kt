@@ -518,12 +518,6 @@ internal fun seedModel(stored: String?, agent: String, fallback: String): String
     stored?.takeIf { it in modelValuesFor(agent) } ?: fallback
 
 /**
- * Plan mode is claude (native) only since EXP-849 dropped pi; codex has no
- * launch-into-plan mode.
- */
-internal fun supportsPlanMode(agent: String): Boolean = agent == DEFAULT_AGENT
-
-/**
  * EXP-1005: auto-rotating accounts is a claude-only device setting (codex
  * keeps one login per session by contract) — web
  * `agentSupportsAccountRotation`, iOS `LaunchVocabulary.supportsAccountRotation`.

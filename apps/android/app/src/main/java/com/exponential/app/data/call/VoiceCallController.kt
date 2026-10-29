@@ -271,7 +271,15 @@ class VoiceCallController @Inject constructor(
             "call_event" -> {
                 val event = (msg["event"] as? JsonObject)?.let(VoiceCall.Event::of) ?: return true
                 // Only the host's flow events; the call's own lifecycle stays local.
-                if (event !in HOST_EVENTS && event::class !in HOST_EVENT_CLASSES) return true
+                if (!event.isHostEvent) return true
+                // The host could not get the call ready: it fails the call
+                // with its code before its `call_end` (ignored: the run is over).
+                if (event is VoiceCall.Event.Failed) {
+                    run.settled = true
+                    step(event)
+                    finish(run)
+                    return false
+                }
                 if (event == VoiceCall.Event.SpeechStarted) run.audio?.flushPlayback()
                 step(event)
             }
@@ -366,20 +374,6 @@ class VoiceCallController @Inject constructor(
     private companion object {
         const val TAG = "VoiceCall"
         const val LEVEL_TICK_MS = 33L
-        val HOST_EVENTS = setOf(
-            VoiceCall.Event.Rang,
-            VoiceCall.Event.Ready,
-            VoiceCall.Event.NoSound,
-            VoiceCall.Event.SpeechStarted,
-            VoiceCall.Event.ReplyFinished,
-        )
-        val HOST_EVENT_CLASSES = setOf(
-            VoiceCall.Event.Partial::class,
-            VoiceCall.Event.Said::class,
-            VoiceCall.Event.Queued::class,
-            VoiceCall.Event.ReplyStarted::class,
-        )
-
         fun controlFrame(t: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}): String =
             buildJsonObject {
                 put("t", t)

@@ -726,14 +726,12 @@ pub fn sweep_stale_worktrees(
             continue; // detached: no branch to reason about
         };
         // S-4: an open chat's worktree is what its next message resumes in:
-        // it goes only once its tree is idle with every PR merged, and
-        // never with uncommitted changes (nothing is parked for a live chat).
-        if policy.open.keep.contains(&branch)
-            || (policy.open.settled.contains(&branch)
-                && worktree_dirty_state(&entry.path) == DirtyState::TrackedChanges)
-        {
+        // it goes only once its tree is idle with every PR merged (the
+        // settled check below the base branch: nothing to park).
+        if policy.open.keep.contains(&branch) {
             continue;
         }
+        let open_chat = policy.open.settled.contains(&branch);
         let mut mine: Vec<&crate::run_registry::RunRecord> = records
             .iter()
             .filter(|record| canonical(&record.cwd) == path)
@@ -763,6 +761,21 @@ pub fn sweep_stale_worktrees(
         let base_branch = newest
             .and_then(|record| record.base_branch.clone())
             .or_else(|| effective_default_branch(clone, policy.default_branch.as_deref()));
+        // S-4: a settled open chat's worktree goes only when the finish would
+        // park nothing — no change (untracked files included), no commit
+        // that is neither pushed nor landed. Its work stays where it is.
+        if open_chat
+            && !base_branch.as_ref().is_some_and(|base_branch| {
+                crate::run_cleanup::nothing_to_park(&RunCleanup {
+                    clone: clone.to_path_buf(),
+                    worktree: entry.path.clone(),
+                    branch: branch.clone(),
+                    base_branch: base_branch.clone(),
+                })
+            })
+        {
+            continue;
+        }
         let session_id = newest.map(|record| record.session_id.clone());
         let id8 = match &session_id {
             Some(id) => id.chars().take(8).collect(),
@@ -1460,21 +1473,32 @@ mod tests {
     #[test]
     fn the_sweep_spares_open_chats_until_settled_and_clean() {
         let dir = temp_dir("sweep-open");
-        let (_origin, clone) = seed(&dir.0);
+        let (origin, clone) = seed(&dir.0);
         let data_dir = dir.0.join("data");
         fs::create_dir_all(&data_dir).unwrap();
         let old = Duration::from_secs(3 * 24 * 60 * 60);
         let kept = worktree(&clone, "exp/session-open1");
         let dirty = worktree(&clone, "exp/session-open2");
         let clean = worktree(&clone, "exp/session-open3");
+        let untracked = worktree(&clone, "exp/session-open4");
+        let unpushed = worktree(&clone, "exp/session-open5");
         fs::write(dirty.join("README.md"), "edited\n").unwrap();
-        for path in [&kept, &dirty, &clean] {
+        fs::write(untracked.join("notes.txt"), "scratch\n").unwrap();
+        fs::write(unpushed.join("work.txt"), "local work\n").unwrap();
+        git(&unpushed, &["add", "."]);
+        git(&unpushed, &["commit", "--quiet", "-m", "local"]);
+        for path in [&kept, &dirty, &clean, &untracked, &unpushed] {
             age_by(path, old);
         }
         let policy = SweepPolicy {
             open: OpenBranches {
                 keep: HashSet::from(["exp/session-open1".to_string()]),
-                settled: HashSet::from(["exp/session-open2".to_string(), "exp/session-open3".to_string()]),
+                settled: HashSet::from([
+                    "exp/session-open2".to_string(),
+                    "exp/session-open3".to_string(),
+                    "exp/session-open4".to_string(),
+                    "exp/session-open5".to_string(),
+                ]),
             },
             ..SweepPolicy::default()
         };
@@ -1483,6 +1507,18 @@ mod tests {
         assert_eq!(branches, vec!["exp/session-open3"], "{report:?}");
         assert!(report.leftovers().is_empty());
         assert!(kept.exists() && dirty.exists() && !clean.exists());
+        assert!(untracked.join("notes.txt").exists(), "untracked files stay with the open chat");
+        assert!(unpushed.exists(), "an unpushed commit stays with the open chat");
+        // Its work landing upstream (a squash merge) frees it.
+        fs::write(origin.join("work.txt"), "local work\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "squashed"]);
+        git(&clone, &["fetch", "-q", "origin"]);
+        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &policy);
+        let branches: Vec<&str> = report.finished.iter().map(|swept| swept.branch.as_str()).collect();
+        assert_eq!(branches, vec!["exp/session-open5"], "{report:?}");
+        assert!(report.leftovers().is_empty());
+        assert!(!unpushed.exists());
     }
 
     /// S-4: a tree is settled only when nothing in it works or asks and it

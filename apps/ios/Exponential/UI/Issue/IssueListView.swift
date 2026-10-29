@@ -798,7 +798,10 @@ struct IssueListView: View {
 
             AssigneePicker(
                 members: vm.teamUsers.map(AssigneePickerMember.init),
-                agents: vm.teamAgents.map(AssigneePickerAgent.init),
+                // S-3: another member's Assistant is never an assignee option.
+                agents: vm.teamAgents
+                    .filter { AgentSettings.visibleAgent($0, me: deps.auth.userId) }
+                    .map(AssigneePickerAgent.init),
                 value: sharedAssignee(vm).map { [$0.pickerValue] } ?? [],
                 onChange: { picked in bulkSetAssignee(vm, IssueAssignee(pickerValue: picked.first)) },
                 open: bulkOpen(.assignee),

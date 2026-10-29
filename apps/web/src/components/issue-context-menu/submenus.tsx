@@ -23,6 +23,7 @@ import {
 import { displayUserName } from "@/lib/user-display"
 import type { IssueAssignee } from "@/lib/issue-assignee"
 import type { SyncedAgent } from "@/components/team/agents-section"
+import { visibleAgent } from "@exp/domain-contract/agent-settings"
 import type { IssueEstimation } from "@/lib/domain"
 import {
   NO_ESTIMATE,
@@ -76,6 +77,7 @@ export function assigneeSlot({
   assigneeAgentId = null,
   orderedUsers,
   agents = [],
+  me = null,
   selectedAssignee,
   onSelect,
 }: {
@@ -85,6 +87,8 @@ export function assigneeSlot({
   orderedUsers: User[]
   /** #EXP-1383: the team's agents, after the members. */
   agents?: readonly SyncedAgent[]
+  /** S-3: the viewer; another member's Assistant is never a row. */
+  me?: string | null
   selectedAssignee: User | null
   onSelect: (assignee: IssueAssignee) => void
 }): IssueMenuSlot {
@@ -126,7 +130,7 @@ export function assigneeSlot({
     body: (
       <PickerMenuRows
         mode="single"
-        items={assigneePickerItems(members, agents)}
+        items={assigneePickerItems(members, agents.filter((agent) => visibleAgent(agent, me)))}
         value={assigneePickerValue({ assigneeId, assigneeAgentId })}
         onChange={(value) => onSelect(assigneeFromPickerValue(value))}
         noneLabel="Unassigned"

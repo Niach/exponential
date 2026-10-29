@@ -74,7 +74,7 @@ import {
   specimenIds,
   type EvalPlatform,
 } from "./eval-lane.ts"
-import { captureDbEnv } from "./capture-db.ts"
+import { captureDbEnv, sharedDevDbArgs } from "./capture-db.ts"
 import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
 import {
@@ -2145,7 +2145,7 @@ async function captureEval(options: Options, ids: string[]): Promise<number> {
       // The IDE paints a specimen inside its signed-in shell: the desktop
       // lane's world (seed unless --skip-seed, a syncable shape proxy, the demo ids).
       if (!options.skipSeed) {
-        const seed = await run({ cmd: [`bun`, `run`, `seed:screenshots`], cwd: join(repoRoot(), `apps/web`), env: captureDbEnv(), stream: true, label: `[seed]`, timeoutMs: 15 * 60_000 })
+        const seed = await run({ cmd: [`bun`, `run`, `seed:screenshots`, ...sharedDevDbArgs(process.env)], cwd: join(repoRoot(), `apps/web`), env: captureDbEnv(), stream: true, label: `[seed]`, timeoutMs: 15 * 60_000 })
         if (seed.code !== 0) throw new Error(`seeding failed (exit ${seed.code})`)
       }
       await assertShapesSyncable(DEV_URL)
@@ -2274,7 +2274,7 @@ async function main(): Promise<number> {
     if (!options.skipSeed) {
       console.log(`\n── seed:screenshots ──────────────────────────────────`)
       const seed = await run({
-        cmd: [`bun`, `run`, `seed:screenshots`],
+        cmd: [`bun`, `run`, `seed:screenshots`, ...sharedDevDbArgs(process.env)],
         cwd: join(repoRoot(), `apps/web`),
         env: captureDbEnv(),
         stream: true,

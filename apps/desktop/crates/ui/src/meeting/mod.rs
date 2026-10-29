@@ -29,19 +29,27 @@
 //! `flush.maxQueued` segments wait in memory (the oldest go, logged; the
 //! local log keeps them). A failed send puts its segments back at the head
 //! of the queue and the next try waits (`flush.backoffMs` doubling to
-//! `flush.backoffMaxMs`); a refusal (4xx) drops the batch, logged. A batch
-//! goes out only while the account that started the meeting is signed in.
-//! A sign-out or an account switch deletes the local log.
+//! `flush.backoffMaxMs`); a refusal (4xx) drops the batch, logged. A split
+//! batch that failed after some parts landed requeues only the unsent parts;
+//! every part keeps its `clientMessageId` across retries (the server dedupes
+//! a part it already took). A send answered after a newer one went out still
+//! puts a failed batch back (the running meeting, or the stop draining it).
+//! A batch goes out only while the account that started the meeting is
+//! signed in. A sign-out or an account switch deletes the local log (the
+//! log remembers its account, so a start signed out still catches a switch).
 //!
 //! STOP (meeting.json FLUSH): a stop by the settings (`voice.stopMeeting`,
 //! another voice device or agent) asks the worker to DRAIN (every channel's
 //! open segment closed and transcribed, then `MeetingStopped`) and sends
 //! everything still queued as ONE final `meeting: true` batch past the
 //! in-flight slot; a failed final send leaves it in the local log only. A
-//! sign-out or account change sends nothing more ([`stop_drains`]).
+//! sign-out or account change sends nothing more ([`stop_drains`]). A quit
+//! stops the meeting and sends the final batch at once, waiting at most
+//! [`QUIT_SEND_TIMEOUT`].
 
 mod log;
 
+use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -78,6 +86,8 @@ const TICK: Duration = Duration::from_secs(1);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often the local log is pruned while the IDE runs.
 const PRUNE_EVERY_MS: i64 = 3_600_000;
+/// F20: how long a quit waits for the final batch to go out.
+const QUIT_SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The meeting THIS device should hold now (None = none).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,12 +146,72 @@ fn turns_per_hour(turns: u32, elapsed_ms: i64) -> f64 {
     f64::from(turns) * 3_600_000.0 / elapsed_ms as f64
 }
 
+/// One message of a split batch: its segments (queued at `ats`, where
+/// known), its text and the `clientMessageId` it keeps across retries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Part {
+    segments: Vec<MeetingSegment>,
+    ats: Vec<i64>,
+    text: String,
+    id: String,
+}
+
+/// `domain::meeting::meeting_messages`' order (start, `you` first, then by
+/// label): the split packs the segments in it.
+fn segment_order(a: &MeetingSegment, b: &MeetingSegment) -> Ordering {
+    a.start_ms.cmp(&b.start_ms).then_with(|| match (a.channel == "you", b.channel == "you") {
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (true, true) => Ordering::Equal,
+        (false, false) => a.label.cmp(&b.label),
+    })
+}
+
+/// The one message `segments` read as (they fit one by construction).
+fn part_of(pairs: Vec<(MeetingSegment, Option<i64>)>, id: String) -> Part {
+    let (segments, ats): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+    let text = meeting_messages(&segments, MEETING.flush.max_message_chars).into_iter().next().unwrap_or_default();
+    Part { segments, ats: ats.into_iter().flatten().collect(), text, id }
+}
+
+/// `meeting_messages`' split, keeping which segments make up each message
+/// (the texts are exactly `meeting_messages(segments)`), each with a new id.
+fn split_parts(segments: Vec<MeetingSegment>, ats: Vec<i64>) -> Vec<Part> {
+    let mut ats = ats.into_iter();
+    let mut pairs: Vec<(MeetingSegment, Option<i64>)> = segments.into_iter().map(|segment| (segment, ats.next())).collect();
+    pairs.sort_by(|a, b| segment_order(&a.0, &b.0));
+    let fits = |pairs: &[(MeetingSegment, Option<i64>)]| {
+        let segments: Vec<MeetingSegment> = pairs.iter().map(|(segment, _)| segment.clone()).collect();
+        meeting_messages(&segments, MEETING.flush.max_message_chars).len() <= 1
+    };
+    let mut parts = Vec::new();
+    let mut current: Vec<(MeetingSegment, Option<i64>)> = Vec::new();
+    for pair in pairs {
+        current.push(pair);
+        if current.len() > 1 && !fits(&current) {
+            let last = current.pop().expect("just pushed");
+            parts.push(part_of(std::mem::take(&mut current), uuid::Uuid::new_v4().to_string()));
+            current.push(last);
+        }
+    }
+    if !current.is_empty() {
+        parts.push(part_of(current, uuid::Uuid::new_v4().to_string()));
+    }
+    parts
+}
+
 /// The queue and `flush_step`'s state: `segments[i]` arrived at
 /// `state.queued[i]`.
 #[derive(Debug, Default)]
 struct Batcher {
     state: FlushState,
     segments: Vec<MeetingSegment>,
+    /// The head of `segments` as parts already formed (segment count,
+    /// `clientMessageId`): a retry sends them again as the same parts.
+    formed: Vec<(usize, String)>,
+    /// The formed parts the last [`Self::step`] / [`Self::take_all`] took,
+    /// for [`Self::form`].
+    taken: Vec<(usize, String)>,
     /// Failed sends in a row (the backoff's exponent).
     failures: u32,
     /// No send before this (epoch ms): the backoff after a failure.
@@ -187,28 +257,74 @@ impl Batcher {
         }
         let send = flush_step(&mut self.state, event, at)?.min(self.segments.len());
         ats.truncate(send);
+        self.take_formed(send);
         Some((self.segments.drain(..send).collect(), ats))
     }
 
-    /// A stop's final batch: everything queued, the in-flight slot ignored.
+    /// The formed parts wholly inside the first `count` segments move to
+    /// `taken`; one cut by the count is formed anew (and so is the rest).
+    fn take_formed(&mut self, count: usize) {
+        self.taken.clear();
+        let mut covered = 0;
+        while let Some(&(len, _)) = self.formed.first() {
+            if covered + len > count {
+                break;
+            }
+            covered += len;
+            self.taken.push(self.formed.remove(0));
+        }
+        if covered < count {
+            self.formed.clear();
+        }
+    }
+
+    /// The segments (queued at `ats`) a step or a stop took, as the
+    /// messages they go out as: a retried part again with its id, the rest
+    /// split ([`split_parts`]).
+    fn form(&mut self, segments: Vec<MeetingSegment>, ats: Vec<i64>) -> Vec<Part> {
+        let mut segments = segments.into_iter();
+        let mut ats = ats.into_iter();
+        let mut parts = Vec::new();
+        for (len, id) in std::mem::take(&mut self.taken) {
+            let pairs: Vec<_> = segments.by_ref().take(len).map(|segment| (segment, ats.next())).collect();
+            if !pairs.is_empty() {
+                parts.push(part_of(pairs, id));
+            }
+        }
+        parts.extend(split_parts(segments.collect(), ats.collect()));
+        parts
+    }
+
+    /// A stop's final batch: everything queued, the in-flight slot ignored
+    /// (its retried parts in `taken`, for [`Self::form`]).
     fn take_all(&mut self) -> Vec<MeetingSegment> {
+        self.take_formed(self.segments.len());
         self.state = FlushState::default();
         std::mem::take(&mut self.segments)
     }
 
-    /// The send of `segments` (queued at `ats`) failed at `now`: they go
-    /// back to the head of the queue, no turn is in flight, and the next
-    /// try waits [`backoff_ms`].
-    fn requeue(&mut self, segments: Vec<MeetingSegment>, ats: Vec<i64>, now: i64) {
+    /// `parts` go back to the head of the queue, keeping their ids; the
+    /// flush state and the backoff stay as they are.
+    fn restore(&mut self, parts: Vec<Part>) {
+        for part in parts.into_iter().rev() {
+            self.formed.insert(0, (part.segments.len(), part.id));
+            self.state.queued.splice(0..0, part.ats);
+            self.segments.splice(0..0, part.segments);
+        }
+    }
+
+    /// The send of `parts` failed at `now`: they go back to the head of the
+    /// queue, no turn is in flight, and the next try waits [`backoff_ms`].
+    fn requeue(&mut self, parts: Vec<Part>, now: i64) {
         self.state.in_flight_since = None;
-        self.state.queued.splice(0..0, ats);
-        self.segments.splice(0..0, segments);
+        self.restore(parts);
         self.failures = self.failures.saturating_add(1);
         self.retry_at = now + backoff_ms(self.failures);
     }
 
     /// The send was refused (4xx): the batch is dropped, the slot freed.
     fn refused(&mut self) {
+        self.taken.clear();
         self.state.in_flight_since = None;
         self.failures = 0;
         self.retry_at = 0;
@@ -225,6 +341,8 @@ impl Batcher {
     fn cap(&mut self) -> usize {
         let over = self.segments.len().saturating_sub(MEETING.flush.max_queued);
         if over > 0 {
+            // The head's formed parts lose their segments: formed anew.
+            self.formed.clear();
             self.segments.drain(..over);
             let queued_over = over.min(self.state.queued.len());
             self.state.queued.drain(..queued_over);
@@ -247,10 +365,15 @@ fn stop_drains(started_by: Option<&str>, signed_in: Option<&str>) -> bool {
     started_by.is_some() && started_by == signed_in
 }
 
-/// meeting.json: a sign-out or an account switch deletes the local log (the
-/// account last seen here, if any, is no longer the one signed in).
-fn purges_log(last: Option<&str>, now: Option<&str>) -> bool {
-    last.is_some() && last != now
+/// meeting.json: a sign-out or an account switch deletes the local log.
+/// `stored` = the account the log belongs to (kept in it), `last` = the one
+/// this process saw signed in last. A sign-out = `last` signed out; a switch
+/// = another account than the log's, even after a start signed out.
+fn purges_log(stored: Option<&str>, last: Option<&str>, now: Option<&str>) -> bool {
+    match now {
+        None => last.is_some(),
+        Some(now) => last.or(stored).is_some_and(|before| before != now),
+    }
 }
 
 /// A draining stop: the worker's last segments still join `batcher`.
@@ -259,6 +382,29 @@ struct Stopping {
     agent_id: String,
     batcher: Batcher,
 }
+
+/// A meeting part's `sessions.send` input: the member's conversation with
+/// the voice agent (voice.json `utteranceInput`), `meeting: true`, the
+/// part's `clientMessageId`.
+fn part_input(agent_id: &str, part: &Part, cx: &App) -> Option<api::sessions::SendInput> {
+    let mut input = send_input(agent_id, &part.text, cx)?;
+    input.client_message_id = Some(part.id.clone());
+    Some(input)
+}
+
+/// Every part of a final batch, in order; the first failure ends it.
+fn send_final(trpc: &api::TrpcClient, inputs: &[api::sessions::SendInput], count: usize) {
+    for input in inputs {
+        if let Err(err) = api::sessions::send(trpc, input) {
+            ::log::warn!("[meeting] the final batch was not sent ({err}); {count} segment(s) stay in the local log");
+            return;
+        }
+    }
+    ::log::info!("[meeting] sent the final batch ({count} segment(s))");
+}
+
+/// A final batch ready to go: the client, its parts' inputs, its segment count.
+type FinalBatch = (api::TrpcClient, Vec<api::sessions::SendInput>, usize);
 
 /// A meeting turn's `sessions.send` input: the member's conversation with
 /// the voice agent (voice.json `utteranceInput`), `meeting: true`.
@@ -301,6 +447,8 @@ pub(crate) struct MeetingHost {
     tick_generation: u64,
     /// The account signed in when last looked at ([`purges_log`]).
     account: Option<String>,
+    /// The account the local log belongs to (kept in it, [`purges_log`]).
+    log_account: Option<String>,
     /// #FEED-163 RESTART: the meeting the previous IDE process listened to
     /// (read once at start): never listened to again without a new consent.
     listened_before: Option<String>,
@@ -340,6 +488,12 @@ pub fn init(cx: &mut App) {
             None
         })
     });
+    let log_account = log.as_ref().and_then(|log| {
+        log.account().unwrap_or_else(|err| {
+            ::log::warn!("[meeting] reading the log's account failed: {err}");
+            None
+        })
+    });
     let entity = cx.new(|cx: &mut Context<MeetingHost>| {
         cx.observe(&speaker, |this: &mut MeetingHost, _, cx| this.follow(cx)).detach();
         cx.observe(&messages, |this: &mut MeetingHost, collection, cx| this.on_messages(&collection, cx)).detach();
@@ -354,15 +508,43 @@ pub fn init(cx: &mut App) {
             listening: false,
             last_prune_ms: 0,
             tick_generation: 0,
-            account: crate::speak_replies::session_account(cx),
+            account: None,
+            log_account,
             listened_before,
             resume_asked: false,
         }
     });
     entity.update(cx, |this, cx| {
+        this.follow_account(crate::speak_replies::session_account(cx));
         this.prune();
         this.follow(cx);
     });
+    // F20: a quit stops the meeting and sends what is queued (the worker's
+    // drain is not waited for), at most QUIT_SEND_TIMEOUT.
+    cx.on_app_quit({
+        let entity = entity.clone();
+        move |cx| {
+            let batches: Vec<FinalBatch> = entity.update(cx, |this, cx| {
+                let older = this.final_batch(None, cx);
+                this.stop(cx);
+                older.into_iter().chain(this.final_batch(None, cx)).collect()
+            });
+            if !batches.is_empty() {
+                let (done, wait) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    for (trpc, inputs, count) in &batches {
+                        send_final(trpc, inputs, *count);
+                    }
+                    let _ = done.send(());
+                });
+                if wait.recv_timeout(QUIT_SEND_TIMEOUT).is_err() {
+                    ::log::warn!("[meeting] quit: the final batch did not go out within {QUIT_SEND_TIMEOUT:?}; it stays in the local log");
+                }
+            }
+            async {}
+        }
+    })
+    .detach();
     cx.set_global(MeetingHostGlobal(entity));
 }
 
@@ -430,13 +612,26 @@ impl MeetingHost {
     /// local log (after the settings stop the meeting).
     fn on_session(&mut self, cx: &mut Context<Self>) {
         self.follow(cx);
-        let now = crate::speak_replies::session_account(cx);
-        if purges_log(self.account.as_deref(), now.as_deref()) {
-            if let Some(log) = self.log.as_ref() {
+        self.follow_account(crate::speak_replies::session_account(cx));
+    }
+
+    /// `now` is signed in (None = nobody): purge the log per [`purges_log`]
+    /// and remember whose it is.
+    fn follow_account(&mut self, now: Option<String>) {
+        let purge = purges_log(self.log_account.as_deref(), self.account.as_deref(), now.as_deref());
+        if let Some(log) = self.log.as_ref() {
+            if purge {
                 match log.clear() {
                     Ok(gone) => ::log::info!("[meeting] signed out or switched accounts: deleted {gone} local segment(s)"),
                     Err(err) => ::log::warn!("[meeting] deleting the local log failed: {err}"),
                 }
+            }
+            let owner = if now.is_some() || purge { now.clone() } else { self.log_account.clone() };
+            if owner != self.log_account {
+                if let Err(err) = log.set_account(owner.as_deref()) {
+                    ::log::warn!("[meeting] remembering the log's account failed: {err}");
+                }
+                self.log_account = owner;
             }
         }
         self.account = now;
@@ -611,37 +806,32 @@ impl MeetingHost {
     /// queued goes out as ONE final batch, past the in-flight slot; a
     /// failure leaves it in the local log only.
     fn finish_stop(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        let Some((trpc, inputs, count)) = self.final_batch(id, cx) else { return };
+        cx.background_executor().spawn(async move { send_final(&trpc, &inputs, count) }).detach();
+    }
+
+    /// The draining stop `id`'s (None = whichever) final batch, ready to go;
+    /// the stop is over.
+    fn final_batch(&mut self, id: Option<&str>, cx: &App) -> Option<FinalBatch> {
         if !self.stopping.as_ref().is_some_and(|stopping| id.is_none_or(|id| stopping.id == id)) {
-            return;
+            return None;
         }
-        let Some(mut stopping) = self.stopping.take() else { return };
+        let mut stopping = self.stopping.take()?;
         let batch = stopping.batcher.take_all();
         if batch.is_empty() {
-            return;
+            return None;
         }
         let count = batch.len();
-        let inputs: Vec<_> = meeting_messages(&batch, MEETING.flush.max_message_chars)
-            .iter()
-            .filter_map(|text| send_input(&stopping.agent_id, text, cx))
-            .collect();
+        let inputs: Vec<_> =
+            stopping.batcher.form(batch, Vec::new()).iter().filter_map(|part| part_input(&stopping.agent_id, part, cx)).collect();
         if inputs.is_empty() {
-            return;
+            return None;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             ::log::warn!("[meeting] the final batch was not sent (signed out); {count} segment(s) stay in the local log");
-            return;
+            return None;
         };
-        cx.background_executor()
-            .spawn(async move {
-                for input in inputs {
-                    if let Err(err) = api::sessions::send(&trpc, &input) {
-                        ::log::warn!("[meeting] the final batch was not sent ({err}); {count} segment(s) stay in the local log");
-                        return;
-                    }
-                }
-                ::log::info!("[meeting] sent the final batch ({count} segment(s))");
-            })
-            .detach();
+        Some((trpc, inputs, count))
     }
 
     /// The Global the tray and Settings read.
@@ -749,32 +939,33 @@ impl MeetingHost {
         running.turn = None;
         running.generation += 1;
         let generation = running.generation;
+        let parts = running.batcher.form(batch, ats);
+        let count: usize = parts.iter().map(|part| part.segments.len()).sum();
         // Only the account that started the meeting sends (a switch mid-meeting
         // never posts its transcript into another account).
         if !stop_drains(running.account.as_deref(), signed_in.as_deref()) {
-            ::log::warn!("[meeting] another account is signed in; {} segment(s) stay in the local log only", batch.len());
+            ::log::warn!("[meeting] another account is signed in; {count} segment(s) stay in the local log only");
             running.batcher.refused();
             return;
         }
         let agent_id = running.wanted.agent_id.clone();
-        let inputs: Vec<_> = meeting_messages(&batch, MEETING.flush.max_message_chars)
-            .iter()
-            .filter_map(|text| send_input(&agent_id, text, cx))
-            .collect();
+        let meeting_id = running.wanted.id.clone();
+        let (parts, inputs): (Vec<Part>, Vec<_>) =
+            parts.into_iter().filter_map(|part| part_input(&agent_id, &part, cx).map(|input| (part, input))).unzip();
         let Some(running) = self.running.as_mut() else { return };
         if inputs.is_empty() {
             running.batcher.refused();
             return;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
-            ::log::warn!("[meeting] not signed in; {} segment(s) wait", batch.len());
-            running.batcher.requeue(batch, ats, now);
+            ::log::warn!("[meeting] not signed in; {count} segment(s) wait");
+            running.batcher.requeue(parts, now);
             return;
         };
         cx.spawn(async move |this, cx| {
             // One message per split part, in order; the turn waits for the
             // reply after the LAST one.
-            let result = cx
+            let (sent, result) = cx
                 .background_executor()
                 .spawn(async move {
                     let mut sent = 0;
@@ -791,33 +982,58 @@ impl MeetingHost {
                     (sent, last.ok_or_else(|| api::ApiError::Http { status: 0, message: "nothing to send".into() }))
                 })
                 .await;
-            let _ = this.update(cx, |this, _| {
-                let Some(running) = this.running.as_mut().filter(|running| running.generation == generation) else { return };
-                let now = crate::session_data::now_ms();
-                match result {
-                    (_, Ok(output)) => {
-                        running.turns += 1;
-                        running.batcher.sent();
-                        running.turn = Some(Turn { session_id: output.session_id, message_id: output.message_id });
-                    }
-                    (_, Err(err)) if refused(&err) => {
-                        ::log::warn!("[meeting] the server refused the batch ({err}); {} segment(s) dropped (the local log keeps them)", batch.len());
-                        running.batcher.refused();
-                    }
-                    (0, Err(err)) => {
-                        ::log::warn!("[meeting] the turn was not sent ({err}); {} segment(s) wait", batch.len());
-                        running.batcher.requeue(batch, ats, now);
-                    }
-                    (sent, Err(err)) => {
-                        // Part of a split batch landed: never resend it. The
-                        // rest stays in the local log only.
-                        ::log::warn!("[meeting] only {sent} part(s) of the batch were sent ({err}); the rest stays in the local log");
-                        running.batcher.requeue(Vec::new(), Vec::new(), now);
-                    }
-                }
-            });
+            let _ = this.update(cx, |this, _| this.answered(&meeting_id, generation, parts, sent, result));
         })
         .detach();
+    }
+
+    /// A send's answer: `sent` of `parts` landed. A failed batch's unsent
+    /// parts go back to the queue (a 4xx drops them), also when a newer
+    /// send went out meanwhile: into the running meeting, or the stop
+    /// draining it; otherwise they stay in the local log only.
+    fn answered(
+        &mut self,
+        meeting_id: &str,
+        generation: u64,
+        parts: Vec<Part>,
+        sent: usize,
+        result: Result<api::sessions::SendOutput, api::ApiError>,
+    ) {
+        let now = crate::session_data::now_ms();
+        let unsent: Vec<Part> = parts.into_iter().skip(sent).collect();
+        let count: usize = unsent.iter().map(|part| part.segments.len()).sum();
+        let current = self.running.as_mut().filter(|running| running.generation == generation && running.wanted.id == meeting_id);
+        if let Some(running) = current {
+            match result {
+                Ok(output) => {
+                    running.turns += 1;
+                    running.batcher.sent();
+                    running.turn = Some(Turn { session_id: output.session_id, message_id: output.message_id });
+                }
+                Err(err) if refused(&err) => {
+                    ::log::warn!("[meeting] the server refused the batch ({err}); {count} segment(s) dropped (the local log keeps them)");
+                    running.batcher.refused();
+                }
+                Err(err) => {
+                    // Parts that landed are never resent; the rest waits.
+                    ::log::warn!("[meeting] the turn was not sent ({err}; {sent} part(s) landed); {count} segment(s) wait");
+                    running.batcher.requeue(unsent, now);
+                }
+            }
+            return;
+        }
+        let Err(err) = result else { return };
+        if refused(&err) {
+            ::log::warn!("[meeting] the server refused an earlier batch ({err}); {count} segment(s) dropped (the local log keeps them)");
+        } else if let Some(running) = self.running.as_mut().filter(|running| running.wanted.id == meeting_id) {
+            ::log::warn!("[meeting] an earlier turn was not sent ({err}); {count} segment(s) wait");
+            running.batcher.restore(unsent);
+        } else if let Some(stopping) = self.stopping.as_mut().filter(|stopping| stopping.id == meeting_id) {
+            ::log::warn!("[meeting] an earlier turn was not sent ({err}); {count} segment(s) join the final batch");
+            stopping.batcher.restore(unsent);
+        } else if count > 0 {
+            ::log::warn!("[meeting] an earlier turn was not sent ({err}); {count} segment(s) stay in the local log only");
+        }
     }
 
     /// `turnDone`: the agent's reply row after the turn's own message
@@ -918,7 +1134,8 @@ mod tests {
         let (sent, ats) = batcher.step(FlushEvent::TurnDone, 50, None).expect("the waiting trigger fires");
         assert_eq!(sent, [segment("you", 30)]);
         // That send failed: back at the head, and the next tick past maxAge retries.
-        batcher.requeue(sent, ats, 50);
+        let parts = batcher.form(sent, ats);
+        batcher.requeue(parts, 50);
         assert_eq!(batcher.state.in_flight_since, None);
         assert_eq!(batcher.step(FlushEvent::Segment, 60, Some(segment("you", 60))), None);
         let (sent, ats) = batcher.step(FlushEvent::Tick, 30 + flush.max_age_ms, None).expect("the oldest is due");
@@ -939,14 +1156,16 @@ mod tests {
         let mut batcher = Batcher::default();
         batcher.step(FlushEvent::Segment, 0, Some(segment("you", 0)));
         let (sent, ats) = batcher.step(FlushEvent::Wake, 0, None).expect("sent");
-        batcher.requeue(sent, ats, 1_000);
+        let parts = batcher.form(sent, ats);
+        batcher.requeue(parts, 1_000);
         // Inside the wait: a trigger and new segments only queue.
         assert_eq!(batcher.step(FlushEvent::Wake, 1_500, None), None);
         assert_eq!(batcher.step(FlushEvent::Segment, 1_600, Some(segment("you", 1_600))), None);
         let (sent, ats) = batcher.step(FlushEvent::Tick, 1_000 + flush.backoff_ms, None).expect("the remembered trigger fires once the wait is over");
         assert_eq!(sent.len(), 2);
         // A second failure in a row waits twice as long.
-        batcher.requeue(sent, ats, 10_000);
+        let parts = batcher.form(sent, ats);
+        batcher.requeue(parts, 10_000);
         assert_eq!(batcher.retry_at, 10_000 + 2 * flush.backoff_ms);
         assert_eq!(batcher.step(FlushEvent::Ptt, 10_000 + 2 * flush.backoff_ms - 1, None), None);
         assert!(batcher.step(FlushEvent::Tick, 10_000 + 2 * flush.backoff_ms, None).is_some());
@@ -995,11 +1214,136 @@ mod tests {
 
     #[test]
     fn a_sign_out_or_switch_purges_the_local_log() {
-        assert!(purges_log(Some("acct-1"), None), "signed out");
-        assert!(purges_log(Some("acct-1"), Some("acct-2")), "another account");
-        assert!(!purges_log(Some("acct-1"), Some("acct-1")));
-        assert!(!purges_log(None, Some("acct-1")), "a sign-in deletes nothing");
-        assert!(!purges_log(None, None));
+        let a = Some("acct-1");
+        let b = Some("acct-2");
+        assert!(purges_log(a, a, None), "signed out");
+        assert!(purges_log(a, a, b), "another account");
+        assert!(!purges_log(a, a, a));
+        assert!(!purges_log(None, None, a), "a first sign-in deletes nothing");
+        assert!(!purges_log(None, None, None));
+        // F22: a start signed out, then another account than the log's.
+        assert!(purges_log(a, None, b), "the log's account differs");
+        assert!(!purges_log(a, None, a), "the log's own account signs in again");
+        assert!(!purges_log(a, None, None), "a start signed out deletes nothing");
+    }
+
+    fn host_running(id: &str) -> MeetingHost {
+        MeetingHost {
+            device_id: "mint".into(),
+            client: None,
+            log: None,
+            running: Some(Running {
+                account: Some("acct-1".into()),
+                wanted: Wanted { id: id.into(), agent_id: "a1".into(), language: "de".into(), desktop_audio: DesktopAudio::Off, app_ids: Vec::new() },
+                capability: talk::apps::Capability::None,
+                started_ms: 0,
+                turns: 0,
+                batcher: Batcher::default(),
+                turn: None,
+                generation: 1,
+            }),
+            stopping: None,
+            paused: false,
+            listening: false,
+            last_prune_ms: 0,
+            tick_generation: 0,
+            account: None,
+            log_account: None,
+            listened_before: None,
+            resume_asked: false,
+        }
+    }
+
+    /// Segments too long to share a message: one part each.
+    fn long(start_ms: i64) -> MeetingSegment {
+        MeetingSegment { channel: "you".into(), label: "You".into(), text: "x".repeat(MEETING.flush.max_message_chars / 2 + 10), start_ms }
+    }
+
+    fn http(status: u16) -> Result<api::sessions::SendOutput, api::ApiError> {
+        Err(api::ApiError::Http { status, message: "x".into() })
+    }
+
+    #[test]
+    fn the_split_keeps_which_segments_make_each_message() {
+        let segments = vec![segment("zoom", 20), long(10), segment("you", 0), long(30)];
+        let parts = split_parts(segments.clone(), vec![1, 2, 3, 4]);
+        let texts: Vec<String> = parts.iter().map(|part| part.text.clone()).collect();
+        assert_eq!(texts, meeting_messages(&segments, MEETING.flush.max_message_chars), "the domain's split, exactly");
+        assert_eq!(parts.iter().map(|part| part.segments.len()).sum::<usize>(), 4);
+        assert_eq!(parts[0].segments[0], segment("you", 0), "in the domain's order");
+        assert_eq!(parts[0].ats[0], 3);
+        let ids: std::collections::HashSet<_> = parts.iter().map(|part| part.id.clone()).collect();
+        assert_eq!(ids.len(), parts.len(), "one id per part");
+    }
+
+    /// F18 + F21: part 1 of 3 landed, part 2 failed (5xx): parts 2 and 3
+    /// wait, and the retry sends them with the same ids; a 4xx drops them.
+    #[test]
+    fn a_split_batch_that_failed_midway_requeues_only_the_unsent_parts() {
+        let mut host = host_running("m1");
+        let batcher = &mut host.running.as_mut().unwrap().batcher;
+        for at in 0..2 {
+            assert_eq!(batcher.step(FlushEvent::Segment, at, Some(long(at))), None);
+        }
+        let (sent, ats) = batcher.step(FlushEvent::Segment, 2, Some(long(2))).expect("maxSegments sends");
+        let parts = batcher.form(sent, ats);
+        assert_eq!(parts.len(), 3);
+        let ids: Vec<String> = parts.iter().map(|part| part.id.clone()).collect();
+        host.answered("m1", 1, parts.clone(), 1, http(503));
+        let batcher = &mut host.running.as_mut().unwrap().batcher;
+        assert_eq!(batcher.segments, [long(1), long(2)], "the unsent parts wait");
+        assert_eq!((batcher.state.queued.clone(), batcher.failures), (vec![1, 2], 1));
+        let later = batcher.retry_at;
+        let (sent, ats) = batcher.step(FlushEvent::Wake, later, None).expect("the retry");
+        let retried = batcher.form(sent, ats);
+        assert_eq!(retried.iter().map(|part| part.id.clone()).collect::<Vec<_>>(), ids[1..], "the same clientMessageIds");
+        assert_eq!(retried, parts[1..]);
+        // That retry is refused: dropped.
+        host.answered("m1", 1, retried, 0, http(413));
+        assert!(host.running.as_ref().unwrap().batcher.segments.is_empty());
+    }
+
+    /// F19: a send answered after a newer one went out still puts its
+    /// failed batch back; after the stop, into the stop's final batch.
+    #[test]
+    fn a_stale_failed_send_is_not_lost() {
+        let mut host = host_running("m1");
+        let part = split_parts(vec![segment("you", 0)], vec![0]);
+        host.running.as_mut().unwrap().generation = 2;
+        host.answered("m1", 1, part.clone(), 0, http(503));
+        let batcher = &host.running.as_ref().unwrap().batcher;
+        assert_eq!(batcher.segments, [segment("you", 0)]);
+        assert_eq!((batcher.failures, batcher.retry_at), (0, 0), "the newer send's backoff is untouched");
+        assert_eq!(batcher.formed, [(1, part[0].id.clone())]);
+        // A stale success is ignored.
+        host.answered("m1", 1, part.clone(), 1, Ok(api::sessions::SendOutput::default()));
+        assert_eq!(host.running.as_ref().unwrap().turns, 0);
+
+        let running = host.running.take().unwrap();
+        host.stopping = Some(Stopping { id: "m1".into(), agent_id: "a1".into(), batcher: Batcher::default() });
+        host.answered("m1", 2, part.clone(), 0, http(500));
+        let stopping = host.stopping.as_mut().unwrap();
+        let last = stopping.batcher.take_all();
+        assert_eq!(last, [segment("you", 0)], "into the final batch");
+        assert_eq!(stopping.batcher.form(last, Vec::new())[0].id, part[0].id);
+        // Another meeting's answer never lands in this one.
+        host.stopping = None;
+        host.running = Some(Running { batcher: Batcher::default(), ..running });
+        host.running.as_mut().unwrap().wanted.id = "m2".into();
+        host.answered("m1", 2, part, 0, http(500));
+        assert!(host.running.as_ref().unwrap().batcher.segments.is_empty());
+    }
+
+    /// F21: every meeting part names its `clientMessageId`.
+    #[test]
+    fn a_meeting_part_sends_its_client_message_id() {
+        let mut input = api::sessions::SendInput::message("s1", "hi", Vec::new()).meeting();
+        input.client_message_id = Some("0b7c".into());
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["clientMessageId"], "0b7c");
+        assert_eq!(json["meeting"], true);
+        let plain = serde_json::to_value(api::sessions::SendInput::message("s1", "hi", Vec::new())).unwrap();
+        assert!(plain.get("clientMessageId").is_none());
     }
 
     /// meeting.json FLUSH: a stop sends everything still queued as ONE

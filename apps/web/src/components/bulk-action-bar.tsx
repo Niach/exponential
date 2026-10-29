@@ -27,6 +27,7 @@ import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useAgentRows } from "@/hooks/use-agent-row"
+import { visibleAgent } from "@exp/domain-contract/agent-settings"
 import { assigneeWrite, type IssueAssignee } from "@/lib/issue-assignee"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useCodingReadiness } from "@/hooks/use-coding-readiness"
@@ -159,6 +160,8 @@ export function BulkActionBar({
   )
   // #EXP-1383: the team's agents follow the members.
   const agents = useAgentRows(teamId)
+  const { data: authSession } = useSession()
+  const me = authSession?.user?.id ?? null
   const agentsByValue = useMemo(
     () => new Map(agents.map((agent) => [assigneeAgentValue(agent.id), agent])),
     [agents]
@@ -181,8 +184,9 @@ export function BulkActionBar({
   // `Unassigned` is the menu arm's own `noneLabel` row here (it reports
   // `null`), so the picker's `allowsNone` row is left off.
   const assigneeMenuItems = useMemo(
-    () => assigneePickerItems(members, agents),
-    [members, agents]
+    // S-3: another member's Assistant is never a row.
+    () => assigneePickerItems(members, agents.filter((agent) => visibleAgent(agent, me))),
+    [members, agents, me]
   )
 
   // Sequential chunk loop; awaiting only the LAST txId is enough — Electric

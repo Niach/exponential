@@ -232,6 +232,13 @@ class IssueDetailViewModel @AssistedInject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** S-3: the assignee picker's agents: another member's Assistant is never
+     *  one (`visibleAgent`); an assignment to it still reads off [teamAgents]. */
+    val assignableAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
+        combine(teamAgents, auth.userId) { rows, me ->
+            rows.filter { com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // EXP-312: live sessions are owner-only — the screen gates tap-to-watch
     // on the session row's userId matching this.
     val currentUserId: StateFlow<String?> = auth.userId

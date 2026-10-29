@@ -923,13 +923,12 @@ class AgentSessionViewModel @AssistedInject constructor(
     // ── EXP-1334: THE session composer's "+" changes a RUNNING session ──────
 
     /** The person's live picks, ahead of the synced row (null = the row's).
-     *  A row pick (plan, effort, ultracode, computer use) stays ONLY until the
-     *  synced row says it (web parity: the row then follows the agent, its
-     *  `sessions.report` plan mode and its own `/model`); a DISPATCHER's never
+     *  A row pick (effort, ultracode, computer use) stays ONLY until the
+     *  synced row says it (web parity: the row then follows the agent and
+     *  its own `/model`); a DISPATCHER's never
      *  reads back, so its picks stay. `mcpServerIds` has no row column: it is
      *  the read itself, seeded by `sessions.mcpPicks`. */
     data class ConfigurePicks(
-        val planMode: Boolean? = null,
         val effort: String? = null,
         val ultracode: Boolean? = null,
         val computerUse: Boolean? = null,
@@ -1018,7 +1017,6 @@ class AgentSessionViewModel @AssistedInject constructor(
                     accountId,
                     com.exponential.app.data.api.SessionConfigureInput(
                         sessionId = codingSessionId,
-                        planMode = change.planMode,
                         effort = change.effort,
                         ultracode = change.ultracode,
                         computerUse = change.computerUse,
@@ -1374,7 +1372,6 @@ internal const val CONFIGURE_SYNC_WAIT_MS = 3_000L
 internal fun AgentSessionViewModel.ConfigurePicks.overriddenBy(
     change: AgentSessionViewModel.ConfigurePicks,
 ) = AgentSessionViewModel.ConfigurePicks(
-    planMode = change.planMode ?: planMode,
     effort = change.effort ?: effort,
     ultracode = change.ultracode ?: ultracode,
     computerUse = change.computerUse ?: computerUse,
@@ -1386,14 +1383,13 @@ internal fun AgentSessionViewModel.ConfigurePicks.rowPicks() = copy(mcpServerIds
 
 /** True while any row-backed pick is set. */
 internal fun AgentSessionViewModel.ConfigurePicks.hasRowPick() =
-    planMode != null || effort != null || ultracode != null || computerUse != null
+    effort != null || ultracode != null || computerUse != null
 
 /** Drops the row-backed overrides [picks] set, unless a later pick replaced
  *  them (web `dropSettled`). The MCP pick is never a row's: it stays. */
 internal fun AgentSessionViewModel.ConfigurePicks.dropSettled(
     picks: AgentSessionViewModel.ConfigurePicks,
 ) = AgentSessionViewModel.ConfigurePicks(
-    planMode = planMode?.takeUnless { it == picks.planMode },
     effort = effort?.takeUnless { it == picks.effort },
     ultracode = ultracode?.takeUnless { it == picks.ultracode },
     computerUse = computerUse?.takeUnless { it == picks.computerUse },
@@ -1404,7 +1400,6 @@ internal fun AgentSessionViewModel.ConfigurePicks.dropSettled(
  *  is the CLI default, which the picker sends as `""`. */
 internal fun AgentSessionViewModel.ConfigurePicks.dropSettledBy(row: SessionEntity) = dropSettled(
     AgentSessionViewModel.ConfigurePicks(
-        planMode = row.planMode,
         effort = row.effort.orEmpty(),
         ultracode = row.ultracode,
         computerUse = row.computerUse,
