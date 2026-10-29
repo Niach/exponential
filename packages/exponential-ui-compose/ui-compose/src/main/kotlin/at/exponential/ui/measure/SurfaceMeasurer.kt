@@ -262,7 +262,11 @@ class SurfaceMeasurer(
                 // VAPP-162 (§7): a square viewfinder as wide as the box up to
                 // 280, the hint (a muted line) `hintGap` under it.
                 "QrScanner" -> if (p == null) {
+                    // A fixed width (the author's `style.width`, the control
+                    // box) wins: the core asks max- and min-content with no wrap.
+                    val fixed = c.width?.let { max(0f, it - c.insets.first) }
                     val w = when {
+                        fixed != null -> min(fixed, 280f)
                         inner == null -> 280f
                         inner <= 0f -> 160f
                         else -> min(inner, 280f)
