@@ -2,20 +2,31 @@ import { timingSafeEqual } from "node:crypto"
 import { Hono, type Context } from "hono"
 import type { BatchResponse, MulticastMessage } from "firebase-admin/messaging"
 import { z } from "zod"
+import { mountAccountless, type AccountlessOptions } from "./accountless"
 import { consoleLogger, type Logger } from "./log"
+import {
+  DEAD_CODES,
+  DeadlineError,
+  clientIpFrom,
+  createIpLimiter,
+  readBodyCapped,
+  withDeadline,
+  type RelayMessaging,
+} from "./shared"
+
+export { DeadlineError, type RelayMessaging } from "./shared"
 
 // The relay's HTTP surface, built by `createRelayApp` so the tests can drive
 // it with a fake messaging client and a fake clock (EXP-1289). `index.ts`
 // wires the real environment: the secret, firebase-admin, the port.
 
-/** The slice of firebase-admin Messaging the relay uses. */
-export interface RelayMessaging {
-  sendEachForMulticast(message: MulticastMessage, dryRun?: boolean): Promise<BatchResponse>
-}
-
 export interface RelayAppOptions {
-  /** `PUSH_RELAY_SECRET`: shared with the web app, required. */
-  secret: string
+  /**
+   * `PUSH_RELAY_SECRET`: shared with the web app. Null = accountless-only
+   * (EXP-1428): every secret-gated route (/send, /stats, /healthz?deep=1)
+   * answers 404, as if the v1 mode did not exist.
+   */
+  secret: string | null
   /** `TRUST_PROXY=true`: honor the reverse proxy's forwarded client address. */
   trustProxy: boolean
   /** The firebase-admin messaging client, or null while Firebase is not configured. */
@@ -24,6 +35,8 @@ export interface RelayAppOptions {
   fcmDeadlineMs?: number
   now?: () => number
   log?: Logger
+  /** EXP-1428: the accountless mode (/v2/*); mounted only when given. */
+  accountless?: Omit<AccountlessOptions, `getMessaging` | `now` | `log` | `clientIp` | `failedAuthHit` | `fcmDeadlineMs`>
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -43,60 +56,6 @@ const RATE_LIMIT_MAX = 60
 const RATE_LIMIT_WINDOW_MS = 60_000
 const MAX_BODY_BYTES = 64 * 1024
 
-// Forwarded headers are client-forgeable: every spoofed value would mint its
-// own fresh rate-limit bucket. They are honored only when TRUST_PROXY says a
-// reverse proxy we control fronts the relay — and then only the RIGHTMOST
-// x-forwarded-for entry (the one that proxy appended) counts. Otherwise all
-// requests share the fallback bucket.
-//
-// Loose IPv4/IPv6 shape check — anything else falls back to the shared bucket.
-const IP_RE = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]+)$/
-
-// Read a request body with a hard byte cap, aborting the stream as soon as it
-// exceeds the cap. Returns null when over the cap; a read error yields an
-// empty string (which then fails JSON parsing as before).
-async function readBodyCapped(
-  body: ReadableStream<Uint8Array> | null,
-  maxBytes: number
-): Promise<string | null> {
-  if (!body) return ``
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.byteLength
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => {})
-        return null
-      }
-      chunks.push(value)
-    }
-  } catch {
-    return ``
-  }
-  return Buffer.concat(chunks).toString(`utf8`)
-}
-
-// ── Dead-token error codes ────────────────────────────────────────────────────
-// Codes the FCM v1 path (sendEachForMulticast) can actually emit for a token
-// that is PERMANENTLY undeliverable and must be pruned:
-//   - registration-token-not-registered: v1 UNREGISTERED, the canonical
-//     dead-token code.
-//   - mismatched-credential: v1 SENDER_ID_MISMATCH — the token belongs to a
-//     different Firebase project and will never work with our credential.
-// Deliberately absent: invalid-argument (also fired for malformed payloads —
-// pruning on it would mass-delete valid tokens on a payload bug) and
-// invalid-registration-token (legacy-API-only; the v1 endpoint never maps to
-// it, so listing it was dead weight).
-
-const DEAD_CODES = new Set([
-  `messaging/registration-token-not-registered`,
-  `messaging/mismatched-credential`,
-])
-
 // ── FCM deadline ──────────────────────────────────────────────────────────────
 
 // firebase-admin exposes no per-call timeout/abort, so slow FCM would hold
@@ -107,27 +66,6 @@ const DEAD_CODES = new Set([
 // deliver); only that batch's invalid-token pruning is lost, which the next
 // successful send or the web app's stale-token sweep recovers.
 export const FCM_DEADLINE_MS = 8_000
-
-export class DeadlineError extends Error {}
-
-function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new DeadlineError(`deadline of ${ms}ms exceeded`)),
-      ms
-    )
-    promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (err) => {
-        clearTimeout(timer)
-        reject(err)
-      }
-    )
-  })
-}
 
 // ── Transport retry (EXP-1289) ────────────────────────────────────────────────
 
@@ -197,52 +135,24 @@ export function createRelayApp(options: RelayAppOptions) {
   } = options
 
   function secretMatches(provided: string | null): boolean {
-    if (!provided) return false
+    if (!provided || secret === null) return false
     const a = Buffer.from(provided)
     const b = Buffer.from(secret)
     return a.length === b.length && timingSafeEqual(a, b)
   }
 
-  interface RateBucket {
-    count: number
-    resetAt: number
-  }
-
-  const rateBuckets = new Map<string, RateBucket>()
-
-  function rateLimitHit(ip: string): boolean {
-    const current = now()
-    const bucket = rateBuckets.get(ip)
-    if (!bucket || bucket.resetAt <= current) {
-      rateBuckets.set(ip, { count: 1, resetAt: current + RATE_LIMIT_WINDOW_MS })
-      return true
-    }
-    bucket.count += 1
-    return bucket.count <= RATE_LIMIT_MAX
-  }
-
-  // Best-effort sweep of the map so it can't grow unbounded under traffic.
-  setInterval(() => {
-    const current = now()
-    for (const [ip, bucket] of rateBuckets) {
-      if (bucket.resetAt <= current) rateBuckets.delete(ip)
-    }
-  }, RATE_LIMIT_WINDOW_MS).unref?.()
+  // Failed-auth attempts on EITHER mode draw from this one per-IP bucket.
+  const failedAuth = createIpLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS, now)
+  const rateLimitHit = failedAuth.hit
 
   function clientIp(headers: Headers, fallback = `unknown`): string {
-    if (!trustProxy) return fallback
-    const forwarded = headers
-      .get(`x-forwarded-for`)
-      ?.split(`,`)
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-    const candidate = forwarded?.at(-1) ?? headers.get(`x-real-ip`)?.trim()
-    if (candidate && IP_RE.test(candidate)) return candidate
-    return fallback
+    return clientIpFrom(headers, trustProxy, fallback)
   }
 
   /** 401 (or 429 past the failed-attempt throttle) for a request without the secret, else null. */
   function rejectUnauthorized(c: Context): Response | null {
+    // Accountless-only relay: the v1 surface is simply absent.
+    if (secret === null) return c.json({ error: `Not found` }, 404)
     if (secretMatches(c.req.raw.headers.get(`x-relay-secret`))) return null
     // Only failed-auth attempts are rate limited (a brute-force throttle).
     // Secret-bearing traffic is trusted and never throttled: the web app fans
@@ -284,9 +194,35 @@ export function createRelayApp(options: RelayAppOptions) {
 
   const app = new Hono()
 
+  // EXP-1428: the accountless mode shares the failed-auth bucket, the clock
+  // and the FCM client; it brings its own store and APNs client.
+  const accountless = options.accountless
+    ? mountAccountless(app, {
+        ...options.accountless,
+        getMessaging,
+        now,
+        log,
+        fcmDeadlineMs,
+        clientIp,
+        failedAuthHit: rateLimitHit,
+      })
+    : null
+
   // Unauthenticated health check for Docker HEALTHCHECK / uptime monitors.
   // `?deep=1` with the secret exercises the FCM transport (EXP-1289).
+  // `?modes=1` (EXP-1428) reports which modes and providers are configured:
+  // booleans only, so it can stay public; the plain answer stays the constant.
   app.get(`/healthz`, async (c) => {
+    if (c.req.query(`modes`) === `1`) {
+      return c.json({
+        ok: true,
+        modes: { v1: secret !== null, accountless: accountless !== null },
+        providers: {
+          fcm: getMessaging() !== null,
+          apns: accountless?.apnsConfigured() ?? false,
+        },
+      })
+    }
     if (c.req.query(`deep`) !== `1`) return c.json({ ok: true })
     const rejected = rejectUnauthorized(c)
     if (rejected) return rejected
@@ -327,6 +263,7 @@ export function createRelayApp(options: RelayAppOptions) {
       startedAt,
       firebaseConfigured: getMessaging() !== null,
       ...stats,
+      ...(accountless ? { accountless: accountless.stats } : {}),
     })
   })
 
@@ -474,5 +411,5 @@ export function createRelayApp(options: RelayAppOptions) {
     return c.json({ invalidTokens })
   })
 
-  return { app, stats }
+  return { app, stats, accountlessStats: accountless?.stats ?? null }
 }
