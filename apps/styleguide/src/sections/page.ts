@@ -170,6 +170,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`chat-selection`]: `Lists & rows`,
   [`story-ring`]: `Buttons & chips`,
   [`story-viewer`]: `Surfaces`,
+  [`story-tab`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

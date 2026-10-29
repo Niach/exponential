@@ -48,6 +48,9 @@ import {
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
 import { ThreadGuideMerge, threadGuidePullRequest } from "@/components/thread/thread-guide"
+import { ThreadStories } from "@/components/thread/thread-stories"
+import { useStoryTab } from "@/hooks/use-stories"
+import { STORY_TAB } from "@exp/domain-contract/stories"
 import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu"
@@ -89,17 +92,22 @@ import { threadChatMode } from "@exp/domain-contract/session-tree"
 
 // EXP-1293 Threads v2 / S-3: THE thread screen (fixture session-thread.json
 // ×4): the header (title + ONE tab strip), the Conversation (THE Dock, the
-// composer, the jump button, selection), the issue / session tabs.
+// composer, the jump button, selection), the issue / session tabs and the
+// Stories tab (stories.json STORIES TAB, pinned right).
 // The thread route (`/t/$teamSlug/threads/$threadId`) and an agent's chat
 // (`/t/$teamSlug/agents/$agentId`, chats.json CHAT MODE: `threadChatMode`
 // = bubbles, the agent's name, call button and agent menu in the header)
 // both render it; the route owns the `?tab=` search and how it navigates.
 
 export type ThreadSearch = {
-  tab?: `issue` | `session`
+  tab?: `issue` | `session` | `stories`
   issue?: string
   /** The session open in place (`tab=session`). */
   session?: string
+  /** The Stories tab's review pane (`tab=stories`, the complete diff). */
+  section?: `all`
+  /** The file in focus on the review pane. */
+  file?: string
   /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
   from?: string
   /** S-3: the inter-session back stack (`lib/session-back.ts`); the
@@ -110,10 +118,18 @@ export type ThreadSearch = {
 /** The `?tab=` search the thread screen reads (the agent chat's too). */
 export function validateThreadSearch(search: Record<string, unknown>): ThreadSearch {
   const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
-  // S-3: `?tab=guide` (the retired Guide tab) falls back to the conversation.
-  const tab = search.tab === `issue` || search.tab === `session` ? search.tab : undefined
+  // The retired `?tab=guide` lands on its successor, the Stories tab.
+  const tab =
+    search.tab === `issue` || search.tab === `session` || search.tab === `stories`
+      ? search.tab
+      : search.tab === `guide`
+        ? `stories`
+        : undefined
+  const section = tab === `stories` && search.section === `all` ? (`all` as const) : undefined
   return {
     ...(tab ? { tab } : {}),
+    ...(section ? { section } : {}),
+    ...(section && pick(search.file) ? { file: pick(search.file) } : {}),
     ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
     ...(tab === `session` && pick(search.session) ? { session: pick(search.session) } : {}),
     ...(pick(search.from) ? { from: pick(search.from) } : {}),
@@ -236,7 +252,9 @@ export function ThreadScreen({
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
-      : search.tab === `session` && focused && focused.id !== root.id
+      : search.tab === `stories`
+        ? { kind: `stories` as const }
+        : search.tab === `session` && focused && focused.id !== root.id
         ? { kind: `session` as const, sessionId: focused.id }
         : mainSession
           ? { kind: `session` as const, sessionId: mainSession.id }
@@ -262,9 +280,7 @@ export function ThreadScreen({
   const page = threadPageOf(tab)
   const showPage = (next: ThreadPage) => {
     if (isMobile) primeTabEnter(pages, page, next)
-    // S-3: no Guide page any more (`threadPages` never lists it).
-    const { tab: nextTab, ...rest } = threadPageSearch(next)
-    go(nextTab === `guide` ? {} : { ...(nextTab ? { tab: nextTab } : {}), ...rest })
+    go(threadPageSearch(next))
   }
   const swipe = useFaceSwipe(pages, page, showPage)
   /** A chip's pick swaps the tab in place (a page on phones). */
@@ -453,6 +469,8 @@ export function ThreadScreen({
     }
   })
 
+  // STORIES TAB: every story of the tree (the chip's dot, the body).
+  const storyTab = useStoryTab(team.id, root.id)
   const tabs = (
     <ThreadTabs
       variant={isMobile ? `pager` : `bar`}
@@ -468,6 +486,12 @@ export function ThreadScreen({
       issues={issueItems}
       add={menu.addMenu}
       sessions={sessionItems}
+      stories={{
+        label: STORY_TAB.copy.label,
+        active: tab.kind === `stories`,
+        dot: storyTab.ring?.unseen ?? false,
+        onSelect: () => showPage(`stories`),
+      }}
     />
   )
 
@@ -482,6 +506,31 @@ export function ThreadScreen({
         origin={view.origin}
         onOpenXref={nav.open}
       />
+    )
+  } else if (tab.kind === `stories`) {
+    body = (
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        data-testid="thread-stories-scroll"
+        style={topInset ? { paddingTop: topInset } : undefined}
+      >
+        <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 md:px-5">
+          <ThreadStories
+            stories={storyTab}
+            teamSlug={teamSlug}
+            pullRequest={guidePr}
+            canMerge={permissions.isMember}
+            canReply={permissions.isMember}
+            review={search.section === `all`}
+            file={search.file ?? null}
+            onReview={(open, file) =>
+              go({ tab: `stories`, ...(open ? { section: `all` as const } : {}), ...(open && file ? { file } : {}) })
+            }
+            here={root.id}
+            back={search.back}
+          />
+        </div>
+      </div>
     )
   } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)

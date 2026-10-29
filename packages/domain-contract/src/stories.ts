@@ -325,3 +325,7 @@ export function storyTab(input: StoriesInput & { rootId: string }): StoryRing | 
     stories: [...waiting, ...rest],
   }
 }
+
+/** THE styleguide specimen of the Stories tab ×4 (`tab.specimen`): the
+ *  ring of `tabCases[tab.specimen.case]`. */
+export const STORY_TAB_SPECIMEN = fixture.tabCases[fixture.tab.specimen.case]!.expected as unknown as StoryRing

@@ -17,6 +17,7 @@ import {
   SessionXrefSpecimen,
   StoryRingSpecimen,
   StoryViewerSpecimen,
+  StoryTabSpecimen,
   PhoneTabBarSpecimen,
   PhoneBoardMenuSpecimen,
   PhonePageHeaderSpecimen,
@@ -84,7 +85,7 @@ const str = (value: unknown): string | undefined =>
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
 // buttons; S-3 `session-xref` THE session link, `story-ring` / `story-viewer`
-// THE story ring + viewer) (identical ×4) for theirs.
+// THE story ring + viewer, `story-tab` THE Stories tab body) (identical ×4) for theirs.
 // Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -107,6 +108,7 @@ const DEV_VIEWS = [
   `session-xref`,
   `story-ring`,
   `story-viewer`,
+  `story-tab`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -167,6 +169,8 @@ function AgentRoute() {
           <StoryRingSpecimen />
         ) : dev === `story-viewer` ? (
           <StoryViewerSpecimen />
+        ) : dev === `story-tab` ? (
+          <StoryTabSpecimen />
         ) : dev === `phone-tab-bar` ? (
           <PhoneTabBarSpecimen />
         ) : dev === `phone-board-menu` ? (

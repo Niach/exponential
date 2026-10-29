@@ -4,6 +4,8 @@ import {
   STORIES_CONSTANTS,
   stories as foldStories,
   isStoryCard,
+  storyTab,
+  type StoriesInput,
   type Story,
   type StoryMessageInput,
   type StoryRing,
@@ -120,12 +122,48 @@ export interface StoriesState {
   pending: ReadonlySet<string>
 }
 
-export function useStories(teamId: string | null | undefined): StoriesState {
+type LoadedCardRow = {
+  id: string
+  conversationId: string
+  authorSessionId: string | null
+  createdAt: unknown
+  answeredAt: unknown
+  card: unknown
+}
+
+/** Synced card rows (keyed through `conversations`) as the fold's input. */
+function storyMessagesOf(
+  rows: readonly LoadedCardRow[],
+  conversations: ReadonlyMap<string, string>,
+  into = new Map<string, StoryMessageInput & { card: unknown }>()
+): Map<string, StoryMessageInput & { card: unknown }> {
+  for (const raw of rows) {
+    if (!isStoryCard(raw.card)) continue
+    const sessionId = conversations.get(raw.conversationId)
+    if (!sessionId) continue
+    // A transcript row is fresher than a digest copy.
+    into.set(raw.id, {
+      id: raw.id,
+      sessionId,
+      authorSessionId: raw.authorSessionId ?? null,
+      createdAt: ms(raw.createdAt) ?? 0,
+      answeredAt: ms(raw.answeredAt),
+      card: raw.card,
+    })
+  }
+  return into
+}
+
+type StoryParts = Omit<StoriesState, `rings`> & { input: Omit<StoriesInput, `now`>; now: number }
+
+/** The fold's input over `messages` (sessions named by THE session title,
+ *  the team's agents, the viewer's reads) and the host's story actions. */
+function useStoryParts(
+  teamId: string | null | undefined,
+  messages: readonly (StoryMessageInput & { card: unknown })[]
+): StoryParts {
   const now = useNow(60_000).getTime()
   const { rows } = useTeamSessions(teamId)
-  const { conversations } = useConversationSessions()
-  const teamIds = useMemo(() => (teamId ? [teamId] : []), [teamId])
-  const { messages: digest } = useDigestMessages({ teamIds })
 
   // ── agents ──
   const { data: agentRows } = useLiveQuery(
@@ -136,47 +174,6 @@ export function useStories(teamId: string | null | undefined): StoriesState {
 
   // ── reads ──
   const { data: readRows } = useLiveQuery((query) => query.from({ reads: sessionReadsCollection }), [])
-
-  // ── background sync ──
-  const loaded = useStoryBackgroundSync(teamId)
-
-  // ── the fold ──
-  const messages = useMemo(() => {
-    const byId = new Map<string, StoryMessageInput & { card: unknown }>()
-    for (const row of digest) {
-      if (!isStoryCard(row.card)) continue
-      byId.set(row.id, {
-        id: row.id,
-        sessionId: row.sessionId,
-        authorSessionId: row.authorSessionId ?? null,
-        createdAt: ms(row.createdAt) ?? 0,
-        answeredAt: ms(row.answeredAt),
-        card: row.card,
-      })
-    }
-    for (const raw of (loaded ?? []) as {
-      id: string
-      conversationId: string
-      authorSessionId: string | null
-      createdAt: unknown
-      answeredAt: unknown
-      card: unknown
-    }[]) {
-      if (!isStoryCard(raw.card)) continue
-      const sessionId = conversations.get(raw.conversationId)
-      if (!sessionId) continue
-      // A transcript row is fresher than a digest copy.
-      byId.set(raw.id, {
-        id: raw.id,
-        sessionId,
-        authorSessionId: raw.authorSessionId ?? null,
-        createdAt: ms(raw.createdAt) ?? 0,
-        answeredAt: ms(raw.answeredAt),
-        card: raw.card,
-      })
-    }
-    return [...byId.values()]
-  }, [digest, loaded, conversations])
 
   // THE session title, read only for the sessions that post a story (and
   // their roots).
@@ -196,32 +193,28 @@ export function useStories(teamId: string | null | undefined): StoriesState {
   }, [messages, byId])
   const { titles } = useSessionTitles(titled)
 
-  const rings = useMemo(
-    () =>
-      foldStories({
-        now,
-        sessions: titled.map((row) => ({
-          id: row.id,
-          rootId: row.rootId,
-          name: titles.get(row.id) ?? row.title ?? ``,
-          agentId: row.agentId ?? null,
-          startedByAgentId: row.startedByAgentId ?? null,
-        })),
-        agents: ((agentRows ?? []) as { id: string; name: string; role?: unknown }[]).map((agent) => ({
-          id: agent.id,
-          name: agent.name,
-          assistant: agent.role === `assistant`,
-        })),
-        messages,
-        reads: ((readRows ?? []) as { sessionId: string; readAt: unknown; storySeenAt?: unknown }[]).map(
-          (read) => ({
-            sessionId: read.sessionId,
-            readAt: ms(read.readAt),
-            storySeenAt: ms(read.storySeenAt),
-          })
-        ),
-      }),
-    [now, titled, titles, agentRows, messages, readRows]
+  const input = useMemo<Omit<StoriesInput, `now`>>(
+    () => ({
+      sessions: titled.map((row) => ({
+        id: row.id,
+        rootId: row.rootId,
+        name: titles.get(row.id) ?? row.title ?? ``,
+        agentId: row.agentId ?? null,
+        startedByAgentId: row.startedByAgentId ?? null,
+      })),
+      agents: ((agentRows ?? []) as { id: string; name: string; role?: unknown }[]).map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        assistant: agent.role === `assistant`,
+      })),
+      messages,
+      reads: ((readRows ?? []) as { sessionId: string; readAt: unknown; storySeenAt?: unknown }[]).map((read) => ({
+        sessionId: read.sessionId,
+        readAt: ms(read.readAt),
+        storySeenAt: ms(read.storySeenAt),
+      })),
+    }),
+    [titled, titles, agentRows, messages, readRows]
   )
 
   const cards = useMemo(() => new Map(messages.map((message) => [message.id, message.card])), [messages])
@@ -281,5 +274,65 @@ export function useStories(teamId: string | null | undefined): StoriesState {
     [answer]
   )
 
-  return { rings, cardFor, avatarFor, markShown, onDecide, onAnswer, pending }
+  return { input, now, cardFor, avatarFor, markShown, onDecide, onAnswer, pending }
+}
+
+export function useStories(teamId: string | null | undefined): StoriesState {
+  const { conversations } = useConversationSessions()
+  const teamIds = useMemo(() => (teamId ? [teamId] : []), [teamId])
+  const { messages: digest } = useDigestMessages({ teamIds })
+
+  // ── background sync ──
+  const loaded = useStoryBackgroundSync(teamId)
+
+  const messages = useMemo(() => {
+    const byId = new Map<string, StoryMessageInput & { card: unknown }>()
+    for (const row of digest) {
+      if (!isStoryCard(row.card)) continue
+      byId.set(row.id, {
+        id: row.id,
+        sessionId: row.sessionId,
+        authorSessionId: row.authorSessionId ?? null,
+        createdAt: ms(row.createdAt) ?? 0,
+        answeredAt: ms(row.answeredAt),
+        card: row.card,
+      })
+    }
+    return [...storyMessagesOf((loaded ?? []) as LoadedCardRow[], conversations, byId).values()]
+  }, [digest, loaded, conversations])
+
+  const { input, now, ...parts } = useStoryParts(teamId, messages)
+  const rings = useMemo(() => foldStories({ now, ...input }), [now, input])
+  return { rings, ...parts }
+}
+
+export interface StoryTabState extends Omit<StoriesState, `rings`> {
+  /** `storyTab()`: the tab's ONE ring (null = the empty state). */
+  ring: StoryRing | null
+  /** The fold is still loading (no empty state yet). */
+  loading: boolean
+}
+
+/** STORIES TAB (stories.json): every story card of the root's tree, no time
+ *  window (#EXP-1380: narrowed by rootId), folded by `storyTab()`. */
+export function useStoryTab(teamId: string | null | undefined, rootId: string | null): StoryTabState {
+  const { conversations } = useConversationSessions()
+  const { data, isLoading } = useLiveQuery(
+    (query) =>
+      rootId
+        ? query
+            .from({ messages: messageCollection })
+            .where(({ messages }) =>
+              and(eq(messages.rootId, rootId), not(isNull(messages.authorSessionId)), not(isNull(messages.card)))
+            )
+        : undefined,
+    [rootId]
+  )
+  const messages = useMemo(
+    () => [...storyMessagesOf((data ?? []) as LoadedCardRow[], conversations).values()],
+    [data, conversations]
+  )
+  const { input, now, ...parts } = useStoryParts(teamId, messages)
+  const ring = useMemo(() => (rootId ? storyTab({ now, ...input, rootId }) : null), [now, input, rootId])
+  return { ring, loading: isLoading, ...parts }
 }
