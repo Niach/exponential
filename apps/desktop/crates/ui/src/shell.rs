@@ -347,7 +347,7 @@ impl Shell {
                 // the voice tray is up it keeps running too, so the speech
                 // worker stays resident (the tray's Quit is the way out).
                 #[cfg(not(target_os = "macos"))]
-                if shared.read(cx).windows_open == 0 && !crate::voice_tray::keeps_running(cx) {
+                if shared.read(cx).windows_open == 0 && !etalk_gpui::voice_tray::keeps_running(cx) {
                     cx.quit();
                 }
             }
@@ -461,7 +461,7 @@ impl Shell {
             } else {
                 // #NEW-54 (#1244 review): a push-to-talk key held only while
                 // this window is focused is released with the focus.
-                crate::push_to_talk::on_window_deactivated(cx);
+                etalk_gpui::push_to_talk::on_window_deactivated(cx);
             }
         })
         .detach();
@@ -1181,12 +1181,12 @@ impl Render for Shell {
                     // #NEW-54: a push-to-talk shortcut that can't be held
                     // system-wide still works while this window is focused.
                     .capture_key_down(|event: &gpui::KeyDownEvent, _, cx| {
-                        if crate::push_to_talk::on_focused_key(true, &event.keystroke, cx) {
+                        if etalk_gpui::push_to_talk::on_focused_key(true, &event.keystroke, cx) {
                             cx.stop_propagation();
                         }
                     })
                     .capture_key_up(|event: &gpui::KeyUpEvent, _, cx| {
-                        if crate::push_to_talk::on_focused_key(false, &event.keystroke, cx) {
+                        if etalk_gpui::push_to_talk::on_focused_key(false, &event.keystroke, cx) {
                             cx.stop_propagation();
                         }
                     })

@@ -14,7 +14,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 use etalk::call::VOICE_CALL;
 use exponential_ui_gpui::controls::CallSize;
 
-use crate::voice_overlay::{call_buttons, call_pill, specimen_face, CallActions};
+use etalk_gpui::voice_overlay::{call_buttons, call_pill, specimen_face, CallActions};
 
 pub(crate) const ID: &str = "call-controls";
 pub(crate) const OWNER: &str = "S-3";

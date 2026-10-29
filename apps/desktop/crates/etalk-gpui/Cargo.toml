@@ -1,0 +1,74 @@
+[package]
+name = "etalk-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "eTalk's gpui side: the voice tray, push to talk, the overlay, the call UI, spoken replies and meeting mode, behind a host trait"
+
+[dependencies]
+# #EXP-1422: the surfaces Exponential and spezl share. The host (the IDE, or a
+# serverless app) plugs in through `TalkHost`/`CallLink` (src/host.rs); this
+# crate never links Exponential's server or app crates (ui, sync, api, coding,
+# steer, domain, engine, updater).
+etalk = { path = "../etalk" }
+theme = { path = "../theme" }
+# The SDK: the glass bar, pills, call buttons and the voice wave.
+exponential-ui = { path = "../exponential-ui" }
+exponential-ui-gpui = { path = "../exponential-ui-gpui" }
+# ePilot: the overlay never covers a fullscreen app (NEW-59) and the tray's
+# Screen memory (NEW-58), whose capture the pause hotkey pauses too.
+computer = { path = "../computer" }
+screen = { path = "../screen" }
+gpui.workspace = true
+gpui-component.workspace = true
+flume = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
+log = "0.4"
+# NEW-57: the meeting host's local segment log (`<data dir>/meeting.sqlite`).
+rusqlite = { workspace = true }
+# NEW-68 voice_tray: the brand icon rasterized for the tray (gpui's own SVG
+# renderer at its version, already in the tree on every platform).
+resvg = { version = "0.45", default-features = false }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# push_to_talk/overlay.rs: the pointer's location (NSEvent).
+objc = "0.2"
+cocoa = "0.26"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# NEW-54 push_to_talk: the push-to-talk grab (XGrabKey/XGrabButton, XKB's
+# detectable auto-repeat), the RandR monitor under the pointer, the call
+# pill's X11 drag.
+x11rb = { version = "0.13", features = ["xkb", "randr"] }
+raw-window-handle = "0.6"
+# NEW-68 voice_tray/linux.rs: our own StatusNotifierItem + dbusmenu over
+# D-Bus, no GTK (not `ksni`, whose Unlicense is off deny.toml's allow-list).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# NEW-54 push_to_talk/hotkey.rs: the xdg GlobalShortcuts portal on Wayland.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "global_shortcuts"] }
+async-io = "2"
+futures-util.workspace = true
+
+# NEW-68 voice_tray: the native tray on macOS and Windows (muda = its menus).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tray-icon = { version = "0.26", default-features = false }
+# NEW-54 push_to_talk/hotkey.rs: the push-to-talk shortcut, press AND release.
+global-hotkey = "0.9"
+
+# NEW-54 push_to_talk: the side buttons through a low-level mouse hook and
+# the pointer's position.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }

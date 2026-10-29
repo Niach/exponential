@@ -16,7 +16,8 @@
 use exponential_ui::voice_wave::Activity;
 use etalk::call::{CallButton, CallView, SurfaceSpecimen, VOICE_CALL};
 use exponential_ui_gpui::controls::{
-    call_button, glass_pill, glass_pill_button_primary, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild, VoiceWaveColors,
+    call_button, glass_bar, glass_pill, glass_pill_button_primary, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild,
+    VoiceWaveColors,
 };
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, AnyElement, App, Div, ElementId, FontWeight, InteractiveElement as _, IntoElement as _, ParentElement as _, Pixels,
@@ -25,11 +26,10 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use crate::computer_indicator::{
+use crate::bar::{
     item, rem_size, shaped_width, value, BAR_GAP_REMS, BAR_SIDE_REMS, BAR_SLACK, BAR_STROKE, BAR_TOP_REMS, ITEM_SIDE, LABEL_SIDE,
 };
-use crate::icons::{registry, ExpIcon};
-use crate::surface::glass_bar;
+use crate::host::{icon as host_icon, TalkIcon};
 
 /// The wave's edge (`VoiceWave` size `md`).
 const WAVE: f32 = 56.;
@@ -41,7 +41,7 @@ const MARK: f32 = 24.;
 
 /// What one capsule shows.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Capsule {
+pub struct Capsule {
     pub activity: Activity,
     pub level: f32,
     pub bands: Vec<f32>,
@@ -56,7 +56,7 @@ pub(crate) struct Capsule {
 }
 
 /// NEW-55: a pill's click.
-pub(crate) type PillClick = std::rc::Rc<dyn Fn(&mut App)>;
+pub type PillClick = std::rc::Rc<dyn Fn(&mut App)>;
 
 /// The ring colours: `info` / `primary` / `primary` (the catalog's neutral
 /// recipe), the muted foreground when idle or muted.
@@ -69,7 +69,7 @@ fn colors(activity: Activity, cx: &App) -> VoiceWaveColors {
 }
 
 /// THE capsule.
-pub(crate) fn capsule(id: impl Into<ElementId>, c: &Capsule, cx: &App) -> Stateful<Div> {
+pub fn capsule(id: impl Into<ElementId>, c: &Capsule, cx: &App) -> Stateful<Div> {
     let id: ElementId = id.into();
     let on_pill: Option<PillClick> = None;
     let theme = cx.theme();
@@ -81,7 +81,7 @@ pub(crate) fn capsule(id: impl Into<ElementId>, c: &Capsule, cx: &App) -> Statef
         c.level,
         &c.bands,
         WAVE,
-        Some(VoiceWaveChild::icon(Icon::from(ExpIcon::Logo), MARK, mark)),
+        Some(VoiceWaveChild::icon(host_icon(TalkIcon::Brand, cx), MARK, mark)),
         colors(c.activity, cx),
         Some("Voice".into()),
         cx,
@@ -123,10 +123,10 @@ fn capsule_height(rem: f32) -> f32 {
     (WAVE + 2. * (BAR_TOP_REMS * rem + BAR_STROKE)).ceil()
 }
 
-/// The capsule's size for `c` (the `computer_indicator::banner_size`
-/// rule): its words shaped in the theme's font plus [`BAR_SLACK`], capped
+/// The capsule's size for `c` (Exponential's computer-use banner's
+/// `banner_size` rule): its words shaped in the theme's font plus [`BAR_SLACK`], capped
 /// at `max_width` (a longer line ellipsizes).
-pub(crate) fn capsule_size(c: &Capsule, max_width: f32, cx: &App) -> Size<Pixels> {
+pub fn capsule_size(c: &Capsule, max_width: f32, cx: &App) -> Size<Pixels> {
     let rem = rem_size(cx);
     // `text_sm` (the value and the item) and `text_xs` (the pill).
     let (sm, xs) = (rem * 0.875, rem * 0.75);
@@ -145,18 +145,18 @@ pub(crate) fn capsule_size(c: &Capsule, max_width: f32, cx: &App) -> Size<Pixels
 // ---------------------------------------------------------------------------
 
 /// The agent's mark on the call's avatar (its icon and colour; none = the
-/// Exponential logo, the Assistant's).
+/// host's brand mark, the Assistant's).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct CallMark {
+pub struct CallMark {
     pub icon: Option<String>,
     pub color: Option<String>,
 }
 
 impl CallMark {
-    fn icon(&self) -> Icon {
+    fn icon(&self, cx: &App) -> Icon {
         match self.icon.as_deref().filter(|icon| !icon.is_empty()) {
-            Some(icon) => crate::icons::agent_icon(Some(icon), self.color.as_deref()),
-            None => Icon::from(ExpIcon::Logo),
+            Some(icon) => host_icon(TalkIcon::Agent { icon, color: self.color.as_deref() }, cx),
+            None => host_icon(TalkIcon::Brand, cx),
         }
     }
 }
@@ -164,7 +164,7 @@ impl CallMark {
 /// What one call surface shows: `callView` plus the agent, the timer and
 /// the live microphone level.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct CallFace {
+pub struct CallFace {
     pub agent: SharedString,
     pub mark: CallMark,
     pub view: CallView,
@@ -186,7 +186,7 @@ impl CallFace {
 }
 
 /// A styleguide row (`surfaceSpecimens`) as the face the surfaces draw.
-pub(crate) fn specimen_face(row: &SurfaceSpecimen) -> CallFace {
+pub fn specimen_face(row: &SurfaceSpecimen) -> CallFace {
     let activity = match row.activity.as_str() {
         "ringing" => "ringing",
         "listening" => "listening",
@@ -214,14 +214,14 @@ pub(crate) fn specimen_face(row: &SurfaceSpecimen) -> CallFace {
 
 /// The surface's two clicks (Mute toggles, End ends or cancels).
 #[derive(Clone)]
-pub(crate) struct CallActions {
+pub struct CallActions {
     pub on_mute: PillClick,
     pub on_end: PillClick,
 }
 
 impl CallActions {
     /// A styleguide specimen's (nothing happens).
-    pub(crate) fn none() -> Self {
+    pub fn none() -> Self {
         let noop: PillClick = std::rc::Rc::new(|_| {});
         CallActions { on_mute: noop.clone(), on_end: noop }
     }
@@ -230,11 +230,11 @@ impl CallActions {
 /// THE round call buttons (`call-controls`) in `view.buttons` order: mute
 /// (toggled = the inverted fill), speaker (phones only, never here) and the
 /// red end; while ringing (`Lg`) the end's label shows UNDER it.
-pub(crate) fn call_buttons(id: impl Into<ElementId>, view: &CallView, size: CallSize, actions: &CallActions, cx: &App) -> Div {
+pub fn call_buttons(id: impl Into<ElementId>, view: &CallView, size: CallSize, actions: &CallActions, cx: &App) -> Div {
     let id: ElementId = id.into();
     let copy = &VOICE_CALL.copy;
     let icons = &VOICE_CALL.icons;
-    let concept = |name: &str| Icon::new(registry::concept_by_name(name).unwrap_or(registry::VOICE_CALL));
+    let concept = |name: &str| host_icon(TalkIcon::Concept(name), cx);
     let ringing = view.activity == "ringing";
     // A press on a button is never the pill's drag.
     let mut row = h_flex()
@@ -297,7 +297,7 @@ fn call_avatar(id: ElementId, face: &CallFace, edge: f32, cx: &App) -> AnyElemen
     let theme = cx.theme();
     let activity = face.activity();
     let disc = edge * 0.56;
-    let mark = face.mark.icon().with_size(px(disc * 0.5));
+    let mark = face.mark.icon(cx).with_size(px(disc * 0.5));
     let avatar = div()
         .size(px(disc))
         .rounded_full()
@@ -367,7 +367,7 @@ fn call_avatar(id: ElementId, face: &CallFace, edge: f32, cx: &App) -> AnyElemen
 /// S-3: the desktop's in-window CALL PANEL over the agent chat's body (testId
 /// `panel`): the avatar large and centred, the name, the status or the
 /// timer, the caption (at most 4 lines), the round buttons at the bottom.
-pub(crate) fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
+pub fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
     let id: ElementId = id.into();
     let theme = cx.theme();
     let timer = face.view.status.is_none();
@@ -424,16 +424,16 @@ pub(crate) fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &Ca
 }
 
 /// The panel's avatar box (the halo and the wave inside it).
-pub(crate) const AVATAR_LG: f32 = 200.;
+pub const AVATAR_LG: f32 = 200.;
 /// The panel's top inset (it shrinks to 16 px in a short panel).
 const PANEL_TOP: f32 = 72.;
 /// The caption's clamp (voice-call.json: at most 4 lines) and line box.
-pub(crate) const CAPTION_LINES: usize = 4;
+pub const CAPTION_LINES: usize = 4;
 const CAPTION_LINE_H: f32 = 24.;
 /// The height the panel needs to show every part at full size with a
 /// 4-line caption: inset, avatar, name, status, caption, the round buttons
 /// (`CallSize::Lg`), bottom inset (the styleguide frame's floor).
-pub(crate) const PANEL_FULL_H: f32 =
+pub const PANEL_FULL_H: f32 =
     PANEL_TOP + AVATAR_LG + 16. + 32. + 4. + 20. + 32. + CAPTION_LINES as f32 * CAPTION_LINE_H + 16. + 56. + 48.;
 /// The pill's avatar.
 const AVATAR_SM: f32 = 28.;
@@ -441,12 +441,12 @@ const AVATAR_SM: f32 = 28.;
 /// S-3: the FLOATING CALL PILL (testId `pill`), `pill.width` × `pill.height`
 /// fixed: a drag handle, the avatar small, the name over the timer (both
 /// truncate), the VoiceWave sm, the mute and end buttons.
-pub(crate) fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
+pub fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
     let id: ElementId = id.into();
     let theme = cx.theme();
     let activity = face.activity();
     let pill = &VOICE_CALL.pill;
-    let mark = face.mark.icon().with_size(px(AVATAR_SM * 0.55));
+    let mark = face.mark.icon(cx).with_size(px(AVATAR_SM * 0.55));
     let avatar = div()
         .flex_none()
         .size(px(AVATAR_SM))

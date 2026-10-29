@@ -277,7 +277,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let (ring_tx, ring_rx) = flume::unbounded::<steer::control_channel::CallRing>();
             cx.spawn(async move |cx| {
                 while let Ok(ring) = ring_rx.recv_async().await {
-                    let _ = cx.update(|cx| crate::voice_call::on_ring(ring.call_id, ring.agent_id, cx));
+                    let _ = cx.update(|cx| etalk_gpui::voice_call::on_ring(ring.call_id, ring.agent_id, cx));
                 }
             })
             .detach();

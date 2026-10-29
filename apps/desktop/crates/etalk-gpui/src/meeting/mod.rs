@@ -9,7 +9,10 @@
 //!
 //! The rest of the IDE reads [`MeetingState`] (a gpui Global; observe it
 //! with `cx.observe_global::<MeetingState>`) and flips the pause with
-//! [`set_paused`].
+//! [`set_paused`]; the pause hotkey is grabbed by [`sync_pause_hotkey`].
+//! THE consent dialog is the host's ([`crate::Surface::MeetingConsent`]),
+//! the sends and the stops go through it ([`crate::TalkHost::send`],
+//! [`crate::VoiceWrite`]).
 //!
 //! A meeting runs here while THIS device is the voice device, an agent is
 //! picked and `meetingStartedAt` is set (`clearOnNone`); anything else, a
@@ -54,13 +57,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
-use sync::{Collection, Store};
 
 use etalk::meeting::{flush_step, meeting_messages, DesktopAudio, DesktopAudioCapability, FlushEvent, FlushState, MeetingSegment, MEETING};
-use domain::rows::MessageRow;
-use etalk::voice::{UtteranceTarget, VoiceSettings};
+use etalk::voice::VoiceSettings;
 
 use self::log::{LoggedSegment, SegmentLog};
+use crate::host::{self, now_ms, Notice, Outgoing, SendError, SendJob, Sent, Surface, VoiceWrite};
+use crate::push_to_talk::hotkey::{self, HotkeyEvent};
 
 /// What the tray, the rail, Settings → Voice and the call host read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -226,12 +229,11 @@ fn backoff_ms(failures: u32) -> i64 {
     doubled.min(flush.backoff_max_ms)
 }
 
-/// A send's answer the batch can never pass (4xx: the server refused it):
-/// dropped, never requeued.
-/// A 401 (an expired token, `Unauthorized` or a bare `Http 401`) is a failed
-/// send, never a refusal: the batch waits for the refreshed token.
-fn refused(err: &api::ApiError) -> bool {
-    matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && !matches!(*status, 401 | 408 | 429))
+/// A send's answer the batch can never pass (the host says the receiver
+/// refused it; Exponential: a 4xx other than 401, 408, 429): dropped, never
+/// requeued.
+fn refused(err: &SendError) -> bool {
+    err.refused
 }
 
 impl Batcher {
@@ -383,19 +385,18 @@ struct Stopping {
     batcher: Batcher,
 }
 
-/// A meeting part's `sessions.send` input: the member's conversation with
-/// the voice agent (voice.json `utteranceInput`), `meeting: true`, the
-/// part's `clientMessageId`.
-fn part_input(agent_id: &str, part: &Part, cx: &App) -> Option<api::sessions::SendInput> {
-    let mut input = send_input(agent_id, &part.text, cx)?;
-    input.client_message_id = Some(part.id.clone());
-    Some(input)
+/// A meeting part's send: the member's conversation with the voice agent
+/// (voice.json `utteranceInput`), `meeting: true`, the part's
+/// `clientMessageId`.
+fn part_input(agent_id: &str, part: &Part, cx: &App) -> Option<Outgoing> {
+    let outgoing = host::outgoing(agent_id, &part.text, cx)?;
+    Some(Outgoing { meeting: true, client_message_id: Some(part.id.clone()), ..outgoing })
 }
 
 /// Every part of a final batch, in order; the first failure ends it.
-fn send_final(trpc: &api::TrpcClient, inputs: &[api::sessions::SendInput], count: usize) {
-    for input in inputs {
-        if let Err(err) = api::sessions::send(trpc, input) {
+fn send_final(jobs: Vec<SendJob>, count: usize) {
+    for job in jobs {
+        if let Err(err) = job() {
             ::log::warn!("[meeting] the final batch was not sent ({err}); {count} segment(s) stay in the local log");
             return;
         }
@@ -403,21 +404,75 @@ fn send_final(trpc: &api::TrpcClient, inputs: &[api::sessions::SendInput], count
     ::log::info!("[meeting] sent the final batch ({count} segment(s))");
 }
 
-/// A final batch ready to go: the client, its parts' inputs, its segment count.
-type FinalBatch = (api::TrpcClient, Vec<api::sessions::SendInput>, usize);
+/// A final batch ready to go: its parts' sends, its segment count.
+type FinalBatch = (Vec<SendJob>, usize);
 
-/// A meeting turn's `sessions.send` input: the member's conversation with
-/// the voice agent (voice.json `utteranceInput`), `meeting: true`.
-fn send_input(agent_id: &str, text: &str, cx: &App) -> Option<api::sessions::SendInput> {
-    let conversation = crate::session_data::my_conversation(agent_id, cx).map(|row| row.id);
-    let team_id = Store::try_global(cx)
-        .and_then(|store| store.collections().agents.read(cx).iter().find(|row| row.id == agent_id).and_then(|row| row.team_id.clone()))
-        .unwrap_or_default();
-    let input = match etalk::voice::utterance_input(text, &team_id, Some(agent_id), conversation.as_deref())? {
-        UtteranceTarget::Session { session_id, text } => api::sessions::SendInput::message(&session_id, &text, Vec::new()),
-        UtteranceTarget::Agent { team_id, agent_id, text } => crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new()),
+/// Every send of `outgoing`, prepared (None = signed out).
+fn jobs(outgoing: Vec<Outgoing>, cx: &App) -> Option<Vec<SendJob>> {
+    outgoing.into_iter().map(|outgoing| host::send(outgoing, cx)).collect()
+}
+
+/// `meeting::who` of the member's settings, with the voice device's capability.
+pub fn who_of(settings: &VoiceSettings, cx: &App) -> String {
+    let (capability, _) = match (settings.voice_device_id.as_deref(), host::host(cx)) {
+        (Some(device_id), Some(host)) => host.desktop_audio(device_id, cx),
+        _ => Default::default(),
     };
-    Some(input.meeting())
+    etalk::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability)
+}
+
+/// Store a meeting start or stop through the host; the stored settings go to
+/// the speaker (the host follows them).
+pub fn write(write: VoiceWrite, cx: &mut App) {
+    if let Some(host) = host::host(cx) {
+        host.write(write, Box::new(|_| {}), cx);
+    }
+}
+
+/// The portal shortcut id the pause hotkey binds.
+const PAUSE_ID: &str = "pause-listening";
+
+/// The live pause grab (dropping it lets the keys go).
+#[derive(Default)]
+struct PauseHotkey(Option<hotkey::Grab>);
+
+impl Global for PauseHotkey {}
+
+/// Grab `pause.shortcut` while `wanted` (the voice device, a meeting runs or
+/// screen memory is on); each press toggles [`set_paused`]. Letting it go
+/// resumes. Main thread (the native grab lives there).
+pub fn sync_pause_hotkey(wanted: bool, cx: &mut App) {
+    let held = cx.try_global::<PauseHotkey>().is_some_and(|pause| pause.0.is_some());
+    if wanted == held {
+        return;
+    }
+    if !wanted {
+        cx.set_global(PauseHotkey(None));
+        if state(cx).paused {
+            set_paused(false, cx);
+        }
+        return;
+    }
+    let (tx, rx) = flume::unbounded::<HotkeyEvent>();
+    let grab = hotkey::grab_as(&MEETING.pause.shortcut, PAUSE_ID, &MEETING.copy.pause, tx);
+    cx.set_global(PauseHotkey(Some(grab)));
+    cx.spawn(async move |cx| {
+        while let Ok(event) = rx.recv_async().await {
+            match event {
+                HotkeyEvent::Down => cx.update(|cx| {
+                    let paused = state(cx).paused;
+                    set_paused(!paused, cx);
+                }),
+                HotkeyEvent::Status(status) => {
+                    if let Some(reason) = status.reason() {
+                        ::log::info!("[meeting] the pause hotkey is not held system-wide: {reason:?}");
+                    }
+                }
+                HotkeyEvent::Up => {}
+            }
+        }
+    })
+    .detach();
 }
 
 /// The running meeting.
@@ -434,7 +489,7 @@ struct Running {
     generation: u64,
 }
 
-pub(crate) struct MeetingHost {
+pub struct MeetingHost {
     device_id: String,
     client: Option<etalk::SpeechClient>,
     log: Option<SegmentLog>,
@@ -465,16 +520,15 @@ fn host(cx: &App) -> Option<Entity<MeetingHost>> {
 }
 
 /// Install the Global and start following the voice settings. ONCE, after
-/// `speak_replies::install` (it shares that worker and its settings).
-pub fn init(cx: &mut App) {
+/// `speak_replies::install` (it shares that worker and its settings). The
+/// host's messages (`turnDone`) and sign-ins arrive through
+/// [`crate::messages_changed`] and [`crate::session_changed`].
+pub(crate) fn init(cx: &mut App) {
     cx.set_global(MeetingState::default());
-    let Some(store) = Store::try_global(cx) else { return };
     let Some(speaker) = crate::speak_replies::entity(cx) else { return };
-    let Some(auth) = cx.try_global::<crate::session::AuthContext>() else { return };
-    let data_dir: PathBuf = auth.data_dir.clone();
-    let device_id = steer::persistent_device_id(&data_dir);
-    let messages = store.collections().messages.clone();
-    let session_state = store.state();
+    let Some(host) = host::host(cx) else { return };
+    let data_dir: PathBuf = host.data_dir();
+    let device_id = host.device_id();
     let log = match SegmentLog::open(&data_dir) {
         Ok(log) => Some(log),
         Err(err) => {
@@ -496,8 +550,6 @@ pub fn init(cx: &mut App) {
     });
     let entity = cx.new(|cx: &mut Context<MeetingHost>| {
         cx.observe(&speaker, |this: &mut MeetingHost, _, cx| this.follow(cx)).detach();
-        cx.observe(&messages, |this: &mut MeetingHost, collection, cx| this.on_messages(&collection, cx)).detach();
-        cx.observe(&session_state, |this: &mut MeetingHost, _, cx| this.on_session(cx)).detach();
         MeetingHost {
             device_id,
             client: crate::speak_replies::client(cx),
@@ -532,8 +584,8 @@ pub fn init(cx: &mut App) {
             if !batches.is_empty() {
                 let (done, wait) = std::sync::mpsc::channel();
                 std::thread::spawn(move || {
-                    for (trpc, inputs, count) in &batches {
-                        send_final(trpc, inputs, *count);
+                    for (jobs, count) in batches {
+                        send_final(jobs, count);
                     }
                     let _ = done.send(());
                 });
@@ -574,7 +626,7 @@ pub fn set_paused(paused: bool, cx: &mut App) {
 }
 
 /// Speech-worker events that belong to the meeting.
-pub(crate) fn is_meeting_event(event: &etalk::Event) -> bool {
+pub fn is_meeting_event(event: &etalk::Event) -> bool {
     matches!(
         event,
         etalk::Event::MeetingSegment { .. }
@@ -586,7 +638,7 @@ pub(crate) fn is_meeting_event(event: &etalk::Event) -> bool {
 }
 
 /// A meeting event from the worker.
-pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
+pub fn on_worker_event(event: etalk::Event, cx: &mut App) {
     if let Some(entity) = host(cx) {
         entity.update(cx, |this, cx| this.on_worker(event, cx));
     }
@@ -594,9 +646,23 @@ pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
 
 /// The worker came up (`Ready`): a running meeting is handed to it again
 /// (a new worker knows none). Called inside the speaker's update.
-pub(crate) fn worker_ready(cx: &mut App) {
+pub fn worker_ready(cx: &mut App) {
     if let Some(entity) = host(cx) {
         entity.update(cx, |this, cx| this.hand_over(cx));
+    }
+}
+
+/// The host's messages changed (`turnDone`).
+pub(crate) fn on_messages(cx: &mut App) {
+    if let Some(entity) = host(cx) {
+        entity.update(cx, |this, cx| this.on_messages(cx));
+    }
+}
+
+/// The signed-in account changed.
+pub(crate) fn on_session(cx: &mut App) {
+    if let Some(entity) = host(cx) {
+        entity.update(cx, |this, cx| this.on_session(cx));
     }
 }
 
@@ -643,7 +709,7 @@ impl MeetingHost {
             self.client = crate::speak_replies::client(cx);
         }
         let settings = crate::speak_replies::settings(cx);
-        let mut wanted = wanted_for(&settings, &self.device_id, crate::session_data::now_ms());
+        let mut wanted = wanted_for(&settings, &self.device_id, now_ms());
         // RESTART: the sitting this IDE listened to before it was gone needs
         // a new consent: stop it and ask, never listen on.
         if wanted.as_ref().is_some_and(|wanted| {
@@ -654,8 +720,8 @@ impl MeetingHost {
                 self.resume_asked = true;
                 ::log::info!("[meeting] the IDE restarted during a meeting: stopped, asking for consent again");
                 cx.defer(|cx| {
-                    crate::meeting_mode::stop_for(etalk::meeting::MeetingStopReason::Restart, cx);
-                    crate::meeting_mode::request_consent(cx);
+                    write(VoiceWrite::StopMeeting(Some(etalk::meeting::MeetingStopReason::Restart)), cx);
+                    host::open(Surface::MeetingConsent, cx);
                 });
             }
         }
@@ -689,8 +755,8 @@ impl MeetingHost {
             let hours = settings.auto_stop_hours();
             ::log::info!("[meeting] stopped after {hours} h (autoStop)");
             cx.defer(move |cx| {
-                crate::meeting_mode::stop_for(etalk::meeting::MeetingStopReason::AutoStop, cx);
-                crate::meeting_mode::notify_auto_stopped(hours, cx);
+                write(VoiceWrite::StopMeeting(Some(etalk::meeting::MeetingStopReason::AutoStop)), cx);
+                host::notify(Notice::MeetingAutoStopped { hours }, cx);
             });
         }
     }
@@ -709,7 +775,7 @@ impl MeetingHost {
             account: crate::speak_replies::session_account(cx),
             wanted,
             capability,
-            started_ms: crate::session_data::now_ms(),
+            started_ms: now_ms(),
             turns: 0,
             batcher: Batcher::default(),
             turn: None,
@@ -729,12 +795,12 @@ impl MeetingHost {
                 // AUTO-STOP: the tick is the clock that ends a too-old meeting.
                 let hours = crate::speak_replies::settings(cx).auto_stop_hours();
                 if this.running.as_ref().is_some_and(|running| {
-                    etalk::meeting::meeting_expired(Some(&running.wanted.id), crate::session_data::now_ms(), hours)
+                    etalk::meeting::meeting_expired(Some(&running.wanted.id), now_ms(), hours)
                 }) {
                     this.follow(cx);
                     return false;
                 }
-                if crate::session_data::now_ms() - this.last_prune_ms >= PRUNE_EVERY_MS {
+                if now_ms() - this.last_prune_ms >= PRUNE_EVERY_MS {
                     this.prune();
                 }
                 true
@@ -775,7 +841,7 @@ impl MeetingHost {
             client.meeting_stop(running.wanted.id.clone(), drain);
         }
         self.tick_generation += 1;
-        let elapsed = crate::session_data::now_ms() - running.started_ms;
+        let elapsed = now_ms() - running.started_ms;
         ::log::info!(
             "[meeting] turns/h {:.1} ({} turn(s) in {} min; {} segment(s) never sent)",
             turns_per_hour(running.turns, elapsed),
@@ -806,8 +872,8 @@ impl MeetingHost {
     /// queued goes out as ONE final batch, past the in-flight slot; a
     /// failure leaves it in the local log only.
     fn finish_stop(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
-        let Some((trpc, inputs, count)) = self.final_batch(id, cx) else { return };
-        cx.background_executor().spawn(async move { send_final(&trpc, &inputs, count) }).detach();
+        let Some((jobs, count)) = self.final_batch(id, cx) else { return };
+        cx.background_executor().spawn(async move { send_final(jobs, count) }).detach();
     }
 
     /// The draining stop `id`'s (None = whichever) final batch, ready to go;
@@ -827,11 +893,11 @@ impl MeetingHost {
         if inputs.is_empty() {
             return None;
         }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
+        let Some(jobs) = jobs(inputs, cx) else {
             ::log::warn!("[meeting] the final batch was not sent (signed out); {count} segment(s) stay in the local log");
             return None;
         };
-        Some((trpc, inputs, count))
+        Some((jobs, count))
     }
 
     /// The Global the tray and Settings read.
@@ -850,7 +916,7 @@ impl MeetingHost {
     }
 
     fn prune(&mut self) {
-        let now = crate::session_data::now_ms();
+        let now = now_ms();
         self.last_prune_ms = now;
         let Some(log) = self.log.as_ref() else { return };
         match log.prune(now, etalk::meeting::LOCAL_RETENTION_DAYS) {
@@ -911,7 +977,7 @@ impl MeetingHost {
 
     /// One flush event now; a due batch goes out.
     fn step(&mut self, event: FlushEvent, segment: Option<MeetingSegment>, cx: &mut Context<Self>) {
-        let now = crate::session_data::now_ms();
+        let now = now_ms();
         let Some(running) = self.running.as_mut() else { return };
         let before = running.batcher.state.in_flight_since;
         let stepped = running.batcher.step(event, now, segment);
@@ -933,7 +999,7 @@ impl MeetingHost {
     }
 
     fn send(&mut self, batch: Vec<MeetingSegment>, ats: Vec<i64>, cx: &mut Context<Self>) {
-        let now = crate::session_data::now_ms();
+        let now = now_ms();
         let signed_in = crate::speak_replies::session_account(cx);
         let Some(running) = self.running.as_mut() else { return };
         running.turn = None;
@@ -957,7 +1023,7 @@ impl MeetingHost {
             running.batcher.refused();
             return;
         }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
+        let Some(jobs) = jobs(inputs, cx) else {
             ::log::warn!("[meeting] not signed in; {count} segment(s) wait");
             running.batcher.requeue(parts, now);
             return;
@@ -970,8 +1036,8 @@ impl MeetingHost {
                 .spawn(async move {
                     let mut sent = 0;
                     let mut last = None;
-                    for input in &inputs {
-                        match api::sessions::send(&trpc, input) {
+                    for job in jobs {
+                        match job() {
                             Ok(output) => {
                                 sent += 1;
                                 last = Some(output);
@@ -979,7 +1045,7 @@ impl MeetingHost {
                             Err(err) => return (sent, Err(err)),
                         }
                     }
-                    (sent, last.ok_or_else(|| api::ApiError::Http { status: 0, message: "nothing to send".into() }))
+                    (sent, last.ok_or_else(|| SendError { message: "nothing to send".into(), refused: false }))
                 })
                 .await;
             let _ = this.update(cx, |this, _| this.answered(&meeting_id, generation, parts, sent, result));
@@ -997,9 +1063,9 @@ impl MeetingHost {
         generation: u64,
         parts: Vec<Part>,
         sent: usize,
-        result: Result<api::sessions::SendOutput, api::ApiError>,
+        result: Result<Sent, SendError>,
     ) {
-        let now = crate::session_data::now_ms();
+        let now = now_ms();
         let unsent: Vec<Part> = parts.into_iter().skip(sent).collect();
         let count: usize = unsent.iter().map(|part| part.segments.len()).sum();
         let current = self.running.as_mut().filter(|running| running.generation == generation && running.wanted.id == meeting_id);
@@ -1038,28 +1104,28 @@ impl MeetingHost {
 
     /// `turnDone`: the agent's reply row after the turn's own message
     /// landed in the conversation (push to talk's rule).
-    fn on_messages(&mut self, collection: &Entity<Collection<MessageRow>>, cx: &mut Context<Self>) {
+    fn on_messages(&mut self, cx: &mut Context<Self>) {
         let Some(turn) = self.running.as_ref().and_then(|running| running.turn.clone()) else { return };
-        let Some(store) = Store::try_global(cx) else { return };
-        let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
-        let replied = {
-            let rows = collection.read(cx);
-            let in_session = |row: &&MessageRow| {
-                domain::message_conversation::session_of(row, &sessions).unwrap_or(row.session_id.as_str()) == turn.session_id
-            };
-            let sent_at = turn
-                .message_id
-                .as_deref()
-                .and_then(|id| rows.iter().find(|row| row.id == id))
-                .and_then(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant));
-            let Some(sent_at) = sent_at else { return };
-            rows.iter().filter(in_session).any(|row| {
-                row.author_kind.as_deref() == Some("agent")
-                    && row.author_session_id.is_none()
-                    && row.body.as_deref().is_some_and(|body| !body.trim().is_empty())
-                    && row.created_at.as_deref().and_then(etalk::voice::parse_instant).is_some_and(|at| at > sent_at)
-            })
-        };
+        let Some(host) = host::host(cx) else { return };
+        // One pass: the turn's own row's instant, and the agent's replies in
+        // the conversation (any after it is `turnDone`).
+        let mut sent_at = None;
+        let mut replies: Vec<i64> = Vec::new();
+        host.messages(cx, &mut |row| {
+            let message = &row.message;
+            if turn.message_id.as_deref() == Some(row.id) && sent_at.is_none() {
+                sent_at = Some(message.created_at.and_then(etalk::voice::parse_instant));
+            }
+            let reply = message.session_id.unwrap_or("") == turn.session_id
+                && message.author_kind == Some("agent")
+                && message.author_session_id.is_none()
+                && message.body.is_some_and(|body| !body.trim().is_empty());
+            if let Some(at) = message.created_at.and_then(etalk::voice::parse_instant).filter(|_| reply) {
+                replies.push(at);
+            }
+        });
+        let Some(Some(sent_at)) = sent_at else { return };
+        let replied = replies.into_iter().any(|at| at > sent_at);
         if replied {
             if let Some(running) = self.running.as_mut() {
                 running.turn = None;
@@ -1173,15 +1239,13 @@ mod tests {
         assert_eq!((batcher.failures, batcher.retry_at), (0, 0));
     }
 
-    /// meeting.json FLUSH: a refusal (4xx) drops the batch, never requeued;
-    /// a transport error or 5xx retries.
+    /// meeting.json FLUSH: a refusal (the host's, Exponential: 4xx) drops
+    /// the batch, never requeued; a transport error or 5xx retries (the
+    /// classification itself: `ui/src/talk_host.rs`).
     #[test]
     fn a_refused_batch_is_dropped() {
-        let http = |status| api::ApiError::Http { status, message: "x".into() };
-        assert!(refused(&http(400)) && refused(&http(403)) && refused(&http(413)));
-        assert!(!refused(&http(408)) && !refused(&http(429)) && !refused(&http(500)) && !refused(&http(503)));
-        assert!(!refused(&http(401)) && !refused(&api::ApiError::Unauthorized), "an expired token retries");
-        assert!(!refused(&api::ApiError::Transport { message: "down".into(), offline: true }));
+        assert!(refused(&SendError { message: "x".into(), refused: true }));
+        assert!(!refused(&SendError { message: "x".into(), refused: false }));
 
         let mut batcher = Batcher::default();
         batcher.step(FlushEvent::Segment, 0, Some(segment("you", 0)));
@@ -1259,8 +1323,10 @@ mod tests {
         MeetingSegment { channel: "you".into(), label: "You".into(), text: "x".repeat(MEETING.flush.max_message_chars / 2 + 10), start_ms }
     }
 
-    fn http(status: u16) -> Result<api::sessions::SendOutput, api::ApiError> {
-        Err(api::ApiError::Http { status, message: "x".into() })
+    /// A send answered `status` (Exponential's refusal rule: a 4xx other
+    /// than 401, 408, 429).
+    fn http(status: u16) -> Result<Sent, SendError> {
+        Err(SendError { message: format!("HTTP {status}: x"), refused: (400..500).contains(&status) && !matches!(status, 401 | 408 | 429) })
     }
 
     #[test]
@@ -1316,7 +1382,7 @@ mod tests {
         assert_eq!((batcher.failures, batcher.retry_at), (0, 0), "the newer send's backoff is untouched");
         assert_eq!(batcher.formed, [(1, part[0].id.clone())]);
         // A stale success is ignored.
-        host.answered("m1", 1, part.clone(), 1, Ok(api::sessions::SendOutput::default()));
+        host.answered("m1", 1, part.clone(), 1, Ok(Sent::default()));
         assert_eq!(host.running.as_ref().unwrap().turns, 0);
 
         let running = host.running.take().unwrap();
@@ -1332,18 +1398,6 @@ mod tests {
         host.running.as_mut().unwrap().wanted.id = "m2".into();
         host.answered("m1", 2, part, 0, http(500));
         assert!(host.running.as_ref().unwrap().batcher.segments.is_empty());
-    }
-
-    /// F21: every meeting part names its `clientMessageId`.
-    #[test]
-    fn a_meeting_part_sends_its_client_message_id() {
-        let mut input = api::sessions::SendInput::message("s1", "hi", Vec::new()).meeting();
-        input.client_message_id = Some("0b7c".into());
-        let json = serde_json::to_value(&input).unwrap();
-        assert_eq!(json["clientMessageId"], "0b7c");
-        assert_eq!(json["meeting"], true);
-        let plain = serde_json::to_value(api::sessions::SendInput::message("s1", "hi", Vec::new())).unwrap();
-        assert!(plain.get("clientMessageId").is_none());
     }
 
     /// meeting.json FLUSH: a stop sends everything still queued as ONE

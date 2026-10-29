@@ -365,7 +365,7 @@ impl Item {
 
     #[zbus(property)]
     fn title(&self) -> &str {
-        super::TITLE
+        super::title()
     }
 
     #[zbus(property)]
@@ -401,7 +401,7 @@ impl Item {
     /// (icon name, icon pixmaps, title, description).
     #[zbus(property)]
     fn tool_tip(&self) -> (String, Vec<Pixmap>, String, String) {
-        (String::new(), Vec::new(), super::TITLE.to_string(), String::new())
+        (String::new(), Vec::new(), super::title().to_string(), String::new())
     }
 
     #[zbus(property)]

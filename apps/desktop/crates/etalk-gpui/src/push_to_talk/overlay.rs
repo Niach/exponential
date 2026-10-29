@@ -1,6 +1,6 @@
 //! #NEW-54: the push-to-talk overlay window: THE capsule
 //! (`voice_overlay::capsule`) in a transparent, always-on-top window that
-//! never takes focus (the `computer_indicator` banner's pattern), at the
+//! never takes focus (Exponential's computer-use banner's pattern), at the
 //! bottom centre of the display under the pointer, [`EDGE`] px above its
 //! edge. Wayland places it itself. The window is the capsule's measured
 //! size ([`capsule_size`], at most the display less [`EDGE`] each side): it
@@ -40,7 +40,7 @@ const AIR: f32 = 8.;
 
 /// What the window shows.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Face {
+pub enum Face {
     Ptt(PttOverlay),
     /// S-3: the floating call pill (`voice_call` hands it every change:
     /// a step, the level, the timer's second).
@@ -49,7 +49,7 @@ pub(crate) enum Face {
 
 /// The window, open while the capsule shows.
 #[derive(Default)]
-pub(crate) struct Overlay {
+pub struct Overlay {
     window: Option<WindowHandle<OverlayView>>,
     /// The open window's width: a line that needs more reopens it.
     width: f32,
@@ -68,7 +68,7 @@ enum Place {
 
 impl Overlay {
     /// Show `view` (None = close the window).
-    pub(crate) fn show(&mut self, view: Option<Face>, cx: &mut App) {
+    pub fn show(&mut self, view: Option<Face>, cx: &mut App) {
         let Some(view) = view else {
             self.place = None;
             if let Some(window) = self.window.take() {
@@ -110,7 +110,7 @@ impl Overlay {
             let _ = window.update(cx, |_, window, _| window.remove_window());
         }
         let origin = area.map(|area| bottom_centre(area, window_size)).unwrap_or_else(|| point(px(0.), px(0.)));
-        match cx.open_window(options(display, origin, window_size), |_, cx| cx.new(|_| OverlayView { view, drag: None })) {
+        match cx.open_window(options(display, origin, window_size, cx), |_, cx| cx.new(|_| OverlayView { view, drag: None })) {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(window_size.width);
@@ -147,7 +147,7 @@ impl Overlay {
                 (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.))))
             }
         };
-        match cx.open_window(options(display, origin, pill), |_, cx| cx.new(|_| OverlayView { view: Face::Call(face), drag: None })) {
+        match cx.open_window(options(display, origin, pill, cx), |_, cx| cx.new(|_| OverlayView { view: Face::Call(face), drag: None })) {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(pill.width);
@@ -158,12 +158,12 @@ impl Overlay {
 
     /// Whether `id` is the overlay's own window (it opens again, wider, for
     /// a longer line mid-hold: never the IDE window the key is held in).
-    pub(crate) fn owns(&self, id: gpui::WindowId) -> bool {
+    pub fn owns(&self, id: gpui::WindowId) -> bool {
         self.window.as_ref().is_some_and(|window| window.window_id() == id)
     }
 
     /// A new level frame: redraw the wave.
-    pub(crate) fn refresh(&self, cx: &mut App) {
+    pub fn refresh(&self, cx: &mut App) {
         if let Some(window) = self.window.as_ref() {
             let _ = window.update(cx, |_, _, cx| cx.notify());
         }
@@ -197,8 +197,8 @@ struct PillOrigin {
 }
 
 fn pill_file(cx: &App) -> Option<std::path::PathBuf> {
-    // The data dir of the running IDE (the tray keeps its switches there).
-    cx.try_global::<crate::session::AuthContext>().map(|auth| auth.data_dir.join(PILL_FILE))
+    // The host's data dir (the tray keeps its switches there).
+    crate::host::data_dir(cx).map(|data_dir| data_dir.join(PILL_FILE))
 }
 
 fn load_pill_origin(cx: &App) -> Option<Point<Pixels>> {
@@ -216,7 +216,7 @@ fn save_pill_origin(origin: Point<Pixels>, cx: &App) {
     }
 }
 
-pub(crate) struct OverlayView {
+pub struct OverlayView {
     view: Face,
     /// S-3: the pill being dragged (X11's own pointer tracking).
     drag: Option<Drag>,
@@ -296,6 +296,7 @@ impl X11Drag {
 }
 
 /// S-3: the window's origin for a pointer that moved from `start` to `now`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn drag_origin(origin: (i32, i32), start: (i32, i32), now: (i32, i32)) -> (i32, i32) {
     (origin.0 + now.0 - start.0, origin.1 + now.1 - start.1)
 }
@@ -342,7 +343,7 @@ impl OverlayView {
 }
 
 /// The fixture's activity key as the wave's.
-pub(crate) fn activity(key: &str) -> Activity {
+pub fn activity(key: &str) -> Activity {
     match key {
         "listening" => Activity::Listening,
         "thinking" => Activity::Thinking,
@@ -428,7 +429,7 @@ fn window_size(c: &Capsule, room: Option<f32>, cx: &App) -> Size<Pixels> {
     size(capsule.width + px(2. * AIR), capsule.height + px(2. * AIR))
 }
 
-fn options(display: Option<gpui::DisplayId>, origin: Point<Pixels>, window: Size<Pixels>) -> WindowOptions {
+fn options(display: Option<gpui::DisplayId>, origin: Point<Pixels>, window: Size<Pixels>, cx: &App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds { origin, size: window })),
         titlebar: None,
@@ -442,7 +443,7 @@ fn options(display: Option<gpui::DisplayId>, origin: Point<Pixels>, window: Size
         is_minimizable: false,
         display_id: display,
         window_background: gpui::WindowBackgroundAppearance::Transparent,
-        app_id: Some(crate::undock::CHANNEL_APP_ID.to_string()),
+        app_id: crate::host::host(cx).map(|host| host.brand().app_id.to_string()),
         #[cfg(target_os = "linux")]
         window_decorations: Some(gpui::WindowDecorations::Client),
         ..Default::default()
@@ -450,7 +451,7 @@ fn options(display: Option<gpui::DisplayId>, origin: Point<Pixels>, window: Size
 }
 
 /// The bottom centre of `area`, [`EDGE`] above its bottom (less the air).
-pub(crate) fn bottom_centre(area: Bounds<Pixels>, window: Size<Pixels>) -> Point<Pixels> {
+pub fn bottom_centre(area: Bounds<Pixels>, window: Size<Pixels>) -> Point<Pixels> {
     point(
         area.origin.x + (area.size.width - window.width) / 2.,
         area.origin.y + area.size.height - window.height - px(EDGE - AIR),
@@ -470,10 +471,10 @@ fn placement(cx: &App) -> Place {
     let primary = cx.primary_display().and_then(|primary| displays.iter().position(|display| display.id() == primary.id()));
     let under = pointer(cx).and_then(|pointer| displays.iter().position(|display| display.bounds().contains(&pointer)));
     let at = |display: &std::rc::Rc<dyn gpui::PlatformDisplay>| Place::At(Some(display.id()), Some(display.visible_bounds()));
-    if let (Some(pointer_ix), Some(state)) = (under.or(primary), coding::computer::screen_state()) {
+    if let (Some(pointer_ix), Some(state)) = (under.or(primary), computer::screen_state()) {
         let map = display_map(&displays, &state.displays);
         if let Some(Some(pointer)) = map.get(pointer_ix).copied() {
-            let target = coding::computer::work_screen::overlay_display(state.displays.len(), pointer, &state.fullscreen, &state.work);
+            let target = computer::work_screen::overlay_display(state.displays.len(), pointer, &state.fullscreen, &state.work);
             match target {
                 None => return Place::Hidden,
                 Some(target) => {
@@ -500,17 +501,17 @@ struct Rect {
     height: f32,
 }
 
-impl From<&coding::computer::Display> for Rect {
-    fn from(display: &coding::computer::Display) -> Self {
+impl From<&computer::Display> for Rect {
+    fn from(display: &computer::Display) -> Self {
         Rect { x: display.x as f32, y: display.y as f32, width: display.width as f32, height: display.height as f32 }
     }
 }
 
 /// NEW-59: `displays` (the toolkit's) mapped to `screens` (the computer
 /// crate's), index by index ([`map_displays`]). The banner places by it too.
-pub(crate) fn display_map(
+pub fn display_map(
     displays: &[std::rc::Rc<dyn gpui::PlatformDisplay>],
-    screens: &[coding::computer::Display],
+    screens: &[computer::Display],
 ) -> Vec<Option<usize>> {
     let rects: Vec<Rect> = displays
         .iter()
@@ -560,9 +561,9 @@ fn map_displays(toolkit: &[Rect], screens: &[Rect]) -> Vec<Option<usize>> {
 #[cfg(target_os = "linux")]
 fn x11_place(cx: &App) -> Option<Place> {
     let primary = cx.primary_display().map(|display| display.id());
-    if let Some(state) = coding::computer::screen_state() {
+    if let Some(state) = computer::screen_state() {
         if let Some((pointer, scale)) = x11_pointer(cx) {
-            let contains = |display: &coding::computer::Display| {
+            let contains = |display: &computer::Display| {
                 pointer.0 >= display.x
                     && pointer.0 < display.x + display.width as i32
                     && pointer.1 >= display.y
@@ -575,7 +576,7 @@ fn x11_place(cx: &App) -> Option<Place> {
                 .or_else(|| state.displays.iter().position(|display| display.primary));
             if let Some(under) = under {
                 return Some(
-                    match coding::computer::work_screen::overlay_display(state.displays.len(), under, &state.fullscreen, &state.work) {
+                    match computer::work_screen::overlay_display(state.displays.len(), under, &state.fullscreen, &state.work) {
                         None => Place::Hidden,
                         Some(target) => {
                             let display = &state.displays[target];

@@ -30,7 +30,7 @@ use etalk::voice::{ShortcutReason, ShortcutSupport, VoiceOs, VoiceSession};
 
 /// What a grab reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum HotkeyEvent {
+pub enum HotkeyEvent {
     Down,
     Up,
     Status(Status),
@@ -38,7 +38,7 @@ pub(crate) enum HotkeyEvent {
 
 /// How the shortcut is held right now.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Status {
+pub enum Status {
     /// Not grabbed (push to talk off here), or the grab is still starting.
     #[default]
     Idle,
@@ -52,7 +52,7 @@ pub(crate) enum Status {
 
 impl Status {
     /// The tray's `shortcutUnavailable` / the Shortcut row's reason.
-    pub(crate) fn reason(&self) -> Option<ShortcutReason> {
+    pub fn reason(&self) -> Option<ShortcutReason> {
         match self {
             Status::FocusedOnly(reason) => Some(*reason),
             _ => None,
@@ -60,7 +60,7 @@ impl Status {
     }
 
     /// The portal's trigger description (the tray's `shortcutLabel`).
-    pub(crate) fn trigger(&self) -> Option<&str> {
+    pub fn trigger(&self) -> Option<&str> {
         match self {
             Status::Portal { trigger } => trigger.as_deref().filter(|trigger| !trigger.trim().is_empty()),
             _ => None,
@@ -104,7 +104,7 @@ const NAMED: [(&str, u32, &str, &str); 28] = [
 
 /// The key of a binding (`shortcutGrammar`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Key {
+pub enum Key {
     /// A letter or digit, lowercase ASCII.
     Char(u8),
     /// f1-f24.
@@ -164,7 +164,7 @@ impl Key {
 /// and whether the name already implies Shift (gpui reports `shift-1` as
 /// `!` without Shift on a US layout). None = a key the grammar has no name
 /// for.
-pub(crate) fn grammar_key(gpui_key: &str) -> Option<(String, bool)> {
+pub fn grammar_key(gpui_key: &str) -> Option<(String, bool)> {
     const SHIFTED: [(&str, &str); 21] = [
         ("!", "1"), ("@", "2"), ("#", "3"), ("$", "4"), ("%", "5"), ("^", "6"), ("&", "7"), ("*", "8"), ("(", "9"),
         (")", "0"), ("_", "minus"), ("+", "equal"), ("{", "bracketleft"), ("}", "bracketright"), ("|", "backslash"),
@@ -193,7 +193,7 @@ pub(crate) fn grammar_key(gpui_key: &str) -> Option<(String, bool)> {
 
 /// One binding (`shortcutGrammar`), parsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Shortcut {
+pub struct Shortcut {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
@@ -205,7 +205,7 @@ pub(crate) struct Shortcut {
 impl Shortcut {
     /// Any grammar value: modifiers in any order, then exactly one key
     /// (`ctrl+shift+k`, `f13`, `alt+super+1`, `ctrl+mouse5`).
-    pub(crate) fn parse(value: &str) -> Option<Shortcut> {
+    pub fn parse(value: &str) -> Option<Shortcut> {
         let mut shortcut = Shortcut { ctrl: false, alt: false, shift: false, super_key: false, key: Key::Named("space") };
         let mut key = None;
         for part in value.split('+') {
@@ -247,7 +247,7 @@ impl Shortcut {
     }
 
     /// Whether a gpui keystroke is this shortcut (the focused fallback).
-    pub(crate) fn matches_keystroke(&self, keystroke: &gpui::Keystroke) -> bool {
+    pub fn matches_keystroke(&self, keystroke: &gpui::Keystroke) -> bool {
         let modifiers = &keystroke.modifiers;
         let Some((name, shifted)) = grammar_key(&keystroke.key) else { return false };
         self.key_is(&name)
@@ -259,7 +259,7 @@ impl Shortcut {
 
     /// Whether a gpui key name is this shortcut's key (a release ends the
     /// hold whatever the modifiers do).
-    pub(crate) fn key_matches(&self, key: &str) -> bool {
+    pub fn key_matches(&self, key: &str) -> bool {
         grammar_key(key).is_some_and(|(name, _)| self.key_is(&name))
     }
 
@@ -269,7 +269,7 @@ impl Shortcut {
 }
 
 /// This IDE's OS.
-pub(crate) fn os() -> VoiceOs {
+pub fn os() -> VoiceOs {
     if cfg!(target_os = "macos") {
         VoiceOs::Macos
     } else if cfg!(target_os = "windows") {
@@ -280,7 +280,7 @@ pub(crate) fn os() -> VoiceOs {
 }
 
 /// This IDE's Linux session (gpui runs Wayland whenever it is there).
-pub(crate) fn session() -> Option<VoiceSession> {
+pub fn session() -> Option<VoiceSession> {
     if !cfg!(target_os = "linux") {
         return None;
     }
@@ -292,7 +292,7 @@ pub(crate) fn session() -> Option<VoiceSession> {
 }
 
 /// A live grab; dropping it lets the shortcut go.
-pub(crate) struct Grab {
+pub struct Grab {
     stop: Arc<AtomicBool>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     _native: Option<native::Native>,
@@ -305,7 +305,7 @@ impl Drop for Grab {
 }
 
 /// Hold `value` and report on `tx` (on any thread).
-pub(crate) fn grab(value: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
+pub fn grab(value: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
     grab_as(value, PUSH_TO_TALK_ID, &etalk::voice::VOICE.copy.push_to_talk, tx)
 }
 
@@ -314,7 +314,7 @@ const PUSH_TO_TALK_ID: &str = "push-to-talk";
 
 /// [`grab`] under another portal shortcut `id` and description (#NEW-57:
 /// the pause hotkey beside push to talk).
-pub(crate) fn grab_as(value: &str, id: &'static str, description: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
+pub fn grab_as(value: &str, id: &'static str, description: &str, tx: flume::Sender<HotkeyEvent>) -> Grab {
     let stop = Arc::new(AtomicBool::new(false));
     #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(unused_mut))]
     let mut grab = Grab {
@@ -633,7 +633,7 @@ mod native {
     static ROUTE: Mutex<Vec<(u32, flume::Sender<HotkeyEvent>)>> = Mutex::new(Vec::new());
 
     /// Holds the registration; dropping it unregisters.
-    pub(crate) struct Native {
+    pub struct Native {
         manager: Option<GlobalHotKeyManager>,
         hotkey: Option<HotKey>,
         #[cfg(target_os = "windows")]
@@ -758,13 +758,13 @@ mod native {
         /// The press went out: its release goes out too, whatever the modifiers.
         static PRESSED: AtomicBool = AtomicBool::new(false);
 
-        pub(crate) struct Hook {
+        pub struct Hook {
             thread: AtomicU32,
             stop: Arc<AtomicBool>,
         }
 
         impl Hook {
-            pub(crate) fn start(shortcut: Shortcut, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) -> Option<Hook> {
+            pub fn start(shortcut: Shortcut, tx: flume::Sender<HotkeyEvent>, stop: Arc<AtomicBool>) -> Option<Hook> {
                 let button = match shortcut.key {
                     Key::Mouse(3) => 0,
                     Key::Mouse(4) => 1,

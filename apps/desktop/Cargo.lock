@@ -2552,6 +2552,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "etalk-gpui"
+version = "0.14.83"
+dependencies = [
+ "ashpd",
+ "async-io",
+ "chrono",
+ "cocoa 0.26.0",
+ "computer",
+ "etalk",
+ "exponential-ui",
+ "exponential-ui-gpui",
+ "flume 0.11.1",
+ "futures-util",
+ "global-hotkey",
+ "gpui",
+ "gpui-component",
+ "log",
+ "objc",
+ "raw-window-handle",
+ "resvg 0.45.1",
+ "rusqlite",
+ "screen",
+ "serde",
+ "serde_json",
+ "theme",
+ "tray-icon",
+ "uuid",
+ "windows-sys 0.59.0",
+ "x11rb",
+ "zbus",
+]
+
+[[package]]
 name = "euclid"
 version = "0.22.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9486,8 +9519,6 @@ version = "0.14.83"
 dependencies = [
  "anyhow",
  "api",
- "ashpd",
- "async-io",
  "chrono",
  "cocoa 0.26.0",
  "coding",
@@ -9496,11 +9527,10 @@ dependencies = [
  "domain",
  "engine",
  "etalk",
+ "etalk-gpui",
  "exponential-ui",
  "exponential-ui-gpui",
  "flume 0.11.1",
- "futures-util",
- "global-hotkey",
  "gpui",
  "gpui-base",
  "gpui-component",
@@ -9514,9 +9544,7 @@ dependencies = [
  "objc",
  "raw-window-handle",
  "reqwest",
- "resvg 0.45.1",
  "ropey",
- "rusqlite",
  "screen",
  "serde",
  "serde_json",
@@ -9525,13 +9553,10 @@ dependencies = [
  "sync",
  "terminal",
  "theme",
- "tray-icon",
  "updater",
  "url",
  "uuid",
- "windows-sys 0.59.0",
  "x11rb",
- "zbus",
 ]
 
 [[package]]

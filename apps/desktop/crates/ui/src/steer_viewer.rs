@@ -7237,7 +7237,7 @@ impl SteerSessionView {
             out.push(banner("notice", "ui-warning", "Notice", notice.to_string(), DockTint::Warning, None));
         }
         // NEW-53 (voice.json): this conversation's reply is being read aloud.
-        if let Some(speaking) = crate::speak_replies::speaking(cx).filter(|speaking| speaking.session_id == self.session_id) {
+        if let Some(speaking) = etalk_gpui::speak_replies::speaking(cx).filter(|speaking| speaking.session_id == self.session_id) {
             let copy = &etalk::voice::VOICE.copy;
             out.push(banner("speaking", "media-volume-up", &copy.speaking, speaking.title, DockTint::Muted, Some(&copy.stop)));
         }
@@ -7517,7 +7517,7 @@ impl SteerSessionView {
             out.push(("banner:rate-limit".to_string(), switch));
         }
         // NEW-53: the Speaking banner's Stop ends the voice.
-        if crate::speak_replies::speaking(cx).is_some_and(|speaking| speaking.session_id == self.session_id) {
+        if etalk_gpui::speak_replies::speaking(cx).is_some_and(|speaking| speaking.session_id == self.session_id) {
             out.push((
                 "banner:speaking".to_string(),
                 Button::new("steer-dock-stop-speaking")
@@ -7528,7 +7528,7 @@ impl SteerSessionView {
                     .label(etalk::voice::VOICE.copy.stop.clone())
                     .on_click(|_: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        crate::speak_replies::stop(cx);
+                        etalk_gpui::speak_replies::stop(cx);
                     })
                     .into_any_element(),
             ));
@@ -8531,7 +8531,7 @@ impl Render for SteerSessionView {
         self.sync_list(cx);
         // #NEW-54: an utterance push to talk could not send waits in this
         // chat's composer (the member's conversation with the voice agent).
-        if let Some(unsent) = crate::push_to_talk::take_unsent(&self.session_id, cx) {
+        if let Some(unsent) = crate::talk_host::take_unsent(&self.session_id, cx) {
             let draft = restore_unread_to_draft(&self.input.read(cx).value(), &unsent);
             self.input.update(cx, |state, cx| state.set_value(draft, window, cx));
         }
