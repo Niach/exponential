@@ -2578,8 +2578,11 @@ dependencies = [
  "dirs",
  "libc",
  "log",
+ "portable-pty",
+ "serde",
  "serde_json",
  "toml 0.8.23",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -8086,6 +8089,7 @@ dependencies = [
  "call-codec",
  "coding",
  "domain",
+ "exponential-agent-runtime",
  "flume 0.11.1",
  "futures-util",
  "log",

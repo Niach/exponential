@@ -29,7 +29,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 
 use terminal::pty::SpawnSpec;
 
@@ -37,8 +36,6 @@ use crate::agent::CodingAgent;
 use crate::agent_profiles;
 use crate::settings::Settings;
 
-/// `devices.completeCommand`'s result cap.
-pub const RESULT_TEXT_MAX: usize = 2000;
 
 /// What to run for one agent's login, and what to type once it is ready.
 /// (`SpawnSpec` is not `Eq`; tests compare its fields.)
@@ -59,25 +56,15 @@ pub struct LoginPlan {
 /// no-op command — claude's own background PTYs use the same value to
 /// suppress exactly this).
 pub fn login_plan(settings: &Settings, agent: CodingAgent, remote: bool) -> LoginPlan {
-    let program = settings.resolved_path_for(agent);
-    let mut plan = match agent {
-        // Verified on 2.1.251: `--claudeai` picks the subscription method
-        // outright, so there is no picker to drive.
-        CodingAgent::Claude => LoginPlan {
-            spawn: SpawnSpec::new(program).args(["auth", "login", "--claudeai"]),
-            title: "Sign in to Claude".to_string(),
-        },
-        // Device auth prints a URL plus a short code — the shape a phone can
-        // finish.
-        CodingAgent::Codex => LoginPlan {
-            spawn: SpawnSpec::new(program).args(["login", "--device-auth"]),
-            title: "Sign in to Codex".to_string(),
-        },
-    };
-    if remote {
-        plan.spawn.env.push(("BROWSER".to_string(), "true".to_string()));
-    }
-    plan
+    // EXP-1426: the argv, title and BROWSER pin are the agent core's.
+    let command = exponential_agent_runtime::login::login_command(
+        agent,
+        settings.resolved_path_for(agent),
+        remote,
+    );
+    let mut spawn = SpawnSpec::new(command.program).args(command.args);
+    spawn.env = command.env;
+    LoginPlan { spawn, title: command.title }
 }
 
 /// Sign `agent` OUT inside one config dir: `env` is the profile's
@@ -88,29 +75,12 @@ pub fn logout_in(
     agent: CodingAgent,
     env: Option<&(String, String)>,
 ) -> Result<(), String> {
-    let args: &[&str] = match agent {
-        CodingAgent::Claude => &["auth", "logout"],
-        CodingAgent::Codex => &["logout"],
-    };
-    let program = settings.resolved_path_for(agent);
-    let mut cmd = terminal::process::background_command(&program);
-    cmd.env("PATH", terminal::pty::login_path()).args(args);
-    if let Some((key, value)) = env {
-        cmd.env(key, value);
-    }
-    match crate::doctor::output_with_timeout(cmd, crate::doctor::PROBE_TIMEOUT) {
-        Ok(output) if output.status.success() => Ok(()),
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let detail = stderr
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-                .unwrap_or("the command failed");
-            Err(format!("Could not sign out of {}: {detail}", agent.id()))
-        }
-        Err(err) => Err(format!("Could not run {program}: {err}")),
-    }
+    exponential_agent_runtime::login::logout_in(
+        agent,
+        &settings.resolved_path_for(agent),
+        &terminal::pty::login_path(),
+        env.map(|(key, value)| (key.as_str(), value.as_str())),
+    )
 }
 
 /// EXP-1137: codex's credential file inside a config dir (`$CODEX_HOME` or a
@@ -602,84 +572,8 @@ fn base64url_decode(input: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// How far a login got. `Url` is the useful one — the sign-in link (and
-/// Codex's device code) is on screen and the requester can act on it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LoginPhase {
-    Url,
-    Failed,
-}
-
-/// The `agent_login` command's result payload.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LoginProgress {
-    pub agent: String,
-    pub phase: LoginPhase,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// Codex's device code; claude's flow has none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    /// A failure sentence (or a note beside a URL).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
-
-impl LoginProgress {
-    /// The sign-in URL is up.
-    pub fn url(agent: CodingAgent, url: impl Into<String>, code: Option<String>) -> Self {
-        Self {
-            agent: agent.id().to_string(),
-            phase: LoginPhase::Url,
-            url: Some(url.into()),
-            code,
-            message: None,
-        }
-    }
-
-    /// The login ended without ever showing one.
-    pub fn failed(agent: CodingAgent, message: impl Into<String>) -> Self {
-        Self {
-            agent: agent.id().to_string(),
-            phase: LoginPhase::Failed,
-            url: None,
-            code: None,
-            message: Some(message.into()),
-        }
-    }
-
-    /// Serialize for `devices.completeCommand`, inside its 2000-char cap.
-    /// The cap is measured the way the server measures it (zod `.max` counts
-    /// UTF-16 units) on the SERIALIZED text, and over it the MESSAGE shrinks
-    /// until the whole thing fits — never the URL, which is the whole point
-    /// of the answer, and never by cutting the JSON itself.
-    pub fn to_result_text(&self) -> String {
-        let fits = |text: &str| text.encode_utf16().count() <= RESULT_TEXT_MAX;
-        let rendered = serde_json::to_string(self).unwrap_or_default();
-        if fits(&rendered) {
-            return rendered;
-        }
-        let mut trimmed = self.clone();
-        let mut message: Vec<char> = self.message.as_deref().unwrap_or_default().chars().collect();
-        loop {
-            let cut = message.len().saturating_sub((message.len() / 4).max(16));
-            message.truncate(cut);
-            trimmed.message = (!message.is_empty()).then(|| message.iter().collect());
-            let rendered = serde_json::to_string(&trimmed).unwrap_or_default();
-            if fits(&rendered) || message.is_empty() {
-                return rendered;
-            }
-        }
-    }
-
-    /// Read one back off a `device_commands.result`. `None` = a result from
-    /// some other command kind (or an older build) — never an error.
-    pub fn parse(text: &str) -> Option<Self> {
-        serde_json::from_str(text.trim()).ok()
-    }
-}
+// EXP-1426: the login progress wire moved to the agent core.
+pub use exponential_agent_runtime::login::{LoginPhase, LoginProgress, RESULT_TEXT_MAX};
 
 #[cfg(test)]
 mod tests {

@@ -194,7 +194,7 @@ fn code_token(raw: &str) -> Option<String> {
     (run_ok(head) && run_ok(tail)).then(|| token.to_string())
 }
 
-/// Debounce depth, matching [`crate::login_picker::LoginWatcher`]: a screen
+/// Debounce depth, matching `LoginWatcher`: a screen
 /// must hold for this many consecutive ticks before the machine transitions.
 const STREAK: u8 = 2;
 
@@ -208,7 +208,7 @@ pub enum Transition {
 }
 
 /// Per-session Codex login state machine — the same shape as
-/// [`crate::login_picker::LoginWatcher`], keyed on [`CodexLoginPhase`].
+/// `LoginWatcher`, keyed on [`CodexLoginPhase`].
 #[derive(Default)]
 pub struct CodexLoginWatcher {
     pending: Option<CodexLoginPhase>,

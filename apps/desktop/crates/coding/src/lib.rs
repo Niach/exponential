@@ -50,7 +50,7 @@ pub mod cargo_target_gc;
 pub mod claude_oauth;
 pub use exponential_agent_runtime::claude_trust;
 pub mod clone_manager;
-pub mod codex_app_server;
+pub use exponential_agent_runtime::codex_app_server;
 pub use exponential_agent_runtime::codex_sessions;
 pub use exponential_agent_runtime::codex_trust;
 pub mod context_layout;
@@ -101,7 +101,7 @@ pub use codemode;
 /// NEW-58: the voice device's screen memory, re-exported for the same reason.
 pub use screen;
 
-pub use agent::{claude_model_alias, CodingAgent};
+pub use agent::{claude_model_alias, CodingAgent, CodingAgentExt};
 pub use argv::{
     permission_args, shell_args, AgentMcp, LaunchOptions, McpServerWire, McpWireTransport,
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
@@ -112,7 +112,7 @@ pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
     device_caps, parse_claude_version, parse_codex_version, run_doctor,
     AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorReport, Tool,
-    ToolCheck, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, RUN_CAPS,
+    ToolCheck, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION, RUN_CAPS, ClaudeAuthStatusExt, ToolMessages,
     MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
 pub use agent_update::{update_agent, AgentUpdateOutcome, AGENT_UPDATE_COMMAND};

@@ -7,7 +7,7 @@
 //! best-effort — the success screen.
 //!
 //! EXP-773 removed the mid-session watcher along with the PTY coding path.
-//! The one consumer left is [`crate::agent_login_driver`], which drives the
+//! The one consumer left is [`crate::login_screen`] (`steer::agent_login_driver` re-exports it), which drives the
 //! agent-login PTY tab (a login is each CLI's own flow and stays on a real
 //! terminal).
 //!
@@ -15,7 +15,15 @@
 //! mid-session `/login` render the same screens; mid-session adds a "Login"
 //! title and an "Esc to cancel" footer, neither of which is load-bearing).
 
-use crate::frames::QuestionOption;
+/// One numbered row of claude's login-method picker. EXP-1426: a local
+/// type (it was steer's `QuestionOption`, of which only these two fields were
+/// ever read) so the scraper needs no frame vocabulary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MethodOption {
+    pub label: String,
+    /// The keystroke that selects it (the option's number).
+    pub key: String,
+}
 
 /// The line above the method options. Captured: `Select login method:`.
 const METHOD_ANCHOR: &str = "Select login method";
@@ -98,7 +106,7 @@ pub(crate) fn host_in(url: &str, domains: &[&str]) -> bool {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoginPhase {
     /// `Select login method:` above a `❯`-marked numbered option run.
-    MethodPicker { options: Vec<QuestionOption> },
+    MethodPicker { options: Vec<MethodOption> },
     /// The sign-in URL + "Paste code here if prompted" screen, with the URL
     /// reconstructed across its hard-wrapped grid rows.
     UrlPrompt { url: String },
@@ -128,7 +136,7 @@ pub fn detect(lines: &[String]) -> Option<LoginPhase> {
 /// The method picker: a `❯`-marked consecutively-numbered option run
 /// starting at `1.`, with [`METHOD_ANCHOR`] somewhere above it. Same
 /// expand-from-the-marker strategy as `plan_picker::detect`.
-fn detect_method_picker(lines: &[String]) -> Option<Vec<QuestionOption>> {
+fn detect_method_picker(lines: &[String]) -> Option<Vec<MethodOption>> {
     let marker_idx = lines.iter().rposition(|line| {
         let t = line.trim_start();
         t.starts_with(SELECTION_MARKER) && parse_option_row(t).is_some()
@@ -154,7 +162,7 @@ fn detect_method_picker(lines: &[String]) -> Option<Vec<QuestionOption>> {
     for line in &lines[first_idx..] {
         match parse_option_row(line.trim_start()) {
             Some((n, label)) if n == next => {
-                options.push(QuestionOption::new(label, n.to_string()));
+                options.push(MethodOption { label: label.to_string(), key: n.to_string() });
                 next += 1;
             }
             _ => break,

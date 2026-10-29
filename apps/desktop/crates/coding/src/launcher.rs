@@ -33,7 +33,7 @@ use api::users;
 use terminal::pty::SpawnSpec;
 use terminal::tab::TabId;
 
-use crate::agent::CodingAgent;
+use crate::agent::{CodingAgent, CodingAgentExt as _};
 use crate::argv::{
     shell_args, AgentMcp, LaunchOptions, McpServerWire,
     CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS,

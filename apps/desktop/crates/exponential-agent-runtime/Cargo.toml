@@ -21,3 +21,8 @@ toml = "0.8"
 dirs = { workspace = true }
 log = "0.4"
 libc = { workspace = true }
+# EXP-1426 (part 3): agent identity serde, the bounded doctor probes and the
+# single-account login PTY (already in the tree via `terminal`/`coding`).
+serde = { workspace = true }
+wait-timeout = "0.2"
+portable-pty = { workspace = true }
