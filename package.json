@@ -49,6 +49,7 @@
     "build:mcp-apps": "bun --filter @exp/mcp-apps build",
     "test:widget": "bun --filter @exp/widget test",
     "test:lanes": "sh scripts/lanes/lock.test.sh",
+    "bump:versions": "node .github/actions/bump-versions/bump.mjs --config .github/release-versions.json",
 
     "dev:push-relay": "bun --filter @exp/push-relay dev",
     "start:push-relay": "bun --filter @exp/push-relay start",

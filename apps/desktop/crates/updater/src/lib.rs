@@ -3,8 +3,8 @@
 //! [`crate::ui`]'s update module owns the check, the state machine, and the
 //! banner; this crate owns everything that touches the filesystem and the
 //! network payloads: capability probing (can this install self-update at
-//! all?), the streaming download, SHA256SUMS verification, and the per-OS
-//! swap. Everything here is blocking — callers run it on the gpui background
+//! all?), the streaming download, the signed SHA256SUMS feed (EXP-1430), and
+//! the per-OS swap. Everything here is blocking — callers run it on the gpui background
 //! executor, exactly like the existing release check.
 //!
 //! Per-platform swap strategies (masterplan §11.2 follow-up):
@@ -35,6 +35,18 @@ use sha2::Digest as _;
 const USER_AGENT: &str = "exp-desktop-updater";
 /// The checksums asset every desktop release carries (build-desktop.yml).
 pub const SUMS_ASSET: &str = "SHA256SUMS.txt";
+/// The minisign (ed25519) signature over [`SUMS_ASSET`]'s exact bytes, written
+/// by the reusable `.github/actions/updater-feed` action.
+pub const SIG_ASSET: &str = "SHA256SUMS.txt.minisig";
+
+/// The feed's minisign public key (base64, the second line of the `.pub`
+/// file), compiled in from `EXP_UPDATE_PUBKEY`. `Some` = every update MUST
+/// carry a valid [`SIG_ASSET`]; `None` (local/dev builds) = checksums only.
+pub fn pinned_pubkey() -> Option<&'static str> {
+    option_env!("EXP_UPDATE_PUBKEY")
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+}
 
 /// How a self-update is applied on this platform. All variants exist on every
 /// platform so the ui state machine never needs `cfg` — [`install`] rejects a
@@ -272,6 +284,69 @@ pub fn fetch_text(url: &str) -> Result<String> {
         .error_for_status()
         .with_context(|| format!("GET {url}"))?;
     response.text().context("read body")
+}
+
+/// Fetch a small asset as raw bytes (signatures cover bytes, not decoded text).
+pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
+    let response = client()?
+        .get(url)
+        .timeout(Duration::from_secs(30))
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .with_context(|| format!("GET {url}"))?
+        .error_for_status()
+        .with_context(|| format!("GET {url}"))?;
+    Ok(response.bytes().context("read body")?.to_vec())
+}
+
+/// Fetch `SHA256SUMS.txt` and, when this build pins a key ([`pinned_pubkey`]),
+/// its signature — verified over the exact bytes BEFORE any line is trusted.
+/// `sig_url` is the release's [`SIG_ASSET`] URL (`None` = the release has none,
+/// which a pinned build refuses).
+pub fn fetch_verified_sums(sums_url: &str, sig_url: Option<&str>) -> Result<String> {
+    fetch_verified_sums_with(sums_url, sig_url, pinned_pubkey())
+}
+
+/// [`fetch_verified_sums`] with an explicit key (tests, other embedders).
+pub fn fetch_verified_sums_with(
+    sums_url: &str,
+    sig_url: Option<&str>,
+    pubkey: Option<&str>,
+) -> Result<String> {
+    let sums = fetch_bytes(sums_url).with_context(|| format!("fetch {SUMS_ASSET}"))?;
+    let signature = match (pubkey, sig_url) {
+        (Some(_), Some(url)) => {
+            let bytes = fetch_bytes(url).with_context(|| format!("fetch {SIG_ASSET}"))?;
+            Some(String::from_utf8(bytes).with_context(|| format!("{SIG_ASSET} is not UTF-8"))?)
+        }
+        _ => None,
+    };
+    verify_sums_signature(&sums, signature.as_deref(), pubkey)?;
+    String::from_utf8(sums).with_context(|| format!("{SUMS_ASSET} is not UTF-8"))
+}
+
+/// Check the minisign `signature` over the exact `sums` bytes against
+/// `pubkey` (minisign base64). No key = nothing to check (unsigned builds keep
+/// checksum-only updates); a key with a missing or bad signature is a refusal,
+/// so whoever can publish release assets cannot swap the sums AND the binary.
+pub fn verify_sums_signature(sums: &[u8], signature: Option<&str>, pubkey: Option<&str>) -> Result<()> {
+    let Some(pubkey) = pubkey else {
+        return Ok(());
+    };
+    let refuse = |why: String| {
+        anyhow::anyhow!("update refused: {why} — this build only installs updates signed with its pinned key")
+    };
+    let signature = signature
+        .ok_or_else(|| refuse(format!("the release has no {SIG_ASSET}")))?;
+    let key = minisign_verify::PublicKey::from_base64(pubkey.trim())
+        .map_err(|err| refuse(format!("the pinned update key is invalid ({err})")))?;
+    let signature = minisign_verify::Signature::decode(signature)
+        .map_err(|err| refuse(format!("{SIG_ASSET} is malformed ({err})")))?;
+    // allow_legacy = false: only prehashed (BLAKE2b) signatures, minisign's default.
+    key.verify(sums, &signature, false)
+        .map_err(|err| refuse(format!("{SIG_ASSET} does not verify {SUMS_ASSET} ({err})")))?;
+    log::info!("[updater] {SUMS_ASSET} signature ok ({})", signature.trusted_comment());
+    Ok(())
 }
 
 /// Stream `url` to `dest`, reporting `(received, total)` after each chunk.
@@ -535,6 +610,108 @@ mod tests {
         fs::write(&file, b"payload").unwrap();
         let sums = format!("{}  *asset.bin\n", sha256_hex(b"payload").to_uppercase());
         verify_sha256(&file, &sums, "asset.bin").unwrap();
+    }
+
+    // A throwaway feed key (`minisign -G -W`) and a signature made with it
+    // (`minisign -S -t "tag desktop-v1.2.3"`) over FEED_SUMS — fixtures only.
+    const FEED_PUBKEY: &str = "RWRRBEFNvlEu22NyHZg6KvyFpD5FWe5N/2lx0j3XrAzdb+UBlptio0Ke";
+    const OTHER_PUBKEY: &str = "RWQvtZV0Y0tG1kYRc7i+tP0Q/6U9Mp4RB+nd6lyjSUbLSeNguJoNfRIx";
+    const FEED_SUMS: &str = "aa11  asset-a.bin\nbb22  asset-b.bin\n";
+    const FEED_SIG: &str = "untrusted comment: signature from minisign secret key
+RURRBEFNvlEu20CHa+lEheDzo5QqGJYK0IhdOvlExVHxy3EITHEiYWxCn5CdzKcPcGEogYJW2r4QzQl82BWElnAnS+L+kN93CA8=
+trusted comment: tag desktop-v1.2.3
+GHJpf48YDEFXRQjHAQHezyTTT8wpq3juYC4VXTRKRxyi99FM7TCJNCj5A6gIBfJiSY92kVbKmmXWuZrLLJI9Ag==
+";
+
+    #[test]
+    fn signature_accepts_the_signed_sums() {
+        verify_sums_signature(FEED_SUMS.as_bytes(), Some(FEED_SIG), Some(FEED_PUBKEY)).unwrap();
+    }
+
+    #[test]
+    fn signature_rejects_tampered_sums() {
+        let tampered = FEED_SUMS.replace("aa11", "ff99");
+        let err = verify_sums_signature(tampered.as_bytes(), Some(FEED_SIG), Some(FEED_PUBKEY))
+            .unwrap_err();
+        assert!(err.to_string().contains("update refused"), "{err}");
+        // One appended line is a tamper too.
+        let appended = format!("{FEED_SUMS}cc33  evil.bin\n");
+        assert!(verify_sums_signature(appended.as_bytes(), Some(FEED_SIG), Some(FEED_PUBKEY)).is_err());
+    }
+
+    #[test]
+    fn signature_required_when_a_key_is_pinned() {
+        let err = verify_sums_signature(FEED_SUMS.as_bytes(), None, Some(FEED_PUBKEY)).unwrap_err();
+        assert!(err.to_string().contains(SIG_ASSET), "{err}");
+    }
+
+    #[test]
+    fn signature_rejects_a_different_key_and_garbage() {
+        assert!(verify_sums_signature(FEED_SUMS.as_bytes(), Some(FEED_SIG), Some(OTHER_PUBKEY)).is_err());
+        assert!(verify_sums_signature(FEED_SUMS.as_bytes(), Some("not a signature"), Some(FEED_PUBKEY)).is_err());
+        assert!(verify_sums_signature(FEED_SUMS.as_bytes(), Some(FEED_SIG), Some("not-a-key")).is_err());
+    }
+
+    #[test]
+    fn unpinned_builds_skip_the_signature() {
+        verify_sums_signature(FEED_SUMS.as_bytes(), None, None).unwrap();
+        verify_sums_signature(b"anything", Some("garbage"), None).unwrap();
+    }
+
+    /// Serve `bodies` (path prefix → body) on an ephemeral listener, one
+    /// request per connection, `count` connections.
+    fn serve(bodies: Vec<(&'static str, Vec<u8>)>, count: usize) -> (String, std::thread::JoinHandle<()>) {
+        use std::io::Write as _;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for _ in 0..count {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 4096];
+                let n = std::io::Read::read(&mut stream, &mut buf).unwrap();
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let body = bodies
+                    .iter()
+                    .find(|(path, _)| request.starts_with(&format!("GET {path} ")))
+                    .map(|(_, body)| body.clone())
+                    .unwrap_or_default();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(header.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        (base, server)
+    }
+
+    #[test]
+    fn fetch_verified_sums_checks_the_feed() {
+        let (base, server) = serve(
+            vec![("/sums", FEED_SUMS.into()), ("/sig", FEED_SIG.into())],
+            2,
+        );
+        let sums = fetch_verified_sums_with(
+            &format!("{base}/sums"),
+            Some(&format!("{base}/sig")),
+            Some(FEED_PUBKEY),
+        )
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(sums, FEED_SUMS);
+
+        // A pinned key with no signature asset refuses after fetching the sums.
+        let (base, server) = serve(vec![("/sums", FEED_SUMS.into())], 1);
+        assert!(fetch_verified_sums_with(&format!("{base}/sums"), None, Some(FEED_PUBKEY)).is_err());
+        server.join().unwrap();
+
+        // No key: today's checksum-only behaviour, the signature is not fetched.
+        let (base, server) = serve(vec![("/sums", FEED_SUMS.into())], 1);
+        assert_eq!(fetch_verified_sums_with(&format!("{base}/sums"), None, None).unwrap(), FEED_SUMS);
+        server.join().unwrap();
     }
 
     #[test]

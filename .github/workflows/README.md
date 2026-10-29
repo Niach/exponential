@@ -84,6 +84,41 @@ sessions; a relay that ignores the claim shows those sessions as Ended.
 | master push | `build-web.yml`, `build-steer-relay.yml` | the ghcr images the deploys pull |
 | release tags (`desktop-v*`, `android-v*`, `ios-v*`, `cli-v*`, `ui-v*`, `v*.*.*`) + `workflow_dispatch` | `release-suite.yml` (once per commit) | everything heavy: `exponential-ui.yml` (renderers, conformance, bench), `test-ios.yml`, Android unit + lint + licences, desktop `cargo test` + licences, marketing + styleguide builds + `shots:check`, package + bun suites, real-DB suites, the feedback-widget Playwright e2e on the compose stack, push-relay image smoke build |
 | release tags | `build-*.yml`, `release-ui.yml` | the release artifacts |
-| by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml` | fuzzing, re-recording the Compose fixtures |
+| by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml`, `bump-versions.yml` | fuzzing, re-recording the Compose fixtures, the version-bump PR |
 
 Bench timings never fail (warnings only); counts and bytes still gate.
+
+## Release secrets and variables (EXP-1430)
+
+The shared actions behind these workflows live in `../actions/` (see its
+README; Niach/spezl calls the same ones). Every signing/upload step is
+GATED: a missing secret = a `::warning::` and the unsigned/un-uploaded
+fallback, never a red run, except where noted. "Person" = a human has to
+create it in the vendor's console and paste it into the repo's Actions
+secrets (the values live in KeePass, never in the repo). spezl needs its own
+copies in Niach/spezl; the Apple ones can be the same values (same team).
+
+| Name | Kind | Used by | What | Who provides |
+|---|---|---|---|---|
+| `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD` | secret | `macos-app` | Developer ID Application cert (base64 .p12) | person (Apple Developer) |
+| `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`, `NOTARY_KEY` | secret | `macos-app` | App Store Connect API key for notarytool (`NOTARY_KEY` = base64 .p8) | person (App Store Connect) |
+| `IOS_DIST_CERT_P12`, `IOS_DIST_CERT_PASSWORD` | secret | `apple-signing` | Apple Development + Distribution certs (base64 .p12) | person |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` | secret | `build-ios.yml`, `testflight-upload` | App Store Connect API key (profiles + TestFlight upload) | person |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | secret | `windows-sign` | an Entra app registration with the "Artifact Signing Certificate Profile Signer" role | person (Azure; identity validation first). A PARTIAL set fails the Windows leg |
+| `WINDOWS_SIGNING_ENDPOINT`, `WINDOWS_SIGNING_ACCOUNT`, `WINDOWS_SIGNING_PROFILE` | variable | `windows-sign` | Artifact Signing region endpoint, account, certificate profile | person |
+| `UPDATE_SIGNING_KEY` | secret | `updater-feed` | minisign secret key (`minisign -G -W`, base64 of the file) signing `SHA256SUMS.txt` | person (generate once, keep in KeePass) |
+| `UPDATE_SIGNING_PUBKEY` | variable | `updater-feed`, the desktop + CLI builds (`EXP_UPDATE_PUBKEY`) | the public key; compiled in, every update then MUST be signed. Set without the secret = the release FAILS | person (second line of the .pub) |
+| `ANDROID_KEYSTORE_B64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` | secret | `build-android.yml` | Play upload keystore | person |
+| `PLAY_SERVICE_ACCOUNT_JSON` | secret | `play-upload` | Google Cloud service-account key, invited in Play Console as Release manager on the app | person. The Play app record + first upload must exist (the API cannot create apps) |
+| `RELEASE_BOT_TOKEN` | secret | `bump-versions.yml` | token for the bump PR so `gate` runs on it (GITHUB_TOKEN PRs trigger no workflows) | person (optional) |
+| `RUNNER_STATUS_TOKEN` | secret | `pick-runner.yml` | lists the self-hosted runners (Administration: read) | person (optional) |
+| `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`, `SWIFT_DIST_TOKEN` | secret | `release-ui.yml` | Exponential UI package publishing | person |
+
+Turning on the signed updater feed: `minisign -G -W -p update.pub -s update.key`,
+`UPDATE_SIGNING_KEY` = `base64 < update.key`, `UPDATE_SIGNING_PUBKEY` = line 2
+of `update.pub`, then the next `desktop-v*` / `cli-v*` tag ships pinned
+clients. Rotation needs one transition release (`../actions/updater-feed/README.md`).
+
+Version bumps: Actions → `bump-versions` → pick the products; it opens a PR
+(config `.github/release-versions.json`), a person tags after the merge.
+Locally: `bun run bump:versions -- --dry-run desktop=patch android=patch ios=patch`.

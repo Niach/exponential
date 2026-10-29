@@ -1,0 +1,144 @@
+name: bump-versions
+
+# EXP-1430: one dispatch replaces the hand-edited version lines of a release
+# PR. It rewrites what .github/release-versions.json lists (desktop + CLI
+# Cargo workspace + lock + licence inventory, Android versionName/versionCode,
+# iOS marketing version + build +2), commits on release/bump-<date>-<run> and
+# opens a PR. It never pushes tags and never releases: a person merges the PR,
+# then pushes the tags the PR body lists (lightweight, see release-suite.yml).
+#
+# Token: a PR opened with GITHUB_TOKEN triggers no workflow, so the required
+# `gate` check would never run on it. Set the RELEASE_BOT_TOKEN secret (a
+# fine-grained PAT or App token with contents + pull-requests write) and the
+# push + PR come from it, which runs the gate. Without it the run falls back
+# to GITHUB_TOKEN and warns: push any commit to the branch (or close + reopen
+# the PR as a person) to get the gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      desktop:
+        description: Desktop + CLI (desktop-v*, cli-v*)
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+      desktop_version:
+        description: Desktop + CLI explicit x.y.z (overrides the choice)
+        type: string
+        required: false
+      android:
+        description: Android (android-v*, versionCode +1)
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+      android_version:
+        description: Android explicit x.y.z (overrides the choice)
+        type: string
+        required: false
+      ios:
+        description: iOS (ios-v*, build +2)
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+      ios_version:
+        description: iOS explicit x.y.z (overrides the choice)
+        type: string
+        required: false
+      web:
+        description: Web (v*, tag only, no file changes)
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+      web_version:
+        description: Web explicit x.y.z (overrides the choice)
+        type: string
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: bump-versions
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      HAS_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # EXP-1430: web reads its current version from the newest v* tag.
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_BOT_TOKEN || github.token }}
+
+      - name: Collect bumps
+        id: args
+        env:
+          DESKTOP: ${{ inputs.desktop_version || inputs.desktop }}
+          ANDROID: ${{ inputs.android_version || inputs.android }}
+          IOS: ${{ inputs.ios_version || inputs.ios }}
+          WEB: ${{ inputs.web_version || inputs.web }}
+        run: |
+          set -euo pipefail
+          bumps="desktop=$DESKTOP android=$ANDROID ios=$IOS web=$WEB"
+          if [ "$bumps" = "desktop=none android=none ios=none web=none" ]; then
+            echo "::error::nothing to bump: pick at least one product"; exit 1
+          fi
+          echo "bumps=$bumps" >> "$GITHUB_OUTPUT"
+
+      - id: bump
+        uses: ./.github/actions/bump-versions
+        with:
+          bumps: ${{ steps.args.outputs.bumps }}
+
+      - name: Commit + open the PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN || github.token }}
+          TAGS: ${{ steps.bump.outputs.tags }}
+          VERSIONS: ${{ steps.bump.outputs.versions }}
+          FILES: ${{ steps.bump.outputs.files }}
+          BUMPS: ${{ steps.args.outputs.bumps }}
+          BASE: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FILES" ]; then
+            # Tag-only products (web) change no file: nothing to merge, just the tags.
+            { echo "No file changed; tag master with:"; echo '```'; echo "$TAGS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::no file changed, no PR: tag with $(echo "$TAGS" | paste -sd ' ' -)"; exit 0
+          fi
+          if [ "$HAS_BOT_TOKEN" != true ]; then
+            echo "::warning::RELEASE_BOT_TOKEN is not set: the PR is opened with GITHUB_TOKEN, so the gate check will not run until someone pushes to the branch."
+          fi
+          branch="release/bump-$(date -u +%Y-%m-%d)-${GITHUB_RUN_NUMBER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898273+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          # shellcheck disable=SC2086
+          git add -- $FILES
+          git commit -m "Release versions: $(echo "$TAGS" | paste -sd ' ' -)" -m "EXP-1430: bump-versions ($BUMPS)."
+          git push -u origin "$branch"
+          tag_lines=$(echo "$TAGS" | sed 's/^/git tag /')
+          body=$(cat <<EOF
+          Version bump from the \`bump-versions\` workflow ([run]($RUN_URL)): \`$BUMPS\`.
+
+          \`\`\`json
+          $VERSIONS
+          \`\`\`
+
+          This PR only rewrites the committed versions. **It pushes no tags and releases nothing.** Changelog entries (\`apps/web/src/lib/changelog.ts\` + \`crates/ui/src/changelog.rs\`), Android/iOS store notes stay by hand. After merging, a person tags the merge commit (lightweight tags):
+
+          \`\`\`
+          git pull
+          $tag_lines
+          git push origin $(echo "$TAGS" | paste -sd ' ' -)
+          \`\`\`
+          EOF
+          )
+          if [ "$HAS_BOT_TOKEN" != true ]; then
+            body="$body"$'\n\n'"Opened with GITHUB_TOKEN (no RELEASE_BOT_TOKEN secret), so no workflow ran on it: push a commit to \`$branch\` to run the \`gate\` check."
+          fi
+          gh pr create --base "$BASE" --head "$branch" --title "Release versions: $(echo "$TAGS" | paste -sd ' ' -)" --body "$body"

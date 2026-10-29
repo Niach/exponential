@@ -123,6 +123,9 @@ pub struct UpdatePlan {
     pub asset_name: String,
     pub asset_url: String,
     pub sums_url: String,
+    /// The release's `SHA256SUMS.txt.minisig` — `None` when unsigned, which a
+    /// build with a pinned feed key refuses in the pipeline (EXP-1430).
+    pub sig_url: Option<String>,
     pub strategy: updater::Strategy,
 }
 
@@ -434,7 +437,9 @@ fn run_pipeline(
     use anyhow::Context as _;
 
     let staging = updater::staging_dir().context("no user data dir")?;
-    let sums = updater::fetch_text(&plan.sums_url).context("fetch SHA256SUMS.txt")?;
+    // Signature checked before any download (EXP-1430): a tampered feed fails fast.
+    let sums = updater::fetch_verified_sums(&plan.sums_url, plan.sig_url.as_deref())
+        .context("fetch the signed SHA256SUMS.txt")?;
 
     let dest = staging.join(&plan.asset_name);
     // Throttle progress to ~4/s — every 64KB chunk would flood the foreground.
@@ -538,6 +543,7 @@ fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
         (Some(asset_url), Some(sums_url)) => Some(UpdatePlan {
             asset_url,
             sums_url,
+            sig_url: find(updater::SIG_ASSET),
             asset_name,
             strategy,
         }),

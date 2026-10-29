@@ -1,0 +1,54 @@
+# EXP-1430: the self-updater feed — SHA256SUMS.txt over a dist dir plus a
+# minisign (ed25519) signature over its exact bytes, SHA256SUMS.txt.minisig.
+# Reusable across repos: `uses: Niach/exponential/.github/actions/updater-feed@<sha>`.
+# Linux runners only (x86_64 + aarch64). See README.md beside this file.
+name: updater-feed
+description: Write SHA256SUMS.txt for a dist dir and sign it with minisign.
+
+inputs:
+  dir:
+    description: The dist dir holding the release assets.
+    required: true
+  signing-key:
+    description: >-
+      The minisign SECRET key file (`minisign -G -W`, unencrypted), raw or
+      base64 of the file. Empty = unsigned feed (a warning), unless
+      public-key is set.
+    required: false
+    default: ""
+  public-key:
+    description: >-
+      The feed's minisign public key (second line of the .pub). When set, a
+      signature is REQUIRED (no signing-key fails the step) and is verified
+      against it, so a secret/variable mismatch never ships.
+    required: false
+    default: ""
+  append:
+    description: >-
+      Whitespace-separated file names in dir: replace/add only their lines in
+      the EXISTING dir/SHA256SUMS.txt (a late asset), then re-sign. Empty =
+      rewrite the sums over every file in dir.
+    required: false
+    default: ""
+  trusted-comment:
+    description: The signed trusted comment (default carries repo + ref).
+    required: false
+    default: ""
+
+outputs:
+  signed:
+    description: '"true" when SHA256SUMS.txt.minisig was written.'
+    value: ${{ steps.feed.outputs.signed }}
+
+runs:
+  using: composite
+  steps:
+    - id: feed
+      shell: bash
+      env:
+        FEED_DIR: ${{ inputs.dir }}
+        FEED_SIGNING_KEY: ${{ inputs.signing-key }}
+        FEED_PUBLIC_KEY: ${{ inputs.public-key }}
+        FEED_APPEND: ${{ inputs.append }}
+        FEED_COMMENT: ${{ inputs.trusted-comment }}
+      run: bash "${{ github.action_path }}/feed.sh"

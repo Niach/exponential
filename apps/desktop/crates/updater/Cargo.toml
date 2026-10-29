@@ -13,6 +13,8 @@ log = "0.4"
 # Streaming digest for SHA256SUMS.txt verification — already in the tree
 # transitively (rustls ecosystem), so this adds no new tree weight.
 sha2 = "0.10"
+# Ed25519 (minisign) signature over SHA256SUMS.txt — pure Rust, MIT, no deps.
+minisign-verify = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 # The rustup/uv-proven locked-exe swap: rename the running exe aside, move the

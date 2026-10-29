@@ -1,7 +1,7 @@
 //! `exponential update` + the auto-update engine (EXP-403). The desktop
 //! owns `releases/latest`, so this lists releases and filters by the
 //! `cli-v` tag prefix; the asset is a bare binary (`exponential-<target>`)
-//! verified against SHA256SUMS.txt and swapped in with the updater's
+//! verified against the (signed) SHA256SUMS.txt and swapped in with the updater's
 //! atomic-rename install.
 //!
 //! Auto-update: opted into on the first interactive run (`cliAutoUpdate` in
@@ -173,8 +173,14 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     let staged = staging.join(&asset_name);
     updater::download(&asset.browser_download_url, &staged, |_received, _total| {})
         .context("download the release asset")?;
-    let sums_text =
-        updater::fetch_text(&sums.browser_download_url).context("fetch SHA256SUMS.txt")?;
+    // EXP-1430: a build with a pinned feed key refuses sums it cannot verify.
+    let sig_url = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == updater::SIG_ASSET)
+        .map(|asset| asset.browser_download_url.as_str());
+    let sums_text = updater::fetch_verified_sums(&sums.browser_download_url, sig_url)
+        .context("fetch the signed SHA256SUMS.txt")?;
     updater::verify_sha256(&staged, &sums_text, &asset_name).context("checksum verification")?;
 
     // The AppImage strategy is a plain chmod-755 + atomic rename on unix —

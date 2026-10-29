@@ -3,6 +3,16 @@
 # Assemble a macOS .app bundle for the Exponential desktop IDE.
 #
 #   scripts/build-macos-app.sh <channel>          # channel: production | staging
+#   scripts/build-macos-app.sh --stage <dir> <channel>
+#       EXP-1430: only stage the Exponential-only inputs (Frameworks/ = the
+#       CrispASR dylibs, Resources/ = the licences) under <dir> and print
+#       app_name= / bundle_id= / frameworks_dir= / resources_dir= lines
+#       (CI appends them to $GITHUB_OUTPUT and hands them to the shared
+#       .github/actions/macos-app action).
+#
+# EXP-1430: assembly + signing live in the shared .github/actions/macos-app/
+# bundle.sh (also used by Niach/spezl); this script stages the Exponential
+# parts and delegates.
 #
 # Why a bundle at all: macOS only routes a custom URL scheme (our `exponential://`
 # OAuth-callback / invite deep link, §5.7) to a Launch-Services-registered
@@ -21,12 +31,18 @@
 # does it locally; CI just zips + uploads the bundle).
 set -euo pipefail
 
+STAGE_ONLY=""
+if [ "${1:-}" = "--stage" ]; then
+  STAGE_ONLY="${2:?--stage needs a directory}"
+  shift 2
+fi
+
 CHANNEL="${1:-production}"
 DESKTOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${DESKTOP_DIR}/../.." && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-${DESKTOP_DIR}/target}"
-# Defaults to the release binary; override with EXP_DESKTOP_BIN for a debug or
-# custom build (e.g. EXP_DESKTOP_BIN=target/debug/exp-desktop for local runs).
+# Defaults to the release binary; override with EXP_DESKTOP_BIN for a debug,
+# custom or universal build (e.g. EXP_DESKTOP_BIN=target/debug/exp-desktop).
 BIN="${EXP_DESKTOP_BIN:-${TARGET_DIR}/release/exp-desktop}"
 
 # Channel identity. The bundle id is DISTINCT from the iOS app (`at.exponential`)
@@ -44,31 +60,25 @@ esac
   exit 1
 }
 
-# Version strings: real values come from the release tag via env; local builds
-# default to a dev placeholder. CFBundleVersion must be a monotonic integer-ish
-# string, CFBundleShortVersionString a dotted version.
-VERSION="${VERSION:-0.0.0}"
-BUILD="${BUILD:-0}"
-
-APP_DIR="${TARGET_DIR}/${APP_NAME}.app"
-rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-
-# --- Binary ---------------------------------------------------------------
-cp "$BIN" "$APP_DIR/Contents/MacOS/exp-desktop"
-chmod +x "$APP_DIR/Contents/MacOS/exp-desktop"
+if [ -n "$STAGE_ONLY" ]; then
+  mkdir -p "$STAGE_ONLY"
+  STAGE_DIR="$(cd "$STAGE_ONLY" && pwd)"
+else
+  STAGE_DIR="$(mktemp -d)"
+  trap 'rm -rf "$STAGE_DIR"' EXIT
+fi
+rm -rf "${STAGE_DIR}/Frameworks" "${STAGE_DIR}/Resources"
+mkdir -p "${STAGE_DIR}/Frameworks" "${STAGE_DIR}/Resources"
 
 # --- Licences (EXP-376) ---------------------------------------------------
 # Apache-2.0 section 4(a) requires giving recipients a copy of the License, and
 # section 4(d) requires propagating our NOTICE. NOTICES.txt is the generated
 # per-dependency inventory (packages/licenses) and carries the full OFL and ISC
-# bodies for the fonts and icons embedded in the binary.
-#
-# These MUST be copied before the codesign block below: adding files to a bundle
-# after it is signed invalidates the seal.
-cp "${REPO_ROOT}/LICENSE" "$APP_DIR/Contents/Resources/LICENSE"
-cp "${REPO_ROOT}/NOTICE" "$APP_DIR/Contents/Resources/NOTICE"
-cp "${DESKTOP_DIR}/assets/licenses/NOTICES.txt" "$APP_DIR/Contents/Resources/NOTICES.txt"
+# bodies for the fonts and icons embedded in the binary. bundle.sh copies
+# Resources/ in BEFORE it signs (files added after signing break the seal).
+cp "${REPO_ROOT}/LICENSE" "${STAGE_DIR}/Resources/LICENSE"
+cp "${REPO_ROOT}/NOTICE" "${STAGE_DIR}/Resources/NOTICE"
+cp "${DESKTOP_DIR}/assets/licenses/NOTICES.txt" "${STAGE_DIR}/Resources/NOTICES.txt"
 
 # --- exponentialTalk's voice runtime (NEW-74) -----------------------------
 # CrispASR's prebuilt Metal runtime (libcrispasr + ggml, MIT; its licence and
@@ -78,7 +88,9 @@ cp "${DESKTOP_DIR}/assets/licenses/NOTICES.txt" "$APP_DIR/Contents/Resources/NOT
 # its own executable (crates/crispasr/src/platform.rs). Pinned: the release
 # asset's published sha256, checked BEFORE the archive is opened; only the six
 # dylibs are taken, under the install names their @rpath references use.
-# Apple Silicon only (the Metal build is arm64; an Intel build gets no voice).
+# Apple Silicon only (the Metal build is arm64). EXP-1430: a universal binary's
+# x86_64 slice compiles crispasr's no-runtime `imp` (platform.rs cfg is
+# macos+aarch64 only), so on Intel it never looks in Frameworks: no voice.
 CRISPASR_URL="https://github.com/CrispStrobe/CrispASR/releases/download/v0.8.45/libcrispasr-macos-arm64.tar.gz"
 CRISPASR_SHA256="fe39ad4cd5cd96afcba2bf0dc4614897a70a2bc028cd83d99cd748124db5002f"
 CRISPASR_TOP="libcrispasr-macos-arm64/lib"
@@ -99,98 +111,51 @@ if lipo -archs "$BIN" 2>/dev/null | grep -qw arm64; then
     mv "${CRISPASR_ARCHIVE}.part" "$CRISPASR_ARCHIVE"
   fi
   CRISPASR_UNPACK="$(mktemp -d)"
-  mkdir -p "$APP_DIR/Contents/Frameworks"
-  for pair in $CRISPASR_DYLIBS; do
+    for pair in $CRISPASR_DYLIBS; do
     src="${pair%%:*}"; dst="${pair##*:}"
     tar -xzf "$CRISPASR_ARCHIVE" -C "$CRISPASR_UNPACK" "${CRISPASR_TOP}/${src}"
     # A regular file only (never a symlink out of the archive).
     [ -f "${CRISPASR_UNPACK}/${CRISPASR_TOP}/${src}" ] && [ ! -L "${CRISPASR_UNPACK}/${CRISPASR_TOP}/${src}" ] \
       || { echo "CrispASR archive: ${src} is not a regular file" >&2; exit 1; }
-    cp "${CRISPASR_UNPACK}/${CRISPASR_TOP}/${src}" "$APP_DIR/Contents/Frameworks/${dst}"
+    cp "${CRISPASR_UNPACK}/${CRISPASR_TOP}/${src}" "${STAGE_DIR}/Frameworks/${dst}"
   done
   rm -rf "$CRISPASR_UNPACK"
 else
-  echo "note: not an arm64 build — bundling without the voice runtime (no voice on this build)"
+  echo "note: not an arm64 build — bundling without the voice runtime (no voice on this build)" >&2
 fi
 
-# --- Info.plist (substitute placeholders, then patch per channel) ---------
-PLIST_SRC="${DESKTOP_DIR}/assets/packaging/Info.plist"
-PLIST_DST="$APP_DIR/Contents/Info.plist"
-sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${BUILD}/${BUILD}/g" "$PLIST_SRC" > "$PLIST_DST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${BUNDLE_ID}" "$PLIST_DST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleName ${APP_NAME}" "$PLIST_DST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${APP_NAME}" "$PLIST_DST"
+if [ -n "$STAGE_ONLY" ]; then
+  echo "app_name=${APP_NAME}"
+  echo "bundle_id=${BUNDLE_ID}"
+  echo "frameworks_dir=${STAGE_DIR}/Frameworks"
+  echo "resources_dir=${STAGE_DIR}/Resources"
+  exit 0
+fi
 
-# --- Icon (optional) ------------------------------------------------------
-# Rasterize the vector logo → .icns when a rasterizer is on PATH; otherwise
-# ship without an icon (a generic one shows — irrelevant to exponential:// routing).
-# Uses the macOS variant (EXP-68/EXP-143): logo-macos.svg draws the dark
-# rounded-square plate macOS icons are expected to fill (a bare white disc on
-# transparent washed out on the system's default grey icon backdrop) with the
-# white disc padded inside it. Fall back to logo-white.svg if the macOS
-# variant ever goes missing.
+# --- Assemble + sign (the shared script) ------------------------------------
+# Version strings: real values come from the release tag via env; local builds
+# default to a dev placeholder. MACOS_SIGN_IDENTITY set → Developer ID +
+# hardened runtime + timestamp (build-macos-dmg.sh then notarizes); unset →
+# ad-hoc `-s -` (launches locally, not Gatekeeper-clean). NEW-78:
+# entitlements = device.audio-input (push to talk's microphone). The icon is
+# the macOS variant (EXP-68/EXP-143: a dark rounded-square plate), falling back
+# to logo-white.svg.
 LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo-macos.svg"
 [ -f "$LOGO_SVG" ] || LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo-white.svg"
-RASTERIZE=""
-command -v rsvg-convert >/dev/null 2>&1 && RASTERIZE="rsvg-convert"
-[ -z "$RASTERIZE" ] && command -v convert >/dev/null 2>&1 && RASTERIZE="convert"
-if [ -n "$RASTERIZE" ] && [ -f "$LOGO_SVG" ]; then
-  ICONSET="$(mktemp -d)/exp.iconset"
-  mkdir -p "$ICONSET"
-  for size in 16 32 128 256 512; do
-    for scale in 1 2; do
-      px=$((size * scale))
-      name="icon_${size}x${size}"; [ "$scale" = "2" ] && name="${name}@2x"
-      if [ "$RASTERIZE" = "rsvg-convert" ]; then
-        rsvg-convert -w "$px" -h "$px" "$LOGO_SVG" -o "$ICONSET/${name}.png"
-      else
-        convert -background none -resize "${px}x${px}" "$LOGO_SVG" "$ICONSET/${name}.png"
-      fi
-    done
-  done
-  iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/AppIcon.icns" \
-    && /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$PLIST_DST" 2>/dev/null || true
-else
-  echo "note: no SVG rasterizer (rsvg-convert/ImageMagick) — bundling without a custom icon"
-fi
+"${REPO_ROOT}/.github/actions/macos-app/bundle.sh" \
+  --binary "$BIN" \
+  --app-name "$APP_NAME" \
+  --bundle-id "$BUNDLE_ID" \
+  --executable exp-desktop \
+  --plist "${DESKTOP_DIR}/assets/packaging/Info.plist" \
+  --out-dir "$TARGET_DIR" \
+  --version "${VERSION:-0.0.0}" \
+  --build "${BUILD:-0}" \
+  --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
+  --icon "$LOGO_SVG" \
+  --frameworks-dir "${STAGE_DIR}/Frameworks" \
+  --resource "${STAGE_DIR}/Resources" \
+  --lsuielement false \
+  --identity "${MACOS_SIGN_IDENTITY:-}" >/dev/null
 
-# --- Codesign -------------------------------------------------------------
-# Two modes, chosen by whether a real signing identity is configured:
-#
-#   MACOS_SIGN_IDENTITY set  → Developer ID Application, HARDENED RUNTIME +
-#     secure timestamp (the notarization prerequisite). Release CI imports the
-#     cert into a keychain and passes the identity hash; scripts/build-macos-dmg.sh
-#     then notarizes + staples the .dmg.
-#   unset                    → ad-hoc `-s -`. Gives the bundle a stable identity
-#     so Launch Services treats it as one app and it launches locally without a
-#     "damaged" prompt, but it is NOT Gatekeeper-clean for download (pre-account
-#     fallback + local dev builds).
-if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
-  echo "signing with Developer ID: ${MACOS_SIGN_IDENTITY}"
-  # Inner Mach-O first, then the bundle (outside-in signing is invalid).
-  # NEW-74: the bundled CrispASR dylibs get OUR identity, so the hardened
-  # runtime's library validation (left on) accepts them.
-  for dylib in "$APP_DIR"/Contents/Frameworks/*.dylib; do
-    [ -e "$dylib" ] || continue
-    codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dylib"
-  done
-  # NEW-78: entitlements = device.audio-input (push to talk's microphone).
-  codesign --force --options runtime --timestamp \
-    --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
-    --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/exp-desktop"
-  # The bundle's signature re-signs its main executable: same entitlements.
-  codesign --force --options runtime --timestamp \
-    --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
-    --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR"
-  codesign --verify --strict --verbose=2 "$APP_DIR"
-else
-  for dylib in "$APP_DIR"/Contents/Frameworks/*.dylib; do
-    [ -e "$dylib" ] || continue
-    codesign --force --sign - "$dylib" 2>/dev/null || true
-  done
-  codesign --force --sign - "$APP_DIR/Contents/MacOS/exp-desktop" 2>/dev/null || true
-  codesign --force --sign - "$APP_DIR" 2>/dev/null \
-    || echo "warn: ad-hoc codesign failed (bundle still usable locally)"
-fi
-
-echo "built: $APP_DIR  (id=${BUNDLE_ID}, exponential:// handler)"
+echo "built: ${TARGET_DIR}/${APP_NAME}.app  (id=${BUNDLE_ID}, exponential:// handler)"

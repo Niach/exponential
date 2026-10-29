@@ -1,0 +1,40 @@
+name: apple-signing
+description: Import an iOS signing p12 into an unlocked temp keychain (EXP-1430).
+
+# EXP-1430: the keychain import build-ios.yml ran inline, shared with spezl
+# (`uses: Niach/exponential/.github/actions/apple-signing@<sha>`). iOS-scoped:
+# the p12 carries the LOCAL Apple Development (archive) + Apple Distribution
+# (export) identities; never Apple's cloud signer (EXP-405, error 90035).
+# The keychain joins the user search list so xcodebuild finds it. No post
+# step: on a self-hosted Mac, `security delete-keychain <keychain-path>` after.
+
+inputs:
+  p12:
+    description: base64 of the .p12 holding the signing certs + keys.
+    required: true
+  password:
+    description: The .p12 password.
+    required: true
+  keychain-name:
+    description: Keychain file name under $RUNNER_TEMP.
+    required: false
+    default: ci.keychain-db
+
+outputs:
+  keychain-path:
+    description: Path of the temp keychain.
+    value: ${{ steps.import.outputs.keychain-path }}
+  identity:
+    description: SHA-1 hash of the Apple Distribution identity (else the first valid codesigning identity).
+    value: ${{ steps.import.outputs.identity }}
+
+runs:
+  using: composite
+  steps:
+    - id: import
+      shell: bash
+      env:
+        P12_B64: ${{ inputs.p12 }}
+        P12_PASSWORD: ${{ inputs.password }}
+        KEYCHAIN_NAME: ${{ inputs.keychain-name }}
+      run: bash "$GITHUB_ACTION_PATH/import.sh"

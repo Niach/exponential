@@ -1,0 +1,48 @@
+name: testflight-upload
+description: Upload an App Store ipa to TestFlight with fastlane pilot and an ASC API key (EXP-1430).
+
+# EXP-1430: shared by Exponential (build-ios.yml) and spezl
+# (`uses: Niach/exponential/.github/actions/testflight-upload@<sha>`).
+# Internal by default: no processing wait, no external group. The App Store
+# "Submit for Review" stays manual. Needs a macOS runner (fastlane ships on
+# the GitHub macOS images; installed by gem otherwise).
+
+inputs:
+  ipa:
+    description: Path to the exported App Store .ipa.
+    required: true
+  asc-key-id:
+    description: App Store Connect API key id.
+    required: true
+  asc-issuer-id:
+    description: App Store Connect API issuer id.
+    required: true
+  asc-key-content:
+    description: The .p8 private key, raw PEM or base64-wrapped PEM.
+    required: true
+  distribute-external:
+    description: true = wait for processing, assign `groups` and submit for Beta App Review.
+    required: false
+    default: 'false'
+  groups:
+    description: External tester group(s), comma-separated (only with distribute-external).
+    required: false
+    default: ''
+  changelog:
+    description: What-to-Test text (Apple requires it with distribute-external).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        IPA: ${{ inputs.ipa }}
+        ASC_KEY_ID: ${{ inputs.asc-key-id }}
+        ASC_ISSUER_ID: ${{ inputs.asc-issuer-id }}
+        ASC_KEY_CONTENT: ${{ inputs.asc-key-content }}
+        DISTRIBUTE_EXTERNAL: ${{ inputs.distribute-external }}
+        TF_GROUPS: ${{ inputs.groups }}
+        CHANGELOG: ${{ inputs.changelog }}
+      run: bash "$GITHUB_ACTION_PATH/upload.sh"

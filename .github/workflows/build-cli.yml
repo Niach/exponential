@@ -63,9 +63,12 @@ jobs:
           version="${ref#cli-v}"
           [ "$version" = "$ref" ] && version="0.0.0"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # EXP_UPDATE_PUBKEY pins the updater feed key (EXP-1430): a build
+      # carrying it only self-updates to a signed SHA256SUMS.txt.
       - name: Build
         env:
           EXP_CLI_VERSION: ${{ steps.ver.outputs.version }}
+          EXP_UPDATE_PUBKEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
         run: |
           cargo build --release --locked --manifest-path apps/desktop/Cargo.toml \
             -p exp-cli --target ${{ matrix.target }}
@@ -110,25 +113,27 @@ jobs:
       # Apache-2.0 section 4: a bare binary has no bundle to carry the
       # licence text — put LICENSE + NOTICE on the release page (and in the
       # checksums), mirroring the desktop release (EXP-376).
-      - name: Check out the licence files
+      - name: Check out the licence files and the feed action
         uses: actions/checkout@v4
         with:
           path: repo
           sparse-checkout: |
             LICENSE
             NOTICE
+            .github/actions/updater-feed
           sparse-checkout-cone-mode: false
       - name: Add LICENSE and NOTICE to the release
         run: |
           set -euo pipefail
           cp repo/LICENSE repo/NOTICE dist/
-          rm -rf repo
-      - name: Checksums
-        working-directory: dist
-        run: |
-          ls -la
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+      # EXP-1430: SHA256SUMS.txt + its minisign signature; a pinned public key
+      # without the secret fails the release (pinned clients would refuse it).
+      - name: Signed checksums
+        uses: ./repo/.github/actions/updater-feed
+        with:
+          dir: dist
+          signing-key: ${{ secrets.UPDATE_SIGNING_KEY }}
+          public-key: ${{ vars.UPDATE_SIGNING_PUBKEY }}
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

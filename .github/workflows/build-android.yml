@@ -5,6 +5,20 @@ on:
     tags:
       - 'android-v*'
   workflow_dispatch:
+    inputs:
+      # EXP-1430: Play upload only runs on an android-v* tag ref (pick the tag
+      # in "Use workflow from"); production is never a choice, promotion stays
+      # manual (fastlane production / the Play Console).
+      play-track:
+        description: Play track for the signed bundle
+        type: choice
+        options: [alpha, beta, internal]
+        default: alpha
+      play-status:
+        description: Play release status (draft = a person rolls it out in the console)
+        type: choice
+        options: [draft, completed]
+        default: draft
 
 permissions:
   contents: write
@@ -23,6 +37,10 @@ jobs:
       # Override the repo's 2G default — packaging the release APK + Play
       # bundle in one invocation exhausts that heap on CI runners.
       GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx6g -Dfile.encoding=UTF-8"
+      # EXP-1430: the Play app record (production applicationId in
+      # apps/android/app/build.gradle.kts) and its fastlane changelogs.
+      PLAY_PACKAGE: at.exponential
+      PLAY_METADATA_DIR: apps/android/fastlane/metadata/android
 
     steps:
       - name: Checkout code
@@ -88,6 +106,7 @@ jobs:
           if [ -n "$ANDROID_KEYSTORE_B64" ]; then
             echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             echo "RELEASE_STORE_FILE=$RUNNER_TEMP/upload.jks" >> $GITHUB_ENV
+            echo "BUNDLE_SIGNED=true" >> "$GITHUB_ENV"
           else
             echo "No keystore secret — building unsigned."
           fi
@@ -122,6 +141,9 @@ jobs:
           cp $(ls ${APK_DIR}/production/release/app-production-release*.apk | head -n1) "dist/exponential-production-release-${VERSION}.apk"
           cp "${AAB_DIR}/productionRelease/app-production-release.aab" "dist/exponential-production-release-${VERSION}.aab"
           (cd dist && sha256sum * > SHA256SUMS.txt)
+          # EXP-1430: picks changelogs/<versionCode>.txt for the Play upload.
+          VC="$(grep -oE 'versionCode = [0-9]+' apps/android/app/build.gradle.kts | head -n1 | grep -oE '[0-9]+')"
+          echo "VERSION_CODE=$VC" >> "$GITHUB_ENV"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -140,6 +162,22 @@ jobs:
           name: Android ${{ steps.version.outputs.VERSION }}
           body: |
             Built from ${{ github.sha }}.
-            Production release APK + Play bundle (`.aab`), signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). Upload the `.aab` to the Play Console via the fastlane lanes in `apps/android/fastlane/`.
+            Production release APK + Play bundle (`.aab`), signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). A signed `.aab` goes to the Play closed track automatically when `PLAY_SERVICE_ACCOUNT_JSON` is set; otherwise upload it via the fastlane lanes in `apps/android/fastlane/`.
           files: |
             dist/*
+
+      # EXP-1430: the signed bundle goes to the closed track the `closed` lane
+      # uses (alpha, as a draft like that lane) unless a dispatch picks another.
+      # No PLAY_SERVICE_ACCOUNT_JSON secret = a warning, never a red run.
+      # The R8 mapping + native symbols ride the AAB, so no mapping-file here.
+      - name: Upload to Google Play
+        if: startsWith(github.ref, 'refs/tags/android-v') && env.BUNDLE_SIGNED == 'true'
+        uses: ./.github/actions/play-upload
+        with:
+          service-account-json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          package-name: ${{ env.PLAY_PACKAGE }}
+          aab: dist/exponential-production-release-${{ steps.version.outputs.VERSION }}.aab
+          track: ${{ inputs.play-track || 'alpha' }}
+          status: ${{ inputs.play-status || 'draft' }}
+          version-code: ${{ env.VERSION_CODE }}
+          changelog-dir: ${{ env.PLAY_METADATA_DIR }}
