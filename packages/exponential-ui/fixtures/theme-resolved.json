@@ -6110,6 +6110,16 @@
               }
             }
           ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
           "speaker": [
             {
               "style": {
@@ -6125,6 +6135,13 @@
                 "backgroundColor": "$color.destructive",
                 "color": "$color.destructiveForeground",
                 "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
               }
             }
           ],
@@ -12579,6 +12596,16 @@
               }
             }
           ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
           "speaker": [
             {
               "style": {
@@ -12594,6 +12621,13 @@
                 "backgroundColor": "$color.destructive",
                 "color": "$color.destructiveForeground",
                 "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
               }
             }
           ],
@@ -19371,6 +19405,16 @@
               }
             }
           ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
           "speaker": [
             {
               "style": {
@@ -19386,6 +19430,13 @@
                 "backgroundColor": "$color.destructive",
                 "color": "$color.destructiveForeground",
                 "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
               }
             }
           ],
@@ -25841,6 +25892,16 @@
               }
             }
           ],
+          "muteIcon": [
+            {
+              "when": {
+                "muted": true
+              },
+              "style": {
+                "color": "$color.background"
+              }
+            }
+          ],
           "speaker": [
             {
               "style": {
@@ -25856,6 +25917,13 @@
                 "backgroundColor": "$color.destructive",
                 "color": "$color.destructiveForeground",
                 "boxShadow": "$shadow.none"
+              }
+            }
+          ],
+          "endIcon": [
+            {
+              "style": {
+                "color": "$color.destructiveForeground"
               }
             }
           ],

@@ -54,7 +54,7 @@
         "fixtures/theme-recipes.json"
       ],
       "unit": "case",
-      "cases": 454,
+      "cases": 456,
       "check": "Resolve the part's recipe for the case's theme, props, mode and states: the visual equals the fixture."
     },
     {

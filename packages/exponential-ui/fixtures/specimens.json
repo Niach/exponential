@@ -4331,7 +4331,7 @@
                   ]
                 },
                 "style": {
-                  "width": 480
+                  "maxWidth": 480
                 }
               }
             ]
@@ -4385,7 +4385,7 @@
                   ]
                 },
                 "style": {
-                  "width": 480
+                  "maxWidth": 480
                 }
               }
             ]
@@ -7061,10 +7061,11 @@
         "component": "Box",
         "style": {
           "display": "flex",
-          "flexDirection": "column",
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "alignItems": "flex-start",
           "gap": "$spacing.lg",
-          "padding": "$spacing.xl",
-          "maxWidth": 720
+          "padding": "$spacing.xl"
         },
         "children": [
           {
@@ -7074,6 +7075,10 @@
               "direction": "vertical",
               "gap": "xs",
               "align": "stretch"
+            },
+            "style": {
+              "width": "100%",
+              "maxWidth": 360
             },
             "children": [
               {
@@ -7093,8 +7098,7 @@
                   "status": "Calling…"
                 },
                 "style": {
-                  "height": 420,
-                  "width": 360
+                  "minHeight": 480
                 }
               }
             ]
@@ -7106,6 +7110,10 @@
               "direction": "vertical",
               "gap": "xs",
               "align": "stretch"
+            },
+            "style": {
+              "width": "100%",
+              "maxWidth": 360
             },
             "children": [
               {
@@ -7135,8 +7143,7 @@
                   "speaker": true
                 },
                 "style": {
-                  "height": 420,
-                  "width": 360
+                  "minHeight": 480
                 }
               }
             ]
@@ -7148,6 +7155,10 @@
               "direction": "vertical",
               "gap": "xs",
               "align": "stretch"
+            },
+            "style": {
+              "width": "100%",
+              "maxWidth": 360
             },
             "children": [
               {
@@ -7168,8 +7179,7 @@
                   "muted": true
                 },
                 "style": {
-                  "height": 420,
-                  "width": 360
+                  "minHeight": 480
                 }
               }
             ]

@@ -689,13 +689,13 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
   ],
   CallSurface: [
-    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `ringing`, status: `Calling…` }, style: { height: 420, width: 360 } } },
-    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { height: 420, width: 360 } } },
-    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, status: `03:10`, muted: true }, style: { height: 420, width: 360 } } },
+    { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
+    { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },
+    { label: `muted · true`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, state: `talking`, status: `03:10`, muted: true }, style: { minHeight: 480 } } },
   ],
   Plan: [
-    { label: `state · proposed`, node: { id: `plan`, component: `Plan`, props: { title: `Here's my plan`, description: `I'll use your mouse and keyboard for about two minutes.`, state: `proposed`, approveLabel: `Yes, do it`, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `pending` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `pending` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }] }, style: { width: 480 } } },
-    { label: `state · running`, node: { id: `plan`, component: `Plan`, props: { title: `Working on it · step 2 of 4`, description: `Hands off the mouse for a moment. Esc stops me.`, state: `running`, progress: 0.4, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `done` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `running` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }, { title: `Add it to your calendar`, icon: `calendar`, status: `skipped` }] }, style: { width: 480 } } },
+    { label: `state · proposed`, node: { id: `plan`, component: `Plan`, props: { title: `Here's my plan`, description: `I'll use your mouse and keyboard for about two minutes.`, state: `proposed`, approveLabel: `Yes, do it`, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `pending` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `pending` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }] }, style: { maxWidth: 480 } } },
+    { label: `state · running`, node: { id: `plan`, component: `Plan`, props: { title: `Working on it · step 2 of 4`, description: `Hands off the mouse for a moment. Esc stops me.`, state: `running`, progress: 0.4, steps: [{ title: `Open augustiner-keller.de in Safari`, icon: `globe`, status: `done` }, { title: `Reserve Fri 20:00 for 4`, icon: `pencil`, status: `running` }, { title: `Mail the confirmation to Lisa`, icon: `mail`, status: `pending` }, { title: `Add it to your calendar`, icon: `calendar`, status: `skipped` }] }, style: { maxWidth: 480 } } },
   ],
   QrCode: [
     { label: `example`, node: { id: `qr`, component: `QrCode`, props: { value: `spezl://pair?host=macbook.local&key=Zm9vYmFy`, label: `Scan to pair` } } },
@@ -759,6 +759,13 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `label · none`,
     node: { id: `search`, component: `Input`, props: { name: `q`, label: ``, type: `search`, placeholder: `Search` } },
   }],
+}
+
+/** VAPP-162: specimens whose cases sit side by side and wrap: the root's
+ *  style and each case's (a phone-like CallSurface column, 360 at most, the
+ *  full width on a phone). */
+const SPECIMEN_WRAP: Record<string, Record<string, unknown>> = {
+  CallSurface: { width: `100%`, maxWidth: 360 },
 }
 
 /** Styles a specimen case needs to show anything (a fixed box). */
@@ -849,14 +856,18 @@ function generatedCases(name: string, all: ComponentCase[]): { label: string; no
 function specimenNode(name: string, all: ComponentCase[]): NestedNode {
   const inline = INLINE_SPECIMENS.has(name)
   const root = `specimen-${kebab(name)}`
+  const wrap = SPECIMEN_WRAP[name]
   return {
     id: root,
     component: `Box`,
-    style: { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
+    style: wrap
+      ? { display: `flex`, flexDirection: `row`, flexWrap: `wrap`, alignItems: `flex-start`, gap: `$spacing.lg`, padding: `$spacing.xl` }
+      : { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
     children: specimenCases(name, all).map((c, i) => ({
       id: `${root}-case-${i}`,
       component: `Stack`,
       props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
+      ...(wrap ? { style: wrap } : {}),
       children: [
         { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
         prefixIds(c.node, `c${i}-`),

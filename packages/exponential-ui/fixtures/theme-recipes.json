@@ -59314,6 +59314,64 @@
     },
     {
       "component": "CallSurface",
+      "part": "endIcon",
+      "props": {
+        "state": "talking",
+        "muted": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#fafafa"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#4c0519"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
       "part": "cancelLabel",
       "props": {
         "state": "ringing",
@@ -59439,6 +59497,64 @@
               "backgroundColor": "#fafafa",
               "color": "#0a0a0a",
               "boxShadow": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "CallSurface",
+      "part": "muteIcon",
+      "props": {
+        "state": "talking",
+        "muted": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#fffbf5"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#1a1033"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#0a0a0a"
             }
           }
         }
