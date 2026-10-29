@@ -93,6 +93,7 @@ const PINNED_RECIPES = [
   `scrollToScriptCard`,
   `scrollToCommentCard`,
   `openTraceOutput`,
+  `scrollToMeetingMode`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

@@ -22,7 +22,7 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `story_viewer`,
+      symbol: `open / StoryContent`,
       file: `apps/desktop/crates/ui/src/story_viewer.rs`,
       note: `styleguide/entries/story_viewer.rs`,
     },

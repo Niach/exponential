@@ -749,6 +749,17 @@ async function recipeOpenFirstBoardSettings(page: Page): Promise<void> {
 }
 
 /**
+ * Settings → Assistant's Meeting mode block (meeting.json): Meeting mode, Stop
+ * after, Desktop audio sit below the fold under the Voice rows, so centre the
+ * Desktop audio row (`testIds.desktopAudio`) to frame the whole block.
+ */
+async function recipeScrollToMeetingMode(page: Page): Promise<void> {
+  const target = page.getByTestId(`settings-voice-desktop-audio`).filter({ visible: true }).first()
+  await target.waitFor({ timeout: 20_000 })
+  await target.evaluate((el) => el.scrollIntoView({ block: `center` }))
+}
+
+/**
  * The registry itself. Keys are the names `views.json` uses; the view-catalog
  * test parses this literal, so keep it a flat name-to-function table with the
  * closing brace in column 0.
@@ -781,4 +792,5 @@ export const RECIPES: Record<string, Recipe> = {
   scrollToScriptCard: recipeScrollToScriptCard,
   openTraceOutput: recipeOpenTraceOutput,
   scrollToCommentCard: recipeScrollToCommentCard,
+  scrollToMeetingMode: recipeScrollToMeetingMode,
 }

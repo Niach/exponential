@@ -21,7 +21,7 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `story_ring / story_ring_row`,
+      symbol: `story_ring / story_ring_button`,
       file: `apps/desktop/crates/ui/src/story_ring.rs`,
       note: `styleguide/entries/story_ring.rs`,
     },
