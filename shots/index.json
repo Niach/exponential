@@ -29,8 +29,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 56094,
-        "sha256": "30a62477471d04fed0707fdec514bc0e2d5d4d8ac82dacc6a7ca5805ad8d1af2"
+        "bytes": 54564,
+        "sha256": "bc264ddceb86137d4ccd4fa00115a0fb04a30be6f0cb1acaf3505f771033b1a7"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
@@ -43,15 +43,15 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 53500,
-        "sha256": "e48e39708bd3314ca763cd5800c3758bc501ba840989bbd27cdf9e355b8583a0"
+        "bytes": 53774,
+        "sha256": "436445c6ffe1844b72c14f1e2f53b28ad28faa67689e0d71b4ab3e379343bfe8"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 45892,
-        "sha256": "0d6d9eec7d53252de01d3817145477d77558d39c1c37b4a68dba037619f98f19"
+        "bytes": 46108,
+        "sha256": "5f3286aeff3a6f4a24555a6ef00f6f57511172a27fabfed3906a15bccbc28501"
       }
     },
     "agent-home": {
@@ -683,8 +683,8 @@
         "file": "shots/chat-transcript/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 55840,
-        "sha256": "f61d1ba24f3551955948e3fe48265872887d300f9ee50642aacdc12ea4d40005"
+        "bytes": 54744,
+        "sha256": "d9ae75c523d6a1c67420bdfa31aa9c7799d57c16796590a88da81ee018a0cbb5"
       },
       "ios": {
         "file": "shots/chat-transcript/ios.webp",
@@ -697,15 +697,15 @@
         "file": "shots/chat-transcript/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 82360,
-        "sha256": "cb2caa5ba598c3c3f75ba8c0a3a2aeb9d362abcdb152a22ca21b2a041d3a2cbb"
+        "bytes": 81788,
+        "sha256": "31dded2c040cfe5b8c1ca0cf8bff70219e48e3b907cbbecba2a777ba4cf266ff"
       },
       "web-mobile": {
         "file": "shots/chat-transcript/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 49130,
-        "sha256": "63799ef4223c77f358eef0b348fbed3917ba056be1ad1fcea859a570200891c5"
+        "bytes": 48648,
+        "sha256": "54fa496c6db3439e23f6a906e35ab933f0a428d60bcd00a9ca8e662f73458124"
       }
     },
     "code-block": {
