@@ -10,6 +10,9 @@ import { expect, test, type AppFixture } from "./fixtures"
 
 const tinyPngBase64 = `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==`
 
+// Sign-up, onboarding and the cold settings compile share each test's budget.
+test.describe.configure({ timeout: 240_000 })
+
 function getTeamSlug(currentUrl: string) {
   const [, , teamSlug] = new URL(currentUrl).pathname.split(`/`)
   return teamSlug
@@ -23,10 +26,15 @@ async function createWidget(
 ): Promise<string> {
   // Settings is split into per-section pages (EXP-146) — widgets live on
   // their own page.
-  await page.goto(`/t/${teamSlug}/settings/widget`)
-  await expect(
-    page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
-  ).toBeVisible()
+  // The first settings load compiles its chunks on the CI dev server, and a
+  // dependency it discovers reloads the page mid-render: navigate until the
+  // page stands.
+  await expect(async () => {
+    await page.goto(`/t/${teamSlug}/settings/widget`)
+    await expect(
+      page.getByRole(`heading`, { name: /^(Team )?Settings$/ })
+    ).toBeVisible({ timeout: 30_000 })
+  }).toPass({ timeout: 120_000 })
 
   await page.getByRole(`button`, { name: `New widget` }).click()
   const dialog = page.getByRole(`dialog`).filter({
