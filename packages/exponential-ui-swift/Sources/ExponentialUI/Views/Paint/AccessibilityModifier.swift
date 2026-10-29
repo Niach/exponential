@@ -125,6 +125,22 @@ struct A11yInfo: Equatable {
             info.label = "\(name), \(activity)"
             info.traits = .isImage
             return info
+        case ("QrCode", _):
+            // VAPP-162 (a11y.json): an img named by `label`; decorative
+            // without one; never focusable.
+            let name = a.label ?? n.props.str("label")
+            guard !name.isEmpty else {
+                info.hidden = true
+                return info
+            }
+            info.label = name
+            info.traits = .isImage
+            return info
+        case ("QrScanner", _):
+            // VAPP-162: the viewfinder names itself (`QrScannerLeaf`: the
+            // label, `cameraUnavailable` appended while no camera shows).
+            info.passthrough = true
+            return info
         default:
             break
         }

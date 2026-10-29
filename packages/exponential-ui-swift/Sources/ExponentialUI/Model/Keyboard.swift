@@ -94,6 +94,10 @@ extension SurfaceModel {
     /// hover-opened trigger is that trigger's `focus-visible` (it opens).
     func setFocus(_ id: String?, keyboard: Bool) {
         let prev = focusedId
+        // VAPP-162: a held hold Button losing focus cancels the hold.
+        if prev != id, let p = prev, let pi = byId[p], isHoldButton(nodes[pi]), isHeld(id: p) {
+            hold(pi, .object(["do": .string("blur")]))
+        }
         if prev != id, let p = prev {
             setInteraction(p) {
                 $0.focus = false

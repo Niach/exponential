@@ -59,6 +59,10 @@ struct LeafContent: View {
             RingLeaf(cx: cx)
         case ("VoiceWave", _):
             VoiceWaveLeaf(cx: cx)
+        case ("QrCode", _):
+            QrCodeLeaf(cx: cx)
+        case ("QrScanner", _):
+            QrScannerLeaf(cx: cx)
         case ("Skeleton", _):
             Color.clear
         case ("Chart", _):

@@ -95,3 +95,36 @@ public extension View {
         ))
     }
 }
+
+/// VAPP-162: the `variant: bars` meter of the catalog `VoiceWave` (the
+/// app's call level): rounded vertical bars filled with one colour. The
+/// rects come from the core (`voiceWaveBarsJson`), so this view computes
+/// nothing; hidden from assistive tech (the node carries the name).
+public struct VoiceWaveBarsView: View {
+    public struct Bar: Equatable, Sendable {
+        public var rect: CGRect
+        public var radius: CGFloat
+
+        public init(rect: CGRect, radius: CGFloat) {
+            self.rect = rect
+            self.radius = radius
+        }
+    }
+
+    let bars: [Bar]
+    let color: Color
+
+    public init(bars: [Bar], color: Color) {
+        self.bars = bars
+        self.color = color
+    }
+
+    public var body: some View {
+        Canvas { ctx, _ in
+            for bar in bars where bar.rect.width > 0 && bar.rect.height > 0 {
+                ctx.fill(Path(roundedRect: bar.rect, cornerRadius: min(bar.radius, bar.rect.width / 2, bar.rect.height / 2)), with: .color(color))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}

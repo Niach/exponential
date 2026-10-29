@@ -1,4 +1,5 @@
 import SwiftUI
+import ExponentialUICore
 import ExponentialUIPrimitives
 
 private func platformColor(_ c: Color) -> PlatformColor {
@@ -247,6 +248,13 @@ struct SliderTrackLeaf: View {
 /// `bar` (the old TabBar) lays each item out as a COLUMN (icon over a
 /// caption label) sharing the full width. Keyboard focus rings the ROVING
 /// item (`segmentedFocusIndex`, gpui `paint_segmented`).
+///
+/// VAPP-162 (round-5 contract §3): `orientation: vertical` stacks the
+/// items top to bottom (each as wide as the control); a vertical `bar` is
+/// THE navigation rail (items the rail's width × `$control.tabBar`, laid
+/// out by the core). A `bar` item's `count` paints the `badge` centred on
+/// its icon's top-end corner (`segmentedBadgeText`: `99+` above 99, none
+/// at 0) and reads after the label ("Chats, 3").
 struct SegmentedLeaf: View {
     let cx: LeafContext
 
@@ -255,20 +263,22 @@ struct SegmentedLeaf: View {
         let items = props.list("items")
         let values = cx.model.segmentedValues(cx.index)
         let bar = props.str("variant") == "bar"
+        let vertical = props.str("orientation") == "vertical"
         let item = cx.part("Segmented", "item")
         let box = item.toggleItemBox
         let pad = box.paddingHorizontal
-        let h = bar ? cx.inner.height : box.height
+        let h = bar ? (vertical ? (item.height ?? cx.control("tabBar", 56)) : cx.inner.height) : box.height
         // The measurer's text style (`SurfaceMeasurer.segmented`): the
         // label is drawn by the shaper at its measured width, so the item
         // painted is the item measured (a SwiftUI `Text` sized itself in
         // its own font and truncated "Board" to "Boa…").
         let ts = TextStyle(fontSize: item.px("fontSize") ?? cx.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: cx.textStyle.lineHeight, fontFamily: item.fontFamily, letterSpacing: cx.textStyle.letterSpacing, textTransform: cx.textStyle.textTransform)
         let border = item.px("borderWidth") ?? 0
-        let fill = props.flag("fill") || bar
+        let fill = props.flag("fill") || bar || vertical
         let disabledAll = cx.model.isDisabled(cx.index)
         let roving = cx.model.focusVisible(cx.node.id) ? cx.model.segmentedFocusIndex(cx.index) : nil
-        let row = HStack(spacing: cx.style.gap) {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: bar ? 0 : cx.style.gap)) : AnyLayout(HStackLayout(spacing: cx.style.gap))
+        let row = layout {
             ForEach(Array(items.enumerated()), id: \.offset) { k, it in
                 let value = it["value"] ?? .string(it["label"]?.displayText ?? "")
                 let selected = values.contains(value.displayText)
@@ -276,12 +286,14 @@ struct SegmentedLeaf: View {
                 let ring = roving == k
                 let states = (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []) + (ring ? ["focus-visible"] : [])
                 let st = cx.part("Segmented", "item", states: states)
+                let badge = bar ? Self.badge(it["count"]) : nil
+                let name = it["label"]?.displayText ?? value.displayText
                 Button {
                     cx.model.segmentedSelect(cx.index, value: value)
                 } label: {
                     Group {
                         if bar {
-                            barItem(it, states: states, color: st.color ?? cx.ink)
+                            barItem(it, states: states, color: st.color ?? cx.ink, badge: badge)
                         } else {
                             HStack(spacing: item.px("gap") ?? 0) {
                                 if let icon = it["icon"]?.string {
@@ -307,15 +319,15 @@ struct SegmentedLeaf: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(disabled)
-                .accessibilityLabel(it["label"]?.displayText ?? value.displayText)
+                .accessibilityLabel(badge.map { "\(name), \($0)" } ?? name)
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
             }
         }
-        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .leading)
+        .frame(width: cx.inner.width, height: cx.inner.height, alignment: vertical ? .top : .leading)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
-        // A `bar` = navigation (the bottom destinations): VoiceOver's tab
-        // bar container; the selected item carries `.isSelected` (SwiftUI
-        // has no `aria-current`).
+        // A `bar` = navigation (the bottom destinations, the rail):
+        // VoiceOver's tab bar container; the selected item carries
+        // `.isSelected` (SwiftUI has no `aria-current`).
         if bar {
             row.accessibilityElement(children: .contain).accessibilityAddTraits(.isTabBar)
         } else {
@@ -323,18 +335,34 @@ struct SegmentedLeaf: View {
         }
     }
 
+    /// The badge text of an option's `count` (the core's rule).
+    static func badge(_ count: JSONValue?) -> String? {
+        guard let n = count?.number else { return nil }
+        return segmentedBadgeText(count: n)
+    }
+
     /// One `bar` item: the `icon` part (`$control.iconMd`) over the caption
     /// `label` part, `xxs` apart, `xs` vertical padding (gpui
-    /// `segmented_bar_item`).
+    /// `segmented_bar_item`); the count `badge` on the icon's top-end corner.
     @ViewBuilder
-    private func barItem(_ it: JSONValue, states: [String], color: Color) -> some View {
+    private func barItem(_ it: JSONValue, states: [String], color: Color, badge: String?) -> some View {
         let iconInk = cx.part("Segmented", "icon", states: states).color ?? color
         let labelPart = cx.part("Segmented", "label", states: states)
         let caption = SurfaceMeasurer.barCaption(cx.part("Text", "root", props: ["variant": .string("caption")]), base: cx.textStyle)
         let ts = TextStyle(fontSize: caption.fontSize, fontWeight: Int(labelPart.props.num("fontWeight") ?? Double(cx.textStyle.fontWeight)), lineHeight: caption.lineHeight, fontFamily: caption.fontFamily, italic: caption.italic)
+        let rtl = cx.rtl
         VStack(spacing: cx.spacing("xxs")) {
             if let icon = it["icon"]?.string {
                 ConceptIcon(name: icon, size: cx.control("iconMd", 20), color: iconInk, model: cx.model)
+                    .overlay(alignment: rtl ? .topLeading : .topTrailing) {
+                        if let badge {
+                            SegmentedBadge(text: badge, part: cx.part("Segmented", "badge", states: states), base: cx.textStyle)
+                                // The badge's centre on the icon box's top-end corner.
+                                .alignmentGuide(.top) { $0.height / 2 }
+                                .alignmentGuide(.trailing) { $0.width / 2 }
+                                .alignmentGuide(.leading) { $0.width / 2 }
+                        }
+                    }
             }
             if let label = it["label"]?.displayText, !label.isEmpty {
                 // Centred under the icon (the web's column item): the label
@@ -346,6 +374,28 @@ struct SegmentedLeaf: View {
         }
         .padding(.vertical, cx.spacing("xs"))
         .frame(minWidth: 0, maxWidth: .infinity)
+    }
+}
+
+/// VAPP-162: a `bar` item's count badge (the `badge` part: min width 16,
+/// 16 tall, `xxs` horizontal padding, a full radius, primary fill, xs
+/// medium text in tabular figures).
+struct SegmentedBadge: View {
+    let text: String
+    let part: PartStyle
+    let base: TextStyle
+
+    var body: some View {
+        let height = part.height ?? 16
+        let ts = TextStyle(fontSize: part.px("fontSize") ?? 12, fontWeight: Int(part.props.num("fontWeight") ?? 500), lineHeight: part.px("lineHeight") ?? height, fontFamily: part.fontFamily ?? base.fontFamily)
+        let pad = part.px("paddingHorizontal") ?? part.px("padding") ?? 2
+        let width = max(part.px("minWidth") ?? 16, TextShaper.width(text, ts) + 2 * pad)
+        TextLabel(text, ts, color: part.color ?? .white, align: "center", lines: 1)
+            .frame(width: width, height: height)
+            .background(Capsule().fill(part.style.background ?? .red))
+            .fixedSize()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -364,7 +414,8 @@ struct DrawnBox: Equatable {
 extension PartStyle {
     /// A Segmented `item` as `SegmentedLeaf` draws it.
     var toggleItemBox: DrawnBox {
-        DrawnBox(width: nil, height: height ?? 36, paddingHorizontal: px("paddingHorizontal") ?? px("padding") ?? 12, gap: style.gap, borderWidth: style.borderWidth, borderRadius: style.radius)
+        // VAPP-162: a rail item carries its width (72) in the recipe.
+        DrawnBox(width: width, height: height ?? 36, paddingHorizontal: px("paddingHorizontal") ?? px("padding") ?? 12, gap: style.gap, borderWidth: style.borderWidth, borderRadius: style.radius)
     }
 
     /// The drawn Slider `thumb` (a circle `width` across).

@@ -92,6 +92,77 @@ private extension JSONValue {
     }
 }
 
+/// VAPP-162 (round-5 contract §5): one frame of the `variant: bars` meter,
+/// computed by the core (`voiceWaveBarsJson`): the meter box and per bar
+/// its rect (px from the meter's top-left) and corner radius.
+public struct VoiceWaveBars: Equatable, Sendable {
+    public struct Bar: Equatable, Sendable {
+        public var rect: CGRect
+        public var radius: CGFloat
+    }
+
+    public var width: CGFloat
+    public var height: CGFloat
+    public var phase: Double
+    public var bars: [Bar]
+
+    /// The catalog's sizes (`voiceWaveSize`); anything else is `md`.
+    static let sizes: Set<String> = ["sm", "md", "lg", "xl"]
+
+    /// The meter of `size` (`sm|md|lg|xl`) at `elapsed` seconds.
+    public static func compute(size: String, activity: String, level: Double, bands: [Double]?, elapsed: Double, reducedMotion: Bool) -> VoiceWaveBars? {
+        var input: [String: JSONValue] = [
+            "size": .string(sizes.contains(size) ? size : "md"),
+            "activity": .string(activity),
+            "level": .number(level.isFinite ? level : 0),
+            "elapsed": .number(elapsed.isFinite ? elapsed : 0),
+            "reducedMotion": .bool(reducedMotion),
+        ]
+        if let bands { input["bands"] = .array(bands.map { .number($0.isFinite ? $0 : 0) }) }
+        return parse(voiceWaveBarsJson(inputJson: JSONValue.object(input).json))
+    }
+
+    static func parse(_ json: String) -> VoiceWaveBars? {
+        let v = JSONValue.parse(json)
+        guard let bars = v["bars"]?.array else { return nil }
+        return VoiceWaveBars(
+            width: CGFloat(v["width"]?.number ?? 0),
+            height: CGFloat(v["height"]?.number ?? 0),
+            phase: v["phase"]?.number ?? 0,
+            bars: bars.map { b in
+                Bar(rect: CGRect(x: b["x"]?.number ?? 0, y: b["y"]?.number ?? 0, width: b["width"]?.number ?? 0, height: b["height"]?.number ?? 0), radius: CGFloat(b["radius"]?.number ?? 0))
+            }
+        )
+    }
+}
+
+/// `VoiceWave` `variant: bars`: the core's rounded bars in the `bar` part
+/// colour, the meter box at the node's top-left (the root recipe sizes the
+/// node to it); animates like the rings; never paints a child.
+struct VoiceWaveBarsLeaf: View {
+    let cx: LeafContext
+    @Environment(\.xuiReducedMotion) private var surfaceReduced
+    @Environment(\.accessibilityReduceMotion) private var platformReduced
+    @State private var start = Date()
+
+    var body: some View {
+        let activity = VoiceWaveFrame.activity(cx.props.str("activity"))
+        let level = cx.props.num("level") ?? 0
+        let bands = cx.props["bands"]?.array.map { $0.compactMap { $0.number } }
+        let size = cx.props.str("size").isEmpty ? "md" : cx.props.str("size")
+        let reduced = surfaceReduced || platformReduced
+        let color = cx.part("VoiceWave", "bar").color ?? cx.ink
+        let animates = VoiceWaveFrame.animated.contains(activity) && !reduced
+        TimelineView(.animation(paused: !animates)) { tl in
+            let elapsed = animates ? tl.date.timeIntervalSince(start) : 0
+            let meter = VoiceWaveBars.compute(size: size, activity: activity, level: level, bands: bands, elapsed: elapsed, reducedMotion: reduced)
+            VoiceWaveBarsView(bars: (meter?.bars ?? []).map { VoiceWaveBarsView.Bar(rect: $0.rect, radius: $0.radius) }, color: color)
+                .frame(width: meter?.width ?? cx.size.width, height: meter?.height ?? cx.size.height)
+        }
+        .frame(width: cx.size.width, height: cx.size.height, alignment: .topLeading)
+    }
+}
+
 /// `VoiceWave`: the rings behind the one child, coloured by the recipe
 /// parts (`outer` / `mid` / `inner`); the root recipe's opacity applies to
 /// the node. Animates while listening, thinking or speaking (the seconds
@@ -103,6 +174,14 @@ struct VoiceWaveLeaf: View {
     @State private var start = Date()
 
     var body: some View {
+        if cx.props.str("variant") == "bars" {
+            VoiceWaveBarsLeaf(cx: cx)
+        } else {
+            rings
+        }
+    }
+
+    @ViewBuilder private var rings: some View {
         let activity = VoiceWaveFrame.activity(cx.props.str("activity"))
         let level = cx.props.num("level") ?? 0
         let bands = cx.props["bands"]?.array.map { $0.compactMap { $0.number } }

@@ -1313,6 +1313,60 @@
       }
     ]
   },
+  "Button\/hold=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/hold=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
   "Button\/loading=false" : {
     "height" : 32,
     "nodes" : [
@@ -1706,6 +1760,2624 @@
           32
         ],
         "id" : "button-child"
+      }
+    ]
+  },
+  "CallSurface\/activity=idle" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 0.3499999940395355
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/activity=listening" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/activity=muted" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 0.3499999940395355
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/activity=speaking" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/activity=thinking" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/example" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/muted=false" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/muted=true" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 0.3499999940395355
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#fafafa",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/speaker=false" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          79,
+          696,
+          232,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          79,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          79,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          79,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          79,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          167,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.speakerTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          167,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.speakerTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          167,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.speakerTip.speaker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          167,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.speakerTip.speaker.speakerIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          255,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          255,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          255,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          255,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/speaker=true" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          79,
+          696,
+          232,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          79,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          79,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          79,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          79,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          167,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.speakerTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          167,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.speakerTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          167,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.speakerTip.speaker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          167,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.speakerTip.speaker.speakerIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          255,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          255,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          255,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          255,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/state=connecting" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/state=ended" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 0.3499999940395355
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
+      }
+    ]
+  },
+  "CallSurface\/state=ringing" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          300
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          167,
+          672,
+          56,
+          80
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          167,
+          672,
+          56,
+          80
+        ],
+        "id" : "call-surface.controls.cancel"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          167,
+          672,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.cancel.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          167,
+          672,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.cancel.end.endIcon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          171,
+          732,
+          48,
+          20
+        ],
+        "id" : "call-surface.controls.cancel.cancelLabel"
+      }
+    ]
+  },
+  "CallSurface\/state=talking" : {
+    "height" : 800,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          800
+        ],
+        "id" : "call-surface"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          48,
+          342,
+          324
+        ],
+        "id" : "call-surface.head"
+      },
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          95,
+          48,
+          200,
+          200
+        ],
+        "id" : "call-surface.head.wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          175,
+          128,
+          40,
+          40
+        ],
+        "id" : "call-surface.head.wave.avatar",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          159,
+          256,
+          72,
+          32
+        ],
+        "id" : "call-surface.head.name"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          292,
+          40,
+          20
+        ],
+        "id" : "call-surface.head.status"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          83,
+          344,
+          224,
+          28
+        ],
+        "id" : "call-surface.head.caption",
+        "opacity" : 0.8999999761581421
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          372,
+          0,
+          324
+        ],
+        "id" : "call-surface.spacer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          144,
+          56
+        ],
+        "id" : "call-surface.controls"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          123,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.muteTip.mute",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          123,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.muteTip.mute.muteIcon"
+      },
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          211,
+          696,
+          56,
+          56
+        ],
+        "id" : "call-surface.controls.endTip.end",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          211,
+          696,
+          24,
+          24
+        ],
+        "id" : "call-surface.controls.endTip.end.endIcon"
       }
     ]
   },
@@ -11166,6 +13838,404 @@
       }
     ]
   },
+  "MessageBubble\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/side=in" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          13,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          141,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          141,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      }
+    ]
+  },
+  "MessageBubble\/side=out" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/status=read" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/status=sending" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageBubble\/status=sent" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "message-bubble"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          196,
+          0,
+          194,
+          60
+        ],
+        "id" : "message-bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          209,
+          9,
+          168,
+          20
+        ],
+        "id" : "message-bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          319,
+          31,
+          58,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          319,
+          31,
+          40,
+          20
+        ],
+        "id" : "message-bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          363,
+          34,
+          14,
+          14
+        ],
+        "id" : "message-bubble.bubble.footer.status"
+      }
+    ]
+  },
   "Meter\/example" : {
     "height" : 32,
     "nodes" : [
@@ -12144,6 +15214,1137 @@
       }
     ]
   },
+  "Plan\/example" : {
+    "height" : 216,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "plan"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "plan.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          214
+        ],
+        "id" : "plan.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          50
+        ],
+        "id" : "plan.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "plan.card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "plan.card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          76
+        ],
+        "id" : "plan.card.steps"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.0"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          128,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          81,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.0.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          79,
+          104,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          144,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          109,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.1.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          107,
+          120,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.2"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          208,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          137,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.2.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          135,
+          184,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          167,
+          356,
+          32
+        ],
+        "id" : "plan.card.footer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          277,
+          167,
+          40,
+          32
+        ],
+        "id" : "plan.card.footer.decline",
+        "radius" : 10
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          325,
+          167,
+          48,
+          32
+        ],
+        "id" : "plan.card.footer.approve",
+        "radius" : 10
+      }
+    ]
+  },
+  "Plan\/state=declined" : {
+    "height" : 172,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          172
+        ],
+        "id" : "plan"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          172
+        ],
+        "id" : "plan.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          170
+        ],
+        "id" : "plan.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          50
+        ],
+        "id" : "plan.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "plan.card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "plan.card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          76
+        ],
+        "id" : "plan.card.steps"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.0"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          128,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          81,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.0.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          79,
+          104,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          144,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          109,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.1.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          107,
+          120,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.2"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          208,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          137,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.2.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          135,
+          184,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line.title"
+      }
+    ]
+  },
+  "Plan\/state=done" : {
+    "height" : 172,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          172
+        ],
+        "id" : "plan"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          172
+        ],
+        "id" : "plan.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          170
+        ],
+        "id" : "plan.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          50
+        ],
+        "id" : "plan.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "plan.card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "plan.card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          76
+        ],
+        "id" : "plan.card.steps"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.0"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          128,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          81,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.0.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          79,
+          104,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          144,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          109,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.1.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          107,
+          120,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.2"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          208,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          137,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.2.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          135,
+          184,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line.title"
+      }
+    ]
+  },
+  "Plan\/state=proposed" : {
+    "height" : 216,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "plan"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "plan.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          214
+        ],
+        "id" : "plan.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          50
+        ],
+        "id" : "plan.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "plan.card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "plan.card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          76
+        ],
+        "id" : "plan.card.steps"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.0"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          128,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          81,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.0.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          79,
+          104,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          144,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          109,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.1.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          107,
+          120,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.2"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          208,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          137,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.2.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          135,
+          184,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          167,
+          356,
+          32
+        ],
+        "id" : "plan.card.footer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          277,
+          167,
+          40,
+          32
+        ],
+        "id" : "plan.card.footer.decline",
+        "radius" : 10
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          325,
+          167,
+          48,
+          32
+        ],
+        "id" : "plan.card.footer.approve",
+        "radius" : 10
+      }
+    ]
+  },
+  "Plan\/state=running" : {
+    "height" : 216,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "plan"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "plan.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          214
+        ],
+        "id" : "plan.card.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          17,
+          356,
+          50
+        ],
+        "id" : "plan.card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "plan.card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "plan.card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          76
+        ],
+        "id" : "plan.card.steps"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.0"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          79,
+          128,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          81,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.0.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          79,
+          104,
+          20
+        ],
+        "id" : "plan.card.steps.step.0.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          107,
+          144,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          109,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.1.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          107,
+          120,
+          20
+        ],
+        "id" : "plan.card.steps.step.1.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          356,
+          20
+        ],
+        "id" : "plan.card.steps.step.2"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          135,
+          208,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          17,
+          137,
+          16,
+          16
+        ],
+        "id" : "plan.card.steps.step.2.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          135,
+          184,
+          20
+        ],
+        "id" : "plan.card.steps.step.2.line.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          167,
+          356,
+          32
+        ],
+        "id" : "plan.card.running"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          17,
+          179,
+          288,
+          8
+        ],
+        "id" : "plan.card.running.progress"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          17,
+          179,
+          288,
+          8
+        ],
+        "id" : "plan.card.running.progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          17,
+          179,
+          0,
+          8
+        ],
+        "id" : "plan.card.running.progress.track.fill",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          317,
+          167,
+          56,
+          32
+        ],
+        "id" : "plan.card.running.stop",
+        "radius" : 10
+      }
+    ]
+  },
   "Popover\/example" : {
     "height" : 0,
     "nodes" : [
@@ -12646,6 +16847,127 @@
         ],
         "id" : "progress.track.fill",
         "radius" : 9999
+      }
+    ]
+  },
+  "QrCode\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrCode",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-code"
+      }
+    ]
+  },
+  "QrCode\/level=H" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrCode",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-code"
+      }
+    ]
+  },
+  "QrCode\/level=L" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrCode",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-code"
+      }
+    ]
+  },
+  "QrCode\/level=M" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrCode",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-code"
+      }
+    ]
+  },
+  "QrCode\/level=Q" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrCode",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-code"
+      }
+    ]
+  },
+  "QrScanner\/disabled=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrScanner",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-scanner"
+      }
+    ]
+  },
+  "QrScanner\/disabled=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrScanner",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-scanner",
+        "opacity" : 0.5
+      }
+    ]
+  },
+  "QrScanner\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "QrScanner",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "qr-scanner"
       }
     ]
   },
@@ -16338,6 +20660,40 @@
     ]
   },
   "Segmented\/fill=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Segmented",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "segmented",
+        "radius" : 10
+      }
+    ]
+  },
+  "Segmented\/orientation=horizontal" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Segmented",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "segmented",
+        "radius" : 10
+      }
+    ]
+  },
+  "Segmented\/orientation=vertical" : {
     "height" : 0,
     "nodes" : [
       {
@@ -24967,6 +29323,93 @@
       }
     ]
   },
+  "TraceItem\/status=done" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
   "TraceItem\/status=error" : {
     "height" : 52,
     "nodes" : [
@@ -25164,6 +29607,94 @@
           20
         ],
         "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/status=skipped" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "opacity" : 0.6000000238418579,
         "radius" : 10
       },
       {
@@ -25527,6 +30058,58 @@
         "frame" : [
           80,
           90,
+          40,
+          20
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/variant=bars" : {
+    "height" : 40,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          156,
+          40
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          58,
+          10,
+          40,
+          20
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/variant=ring" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          60,
+          70,
           40,
           20
         ],

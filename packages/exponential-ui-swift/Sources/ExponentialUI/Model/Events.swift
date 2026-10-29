@@ -590,6 +590,61 @@ extension SurfaceModel {
         }
     }
 
+    // MARK: - VAPP-162: Button `hold`
+
+    /// Is `n` a `hold: true` Button (holdStart / holdEnd / holdCancel, never `press`)?
+    public func isHoldButton(_ n: NodeInfo) -> Bool {
+        n.component == "Button" && n.part == nil && n.props.flag("hold")
+    }
+
+    /// Is the hold Button with this id held now (the core's state)?
+    public func isHeld(id: String) -> Bool { surface.isHeld(id: id) }
+
+    /// One input on a hold Button through the core (round-5 contract §9):
+    /// `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}` (pt from the
+    /// button's top-left), `{"do": "pointercancel"}`, `{"do": "keydown",
+    /// key, repeat?}`, `{"do": "keyup", key}`, `{"do": "blur"}`. The core
+    /// fires the events, owns `pressed` and swaps in `holdingLabel`.
+    public func hold(_ index: Int, _ input: JSONValue) {
+        guard let events = try? surface.hold(index: UInt32(index), inputJson: input.json) else { return }
+        dispatch(events)
+    }
+
+    /// A pointer on a hold Button at `point` (its local coordinates).
+    public func holdPointer(_ index: Int, _ phase: String, at point: CGPoint) {
+        hold(index, .object(["do": .string(phase), "x": .number(Double(point.x)), "y": .number(Double(point.y))]))
+    }
+
+    /// A pointer the platform took back (a system gesture, a scroll).
+    public func holdPointerCancel(_ index: Int) {
+        hold(index, .object(["do": .string("pointercancel")]))
+    }
+
+    /// A key on the FOCUSED hold Button (`space`, `enter`, `escape`; model
+    /// key names): key down (repeat ignored by the core) / key up. `true` =
+    /// the hold took it (Escape only while held).
+    public func holdKey(_ key: String, up: Bool, repeat isRepeat: Bool = false) -> Bool {
+        guard let i = focusedIndex, let n = node(i), isHoldButton(n) else { return false }
+        let names = ["space": " ", "enter": "Enter", "return": "Enter", "escape": "Escape"]
+        guard let k = names[key] else { return false }
+        if k == "Escape" && (up || !isHeld(id: n.id)) { return false }
+        if up {
+            hold(i, .object(["do": .string("keyup"), "key": .string(k)]))
+        } else {
+            var o: [String: JSONValue] = ["do": .string("keydown"), "key": .string(k)]
+            if isRepeat { o["repeat"] = .bool(true) }
+            hold(i, .object(o))
+        }
+        return true
+    }
+
+    /// VoiceOver's activate on a hold Button: the first starts the hold,
+    /// the next ends it (a screen reader cannot press and keep holding).
+    public func holdToggle(_ index: Int) {
+        guard let n = node(index), isHoldButton(n) else { return }
+        hold(index, .object(["do": .string(isHeld(id: n.id) ? "keyup" : "keydown"), "key": .string(" ")]))
+    }
+
     /// A Resizable handle drag (`phase` = start | move | end, `delta` = pt
     /// along the group's axis since the drag STARTED): the core resizes
     /// from the sizes at the start (round 2 §1).
