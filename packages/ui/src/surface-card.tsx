@@ -160,7 +160,8 @@ export function SurfaceCard({
   }, [animate])
   return (
     // The title = the plan card's surface caption (plan-card.json `card`:
-    // 2xs medium muted, `surfaceLabelGap` ABOVE the frame), entering with it.
+    // 2xs medium muted, `surfaceLabelGap` ABOVE the frame), entering with it;
+    // the frame = its `surfaceRadius` + `surfacePadding` ×4.
     <div
       ref={frameRef}
       data-testid={CHATS_TEST_IDS.surfaceCard}
@@ -169,7 +170,10 @@ export function SurfaceCard({
       style={{ gap: PLAN_CARD_GEOMETRY.surfaceLabelGap }}
     >
       {title && <div className="truncate text-[0.6875rem] font-medium text-muted-foreground">{title}</div>}
-      <div className="relative min-w-0 rounded-2xl border border-glass-stroke-card bg-glass-card-opaque p-3">
+      <div
+        className="relative min-w-0 border border-glass-stroke-card bg-glass-card-opaque"
+        style={{ borderRadius: PLAN_CARD_GEOMETRY.surfaceRadius, padding: PLAN_CARD_GEOMETRY.surfacePadding }}
+      >
         <span
           ref={glowRef}
           aria-hidden
