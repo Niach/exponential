@@ -338,10 +338,10 @@ private fun StoryBody(story: Stories.Story, row: SessionTree.ThreadRow?, initial
         when {
             story.pictures.isNotEmpty() -> {
                 StoryPictures(story.pictures, Modifier.fillMaxWidth().weight(1f), initialPicture)
-                surface?.let { SurfaceCard(it, animate = false, onReply = {}) }
+                surface?.let { SurfaceCard(it, animate = false, onReply = {}, showTitle = false) }
             }
             surface != null -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-                SurfaceCard(surface, animate = false, onReply = {})
+                SurfaceCard(surface, animate = false, onReply = {}, showTitle = false)
             }
             story.text != null -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 MarkdownView(PlanCard.withoutPendingUploads(story.text), softBreaksAsNewlines = true)

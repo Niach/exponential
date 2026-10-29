@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/ui"
 import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
 import { CHATS_COPY, CHATS_TEST_IDS, surfaceReply } from "@exp/domain-contract/chats"
-import type { CardSurface } from "@exp/domain-contract/plan-card"
+import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
@@ -159,23 +159,25 @@ export function SurfaceCard({
     playEnter(frameRef.current, glowRef.current, bodyRef.current)
   }, [animate])
   return (
+    // The title = the plan card's surface caption (plan-card.json `card`:
+    // 2xs medium muted, `surfaceLabelGap` ABOVE the frame), entering with it.
     <div
       ref={frameRef}
       data-testid={CHATS_TEST_IDS.surfaceCard}
       data-entering={animate || undefined}
-      className={cn(
-        `relative flex w-full max-w-full min-w-0 flex-col gap-2 rounded-2xl border border-glass-stroke-card bg-glass-card-opaque p-3`,
-        className
-      )}
+      className={cn(`flex w-full max-w-full min-w-0 flex-col`, className)}
+      style={{ gap: PLAN_CARD_GEOMETRY.surfaceLabelGap }}
     >
-      <span
-        ref={glowRef}
-        aria-hidden
-        className="pointer-events-none absolute -inset-px rounded-[inherit] border border-primary opacity-0"
-      />
-      {title && <div className="truncate text-xs font-medium text-muted-foreground">{title}</div>}
-      <div ref={bodyRef} className="min-w-0">
-        <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
+      {title && <div className="truncate text-[0.6875rem] font-medium text-muted-foreground">{title}</div>}
+      <div className="relative min-w-0 rounded-2xl border border-glass-stroke-card bg-glass-card-opaque p-3">
+        <span
+          ref={glowRef}
+          aria-hidden
+          className="pointer-events-none absolute -inset-px rounded-[inherit] border border-primary opacity-0"
+        />
+        <div ref={bodyRef} className="min-w-0">
+          <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
+        </div>
       </div>
     </div>
   )
