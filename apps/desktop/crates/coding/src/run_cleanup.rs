@@ -308,20 +308,7 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
             "could not count the unpushed commits".to_string(),
         ));
     };
-    let landed = || {
-        let origin_base = format!("origin/{}", cleanup.base_branch);
-        run_git(
-            Some(&cleanup.clone),
-            &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{origin_base}")],
-            None,
-            "git rev-parse origin base",
-        )
-        .is_ok()
-            && head_commit(&cleanup.worktree).is_some_and(|head| {
-                crate::prune::branch_landed(&cleanup.clone, &head, &origin_base, &Default::default())
-            })
-    };
-    let leftover = if unpushed == 0 || landed() {
+    let leftover = if unpushed == 0 || head_landed(cleanup) {
         None
     } else {
         match push_leftover(&cleanup.worktree, &leftover) {
@@ -366,6 +353,30 @@ fn unpushed_count(worktree: &Path) -> Option<usize> {
     )
     .ok()
     .and_then(|out| out.trim().parse::<usize>().ok())
+}
+
+/// Whether the worktree's `HEAD` work is contained in `origin/<base>` (a
+/// squash or cherry-pick counts).
+fn head_landed(cleanup: &RunCleanup) -> bool {
+    let origin_base = format!("origin/{}", cleanup.base_branch);
+    run_git(
+        Some(&cleanup.clone),
+        &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{origin_base}")],
+        None,
+        "git rev-parse origin base",
+    )
+    .is_ok()
+        && head_commit(&cleanup.worktree).is_some_and(|head| {
+            crate::prune::branch_landed(&cleanup.clone, &head, &origin_base, &Default::default())
+        })
+}
+
+/// S-4: [`finish_worktree`] would take NOTHING off the machine — the tree is
+/// clean (untracked files included) and every commit is pushed or landed.
+/// The sweep removes an open chat's worktree only then.
+pub(crate) fn nothing_to_park(cleanup: &RunCleanup) -> bool {
+    worktree_dirty_state(&cleanup.worktree) == DirtyState::Clean
+        && (unpushed_count(&cleanup.worktree) == Some(0) || head_landed(cleanup))
 }
 
 fn head_commit(worktree: &Path) -> Option<String> {

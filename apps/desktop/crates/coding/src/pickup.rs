@@ -906,6 +906,12 @@ pub trait LiveEngine: Send + Sync {
     fn quiescent(&self) -> bool {
         self.is_idle() && self.open_cards().is_empty()
     }
+    /// S-4: when the run last did anything (agent output, a tool call) —
+    /// the idle release's clock never starts before it, so a turn that
+    /// began and ended between two release beats still counts.
+    fn last_activity(&self) -> Option<std::time::Instant> {
+        None
+    }
     /// EXP-1292: stop the PROCESS but not the session (the row idles, the
     /// run's workspace — a scratch dir included — is kept) for an immediate
     /// re-spawn of the same row on another account.
@@ -1140,7 +1146,11 @@ impl LiveRegistry {
                 quiet_since.remove(id);
                 continue;
             }
-            let since = *quiet_since.entry(id.clone()).or_insert(now);
+            let since = quiet_since.entry(id.clone()).or_insert(now);
+            if let Some(at) = entry.engine.last_activity() {
+                *since = (*since).max(at.min(now));
+            }
+            let since = *since;
             if now.saturating_duration_since(since) >= after {
                 quiet_since.remove(id);
                 entry.engine.suspend();
@@ -1248,8 +1258,12 @@ impl LiveRegistry {
 
     /// Record message ids as handed to the session's engine.
     pub fn mark_handed(&self, session_id: &str, message_ids: &[String]) {
-        if let Some(entry) = self.lock().get_mut(session_id) {
+        let mut entries = self.lock();
+        if let Some(entry) = entries.get_mut(session_id) {
             entry.handed.extend(message_ids.iter().cloned());
+            // S-4: a message is activity, even one consumed before the next
+            // release beat looks.
+            locked(&self.quiet_since).remove(session_id);
         }
     }
 
@@ -1367,8 +1381,11 @@ impl LiveRegistry {
     }
 
     fn mark_answered(&self, session_id: &str, message_id: &str) {
-        if let Some(entry) = self.lock().get_mut(session_id) {
+        let mut entries = self.lock();
+        if let Some(entry) = entries.get_mut(session_id) {
             entry.answered.insert(message_id.to_string());
+            // S-4: so is an answered card.
+            locked(&self.quiet_since).remove(session_id);
         }
     }
 
@@ -3736,6 +3753,8 @@ mod tests {
         /// EXP-1280: answered tool cards delivered, in order:
         /// (message id, text, approved, fresh).
         answered: Mutex<Vec<(String, String, bool, bool)>>,
+        /// S-4: the run's last activity (`None` = never reported).
+        activity: Mutex<Option<std::time::Instant>>,
     }
 
     impl FakeEngine {
@@ -3790,6 +3809,9 @@ mod tests {
         fn model(&self) -> Option<String> {
             self.model.lock().unwrap().clone()
         }
+        fn last_activity(&self) -> Option<std::time::Instant> {
+            *self.activity.lock().unwrap()
+        }
     }
 
     #[test]
@@ -3829,6 +3851,35 @@ mod tests {
     /// S-4: a quiescent engine is suspended once it sat idle past the
     /// timeout (a turn, a handed message or an open card resets the clock);
     /// the row then resumes through the plan's `Resume`, never revived.
+    /// S-4: a turn that started and finished between two release beats
+    /// (the IDE samples once a minute) still restarts the quiet clock — the
+    /// engine's own activity clock and a handed message both count.
+    #[test]
+    fn release_idle_counts_activity_between_beats() {
+        let registry = LiveRegistry::default();
+        let chat = Arc::new(FakeEngine::default());
+        registry.insert("chat", chat.clone(), None);
+        let after = std::time::Duration::from_secs(600);
+        let t0 = std::time::Instant::now();
+        assert!(registry.release_idle(t0, after).is_empty());
+        // A whole turn between beats: never seen busy, but it was active.
+        *chat.activity.lock().unwrap() = Some(t0 + std::time::Duration::from_secs(300));
+        assert!(registry.release_idle(t0 + after, after).is_empty(), "active 300 s ago");
+        assert!(registry
+            .release_idle(t0 + std::time::Duration::from_secs(899), after)
+            .is_empty());
+        // A message handed AND consumed between beats restarts it too.
+        let t1 = t0 + std::time::Duration::from_secs(890);
+        registry.mark_handed("chat", &["m1".to_string()]);
+        registry.forget_handed("chat", "m1");
+        assert!(registry.release_idle(t1, after).is_empty());
+        assert!(registry
+            .release_idle(t0 + std::time::Duration::from_secs(900), after)
+            .is_empty(), "the handed message reset the clock");
+        assert_eq!(registry.release_idle(t1 + after, after), vec!["chat".to_string()]);
+        assert_eq!(*chat.killed.lock().unwrap(), Some("suspended"));
+    }
+
     #[test]
     fn release_idle_suspends_quiet_engines_after_the_timeout() {
         let registry = LiveRegistry::default();

@@ -3902,6 +3902,87 @@ describe(`live history rooms (#EXP-1405)`, () => {
   })
 })
 
+// ── S-4: an idle chat releasing its agent process ─────────────────────────────
+
+describe(`suspended publishers (S-4)`, () => {
+  function capturing<T>(fn: () => T) {
+    const timers: { ms?: number; fn: () => void }[] = []
+    const real = globalThis.setTimeout
+    globalThis.setTimeout = ((cb: () => void, ms?: number) => {
+      timers.push({ fn: cb, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    try {
+      return { value: fn(), timers }
+    } finally {
+      globalThis.setTimeout = real
+    }
+  }
+
+  test(`bye suspended: viewers hear publisher_lost and stay connected`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const viewer = connectMember(hub)
+    activity(hub, pub, { kind: `narration`, text: `done for now` })
+    const { timers } = capturing(() =>
+      hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `suspended` }))
+    )
+    hub.onClose(pub)
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `publisher_lost` })
+    expect(viewer.framesOf(`bye`)).toHaveLength(1)
+    expect(viewer.closed).toBeNull()
+    expect(timers.find((t) => t.ms === 60_000)).toBeDefined()
+    expect(hub.stats().rooms).toBe(1)
+    expect(room(hub).publisher).toBeNull()
+    hub.destroy()
+  })
+
+  test(`the resumed chat's publisher takes the room back for the same viewer`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const viewer = connectMember(hub)
+    capturing(() => hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `suspended` })))
+    hub.onClose(pub)
+    const resumed = connectPublisher(hub)
+    activity(hub, resumed, { kind: `narration`, text: `back` })
+    expect(viewer.closed).toBeNull()
+    expect(viewer.events().at(-1)).toMatchObject({ kind: `narration`, text: `back` })
+    // A later real ending is an ending again.
+    hub.onMessage(resumed, JSON.stringify({ t: `bye`, outcome: `done` }))
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    hub.destroy()
+  })
+
+  test(`the grace running out answers the retryable no_such_session, no ending`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const viewer = connectMember(hub)
+    const { timers } = capturing(() =>
+      hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `suspended` }))
+    )
+    hub.onClose(pub)
+    timers.find((t) => t.ms === 60_000)!.fn()
+    expect(viewer.lastFrame(`error`)).toMatchObject({ code: `no_such_session` })
+    expect(viewer.framesOf(`bye`).map((f) => f.outcome)).toEqual([`publisher_lost`])
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+
+  test(`a server kill of a suspended room ends it now`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const viewer = connectMember(hub)
+    capturing(() => hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `suspended` })))
+    hub.onClose(pub)
+    expect(hub.killSession(`sess-1`)).toBe(false)
+    expect(viewer.lastFrame(`bye`)).toMatchObject({ outcome: `ended` })
+    expect(viewer.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().rooms).toBe(0)
+    hub.destroy()
+  })
+})
+
 // ── NEW-55: voice calls ──────────────────────────────────────────────────────
 
 describe(`voice calls (NEW-55)`, () => {

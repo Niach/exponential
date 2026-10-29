@@ -147,6 +147,12 @@ interface Room {
    *  journal replay is refused while this is set: the live one always wins,
    *  because a `replaced` close is terminal for it. */
   liveHeld: boolean
+  /** S-4: the publisher said `bye {outcome: 'suspended'}` — the desktop
+   *  released an idle chat's agent process, the session itself lives on.
+   *  The room is inside its reconnect grace like a dropped publisher's, and
+   *  its expiry is the retryable `no_such_session` (`dropLiveRoom`), never a
+   *  terminal `bye`. Cleared by the next publisher `hello`. */
+  suspended: boolean
   /** EXP-796: fires HISTORY_ROOM_LINGER_MS after the replay's `bye`. */
   lingerTimer: ReturnType<typeof setTimeout> | null
   /** EXP-936: the ONE `compact_request` awaiting the host's verdict, or
@@ -295,6 +301,9 @@ function latestWinsKey(event: ActivityEvent): string {
 // low-volume JSON, so saturation means the consumer is gone, not lagging.
 const VIEWER_HIGH_WATER = 512 * 1024
 const PUBLISHER_GRACE_MS = 60_000
+/** S-4: the `bye` outcome of an idle chat releasing its agent process
+ *  (`SUSPEND_OUTCOME`, crates/engine/src/session.rs). */
+const SUSPENDED_OUTCOME = `suspended`
 // REV2-X: If we receive no frames (including pings) from a publisher for this
 // long, assume the connection is dead and close the room. Desktop pings every
 // 30s, so 90s = 3 missed pings = definitely dead. Fixes the plan-mode hang
@@ -663,21 +672,7 @@ export class Hub {
 
     if (room.publisher === conn) {
       // Publisher dropped without bye → grace period for reconnect.
-      room.publisher = null
-      // EXP-795: every page ask went down THIS socket; none is coming back.
-      this.dropHistoryPages(room)
-      // EXP-936: nor is the compaction verdict.
-      this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
-      room.staleTimer ??= setTimeout(() => {
-        room.staleTimer = null
-        // #EXP-1405: a device dropping mid-replay in a LIVE room is no
-        // ending — the viewers get the retryable drop and redial.
-        if (room.historyDevice && room.live) {
-          this.dropLiveRoom(room)
-          return
-        }
-        this.closeRoom(room, `publisher_lost`)
-      }, PUBLISHER_GRACE_MS)
+      this.detachPublisher(room)
       return
     }
 
@@ -778,6 +773,7 @@ export class Hub {
           }
           // EXP-795: a page ask addressed to the previous socket is dead.
           this.dropHistoryPages(room)
+          room.suspended = false
           room.publisher = conn
           room.lastPublisherActivity = Date.now() // REV2-X: reconnect resets the timer
         }
@@ -1108,6 +1104,21 @@ export class Hub {
             return
           }
         }
+        // S-4: an idle chat releasing its agent process is no ending — the
+        // session resumes on the next message, on a new publisher. Old and
+        // new clients alike stay retryable only on `publisher_lost`, so the
+        // viewers hear exactly that, the sockets stay open, and the room
+        // takes the dropped publisher's grace (its expiry: `dropLiveRoom`).
+        if (msg.outcome === SUSPENDED_OUTCOME) {
+          room.suspended = true
+          conn.sessionId = undefined
+          this.detachPublisher(room)
+          const lost = frame({ t: `bye`, outcome: `publisher_lost` })
+          for (const member of room.activityMembers.keys()) {
+            member.sock.send(lost)
+          }
+          return
+        }
         // #EXP-1405: the session itself ended — nothing is live any more,
         // so the room answers with the ending, never the retryable drop.
         room.live = false
@@ -1154,6 +1165,13 @@ export class Hub {
         this.closeRoom(room, HISTORY_OUTCOME)
         return false
       }
+    }
+    // S-4: a suspended chat has no process to kill — the server's end is
+    // the ending its viewers were waiting out the grace for.
+    if (room?.suspended && !room.publisher) {
+      room.live = false
+      this.closeRoom(room, `ended`)
+      return false
     }
     if (!room?.publisher) return false
     room.publisher.sock.send(frame({ t: `kill` }))
@@ -1465,6 +1483,27 @@ export class Hub {
     }
   }
 
+  /** The publisher went away but the session did not: detach it and give it
+   *  PUBLISHER_GRACE_MS to come back (a re-`hello` clears the timer). */
+  private detachPublisher(room: Room) {
+    room.publisher = null
+    // EXP-795: every page ask went down THIS socket; none is coming back.
+    this.dropHistoryPages(room)
+    // EXP-936: nor is the compaction verdict.
+    this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
+    room.staleTimer ??= setTimeout(() => {
+      room.staleTimer = null
+      // #EXP-1405: a device dropping mid-replay in a LIVE room is no
+      // ending — the viewers get the retryable drop and redial.
+      // S-4: nor is a suspended chat's publisher staying away.
+      if ((room.historyDevice && room.live) || room.suspended) {
+        this.dropLiveRoom(room)
+        return
+      }
+      this.closeRoom(room, `publisher_lost`)
+    }, PUBLISHER_GRACE_MS)
+  }
+
   /** EXP-796: the device's replay is complete — detach it and keep the room
    *  up for its viewers, for HISTORY_ROOM_LINGER_MS at most. The publisher
    *  socket is the device's short-lived replay connection; it closes itself
@@ -1670,6 +1709,7 @@ export class Hub {
       historyServed: false,
       live: false,
       liveHeld: publisher !== null,
+      suspended: false,
       lingerTimer: null,
       compactAsk: null,
     }
