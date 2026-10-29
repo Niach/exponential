@@ -11,7 +11,7 @@ import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
-import { autoStopHours, MEETING_AUTO_STOP } from "@exp/domain-contract/meeting"
+import { autoStopHours, MEETING_AUTO_STOP } from "@exp/etalk/meeting"
 import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
 
 // NEW-1: the server watchdog (every minute; contract `sessionWatchdog`).

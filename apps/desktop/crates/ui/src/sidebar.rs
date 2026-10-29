@@ -1251,7 +1251,7 @@ impl RailView {
     }
 
     /// #NEW-97: the footer's voice button while no tray host shows the tray
-    /// (`domain::voice::rail_voice`): the Computer button's ghost square with
+    /// (`etalk::voice::rail_voice`): the Computer button's ghost square with
     /// the `settings-voice` glyph, the tray icon's red dot while the wake
     /// word holds the microphone open, and the tray's rows (minus Open and
     /// Quit) on the pointer menu, each running the tray's own handler.
@@ -1268,20 +1268,20 @@ impl RailView {
             let Some(rail) = crate::voice_tray::rail(cx) else { return menu };
             for item in rail.menu {
                 let row = match item {
-                    domain::voice::TrayItem::Check { id, label, checked, .. } => crate::controls::pointer_toggle_item(
+                    etalk::voice::TrayItem::Check { id, label, checked, .. } => crate::controls::pointer_toggle_item(
                         format!("rail-voice-{id:?}"),
                         None,
                         label,
                         checked,
                         move |_, _, cx| crate::voice_tray::click(id, cx),
                     ),
-                    domain::voice::TrayItem::Action { id, label, .. } => crate::controls::pointer_menu_item(
+                    etalk::voice::TrayItem::Action { id, label, .. } => crate::controls::pointer_menu_item(
                         None,
                         label,
                         |_| None,
                         move |_, cx| crate::voice_tray::click(id, cx),
                     ),
-                    domain::voice::TrayItem::Separator => continue,
+                    etalk::voice::TrayItem::Separator => continue,
                 };
                 menu = menu.item(row);
             }

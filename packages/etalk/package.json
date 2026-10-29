@@ -1,0 +1,20 @@
+{
+  "name": "@exp/etalk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test ./src"
+  },
+  "dependencies": {
+    "@exp/domain-contract": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./voice": "./src/voice.ts",
+    "./voice-call": "./src/voice-call.ts",
+    "./meeting": "./src/meeting.ts",
+    "./fixtures/*": "./fixtures/*"
+  }
+}

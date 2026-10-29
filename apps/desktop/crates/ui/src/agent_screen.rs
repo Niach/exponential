@@ -777,13 +777,13 @@ impl AgentScreenView {
     /// the call panel; a new call focuses it too (Esc there ends it).
     fn header_call(&self, cx: &App) -> Option<AnyElement> {
         let agent_id = self.agent.as_ref()?.id.clone();
-        let copy = &domain::voice_call::VOICE_CALL.copy;
+        let copy = &etalk::call::VOICE_CALL.copy;
         let here = crate::voice_call::runs_for(&agent_id, cx);
         let reason = (!here).then(|| crate::voice_call::unavailable(cx)).flatten();
         let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", &self.subject_name()));
         let panel = self.call_panel.read(cx).focus_handle(cx);
         let button = crate::controls::ghost_icon_button(
-            domain::voice_call::VOICE_CALL.test_ids.call.as_str(),
+            etalk::call::VOICE_CALL.test_ids.call.as_str(),
             Icon::new(registry::VOICE_CALL),
             cx,
         )

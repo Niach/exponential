@@ -37,7 +37,7 @@ import {
   wakePhraseError,
   wakePhrasePlaceholder,
   type VoiceAgentLike,
-} from "@exp/domain-contract/voice"
+} from "@exp/etalk/voice"
 import { contract } from "@exp/domain-contract"
 import {
   appOptions,
@@ -54,7 +54,7 @@ import {
   type AudioApp,
   type DesktopAudio,
   type DesktopAudioCapability,
-} from "@exp/domain-contract/meeting"
+} from "@exp/etalk/meeting"
 import {
   devicePickerItems,
   FieldError,

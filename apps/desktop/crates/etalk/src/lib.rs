@@ -28,7 +28,7 @@
 //! heard phrase starts a turn of its own, [`Event::Woke`], followed by the
 //! same Level, Partial and Heard or Empty as a Listen.
 //!
-//! NEW-55 (protocol 5) calls (`packages/domain-contract/fixtures/voice-call.json`):
+//! NEW-55 (protocol 5) calls (`packages/etalk/fixtures/voice-call.json`):
 //! [`SpeechClient::call`] listens continuously, from the microphone or (a
 //! `remote` call, a phone or the web streaming to the voice device) from the
 //! [`SpeechClient::call_audio`] the host decoded. Every finished utterance
@@ -46,7 +46,7 @@
 //! heard before it. A worker of protocol 6 ignores `ringMs` and never
 //! sends CallListening (the host reads [`Event::Ready`]'s protocol).
 //!
-//! NEW-57 (protocol 6) meets (`packages/domain-contract/fixtures/meeting.json`):
+//! NEW-57 (protocol 6) meets (`packages/etalk/fixtures/meeting.json`):
 //! [`SpeechClient::meeting`] owns the microphone (channel `you`) and, per
 //! [`MeetingApps`], the desktop audio ([`apps`]) until
 //! [`SpeechClient::meeting_stop`]; every channel runs the push-to-talk
@@ -59,7 +59,13 @@
 //! drops every channel's audio until resumed.
 
 pub mod apps;
+/// The call state machine (`fixtures/voice-call.json`): availability, ring, greeting, controls.
+pub mod call;
+/// Meeting mode (`fixtures/meeting.json`): settings rows, channels, flush, message.
+pub mod meeting;
 pub mod microphone;
+/// Voice settings, push to talk, wake word, tray and spoken-reply rules (`fixtures/voice.json`).
+pub mod voice;
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -1085,7 +1091,7 @@ mod tests {
     #[test]
     fn the_call_constants_are_the_fixture() {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/voice-call.json")).unwrap();
+            serde_json::from_str(include_str!("../../../../../packages/etalk/fixtures/voice-call.json")).unwrap();
         let constants = &fixture["constants"];
         assert_eq!(constants["minSilenceMs"], CALL_MIN_SILENCE_MS);
         assert_eq!(constants["bargeInMs"], BARGE_IN_MS);

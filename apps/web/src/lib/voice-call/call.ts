@@ -25,7 +25,7 @@ import {
   VOICE_CALL_COPY,
   type CallEvent,
   type CallState,
-} from "@exp/domain-contract/voice-call"
+} from "@exp/etalk/voice-call"
 
 import { CallAudioError, type CallAudio } from "./audio"
 import { audioFrame, hostCallEvent, KIND_DOWN, KIND_UP, parseAudioFrame, parseControl, seqAfter } from "./wire"

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
-import fixture from "@exp/domain-contract/fixtures/voice-call.json"
-import type { CallPlatform, CallView } from "@exp/domain-contract/voice-call"
+import fixture from "@exp/etalk/fixtures/voice-call.json"
+import type { CallPlatform, CallView } from "@exp/etalk/voice-call"
 import type { IconConcept } from "@exp/icons"
 
 import { CallButton, CallControls, VoiceCallPill } from "./call-controls"

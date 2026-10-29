@@ -14,7 +14,7 @@
 //! (`pttCopy`, `overlaySpecimens`).
 
 use exponential_ui::voice_wave::Activity;
-use domain::voice_call::{CallButton, CallView, SurfaceSpecimen, VOICE_CALL};
+use etalk::call::{CallButton, CallView, SurfaceSpecimen, VOICE_CALL};
 use exponential_ui_gpui::controls::{
     call_button, glass_pill, glass_pill_button_primary, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild, VoiceWaveColors,
 };
@@ -507,7 +507,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use domain::voice::VOICE;
+    use etalk::voice::VOICE;
     use gpui::{Context, IntoElement, Render, Window};
 
     use super::*;

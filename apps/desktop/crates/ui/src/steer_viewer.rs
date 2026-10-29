@@ -7238,7 +7238,7 @@ impl SteerSessionView {
         }
         // NEW-53 (voice.json): this conversation's reply is being read aloud.
         if let Some(speaking) = crate::speak_replies::speaking(cx).filter(|speaking| speaking.session_id == self.session_id) {
-            let copy = &domain::voice::VOICE.copy;
+            let copy = &etalk::voice::VOICE.copy;
             out.push(banner("speaking", "media-volume-up", &copy.speaking, speaking.title, DockTint::Muted, Some(&copy.stop)));
         }
         // #EXP-1383 (chats.json `agentHint`): an agent chat whose root still
@@ -7525,7 +7525,7 @@ impl SteerSessionView {
                     .small()
                     .cursor_pointer()
                     .icon(Icon::new(registry::UI_STOP).xsmall())
-                    .label(domain::voice::VOICE.copy.stop.clone())
+                    .label(etalk::voice::VOICE.copy.stop.clone())
                     .on_click(|_: &ClickEvent, _, cx| {
                         cx.stop_propagation();
                         crate::speak_replies::stop(cx);

@@ -16,7 +16,7 @@
 //!   [`PARTIAL_EVERY`] for [`etalk::Event::Partial`].
 //!
 //! The constants and the pure functions are fixture-locked by
-//! `packages/domain-contract/fixtures/talk-listen.json`.
+//! `packages/etalk/fixtures/talk-listen.json`.
 //!
 //! NEW-55: a [`Call`] runs the same pipeline continuously
 //! (`voice-call.json`): every closed segment is answered at once as
@@ -1079,7 +1079,7 @@ mod tests {
 
 
 
-    const FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/talk-listen.json");
+    const FIXTURE: &str = include_str!("../../../../../packages/etalk/fixtures/talk-listen.json");
 
     fn fixture() -> serde_json::Value {
         serde_json::from_str(FIXTURE).unwrap()

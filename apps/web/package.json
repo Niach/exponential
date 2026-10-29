@@ -37,6 +37,7 @@
     "@electric-sql/client": "^1.2.0",
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
+    "@exp/etalk": "workspace:*",
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
     "@exp/mcp-apps": "workspace:*",

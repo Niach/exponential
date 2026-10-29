@@ -124,3 +124,15 @@ internal fun contractFixtureJson(name: String): String {
         ?: error("$name not found from ${File(".").absolutePath}")
     return file.readText()
 }
+
+/** #EXP-1422: eTalk's fixtures (voice, voice-call, meeting, talk-listen) live in `packages/etalk`. */
+internal fun etalkFixtureJson(name: String): String {
+    val candidates = listOf(
+        "../../../packages/etalk/fixtures/$name",
+        "../../packages/etalk/fixtures/$name",
+        "packages/etalk/fixtures/$name",
+    )
+    val file = candidates.map(::File).firstOrNull { it.isFile }
+        ?: error("$name not found from ${File(".").absolutePath}")
+    return file.readText()
+}

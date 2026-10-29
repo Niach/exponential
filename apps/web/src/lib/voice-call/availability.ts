@@ -5,7 +5,7 @@
 // The server's `voice.startCall` reads the same row through the same
 // `callSpeechOf`, so the telephone and the refusal never disagree.
 
-import { callAvailability, type CallAvailability, type CallAvailabilityInput, type CallSpeech } from "@exp/domain-contract/voice-call"
+import { callAvailability, type CallAvailability, type CallAvailabilityInput, type CallSpeech } from "@exp/etalk/voice-call"
 
 import type { DeviceDoctor } from "@/db/schema"
 import { deviceRowIsOnline } from "@/lib/steer-devices"

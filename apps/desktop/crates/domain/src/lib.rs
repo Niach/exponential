@@ -134,16 +134,13 @@ pub mod issue_estimate;
 pub mod issue_graph;
 pub mod issue_nesting;
 pub mod issue_rail;
+/// Row timestamps as UTC milliseconds (both spellings the shapes deliver).
+pub mod instant;
 pub mod issue_search;
 // EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
 pub mod list_item;
 // NEW-8: messages are keyed through their conversation, fixture-locked ×4.
 pub mod message_conversation;
-/// NEW-57: meeting mode (`meeting.json`): settings rows, channels, flush, message.
-pub mod meeting;
-/// NEW-53: exponentialTalk voice settings + spoken-reply rules (`voice.json`).
-pub mod voice;
-pub mod voice_call;
 pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;

@@ -28,7 +28,7 @@ import org.junit.Test
 class VoiceCallTest {
 
     private val fixture: JsonObject by lazy {
-        Json.parseToJsonElement(contractFixtureJson("voice-call.json")).jsonObject
+        Json.parseToJsonElement(etalkFixtureJson("voice-call.json")).jsonObject
     }
 
     private fun JsonObject.str(key: String): String? =

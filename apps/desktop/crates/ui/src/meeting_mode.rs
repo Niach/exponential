@@ -9,8 +9,8 @@
 
 use gpui::{App, Global, Window};
 
-use domain::meeting::{consent_body, who, AudioApp, DesktopAudioCapability, MeetingStopReason, MEETING, RETENTION_DAYS};
-use domain::voice::{VoiceSettings, VOICE};
+use etalk::meeting::{consent_body, who, AudioApp, DesktopAudioCapability, MeetingStopReason, MEETING, RETENTION_DAYS};
+use etalk::voice::{VoiceSettings, VOICE};
 
 use crate::push_to_talk::hotkey::{self, HotkeyEvent};
 
@@ -131,7 +131,7 @@ fn write(on: bool, reason: Option<MeetingStopReason>, cx: &mut App) {
 /// notification (the IDE may live in the tray with no window) that opens
 /// Settings → Voice.
 pub(crate) fn notify_auto_stopped(hours: i64, cx: &mut App) {
-    let line = domain::meeting::auto_stopped(hours);
+    let line = etalk::meeting::auto_stopped(hours);
     crate::toast::show_in_active_window(crate::toast::Toast::info(line.clone()), cx);
     crate::os_notifications::raise_settings(crate::settings::SettingsSection::Voice, &MEETING.copy.meeting, &line, cx);
 }

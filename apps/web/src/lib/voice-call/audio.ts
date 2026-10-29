@@ -9,7 +9,7 @@
 // Mute disables the track and keeps encoding: its silence keeps the frames
 // flowing, so the relay's idle timeout never ends a muted call.
 
-import { VOICE_CALL_CONSTANTS } from "@exp/domain-contract/voice-call"
+import { VOICE_CALL_CONSTANTS } from "@exp/etalk/voice-call"
 
 const { upRate, downRate, upKbps, frameMs, jitterMs } = VOICE_CALL_CONSTANTS
 const UP_FRAME = (upRate * frameMs) / 1000

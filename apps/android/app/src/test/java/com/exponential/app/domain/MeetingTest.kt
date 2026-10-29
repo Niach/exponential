@@ -23,7 +23,7 @@ import org.junit.Test
 class MeetingTest {
 
     private val fixture: JsonObject =
-        Json.parseToJsonElement(contractFixtureJson("meeting.json")).jsonObject
+        Json.parseToJsonElement(etalkFixtureJson("meeting.json")).jsonObject
 
     private fun JsonObject.s(key: String): String = getValue(key).jsonPrimitive.content
 

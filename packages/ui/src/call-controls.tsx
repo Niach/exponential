@@ -6,7 +6,7 @@ import {
   VOICE_CALL_TEST_IDS,
   type CallActivity,
   type CallButton as CallButtonId,
-} from "@exp/domain-contract/voice-call"
+} from "@exp/etalk/voice-call"
 import type { IconConcept } from "@exp/icons"
 
 import { Button } from "./button"

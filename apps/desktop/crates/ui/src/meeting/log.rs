@@ -1,7 +1,7 @@
 //! NEW-57 RESIDENCY: the raw meeting segments stay on the device, in
 //! `<data dir>/meeting.sqlite` (`meeting_segments`: meeting id, channel,
 //! label, start/end ms, text, words), for
-//! `domain::meeting::LOCAL_RETENTION_DAYS` days, pruned at start and
+//! `etalk::meeting::LOCAL_RETENTION_DAYS` days, pruned at start and
 //! hourly. Audio is never stored here. #FEED-163 RESTART: beside them,
 //! `meeting_listened` remembers the one `meetingStartedAt` this IDE listened
 //! to last, so the next process start can tell "the same sitting" apart.
@@ -197,10 +197,10 @@ mod tests {
         log.insert(&segment(now - 31 * day, "too old")).unwrap();
         log.insert(&segment(now - 29 * day, "kept")).unwrap();
         log.insert(&segment(now - 1_000, "fresh")).unwrap();
-        assert_eq!(log.prune(now, domain::meeting::LOCAL_RETENTION_DAYS).unwrap(), 1);
+        assert_eq!(log.prune(now, etalk::meeting::LOCAL_RETENTION_DAYS).unwrap(), 1);
         let texts: Vec<String> = log.all().into_iter().map(|row| row.text).collect();
         assert_eq!(texts, ["kept", "fresh"]);
-        assert_eq!(log.prune(now, domain::meeting::LOCAL_RETENTION_DAYS).unwrap(), 0);
+        assert_eq!(log.prune(now, etalk::meeting::LOCAL_RETENTION_DAYS).unwrap(), 0);
     }
 
     #[test]

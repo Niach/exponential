@@ -1,5 +1,5 @@
 import { contract } from "@exp/domain-contract"
-import { consentBody, MEETING_COPY, MEETING_TEST_IDS, who } from "@exp/domain-contract/meeting"
+import { consentBody, MEETING_COPY, MEETING_TEST_IDS, who } from "@exp/etalk/meeting"
 
 import { PromptSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"

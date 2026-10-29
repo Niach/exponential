@@ -7,8 +7,8 @@
 //! `pill.height`) for each of `voice-call.json` `surfaceSpecimens`, with the
 //! desktop's buttons (mute and the red end).
 
-use domain::voice::VOICE;
-use domain::voice_call::{CallButton, VOICE_CALL};
+use etalk::voice::VOICE;
+use etalk::call::{CallButton, VOICE_CALL};
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 
 use crate::voice_overlay::{call_pill, capsule, specimen_face, CallActions, Capsule};

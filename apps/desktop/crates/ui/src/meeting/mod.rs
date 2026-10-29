@@ -1,9 +1,9 @@
 //! NEW-57: MEETING MODE in the IDE on the member's voice device
-//! (`packages/domain-contract/fixtures/meeting.json`). The host side: it
+//! (`packages/etalk/fixtures/meeting.json`). The host side: it
 //! follows the voice settings (`meetingStartedAt`, `desktopAudio`,
 //! `desktopAudioApps`) handed over on every heartbeat, asks the speech
 //! worker to listen per channel, folds the finalized segments through
-//! `domain::meeting::flush_step`, sends each batch to the member's
+//! `etalk::meeting::flush_step`, sends each batch to the member's
 //! conversation with the voice agent (`sessions.send` with `meeting: true`),
 //! keeps the raw segments in the IDE's SQLite for 30 days and owns the pause.
 //!
@@ -19,7 +19,7 @@
 //! the local log remembers the meeting it listened to, and when the voice
 //! row still holds that one at the next start, the IDE stops it
 //! (`voice.stopMeeting {reason: 'restart'}`) and opens THE consent dialog
-//! instead ([`domain::meeting::meeting_resume_asks`]); a meeting it never
+//! instead ([`etalk::meeting::meeting_resume_asks`]); a meeting it never
 //! listened to starts as usual. FLUSH: segments queue; `wake` (the phrase
 //! opening a `you` segment), `ptt` (a push-to-talk key-down, which the
 //! worker answers `MeetingFlushNow`), `tick` (every second) and `turnDone`
@@ -56,9 +56,9 @@ use std::time::Duration;
 use gpui::{App, AppContext as _, Context, Entity, Global};
 use sync::{Collection, Store};
 
-use domain::meeting::{flush_step, meeting_messages, DesktopAudio, DesktopAudioCapability, FlushEvent, FlushState, MeetingSegment, MEETING};
+use etalk::meeting::{flush_step, meeting_messages, DesktopAudio, DesktopAudioCapability, FlushEvent, FlushState, MeetingSegment, MEETING};
 use domain::rows::MessageRow;
-use domain::voice::{UtteranceTarget, VoiceSettings};
+use etalk::voice::{UtteranceTarget, VoiceSettings};
 
 use self::log::{LoggedSegment, SegmentLog};
 
@@ -73,7 +73,7 @@ pub struct MeetingState {
     /// does not hold them (the tray's and the rail's dot, voice.json
     /// `trayIcon` `meetingListening`).
     pub listening: bool,
-    /// `domain::meeting::who(...)` for the running meeting (the tray label).
+    /// `etalk::meeting::who(...)` for the running meeting (the tray label).
     pub who: String,
 }
 
@@ -107,7 +107,7 @@ fn wanted_for(settings: &VoiceSettings, device_id: &str, now_ms: i64) -> Option<
     let settings = settings.clone().clear_on_none();
     // AUTO-STOP: on this device's own clock (an offline device stops too).
     if !settings.meeting()
-        || domain::meeting::meeting_expired(settings.meeting_started_at.as_deref(), now_ms, settings.auto_stop_hours())
+        || etalk::meeting::meeting_expired(settings.meeting_started_at.as_deref(), now_ms, settings.auto_stop_hours())
     {
         return None;
     }
@@ -156,7 +156,7 @@ struct Part {
     id: String,
 }
 
-/// `domain::meeting::meeting_messages`' order (start, `you` first, then by
+/// `etalk::meeting::meeting_messages`' order (start, `you` first, then by
 /// label): the split packs the segments in it.
 fn segment_order(a: &MeetingSegment, b: &MeetingSegment) -> Ordering {
     a.start_ms.cmp(&b.start_ms).then_with(|| match (a.channel == "you", b.channel == "you") {
@@ -413,7 +413,7 @@ fn send_input(agent_id: &str, text: &str, cx: &App) -> Option<api::sessions::Sen
     let team_id = Store::try_global(cx)
         .and_then(|store| store.collections().agents.read(cx).iter().find(|row| row.id == agent_id).and_then(|row| row.team_id.clone()))
         .unwrap_or_default();
-    let input = match domain::voice::utterance_input(text, &team_id, Some(agent_id), conversation.as_deref())? {
+    let input = match etalk::voice::utterance_input(text, &team_id, Some(agent_id), conversation.as_deref())? {
         UtteranceTarget::Session { session_id, text } => api::sessions::SendInput::message(&session_id, &text, Vec::new()),
         UtteranceTarget::Agent { team_id, agent_id, text } => crate::chat_launch::agent_send_input(&team_id, &agent_id, &text, Vec::new()),
     };
@@ -647,14 +647,14 @@ impl MeetingHost {
         // RESTART: the sitting this IDE listened to before it was gone needs
         // a new consent: stop it and ask, never listen on.
         if wanted.as_ref().is_some_and(|wanted| {
-            domain::meeting::meeting_resume_asks(self.listened_before.as_deref(), Some(wanted.id.as_str()))
+            etalk::meeting::meeting_resume_asks(self.listened_before.as_deref(), Some(wanted.id.as_str()))
         }) {
             wanted = None;
             if !self.resume_asked {
                 self.resume_asked = true;
                 ::log::info!("[meeting] the IDE restarted during a meeting: stopped, asking for consent again");
                 cx.defer(|cx| {
-                    crate::meeting_mode::stop_for(domain::meeting::MeetingStopReason::Restart, cx);
+                    crate::meeting_mode::stop_for(etalk::meeting::MeetingStopReason::Restart, cx);
                     crate::meeting_mode::request_consent(cx);
                 });
             }
@@ -689,7 +689,7 @@ impl MeetingHost {
             let hours = settings.auto_stop_hours();
             ::log::info!("[meeting] stopped after {hours} h (autoStop)");
             cx.defer(move |cx| {
-                crate::meeting_mode::stop_for(domain::meeting::MeetingStopReason::AutoStop, cx);
+                crate::meeting_mode::stop_for(etalk::meeting::MeetingStopReason::AutoStop, cx);
                 crate::meeting_mode::notify_auto_stopped(hours, cx);
             });
         }
@@ -729,7 +729,7 @@ impl MeetingHost {
                 // AUTO-STOP: the tick is the clock that ends a too-old meeting.
                 let hours = crate::speak_replies::settings(cx).auto_stop_hours();
                 if this.running.as_ref().is_some_and(|running| {
-                    domain::meeting::meeting_expired(Some(&running.wanted.id), crate::session_data::now_ms(), hours)
+                    etalk::meeting::meeting_expired(Some(&running.wanted.id), crate::session_data::now_ms(), hours)
                 }) {
                     this.follow(cx);
                     return false;
@@ -752,7 +752,7 @@ impl MeetingHost {
         let Some(client) = self.client.as_ref() else { return };
         let settings = crate::speak_replies::settings(cx);
         let agent = crate::voice_tray::agent_label(&settings, cx);
-        let phrase = domain::voice::wake_phrase(&settings, agent.as_deref()).unwrap_or_default();
+        let phrase = etalk::voice::wake_phrase(&settings, agent.as_deref()).unwrap_or_default();
         let wanted = &running.wanted;
         client.meeting(
             wanted.id.clone(),
@@ -839,7 +839,7 @@ impl MeetingHost {
         let who = self
             .running
             .as_ref()
-            .map(|running| domain::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability_of(running.capability)))
+            .map(|running| etalk::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability_of(running.capability)))
             .unwrap_or_default();
         let running = self.running.is_some();
         let next = MeetingState { running, paused: self.paused && running, listening: running && self.listening && !self.paused, who };
@@ -853,9 +853,9 @@ impl MeetingHost {
         let now = crate::session_data::now_ms();
         self.last_prune_ms = now;
         let Some(log) = self.log.as_ref() else { return };
-        match log.prune(now, domain::meeting::LOCAL_RETENTION_DAYS) {
+        match log.prune(now, etalk::meeting::LOCAL_RETENTION_DAYS) {
             Ok(0) => {}
-            Ok(pruned) => ::log::info!("[meeting] pruned {pruned} local segment(s) past {} days", domain::meeting::LOCAL_RETENTION_DAYS),
+            Ok(pruned) => ::log::info!("[meeting] pruned {pruned} local segment(s) past {} days", etalk::meeting::LOCAL_RETENTION_DAYS),
             Err(err) => ::log::warn!("[meeting] pruning the local log failed: {err}"),
         }
     }
@@ -1051,13 +1051,13 @@ impl MeetingHost {
                 .message_id
                 .as_deref()
                 .and_then(|id| rows.iter().find(|row| row.id == id))
-                .and_then(|row| row.created_at.as_deref().and_then(domain::voice::parse_instant));
+                .and_then(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant));
             let Some(sent_at) = sent_at else { return };
             rows.iter().filter(in_session).any(|row| {
                 row.author_kind.as_deref() == Some("agent")
                     && row.author_session_id.is_none()
                     && row.body.as_deref().is_some_and(|body| !body.trim().is_empty())
-                    && row.created_at.as_deref().and_then(domain::voice::parse_instant).is_some_and(|at| at > sent_at)
+                    && row.created_at.as_deref().and_then(etalk::voice::parse_instant).is_some_and(|at| at > sent_at)
             })
         };
         if replied {
@@ -1072,7 +1072,7 @@ impl MeetingHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::meeting::AudioApp;
+    use etalk::meeting::AudioApp;
 
     fn settings() -> VoiceSettings {
         VoiceSettings {
@@ -1363,7 +1363,7 @@ mod tests {
         let last = stopping.batcher.take_all();
         assert_eq!(last, [segment("zoom", 15), segment("you", 25)], "one batch, everything");
         assert!(stopping.batcher.take_all().is_empty() && stopping.batcher.state == FlushState::default());
-        let message = domain::meeting::meeting_message(&last);
+        let message = etalk::meeting::meeting_message(&last);
         assert!(message.contains("zoom: at 15") && message.contains("you: at 25"), "{message}");
 
         assert!(stop_drains(Some("acct-1"), Some("acct-1")), "a stop by the settings drains");

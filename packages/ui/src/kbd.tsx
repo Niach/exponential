@@ -1,4 +1,4 @@
-import { shortcutLabel, VOICE_SHORTCUT_GRAMMAR } from "@exp/domain-contract/voice"
+import { shortcutLabel, VOICE_SHORTCUT_GRAMMAR } from "@exp/etalk/voice"
 
 import { Kbd, KbdGroup } from "@exponential_app/ui-react/primitives/kbd"
 import { cn } from "./cn"

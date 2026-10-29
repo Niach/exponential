@@ -1,10 +1,10 @@
 //! NEW-53: exponentialTalk "Speak replies" in the IDE (`fixtures/voice.json`).
 //!
-//! Watches the synced `messages`: a row [`domain::voice::should_speak`]
+//! Watches the synced `messages`: a row [`etalk::voice::should_speak`]
 //! accepts (the agent's final reply in the member's conversation with the
 //! agent picked in Settings → Voice, spoken only on the member's voice
 //! device; `user_voice_settings`, delivered by every heartbeat) is
-//! reduced to [`domain::voice::spoken_text`] and handed to the speech worker
+//! reduced to [`etalk::voice::spoken_text`] and handed to the speech worker
 //! (`etalk::SpeechClient`, the IDE's own executable as `__speech-worker`).
 //! While it plays, the conversation's Dock shows the Speaking banner with
 //! Stop (`steer_viewer::dock_banners`). S-3: SPEAK-BACK IS ALWAYS ON (the
@@ -24,7 +24,7 @@ use gpui::{App, AppContext as _, Context, Entity, Global};
 use sync::{Collection, Store};
 
 use domain::rows::MessageRow;
-use domain::voice::{VoiceContext, VoiceMessage, VOICE};
+use etalk::voice::{VoiceContext, VoiceMessage, VOICE};
 
 /// What THIS device speaks for: the member's voice settings
 /// (`user_voice_settings`, delivered by every heartbeat) seen from here.
@@ -51,7 +51,7 @@ impl DeviceVoice {
 }
 
 /// voice.json: only the member's voice device speaks.
-pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> DeviceVoice {
+pub(crate) fn voice_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> DeviceVoice {
     if settings.voice_device_id.as_deref() != Some(own_device_id) {
         return DeviceVoice::default();
     }
@@ -71,7 +71,7 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
 /// NEW-78: THIS device listens: it is the member's voice device and Push to
 /// talk or (#NEW-56) the wake word is on (after voice.json `clearOnNone`).
 /// Only then does its doctor carry the `microphone` row.
-pub(crate) fn listens_here(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
+pub(crate) fn listens_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> bool {
     let settings = settings.clone().clear_on_none();
     (settings.push_to_talk() || settings.wake_word) && settings.voice_device_id.as_deref() == Some(own_device_id)
 }
@@ -138,7 +138,7 @@ impl Gate {
             for row in rows {
                 self.seen.insert(row.id.clone());
                 if let Some(created) = row.created_at.as_deref() {
-                    if let Some(ms) = domain::voice::parse_instant(created) {
+                    if let Some(ms) = etalk::voice::parse_instant(created) {
                         if newest.as_ref().is_none_or(|(mark, _)| ms > *mark) {
                             newest = Some((ms, created.to_string()));
                         }
@@ -164,7 +164,7 @@ pub(crate) struct SpeakReplies {
     /// The setting the worker was last prepared for (assistant + switch).
     prepared: DeviceVoice,
     /// The member's voice settings as the last heartbeat delivered them.
-    settings: domain::voice::VoiceSettings,
+    settings: etalk::voice::VoiceSettings,
     /// The signed-in account the worker serves (`None` = signed out).
     account: Option<String>,
     /// Worker crashes since the last utterance that played to its end.
@@ -287,7 +287,7 @@ pub fn install(cx: &mut App) {
             gate: Gate::default(),
             client,
             prepared: DeviceVoice::default(),
-            settings: domain::voice::VoiceSettings::default(),
+            settings: etalk::voice::VoiceSettings::default(),
             account,
             crashes: 0,
             voices: Vec::new(),
@@ -354,7 +354,7 @@ pub(crate) fn entity(cx: &App) -> Option<Entity<SpeakReplies>> {
 
 /// #NEW-68: the member's voice settings as the last heartbeat (or this
 /// device's own save) delivered them.
-pub(crate) fn settings(cx: &App) -> domain::voice::VoiceSettings {
+pub(crate) fn settings(cx: &App) -> etalk::voice::VoiceSettings {
     global(cx).map(|entity| entity.read(cx).settings.clone()).unwrap_or_default()
 }
 
@@ -377,11 +377,11 @@ static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock
     let spec = std::env::var("EXP_DEV_SPEAKING").ok()?;
     let mut parts = spec.splitn(3, '|');
     let (session_id, language, body) = (parts.next()?, parts.next()?, parts.next()?);
-    let spoken = domain::voice::spoken_text(body, VOICE.max_chars, language);
+    let spoken = etalk::voice::spoken_text(body, VOICE.max_chars, language);
     Some(Speaking {
         message_id: "dev-speaking".into(),
         session_id: session_id.to_string(),
-        title: domain::voice::first_sentence(&spoken).to_string(),
+        title: etalk::voice::first_sentence(&spoken).to_string(),
     })
 });
 
@@ -405,7 +405,7 @@ pub(crate) fn download(cx: &App) -> Download {
 /// voice.json `downloadProgress`, `None` when nothing downloads.
 pub(crate) fn download_detail(cx: &App) -> Option<String> {
     match download(cx) {
-        Download::Running { received, total } => Some(domain::voice::download_progress(received, total)),
+        Download::Running { received, total } => Some(etalk::voice::download_progress(received, total)),
         _ => None,
     }
 }
@@ -455,7 +455,7 @@ pub(crate) fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
 
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
 /// Settings → Voice save): adopt them and start or stop the voice here.
-pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App) {
+pub(crate) fn set_settings(settings: etalk::voice::VoiceSettings, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     let rows = crate::device_readiness::voice_rows(cx);
     // #NEW-54: push to talk first, so a Listen it drops is cancelled before
@@ -508,7 +508,7 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
 }
 
 /// #NEW-63: delivered settings that pick this device as the voice device.
-fn settings_name_this_device(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
+fn settings_name_this_device(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -> bool {
     settings.voice_device_id.as_deref() == Some(own_device_id)
 }
 
@@ -563,7 +563,7 @@ impl SpeakReplies {
         self.gate = Gate::default();
         self.prepared = DeviceVoice::default();
         // The settings are the member's: the new account's beat brings its own.
-        self.settings = domain::voice::VoiceSettings::default();
+        self.settings = etalk::voice::VoiceSettings::default();
         self.settings_known = false;
         self.crashes = 0;
         self.voices.clear();
@@ -674,7 +674,7 @@ impl SpeakReplies {
             .iter()
             .filter(|row| {
                 let session = domain::message_conversation::session_of(row, &sessions);
-                domain::voice::should_speak(
+                etalk::voice::should_speak(
                     &VoiceMessage {
                         author_kind: row.author_kind.as_deref(),
                         body: row.body.as_deref(),
@@ -686,11 +686,11 @@ impl SpeakReplies {
                     &context,
                 )
             })
-            .max_by_key(|row| row.created_at.as_deref().and_then(domain::voice::parse_instant).unwrap_or(0))
+            .max_by_key(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant).unwrap_or(0))
         else {
             return;
         };
-        let spoken = domain::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, self.settings.language());
+        let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, self.settings.language());
         if spoken.is_empty() {
             return;
         }
@@ -703,7 +703,7 @@ impl SpeakReplies {
         self.speaking = Some(Speaking {
             message_id: row.id.clone(),
             session_id: conversation.id.clone(),
-            title: domain::voice::first_sentence(&spoken).to_string(),
+            title: etalk::voice::first_sentence(&spoken).to_string(),
         });
         cx.notify();
     }
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn only_the_voice_device_with_push_to_talk_listens() {
-        let settings = domain::voice::VoiceSettings {
+        let settings = etalk::voice::VoiceSettings {
             voice_device_id: Some("mac".into()),
             agent_id: Some("a1".into()),
             ptt_shortcut: "ctrl+space".into(),
@@ -853,10 +853,10 @@ mod tests {
         };
         assert!(listens_here(&settings, "mac"));
         assert!(!listens_here(&settings, "pc"));
-        let off = domain::voice::VoiceSettings { ptt_shortcut: String::new(), ..settings.clone() };
+        let off = etalk::voice::VoiceSettings { ptt_shortcut: String::new(), ..settings.clone() };
         assert!(!listens_here(&off, "mac"));
         // #NEW-56: the wake word alone listens too.
-        let wake = domain::voice::VoiceSettings { wake_word: true, ..off.clone() };
+        let wake = etalk::voice::VoiceSettings { wake_word: true, ..off.clone() };
         assert!(listens_here(&wake, "mac"));
         assert!(voice_here(&wake, "mac").listen);
         // S-3: speak-back is always on: the voice device keeps the worker
@@ -864,7 +864,7 @@ mod tests {
         assert!(voice_here(&off, "mac").active() && !voice_here(&off, "mac").listen);
         // clearOnNone (S-3: only the wake word): no agent picked = the wake
         // word does not listen.
-        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..wake };
+        let no_agent = etalk::voice::VoiceSettings { agent_id: None, ..wake };
         assert!(!listens_here(&no_agent, "mac"));
     }
 
@@ -908,10 +908,10 @@ mod tests {
 
     #[test]
     fn only_settings_naming_this_device_claim_its_speech_data() {
-        let mine = domain::voice::VoiceSettings { voice_device_id: Some("d-mint".into()), ..Default::default() };
+        let mine = etalk::voice::VoiceSettings { voice_device_id: Some("d-mint".into()), ..Default::default() };
         assert!(settings_name_this_device(&mine, "d-mint"), "the voice device keeps its data");
         assert!(!settings_name_this_device(&mine, "d-mac"));
-        assert!(!settings_name_this_device(&domain::voice::VoiceSettings::default(), "d-mint"));
+        assert!(!settings_name_this_device(&etalk::voice::VoiceSettings::default(), "d-mint"));
     }
 
     fn signed_in(ids: &[&str]) -> Vec<String> {
@@ -970,14 +970,14 @@ mod tests {
 
     #[test]
     fn only_the_voice_device_speaks() {
-        let settings = domain::voice::VoiceSettings {
+        let settings = etalk::voice::VoiceSettings {
             voice_device_id: Some("d-mint".into()),
             agent_id: Some("a1".into()),
             ..Default::default()
         };
         assert!(voice_here(&settings, "d-mint").active());
         assert!(!voice_here(&settings, "d-mac").active(), "another device stays silent");
-        let german = domain::voice::VoiceSettings {
+        let german = etalk::voice::VoiceSettings {
             language: "de".into(),
             voice_file: "/home/me/clip.wav".into(),
             voice_transcript: "Hallo.".into(),
@@ -990,7 +990,7 @@ mod tests {
             etalk::VoiceChoice { language: "de".into(), file: "/home/me/clip.wav".into(), transcript: "Hallo.".into() }
         );
         assert_eq!(voice_here(&settings, "d-mint").voice.language, "en", "unset reads as English");
-        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings.clone() };
+        let no_agent = etalk::voice::VoiceSettings { agent_id: None, ..settings.clone() };
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
         // S-3: speak-back is always on: the worker prepares the voice.
         assert!(voice_here(&settings, "d-mint").speaks());

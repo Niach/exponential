@@ -12,14 +12,14 @@
 //! yet; a failed send keeps the text in that chat's composer
 //! ([`take_unsent`]). The agent's reply row ends Thinking; `speak_replies`
 //! reads it, and the overlay ([`overlay`], THE capsule in a never-focused
-//! window) shows every step, from [`domain::voice::ptt_step`].
+//! window) shows every step, from [`etalk::voice::ptt_step`].
 //!
 //! #1238 review carry: a running Listen is cancelled (CancelListen) on
 //! sign-out, on a voice-device change, and on any settings change that
 //! turns push to talk off or changes the agent or the language.
 //!
 //! #NEW-56 (voice plan V7): with the wake word on (and the tray's Mute off)
-//! the worker is handed the phrase (`domain::voice::wake_phrase`) and keeps
+//! the worker is handed the phrase (`etalk::voice::wake_phrase`) and keeps
 //! the microphone open for it; a heard phrase arrives as `Woke`, which is a
 //! key-down for one turn: the same capsule, the same Heard or Empty, the
 //! same send. The worker ends that turn itself; the tray draws the open
@@ -39,7 +39,7 @@ use gpui::{App, AppContext as _, Context, Entity, Global};
 use sync::{Collection, Store};
 
 use domain::rows::MessageRow;
-use domain::voice::{ptt_overlay, ptt_step, PttEvent, PttOverlay, PttPhase, PttState, UtteranceTarget, VoiceSettings};
+use etalk::voice::{ptt_overlay, ptt_step, PttEvent, PttOverlay, PttPhase, PttState, UtteranceTarget, VoiceSettings};
 
 pub(crate) use overlay::activity as overlay_activity;
 
@@ -281,8 +281,8 @@ pub(crate) fn wake_listening(cx: &App) -> bool {
 /// S-3: the wake word's state on THIS device (voice.json `wakeDetail`
 /// `state`): the tray's Mute, a call or a meeting holding the microphone,
 /// the worker's `WakeListening` and its reason; None = not reported yet.
-pub(crate) fn wake_state(cx: &App) -> Option<domain::voice::WakeState> {
-    use domain::voice::WakeState;
+pub(crate) fn wake_state(cx: &App) -> Option<etalk::voice::WakeState> {
+    use etalk::voice::WakeState;
     if wake_listening(cx) {
         return Some(WakeState::Listening);
     }
@@ -307,10 +307,10 @@ pub(crate) fn wake_state(cx: &App) -> Option<domain::voice::WakeState> {
 }
 
 /// S-3: the Wake word row's trailing detail on THIS device, which is the
-/// voice device (`domain::voice::wake_detail` over [`wake_state`]); the
+/// voice device (`etalk::voice::wake_detail` over [`wake_state`]); the
 /// doctor's `wake` row carries the same text to every other client.
 pub(crate) fn own_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> Option<String> {
-    domain::voice::wake_detail(&domain::voice::WakeDetailContext {
+    etalk::voice::wake_detail(&etalk::voice::WakeDetailContext {
         wake_word: settings.wake_word,
         agent: settings.agent_id.is_some(),
         online: true,
@@ -472,7 +472,7 @@ impl PushToTalk {
         let wanted = match self.armed.as_ref() {
             Some(armed) if self.worker_ready && !self.muted => armed.wake_phrase.as_ref().and_then(|phrase| {
                 let settings = VoiceSettings { wake_phrase: phrase.clone(), ..Default::default() };
-                let phrase = domain::voice::wake_phrase(&settings, self.agent_label(cx).as_deref())?;
+                let phrase = etalk::voice::wake_phrase(&settings, self.agent_label(cx).as_deref())?;
                 Some((phrase, armed.language.clone()))
             }),
             _ => None,
@@ -673,7 +673,7 @@ impl PushToTalk {
                 store.collections().agents.read(cx).iter().find(|row| row.id == armed.agent_id).and_then(|row| row.team_id.clone())
             })
             .unwrap_or_default();
-        let Some(target) = domain::voice::utterance_input(&heard, &team_id, Some(&armed.agent_id), conversation.as_deref()) else {
+        let Some(target) = etalk::voice::utterance_input(&heard, &team_id, Some(&armed.agent_id), conversation.as_deref()) else {
             return;
         };
         let (input, text) = match target {
@@ -741,7 +741,7 @@ impl PushToTalk {
                 .message_id
                 .as_deref()
                 .and_then(|id| rows.iter().find(|row| row.id == id))
-                .and_then(|row| row.created_at.as_deref().and_then(domain::voice::parse_instant));
+                .and_then(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant));
             let Some(sent_at) = sent_at else { return };
             rows.iter()
                 .filter(in_session)
@@ -751,7 +751,7 @@ impl PushToTalk {
                         && !row.card.as_ref().is_some_and(|card| !card.is_null())
                         && row.body.as_deref().is_some_and(|body| !body.trim().is_empty())
                 })
-                .filter_map(|row| Some((row.created_at.as_deref().and_then(domain::voice::parse_instant)?, row)))
+                .filter_map(|row| Some((row.created_at.as_deref().and_then(etalk::voice::parse_instant)?, row)))
                 .filter(|(at, _)| *at > sent_at)
                 .min_by_key(|(at, _)| *at)
                 .map(|(_, row)| (row.id.clone(), row.body.clone().unwrap_or_default()))
@@ -832,8 +832,8 @@ impl PushToTalk {
     }
 }
 
-fn listen_failure(reason: etalk::ListenFailure) -> domain::voice::ListenFailure {
-    use domain::voice::ListenFailure as Domain;
+fn listen_failure(reason: etalk::ListenFailure) -> etalk::voice::ListenFailure {
+    use etalk::voice::ListenFailure as Domain;
     match reason {
         etalk::ListenFailure::NoMicrophone => Domain::NoMicrophone,
         etalk::ListenFailure::NotGranted => Domain::NotGranted,

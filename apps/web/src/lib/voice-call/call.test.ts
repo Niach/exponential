@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import fixture from "@exp/domain-contract/fixtures/voice-call.json"
-import { callView, type CallEvent, type CallPlatform } from "@exp/domain-contract/voice-call"
+import fixture from "@exp/etalk/fixtures/voice-call.json"
+import { callView, type CallEvent, type CallPlatform } from "@exp/etalk/voice-call"
 
 import { CallAudioError, type CallAudio } from "./audio"
 import { VoiceCall, type CallSocket } from "./call"

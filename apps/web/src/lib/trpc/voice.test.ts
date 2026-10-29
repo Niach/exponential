@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import fixture from "@exp/domain-contract/fixtures/voice.json" with { type: "json" }
+import fixture from "@exp/etalk/fixtures/voice.json" with { type: "json" }
 
 const h = vi.hoisted(() => {
   const state = {
@@ -65,7 +65,7 @@ const h = vi.hoisted(() => {
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/sessions/meeting-access`, async () => ({
-  MEETING_SHARED_REFUSED: (await import(`@exp/domain-contract/meeting`)).MEETING_COPY.sharedRefused,
+  MEETING_SHARED_REFUSED: (await import(`@exp/etalk/meeting`)).MEETING_COPY.sharedRefused,
   meetingAgentIsPrivate: h.meetingAgentIsPrivate,
   postMeetingStopNote: h.postMeetingStopNote,
 }))
@@ -76,8 +76,8 @@ vi.mock(`@/lib/steer`, async () => ({
   relayPostNudge: h.relayPostNudge,
 }))
 
-import callFixture from "@exp/domain-contract/fixtures/voice-call.json" with { type: "json" }
-import meetingFixture from "@exp/domain-contract/fixtures/meeting.json" with { type: "json" }
+import callFixture from "@exp/etalk/fixtures/voice-call.json" with { type: "json" }
+import meetingFixture from "@exp/etalk/fixtures/meeting.json" with { type: "json" }
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import { verifySteerTicket } from "@exp/steer-ticket"
 import { callSpeechOf, voiceRouter, withClearOnNone, withMeetingScope } from "@/lib/trpc/voice"

@@ -5,7 +5,7 @@
 // sequence that wraps, then ONE Opus packet of `frameMs`. JSON text frames
 // carry the control.
 
-import { VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/domain-contract/voice-call"
+import { VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/etalk/voice-call"
 
 export const KIND_UP = VOICE_CALL_WIRE.kinds.up
 export const KIND_DOWN = VOICE_CALL_WIRE.kinds.down

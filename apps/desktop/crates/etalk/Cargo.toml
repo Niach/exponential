@@ -14,6 +14,10 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
+# The voice, call and meeting state machines (moved from `domain`, fixture-locked
+# by packages/etalk/fixtures): the spoken-text rules and the instants of rows.
+regex = "1"
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # NEW-55: call audio crosses the JSON-lines wire as base64 of i16 LE PCM.
 base64 = "0.22"
 

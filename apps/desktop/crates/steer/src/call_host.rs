@@ -249,10 +249,10 @@ mod tests {
     use super::*;
 
     /// Wave review of #1265: the wire constants are voice-call.json's
-    /// (`domain::voice_call::VOICE_CALL`), never free-standing numbers.
+    /// (`etalk::call::VOICE_CALL`), never free-standing numbers.
     #[test]
     fn wire_constants_match_the_fixture() {
-        let spec = &*domain::voice_call::VOICE_CALL;
+        let spec = &*etalk::call::VOICE_CALL;
         assert_eq!(KIND_UP, spec.wire.kinds.up);
         assert_eq!(KIND_DOWN, spec.wire.kinds.down);
         assert_eq!(MAX_FRAME_BYTES, spec.wire.max_frame_bytes);

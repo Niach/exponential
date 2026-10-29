@@ -14,6 +14,7 @@ COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/domain-contract/package.json packages/domain-contract/package.json
+COPY packages/etalk/package.json packages/etalk/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
 COPY packages/emoji/package.json packages/emoji/package.json
 COPY packages/exponential-ui/package.json packages/exponential-ui/package.json
@@ -46,6 +47,8 @@ COPY packages/tsconfig packages/tsconfig
 COPY packages/steer-ticket packages/steer-ticket
 # EXP-795: the relay's page-size schema reads contract.json.
 COPY packages/domain-contract packages/domain-contract
+# EXP-1422: protocol.ts reads eTalk's voice-call.json.
+COPY packages/etalk packages/etalk
 COPY apps/steer-relay apps/steer-relay
 
 FROM oven/bun:1
@@ -55,6 +58,7 @@ COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/apps/steer-relay apps/steer-relay
 COPY --from=builder /app/packages/steer-ticket packages/steer-ticket
 COPY --from=builder /app/packages/domain-contract packages/domain-contract
+COPY --from=builder /app/packages/etalk packages/etalk
 COPY --from=builder /app/packages/tsconfig packages/tsconfig
 COPY --from=builder /app/package.json .
 COPY --from=builder /app/bunfig.toml .

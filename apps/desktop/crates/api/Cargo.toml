@@ -12,6 +12,8 @@ publish = false
 staging = []
 
 [dependencies]
+# eTalk: the voice, call and meeting state machines (packages/etalk/fixtures).
+etalk = { path = "../etalk" }
 domain = { path = "../domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }

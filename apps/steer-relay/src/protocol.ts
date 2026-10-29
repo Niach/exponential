@@ -21,7 +21,7 @@
 
 import { contract } from "@exp/domain-contract"
 import scriptCard from "@exp/domain-contract/fixtures/script-card.json" with { type: "json" }
-import voiceCall from "@exp/domain-contract/fixtures/voice-call.json" with { type: "json" }
+import voiceCall from "@exp/etalk/fixtures/voice-call.json" with { type: "json" }
 import { z } from "zod"
 
 // ── NEW-55: voice call wire constants (fixtures/voice-call.json) ─────────────
