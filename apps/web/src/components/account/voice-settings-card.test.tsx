@@ -80,9 +80,6 @@ const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipPro
 // way `voice.update` stores it (`clearOnNone`).
 const DEFAULTS: VoiceSettings = {
   ...VOICE_DEFAULTS,
-  // S-3: the server's legacy shims (old clients read them, this card never).
-  speakReplies: true,
-  pushToTalk: false,
   desktopAudio: `off`,
   desktopAudioApps: [],
   meetingStartedAt: null,

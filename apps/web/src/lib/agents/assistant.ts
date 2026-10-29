@@ -126,7 +126,7 @@ export async function syncVoiceMirror(exec: Exec, userId: string): Promise<void>
   const set = {
     agentId: next.agentId,
     voiceDeviceId: next.voiceDeviceId,
-    ...(cleared ? { speakReplies: false, pushToTalk: false, wakeWord: false } : {}),
+    ...(cleared ? { wakeWord: false } : {}),
     ...(cleared || moved ? { meetingStartedAt: null } : {}),
     updatedAt: now,
   }

@@ -295,8 +295,8 @@ describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
         .values({ teamId: w.teamId, ownerId: third, deviceId: ownerDesktop, name: `Watcher`, icon: `eye`, triggers: eventTriggers })
         .returning()
       await tx.insert(userVoiceSettings).values([
-        { userId: w.owner, agentId: shared!.id, voiceDeviceId: ownerDesktop, speakReplies: true },
-        { userId: third, agentId: evented!.id, voiceDeviceId: ownerDesktop, speakReplies: true },
+        { userId: w.owner, agentId: shared!.id, voiceDeviceId: ownerDesktop },
+        { userId: third, agentId: evented!.id, voiceDeviceId: ownerDesktop },
       ])
 
       for (const statement of MIGRATION) await tx.execute(sql.raw(statement))
@@ -305,7 +305,7 @@ describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
       expect(await row(shared!.id)).toMatchObject({ role: `agent`, icon: `bot`, color: `#ff0000`, triggers })
       expect(await row(evented!.id)).toMatchObject({ role: `agent`, icon: `eye`, triggers: eventTriggers })
       const voice = await tx.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
-      expect(voice[0]).toMatchObject({ agentId: null, voiceDeviceId: null, speakReplies: false })
+      expect(voice[0]).toMatchObject({ agentId: null, voiceDeviceId: null })
     })
   })
 
@@ -373,9 +373,9 @@ describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
       const third = await user()
       await tx.insert(teamMembers).values({ teamId: w.teamId, userId: third, role: `member` })
       await tx.insert(userVoiceSettings).values([
-        { userId: w.mate, agentId: mine.id, voiceDeviceId: desktop, speakReplies: true, wakeWord: true },
-        { userId: third, agentId: foreign.id, voiceDeviceId: desktop, speakReplies: true, pushToTalk: true },
-        { userId: w.owner, agentId: ownersOwn.id, voiceDeviceId: phone, speakReplies: true },
+        { userId: w.mate, agentId: mine.id, voiceDeviceId: desktop, wakeWord: true },
+        { userId: third, agentId: foreign.id, voiceDeviceId: desktop },
+        { userId: w.owner, agentId: ownersOwn.id, voiceDeviceId: phone },
       ])
 
       for (const statement of MIGRATION) await tx.execute(sql.raw(statement))
@@ -388,19 +388,17 @@ describe.skipIf(!ready.ok)(`migration 0208 data step (S-3)`, () => {
       expect((await row(mine.id)).triggers).toEqual([
         expect.objectContaining({ kind: `schedule`, cron: `0 * * * *`, enabled: true }),
       ])
-      expect(await voice(w.mate)).toMatchObject({ agentId: mine.id, voiceDeviceId: desktop, speakReplies: true, wakeWord: true })
+      expect(await voice(w.mate)).toMatchObject({ agentId: mine.id, voiceDeviceId: desktop, wakeWord: true })
 
       expect(await row(foreign.id)).toMatchObject({ role: `agent`, icon: `bot` })
       expect(await voice(third)).toMatchObject({
         agentId: null,
         voiceDeviceId: null,
-        speakReplies: false,
-        pushToTalk: false,
       })
 
       expect(await row(ownersOwn.id)).toMatchObject({ role: `assistant` })
       expect((await row(ownersOwn.id)).triggers).toEqual([])
-      expect(await voice(w.owner)).toMatchObject({ agentId: ownersOwn.id, voiceDeviceId: null, speakReplies: false })
+      expect(await voice(w.owner)).toMatchObject({ agentId: ownersOwn.id, voiceDeviceId: null })
     })
   })
 })

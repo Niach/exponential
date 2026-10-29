@@ -1917,10 +1917,10 @@ export const pins = pgTable(
 // private DM with it (`agent_id` set, `user_id` = the member, the agent's
 // device and login), never ending. The former agent facets (`kind`, `name`,
 // `icon`, `color`, `triggers`, `sort_order`) and the action facets
-// (`action_*`) stay as LEGACY read shims for the iOS store build and the
-// ≤0.14.74 devices: a conversation session mirrors `kind = agent` + the
-// agent's name/icon/color so those devices keep it alive (persistent) and
-// those clients list it; nothing else writes them. NEW-8 drops them.
+// (`action_*`) are LEGACY columns no shape syncs any more (every client at
+// the floor reads the agent definition); a conversation session still
+// mirrors `kind = agent` + the agent's name/icon/color for the server's own
+// readers. NEW-8 drops them.
 //
 // Visibility (ONE rule ×4): `shared` is stamped at creation = the device is
 // shared with the team (a child inherits its root's). Shared rows sync to
@@ -1990,8 +1990,8 @@ export const sessions = pgTable(
     planMode: boolean(`plan_mode`).notNull().default(false),
     computerUse: boolean(`computer_use`).notNull().default(false),
     ultracode: boolean().notNull().default(false),
-    // LEGACY read shim (NEW-1): the dispatcher flag. Never true any more;
-    // synced for the iOS store build and the ≤0.14.74 devices. NEW-8 drops it.
+    // LEGACY (NEW-1): the dispatcher flag. Never true any more and synced by
+    // no shape. NEW-8 drops it.
     dispatch: boolean().notNull().default(false),
     // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —
     // the only ids `mcpServers.resolveForLaunch` hands credentials for.
@@ -2381,9 +2381,8 @@ export const sessionIssues = pgTable(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
     ),
-    // LEGACY read shim (NEW-1): the EXP-1341 assignment. Migrated into
-    // `session_id`; never written; the ≤0.14.74 desktop names it in its
-    // shape request. NEW-8 drops it.
+    // LEGACY (NEW-1): the EXP-1341 assignment. Migrated into `session_id`;
+    // never written, synced by no shape. NEW-8 drops it.
     assignedSessionId: uuid(`assigned_session_id`).references(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
@@ -2491,8 +2490,9 @@ export const messages = pgTable(
     conversationId: uuid(`conversation_id`)
       .notNull()
       .references(() => conversations.id, { onDelete: `cascade` }),
-    // NEW-3: the step-1 read shim of the session's conversation (the shipped
-    // clients key the Conversation on it); NEW-8 drops it with the shim.
+    // NEW-3: the step-1 mirror of the session's conversation. Server-only now
+    // (every client keys messages through `conversation_id`); the server's
+    // readers and the mirror trigger still use it. NEW-8 drops it.
     sessionId: uuid(`session_id`)
       .notNull()
       .references(() => sessions.id, { onDelete: `cascade` }),
@@ -3008,10 +3008,10 @@ export const mcpOauthFlows = pgTable(
   (table) => [index(`idx_mcp_oauth_flows_user`).on(table.userId)]
 )
 
-// LEGACY read shim (NEW-2): actions became `prompts` (migration 0182 copied
-// name, icon and body over and emptied this table). The table and its
-// shape stay, EMPTY and never written, for the iOS store build and the
-// ≤0.14.74 devices that still request the `actions` shape; NEW-8 drops it.
+// LEGACY (NEW-2): actions became `prompts` (migration 0182 copied name, icon
+// and body over and emptied this table). The table stays EMPTY and never
+// written; its shape is gone (no client at the floor requests it). NEW-8
+// drops the table.
 export const actions = pgTable(
   `actions`,
   {
@@ -3092,9 +3092,9 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   // simply stops being found (the page reads None).
   voiceDeviceId: varchar(`voice_device_id`, { length: 128 }),
   agentId: uuid(`agent_id`).references(() => agents.id, { onDelete: `set null` }),
-  // S-3: LEGACY SHIMS, read by nobody. Speak-back is always on (`voice.get`
-  // answers speakReplies true) and push to talk is on while a key is bound
-  // (pushToTalk = pttShortcut !== ''); kept for old clients' writes.
+  // S-3: retired, read and written by nobody (speak-back is always on, push
+  // to talk = a bound `ptt_shortcut`). Kept only because the migration
+  // replay tests (0201, 0208) still name them.
   speakReplies: boolean(`speak_replies`).notNull().default(false),
   pushToTalk: boolean(`push_to_talk`).notNull().default(false),
   // S-3: the push-to-talk binding in `voice.json` `shortcutGrammar`'s
@@ -3695,11 +3695,6 @@ export const selectMcpServerSchema = createSelectSchema(mcpServers, {
 export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
 })
-
-// The shape-synced projection: the actions shape pins a columns allowlist
-// that EXCLUDES `body` (the ≤64KB prompt never rides sync — fetched via
-// tRPC `actions.get` on demand).
-export const selectSyncedActionSchema = selectActionSchema.omit({ body: true })
 
 export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
   allowedDomains: z.array(z.string()),

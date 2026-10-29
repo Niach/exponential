@@ -14,7 +14,6 @@ import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as pinsRoute } from "@/routes/api/shapes/pins"
 import { Route as sessionReadsRoute } from "@/routes/api/shapes/session-reads"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
-import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
 import { Route as devicesRoute } from "@/routes/api/shapes/devices"
 import { Route as deviceWorktreesRoute } from "@/routes/api/shapes/device-worktrees"
@@ -471,100 +470,6 @@ describe(`shape column + trash contracts`, () => {
       `updated_at`,
     ])
     expect(columns).not.toContain(`token`)
-  })
-
-  it(`pins the actions columns and excludes the prompt body`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
-    prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
-
-    // The ≤64KB prompt never rides sync — a client attempting to widen the
-    // allowlist back to `body` must be overridden by the server pin.
-    await shapeHandler(actionsRoute)({
-      request: new Request(`https://example.com/api/shapes/actions?columns=body`, {
-        headers: { authorization: `Bearer t` },
-      }),
-    })
-
-    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
-    expect(columns).toEqual([
-      `id`,
-      `team_id`,
-      `name`,
-      `icon`,
-      `inputs`,
-      // EXP-825: the composer hint rides the shape (older natives drop it).
-      `prompt_placeholder`,
-      `sort_order`,
-      `created_at`,
-      `updated_at`,
-    ])
-    expect(columns).not.toContain(`body`)
-    // Member scoping is a plain sorted team_id clause (no trash mirror —
-    // actions have no board scope).
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `"team_id" IN ('w-1','w-2')`
-    )
-  })
-
-  it(`pins the issue-statuses columns and scopes members by team`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
-    prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
-
-    await shapeHandler(issueStatusesRoute)({
-      request: new Request(`https://example.com/api/shapes/issue-statuses`, {
-        headers: { authorization: `Bearer t` },
-      }),
-    })
-
-    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
-    expect(columns).toEqual([
-      `id`,
-      `team_id`,
-      `category`,
-      `name`,
-      `color`,
-      `sort_order`,
-      `builtin_key`,
-      `created_at`,
-      `updated_at`,
-    ])
-    // Team-scoped like labels — statuses aren't board children, so no trash
-    // predicate; the id list comes out sorted (shape-identity stability).
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `"team_id" IN ('w-1','w-2')`
-    )
-  })
-
-  it(`anonymous issue-statuses requests get the impossible-match sentinel`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue(null)
-    prepareElectricUrl.mockReturnValue(originUrl)
-
-    await shapeHandler(issueStatusesRoute)({
-      request: new Request(`https://example.com/api/shapes/issue-statuses`),
-    })
-
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `"id" = '00000000-0000-0000-0000-000000000000'`
-    )
-  })
-
-  it(`anonymous actions requests get the impossible-match sentinel`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue(null)
-    prepareElectricUrl.mockReturnValue(originUrl)
-
-    await shapeHandler(actionsRoute)({
-      request: new Request(`https://example.com/api/shapes/actions`),
-    })
-
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `"id" = '00000000-0000-0000-0000-000000000000'`
-    )
   })
 })
 
@@ -1033,7 +938,6 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
   // `columns` allowlist must be appended here AND fail the sweep until it
   // pins one.
   const allRoutes = [
-    [`actions`, actionsRoute],
     [`attachments`, attachmentsRoute],
     [`boards`, boardsRoute],
     [`comments`, commentsRoute],

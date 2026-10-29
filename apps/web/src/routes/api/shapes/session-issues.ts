@@ -17,7 +17,6 @@ export const SESSION_ISSUE_COLUMNS = [
   `source`,
   `added_by`,
   `added_by_session_id`,
-  `assigned_session_id`,
   `sort_order`,
   `created_at`,
   `updated_at`,

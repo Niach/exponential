@@ -10,9 +10,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // it (`consumed_at IS NULL`). The visibility mirrors stay server-only.
 export const MESSAGE_COLUMNS = [
   `id`,
-  // NEW-3: the conversation the row lives in; `session_id` = the step-1 shim.
+  // NEW-3: the conversation the row lives in (`session_id` stays
+  // server-only until NEW-8 drops it).
   `conversation_id`,
-  `session_id`,
   `root_id`,
   `team_id`,
   `author_kind`,

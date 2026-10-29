@@ -374,18 +374,7 @@ function unavailable(spec: NounSpec, op: string): string {
   return `${spec.name}.${op} is not available on this instance.`
 }
 
-/** F31: ops an older runbook (0.14.80) still teaches, by their new home. */
-const MOVED_OPS: Record<string, Record<string, string>> = {
-  session_self: {
-    ask: `exponential_show {ask}`,
-    plan: `exponential_show {plan}`,
-    show: `exponential_show {surface}`,
-  },
-}
-
 function unknownOp(spec: NounSpec, op: string, ops: readonly string[]): string {
-  const moved = MOVED_OPS[spec.name]?.[op]
-  if (moved) return `${spec.name}.${op} moved to ${moved}.`
   return `Unknown op "${op}" for ${spec.name}; one of ${ops.join(`, `)}.`
 }
 

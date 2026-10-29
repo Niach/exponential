@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   CLIENT_VERSION_HEADER,
   checkClientVersion,
-  clientAtOrBelow,
   parseClientVersionHeader,
   parseVersionTuple,
   versionPayload,
@@ -163,50 +162,5 @@ describe(`versionPayload`, () => {
       desktop: { min: null, latest: `0.9.0` },
       cli: { min: null, latest: null },
     })
-  })
-})
-
-// The transitional ceilings behind a COMPAT shim: only a well-formed native
-// header at or below the listed version counts as "old"; everything else
-// (web, MCP keys, unlisted platforms, garbage) keeps the current behaviour.
-describe(`clientAtOrBelow`, () => {
-  const ceilings = {
-    ios: `0.14.61`,
-    android: `0.14.63`,
-    desktop: `0.14.71`,
-    cli: `0.14.71`,
-  }
-
-  it(`names the natives at or below their ceiling`, () => {
-    expect(clientAtOrBelow(req(`ios/0.14.59`), ceilings)).toBe(true)
-    expect(clientAtOrBelow(req(`ios/0.14.61`), ceilings)).toBe(true)
-    expect(clientAtOrBelow(req(`android/0.14.61`), ceilings)).toBe(true)
-    expect(clientAtOrBelow(req(`desktop/0.14.68`), ceilings)).toBe(true)
-    expect(clientAtOrBelow(req(`cli/0.14.71`), ceilings)).toBe(true)
-  })
-
-  it(`strips a staging suffix before comparing`, () => {
-    expect(clientAtOrBelow(req(`ios/0.14.61-staging`), ceilings)).toBe(true)
-    expect(clientAtOrBelow(req(`android/0.14.64-staging`), ceilings)).toBe(
-      false
-    )
-  })
-
-  it(`leaves the clients above the ceiling alone`, () => {
-    expect(clientAtOrBelow(req(`ios/0.14.62`), ceilings)).toBe(false)
-    expect(clientAtOrBelow(req(`android/0.15.0`), ceilings)).toBe(false)
-    expect(clientAtOrBelow(req(`desktop/1.0.0`), ceilings)).toBe(false)
-  })
-
-  it(`is false for the web app, MCP keys and anything it cannot read`, () => {
-    expect(clientAtOrBelow(req(), ceilings)).toBe(false)
-    expect(clientAtOrBelow(req(`web/1.0.0`), ceilings)).toBe(false)
-    expect(clientAtOrBelow(req(`ios/garbage`), ceilings)).toBe(false)
-    expect(clientAtOrBelow(req(`ios/0.14.59`), { android: `0.14.63` })).toBe(
-      false
-    )
-    expect(clientAtOrBelow(req(`ios/0.14.59`), { ios: `not-a-version` })).toBe(
-      false
-    )
   })
 })

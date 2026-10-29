@@ -11,7 +11,6 @@ import {
 } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
-import { clientAtOrBelow } from "@/lib/client-version"
 import { generateTxId } from "@/lib/trpc"
 import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
 import { answeredCard } from "@/lib/sessions/card-answer"
@@ -50,26 +49,11 @@ export const cardAnswerInput = z.object({
 })
 export type CardAnswerInput = z.infer<typeof cardAnswerInput>
 
-// COMPAT (EXP-1280): delete once CLIENT_MIN_VERSION_IOS > 0.14.62 AND
-// CLIENT_MIN_VERSION_ANDROID > 0.14.64 AND CLIENT_MIN_VERSION_DESKTOP/_CLI >
-// 0.14.72 (the last clients shipped before the rich plan card's questions).
-// Their Approve sends a decision and no `answers`: on a plan with questions
-// that is a plain approval (the agent reads the plan as approved, the
-// questions unanswered), never the `missing` refusal a current client's
-// form would get for leaving one blank.
-export const PLAN_ANSWERS_LEGACY_CLIENTS = {
-  ios: `0.14.62`,
-  android: `0.14.64`,
-  desktop: `0.14.72`,
-  cli: `0.14.72`,
-} as const
-
 /** The card message + its session (steer-gated) + the answered card. */
 export async function loadCardForAnswer(
   database: Db,
   userId: string,
-  input: CardAnswerInput,
-  request?: Pick<Request, `headers`> | null
+  input: CardAnswerInput
 ) {
   const [message] = await database
     .select()
@@ -84,11 +68,7 @@ export async function loadCardForAnswer(
   if (session.userId !== userId && (await isVoiceConversation(session, database))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: VOICE_CARD_OWNER_ONLY })
   }
-  const legacyPlanApproval = !!request && clientAtOrBelow(request, PLAN_ANSWERS_LEGACY_CLIENTS)
-  const answered = answeredCard(message.card as MessageCard | null, {
-    ...input,
-    legacyPlanApproval,
-  })
+  const answered = answeredCard(message.card as MessageCard | null, input)
   if (!answered.ok) throw new TRPCError({ code: answered.code, message: answered.message })
   return { message, session, card: answered.card }
 }

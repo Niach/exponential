@@ -3,7 +3,6 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
-import { clientAtOrBelow } from "@/lib/client-version"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   codingSessionBlockedSchema,
@@ -95,36 +94,6 @@ const suggestionRef = z.object({ messageId: uuid, itemId: z.string().min(1).max(
 
 /** The cards a DEVICE may post (the server owns event/session cards). */
 const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
-
-// COMPAT (EXP-1334): delete once CLIENT_MIN_VERSION_IOS > 0.14.61 AND
-// CLIENT_MIN_VERSION_ANDROID > 0.14.63 AND CLIENT_MIN_VERSION_DESKTOP/_CLI >
-// 0.14.71 (the last clients shipped before EXP-1334's link message). Those
-// clients call `linkIssues` as a plain "Link an issue": they know nothing of
-// the `Link #IDENT` message, and on an ENDED root that message would make
-// `sendSession` revive the thread (FEED-134: the root resumes with the
-// message pending, which never runs when the host is offline). For them the
-// link on an ended thread stays silent; current clients, the web app
-// included, keep the revive. The link itself always lands.
-const LINK_MESSAGE_LEGACY_CLIENTS = {
-  ios: `0.14.61`,
-  android: `0.14.63`,
-  desktop: `0.14.71`,
-  cli: `0.14.71`,
-} as const
-
-async function legacyLinkOnEndedRoot(
-  ctx: { db: typeof db; request: Pick<Request, `headers`> },
-  session: Pick<Session, `id` | `rootId` | `status`>
-): Promise<boolean> {
-  if (!clientAtOrBelow(ctx.request, LINK_MESSAGE_LEGACY_CLIENTS)) return false
-  if (session.id === session.rootId) return session.status === `ended`
-  const [root] = await ctx.db
-    .select({ status: sessions.status })
-    .from(sessions)
-    .where(eq(sessions.id, session.rootId))
-    .limit(1)
-  return root?.status === `ended`
-}
 
 /** The device procedures' load (`report`, `reply`, `consume`): a session
  *  that no longer EXISTS (a deleted chat whose kill the device missed) is
@@ -409,7 +378,7 @@ export const sessionsRouter = router({
       // #A #B` wakes the session, which takes it (MCP and start links stay
       // quiet). The link stands even if the message fails.
       const text = manualLinkText(identifiers)
-      if (text && !(await legacyLinkOnEndedRoot(ctx, session))) {
+      if (text) {
         try {
           await sendSession({ userId, input: { sessionId: session.id, text } })
         } catch (err) {
@@ -440,8 +409,7 @@ export const sessionsRouter = router({
       const { message, session, card } = await loadCardForAnswer(
         ctx.db,
         ctx.session.user.id,
-        input,
-        ctx.request
+        input
       )
       if (message.answeredAt) {
         throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
@@ -469,8 +437,7 @@ export const sessionsRouter = router({
       const { message, session, card } = await loadCardForAnswer(
         ctx.db,
         ctx.session.user.id,
-        input,
-        ctx.request
+        input
       )
       if (message.answeredAt) {
         const stored = message.card as MessageCard | null

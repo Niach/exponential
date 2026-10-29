@@ -40,8 +40,8 @@ export {
   type AgentTriggerLike,
 } from "@exp/domain-contract/agent-settings"
 
-/** NEW-8: the legacy session columns step 4 drops. The server still serves
- *  them today; the client never reads them (an agent's name/icon/colour/sort
+/** NEW-8: the legacy session columns step 4 drops. No shape serves them
+ *  any more and the client never reads them (an agent's name/icon/colour/sort
  *  come from its `agents` definition via `agentId`). */
 export type LegacySessionColumn =
   | `kind`
