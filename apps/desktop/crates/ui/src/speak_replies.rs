@@ -669,27 +669,16 @@ impl SpeakReplies {
             // #NEW-57: nothing is read aloud mid-meeting.
             meeting: self.settings.meeting(),
         };
-        // #NEW-79: a waiting proposal card is read as its question (the
-        // confirm-strong read-back).
-        let proposals: HashSet<String> =
-            domain::voice_policy::waiting_cards(fresh.iter(), crate::session_data::now_ms()).into_iter().map(|card| card.id).collect();
-        let spoken_body = |row: &MessageRow| -> Option<String> {
-            if proposals.contains(&row.id) {
-                return row.card.as_ref()?.get("question")?.as_str().map(str::to_string);
-            }
-            row.body.clone()
-        };
         // A burst (a reconnect) speaks only its newest reply.
         let Some(row) = fresh
             .iter()
             .filter(|row| {
                 let session = domain::message_conversation::session_of(row, &sessions);
-                let body = spoken_body(row);
                 domain::voice::should_speak(
                     &VoiceMessage {
                         author_kind: row.author_kind.as_deref(),
-                        body: body.as_deref(),
-                        has_card: row.card.as_ref().is_some_and(|card| !card.is_null()) && !proposals.contains(&row.id),
+                        body: row.body.as_deref(),
+                        has_card: row.card.as_ref().is_some_and(|card| !card.is_null()),
                         author_session_id: row.author_session_id.as_deref(),
                         session_id: session,
                         created_at: row.created_at.as_deref(),
@@ -701,7 +690,7 @@ impl SpeakReplies {
         else {
             return;
         };
-        let spoken = domain::voice::spoken_text(spoken_body(row).as_deref().unwrap_or(""), VOICE.max_chars, self.settings.language());
+        let spoken = domain::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, self.settings.language());
         if spoken.is_empty() {
             return;
         }

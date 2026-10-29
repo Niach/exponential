@@ -175,6 +175,15 @@ withdrawn through a `_meta` key the host turns into a dismissal. Push to talk
 matches confirmations on the finalized transcript before sending, and Speak
 replies reads a waiting card's question aloud.
 
+**Retired 2026-10-29.** The policy stopped every tool call of the voice
+conversation at an Allow / Deny card, which made the agent unusable from a
+phone. Every session, the voice conversation included, now runs with
+permissions bypassed again (`--dangerously-skip-permissions`, `can_use_tool`
+auto-allowed); `fixtures/voice-policy.json`, `domain::voice_policy`, the
+launcher's ask layer, the push-to-talk card answers and the two examples
+below are gone. `sessions.brief` still answers `voicePolicy` as screen
+memory's precondition. The notes below are history.
+
 Live run on mint (2026-10-27, `cargo run -p engine --example new79_card_path
 -- haiku 5`): the real claude 2.1.310 under the voice posture, a warm
 conversation, then "Run the shell command `touch …` now." The Bash call was

@@ -784,7 +784,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             servers: Vec::new(),
             mcp_secrets: Default::default(),
             confine_to: None,
-            voice_policy: false,
         },
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),

@@ -759,25 +759,6 @@ impl VoiceCall {
         let team_id = Store::try_global(cx)
             .and_then(|store| store.collections().agents.read(cx).iter().find(|row| row.id == agent_id).and_then(|row| row.team_id.clone()))
             .unwrap_or_default();
-        // #NEW-79: "yes", "take two", "reject one" answer the conversation's
-        // waiting proposal cards, as with push to talk.
-        if let Some(answers) = conversation.as_deref().and_then(|session_id| crate::push_to_talk::card_answers(session_id, &text, cx)) {
-            let Some(trpc) = crate::queries::trpc_client(cx) else { return };
-            cx.spawn(async move |_, cx| {
-                let result = cx.background_executor().spawn(async move { crate::push_to_talk::post_card_answers(&trpc, &answers) }).await;
-                if let Err(err) = result {
-                    log::warn!("[voice] call: answering a card failed: {err}");
-                    let _ = cx.update(|cx| {
-                        crate::toast::show_in_active_window(
-                            crate::toast::Toast::error(domain::voice::VOICE.ptt_copy.overlay_not_sent.clone()),
-                            cx,
-                        )
-                    });
-                }
-            })
-            .detach();
-            return;
-        }
         let Some(target) = domain::voice::utterance_input(&text, &team_id, Some(&agent_id), conversation.as_deref()) else { return };
         let input = match target {
             UtteranceTarget::Session { session_id, text } => api::sessions::SendInput::message(&session_id, &text, Vec::new()),

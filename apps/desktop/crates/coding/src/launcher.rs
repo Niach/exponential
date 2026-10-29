@@ -585,11 +585,6 @@ pub struct AcpLaunch {
     /// N-5 / NEW-5: `Some(cwd)` = a repo-less run, confined to its scratch
     /// dir ([`crate::scratch::is_scratch_dir`]); `None` = a worktree run.
     pub confine_to: Option<PathBuf>,
-    /// #NEW-79: the member's conversation with their voice agent
-    /// (`sessions.brief` `voicePolicy`): claude runs `--permission-mode
-    /// default` and the engine applies `fixtures/voice-policy.json` to every
-    /// tool call. `false` = today's bypass posture.
-    pub voice_policy: bool,
 }
 
 /// EXP-792: the resolved servers' secret values, for the steer redactor.
@@ -649,10 +644,6 @@ pub enum DisabledReason {
     /// with a key not confined to the team). It never falls back to the
     /// device's full key, so it does not run.
     AgentKeyUnavailable { message: String },
-    /// #NEW-79: the member's voice conversation picked an agent without
-    /// `can_use_tool` (codex): the voice tool policy could not hold, so it
-    /// never runs unpoliced.
-    VoicePolicyUnsupported { label: String },
 }
 
 impl DisabledReason {
@@ -667,9 +658,6 @@ impl DisabledReason {
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
             DisabledReason::AgentKeyUnavailable { message } => message.clone(),
-            DisabledReason::VoicePolicyUnsupported { label } => {
-                format!("{label} cannot run your voice conversation: it asks before every change, which needs Claude.")
-            }
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -937,78 +925,8 @@ pub const CONFINED_HOME_READABLE: [&str; 12] = [
 /// a user `sandbox.excludedCommands` pattern still runs outside the sandbox.
 ///
 /// Paths are absolute: the `//` prefix is claude's absolute-path rule form.
-pub fn claude_flag_settings(
-    confine_to: Option<&Path>,
-    home: Option<&Path>,
-    repos_root: &Path,
-    voice_policy: Option<&[McpServerWire]>,
-) -> String {
-    let settings = posture_flag_settings(confine_to, home, repos_root);
-    match voice_policy {
-        Some(servers) => voice_flag_settings(&settings, servers),
-        None => settings,
-    }
-}
-
-/// #NEW-79: the tools the voice conversation's flag layer `ask`s for, so
-/// neither a user `allow` rule nor a PreToolUse allow skips `can_use_tool`
-/// (where the engine applies `fixtures/voice-policy.json`). #NEW-90: `*`
-/// first = deny-by-default: claude 2.1.310 asks for EVERY tool under it
-/// (built-ins and MCP tools alike, an unlisted KillShell, a future built-in
-/// or a plugin's server included; measured, docs/talk-spike.md), and the
-/// policy allows the read-only ones at once. The named rules stay in case a
-/// CLI stops honouring `*`. Every team server of the launch is added by
-/// [`voice_ask_tools`].
-pub const VOICE_ASK_TOOLS: [&str; 13] = [
-    "*",
-    "Bash",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "WebFetch",
-    "Skill",
-    "Agent",
-    "Task",
-    "mcp__exponential",
-    "mcp__codemode",
-    // NEW-58: the voice device's screen memory (the policy tiers it `auto`).
-    "mcp__screen",
-];
-
-/// #NEW-79: [`VOICE_ASK_TOOLS`] plus `mcp__<name>` for every server of the
-/// launch (team servers, computer use), deduped in order.
-pub fn voice_ask_tools(servers: &[McpServerWire]) -> Vec<String> {
-    let mut tools: Vec<String> = VOICE_ASK_TOOLS.iter().map(|tool| (*tool).to_string()).collect();
-    for server in servers {
-        let rule = format!("mcp__{}", server.name);
-        if !tools.contains(&rule) {
-            tools.push(rule);
-        }
-    }
-    tools
-}
-
-/// #NEW-79: a voice conversation on an agent without `can_use_tool`.
-fn voice_policy_refusal(req: &SessionLaunchRequest, agent: CodingAgent) -> Option<DisabledReason> {
-    (req.brief.voice_policy && agent != CodingAgent::Claude)
-        .then(|| DisabledReason::VoicePolicyUnsupported { label: agent.label().to_string() })
-}
-
-/// #NEW-79: [`claude_flag_settings`] for the voice conversation: the same
-/// layer plus `permissions.ask` ([`voice_ask_tools`]), bypass mode disabled
-/// (a subagent's `permissionMode: bypassPermissions` cannot widen it) and,
-/// when confined, no auto-allowed sandboxed Bash.
-fn voice_flag_settings(settings: &str, servers: &[McpServerWire]) -> String {
-    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(settings) else {
-        return settings.to_string();
-    };
-    value["permissions"]["ask"] = serde_json::json!(voice_ask_tools(servers));
-    value["permissions"]["disableBypassPermissionsMode"] = serde_json::json!("disable");
-    if let Some(sandbox) = value.get_mut("sandbox").and_then(serde_json::Value::as_object_mut) {
-        sandbox.insert("autoAllowBashIfSandboxed".to_string(), serde_json::Value::Bool(false));
-    }
-    value.to_string()
+pub fn claude_flag_settings(confine_to: Option<&Path>, home: Option<&Path>, repos_root: &Path) -> String {
+    posture_flag_settings(confine_to, home, repos_root)
 }
 
 fn posture_flag_settings(confine_to: Option<&Path>, home: Option<&Path>, repos_root: &Path) -> String {
@@ -1068,12 +986,11 @@ fn write_acp_reaper_anchor(
     agent: CodingAgent,
     confine_to: Option<&Path>,
     repos_root: &Path,
-    voice_policy: Option<&[McpServerWire]>,
 ) -> Option<PathBuf> {
     if agent != CodingAgent::Claude {
         return None;
     }
-    let content = claude_flag_settings(confine_to, dirs::home_dir().as_deref(), repos_root, voice_policy);
+    let content = claude_flag_settings(confine_to, dirs::home_dir().as_deref(), repos_root);
     let root = data_dir.join(HOOK_SETTINGS_DIR);
     prune_hook_settings(&root);
     let dir = root.join(std::process::id().to_string());
@@ -1771,9 +1688,6 @@ fn prepare_session(
     // a signed-in profile; the gate below judges the result.
     let report = run_doctor(&deps.settings, &deps.data_dir);
     let agent = options.agent;
-    if let Some(reason) = voice_policy_refusal(req, agent) {
-        return Ok(Prepared::Disabled(reason));
-    }
     let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
     note_start_pick(account_pick.as_ref());
     let options = &options;
@@ -1971,7 +1885,6 @@ fn prepare_session(
         agent,
         confine_to.as_deref(),
         &deps.settings.repos_root_path(),
-        req.brief.voice_policy.then_some(team_mcp.servers.as_slice()),
     );
     // EXP-443: the codex originator is stamped into its rollout metas before
     // the spawn. The claude session id is the ACP adapter's own to mint.
@@ -2115,7 +2028,6 @@ fn prepare_session(
             servers: team_mcp.servers.clone(),
             mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
             confine_to,
-            voice_policy: req.brief.voice_policy,
         },
         seed_message_id: None,
         bypass_permissions: true,
@@ -2203,9 +2115,6 @@ fn prepare_resume(
     let record = &resume.record;
     let session_id = row.id.clone();
     let agent = record.agent;
-    if let Some(reason) = voice_policy_refusal(req, agent) {
-        return Ok(Prepared::Disabled(reason));
-    }
     // #EXP-1383: an agent's conversation tree resumes on its team's key.
     let key_scope = match session_key_scope(row, &req.brief, Some(record)) {
         Ok(scope) => scope,
@@ -2620,7 +2529,6 @@ fn prepare_resume(
         agent,
         confine_to.as_deref(),
         &deps.settings.repos_root_path(),
-        req.brief.voice_policy.then_some(team_mcp.servers.as_slice()),
     );
     let codex_originator =
         (agent == CodingAgent::Codex).then(|| crate::argv::codex_session_originator(&session_id));
@@ -2740,7 +2648,6 @@ fn prepare_resume(
             servers: team_mcp.servers.clone(),
             mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
             confine_to,
-            voice_policy: req.brief.voice_policy,
         },
         seed_message_id: resume.message_id.clone(),
         bypass_permissions: true,
@@ -4014,70 +3921,8 @@ mod tests {
     /// deny rules, no sandbox.
     #[test]
     fn a_repo_backed_run_keeps_the_plain_flag_settings() {
-        let settings = claude_flag_settings(None, Some(Path::new("/Users/a")), Path::new("/Users/a/repos"), None);
+        let settings = claude_flag_settings(None, Some(Path::new("/Users/a")), Path::new("/Users/a/repos"));
         assert_eq!(settings, CLAUDE_FLAG_SETTINGS);
-    }
-
-    /// #NEW-79: the voice conversation's layer asks for every tool the
-    /// policy may stop, every team server of the launch included (a user
-    /// allow rule or a PreToolUse allow never skips `can_use_tool`), turns
-    /// bypass mode off (no subagent `permissionMode` widens it) and,
-    /// confined, never auto-allows sandboxed Bash.
-    #[test]
-    fn the_voice_conversation_asks_for_every_policed_tool() {
-        let server = |name: &str| McpServerWire {
-            id: format!("id-{name}"),
-            name: name.to_string(),
-            transport: crate::argv::McpWireTransport::Http { url: "https://mcp.example".to_string() },
-            headers: Vec::new(),
-            token_env: None,
-            env: Vec::new(),
-            actor: None,
-        };
-        let servers = [server("linear"), server("codemode"), server("computer")];
-        let plain: serde_json::Value = serde_json::from_str(&claude_flag_settings(
-            None,
-            Some(Path::new("/Users/a")),
-            Path::new("/Users/a/repos"),
-            Some(&servers),
-        ))
-        .unwrap();
-        assert_eq!(plain["permissions"]["disableAutoMode"], "disable");
-        assert_eq!(plain["permissions"]["disableBypassPermissionsMode"], "disable");
-        let ask: Vec<&str> =
-            plain["permissions"]["ask"].as_array().unwrap().iter().filter_map(serde_json::Value::as_str).collect();
-        for tool in VOICE_ASK_TOOLS {
-            assert!(ask.contains(&tool), "{tool}");
-        }
-        assert!(ask.contains(&"mcp__linear") && ask.contains(&"mcp__computer"), "{ask:?}");
-        assert_eq!(ask.iter().filter(|tool| **tool == "mcp__codemode").count(), 1, "deduped");
-        assert!(ask.contains(&"Skill") && ask.contains(&"Agent") && ask.contains(&"Task"));
-        assert_eq!(ask.first(), Some(&"*"), "#NEW-90: every tool asks (deny-by-default)");
-        assert!(plain.get("sandbox").is_none());
-        let confined: serde_json::Value = serde_json::from_str(&claude_flag_settings(
-            Some(Path::new("/data/scratch/r/s")),
-            Some(Path::new("/home/a")),
-            Path::new("/srv/repos"),
-            Some(&[]),
-        ))
-        .unwrap();
-        assert_eq!(confined["sandbox"]["autoAllowBashIfSandboxed"], false);
-        assert_eq!(confined["permissions"]["ask"], serde_json::json!(VOICE_ASK_TOOLS));
-        assert!(confined["permissions"]["deny"].as_array().is_some_and(|deny| !deny.is_empty()));
-    }
-
-    /// #NEW-79: a codex voice conversation is refused (codex has no
-    /// `can_use_tool`, so the policy could not hold); claude and every
-    /// other conversation launch.
-    #[test]
-    fn a_codex_voice_conversation_never_launches() {
-        let mut req = session_request(row("sess-v", None), &[]);
-        assert!(voice_policy_refusal(&req, CodingAgent::Codex).is_none(), "not a voice conversation");
-        req.brief.voice_policy = true;
-        assert!(voice_policy_refusal(&req, CodingAgent::Claude).is_none());
-        let refused = voice_policy_refusal(&req, CodingAgent::Codex).expect("refused");
-        assert!(matches!(refused, DisabledReason::VoicePolicyUnsupported { .. }));
-        assert!(refused.message().contains("voice conversation"), "{}", refused.message());
     }
 
     /// NEW-58 (screen-memory.json TOOL): screen memory only for a voice
@@ -4103,7 +3948,7 @@ mod tests {
     #[test]
     fn a_confined_run_denies_the_checkouts_and_sandboxes_bash_to_the_scratch_dir() {
         let scratch = Path::new("/Users/a/Library/Application Support/at.exponential/scratch/r/s");
-        let raw = claude_flag_settings(Some(scratch), Some(Path::new("/Users/a/")), Path::new("/Users/a/Exponential/repos"), None);
+        let raw = claude_flag_settings(Some(scratch), Some(Path::new("/Users/a/")), Path::new("/Users/a/Exponential/repos"));
         let settings: serde_json::Value = serde_json::from_str(&raw).expect("valid json");
         assert_eq!(settings["permissions"]["disableAutoMode"], "disable", "EXP-1124 stays");
         let deny: Vec<&str> = settings["permissions"]["deny"]

@@ -56,9 +56,9 @@ pub struct SessionBrief {
     /// a server that does not send it yet.
     #[serde(default)]
     pub root_agent_id: Option<String>,
-    /// #NEW-79: the member's conversation with their voice agent: launched
-    /// under the voice tool policy (`fixtures/voice-policy.json`); `false`
-    /// from a server that does not send it.
+    /// The member's conversation with their voice agent (the precondition of
+    /// `screen_memory`); `false` from a server that does not send it. It
+    /// runs with permissions bypassed like every other session.
     #[serde(default)]
     pub voice_policy: bool,
     /// NEW-58 (`fixtures/screen-memory.json` TOOL): the voice conversation is
