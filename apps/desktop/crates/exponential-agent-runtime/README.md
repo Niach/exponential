@@ -40,7 +40,15 @@ caller changes until a later cleanup.
    the lock file, the claude / codex trust seeders, the codex session index, the confinement
    check, the command head, the Linux run scope, the background `Command` constructor
    (`terminal::process`).
-2. The event vocabulary (`ActivityEvent` and the frames it needs, the redactor) out of `steer`.
+2. **Done.** The event vocabulary out of `steer`, as `wire`: `wire::frames` (`ActivityEvent` and
+   its pieces, `TurnState`, `ConfigValue`, `QueuedMessage`, `BackgroundTask`, the relay frames),
+   `wire::workflow` (`WorkflowState` / `WorkflowStatus` / `WorkflowAgent*`), `wire::tool_output`
+   and `wire::tool_diff`, and the pure half of `steer::activity` as `wire::activity` (`Redactor`,
+   `secrets_from_worktree`, `worktree_diff`, `truncate*`, `SessionAgent`, the blocked-wall
+   vocabulary, `normalize_agent_title`, `normalize_compaction_trigger`, `clamp_config_state`,
+   the relay caps). `steer` re-exports every module under its old path and keeps the contract
+   checks (`domain::contract`) for the caps the core inlines. Still in `steer`: the links,
+   signals and forwarders, `SessionBlocked` (its `api` report shape) and `DiffSnapshots`.
 3. **Done.** Agent identity, detection and the single-account login PTY (no credential moves):
    `agent` (`CodingAgent`, `claude_model_alias`, the model / effort vocabularies; the settings
    default stays in `coding` as `CodingAgentExt`), `detect` (`Tool`, a lean `ToolCheck`,

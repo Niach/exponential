@@ -26,3 +26,5 @@ libc = { workspace = true }
 serde = { workspace = true }
 wait-timeout = "0.2"
 portable-pty = { workspace = true }
+# The event vocabulary (wire): the redactor's patterns.
+regex = "1"

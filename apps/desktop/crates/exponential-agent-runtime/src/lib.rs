@@ -38,6 +38,9 @@ pub mod lockfile;
 pub mod process;
 /// NEW-17: each agent run in its own systemd scope on Linux.
 pub mod run_scope;
+// EXP-1426 part 2: the event vocabulary (`ActivityEvent`, the frames, the
+// redactor, the relay caps), moved out of `steer`.
+pub mod wire;
 
 pub use process::{background_command, refresh_windows_path};
 

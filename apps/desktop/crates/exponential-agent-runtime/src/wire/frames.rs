@@ -1,0 +1,4269 @@
+//! The frozen wire protocol's Rust mirror (masterplan-v3 §8.1) —
+//! byte-for-byte against `apps/steer-relay/src/protocol.ts`. Plain serde, no
+//! gpui, no tokio: unit-testable against hand-built vectors.
+//!
+//! Field-name discipline (each was a live native bug or a protocol subtlety):
+//! the relay JSON is **camelCase** (`deviceId`, `sessionId`, `issueId`,
+//! `userId`, `deviceLabel`); the tag values are **snake_case**
+//! (`online`, `hello`, `check_in`, …); the input field is **`data`**
+//! (UTF-8 string, ≤ 8 KiB), never `bytes`. The relay zod-validates every text
+//! frame and silently drops non-conforming ones (`parseClientFrame` returns
+//! `null` ⇒ ignored) — a typo is a silent hang, not an error.
+//!
+//! EXP-249 removed the binary PTY mirror (no client ever joined
+//! `channel:'pty'`): there is no `0x01` framing, no ring, no `resync`, and no
+//! geometry on the wire anymore. Every frame here is TEXT.
+//!
+//! Steering v2 (EXP-249) adds, all optional/additive on the wire: question
+//! identity + the multi-question stepper on [`ActivityEvent::Question`], the
+//! `question_resolved` / `answer_ack` / `subagent` / `permission` kinds, the
+//! publisher-only [`ClientFrame::ActivityReset`], and the semantic
+//! [`ServerFrame::Answer`] that replaced blind keystroke replay — EXP-730:
+//! the ONLY answer path there is now.
+//!
+//! ## Roles and directions (EXP-696)
+//!
+//! The file used to be strictly "[`ClientFrame`] serializes, [`ServerFrame`]
+//! deserializes" because the desktop only ever spoke as a PUBLISHER or a
+//! CONTROL socket. The VIEWER role reverses several frames:
+//!
+//! * a viewer SENDS `join` / `input` / `answer` / `kill` — hence
+//!   [`ClientFrame::Answer`], the send-side twin of [`ServerFrame::Answer`];
+//! * a viewer RECEIVES `activity` / `activity_reset` / `activity_synced` /
+//!   `keepalive` / `bye` / `error` — hence [`ViewerFrame`], which is the
+//!   viewer's COMPLETE inbound vocabulary and is deserialize-only.
+//!
+//! [`ViewerFrame`] is a separate enum rather than four more [`ServerFrame`]
+//! variants on purpose: the two roles have disjoint inbound vocabularies, and
+//! a shared enum would force the publisher/control pumps to carry
+//! "impossible here" arms (and to grow one every time the viewer protocol
+//! does). Both parse functions drop unknown `t` tags to `None` — the relay's
+//! own silent-drop posture, so a future frame never kills a socket.
+//!
+//! [`ActivityEvent`] and [`QuestionOption`] are therefore BOTH `Serialize`
+//! (publisher) and `Deserialize` (viewer). Every optional field carries
+//! `#[serde(default)]` beside its `skip_serializing_if` — without it a frame
+//! that legitimately omits the field fails to parse and the event is dropped.
+
+use serde::{Deserialize, Serialize};
+
+/// Close codes (protocol.ts). Handle each distinctly (§8.6).
+pub const CLOSE_SESSION_ENDED: u16 = 4001;
+pub const CLOSE_REPLACED: u16 = 4002;
+pub const CLOSE_UNAUTHORIZED: u16 = 4003;
+pub const CLOSE_SLOW_CONSUMER: u16 = 4008;
+
+/// `control` | `publisher` | `viewer` — mirrors `SteerRole`.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SteerRole {
+    Control,
+    Publisher,
+    Viewer,
+}
+
+// ── Client → relay (TEXT frames, JSON `{t, …}`) ─────────────────────────────
+
+/// Every frame this publisher may send. Serialize-only (the relay never
+/// echoes client frames back).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum ClientFrame<'a> {
+    /// EXP-672: presence ONLY — the deviceId → socket map and nothing more.
+    /// EXP-485 took the agent/launch-defaults advertisement off this frame
+    /// and PR #584 took `deviceLabel` + the EXP-253 `caps` array: the web
+    /// server reads BOTH off the persisted `devices` row written by
+    /// `devices.register`, which survives relay restarts and doesn't need a
+    /// re-dial to change. Never re-add a field here — `onlineFrame` in
+    /// `protocol.ts` parses non-strictly precisely so shipped clients that
+    /// still send the old keys keep registering.
+    #[serde(rename_all = "camelCase")]
+    Online { device_id: &'a str },
+    #[serde(rename_all = "camelCase")]
+    Hello {
+        session_id: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        issue_id: Option<&'a str>,
+        /// EXP-90: the anonymous public-activity audience is removed, so the
+        /// publisher ALWAYS sends `Some(false)`. The field survives because
+        /// `None` = absent means "public" to LEGACY relays (pre-EXP-90 fan
+        /// activity to anonymous sockets when the key is missing) — relay
+        /// deploys are manual, so the explicit `false` must stay on the wire.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        activity_public: Option<bool>,
+        /// #EXP-1415: `Some(true)` = a device's one-shot journal replay
+        /// (`steer::history::publish_history`), never the live publisher.
+        /// The relay refuses a replay into a room the run's live publisher
+        /// holds (or is reconnecting to), so a replay can never evict it.
+        /// The live publisher leaves it absent (old relays ignore the key).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        replay: Option<bool>,
+    },
+    /// Join the ONE audience the relay has (EXP-696, the viewer role).
+    ///
+    /// `channel` is REQUIRED by the relay's zod (`z.literal('activity')`,
+    /// deliberately not optional) and a join without it is dropped in
+    /// silence — the bare `{"t":"join"}` this variant serialized before
+    /// EXP-696 would never have joined anything. Build it with
+    /// [`ClientFrame::join`] so the literal cannot drift.
+    Join {
+        channel: &'a str,
+    },
+    /// NOTE: the field is `data` — a UTF-8 `String`, relay-enforced ≤ 8 KiB —
+    /// NOT `bytes`. (A native client shipped `bytes` and steer input silently
+    /// no-op'd.)
+    Input {
+        data: String,
+    },
+    /// EXP-696 (viewer role): the semantic answer to an
+    /// [`ActivityEvent::Question`] — the send-side twin of
+    /// [`ServerFrame::Answer`], which is what the publisher reads out of the
+    /// relay. `keys` are the option keys of THAT question (relay-capped at 10
+    /// of ≤8 chars); `text` is the EXP-513 typed reply for a `freeText` row
+    /// (≤4000 chars). Owned fields — an answer is built once, from a card the
+    /// viewer already holds, and handed to the socket task.
+    #[serde(rename_all = "camelCase")]
+    Answer {
+        question_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ask_id: Option<String>,
+        keys: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
+    Kill,
+    /// EXP-790 (viewer role): Stop the turn in flight without ending the run
+    /// — the engine cancels it AND drops the messages it holds queued
+    /// (EXP-861). Every client has sent these bytes since EXP-790.
+    Interrupt,
+    /// EXP-861 (viewer role): revoke ONE queued message by the id the
+    /// [`ActivityEvent::Queue`] slot named. Fire-and-forget: the next
+    /// `queue` frame is the confirmation.
+    Unqueue { id: String },
+    /// EXP-746 (viewer role): change ONE live agent option the publisher
+    /// advertised in [`ActivityEvent::ConfigState`]. Fire-and-forget — the
+    /// publisher's next `config_state` IS the confirmation, so there is no
+    /// ack frame and no optimistic lock (unlike [`ClientFrame::Answer`]). A
+    /// BLANK `value` is the "CLI default / unset" choice, which is why the
+    /// relay's zod deliberately has no `min(1)` on it. Owned fields like
+    /// [`ClientFrame::Answer`]: built once from a chip the viewer holds and
+    /// handed to the socket task.
+    SetConfig { id: String, value: String },
+    /// EXP-746 (viewer role): switch to one of `config_state.modes`.
+    SetMode { id: String },
+    Bye {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        outcome: Option<&'a str>,
+    },
+    /// One activity event (§P7 live-coding view). Serializes to
+    /// `{"t":"activity","event":{...}}`; the relay fans it to authenticated
+    /// activity members only (EXP-90 removed the anonymous public audience).
+    /// The event text is ALREADY redacted by the emitter.
+    #[serde(rename_all = "camelCase")]
+    Activity {
+        event: ActivityEvent,
+        /// EXP-783: this event's monotonic index within the run, assigned by
+        /// the publisher's `Recorder` and seeded from the journal file's line
+        /// count so a resumed run keeps counting. The relay echoes it
+        /// untouched; it is the ONLY monotonic anchor on the wire, and it is
+        /// what lets a viewer splice a join replay onto a transcript prefix it
+        /// already holds. Always sent: a replayed journal line is numbered by
+        /// its position in the file, so even a pre-EXP-783 transcript
+        /// republishes with sequences.
+        seq: u64,
+    },
+    /// EXP-783 (viewer role): ask for the page of transcript BELOW `before_seq`.
+    /// The relay routes it to the room's LIVE publisher — or, in a history
+    /// room the device already replayed and left (EXP-796, the room lingers
+    /// five minutes), down that device's CONTROL socket — under an id of its
+    /// own, and translates the answering [`ClientFrame::HistoryChunk`]s back
+    /// to this `request_id`.
+    #[serde(rename_all = "camelCase")]
+    HistoryPage {
+        request_id: String,
+        before_seq: u64,
+        limit: u32,
+    },
+    /// EXP-783 (publisher/device role): one page of older transcript, answering
+    /// a [`ServerFrame::HistoryPage`]. The relay delivers it to the ONE viewer
+    /// that asked and never adds it to the room's replay log.
+    ///
+    /// EXP-796: `session_id` is REQUIRED when the answer goes down the
+    /// device's CONTROL socket (one socket serves every session the machine
+    /// ran, so the chunk has to say which room it answers) and stays `None`
+    /// from a publisher socket, whose wire form is unchanged.
+    #[serde(rename_all = "camelCase")]
+    HistoryChunk {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        request_id: String,
+        events: Vec<ActivityEvent>,
+        seqs: Vec<u64>,
+        done: bool,
+    },
+    /// #EXP-1415 (control role): the answer to a
+    /// [`ServerFrame::HistoryRequest`] this device cannot serve — it holds no
+    /// journal for the session (pruned, or the run never wrote one here).
+    /// The relay answers the waiting viewers at once and backs the session
+    /// off instead of waiting out its 20s timer.
+    #[serde(rename_all = "camelCase")]
+    HistoryNone { session_id: String },
+    /// PUBLISHER-only (EXP-249): drop the room's replay log + last diff and
+    /// tell the activity audience to clear its feed. Sent right before a
+    /// full-history re-publish, so a reconnect never doubles the feed.
+    ActivityReset,
+    /// PUBLISHER-only (EXP-936): the host's answer to a
+    /// [`ServerFrame::CompactRequest`]. The relay hands it to the web
+    /// server's awaiting `POST /sessions/:id/compact` and nothing else — no
+    /// viewer sees it, nothing enters the room's replay log. One ask is in
+    /// flight per room at a time, so `session_id` (the room) is the whole
+    /// correlation. `refused_because` is absent when accepted.
+    #[serde(rename_all = "camelCase")]
+    CompactVerdict {
+        session_id: String,
+        accepted: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refused_because: Option<CompactRefusal>,
+    },
+}
+
+/// EXP-936: why the host refused a compaction ask — the four codes the web
+/// handler declared (`sessionsCompactRefusals`, lib/mcp/handlers/
+/// sessions-compact.ts; relay `COMPACT_REFUSALS`). The device decides only
+/// the first two (it holds the context meter and the turn count); the other
+/// two are the server's, kept here so one enum spells the wire.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactRefusal {
+    /// Below half the context window: nothing worth compacting yet.
+    TooEarly,
+    /// A compaction is open or pending, or the last one is too recent.
+    Cooldown,
+    /// The asking run is not the one it names (server-side).
+    NotOwnSession,
+    /// The run's agent has no compaction command (server-side).
+    UnsupportedAgent,
+}
+
+impl CompactRefusal {
+    /// The wire code, as the relay's zod spells it.
+    pub fn code(self) -> &'static str {
+        match self {
+            CompactRefusal::TooEarly => "too_early",
+            CompactRefusal::Cooldown => "cooldown",
+            CompactRefusal::NotOwnSession => "not_own_session",
+            CompactRefusal::UnsupportedAgent => "unsupported_agent",
+        }
+    }
+}
+
+/// EXP-936: the host's decision on a [`ServerFrame::CompactRequest`], as the
+/// engine's hook returns it and [`ClientFrame::CompactVerdict`] carries it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompactVerdict {
+    /// The host will send the agent's `/compact` at the next turn boundary.
+    Accepted,
+    Refused(CompactRefusal),
+}
+
+impl CompactVerdict {
+    /// The frame that answers the relay for room `session_id`.
+    pub fn frame(self, session_id: &str) -> ClientFrame<'static> {
+        match self {
+            CompactVerdict::Accepted => ClientFrame::CompactVerdict {
+                session_id: session_id.to_string(),
+                accepted: true,
+                refused_because: None,
+            },
+            CompactVerdict::Refused(reason) => ClientFrame::CompactVerdict {
+                session_id: session_id.to_string(),
+                accepted: false,
+                refused_because: Some(reason),
+            },
+        }
+    }
+}
+
+/// A single public activity event (masterplan §P7) — the desktop emits these
+/// from the Claude hooks sidecar ((`steer`'s hooks)) + worktree diffs, already
+/// redacted. Wire mirror of `apps/steer-relay/src/protocol.ts`
+/// `activityEventSchema` (discriminated on `kind`). Serialize-only.
+///
+/// `at` is optional epoch-millis on EVERY kind: live events may omit it, a
+/// full-history re-publish after a reconnect carries the ORIGINAL stamps so
+/// the replayed feed keeps its timeline.
+///
+/// EXP-696: also `Deserialize` — the viewer role reads these events back off
+/// the wire. Every optional field carries `#[serde(default)]`, so an event
+/// that omits it parses instead of failing (an internally-tagged enum has no
+/// per-field fallback). An event whose `kind` this build does not know fails
+/// the parse and is dropped by the caller, matching every other client's
+/// "ignore future kinds, never kill the socket" rule.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ActivityEvent {
+    /// Assistant prose (a `text` content block).
+    Narration {
+        text: String,
+        /// EXP-483: claude withholds the transcript entry that carries an
+        /// `AskUserQuestion`/`ExitPlanMode` tool_use — and any prose in that
+        /// SAME entry — until the picker resolves, so the prose reaches the
+        /// wire AFTER the already-published card. When set, this is the
+        /// claude `tool_use_id` of that ask/plan: clients splice the
+        /// narration immediately BEFORE the first feed question whose
+        /// `askId` or `id` equals it (no match → append as ever).
+        #[serde(
+            rename = "beforeQuestionId",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        before_question_id: Option<String>,
+        /// EXP-772: the agent's own message id (the mapper's coalescer key).
+        /// One message flushes in several pieces on a long turn, so clients
+        /// MERGE a narration row into the previous one when both carry the
+        /// same id instead of painting a new bubble per flush.
+        #[serde(rename = "messageId", default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+        /// EXP-773: the subagent this prose belongs to (same identity as
+        /// [`ActivityEvent::Tool::subagent_id`]). Set → the row belongs INSIDE
+        /// that subagent's card, never the main feed.
+        #[serde(rename = "subagentId", default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-1324: a THOUGHT's lifecycle, never its text. `started` on the
+    /// first thought chunk, `ended` (with `durationMs`) when the thought
+    /// closes — the next non-thought update in its lane or the turn end.
+    /// Clients paint the Trace Reasoning line off it ("Thinking" shimmering,
+    /// then "Thought for 5s"); the chain of thought itself stays on the
+    /// device (the desktop's own line opens to it). `id` pairs the edges.
+    #[serde(rename_all = "camelCase")]
+    Thought {
+        id: String,
+        state: ThoughtState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// A tool-call headline: the tool name + a single primary argument
+    /// (file path / pattern / Bash description — NEVER a command string or a
+    /// tool result). `subagentId` attributes the call to a running
+    /// [`ActivityEvent::Subagent`] so clients can nest it under that agent.
+    ///
+    /// EXP-785: `id` is the ACP tool-call id (the key a later
+    /// [`ActivityEvent::ToolUpdate`] folds into this row by) and `tool_kind`
+    /// is ACP's kind bucket, so a client can tell an edit from a command
+    /// without parsing the name. Both stay OPTIONAL past the client floor:
+    /// this event is what the on-device journal holds (kept indefinitely by default), so a
+    /// line written before EXP-785 has to keep parsing when the transcript is
+    /// replayed. Every live publisher sends both. The wire key is `toolKind`,
+    /// never `kind`: `kind` is this enum's tag.
+    #[serde(rename_all = "camelCase")]
+    Tool {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_kind: Option<ToolKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-785/786/895: a tool call SETTLED (`status`), an `edit` call's
+    /// per-file unified diff (`diff`, already redacted and cut to the
+    /// contract's `toolDiffMaxLines`/`toolDiffMaxBytes` on line boundaries; a
+    /// cut patch ends in a `\ N more lines truncated` marker line), and an
+    /// `execute` call's `output`. A LOG row on the wire and in every journal,
+    /// but never a row on screen: clients fold it INTO the
+    /// [`ActivityEvent::Tool`] row whose `id` matches and DROP one for an id
+    /// they do not hold (evicted, or before their window).
+    #[serde(rename_all = "camelCase")]
+    ToolUpdate {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<ToolUpdateStatus>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff: Option<String>,
+        /// EXP-895: what an `execute` call PRINTED, redacted and tail-cut to
+        /// the contract's `toolOutputMaxLines`/`toolOutputMaxBytes` (a cut
+        /// output opens with the same `\ N more lines truncated` marker line
+        /// a cut patch closes with — the dropped lines were at the front).
+        /// Sent ONCE, on the settle, and only for `execute`: the live tail is
+        /// the runner's own card, and the row a reader scrolls back to wants
+        /// the verdict rather than the stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+        /// EXP-846: the SUBJECT an Exponential MCP call settled on, pulled out
+        /// of the tool's JSON result — the issue it created, the PR it opened,
+        /// how many rows a list answered with. Set ONLY for our own
+        /// `exponential_*` tools (nothing else has a result shape we know), and
+        /// every field optional: a tool that named none sends no preview at
+        /// all. Clients store it on the tool row; what they DRAW from it is a
+        /// later phase.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<ToolPreview>,
+        /// EXP-1279: a code-mode call's (`toolKind: script`) record of the
+        /// calls its script made — what the "Ran a script" card groups by
+        /// tool — plus the script itself. Set ONLY on the settle of a
+        /// `script` call; a call whose log the host never got (an older
+        /// code mode, a refused script) carries the source alone.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        script: Option<ScriptLog>,
+    },
+    /// A worktree unified diff snapshot (latest replaces prior, viewer-side).
+    Diff {
+        diff: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// A human turn from the transcript: the initial prompt or a (locally- or
+    /// remotely-)steered message (EXP-78). MEMBER-ONLY on the relay — never
+    /// fanned to anonymous public viewers ("never steering input").
+    UserMessage {
+        text: String,
+        /// EXP-773: the subagent whose turn this is; set → the row renders
+        /// inside that subagent's card, never the main feed.
+        #[serde(rename = "subagentId", default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// An interactive question the session is blocked on (`AskUserQuestion`
+    /// question, or the `ExitPlanMode` plan-approval picker). MEMBER-ONLY.
+    /// `options[].key` is the raw keystroke a steering client sends to pick
+    /// that option — the desktop owns the TUI key mapping, clients stay dumb.
+    ///
+    /// `id` is the stable question identity derived from claude's
+    /// `tool_use_id` (plan = the id itself; ask question `i` (0-based) =
+    /// `<id>#<i>`; the review/submit step = `<askId>#submit`). Re-emitting the
+    /// SAME id REPLACES that card in place — the options may grow later (a
+    /// "Type something" choice only the TUI grid reveals). `id` is REQUIRED:
+    /// EXP-730 retired the blind-keystroke answer path an id-less card had,
+    /// and the relay rejects such frames, so a card without an identity has
+    /// no reader left.
+    #[serde(rename_all = "camelCase")]
+    Question {
+        text: String,
+        options: Vec<QuestionOption>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        multi_select: Option<bool>,
+        /// `Some(true)` when this question is an `ExitPlanMode` plan-approval
+        /// picker (EXP-97) — clients render a dedicated "Plan ready" card.
+        /// Presentation-only: the options remain the source of the keystrokes.
+        /// `text` is then the full plan markdown, and `askId`/`index`/`total`
+        /// are absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan_mode: Option<bool>,
+        id: String,
+        /// Groups the steps of ONE multi-question `AskUserQuestion`. A step
+        /// carries `index`/`total`; the FINAL review/submit step carries
+        /// `askId` with neither.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ask_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        header: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// A question stopped being answerable: answered here or elsewhere,
+    /// dismissed, or the whole ask was submitted. Retires the card with `id`
+    /// when present, otherwise EVERY card of `askId`.
+    #[serde(rename_all = "camelCase")]
+    QuestionResolved {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ask_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answers: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dismissed: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// The desktop injected a steerer's answer into the TUI — clients keep
+    /// the card LOCKED from here until the matching
+    /// [`ActivityEvent::QuestionResolved`].
+    #[serde(rename_all = "camelCase")]
+    AnswerAck {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ask_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// A `Task` subagent's lifecycle edge — `id` keys the
+    /// [`ActivityEvent::Tool`] events attributed to it.
+    ///
+    /// EXP-748: `tool_calls` is the publisher's count of tool events this
+    /// subagent made, stamped on the `completed` edge. Replay buffers evict
+    /// subagent tool events first (they carry little for a viewer), so the
+    /// count survives where the rows do not; clients render
+    /// `max(visible tool rows, toolCalls)`.
+    ///
+    /// EXP-847: `title` is the spawning `Agent` tool call's own `description`
+    /// input (its `name` as a fallback) — what the model said this subagent is
+    /// FOR, which is what a reader wants on the chip. Clients show it and keep
+    /// `agentType` as a secondary caption; absent for codex, an external agent
+    /// and every pre-847 publisher, where `agentType` is all there is.
+    #[serde(rename_all = "camelCase")]
+    Subagent {
+        id: String,
+        agent_type: String,
+        status: SubagentStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_calls: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// EXP-850 §4: the [`crate::wire::workflow::WorkflowState::id`] this agent
+        /// belongs to, set on EVERY edge whose task id equals a workflow
+        /// agent's `agentId`. Clients nest such an edge under the workflow
+        /// card and never count it as a loose subagent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workflow_id: Option<String>,
+    },
+    /// The session is sitting on a permission prompt. INFORMATIONAL — it
+    /// carries no options and is never answerable remotely (the local TUI
+    /// owns permission decisions).
+    Permission {
+        tool: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-724: the agent is compacting its context. `started` opens an
+    /// indeterminate "Compacting context…" strip on every viewer, `ended`
+    /// closes it and leaves a "Context compacted" marker in the feed. A
+    /// publisher that only observes the END (codex auto-compaction) sends a
+    /// bare `ended`; viewers time a lone `started` out. `trigger` is
+    /// claude's PreCompact trigger (`manual` | `auto`), absent on codex —
+    /// kept a plain string so a
+    /// future value never fails the parse.
+    Compaction {
+        phase: CompactionPhase,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trigger: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-746: the agent's LIVE configuration — the chip vocabulary AND the
+    /// values in force, re-emitted in FULL on every change (a `set_config` /
+    /// `set_mode` that landed, a model the agent switched itself, an ACP
+    /// `current_mode_update` / `available_commands_update`). LATEST-WINS
+    /// state on every client (a snapshot slot beside the diff, never a feed
+    /// row): the relay keeps only the newest per room and the journal drops
+    /// its predecessor, so a joining viewer paints its chips from one frame.
+    ///
+    /// Field order here IS serialization order and the relay's zod is
+    /// declared in the same one — never reorder (`config_state` test
+    /// vectors are byte-exact).
+    #[serde(rename_all = "camelCase")]
+    ConfigState {
+        options: Vec<ConfigOption>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modes: Option<Vec<ConfigMode>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commands: Option<Vec<ConfigCommand>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-746: the run's context window + spend as the engine last measured
+    /// it. LATEST-WINS state like [`ActivityEvent::ConfigState`]. Deliberately
+    /// TOKENS, not a percent — the device-reported `DeviceUsageWindow`
+    /// already owns the 0-100 rate-limit vocabulary and this is a different
+    /// quantity.
+    #[serde(rename_all = "camelCase")]
+    Usage {
+        context_used: i64,
+        context_size: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_usd: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-1051: what the run's context window is SPENT ON, segment by
+    /// segment — the system prompt's base, the tool definitions, the
+    /// playbook, the team prompt, the project files, the task. LATEST-WINS
+    /// state like [`ActivityEvent::Usage`], and it takes the slot RIGHT AFTER
+    /// `usage` in every registry (`journal.rs`, `history.rs`, the engine's
+    /// `FeedState`, `feed.rs`, the relay's `LATEST_WINS_KINDS`).
+    ///
+    /// Published ONCE per conversation, after the first request is measured,
+    /// and again after a `/clear` — the layout only changes when the seed
+    /// does. `conversation` and `free` are NOT on the wire: every client
+    /// derives them from the `usage` slot (the contract's
+    /// `contextLayout.derived` keys), so the two meters can never disagree.
+    ///
+    /// Field order here IS serialization order and the relay's zod is
+    /// declared in the same one — never reorder.
+    #[serde(rename_all = "camelCase")]
+    ContextLayout {
+        segments: Vec<ContextSegment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-784: the agent is rate-limited (or was, and is not any more).
+    /// LATEST-WINS state like [`ActivityEvent::Usage`], the fourth slot in
+    /// every registry (`journal.rs`, `history.rs`, the engine's `FeedState`,
+    /// `feed.rs`, the relay's `LATEST_WINS_KINDS`). `status` is the agent's
+    /// own word for the window (`allowed_warning`, `rejected`, …); an EMPTY
+    /// status or `"ok"` CLEARS the slot, the way a zero-size `usage` clears
+    /// the meter. `resets_at` is a unix-ms instant when the agent names one.
+    #[serde(rename_all = "camelCase")]
+    RateLimit {
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resets_at: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// A transient failure the agent CLI reported INLINE — claude's
+    /// `<synthetic>` `API Error: …` frames: an outage, a dropped connection,
+    /// a 400. A transcript ROW like [`ActivityEvent::Narration`]: appended,
+    /// never a slot, never a wall — it neither sets `blocked` nor touches
+    /// [`ActivityEvent::RateLimit`] (a usage wall carries the CLI's own
+    /// `error: "rate_limit"`; everything else lands here). `error_type` is
+    /// the CLI's word for it (`server_error`, `invalid_request`, …);
+    /// `subagent_id` scopes it to a lane exactly like narration's.
+    #[serde(rename_all = "camelCase")]
+    ApiError {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-848: the END-OF-TURN signal — `started` while the agent is
+    /// executing a turn, `ended` the moment it is over (`end_turn`, a cancel,
+    /// a failed prompt request). LATEST-WINS state like
+    /// [`ActivityEvent::RateLimit`], the FIFTH slot in every registry
+    /// (`journal.rs`, `history.rs`, the engine's `FeedState`, `feed.rs`, the
+    /// relay's `LATEST_WINS_KINDS`) — never a feed row. Before the first one
+    /// arrives every client assumes `ended`, so a viewer never pulses
+    /// "Working…" at a run that is merely connected.
+    #[serde(rename_all = "camelCase")]
+    Turn {
+        state: TurnState,
+        /// EXP-850 §5: when this turn STARTED (unix ms), carried on BOTH
+        /// states so a viewer that joins mid-turn can run the working
+        /// caption's duration clock. Absent from every pre-850 publisher.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        started_at: Option<i64>,
+        /// EXP-850 §5: output tokens produced in this turn so far (claude's
+        /// `thinking_tokens` plus the assistant messages' `output_tokens`),
+        /// monotone within the turn and republished at most every
+        /// `steerWorking.tokenTickMs` — the ONE exception to this slot's
+        /// identical-edge dedupe.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-850 §2: the agent's background tasks, as the CLI last listed them
+    /// in FULL (an empty array = nothing running). LATEST-WINS state like
+    /// [`ActivityEvent::Turn`] — never a transcript row. Clients render one
+    /// line per task in the strip above the composer, beside one
+    /// `Waiting on {detail}` line per unsettled [`ToolKind::Wait`] row.
+    #[serde(rename_all = "camelCase")]
+    BackgroundTasks {
+        tasks: Vec<BackgroundTask>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-927 (wire doc §2c): the agent's OWN task list — claude's
+    /// `TodoWrite` / `Task*` list, codex's plan — in FULL and in order.
+    /// LATEST-WINS state like [`ActivityEvent::BackgroundTasks`], never a
+    /// transcript row: clients draw it as the first block of the bottom
+    /// strip, hidden while it is empty or every entry is completed.
+    #[serde(rename_all = "camelCase")]
+    TaskList {
+        entries: Vec<TaskListEntry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// EXP-850 §3: a claude `Workflow` run's live card. LATEST-WINS PER ID
+    /// (the relay keys its slot `workflow:{id}`, the journal and the on-disk
+    /// history fold by id, the feed keeps a side map): the publisher always
+    /// sends the WHOLE state, so the newest frame for an id replaces its
+    /// predecessor. `id` is the `Workflow` tool call's own id, so clients
+    /// patch the card onto that tool row instead of appending a second one.
+    Workflow(crate::wire::workflow::WorkflowState),
+    /// EXP-861: the user messages the agent has NOT read yet, in FULL and
+    /// in order (oldest first; an empty list = nothing queued, the bar
+    /// closes). LATEST-WINS state like [`ActivityEvent::Turn`] — never a
+    /// transcript row: each message arrives as an ordinary
+    /// [`ActivityEvent::UserMessage`] the moment the agent takes it in.
+    /// EXP-873: a message sent mid-turn goes to the agent AT ONCE (claude
+    /// folds it in at its next tool boundary, codex `turn/steer`) and sits
+    /// here as `sent` until the agent's replay of it arrives; one sent
+    /// mid-compaction is HELD on the device until the fold ends. A viewer
+    /// revokes a held one with [`ClientFrame::Unqueue`] (a sent one only
+    /// goes with a Stop); the next frame here is the confirmation.
+    Queue {
+        messages: Vec<QueuedMessage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+}
+
+/// EXP-1324: the two edges of an [`ActivityEvent::Thought`].
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThoughtState {
+    Started,
+    Ended,
+}
+
+/// EXP-861: one unread message of the [`ActivityEvent::Queue`] slot.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct QueuedMessage {
+    /// The engine's own id for the message — what `unqueue` names.
+    pub id: String,
+    /// The message as the person wrote it (image embeds as the
+    /// `![image](/api/attachments/<id>)` tokens), cut to [`QUEUE_TEXT_MAX`].
+    pub text: String,
+    /// EXP-873: already handed to the agent, waiting for it to take the
+    /// message in at its next boundary. No single-line revoke then (the CLI
+    /// has no such control; clients draw no ×) — only a Stop takes it back.
+    /// Absent on the wire = `false` = still held on the device.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sent: bool,
+}
+
+/// EXP-861: the relay's caps on the `queue` slot (`QUEUE_MAX` /
+/// `QUEUE_TEXT_MAX` in protocol.ts) — a frame over either is dropped whole.
+pub const QUEUE_MAX: usize = 20;
+pub const QUEUE_TEXT_MAX: usize = 8192;
+
+/// EXP-850 §2: one entry of the [`ActivityEvent::BackgroundTasks`] list.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTask {
+    /// The CLI's own `task_id` — what a `TaskOutput` call names.
+    pub id: String,
+    pub kind: BackgroundTaskKind,
+    /// Cut to the contract's `steerWorking.previewMax` by the publisher.
+    pub description: String,
+    /// The `tool_use_id` of the call that launched it, when the CLI named one
+    /// — the tool row a client may link the line to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_id: Option<String>,
+    /// EXP-1324: when the engine FIRST saw the task (unix ms) — the Queue's
+    /// ticking elapsed time. Kept across re-listings of the same id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+}
+
+/// Contract `backgroundTaskKind` — claude's `task_type` folded onto four
+/// values (`local_bash` = `shell`, `local_workflow` = `workflow`,
+/// `local_agent` = `agent`, anything else = `other`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTaskKind {
+    Shell,
+    Workflow,
+    Agent,
+    #[default]
+    Other,
+}
+
+impl BackgroundTaskKind {
+    /// Every value, in contract order.
+    pub const ALL: [BackgroundTaskKind; 4] = [
+        BackgroundTaskKind::Shell,
+        BackgroundTaskKind::Workflow,
+        BackgroundTaskKind::Agent,
+        BackgroundTaskKind::Other,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BackgroundTaskKind::Shell => "shell",
+            BackgroundTaskKind::Workflow => "workflow",
+            BackgroundTaskKind::Agent => "agent",
+            BackgroundTaskKind::Other => "other",
+        }
+    }
+
+    /// The CLI's `task_type` word.
+    pub fn from_task_type(task_type: &str) -> BackgroundTaskKind {
+        match task_type {
+            "local_bash" => BackgroundTaskKind::Shell,
+            "local_workflow" => BackgroundTaskKind::Workflow,
+            "local_agent" => BackgroundTaskKind::Agent,
+            _ => BackgroundTaskKind::Other,
+        }
+    }
+}
+
+/// EXP-850 §2: how many background tasks one frame may carry (the relay's
+/// zod cap). A machine running more than this has other problems.
+pub const BACKGROUND_TASKS_MAX: usize = 32;
+
+/// EXP-927: one entry of the [`ActivityEvent::TaskList`] list.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskListEntry {
+    /// Cut to the contract's `steerWorking.previewMax` by the publisher; an
+    /// `in_progress` entry carries the agent's active form.
+    pub content: String,
+    pub status: TaskListStatus,
+}
+
+/// Contract `taskListStatus`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskListStatus {
+    #[default]
+    Pending,
+    InProgress,
+    Completed,
+}
+
+impl TaskListStatus {
+    /// Every value, in contract order.
+    pub const ALL: [TaskListStatus; 3] =
+        [TaskListStatus::Pending, TaskListStatus::InProgress, TaskListStatus::Completed];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskListStatus::Pending => "pending",
+            TaskListStatus::InProgress => "in_progress",
+            TaskListStatus::Completed => "completed",
+        }
+    }
+}
+
+/// EXP-927: how many entries one `task_list` frame may carry (the relay's
+/// zod cap); the publisher cuts the tail.
+pub const TASK_LIST_MAX: usize = 50;
+
+/// EXP-1051: one segment of the [`ActivityEvent::ContextLayout`] breakdown —
+/// how many tokens one part of the seeded context costs, and whether that
+/// number was MEASURED or estimated. Clients paint the segments in contract
+/// order; nothing here is derived, the derived `conversation`/`free` pair
+/// comes off the `usage` slot instead.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextSegment {
+    pub key: ContextSegmentKey,
+    pub tokens: i64,
+    pub source: ContextSegmentSource,
+    /// What the segment is made of, when the publisher can name it (the
+    /// project files it counted, say). Machine-derived labels, cut to
+    /// [`CONTEXT_SEGMENT_DETAIL_MAX`] by the publisher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Contract `contextLayout.segments` — the keys, in the order a meter draws
+/// them.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSegmentKey {
+    #[default]
+    Base,
+    Tools,
+    Playbook,
+    Team,
+    Project,
+    Task,
+}
+
+impl ContextSegmentKey {
+    /// Every value, in contract order.
+    pub const ALL: [ContextSegmentKey; 6] = [
+        ContextSegmentKey::Base,
+        ContextSegmentKey::Tools,
+        ContextSegmentKey::Playbook,
+        ContextSegmentKey::Team,
+        ContextSegmentKey::Project,
+        ContextSegmentKey::Task,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContextSegmentKey::Base => "base",
+            ContextSegmentKey::Tools => "tools",
+            ContextSegmentKey::Playbook => "playbook",
+            ContextSegmentKey::Team => "team",
+            ContextSegmentKey::Project => "project",
+            ContextSegmentKey::Task => "task",
+        }
+    }
+}
+
+/// Contract `contextLayout.sources` — whether a segment's token count came
+/// off a real measurement or an estimate.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSegmentSource {
+    Measured,
+    #[default]
+    Estimated,
+}
+
+impl ContextSegmentSource {
+    /// Every value, in contract order.
+    pub const ALL: [ContextSegmentSource; 2] =
+        [ContextSegmentSource::Measured, ContextSegmentSource::Estimated];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContextSegmentSource::Measured => "measured",
+            ContextSegmentSource::Estimated => "estimated",
+        }
+    }
+}
+
+/// EXP-1051: how long a [`ContextSegment::detail`] may be (the relay's zod
+/// cap); the publisher cuts it.
+// EXP-1426: inlined from `domain::contract` (no app crate here);
+// `steer`'s contract tests pin it to the generated value.
+pub const CONTEXT_SEGMENT_DETAIL_MAX: usize = 200;
+
+/// EXP-846: what an Exponential MCP call settled on, as the tool itself
+/// reported it. Every field optional and independently meaningful — a
+/// `pr_open` names `identifier`/`url`, an `issues_list` only `count` — and
+/// every string capped at [`TOOL_PREVIEW_TEXT_MAX`] so one runaway answer
+/// cannot widen a frame. The result KIND (issue, pr, list, …) is not on the
+/// wire: it is the contract's `expToolResults` entry for the tool's own name,
+/// which every client already has.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolPreview {
+    /// The row's uuid, when the tool answered with one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// A human identifier (`EXP-42`) — what a pill renders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// A PR/issue url the answer carried (`prUrl`/`url`/`htmlUrl`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// How many rows a LIST answered with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    /// The subject's status word, when the answer named one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// EXP-920: the entities the answer NAMED, chip by chip (contract
+    /// `expToolPreview.tools`, at most [`TOOL_PREVIEW_MAX_REFS`]). Absent on
+    /// a pre-EXP-920 publisher, where the subject fields above still carry
+    /// the one thing a row can chip.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<EntityRef>,
+}
+
+/// EXP-920: one entity an Exponential tool's answer named — what a viewer
+/// renders as a chip with a hover card resolved from its OWN synced rows.
+/// `kind` = contract `entityRefKind`; `id` = the row id (a `list` ref's id is
+/// its MEMBER kind); `count` only on a `list`. There is deliberately no url:
+/// a result carries ids, never slugs, and three clients have no URLs at all.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityRef {
+    pub kind: String,
+    pub id: String,
+    /// A human identifier (`EXP-42`) when the row has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    /// The display string the result already carried (an issue's title, a
+    /// board's name, a comment's body cut short); on a `list` ref the plural
+    /// noun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// `list` refs only: how many rows the answer carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+impl EntityRef {
+    pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
+        Self { kind: kind.into(), id: id.into(), identifier: None, title: None, count: None }
+    }
+
+    /// Every free-text field, mutably (the redactor and the clamp walk these).
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        let mut fields = vec![&mut self.id];
+        fields.extend(self.identifier.as_mut());
+        fields.extend(self.title.as_mut());
+        fields
+    }
+}
+
+/// EXP-846: the cap on every [`ToolPreview`] string — generous for an issue
+/// title, far below the narration cap, and mirrored by the relay's zod.
+pub const TOOL_PREVIEW_TEXT_MAX: usize = 200;
+
+/// EXP-920: the cap on `refs` per preview (contract `expToolPreview.maxRefs`,
+/// mirrored by the relay's zod; the publisher cuts the tail).
+// EXP-1426: inlined from `domain::contract` (no app crate here);
+// `steer`'s contract tests pin it to the generated value.
+pub const TOOL_PREVIEW_MAX_REFS: usize = 8;
+
+impl ToolPreview {
+    /// Nothing to show: a preview with no field set is never published.
+    pub fn is_empty(&self) -> bool {
+        self.id.is_none()
+            && self.identifier.is_none()
+            && self.title.is_none()
+            && self.url.is_none()
+            && self.count.is_none()
+            && self.status.is_none()
+            && self.refs.is_empty()
+    }
+
+    /// Every free-text field, mutably — the redactor walks these like any
+    /// other published string.
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        let mut fields: Vec<&mut String> = [
+            self.id.as_mut(),
+            self.identifier.as_mut(),
+            self.title.as_mut(),
+            self.url.as_mut(),
+            self.status.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        for entity in &mut self.refs {
+            fields.extend(entity.text_fields_mut());
+        }
+        fields
+    }
+
+    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] UTF-16 code units (the
+    /// unit the relay's zod `max` counts) and the refs at
+    /// [`TOOL_PREVIEW_MAX_REFS`] (the relay drops a frame whose preview is
+    /// wider, so the producer cuts first).
+    pub fn clamp(mut self) -> Self {
+        self.refs.truncate(TOOL_PREVIEW_MAX_REFS);
+        for field in self.text_fields_mut() {
+            truncate_utf16_in_place(field, TOOL_PREVIEW_TEXT_MAX);
+        }
+        self
+    }
+}
+
+/// EXP-1279: the cap on a [`ScriptLogCall::tool`] (`<server>.<tool>`) on
+/// the wire, in UTF-16 units (the relay's zod mirrors it).
+pub const SCRIPT_TOOL_MAX: usize = 128;
+/// EXP-1279: the most calls one [`ScriptLog`] carries (`script-card.json`
+/// `logCap`; code mode stops logging there, the relay's zod mirrors it).
+pub const SCRIPT_LOG_MAX_CALLS: usize = 200;
+
+/// EXP-1279: what a code-mode script did, on the settle of its `script`
+/// tool call (`tool_update.script`). `count` = every call it made (the log
+/// stops at [`SCRIPT_LOG_MAX_CALLS`]), `elapsed_ms` its wall time, `calls`
+/// the log in the order the script made them; both numbers are absent when
+/// the host got no log. `source` = the script, redacted and cut like a
+/// command's output (`toolOutputMaxBytes`, marked).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptLog {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+    #[serde(default)]
+    pub calls: Vec<ScriptLogCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// EXP-1279: one call of a [`ScriptLog`] (`script-card.json` `ScriptCall`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScriptLogCall {
+    /// `<server>.<tool>` as the script called it.
+    pub tool: String,
+    /// What the call was about (an Exponential tool's contract subject
+    /// argument, else its first string argument), ≤ 80 characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
+impl ScriptLog {
+    /// Every free-text field, mutably (the redactor walks these).
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        let mut fields: Vec<&mut String> = self.source.as_mut().into_iter().collect();
+        for call in &mut self.calls {
+            fields.push(&mut call.tool);
+            fields.extend(call.subject.as_mut());
+        }
+        fields
+    }
+
+    /// Cut to the relay's caps: at most [`SCRIPT_LOG_MAX_CALLS`] calls, a
+    /// tool name at [`SCRIPT_TOOL_MAX`] and a subject at
+    /// [`TOOL_PREVIEW_TEXT_MAX`] UTF-16 units, the source at the
+    /// contract's `toolOutputMaxBytes` (marked).
+    pub fn clamp(mut self) -> Self {
+        self.calls.truncate(SCRIPT_LOG_MAX_CALLS);
+        for call in &mut self.calls {
+            truncate_utf16_in_place(&mut call.tool, SCRIPT_TOOL_MAX);
+            if let Some(subject) = call.subject.as_mut() {
+                truncate_utf16_in_place(subject, TOOL_PREVIEW_TEXT_MAX);
+            }
+        }
+        if let Some(source) = self.source.as_mut() {
+            *source = crate::wire::activity::truncate_marked(source, crate::wire::tool_output::TOOL_OUTPUT_MAX_BYTES);
+        }
+        self
+    }
+
+    /// What the log weighs in a feed's byte budget.
+    pub fn weight(&self) -> usize {
+        self.source.as_ref().map_or(0, String::len)
+            + self
+                .calls
+                .iter()
+                .map(|call| call.tool.len() + call.subject.as_ref().map_or(0, String::len) + 16)
+                .sum::<usize>()
+    }
+}
+
+/// The longest prefix of `text` that is at most `max` UTF-16 code units,
+/// cut on a char boundary so a surrogate pair is never split. The relay's
+/// zod string caps count JS string length (UTF-16 units), where an astral
+/// char (most emoji) weighs 2: a cap counted in `chars` lets a 200-char
+/// title with one emoji through at 201 units, and the relay drops the WHOLE
+/// frame.
+pub fn truncate_utf16(text: &str, max: usize) -> &str {
+    let mut units = 0;
+    for (at, c) in text.char_indices() {
+        units += c.len_utf16();
+        if units > max {
+            return &text[..at];
+        }
+    }
+    text
+}
+
+fn truncate_utf16_in_place(text: &mut String, max: usize) {
+    let keep = truncate_utf16(text, max).len();
+    text.truncate(keep);
+}
+
+/// EXP-785: ACP's tool-call kind on the wire — the contract's `toolKind`
+/// values, byte-locked by `tool_kind_matches_the_contract`.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolKind {
+    Read,
+    Edit,
+    Delete,
+    Move,
+    Search,
+    Execute,
+    Think,
+    Fetch,
+    SwitchMode,
+    /// EXP-850 §1: the call is WAITING on something else to finish — claude's
+    /// `TaskOutput` (block on a background task) and `Monitor` (watch a
+    /// stream). Rendered at the bottom strip as `Waiting on {detail}` while it
+    /// is unsettled, and an ordinary tool row in the transcript;
+    /// `tool_group_summary` counts it exactly like `other`.
+    Wait,
+    /// EXP-1279: a code-mode `exec` (`mcp__codemode__exec`): ONE card for a
+    /// script and the calls it made, whose settle carries the call log
+    /// ([`ActivityEvent::ToolUpdate`] `script`).
+    Script,
+    /// Also what a kind this build does not know reads as (a NEWER
+    /// publisher's): the row survives as a plain tool row instead of the
+    /// whole event failing the parse.
+    #[serde(other)]
+    Other,
+}
+
+impl ToolKind {
+    /// Every kind, in contract order.
+    pub const ALL: [ToolKind; 12] = [
+        ToolKind::Read,
+        ToolKind::Edit,
+        ToolKind::Delete,
+        ToolKind::Move,
+        ToolKind::Search,
+        ToolKind::Execute,
+        ToolKind::Think,
+        ToolKind::Fetch,
+        ToolKind::SwitchMode,
+        ToolKind::Wait,
+        ToolKind::Script,
+        ToolKind::Other,
+    ];
+
+    /// The wire / contract value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolKind::Read => "read",
+            ToolKind::Edit => "edit",
+            ToolKind::Delete => "delete",
+            ToolKind::Move => "move",
+            ToolKind::Search => "search",
+            ToolKind::Execute => "execute",
+            ToolKind::Think => "think",
+            ToolKind::Fetch => "fetch",
+            ToolKind::SwitchMode => "switch_mode",
+            ToolKind::Wait => "wait",
+            ToolKind::Script => "script",
+            ToolKind::Other => "other",
+        }
+    }
+
+    /// `None` for a value this build does not know (a future contract).
+    pub fn parse(value: &str) -> Option<ToolKind> {
+        ToolKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+    }
+}
+
+/// `completed` | `failed` — how an [`ActivityEvent::ToolUpdate`] settled its
+/// call. A `failed` after a `completed` wins (the last word is the agent's).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolUpdateStatus {
+    Completed,
+    Failed,
+}
+
+/// EXP-784: the two `rate_limit.status` values that CLEAR the slot.
+pub fn rate_limit_clears(status: &str) -> bool {
+    let status = status.trim();
+    status.is_empty() || status.eq_ignore_ascii_case("ok")
+}
+
+/// FEED-35: whether a `rate_limit` report is a WALL — the agent refused a
+/// call — as opposed to the informational report claude files on every turn
+/// past ~75% of a window (`allowed_warning`) while it keeps answering. The
+/// ONE rule for the viewer's banner (desktop `steer_viewer`, web
+/// `rateLimitIsWall`) and, since FEED-35, for the row's durable `blocked`
+/// (`engine::mapper::emit_rate_limit`): a warning must never read as a
+/// blocked run to a teammate's list or a parent agent. `rejected` is the
+/// CLI's own word for the refusal; a message is the synthetic "You've hit
+/// your…" notice, which only ever accompanies one.
+pub fn rate_limit_is_wall(status: &str, message: Option<&str>) -> bool {
+    status.trim() == "rejected" || message.is_some_and(|text| !text.trim().is_empty())
+}
+
+/// EXP-831: how long past its `resets_at` a wall still renders (ms). The
+/// engine clears the slot on the run's next activity or its next rate-limit
+/// event; until one arrives (and on a journal replayed after the fact) the
+/// clock is the only thing that can drop a banner whose reset has come and
+/// gone. One minute covers clock skew between the agent's stamp and ours.
+pub const RATE_LIMIT_EXPIRY_GRACE_MS: i64 = 60_000;
+
+/// EXP-831: whether a wall's reset time (unix ms) has passed by more than
+/// [`RATE_LIMIT_EXPIRY_GRACE_MS`] at `now_ms`. Mirrored ×4 (web
+/// `rateLimitExpired`, iOS `AgentFeed.rateLimitExpired`, Android
+/// `rateLimitExpired`). A wall with no reset time never expires by the clock.
+pub fn rate_limit_expired(resets_at: Option<i64>, now_ms: i64) -> bool {
+    resets_at.is_some_and(|at| now_ms - at > RATE_LIMIT_EXPIRY_GRACE_MS)
+}
+
+/// `started` | `ended` — the two [`ActivityEvent::Compaction`] edges.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CompactionPhase {
+    Started,
+    Ended,
+}
+
+/// EXP-848: `started` | `ended` — the two [`ActivityEvent::Turn`] edges
+/// (contract `turnState`). Clients DEFAULT to `Ended`: before any turn event
+/// arrives a run is assumed idle, so nothing ever pulses by default.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TurnState {
+    Started,
+    #[default]
+    Ended,
+}
+
+impl TurnState {
+    /// The contract `turnState` id.
+    pub fn id(self) -> &'static str {
+        match self {
+            TurnState::Started => "started",
+            TurnState::Ended => "ended",
+        }
+    }
+
+    /// Whether the agent is executing a turn right now.
+    pub fn is_working(self) -> bool {
+        matches!(self, TurnState::Started)
+    }
+}
+
+/// `started` | `completed` | `duplicate` — the [`ActivityEvent::Subagent`]
+/// edges (contract `subagentStatus`). EXP-856 added `duplicate`: a
+/// `task_started` arrived for an id that is ALREADY live (a `SendMessage` to a
+/// running agent resumes it as a second copy), which is a warning row, not a
+/// lifecycle edge — the duplicate's own `started`/`completed` still follow
+/// under the same id. Old clients ignore the unknown value.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SubagentStatus {
+    Started,
+    Completed,
+    Duplicate,
+}
+
+impl SubagentStatus {
+    /// Every value, in contract order.
+    pub const ALL: [SubagentStatus; 3] = [
+        SubagentStatus::Started,
+        SubagentStatus::Completed,
+        SubagentStatus::Duplicate,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SubagentStatus::Started => "started",
+            SubagentStatus::Completed => "completed",
+            SubagentStatus::Duplicate => "duplicate",
+        }
+    }
+}
+
+impl ActivityEvent {
+    /// The legacy shorthands — the shapes with no v2 fields at all.
+    pub fn narration(text: impl Into<String>) -> Self {
+        ActivityEvent::Narration {
+            text: text.into(),
+            before_question_id: None,
+            message_id: None,
+            subagent_id: None,
+            at: None,
+        }
+    }
+
+    pub fn diff(diff: impl Into<String>) -> Self {
+        ActivityEvent::Diff { diff: diff.into(), at: None }
+    }
+
+    pub fn user_message(text: impl Into<String>) -> Self {
+        ActivityEvent::UserMessage { text: text.into(), subagent_id: None, at: None }
+    }
+
+    pub fn tool(name: impl Into<String>, detail: Option<String>) -> Self {
+        ActivityEvent::Tool {
+            name: name.into(),
+            detail,
+            id: None,
+            tool_kind: None,
+            subagent_id: None,
+            at: None,
+        }
+    }
+
+    /// EXP-785/786: a settle and/or a per-call diff for the tool row `id`.
+    pub fn tool_update(
+        id: impl Into<String>,
+        status: Option<ToolUpdateStatus>,
+        diff: Option<String>,
+    ) -> Self {
+        ActivityEvent::ToolUpdate {
+            id: id.into(),
+            status,
+            diff,
+            output: None,
+            at: None,
+            preview: None,
+            script: None,
+        }
+    }
+
+    /// EXP-784: the rate-limit slot; an empty/`ok` status clears it.
+    pub fn rate_limit(
+        status: impl Into<String>,
+        resets_at: Option<i64>,
+        message: Option<String>,
+    ) -> Self {
+        ActivityEvent::RateLimit {
+            status: status.into(),
+            resets_at,
+            message,
+            at: None,
+        }
+    }
+
+    /// An inline API failure row; never a slot, never a wall.
+    pub fn api_error(message: impl Into<String>, error_type: Option<String>) -> Self {
+        ActivityEvent::ApiError {
+            message: message.into(),
+            error_type,
+            subagent_id: None,
+            at: None,
+        }
+    }
+
+    /// EXP-848: the turn edge — the spinner's one source of truth. EXP-850
+    /// §5 added the working caption's two inputs; [`ActivityEvent::turn_at`]
+    /// is the shorthand that carries them.
+    pub fn turn(state: TurnState) -> Self {
+        ActivityEvent::Turn {
+            state,
+            started_at: None,
+            tokens: None,
+            at: None,
+        }
+    }
+
+    /// EXP-850 §5: the turn edge WITH the working caption's inputs — the
+    /// turn's start (unix ms) and the output tokens it has produced so far
+    /// (`None`/zero = not known yet, and the caption omits the group).
+    pub fn turn_at(state: TurnState, started_at: Option<i64>, tokens: Option<u64>) -> Self {
+        ActivityEvent::Turn {
+            state,
+            started_at,
+            tokens: tokens.filter(|tokens| *tokens > 0),
+            at: None,
+        }
+    }
+
+    /// EXP-850 §2: the background-task slot; an EMPTY list is the publisher
+    /// saying nothing runs any more (the strip closes), never silence.
+    pub fn background_tasks(tasks: Vec<BackgroundTask>) -> Self {
+        ActivityEvent::BackgroundTasks { tasks, at: None }
+    }
+
+    /// EXP-927: the task-list slot — the agent's whole list, latest-wins.
+    pub fn task_list(entries: Vec<TaskListEntry>) -> Self {
+        ActivityEvent::TaskList { entries, at: None }
+    }
+
+    /// EXP-861: the queue slot; an EMPTY list is the engine saying nothing
+    /// is held any more (the bar closes), never silence.
+    pub fn queue(messages: Vec<QueuedMessage>) -> Self {
+        ActivityEvent::Queue { messages, at: None }
+    }
+
+    /// EXP-850 §3: one workflow card's whole state.
+    pub fn workflow(state: crate::wire::workflow::WorkflowState) -> Self {
+        ActivityEvent::Workflow(state)
+    }
+
+    /// EXP-724 compaction edge; `trigger` is `manual`/`auto` when known.
+    pub fn compaction(phase: CompactionPhase, trigger: Option<&str>) -> Self {
+        ActivityEvent::Compaction {
+            phase,
+            trigger: trigger.map(str::to_string),
+            at: None,
+        }
+    }
+
+    /// EXP-746 context/spend meter. No `ConfigState` twin: the engine builds
+    /// that snapshot whole (options, mode, commands) and there is nothing a
+    /// shorthand could leave out.
+    pub fn usage(context_used: i64, context_size: i64, cost_usd: Option<f64>) -> Self {
+        ActivityEvent::Usage {
+            context_used,
+            context_size,
+            cost_usd,
+            at: None,
+        }
+    }
+
+    /// EXP-1051 context breakdown — the segments the publisher measured, in
+    /// contract order.
+    pub fn context_layout(segments: Vec<ContextSegment>) -> Self {
+        ActivityEvent::ContextLayout { segments, at: None }
+    }
+
+    /// Every FREE-TEXT field of the event, mutably (EXP-511: the publisher
+    /// walks them to put a localized image path back to the embed token the
+    /// steerer sent — a local path must never reach the published feed,
+    /// whichever kind ends up quoting it). Deliberately excludes the machine
+    /// fields — ids, `QuestionOption::key` (raw keystrokes) — which no rewrite
+    /// may touch.
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        match self {
+            ActivityEvent::Narration { text, .. } | ActivityEvent::UserMessage { text, .. } => {
+                vec![text]
+            }
+            // EXP-1324: a thought's edges carry no text at all.
+            ActivityEvent::Thought { .. } => vec![],
+            ActivityEvent::Tool { name, detail, .. } => {
+                let mut fields = vec![name];
+                fields.extend(detail.as_mut());
+                fields
+            }
+            ActivityEvent::Diff { diff, .. } => vec![diff],
+            // EXP-846: the preview's strings are the tool's OWN answer (an
+            // issue title, a PR url) and pass through the redactor like any
+            // other free text.
+            ActivityEvent::ToolUpdate {
+                diff,
+                output,
+                preview,
+                script,
+                ..
+            } => {
+                let mut fields: Vec<&mut String> = diff.as_mut().into_iter().collect();
+                // EXP-895: a command's own stdout is exactly where a secret
+                // lands if anything here is ever skipped.
+                fields.extend(output.as_mut());
+                if let Some(preview) = preview {
+                    fields.extend(preview.text_fields_mut());
+                }
+                // EXP-1279: a script's source and its calls' arguments are
+                // the agent's own text, a secret's likeliest home here.
+                if let Some(script) = script {
+                    fields.extend(script.text_fields_mut());
+                }
+                fields
+            }
+            ActivityEvent::RateLimit { message, .. } => message.as_mut().into_iter().collect(),
+            ActivityEvent::ApiError { message, .. } => vec![message],
+            ActivityEvent::Question {
+                text,
+                options,
+                header,
+                ..
+            } => {
+                let mut fields = vec![text];
+                for option in options {
+                    fields.push(&mut option.label);
+                    fields.extend(option.description.as_mut());
+                }
+                fields.extend(header.as_mut());
+                fields
+            }
+            ActivityEvent::QuestionResolved { answers, .. } => {
+                answers.iter_mut().flatten().collect()
+            }
+            ActivityEvent::AnswerAck { .. } => Vec::new(),
+            ActivityEvent::Subagent {
+                agent_type,
+                detail,
+                title,
+                ..
+            } => {
+                let mut fields = vec![agent_type];
+                fields.extend(detail.as_mut());
+                fields.extend(title.as_mut());
+                fields
+            }
+            ActivityEvent::Permission { tool, detail, .. } => {
+                let mut fields = vec![tool];
+                fields.extend(detail.as_mut());
+                fields
+            }
+            ActivityEvent::Compaction { .. } => Vec::new(),
+            // EXP-746: labels and descriptions only. Option/value/mode ids,
+            // `option.value`, `option.category` and `command.name` are
+            // MACHINE fields — an id the rewrite touched would no longer
+            // name anything the engine can set (same reason
+            // `QuestionOption::key` is excluded).
+            ActivityEvent::ConfigState {
+                options,
+                modes,
+                commands,
+                ..
+            } => {
+                let mut fields = Vec::new();
+                for option in options {
+                    fields.push(&mut option.label);
+                    for value in option.values.iter_mut().flatten() {
+                        fields.push(&mut value.label);
+                    }
+                }
+                for mode in modes.iter_mut().flatten() {
+                    fields.push(&mut mode.label);
+                    fields.extend(mode.description.as_mut());
+                }
+                for command in commands.iter_mut().flatten() {
+                    fields.push(&mut command.description);
+                }
+                fields
+            }
+            // EXP-1051: a segment's `detail` is a machine-derived file label
+            // the publisher already capped — no free text to rewrite.
+            ActivityEvent::Usage { .. }
+            | ActivityEvent::ContextLayout { .. }
+            | ActivityEvent::Turn { .. } => Vec::new(),
+            // EXP-850: descriptions and previews are the AGENT's free text
+            // and pass through the redactor; ids, `toolId` and the enum
+            // values are machine fields a rewrite must never touch.
+            ActivityEvent::BackgroundTasks { tasks, .. } => {
+                tasks.iter_mut().map(|task| &mut task.description).collect()
+            }
+            // EXP-927: the entries are the agent's free text.
+            ActivityEvent::TaskList { entries, .. } => {
+                entries.iter_mut().map(|entry| &mut entry.content).collect()
+            }
+            // EXP-861: the person's own words, still through the redactor
+            // (a pasted token is a pasted token); the ids are machine fields.
+            ActivityEvent::Queue { messages, .. } => {
+                messages.iter_mut().map(|message| &mut message.text).collect()
+            }
+            ActivityEvent::Workflow(workflow) => {
+                let mut fields = vec![&mut workflow.name];
+                fields.extend(workflow.description.as_mut());
+                for phase in workflow.phases.iter_mut() {
+                    fields.push(&mut phase.title);
+                }
+                for agent in workflow.agents.iter_mut() {
+                    fields.push(&mut agent.label);
+                    fields.extend(agent.last_tool.as_mut());
+                    fields.extend(agent.last_tool_summary.as_mut());
+                    fields.extend(agent.result_preview.as_mut());
+                    fields.extend(agent.error.as_mut());
+                }
+                fields.extend(workflow.summary.as_mut());
+                fields
+            }
+        }
+    }
+
+    /// The event's `at` slot — the history buffer stamps events here so a
+    /// re-publish keeps the original timeline.
+    pub fn at_mut(&mut self) -> &mut Option<i64> {
+        match self {
+            ActivityEvent::Narration { at, .. }
+            | ActivityEvent::Thought { at, .. }
+            | ActivityEvent::Tool { at, .. }
+            | ActivityEvent::Diff { at, .. }
+            | ActivityEvent::UserMessage { at, .. }
+            | ActivityEvent::Question { at, .. }
+            | ActivityEvent::QuestionResolved { at, .. }
+            | ActivityEvent::AnswerAck { at, .. }
+            | ActivityEvent::Subagent { at, .. }
+            | ActivityEvent::Permission { at, .. }
+            | ActivityEvent::Compaction { at, .. }
+            | ActivityEvent::ConfigState { at, .. }
+            | ActivityEvent::Usage { at, .. }
+            | ActivityEvent::ContextLayout { at, .. }
+            | ActivityEvent::ToolUpdate { at, .. }
+            | ActivityEvent::RateLimit { at, .. }
+            | ActivityEvent::ApiError { at, .. }
+            | ActivityEvent::BackgroundTasks { at, .. }
+            | ActivityEvent::TaskList { at, .. }
+            | ActivityEvent::Queue { at, .. }
+            | ActivityEvent::Turn { at, .. } => at,
+            ActivityEvent::Workflow(workflow) => &mut workflow.at,
+        }
+    }
+}
+
+/// One answer choice of an [`ActivityEvent::Question`].
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct QuestionOption {
+    pub label: String,
+    /// Raw keystroke(s) that select this option in the `claude` TUI picker.
+    pub key: String,
+    /// The option's secondary line (claude's `AskUserQuestion` options carry
+    /// one); omitted when the picker offers none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// EXP-513: the option is claude's synthetic free-text row ("Type
+    /// something."). A client renders it as an inline text input and sends
+    /// the typed text on the answer frame; the desktop types it into the
+    /// TUI's inline editor. Omitted when false so pre-EXP-513 consumers see
+    /// byte-identical frames.
+    #[serde(
+        rename = "freeText",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub free_text: bool,
+}
+
+impl QuestionOption {
+    pub fn new(label: impl Into<String>, key: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            key: key.into(),
+            description: None,
+            free_text: false,
+        }
+    }
+}
+
+/// EXP-746: one live agent option of an [`ActivityEvent::ConfigState`] — a
+/// composer chip. `values` ABSENT means read-only on this run (render the
+/// value, offer no menu); a blank `value` means the CLI's own default.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigOption {
+    /// The id a [`ClientFrame::SetConfig`] names — machine field, never
+    /// rewritten or localized.
+    pub id: String,
+    pub label: String,
+    /// Grouping hint for the chip row (`model`, `effort`, …); a client that
+    /// does not know it renders one chip per option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<ConfigValue>>,
+}
+
+/// One selectable value of a [`ConfigOption`].
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigValue {
+    pub id: String,
+    pub label: String,
+}
+
+/// EXP-746: one session mode (`plan`, `default`, …) a
+/// [`ClientFrame::SetMode`] may switch to.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigMode {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// EXP-746: one slash command the AGENT advertises (ACP
+/// `available_commands_update`). The `/` menu shows the contract catalog
+/// UNION these, contract first — so `name` is a machine field the clients
+/// match on, never rewritten.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConfigCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+impl ConfigOption {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            category: None,
+            value: None,
+            values: None,
+        }
+    }
+}
+
+impl ConfigValue {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
+
+impl ConfigMode {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            description: None,
+        }
+    }
+}
+
+impl ConfigCommand {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            hint: None,
+        }
+    }
+}
+
+/// The relay's only audience (`joinFrame.channel`).
+pub const ACTIVITY_CHANNEL: &str = "activity";
+
+impl ClientFrame<'_> {
+    /// The scrubbed member activity stream — the ONE channel a viewer may
+    /// join.
+    pub fn join() -> Self {
+        ClientFrame::Join {
+            channel: ACTIVITY_CHANNEL,
+        }
+    }
+
+    /// The JSON text-frame body. Serialization of this enum cannot fail
+    /// (no non-string map keys, no non-finite floats).
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("ClientFrame serialization cannot fail")
+    }
+}
+
+// ── Relay → client (TEXT frames) ────────────────────────────────────────────
+
+/// Every frame the relay may send. Deserialize-only.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum ServerFrame {
+    /// EXP-773: a viewer asked for the transcript of a session that is no
+    /// longer live, and the relay routed the ask to THIS device (the ticket
+    /// named it). The host reads `{data_dir}/journal/<sessionId>.jsonl` back
+    /// and republishes it with `steer::history::publish_history`; there is
+    /// no reply frame, and a device with no such file simply says nothing
+    /// (the relay's own 20s timer answers the viewer).
+    #[serde(rename_all = "camelCase")]
+    HistoryRequest { session_id: String },
+    /// EXP-783: a viewer scrolled past the top of what it holds and asked for
+    /// the page of transcript BELOW `before_seq`. Reaches the room's live
+    /// publisher, which reads the page off its journal file and answers with
+    /// [`ClientFrame::HistoryChunk`]s under the same (relay-issued)
+    /// `request_id` — or (EXP-796) this device's CONTROL socket, once the
+    /// device replayed the finished run and the room lingers without a
+    /// publisher; the control-socket answer names `session_id` back. Silence
+    /// is a legal answer (no journal); the relay frees the ask after its own
+    /// timeout.
+    #[serde(rename_all = "camelCase")]
+    HistoryPage {
+        session_id: String,
+        request_id: String,
+        before_seq: u64,
+        limit: u32,
+    },
+    /// NEW-55: a caller dialed this device (the member's voice device) for a
+    /// voice call with `agent_id`; control socket only. The IDE mints a
+    /// `call_host` ticket for `call_id` (tRPC `voice.callHostTicket`) and
+    /// joins within the relay's ring timeout (voice-call.json
+    /// `constants.ringTimeoutMs`), or the caller is told `no_answer`.
+    #[serde(rename_all = "camelCase")]
+    CallRing { call_id: String, agent_id: String },
+    /// EXP-481: fire-and-forget check-in nudge — the web server persisted
+    /// new work for this device (a queued command, edited launch defaults);
+    /// heartbeat NOW instead of on the next cadence. No reply frame exists;
+    /// the heartbeat pickup is the durable path.
+    CheckIn,
+    /// Viewer keystrokes, relay → publisher.
+    Input {
+        data: String,
+    },
+    /// A SEMANTIC answer to an [`ActivityEvent::Question`] (EXP-249), relay →
+    /// publisher, forwarded verbatim from a joined viewer (same gating as
+    /// `input`). `keys` are the option keys of THAT question — the
+    /// publisher resolves them against its own live picker state instead of
+    /// replaying blind keystrokes.
+    #[serde(rename_all = "camelCase")]
+    Answer {
+        question_id: String,
+        #[serde(default)]
+        ask_id: Option<String>,
+        keys: Vec<String>,
+        /// EXP-513: the typed reply for a `freeText` option — the desktop
+        /// selects the row with `keys`, types this into the inline editor,
+        /// and submits. Absent on ordinary answers (and from pre-EXP-513
+        /// clients).
+        #[serde(default)]
+        text: Option<String>,
+    },
+    /// EXP-746: live-config steering, relay → publisher, forwarded verbatim
+    /// from a joined viewer (same gating as `input`/`answer`). Never touches
+    /// the PTY — it crosses to the engine through
+    /// [`crate::wire::activity::ConfigLink`], which owns the ACP session, and the
+    /// re-emitted `config_state` is the only confirmation the wire has.
+    SetConfig { id: String, value: String },
+    /// EXP-746: switch to one of the modes the publisher advertised.
+    SetMode { id: String },
+    Kill,
+    /// EXP-790/EXP-861: a viewer's Stop — cancel the running turn and drop
+    /// the queued messages; the run itself continues.
+    Interrupt,
+    /// EXP-861: a viewer revoking one queued message.
+    Unqueue { id: String },
+    /// EXP-988/EXP-936: the run's own `exponential_sessions_compact` asked
+    /// the host to compact the agent's context at the next turn boundary;
+    /// `keep` names what the summary must preserve. The publisher answers it
+    /// with ONE [`ClientFrame::CompactVerdict`] from the engine's
+    /// `PublisherHooks::compact` (the host holds the context meter and the
+    /// compaction state the verdict needs); an accepted ask is executed at
+    /// the next turn boundary.
+    #[serde(rename_all = "camelCase")]
+    CompactRequest {
+        session_id: String,
+        #[serde(default)]
+        keep: Option<String>,
+    },
+    Bye {
+        #[serde(default)]
+        outcome: Option<String>,
+    },
+    Error {
+        code: String,
+        #[serde(default)]
+        message: Option<String>,
+    },
+}
+
+impl ServerFrame {
+    /// Parse a relay text frame; `None` for anything non-conforming (mirror
+    /// of the relay's own silent-drop posture — an unknown future frame must
+    /// not kill the socket).
+    pub fn parse(raw: &str) -> Option<ServerFrame> {
+        serde_json::from_str(raw).ok()
+    }
+}
+
+// ── Relay → VIEWER (EXP-696) ────────────────────────────────────────────────
+
+/// Every frame the relay sends to a socket that joined `channel:'activity'`.
+/// Deserialize-only, and deliberately separate from [`ServerFrame`]: the
+/// publisher/control inbound vocabulary and the viewer's are disjoint, and
+/// the two pumps stay free of each other's "impossible here" arms.
+///
+/// A viewer connection's whole life is readable off this enum:
+/// `activity_reset` (+ the replay, + [`ViewerFrame::ActivitySynced`]) answers
+/// the join; [`ViewerFrame::Activity`] carries the live tail;
+/// [`ViewerFrame::Keepalive`] is the 15s liveness beat (EXP-648) that lets a
+/// quiet socket be told from a dead one; `bye`/`error` end it.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum ViewerFrame {
+    /// One already-scrubbed activity event, fanned out from the publisher.
+    /// EXP-783: `seq` is the publisher's own monotonic index, echoed by the
+    /// relay. Required on the wire — every publisher numbers its stream and
+    /// the relay's zod refuses a frame without it.
+    #[serde(rename_all = "camelCase")]
+    Activity {
+        event: ActivityEvent,
+        seq: u64,
+    },
+    /// "Drop everything rendered so far" — sent immediately BEFORE the join
+    /// replay and before any publisher-driven full re-publish. EXP-656: a
+    /// client stages what follows rather than blanking the feed on the spot.
+    ActivityReset,
+    /// EXP-656: end-of-replay marker, sent to the JOINING viewer right after
+    /// the replay — "the picture is complete, commit it". Absent on a
+    /// publisher-driven republish (old desktops give the relay no
+    /// end-of-republish signal), which is why clients also keep a quiet-timer
+    /// fallback.
+    ///
+    /// EXP-783: it names the SPAN the replay covered. A client that already
+    /// holds this run's transcript keeps everything BELOW `first_seq` and
+    /// splices the replay on top; `truncated` says the relay's log is a TAIL,
+    /// so the pages below it must be asked for from the device
+    /// ([`ClientFrame::HistoryPage`]) rather than assumed gone. The span is
+    /// always named (the relay emits it on every synced frame); `truncated`
+    /// stays optional — absent means "not truncated".
+    #[serde(rename_all = "camelCase")]
+    ActivitySynced {
+        first_seq: u64,
+        last_seq: u64,
+        #[serde(default)]
+        truncated: Option<bool>,
+    },
+    /// EXP-783: one page of older transcript, answering this viewer's
+    /// [`ClientFrame::HistoryPage`]. Never part of the live feed — the client
+    /// PREPENDS these events instead of appending them.
+    ///
+    /// `events` is decoded PER EVENT ([`tolerant_events`]): an event whose
+    /// `kind` this build does not know lands as `None` in its slot rather
+    /// than failing the whole page — the way the live `activity` frame skips
+    /// unknown kinds one at a time and the journal reader skips unknown
+    /// lines. One slot per wire element keeps `seqs` aligned; the consumer
+    /// drops the `None`s after zipping. Before this, one event from a newer
+    /// device made the page an "unparseable frame", its `done` never landed,
+    /// and the viewer's in-flight ask stayed set until the socket dropped.
+    #[serde(rename_all = "camelCase")]
+    HistoryChunk {
+        request_id: String,
+        #[serde(deserialize_with = "tolerant_events")]
+        events: Vec<Option<ActivityEvent>>,
+        #[serde(default)]
+        seqs: Vec<u64>,
+        done: bool,
+    },
+    /// EXP-648: the relay's 15s beat to joined viewers. Carries nothing and
+    /// never changes a phase — its only job is to prove the socket is alive,
+    /// because an agent parked on a question sends nothing for minutes.
+    Keepalive,
+    /// The room is finished. `outcome: "publisher_lost"` is the one RETRYABLE
+    /// value: the desktop's socket dropped but the session may still be
+    /// running.
+    Bye {
+        #[serde(default)]
+        outcome: Option<String>,
+    },
+    /// A relay-side refusal. `code: "no_such_session"` means the room is not
+    /// up (yet) — the desktop may still be dialing its publisher socket.
+    Error {
+        code: String,
+        #[serde(default)]
+        message: Option<String>,
+    },
+}
+
+/// Decode a page's `events` array one element at a time: a malformed or
+/// unknown-kind element becomes `None` in its slot instead of poisoning the
+/// page (mirrors `history::read_journal_seq`'s per-line skip). The array
+/// itself must still be an array — a page with no `events` key at all stays
+/// non-conforming.
+fn tolerant_events<'de, D>(deserializer: D) -> Result<Vec<Option<ActivityEvent>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .map(|value| serde_json::from_value::<ActivityEvent>(value).ok())
+        .collect())
+}
+
+impl ViewerFrame {
+    /// Parse a relay text frame; `None` for anything non-conforming —
+    /// unknown `t` tags, malformed JSON, and (deliberately) an `activity`
+    /// frame whose `kind` this build does not know. Every one of those is an
+    /// IGNORE, never a socket teardown: the relay adds frames and event kinds
+    /// independently of desktop releases.
+    pub fn parse(raw: &str) -> Option<ViewerFrame> {
+        serde_json::from_str(raw).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── ClientFrame vectors — authored from protocol.ts zod schemas + the
+    // hub tests' literal frames (`hub.test.ts` sends exactly these shapes).
+
+    #[test]
+    fn online_serializes_the_device_id_alone() {
+        // EXP-672 (PR #584): the relay stopped reading `deviceLabel` and the
+        // EXP-253 `caps` array off this frame — presence is the deviceId →
+        // socket map, and every start gate reads the persisted `devices` row
+        // `devices.register` writes. The frame carries exactly one field.
+        assert_eq!(
+            ClientFrame::Online { device_id: "dev-1" }.to_json(),
+            r#"{"t":"online","deviceId":"dev-1"}"#
+        );
+    }
+
+    #[test]
+    fn hello_serializes_session_without_geometry() {
+        // EXP-249: cols/rows belonged to the removed PTY mirror. The relay's
+        // helloFrame keeps them optional, so omitting them parses on every
+        // relay generation (old relays included).
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: Some("issue-1"),
+                activity_public: None,
+                replay: None,
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1"}"#
+        );
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: None,
+                activity_public: None,
+                replay: None,
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1"}"#
+        );
+    }
+
+    #[test]
+    fn hello_activity_public_false_serializes_byte_exact() {
+        // EXP-90: every real hello carries the explicit camelCase
+        // `activityPublic:false` — absent means "public" to legacy relays.
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: Some("issue-1"),
+                activity_public: Some(false),
+                replay: None,
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1","activityPublic":false}"#
+        );
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: None,
+                activity_public: Some(false),
+                replay: None,
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","activityPublic":false}"#
+        );
+    }
+
+    #[test]
+    fn input_field_is_data_not_bytes() {
+        // §8.1: the exact regression vector from the spec.
+        assert_eq!(
+            ClientFrame::Input { data: "x".into() }.to_json(),
+            r#"{"t":"input","data":"x"}"#
+        );
+    }
+
+    #[test]
+    fn bare_frames_serialize_tag_only() {
+        // EXP-696: the relay's joinFrame REQUIRES the channel literal — a
+        // bare `{"t":"join"}` fails its zod parse and is dropped in silence.
+        assert_eq!(
+            ClientFrame::join().to_json(),
+            r#"{"t":"join","channel":"activity"}"#
+        );
+        assert_eq!(ClientFrame::Kill.to_json(), r#"{"t":"kill"}"#);
+        assert_eq!(ClientFrame::Bye { outcome: None }.to_json(), r#"{"t":"bye"}"#);
+        assert_eq!(
+            ClientFrame::Bye {
+                outcome: Some("exit:0")
+            }
+            .to_json(),
+            r#"{"t":"bye","outcome":"exit:0"}"#
+        );
+    }
+
+    #[test]
+    fn activity_frame_serializes_to_the_relay_schema() {
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::narration("Reading the file"),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::tool("Edit", Some("src/main.rs".into())),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool","name":"Edit","detail":"src/main.rs"},"seq":0}"#
+        );
+        // detail is omitted when absent.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::tool("TodoWrite", None),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool","name":"TodoWrite"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::diff("--- a\n+++ b\n"),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"diff","diff":"--- a\n+++ b\n"},"seq":0}"#
+        );
+    }
+
+    #[test]
+    fn user_message_and_question_serialize_to_the_relay_schema() {
+        // EXP-78 kinds — tag snake_case, fields camelCase (`multiSelect`).
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::user_message("fix the login bug"),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"user_message","text":"fix the login bug"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "Which color?".into(),
+                    options: vec![
+                        QuestionOption::new("Red", "1"),
+                        QuestionOption::new("Blue", "2"),
+                    ],
+                    multi_select: Some(true),
+                    plan_mode: None,
+                    id: "toolu_01#0".into(),
+                    ask_id: None,
+                    index: None,
+                    total: None,
+                    header: None,
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1"},{"label":"Blue","key":"2"}],"multiSelect":true,"id":"toolu_01#0"},"seq":0}"#
+        );
+        // multiSelect and planMode are omitted when absent.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "Approve?".into(),
+                    options: vec![QuestionOption::new("Approve", "1")],
+                    multi_select: None,
+                    plan_mode: None,
+                    id: "toolu_02".into(),
+                    ask_id: None,
+                    index: None,
+                    total: None,
+                    header: None,
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"Approve?","options":[{"label":"Approve","key":"1"}],"id":"toolu_02"},"seq":0}"#
+        );
+        // A plan-approval question carries the planMode marker (EXP-97).
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "The plan".into(),
+                    options: vec![QuestionOption::new("Approve — auto-accept edits", "1")],
+                    multi_select: None,
+                    plan_mode: Some(true),
+                    id: "toolu_03".into(),
+                    ask_id: None,
+                    index: None,
+                    total: None,
+                    header: None,
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"The plan","options":[{"label":"Approve — auto-accept edits","key":"1"}],"planMode":true,"id":"toolu_03"},"seq":0}"#
+        );
+    }
+
+    // ── EXP-249 (steer protocol v2) vectors ─────────────────────────────────
+
+    #[test]
+    fn question_carries_the_v2_identity_fields() {
+        // Step 2 of a 3-question ask: id = `<tool_use_id>#<i>`, askId groups
+        // the steps, header/description ride along.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "Which color?".into(),
+                    options: vec![
+                        QuestionOption {
+                            label: "Red".into(),
+                            key: "1".into(),
+                            description: Some("warm".into()),
+                            free_text: false,
+                        },
+                        QuestionOption::new("Blue", "2"),
+                    ],
+                    multi_select: Some(false),
+                    plan_mode: None,
+                    id: "toolu_01#1".into(),
+                    ask_id: Some("toolu_01".into()),
+                    index: Some(2),
+                    total: Some(3),
+                    header: Some("Color".into()),
+                    at: Some(1_751_500_000_000),
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"Which color?","options":[{"label":"Red","key":"1","description":"warm"},{"label":"Blue","key":"2"}],"multiSelect":false,"id":"toolu_01#1","askId":"toolu_01","index":2,"total":3,"header":"Color","at":1751500000000},"seq":0}"#
+        );
+        // The final review/submit step: askId, no index/total.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Question {
+                    text: "Submit answers?".into(),
+                    options: vec![QuestionOption::new("Submit", "\r")],
+                    multi_select: None,
+                    plan_mode: None,
+                    id: "toolu_01#submit".into(),
+                    ask_id: Some("toolu_01".into()),
+                    index: None,
+                    total: None,
+                    header: None,
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question","text":"Submit answers?","options":[{"label":"Submit","key":"\r"}],"id":"toolu_01#submit","askId":"toolu_01"},"seq":0}"#
+        );
+    }
+
+    #[test]
+    fn resolution_and_ack_events_serialize() {
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::QuestionResolved {
+                    id: Some("toolu_01#0".into()),
+                    ask_id: Some("toolu_01".into()),
+                    answers: Some(vec!["Red".into()]),
+                    dismissed: None,
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question_resolved","id":"toolu_01#0","askId":"toolu_01","answers":["Red"]},"seq":0}"#
+        );
+        // Dismissing retires EVERY card of the ask (id absent).
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::QuestionResolved {
+                    id: None,
+                    ask_id: Some("toolu_01".into()),
+                    answers: None,
+                    dismissed: Some(true),
+                    at: Some(1_751_500_000_000),
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"question_resolved","askId":"toolu_01","dismissed":true,"at":1751500000000},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::AnswerAck {
+                    id: "toolu_01#0".into(),
+                    ask_id: Some("toolu_01".into()),
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"answer_ack","id":"toolu_01#0","askId":"toolu_01"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::AnswerAck {
+                    id: "plan-1".into(),
+                    ask_id: None,
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"answer_ack","id":"plan-1"},"seq":0}"#
+        );
+    }
+
+    #[test]
+    fn subagent_permission_and_attributed_tool_serialize() {
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Subagent {
+                    id: "agent_01".into(),
+                    agent_type: "explore".into(),
+                    status: SubagentStatus::Started,
+                    detail: Some("Map the steer crate".into()),
+                    at: None,
+                    tool_calls: None,
+                    // EXP-847: the spawning Agent call's `description`.
+                    title: Some("Audit the shape proxies".into()),
+                    workflow_id: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"started","detail":"Map the steer crate","title":"Audit the shape proxies"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Subagent {
+                    id: "agent_01".into(),
+                    agent_type: "explore".into(),
+                    status: SubagentStatus::Completed,
+                    detail: None,
+                    at: None,
+                    tool_calls: None,
+                    title: None,
+                    workflow_id: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"subagent","id":"agent_01","agentType":"explore","status":"completed"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Tool {
+                    name: "Grep".into(),
+                    detail: Some("fn main".into()),
+                    id: None,
+                    tool_kind: None,
+                    subagent_id: Some("agent_01".into()),
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool","name":"Grep","detail":"fn main","subagentId":"agent_01"},"seq":0}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Permission {
+                    tool: "Bash".into(),
+                    detail: Some("needs your permission".into()),
+                    at: None,
+                },
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"permission","tool":"Bash","detail":"needs your permission"},"seq":0}"#
+        );
+    }
+
+    #[test]
+    fn compaction_serializes_to_the_relay_schema_and_parses_back() {
+        // EXP-724: `{kind, phase, trigger?, at?}` — trigger omitted when
+        // unknown (codex), present verbatim when claude reports it.
+        let started = ActivityEvent::compaction(CompactionPhase::Started, Some("manual"));
+        assert_eq!(
+            ClientFrame::Activity { event: started.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"compaction","phase":"started","trigger":"manual"},"seq":0}"#
+        );
+        let ended = ActivityEvent::compaction(CompactionPhase::Ended, None);
+        assert_eq!(
+            ClientFrame::Activity { event: ended.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"compaction","phase":"ended"},"seq":0}"#
+        );
+        // The viewer role reads them back (EXP-696) — a future trigger value
+        // parses, an unknown phase does not.
+        let parsed: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"compaction","phase":"started","trigger":"overflow","at":3}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            ActivityEvent::Compaction {
+                phase: CompactionPhase::Started,
+                trigger: Some("overflow".into()),
+                at: Some(3),
+            }
+        );
+        assert!(serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"compaction","phase":"paused"}"#
+        )
+        .is_err());
+    }
+
+    /// EXP-846: `tool_update`'s preview — `{kind, id, status?, diff?, at?,
+    /// preview?}`, the preview's own keys in the relay's zod order, and a
+    /// preview that named nothing is never published.
+    #[test]
+    fn a_tool_update_preview_serializes_to_the_relay_schema_and_parses_back() {
+        let event = ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            script: None,
+            diff: None,
+            output: None,
+            at: None,
+            preview: Some(ToolPreview {
+                id: Some("c0ffee".into()),
+                identifier: Some("EXP-42".into()),
+                title: Some("Fix the flicker".into()),
+                url: Some("https://github.com/a/b/pull/7".into()),
+                count: Some(3),
+                status: Some("in_progress".into()),
+                refs: vec![],
+            }),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"id":"c0ffee","identifier":"EXP-42","title":"Fix the flicker","url":"https://github.com/a/b/pull/7","count":3,"status":"in_progress"}},"seq":0}"#
+        );
+        // EXP-920: refs ride last, in the relay's key order, and a ref with
+        // nothing but kind+id carries nothing else.
+        let with_refs = ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            script: None,
+            diff: None,
+            output: None,
+            at: None,
+            preview: Some(ToolPreview {
+                refs: vec![
+                    EntityRef {
+                        kind: "list".into(),
+                        id: "issue".into(),
+                        identifier: None,
+                        title: Some("issues".into()),
+                        count: Some(2),
+                    },
+                    EntityRef {
+                        kind: "issue".into(),
+                        id: "i-1".into(),
+                        identifier: Some("EXP-42".into()),
+                        title: Some("Fix the flicker".into()),
+                        count: None,
+                    },
+                    EntityRef::new("issue", "i-2"),
+                ],
+                ..ToolPreview::default()
+            }),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: with_refs.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"refs":[{"kind":"list","id":"issue","title":"issues","count":2},{"kind":"issue","id":"i-1","identifier":"EXP-42","title":"Fix the flicker"},{"kind":"issue","id":"i-2"}]}},"seq":0}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(&serde_json::to_string(&with_refs).unwrap())
+                .unwrap(),
+            with_refs
+        );
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(
+                r#"{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"identifier":"EXP-42"}}"#
+            )
+            .unwrap(),
+            ActivityEvent::ToolUpdate {
+                id: "tc-1".into(),
+                status: Some(ToolUpdateStatus::Completed),
+                script: None,
+                diff: None,
+                output: None,
+                at: None,
+                preview: Some(ToolPreview {
+                    identifier: Some("EXP-42".into()),
+                    ..ToolPreview::default()
+                }),
+            }
+        );
+        // A pre-846 publisher sends no preview at all, and the shorthand
+        // constructor keeps that byte-identical.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"failed"},"seq":0}"#
+        );
+        assert!(ToolPreview::default().is_empty());
+        assert!(!ToolPreview { count: Some(0), ..ToolPreview::default() }.is_empty());
+        // Every string is clamped to the relay's own cap.
+        let clamped = ToolPreview {
+            title: Some("x".repeat(TOOL_PREVIEW_TEXT_MAX + 10)),
+            ..ToolPreview::default()
+        }
+        .clamp();
+        assert_eq!(
+            clamped.title.as_deref().map(|title| title.chars().count()),
+            Some(TOOL_PREVIEW_TEXT_MAX)
+        );
+    }
+
+    /// EXP-1279: a `script` call's settle carries its log as
+    /// `script: {count, elapsedMs, calls: [{tool, subject?, ok, ms?}], source?}`
+    /// — the exact keys the relay's zod and every client decode.
+    #[test]
+    fn a_script_log_rides_the_settle_in_the_relay_shape_and_parses_back() {
+        let event = ActivityEvent::ToolUpdate {
+            id: "tc-9".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: None,
+            at: None,
+            preview: None,
+            script: Some(ScriptLog {
+                count: Some(3),
+                elapsed_ms: Some(3040),
+                calls: vec![
+                    ScriptLogCall {
+                        tool: "exponential.exponential_issues_get".into(),
+                        subject: Some("EXP-1253".into()),
+                        ok: true,
+                        ms: Some(40),
+                    },
+                    ScriptLogCall { tool: "computer.screenshot".into(), subject: None, ok: false, ms: None },
+                ],
+                source: Some("return 1".into()),
+            }),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool_update","id":"tc-9","status":"completed","script":{"count":3,"elapsedMs":3040,"calls":[{"tool":"exponential.exponential_issues_get","subject":"EXP-1253","ok":true,"ms":40},{"tool":"computer.screenshot","ok":false}],"source":"return 1"}}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), event);
+        // A log the host never got: the source alone.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool_update","id":"tc-9","script":{"source":"x"}}"#)
+                .unwrap(),
+            ActivityEvent::ToolUpdate {
+                id: "tc-9".into(),
+                status: None,
+                diff: None,
+                output: None,
+                at: None,
+                preview: None,
+                script: Some(ScriptLog { source: Some("x".into()), ..ScriptLog::default() }),
+            }
+        );
+        // The redactor sees the source, every tool name and every subject.
+        let mut event = event;
+        assert_eq!(
+            event.text_fields_mut().iter().map(|field| field.as_str()).collect::<Vec<_>>(),
+            ["return 1", "exponential.exponential_issues_get", "EXP-1253", "computer.screenshot"]
+        );
+        // Clamped to the relay's caps before it leaves.
+        let clamped = ScriptLog {
+            calls: vec![
+                ScriptLogCall { tool: "t".repeat(300), subject: Some("s".repeat(300)), ok: true, ms: None };
+                SCRIPT_LOG_MAX_CALLS + 5
+            ],
+            source: Some("x".repeat(crate::wire::tool_output::TOOL_OUTPUT_MAX_BYTES + 10)),
+            ..ScriptLog::default()
+        }
+        .clamp();
+        assert_eq!(clamped.calls.len(), SCRIPT_LOG_MAX_CALLS);
+        assert_eq!(clamped.calls[0].tool.len(), SCRIPT_TOOL_MAX);
+        assert_eq!(clamped.calls[0].subject.as_ref().map(String::len), Some(TOOL_PREVIEW_TEXT_MAX));
+        assert!(clamped.source.as_ref().unwrap().len() <= crate::wire::tool_output::TOOL_OUTPUT_MAX_BYTES);
+        assert!(clamped.source.as_ref().unwrap().ends_with(crate::wire::activity::TRUNCATION_MARKER));
+    }
+
+    /// EXP-1279: `script` is a contract kind; a kind this build does not
+    /// know parses as `other` instead of dropping the whole row.
+    #[test]
+    fn the_script_tool_kind_parses_and_an_unknown_kind_reads_as_other() {
+        assert_eq!(ToolKind::parse("script"), Some(ToolKind::Script));
+        let row = serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"tool","name":"mcp__codemode__exec","id":"tc-1","toolKind":"script"}"#,
+        )
+        .unwrap();
+        assert!(matches!(row, ActivityEvent::Tool { tool_kind: Some(ToolKind::Script), .. }));
+        let future = serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"tool","name":"Teleport","id":"tc-2","toolKind":"teleport"}"#,
+        )
+        .unwrap();
+        assert!(matches!(future, ActivityEvent::Tool { tool_kind: Some(ToolKind::Other), .. }));
+        assert_eq!(ToolKind::parse("teleport"), None, "parse stays strict");
+    }
+
+    /// The relay caps by UTF-16 code units, so the clamp must too: an astral
+    /// emoji weighs 2, and a cut never splits its surrogate pair.
+    #[test]
+    fn tool_preview_clamps_by_utf16_units() {
+        let units = |text: &str| text.encode_utf16().count();
+        // 199 ASCII + one emoji = 200 chars but 201 units: the emoji goes.
+        let straddling = format!("{}\u{1F600}tail", "x".repeat(TOOL_PREVIEW_TEXT_MAX - 1));
+        // 198 ASCII + one emoji = exactly 200 units: kept whole.
+        let fitting = format!("{}\u{1F600}tail", "x".repeat(TOOL_PREVIEW_TEXT_MAX - 2));
+        let mut entity = EntityRef::new("comment", straddling.clone());
+        entity.identifier = Some(fitting.clone());
+        entity.title = Some("\u{1F600}".repeat(TOOL_PREVIEW_TEXT_MAX));
+        let clamped = ToolPreview {
+            id: Some(straddling.clone()),
+            identifier: Some(straddling.clone()),
+            title: Some(fitting.clone()),
+            url: Some(straddling.clone()),
+            status: Some(straddling.clone()),
+            refs: vec![entity],
+            ..ToolPreview::default()
+        }
+        .clamp();
+        let cut = "x".repeat(TOOL_PREVIEW_TEXT_MAX - 1);
+        for field in [&clamped.id, &clamped.identifier, &clamped.url, &clamped.status] {
+            assert_eq!(field.as_deref(), Some(cut.as_str()));
+        }
+        let kept = format!("{}\u{1F600}", "x".repeat(TOOL_PREVIEW_TEXT_MAX - 2));
+        assert_eq!(clamped.title.as_deref(), Some(kept.as_str()));
+        let entity = &clamped.refs[0];
+        assert_eq!(entity.id, cut);
+        assert_eq!(entity.identifier.as_deref(), Some(kept.as_str()));
+        // All emoji: 100 of them = 200 units, never an odd half.
+        let title = entity.title.as_deref().unwrap();
+        assert_eq!(units(title), TOOL_PREVIEW_TEXT_MAX);
+        assert_eq!(title.chars().count(), TOOL_PREVIEW_TEXT_MAX / 2);
+        // Short strings pass untouched.
+        assert_eq!(truncate_utf16("a\u{1F600}", 3), "a\u{1F600}");
+        assert_eq!(truncate_utf16("a\u{1F600}", 2), "a");
+        assert_eq!(truncate_utf16("", 0), "");
+    }
+
+    /// EXP-848: the turn slot's wire shape — `{kind, state, at?}` — and the
+    /// contract's `turnState` vocabulary, byte for byte.
+    #[test]
+    fn turn_serializes_to_the_relay_schema_and_matches_the_contract() {
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::turn(TurnState::Started),
+                seq: 0,
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"turn","state":"started"},"seq":0}"#
+        );
+        let mut ended = ActivityEvent::turn(TurnState::Ended);
+        *ended.at_mut() = Some(7);
+        assert_eq!(
+            ClientFrame::Activity { event: ended, seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"turn","state":"ended","at":7},"seq":0}"#
+        );
+        // The viewer role reads them back (EXP-696); an unknown state does not
+        // parse.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"turn","state":"started"}"#).unwrap(),
+            ActivityEvent::Turn {
+                state: TurnState::Started,
+                started_at: None,
+                tokens: None,
+                at: None
+            }
+        );
+        assert!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"turn","state":"thinking"}"#).is_err()
+        );
+        // The contract owns the vocabulary, and `Ended` is the DEFAULT: a
+        // client that has seen no turn event never pulses.
+        assert_eq!(TurnState::default(), TurnState::Ended);
+        assert!(TurnState::Started.is_working());
+        assert!(!TurnState::Ended.is_working());
+    }
+
+    /// EXP-746: the maximal snapshot, byte-for-byte in the zod's field order
+    /// (`options[{id,label,category?,value?,values?[{id,label}]}]`,
+    /// `currentMode?`, `modes?`, `commands?`, `at?`). Reordering a field here
+    /// reorders the wire.
+    #[test]
+    fn config_state_serializes_to_the_relay_schema_and_parses_back() {
+        let event = ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                category: Some("model".into()),
+                value: Some("opus".into()),
+                values: Some(vec![
+                    ConfigValue::new("opus", "Opus"),
+                    ConfigValue::new("sonnet", "Sonnet"),
+                ]),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: Some("plan".into()),
+            modes: vec![
+                ConfigMode {
+                    description: Some("Read-only until approved".into()),
+                    ..ConfigMode::new("plan", "Plan")
+                },
+                ConfigMode::new("default", "Default"),
+            ]
+            .into(),
+            commands: vec![
+                ConfigCommand {
+                    hint: Some("instructions".into()),
+                    ..ConfigCommand::new("compact", "Compact the context")
+                },
+                ConfigCommand::new("new", "Start a fresh context"),
+            ]
+            .into(),
+            at: Some(9),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}],"currentMode":"plan","modes":[{"id":"plan","label":"Plan","description":"Read-only until approved"},{"id":"default","label":"Default"}],"commands":[{"name":"compact","description":"Compact the context","hint":"instructions"},{"name":"new","description":"Start a fresh context"}],"at":9},"seq":0}"#
+        );
+        assert_eq!(
+            ViewerFrame::parse(&ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json()).unwrap(),
+            ViewerFrame::Activity { event, seq: 0 }
+        );
+    }
+
+    #[test]
+    fn config_state_omits_every_absent_optional() {
+        // A read-only run with no modes and no agent commands is the whole
+        // frame minus five keys — nothing may serialize as `null`.
+        let event = ActivityEvent::ConfigState {
+            options: Vec::new(),
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&event).unwrap(),
+            r#"{"kind":"config_state","options":[]}"#
+        );
+        // An option with no category/value/values is equally bare.
+        let bare = ActivityEvent::ConfigState {
+            options: vec![ConfigOption::new("effort", "Effort")],
+            current_mode: None,
+            modes: None,
+            commands: None,
+            at: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"kind":"config_state","options":[{"id":"effort","label":"Effort"}]}"#
+        );
+    }
+
+    /// EXP-877 — the wire's ONE surviving option, `model`, both ways: the
+    /// engine publishes a VALUE with no `values` (switching is a `/model
+    /// <alias>` message, not a menu pick), and a publisher that DOES describe
+    /// its values still parses into them. `values: None` is the wire's
+    /// "read-only on this run" and must not decay into an empty menu.
+    #[test]
+    fn config_state_carries_the_model_option_with_or_without_values() {
+        let bare: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"model","label":"Model","category":"model","value":"opus"}]}"#,
+        )
+        .unwrap();
+        let ActivityEvent::ConfigState { options, .. } = &bare else {
+            panic!("a config_state: {bare:?}");
+        };
+        assert_eq!(
+            options,
+            &vec![ConfigOption {
+                category: Some("model".to_string()),
+                value: Some("opus".to_string()),
+                ..ConfigOption::new("model", "Model")
+            }]
+        );
+        assert!(options[0].values.is_none(), "no menu on the wire");
+
+        let described: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"model","label":"Model","value":"sonnet","values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]}]}"#,
+        )
+        .unwrap();
+        let ActivityEvent::ConfigState { options, .. } = &described else {
+            panic!("a config_state: {described:?}");
+        };
+        assert_eq!(options[0].value.as_deref(), Some("sonnet"));
+        assert_eq!(
+            options[0].values.as_deref(),
+            Some(&[ConfigValue::new("opus", "Opus"), ConfigValue::new("sonnet", "Sonnet")][..])
+        );
+    }
+
+    #[test]
+    fn config_state_parses_a_frame_that_omits_modes_and_commands() {
+        // Proves the `#[serde(default)]` on every optional: an internally
+        // tagged enum has no per-field fallback, so a publisher that sends a
+        // model chip and nothing else would otherwise fail the parse and the
+        // viewer would render no chips at all.
+        let parsed: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"model","label":"Model","value":""}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            ActivityEvent::ConfigState {
+                options: vec![ConfigOption {
+                    value: Some(String::new()),
+                    ..ConfigOption::new("model", "Model")
+                }],
+                current_mode: None,
+                modes: None,
+                commands: None,
+                at: None,
+            }
+        );
+        // Unknown future fields inside a nested struct are ignored too.
+        let forward: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"config_state","options":[{"id":"a","label":"b","hologram":true}],"modes":[]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            forward,
+            ActivityEvent::ConfigState { ref modes, .. } if modes.as_deref() == Some(&[][..])
+        ));
+    }
+
+    #[test]
+    fn usage_serializes_to_the_relay_schema_and_parses_back() {
+        let metered = ActivityEvent::Usage {
+            context_used: 124_000,
+            context_size: 200_000,
+            cost_usd: Some(1.25),
+            at: Some(5),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: metered.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"usage","contextUsed":124000,"contextSize":200000,"costUsd":1.25,"at":5},"seq":0}"#
+        );
+        // A plan run reports no spend: the key is absent, never `null`.
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::usage(0, 200_000, None)).unwrap(),
+            r#"{"kind":"usage","contextUsed":0,"contextSize":200000}"#
+        );
+        assert_eq!(
+            ViewerFrame::parse(&ClientFrame::Activity { event: metered.clone(), seq: 0 }.to_json()).unwrap(),
+            ViewerFrame::Activity { event: metered, seq: 0 }
+        );
+    }
+
+    // EXP-785/786/784: the three wire additions, byte-exact against
+    // protocol.ts and parsed back through the viewer path.
+    #[test]
+    fn tool_carries_its_call_id_and_kind_under_tool_kind_never_kind() {
+        let event = ActivityEvent::Tool {
+            name: "Edit".into(),
+            detail: Some("src/main.rs".into()),
+            id: Some("tc-1".into()),
+            tool_kind: Some(ToolKind::Edit),
+            subagent_id: None,
+            at: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool","name":"Edit","detail":"src/main.rs","id":"tc-1","toolKind":"edit"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), event);
+        // A pre-EXP-785 frame still parses, with both absent.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool","name":"Edit"}"#).unwrap(),
+            ActivityEvent::tool("Edit", None)
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolKind::SwitchMode).unwrap(),
+            r#""switch_mode""#
+        );
+    }
+
+    #[test]
+    fn tool_kind_matches_the_contract() {
+        for kind in ToolKind::ALL {
+            assert_eq!(ToolKind::parse(kind.as_str()), Some(kind));
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{}\"", kind.as_str())
+            );
+        }
+        assert_eq!(ToolKind::parse("teleport"), None);
+    }
+
+    #[test]
+    fn tool_update_serializes_to_the_relay_schema_and_parses_back() {
+        let settled = ActivityEvent::tool_update("tc-1", Some(ToolUpdateStatus::Failed), None);
+        assert_eq!(
+            serde_json::to_string(&settled).unwrap(),
+            r#"{"kind":"tool_update","id":"tc-1","status":"failed"}"#
+        );
+        let diffed = ActivityEvent::tool_update(
+            "tc-2",
+            Some(ToolUpdateStatus::Completed),
+            Some("--- a/x\n+++ b/x\n".into()),
+        );
+        let json = serde_json::to_string(&diffed).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool_update","id":"tc-2","status":"completed","diff":"--- a/x\n+++ b/x\n"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), diffed);
+        // EXP-895: an `execute` call's output rides the SAME event, after the
+        // diff slot and before `at` — the relay's zod order.
+        let printed = ActivityEvent::ToolUpdate {
+            id: "tc-4".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            script: None,
+            diff: None,
+            output: Some("\\ 2 more lines truncated\nall tests passed\n".into()),
+            at: None,
+            preview: None,
+        };
+        let json = serde_json::to_string(&printed).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool_update","id":"tc-4","status":"completed","output":"\\ 2 more lines truncated\nall tests passed\n"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), printed);
+        // A bare update (no status, no diff, no output) is legal and says
+        // nothing; a pre-895 publisher sends no `output` key at all.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool_update","id":"tc-3"}"#).unwrap(),
+            ActivityEvent::tool_update("tc-3", None, None)
+        );
+    }
+
+    #[test]
+    fn rate_limit_serializes_to_the_relay_schema_and_clears_on_empty_or_ok() {
+        let limited = ActivityEvent::rate_limit(
+            "rejected",
+            Some(1_700_000_000_000),
+            Some("5-hour limit reached".into()),
+        );
+        let json = serde_json::to_string(&limited).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"rate_limit","status":"rejected","resetsAt":1700000000000,"message":"5-hour limit reached"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), limited);
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::rate_limit("", None, None)).unwrap(),
+            r#"{"kind":"rate_limit","status":""}"#
+        );
+        assert!(rate_limit_clears(""));
+        assert!(rate_limit_clears("ok"));
+        assert!(rate_limit_clears(" OK "));
+        assert!(!rate_limit_clears("allowed_warning"));
+        assert!(!rate_limit_clears("rejected"));
+    }
+
+    /// An API failure is a ROW: camelCase optionals, omitted when unset,
+    /// and never the rate-limit slot's shape.
+    #[test]
+    fn api_error_serializes_inline_and_camel_case() {
+        let mut full = ActivityEvent::api_error(
+            "API Error: No response from API (waited 3m, then 10m on the retry).",
+            Some("server_error".into()),
+        );
+        if let ActivityEvent::ApiError { subagent_id, .. } = &mut full {
+            *subagent_id = Some("toolu_1".into());
+        }
+        let json = serde_json::to_string(&full).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"api_error","message":"API Error: No response from API (waited 3m, then 10m on the retry).","errorType":"server_error","subagentId":"toolu_1"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), full);
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::api_error("API Error: Connection dropped", None))
+                .unwrap(),
+            r#"{"kind":"api_error","message":"API Error: Connection dropped"}"#
+        );
+        // The redactor sees the message.
+        let mut event = ActivityEvent::api_error("secret", None);
+        assert_eq!(event.text_fields_mut().len(), 1);
+    }
+
+    /// FEED-35: the wall rule — locked ×2 with web `rateLimitIsWall`.
+    #[test]
+    fn a_wall_is_a_rejection_or_a_notice_never_a_warning() {
+        assert!(rate_limit_is_wall("rejected", None));
+        assert!(rate_limit_is_wall(" rejected ", None));
+        assert!(rate_limit_is_wall("allowed_warning", Some("You've hit your limit")));
+        assert!(!rate_limit_is_wall("allowed_warning", None));
+        assert!(!rate_limit_is_wall("allowed_warning", Some("   ")));
+        assert!(!rate_limit_is_wall("", None));
+        assert!(!rate_limit_is_wall("ok", None));
+    }
+
+    /// EXP-831: the clock rule — past the reset plus a minute the wall is
+    /// gone; inside it, and with no reset at all, it stands.
+    #[test]
+    fn a_wall_expires_a_minute_past_its_reset() {
+        let now = 1_700_000_000_000;
+        assert!(rate_limit_expired(Some(now - 61_000), now));
+        assert!(!rate_limit_expired(Some(now - 60_000), now));
+        assert!(!rate_limit_expired(Some(now - 1_000), now));
+        assert!(!rate_limit_expired(Some(now + 3_600_000), now));
+        assert!(!rate_limit_expired(None, now));
+    }
+
+    #[test]
+    fn text_fields_mut_skips_config_ids_values_and_command_names() {
+        // EXP-511's reverse rewrite walks free text ONLY. Ids, the value in
+        // force, the category and a command's name are machine fields: a
+        // rewritten id would name nothing the engine can set.
+        let mut event = ActivityEvent::ConfigState {
+            options: vec![ConfigOption {
+                category: Some("model".into()),
+                value: Some("opus".into()),
+                values: Some(vec![ConfigValue::new("opus", "Opus")]),
+                ..ConfigOption::new("model", "Model")
+            }],
+            current_mode: Some("plan".into()),
+            modes: Some(vec![ConfigMode {
+                description: Some("Read-only".into()),
+                ..ConfigMode::new("plan", "Plan")
+            }]),
+            commands: Some(vec![ConfigCommand::new("compact", "Compact the context")]),
+            at: None,
+        };
+        let seen: Vec<String> = event
+            .text_fields_mut()
+            .into_iter()
+            .map(|field| field.clone())
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                "Model".to_string(),
+                "Opus".to_string(),
+                "Plan".to_string(),
+                "Read-only".to_string(),
+                "Compact the context".to_string(),
+            ]
+        );
+        // `usage` carries no free text at all.
+        assert!(ActivityEvent::usage(1, 2, None).text_fields_mut().is_empty());
+        // EXP-1051: neither does `context_layout` — a segment's `detail` is a
+        // machine-derived file label, not something a rewrite may touch.
+        assert!(ActivityEvent::context_layout(vec![ContextSegment {
+            key: ContextSegmentKey::Project,
+            tokens: 9800,
+            source: ContextSegmentSource::Estimated,
+            detail: Some("CLAUDE.md".to_string()),
+        }])
+        .text_fields_mut()
+        .is_empty());
+    }
+
+    #[test]
+    fn activity_reset_is_a_bare_tag() {
+        assert_eq!(ClientFrame::ActivityReset.to_json(), r#"{"t":"activity_reset"}"#);
+    }
+
+    #[test]
+    fn at_mut_reaches_every_kind() {
+        let mut events = vec![
+            ActivityEvent::narration("n"),
+            ActivityEvent::tool("Edit", None),
+            ActivityEvent::diff("d"),
+            ActivityEvent::user_message("u"),
+            ActivityEvent::Question {
+                text: "q".into(),
+                options: vec![QuestionOption::new("a", "1")],
+                multi_select: None,
+                plan_mode: None,
+                id: "q1".into(),
+                ask_id: None,
+                index: None,
+                total: None,
+                header: None,
+                at: None,
+            },
+            ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: None,
+                answers: None,
+                dismissed: None,
+                at: None,
+            },
+            ActivityEvent::AnswerAck { id: "i".into(), ask_id: None, at: None },
+            ActivityEvent::Subagent {
+                id: "a".into(),
+                agent_type: "t".into(),
+                status: SubagentStatus::Started,
+                detail: None,
+                at: None,
+                tool_calls: None,
+                title: None,
+                workflow_id: None,
+            },
+            ActivityEvent::Permission { tool: "Bash".into(), detail: None, at: None },
+            ActivityEvent::compaction(CompactionPhase::Started, None),
+            ActivityEvent::api_error("API Error: Connection dropped", None),
+            ActivityEvent::ConfigState {
+                options: vec![ConfigOption::new("model", "Model")],
+                current_mode: None,
+                modes: None,
+                commands: None,
+                at: None,
+            },
+            ActivityEvent::usage(1, 2, None),
+            ActivityEvent::context_layout(vec![ContextSegment {
+                key: ContextSegmentKey::Base,
+                tokens: 21_000,
+                source: ContextSegmentSource::Measured,
+                detail: None,
+            }]),
+            ActivityEvent::tool_update("t", None, None),
+            ActivityEvent::rate_limit("rejected", None, None),
+        ];
+        for event in &mut events {
+            *event.at_mut() = Some(7);
+            let json = serde_json::to_string(&event).unwrap();
+            assert!(json.contains(r#""at":7"#), "{json}");
+        }
+    }
+
+    #[test]
+    fn narration_anchor_serializes_camel_case_and_omits_none() {
+        // EXP-483: the splice anchor rides the wire as `beforeQuestionId`
+        // and stays entirely absent on ordinary narration.
+        let plain = ActivityEvent::narration("hi");
+        assert!(!serde_json::to_string(&plain).unwrap().contains("beforeQuestionId"));
+        let anchored = ActivityEvent::Narration {
+            text: "summary".into(),
+            before_question_id: Some("toolu_01".into()),
+            message_id: None,
+            subagent_id: None,
+            at: None,
+        };
+        assert!(serde_json::to_string(&anchored)
+            .unwrap()
+            .contains(r#""beforeQuestionId":"toolu_01""#));
+    }
+
+    #[test]
+    fn narration_identity_fields_serialize_camel_case_and_omit_none() {
+        // EXP-772 / EXP-773: the merge key and the subagent scope ride the
+        // wire as `messageId` / `subagentId`, absent on plain narration.
+        let plain = serde_json::to_string(&ActivityEvent::narration("hi")).unwrap();
+        assert!(!plain.contains("messageId"), "{plain}");
+        assert!(!plain.contains("subagentId"), "{plain}");
+        let scoped = ActivityEvent::Narration {
+            text: "inside".into(),
+            before_question_id: None,
+            message_id: Some("msg_01".into()),
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        };
+        let json = serde_json::to_string(&scoped).unwrap();
+        assert!(json.contains(r#""messageId":"msg_01""#), "{json}");
+        assert!(json.contains(r#""subagentId":"toolu_task""#), "{json}");
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), scoped);
+        let user = ActivityEvent::UserMessage {
+            text: "go".into(),
+            subagent_id: Some("toolu_task".into()),
+            at: None,
+        };
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(json.contains(r#""subagentId":"toolu_task""#), "{json}");
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), user);
+    }
+
+    #[test]
+    fn answer_frame_deserializes_camel_case() {
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["1","3"]}"#
+            )
+            .unwrap(),
+            ServerFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["1".into(), "3".into()],
+                text: None,
+            }
+        );
+        // A plan answer carries no askId.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"answer","questionId":"plan-1","keys":["1"]}"#).unwrap(),
+            ServerFrame::Answer {
+                question_id: "plan-1".into(),
+                ask_id: None,
+                keys: vec!["1".into()],
+                text: None,
+            }
+        );
+        // EXP-513: a free-text answer rides its typed reply.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["4"],"text":"purple"}"#
+            )
+            .unwrap(),
+            ServerFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["4".into()],
+                text: Some("purple".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn question_options_omit_free_text_unless_set() {
+        // Pre-EXP-513 consumers must see byte-identical frames for ordinary
+        // options; a free-text row carries the flag.
+        let plain = serde_json::to_string(&QuestionOption::new("Red", "1")).unwrap();
+        assert_eq!(plain, r#"{"label":"Red","key":"1"}"#);
+        let free = QuestionOption {
+            free_text: true,
+            ..QuestionOption::new("Type something.", "4")
+        };
+        assert_eq!(
+            serde_json::to_string(&free).unwrap(),
+            r#"{"label":"Type something.","key":"4","freeText":true}"#
+        );
+    }
+
+    #[test]
+    fn client_frames_satisfy_relay_zod_constraints() {
+        // Round-trip our own serialization through a permissive parse to
+        // assert the tag names the relay's discriminated union expects.
+        for (frame, tag) in [
+            (
+                ClientFrame::Online { device_id: "d" },
+                "online",
+            ),
+            (
+                ClientFrame::Hello {
+                    session_id: "s",
+                    issue_id: None,
+                    activity_public: None,
+                    replay: None,
+                },
+                "hello",
+            ),
+            (ClientFrame::join(), "join"),
+            (ClientFrame::Input { data: String::new() }, "input"),
+            (ClientFrame::Kill, "kill"),
+            (
+                ClientFrame::SetConfig {
+                    id: "model".into(),
+                    value: "opus".into(),
+                },
+                "set_config",
+            ),
+            (ClientFrame::SetMode { id: "plan".into() }, "set_mode"),
+            (ClientFrame::Bye { outcome: None }, "bye"),
+            (ClientFrame::ActivityReset, "activity_reset"),
+        ] {
+            let value: serde_json::Value = serde_json::from_str(&frame.to_json()).unwrap();
+            assert_eq!(value["t"], tag, "tag mismatch for {frame:?}");
+        }
+    }
+
+    // ── ServerFrame vectors — captured relay strings (hub.ts `frame(...)`
+    // emits `JSON.stringify` of exactly these objects).
+
+    #[test]
+    fn check_in_and_history_frames_deserialize() {
+        // The check-in nudge is a bare tag frame.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"check_in"}"#).unwrap(),
+            ServerFrame::CheckIn
+        );
+        // EXP-773: the history ask names the session it wants back.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"history_request","sessionId":"sess-1"}"#).unwrap(),
+            ServerFrame::HistoryRequest {
+                session_id: "sess-1".to_string()
+            }
+        );
+        assert_eq!(ServerFrame::parse(r#"{"t":"history_request"}"#), None);
+        // NEW-55: the relay rings the voice device for a call.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1","agentId":"agent-1"}"#)
+                .unwrap(),
+            ServerFrame::CallRing {
+                call_id: "call-1".to_string(),
+                agent_id: "agent-1".to_string(),
+            }
+        );
+        assert_eq!(ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1"}"#), None);
+        // EXP-783/796: a page ask, on a publisher OR a control socket.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"history_page","sessionId":"sess-1","requestId":"h7","beforeSeq":40,"limit":20}"#
+            )
+            .unwrap(),
+            ServerFrame::HistoryPage {
+                session_id: "sess-1".to_string(),
+                request_id: "h7".to_string(),
+                before_seq: 40,
+                limit: 20,
+            }
+        );
+        // EXP-1292: the relay start path is gone (a start = a queued
+        // `sessions` row the device picks up off Electric); a stray
+        // `start_session` from an old relay drops like any unknown frame.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#),
+            None
+        );
+        // Unknown future frames still drop silently, never kill the socket.
+        assert_eq!(ServerFrame::parse(r#"{"t":"telepathy"}"#), None);
+    }
+
+    /// EXP-796: the chunk's wire form is unchanged for a publisher (no
+    /// `sessionId` key at all), and names the session from a control socket.
+    #[test]
+    fn history_chunk_serializes_session_id_only_when_set() {
+        let chunk = ClientFrame::HistoryChunk {
+            session_id: None,
+            request_id: "h7".to_string(),
+            events: vec![ActivityEvent::narration("older")],
+            seqs: vec![39],
+            done: true,
+        };
+        assert_eq!(
+            chunk.to_json(),
+            r#"{"t":"history_chunk","requestId":"h7","events":[{"kind":"narration","text":"older"}],"seqs":[39],"done":true}"#
+        );
+        // #EXP-1415: a journal replay says so in its hello.
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: None,
+                activity_public: Some(false),
+                replay: Some(true),
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","activityPublic":false,"replay":true}"#
+        );
+        // #EXP-1415: the control socket's "no journal here" answer.
+        assert_eq!(
+            ClientFrame::HistoryNone { session_id: "sess-1".to_string() }.to_json(),
+            r#"{"t":"history_none","sessionId":"sess-1"}"#
+        );
+        let chunk = ClientFrame::HistoryChunk {
+            session_id: Some("sess-1".to_string()),
+            request_id: "h7".to_string(),
+            events: Vec::new(),
+            seqs: Vec::new(),
+            done: true,
+        };
+        assert_eq!(
+            chunk.to_json(),
+            r#"{"t":"history_chunk","sessionId":"sess-1","requestId":"h7","events":[],"seqs":[],"done":true}"#
+        );
+    }
+
+    #[test]
+    fn remaining_server_frames_deserialize() {
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"input","data":"ls\r"}"#).unwrap(),
+            ServerFrame::Input { data: "ls\r".into() }
+        );
+        assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill);
+        // EXP-790/EXP-861: the viewer's Stop and a queue revoke, relay →
+        // publisher; the send side spells the same bytes every client does.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"interrupt"}"#).unwrap(),
+            ServerFrame::Interrupt
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"unqueue","id":"m1"}"#).unwrap(),
+            ServerFrame::Unqueue {
+                id: "m1".to_string()
+            }
+        );
+        // EXP-988/EXP-936: the compaction request, relay → publisher; `keep`
+        // is optional on the wire.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"compact_request","sessionId":"s1","keep":"open threads"}"#)
+                .unwrap(),
+            ServerFrame::CompactRequest {
+                session_id: "s1".to_string(),
+                keep: Some("open threads".to_string()),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"compact_request","sessionId":"s1"}"#).unwrap(),
+            ServerFrame::CompactRequest {
+                session_id: "s1".to_string(),
+                keep: None,
+            }
+        );
+        // EXP-936: the verdict, publisher → relay; `refusedBecause` rides only
+        // on a refusal.
+        assert_eq!(
+            CompactVerdict::Accepted.frame("s1").to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":true}"#
+        );
+        assert_eq!(
+            CompactVerdict::Refused(CompactRefusal::TooEarly)
+                .frame("s1")
+                .to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":false,"refusedBecause":"too_early"}"#
+        );
+        assert_eq!(
+            CompactVerdict::Refused(CompactRefusal::Cooldown)
+                .frame("s1")
+                .to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":false,"refusedBecause":"cooldown"}"#
+        );
+        for reason in [
+            CompactRefusal::TooEarly,
+            CompactRefusal::Cooldown,
+            CompactRefusal::NotOwnSession,
+            CompactRefusal::UnsupportedAgent,
+        ] {
+            assert_eq!(serde_json::to_string(&reason).unwrap(), format!("\"{}\"", reason.code()));
+        }
+        assert_eq!(ClientFrame::Interrupt.to_json(), r#"{"t":"interrupt"}"#);
+        assert_eq!(
+            ClientFrame::Unqueue {
+                id: "m1".to_string()
+            }
+            .to_json(),
+            r#"{"t":"unqueue","id":"m1"}"#
+        );
+        // The queue slot round-trips with the relay's field names.
+        let queue = ActivityEvent::queue(vec![
+            QueuedMessage {
+                id: "m1".to_string(),
+                text: "first".to_string(),
+                sent: false,
+            },
+            QueuedMessage {
+                id: "m2".to_string(),
+                text: "second".to_string(),
+                sent: true,
+            },
+        ]);
+        let json = serde_json::to_value(&queue).unwrap();
+        assert_eq!(json["kind"], "queue");
+        assert_eq!(json["messages"][0]["id"], "m1");
+        assert_eq!(json["messages"][0]["text"], "first");
+        // EXP-873: `sent` rides the wire only when true — a held line stays
+        // byte-identical to the EXP-861 shape, and an absent flag reads held.
+        assert!(json["messages"][0].get("sent").is_none());
+        assert_eq!(json["messages"][1]["sent"], true);
+        assert_eq!(serde_json::from_value::<ActivityEvent>(json).unwrap(), queue);
+        // EXP-746: the relay forwards a viewer's chip change verbatim; the
+        // BLANK value ("CLI default") is a legitimate payload, not a
+        // malformed one.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"set_config","id":"model","value":"opus"}"#).unwrap(),
+            ServerFrame::SetConfig {
+                id: "model".into(),
+                value: "opus".into(),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"set_config","id":"model","value":""}"#).unwrap(),
+            ServerFrame::SetConfig {
+                id: "model".into(),
+                value: String::new(),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"set_mode","id":"plan"}"#).unwrap(),
+            ServerFrame::SetMode { id: "plan".into() }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"bye","outcome":"publisher_lost"}"#).unwrap(),
+            ServerFrame::Bye {
+                outcome: Some("publisher_lost".into())
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"bye"}"#).unwrap(),
+            ServerFrame::Bye { outcome: None }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"error","code":"no_such_session"}"#).unwrap(),
+            ServerFrame::Error {
+                code: "no_such_session".into(),
+                message: None,
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_or_malformed_frames_parse_to_none() {
+        // Mirror of the relay's silent-drop: never kill the socket on a
+        // future frame type or junk.
+        assert_eq!(ServerFrame::parse(r#"{"t":"future_frame"}"#), None);
+        assert_eq!(ServerFrame::parse("not json"), None);
+        assert_eq!(ServerFrame::parse(r#"{"cols":1}"#), None);
+        // The retired PTY-mirror frames take the same path as any unknown
+        // frame — an old relay's `resize`/`resync` must not kill the socket.
+        assert_eq!(ServerFrame::parse(r#"{"t":"resize","cols":120,"rows":40}"#), None);
+        assert_eq!(ServerFrame::parse(r#"{"t":"resync"}"#), None);
+    }
+
+    // ── EXP-696 viewer role: the send-side answer + the inbound vocabulary ──
+
+    #[test]
+    fn client_answer_serializes_camel_case_and_omits_none() {
+        // Byte-for-byte the shape `answerFrame` validates and the shape the
+        // web viewer sends (`JSON.stringify({t:"answer",questionId,askId,
+        // keys,text})`, minus the keys it leaves undefined).
+        assert_eq!(
+            ClientFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["1".into(), "3".into()],
+                text: None,
+            }
+            .to_json(),
+            r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["1","3"]}"#
+        );
+        // A plan-approval answer has no ask to belong to.
+        assert_eq!(
+            ClientFrame::Answer {
+                question_id: "plan-1".into(),
+                ask_id: None,
+                keys: vec!["1".into()],
+                text: None,
+            }
+            .to_json(),
+            r#"{"t":"answer","questionId":"plan-1","keys":["1"]}"#
+        );
+        // EXP-513: the typed reply for a freeText row rides `text`.
+        assert_eq!(
+            ClientFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["4".into()],
+                text: Some("purple".into()),
+            }
+            .to_json(),
+            r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["4"],"text":"purple"}"#
+        );
+    }
+
+    #[test]
+    fn client_answer_round_trips_through_the_publisher_side_frame() {
+        // The two halves of the same wire frame: what a viewer sends must be
+        // exactly what a publisher parses (they are separate enums because
+        // the DIRECTIONS differ, not the bytes).
+        let sent = ClientFrame::Answer {
+            question_id: "toolu_01#1".into(),
+            ask_id: Some("toolu_01".into()),
+            keys: vec!["2".into()],
+            text: Some("purple".into()),
+        }
+        .to_json();
+        assert_eq!(
+            ServerFrame::parse(&sent).unwrap(),
+            ServerFrame::Answer {
+                question_id: "toolu_01#1".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["2".into()],
+                text: Some("purple".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn client_set_config_and_set_mode_serialize() {
+        // EXP-746: byte-for-byte the shapes `setConfigFrame`/`setModeFrame`
+        // validate. Single-word fields — no camelCase rename anywhere.
+        assert_eq!(
+            ClientFrame::SetConfig {
+                id: "model".into(),
+                value: "opus".into(),
+            }
+            .to_json(),
+            r#"{"t":"set_config","id":"model","value":"opus"}"#
+        );
+        // A BLANK value is the "CLI default / omit the flag" choice and must
+        // stay ON the wire — the relay's zod deliberately has no `min(1)`
+        // there, and dropping the key would parse as a malformed frame.
+        assert_eq!(
+            ClientFrame::SetConfig {
+                id: "model".into(),
+                value: String::new(),
+            }
+            .to_json(),
+            r#"{"t":"set_config","id":"model","value":""}"#
+        );
+        assert_eq!(
+            ClientFrame::SetMode { id: "plan".into() }.to_json(),
+            r#"{"t":"set_mode","id":"plan"}"#
+        );
+        // Both halves of the same frame: what a viewer sends is exactly what
+        // the publisher parses back off the relay.
+        assert_eq!(
+            ServerFrame::parse(
+                &ClientFrame::SetConfig {
+                    id: "effort".into(),
+                    value: "high".into(),
+                }
+                .to_json()
+            )
+            .unwrap(),
+            ServerFrame::SetConfig {
+                id: "effort".into(),
+                value: "high".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn viewer_frames_deserialize_the_relay_vocabulary() {
+        // Captured relay strings (hub.ts fans `frame(...)` = JSON.stringify of
+        // exactly these objects to the activity audience).
+        assert_eq!(
+            ViewerFrame::parse(
+                r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"},"seq":0}"#
+            )
+            .unwrap(),
+            ViewerFrame::Activity {
+                event: ActivityEvent::narration("Reading the file"),
+                seq: 0,
+            }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity_reset"}"#).unwrap(),
+            ViewerFrame::ActivityReset
+        );
+        // EXP-783: the marker NAMES its span — the relay emits `firstSeq`
+        // and `lastSeq` on every one, so a spanless marker is not a frame
+        // this build knows (it is ignored, and the quiet timer commits).
+        assert_eq!(ViewerFrame::parse(r#"{"t":"activity_synced"}"#), None);
+        assert_eq!(
+            ViewerFrame::parse(
+                r#"{"t":"activity_synced","firstSeq":12,"lastSeq":40,"truncated":true}"#
+            )
+            .unwrap(),
+            ViewerFrame::ActivitySynced {
+                first_seq: 12,
+                last_seq: 40,
+                truncated: Some(true),
+            }
+        );
+        // EXP-648: `truncated` stays optional — absent means "not truncated".
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity_synced","firstSeq":0,"lastSeq":4}"#).unwrap(),
+            ViewerFrame::ActivitySynced {
+                first_seq: 0,
+                last_seq: 4,
+                truncated: None,
+            }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"keepalive"}"#).unwrap(),
+            ViewerFrame::Keepalive
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"bye","outcome":"publisher_lost"}"#).unwrap(),
+            ViewerFrame::Bye {
+                outcome: Some("publisher_lost".into()),
+            }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"bye"}"#).unwrap(),
+            ViewerFrame::Bye { outcome: None }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"error","code":"no_such_session"}"#).unwrap(),
+            ViewerFrame::Error {
+                code: "no_such_session".into(),
+                message: None,
+            }
+        );
+    }
+
+    #[test]
+    fn viewer_ignores_publisher_bound_and_unknown_frames() {
+        // The control/publisher inbound frames are not this role's business —
+        // and, like any future frame, they must parse to None rather than
+        // erroring the pump.
+        assert_eq!(ViewerFrame::parse(r#"{"t":"check_in"}"#), None);
+        assert_eq!(ViewerFrame::parse(r#"{"t":"input","data":"x"}"#), None);
+        assert_eq!(ViewerFrame::parse(r#"{"t":"kill"}"#), None);
+        assert_eq!(ViewerFrame::parse(r#"{"t":"telepathy"}"#), None);
+        assert_eq!(ViewerFrame::parse("not json"), None);
+        // An event kind from a newer desktop: dropped, socket untouched.
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity","event":{"kind":"hologram"},"seq":0}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn history_chunk_skips_unknown_event_kinds_per_event() {
+        // Compat review R6 #3: a page holding one event from a newer device
+        // used to fail as a whole — `done` never landed and the viewer's
+        // in-flight ask stayed set, leaving "load earlier" dead until the
+        // socket reconnected. Now the unknown slot is `None`, the known
+        // event and the paging fields still land, and `seqs` stays aligned.
+        assert_eq!(
+            ViewerFrame::parse(
+                r#"{"t":"history_chunk","requestId":"p3","events":[{"kind":"narration","text":"older"},{"kind":"from_the_future","payload":{"x":1}}],"seqs":[7,8],"done":true}"#
+            )
+            .unwrap(),
+            ViewerFrame::HistoryChunk {
+                request_id: "p3".to_string(),
+                events: vec![Some(ActivityEvent::narration("older")), None],
+                seqs: vec![7, 8],
+                done: true,
+            }
+        );
+        // A malformed element (not even an object) is skipped the same way.
+        let ViewerFrame::HistoryChunk { events, done, .. } = ViewerFrame::parse(
+            r#"{"t":"history_chunk","requestId":"p4","events":[42,{"kind":"narration","text":"kept"}],"seqs":[1,2],"done":false}"#,
+        )
+        .unwrap() else {
+            panic!("expected a history chunk");
+        };
+        assert_eq!(events, vec![None, Some(ActivityEvent::narration("kept"))]);
+        assert!(!done);
+        // The array itself is still required: a page without one stays
+        // non-conforming.
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"history_chunk","requestId":"p5","done":true}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn activity_events_round_trip_through_the_wire() {
+        // The publisher serializes, the viewer deserializes: every kind must
+        // survive the round trip with every optional field intact.
+        let events = vec![
+            ActivityEvent::Narration {
+                text: "summary".into(),
+                before_question_id: Some("toolu_01".into()),
+                message_id: Some("msg_01".into()),
+                subagent_id: Some("toolu_task".into()),
+                at: Some(1_751_500_000_000),
+            },
+            ActivityEvent::narration("plain prose"),
+            ActivityEvent::Tool {
+                name: "Grep".into(),
+                detail: Some("fn main".into()),
+                id: None,
+                tool_kind: None,
+                subagent_id: Some("agent_01".into()),
+                at: None,
+            },
+            ActivityEvent::tool("TodoWrite", None),
+            ActivityEvent::diff("--- a\n+++ b\n"),
+            ActivityEvent::user_message("fix the login bug"),
+            ActivityEvent::Question {
+                text: "Which color?".into(),
+                options: vec![
+                    QuestionOption {
+                        label: "Red".into(),
+                        key: "1".into(),
+                        description: Some("warm".into()),
+                        free_text: false,
+                    },
+                    QuestionOption {
+                        free_text: true,
+                        ..QuestionOption::new("Type something.", "4")
+                    },
+                ],
+                multi_select: Some(true),
+                plan_mode: Some(true),
+                id: "toolu_01#1".into(),
+                ask_id: Some("toolu_01".into()),
+                index: Some(2),
+                total: Some(3),
+                header: Some("Color".into()),
+                at: Some(7),
+            },
+            ActivityEvent::QuestionResolved {
+                id: Some("toolu_01#0".into()),
+                ask_id: Some("toolu_01".into()),
+                answers: Some(vec!["Red".into()]),
+                dismissed: Some(true),
+                at: None,
+            },
+            ActivityEvent::AnswerAck {
+                id: "toolu_01#0".into(),
+                ask_id: None,
+                at: None,
+            },
+            ActivityEvent::Subagent {
+                id: "agent_01".into(),
+                agent_type: "explore".into(),
+                status: SubagentStatus::Completed,
+                detail: Some("Map the steer crate".into()),
+                at: None,
+                tool_calls: None,
+                title: None,
+                workflow_id: None,
+            },
+            ActivityEvent::Permission {
+                tool: "Bash".into(),
+                detail: None,
+                at: None,
+            },
+            ActivityEvent::ConfigState {
+                options: vec![
+                    ConfigOption {
+                        category: Some("model".into()),
+                        value: Some("opus".into()),
+                        values: Some(vec![ConfigValue::new("opus", "Opus")]),
+                        ..ConfigOption::new("model", "Model")
+                    },
+                    ConfigOption::new("effort", "Effort"),
+                ],
+                current_mode: Some("plan".into()),
+                modes: Some(vec![ConfigMode {
+                    description: Some("Read-only until approved".into()),
+                    ..ConfigMode::new("plan", "Plan")
+                }]),
+                commands: Some(vec![ConfigCommand::new("compact", "Compact the context")]),
+                at: Some(11),
+            },
+            ActivityEvent::Usage {
+                context_used: 124_000,
+                context_size: 200_000,
+                cost_usd: Some(1.25),
+                at: None,
+            },
+            ActivityEvent::usage(0, 0, None),
+        ];
+        for event in events {
+            let frame = ClientFrame::Activity {
+                event: event.clone(),
+                seq: 0,
+            }
+            .to_json();
+            assert_eq!(
+                ViewerFrame::parse(&frame).unwrap(),
+                ViewerFrame::Activity { event: event.clone(), seq: 0 },
+                "round trip {event:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn question_option_defaults_fill_in_for_absent_fields() {
+        // Pre-EXP-513 publishers omit `freeText` and options often carry no
+        // description — both must parse, not fail (an internally-tagged enum
+        // has no per-field fallback without `#[serde(default)]`).
+        let parsed: QuestionOption =
+            serde_json::from_str(r#"{"label":"Red","key":"1"}"#).unwrap();
+        assert_eq!(parsed, QuestionOption::new("Red", "1"));
+        assert!(!parsed.free_text);
+        let free: QuestionOption =
+            serde_json::from_str(r#"{"label":"Type something.","key":"4","freeText":true}"#)
+                .unwrap();
+        assert!(free.free_text);
+        // Unknown future fields are ignored, never a parse failure.
+        let forward: QuestionOption =
+            serde_json::from_str(r#"{"label":"Red","key":"1","hologram":true}"#).unwrap();
+        assert_eq!(forward.label, "Red");
+    }
+}
+
+#[cfg(test)]
+mod exp850_tests {
+    use super::*;
+    use crate::wire::workflow::{
+        WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowState, WorkflowStatus,
+    };
+
+    /// EXP-850 §1: `wait` joined the contract's `toolKind` values in place
+    /// (before `other`), and the ORDER is the lock — reordering it would make
+    /// every client's kind bucket disagree with the next.
+    #[test]
+    fn the_wait_tool_kind_is_in_contract_order() {
+        assert_eq!(ToolKind::parse("wait"), Some(ToolKind::Wait));
+        assert_eq!(serde_json::to_string(&ToolKind::Wait).unwrap(), r#""wait""#);
+        // A `wait` row is an ordinary tool row on the wire.
+        let row = ActivityEvent::Tool {
+            name: "TaskOutput".to_string(),
+            detail: Some("Sleep in the background".to_string()),
+            id: Some("toolu_1".to_string()),
+            tool_kind: Some(ToolKind::Wait),
+            subagent_id: None,
+            at: None,
+        };
+        let json = serde_json::to_string(&row).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool","name":"TaskOutput","detail":"Sleep in the background","id":"toolu_1","toolKind":"wait"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), row);
+    }
+
+    /// EXP-856 / EXP-850 §4: the two additive fields on `subagent`. A pre-850
+    /// edge is byte-identical (both are `skip_serializing_if`), and the new
+    /// status parses back.
+    #[test]
+    fn a_duplicate_subagent_edge_serializes_to_the_relay_schema() {
+        let plain = ActivityEvent::Subagent {
+            id: "toolu_1".to_string(),
+            agent_type: "explore".to_string(),
+            status: SubagentStatus::Started,
+            detail: None,
+            at: None,
+            tool_calls: None,
+            title: None,
+            workflow_id: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&plain).unwrap(),
+            r#"{"kind":"subagent","id":"toolu_1","agentType":"explore","status":"started"}"#
+        );
+        let duplicate = ActivityEvent::Subagent {
+            id: "a55b7012793deae02".to_string(),
+            agent_type: "general-purpose".to_string(),
+            status: SubagentStatus::Duplicate,
+            detail: Some(
+                "Second copy of slowpoke started while the first is still running (resumed by SendMessage)"
+                    .to_string(),
+            ),
+            at: None,
+            tool_calls: None,
+            title: Some("slowpoke".to_string()),
+            workflow_id: Some("toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()),
+        };
+        let json = serde_json::to_string(&duplicate).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"subagent","id":"a55b7012793deae02","agentType":"general-purpose","status":"duplicate","detail":"Second copy of slowpoke started while the first is still running (resumed by SendMessage)","title":"slowpoke","workflowId":"toolu_017Lh63mYhRJ3MrA4A1PXytt"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), duplicate);
+    }
+
+    /// EXP-850 §5: the turn slot's two new fields. A pre-850 edge is
+    /// byte-identical, and `turn_at` omits a zero token count (the caption
+    /// draws no token group while it is unknown).
+    #[test]
+    fn the_turn_slot_carries_the_working_caption_inputs() {
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::turn(TurnState::Started)).unwrap(),
+            r#"{"kind":"turn","state":"started"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::turn_at(
+                TurnState::Started,
+                Some(1_789_204_409_163),
+                Some(0)
+            ))
+            .unwrap(),
+            r#"{"kind":"turn","state":"started","startedAt":1789204409163}"#
+        );
+        let working =
+            ActivityEvent::turn_at(TurnState::Started, Some(1_789_204_409_163), Some(1432));
+        let json = serde_json::to_string(&working).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"turn","state":"started","startedAt":1789204409163,"tokens":1432}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), working);
+    }
+
+    /// EXP-850 §2: the background-task slot, including the empty list that
+    /// closes the strip.
+    /// EXP-927: the `task_list` slot, byte for byte the relay's zod shape.
+    #[test]
+    fn a_task_list_serializes_to_the_relay_schema() {
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::task_list(Vec::new())).unwrap(),
+            r#"{"kind":"task_list","entries":[]}"#
+        );
+        let event = ActivityEvent::task_list(vec![
+            TaskListEntry { content: "Read the issue".to_string(), status: TaskListStatus::Completed },
+            TaskListEntry { content: "Running the tests".to_string(), status: TaskListStatus::InProgress },
+            TaskListEntry { content: "Open the PR".to_string(), status: TaskListStatus::Pending },
+        ]);
+        let wire = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            wire,
+            r#"{"kind":"task_list","entries":[{"content":"Read the issue","status":"completed"},{"content":"Running the tests","status":"in_progress"},{"content":"Open the PR","status":"pending"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&wire).unwrap(), event);
+    }
+
+    /// EXP-1051: the `context_layout` slot, byte for byte the relay's zod
+    /// shape — the keys in contract order, `detail` only where the publisher
+    /// named one, `at` absent until the history buffer stamps it.
+    #[test]
+    fn a_context_layout_serializes_to_the_relay_schema() {
+        let segment = |key: ContextSegmentKey, tokens: i64, source: ContextSegmentSource| {
+            ContextSegment { key, tokens, source, detail: None }
+        };
+        let event = ActivityEvent::context_layout(vec![
+            segment(ContextSegmentKey::Base, 21_000, ContextSegmentSource::Measured),
+            segment(ContextSegmentKey::Tools, 2_400, ContextSegmentSource::Estimated),
+            segment(ContextSegmentKey::Playbook, 1_500, ContextSegmentSource::Estimated),
+            segment(ContextSegmentKey::Team, 800, ContextSegmentSource::Estimated),
+            ContextSegment {
+                key: ContextSegmentKey::Project,
+                tokens: 9_800,
+                source: ContextSegmentSource::Estimated,
+                detail: Some("CLAUDE.md, ~/.claude/CLAUDE.md".to_string()),
+            },
+            segment(ContextSegmentKey::Task, 600, ContextSegmentSource::Estimated),
+        ]);
+        let wire = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            wire,
+            r#"{"kind":"context_layout","segments":[{"key":"base","tokens":21000,"source":"measured"},{"key":"tools","tokens":2400,"source":"estimated"},{"key":"playbook","tokens":1500,"source":"estimated"},{"key":"team","tokens":800,"source":"estimated"},{"key":"project","tokens":9800,"source":"estimated","detail":"CLAUDE.md, ~/.claude/CLAUDE.md"},{"key":"task","tokens":600,"source":"estimated"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&wire).unwrap(), event);
+        assert_eq!(CONTEXT_SEGMENT_DETAIL_MAX, 200);
+    }
+
+    #[test]
+    fn background_tasks_serialize_to_the_relay_schema() {
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::background_tasks(Vec::new())).unwrap(),
+            r#"{"kind":"background_tasks","tasks":[]}"#
+        );
+        let event = ActivityEvent::background_tasks(vec![
+            BackgroundTask {
+                id: "b4mwz6csc".to_string(),
+                kind: BackgroundTaskKind::Shell,
+                description: "Sleep in the background".to_string(),
+                tool_id: Some("toolu_01MCRoRaXN1cvEsHJzDEg2B3".to_string()),
+                started_at: None,
+            },
+            BackgroundTask {
+                id: "w5zr2977l".to_string(),
+                kind: BackgroundTaskKind::Workflow,
+                description: "Probe the workflow progress wire".to_string(),
+                tool_id: None,
+                started_at: None,
+            },
+        ]);
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"background_tasks","tasks":[{"id":"b4mwz6csc","kind":"shell","description":"Sleep in the background","toolId":"toolu_01MCRoRaXN1cvEsHJzDEg2B3"},{"id":"w5zr2977l","kind":"workflow","description":"Probe the workflow progress wire"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), event);
+        assert_eq!(
+            BackgroundTaskKind::from_task_type("local_agent"),
+            BackgroundTaskKind::Agent
+        );
+        assert_eq!(
+            BackgroundTaskKind::from_task_type("local_teleport"),
+            BackgroundTaskKind::Other
+        );
+    }
+
+    /// EXP-1324: a thought's edges and a background task's first sight, in
+    /// the relay's field names; a thought never carries text.
+    #[test]
+    fn thought_edges_and_started_at_serialize_to_the_relay_schema() {
+        let started = ActivityEvent::Thought {
+            id: "m-1#thought".to_string(),
+            state: ThoughtState::Started,
+            duration_ms: None,
+            subagent_id: None,
+            at: None,
+        };
+        let json = serde_json::to_string(&started).unwrap();
+        assert_eq!(json, r#"{"kind":"thought","id":"m-1#thought","state":"started"}"#);
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), started);
+        let ended = ActivityEvent::Thought {
+            id: "m-1#thought".to_string(),
+            state: ThoughtState::Ended,
+            duration_ms: Some(5400),
+            subagent_id: Some("task-1".to_string()),
+            at: Some(7),
+        };
+        let json = serde_json::to_string(&ended).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"thought","id":"m-1#thought","state":"ended","durationMs":5400,"subagentId":"task-1","at":7}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), ended);
+        let mut ended = ended;
+        assert!(ended.text_fields_mut().is_empty());
+        let tasks = ActivityEvent::background_tasks(vec![BackgroundTask {
+            id: "b1".to_string(),
+            kind: BackgroundTaskKind::Shell,
+            description: "Rerun the captures".to_string(),
+            tool_id: None,
+            started_at: Some(1_792_000_000_000),
+        }]);
+        let json = serde_json::to_string(&tasks).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"background_tasks","tasks":[{"id":"b1","kind":"shell","description":"Rerun the captures","startedAt":1792000000000}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), tasks);
+    }
+
+    /// EXP-850 §3: the workflow card. Field order IS serialization order and
+    /// the relay's zod is declared in the same one.
+    #[test]
+    fn a_workflow_card_serializes_to_the_relay_schema() {
+        let event = ActivityEvent::workflow(WorkflowState {
+            id: "toolu_017aGvi2moAfSykrRA4LmyT4".to_string(),
+            name: "wire-probe".to_string(),
+            description: Some("Probe the workflow progress wire".to_string()),
+            status: WorkflowStatus::Running,
+            phases: vec![
+                WorkflowPhase { index: 1, title: "Alpha".to_string() },
+                WorkflowPhase { index: 2, title: "Beta".to_string() },
+            ],
+            agents: vec![
+                WorkflowAgent {
+                    index: 1,
+                    label: "alpha:one".to_string(),
+                    phase_index: Some(1),
+                    agent_id: Some("a0ce244c651aaa623".to_string()),
+                    model: Some("claude-haiku-4-5-20251001".to_string()),
+                    state: WorkflowAgentState::Done,
+                    tokens: Some(9629),
+                    tool_calls: Some(0),
+                    duration_ms: Some(1075),
+                    last_tool: None,
+                    last_tool_summary: None,
+                    result_preview: Some("ok".to_string()),
+                    error: None,
+                },
+                WorkflowAgent {
+                    index: 2,
+                    label: "alpha:two".to_string(),
+                    phase_index: Some(1),
+                    state: WorkflowAgentState::Queued,
+                    ..WorkflowAgent::default()
+                },
+            ],
+            summary: None,
+            at: None,
+        });
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"workflow","id":"toolu_017aGvi2moAfSykrRA4LmyT4","name":"wire-probe","description":"Probe the workflow progress wire","status":"running","phases":[{"index":1,"title":"Alpha"},{"index":2,"title":"Beta"}],"agents":[{"index":1,"label":"alpha:one","phaseIndex":1,"agentId":"a0ce244c651aaa623","model":"claude-haiku-4-5-20251001","state":"done","tokens":9629,"toolCalls":0,"durationMs":1075,"resultPreview":"ok"},{"index":2,"label":"alpha:two","phaseIndex":1,"state":"queued"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), event);
+        // An unknown status fails the parse, so a future value is DROPPED (the
+        // "ignore what you do not know, never kill the socket" rule) rather
+        // than rendered as running.
+        assert!(serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"workflow","id":"a","name":"w","status":"melting","phases":[],"agents":[]}"#
+        )
+        .is_err());
+    }
+
+    /// The redactor walks every free-text field of the two new kinds, and
+    /// NONE of their machine fields (ids, enum values, the launching tool id).
+    #[test]
+    fn the_new_kinds_expose_only_their_free_text_to_the_redactor() {
+        let mut tasks = ActivityEvent::background_tasks(vec![BackgroundTask {
+            id: "b1".to_string(),
+            kind: BackgroundTaskKind::Shell,
+            description: "sleep".to_string(),
+            tool_id: Some("toolu_1".to_string()),
+            started_at: None,
+        }]);
+        assert_eq!(
+            tasks.text_fields_mut().iter().map(|f| f.as_str()).collect::<Vec<_>>(),
+            vec!["sleep"]
+        );
+        let mut workflow = ActivityEvent::workflow(WorkflowState {
+            id: "toolu_1".to_string(),
+            name: "wire-probe".to_string(),
+            description: Some("probe".to_string()),
+            status: WorkflowStatus::Completed,
+            phases: vec![WorkflowPhase { index: 1, title: "Alpha".to_string() }],
+            agents: vec![WorkflowAgent {
+                index: 1,
+                label: "alpha:one".to_string(),
+                agent_id: Some("a0ce".to_string()),
+                state: WorkflowAgentState::Error,
+                last_tool: Some("Bash".to_string()),
+                last_tool_summary: Some("sleep 60".to_string()),
+                result_preview: Some("ok".to_string()),
+                error: Some("boom".to_string()),
+                ..WorkflowAgent::default()
+            }],
+            summary: Some("done".to_string()),
+            at: None,
+        });
+        assert_eq!(
+            workflow.text_fields_mut().iter().map(|f| f.as_str()).collect::<Vec<_>>(),
+            vec![
+                "wire-probe", "probe", "Alpha", "alpha:one", "Bash", "sleep 60", "ok", "boom",
+                "done"
+            ]
+        );
+        // `at` is stampable on both, like every other kind.
+        *tasks.at_mut() = Some(7);
+        *workflow.at_mut() = Some(9);
+        assert_eq!(*tasks.at_mut(), Some(7));
+        assert_eq!(*workflow.at_mut(), Some(9));
+    }
+}
