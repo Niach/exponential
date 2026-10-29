@@ -728,7 +728,10 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// viewfinder a square up to `maxWidth` 280 inside), then (with a
     /// `hint`) the root gap (12) and the hint.
     private func qrScanner(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
-        let width: CGFloat = wrap.flatMap { $0 > 0 ? $0 : nil } ?? QrScannerGeometry.maxWidth
+        // A fixed width (the author's `style.width`, the control box) wins:
+        // the core asks max- and min-content with no wrap.
+        let fixed = leaf.control.width.map { max(0, $0 - leaf.control.insets.0) }
+        let width: CGFloat = fixed ?? wrap.flatMap { $0 > 0 ? $0 : nil } ?? QrScannerGeometry.maxWidth
         let finder = QrScannerGeometry.viewfinder(width: width)
         let hint = leaf.props.str("hint")
         guard !hint.isEmpty else { return CGSize(width: width, height: finder) }
