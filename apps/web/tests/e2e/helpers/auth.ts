@@ -46,7 +46,11 @@ export async function registerUser(
   await page.getByLabel(`Password`, { exact: true }).fill(user.password)
 
   await Promise.all([
-    expect(page).toHaveURL(options.expectedPath ?? /\/onboarding\/?$/),
+    // A fresh dev server compiles `/` and the onboarding route on this
+    // first redirect: give it more than the default expect timeout.
+    expect(page).toHaveURL(options.expectedPath ?? /\/onboarding\/?$/, {
+      timeout: 45_000,
+    }),
     page.getByRole(`button`, { name: `Create account` }).click(),
   ])
 }

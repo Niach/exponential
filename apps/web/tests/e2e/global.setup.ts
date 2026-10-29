@@ -15,6 +15,12 @@ async function warmUp() {
     await page
       .getByRole(`heading`, { level: 1, name: `Continue to Exponential` })
       .waitFor({ timeout: 180_000 })
+    // Sign-up lands on `/`, which redirects to /onboarding: compile both.
+    for (const path of [`/`, `/onboarding`]) {
+      await page.goto(`https://localhost:3000${path}`, { timeout: 180_000 })
+      // Best effort: a page that keeps polling must not fail the setup.
+      await page.waitForLoadState(`networkidle`, { timeout: 60_000 }).catch(() => {})
+    }
   } finally {
     await browser.close()
   }
