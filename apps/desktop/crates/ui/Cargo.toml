@@ -22,8 +22,8 @@ coding = { path = "../coding" }
 # (the CLI daemon, which links `screen` through `coding`, never does).
 screen = { path = "../screen", features = ["portal"] }
 steer = { path = "../steer" }
-# NEW-53: the speech worker's host side (Speak replies, crates/talk).
-talk = { path = "../talk" }
+# NEW-53: the speech worker's host side (Speak replies, crates/etalk).
+etalk = { path = "../etalk" }
 # EXP-746: the ACP session engine — `Screen::Session` drives an `EngineSession`
 # instead of a PTY tab whenever the launch resolves to the Acp transport.
 engine = { path = "../engine" }

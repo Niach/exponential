@@ -373,7 +373,7 @@ from the publishers' own servers; on macOS the CrispASR runtime instead ships
 INSIDE the signed, notarized app bundle (`Contents/Frameworks`, put there by
 `apps/desktop/scripts/build-macos-app.sh` from the same pinned release asset,
 re-signed with our identity) and only the models are fetched. The worker checks each download against a pinned sha256 BEFORE it unpacks or
-loads it (`apps/desktop/crates/crispasr`: `platform.rs`, `models.rs`), keeps
+loads it (`apps/desktop/crates/etalk-crispasr`: `platform.rs`, `models.rs`), keeps
 only the named files, and re-hashes every library before `dlopen`. A
 mismatch deletes the file and the voice backs off (1 min doubling to 1 h).
 
@@ -416,7 +416,7 @@ and sweeps leftover `*.part` / `*.tmp` files whenever the speech worker shuts
 down; both wait on the worker's lock (`talk::SpeechClient::remove_voice_data`,
 `talk::SpeechClient::remove_partial_downloads`).
 
-The built-in reference clips (`apps/desktop/crates/voice/assets/`, in the
+The built-in reference clips (`apps/desktop/crates/etalk-engine/assets/`, in the
 binary, ~0.9 MB) are our own output of Qwen3-TTS 0.6B CustomVoice
 (Apache-2.0), preset speaker `ryan`; no person's voice is in them (see the
 README there). A member's own reference clip never leaves the voice device.

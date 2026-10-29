@@ -18,7 +18,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((&config, mut rest)) = data.split_first() else { return };
     let rate = RATES[(config & 7) as usize % RATES.len()];
     let channels = if config & 8 != 0 { 2 } else { 1 };
-    let mut decoder = call_codec::Decoder::new(rate, channels).expect("a valid decoder");
+    let mut decoder = etalk_codec::Decoder::new(rate, channels).expect("a valid decoder");
     while rest.len() >= 4 {
         let (op, frame) = (rest[0] % 3, rest[1]);
         let len = (u16::from_le_bytes([rest[2], rest[3]]) as usize).min(rest.len() - 4);

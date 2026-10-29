@@ -355,19 +355,19 @@ fn refuse_for_meeting(call_id: String, cx: &mut App) {
 
 /// A speech-worker event that belongs to the call (routed here before
 /// push to talk and Speak replies see it).
-pub(crate) fn owns(event: &talk::Event, cx: &App) -> bool {
+pub(crate) fn owns(event: &etalk::Event, cx: &App) -> bool {
     let Some(entity) = global(cx) else { return false };
     let this = entity.read(cx);
     let Some(active) = this.active.as_ref() else { return false };
     match event {
-        talk::Event::Said { id, .. } | talk::Event::SpeechStarted { id } | talk::Event::CallListening { id } => *id == active.id,
-        talk::Event::Level { id, .. } | talk::Event::Partial { id, .. } | talk::Event::ListenFailed { id, .. } => *id == active.id,
-        talk::Event::SpeechAudio { .. } => active.host.is_some(),
+        etalk::Event::Said { id, .. } | etalk::Event::SpeechStarted { id } | etalk::Event::CallListening { id } => *id == active.id,
+        etalk::Event::Level { id, .. } | etalk::Event::Partial { id, .. } | etalk::Event::ListenFailed { id, .. } => *id == active.id,
+        etalk::Event::SpeechAudio { .. } => active.host.is_some(),
         _ => false,
     }
 }
 
-pub(crate) fn on_worker_event(event: talk::Event, cx: &mut App) {
+pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.on_worker(event, cx));
     }
@@ -679,10 +679,10 @@ impl VoiceCall {
         }
     }
 
-    fn on_worker(&mut self, event: talk::Event, cx: &mut Context<Self>) {
+    fn on_worker(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
         match event {
-            talk::Event::CallListening { .. } => self.on_listening(cx),
-            talk::Event::Level { level, bands, .. } => {
+            etalk::Event::CallListening { .. } => self.on_listening(cx),
+            etalk::Event::Level { level, bands, .. } => {
                 if let Some(active) = self.active.as_mut() {
                     if active.listening_at.is_some() && level >= VOICE_CALL.constants.no_sound_level {
                         active.heard = true;
@@ -696,36 +696,36 @@ impl VoiceCall {
                 });
                 self.push_pill(cx);
             }
-            talk::Event::Partial { text, .. } => self.step(CallEvent::Partial(text), cx),
-            talk::Event::SpeechStarted { .. } => {
+            etalk::Event::Partial { text, .. } => self.step(CallEvent::Partial(text), cx),
+            etalk::Event::SpeechStarted { .. } => {
                 if let Some(host) = self.active.as_ref().and_then(|active| active.host.as_ref()) {
                     host.flush();
                 }
                 self.step(CallEvent::SpeechStarted, cx);
             }
-            talk::Event::Said { text, .. } => self.said(text, cx),
-            talk::Event::SpeechAudio { pcm, rate, .. } => {
+            etalk::Event::Said { text, .. } => self.said(text, cx),
+            etalk::Event::SpeechAudio { pcm, rate, .. } => {
                 let Some(host) = self.active.as_ref().and_then(|active| active.host.as_ref()) else { return };
-                let Ok(samples) = talk::decode_pcm(&pcm) else { return };
+                let Ok(samples) = etalk::decode_pcm(&pcm) else { return };
                 host.send_speech(samples, rate);
             }
             // NEW-55 review: the worker died: the call cannot go on.
-            talk::Event::Exited if self.active.is_some() => {
+            etalk::Event::Exited if self.active.is_some() => {
                 log::warn!("[voice] the speech worker exited during a call");
                 self.fail("dropped", cx);
             }
             // S-3: a voice still downloading keeps ringing (the worker
             // opens the call after the download).
-            talk::Event::ListenFailed { reason: talk::ListenFailure::Downloading, .. } => {}
-            talk::Event::ListenFailed { reason, detail, .. } => {
+            etalk::Event::ListenFailed { reason: etalk::ListenFailure::Downloading, .. } => {}
+            etalk::Event::ListenFailed { reason, detail, .. } => {
                 log::warn!("[voice] the call could not listen: {detail}");
                 let code = match reason {
-                    talk::ListenFailure::NoMicrophone => "no_microphone",
-                    talk::ListenFailure::NotGranted => "not_granted",
+                    etalk::ListenFailure::NoMicrophone => "no_microphone",
+                    etalk::ListenFailure::NotGranted => "not_granted",
                     // NEW-57: voice-call.json `failed.meeting`.
-                    talk::ListenFailure::Meeting => "meeting",
+                    etalk::ListenFailure::Meeting => "meeting",
                     // S-3: the download or the load failed.
-                    talk::ListenFailure::Unavailable => "unavailable",
+                    etalk::ListenFailure::Unavailable => "unavailable",
                     _ => "dropped",
                 };
                 self.fail(code, cx);
@@ -906,7 +906,7 @@ fn ring_for_test(agent_id: &str, cx: &mut App) -> String {
 #[cfg(test)]
 fn start_for_test(agent_id: &str, cx: &mut App) {
     let id = ring_for_test(agent_id, cx);
-    on_worker_event(talk::Event::CallListening { id: id.clone() }, cx);
+    on_worker_event(etalk::Event::CallListening { id: id.clone() }, cx);
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.on_rang(&id, cx));
     }
@@ -944,8 +944,8 @@ mod tests {
     async fn a_worker_crash_ends_the_call(cx: &mut gpui::TestAppContext) {
         running(cx);
         cx.update(|cx| {
-            assert!(!owns(&talk::Event::Exited, cx), "the dispatcher sends Exited itself");
-            on_worker_event(talk::Event::Exited, cx);
+            assert!(!owns(&etalk::Event::Exited, cx), "the dispatcher sends Exited itself");
+            on_worker_event(etalk::Event::Exited, cx);
             assert!(!active(cx));
             assert_eq!(phase(cx), CallPhase::Hidden);
         });
@@ -979,7 +979,7 @@ mod tests {
     async fn an_exit_without_a_call_is_ignored(cx: &mut gpui::TestAppContext) {
         setup(cx);
         cx.update(|cx| {
-            on_worker_event(talk::Event::Exited, cx);
+            on_worker_event(etalk::Event::Exited, cx);
             assert!(!active(cx));
         });
     }
@@ -994,7 +994,7 @@ mod tests {
             let id = ring_for_test("agent-1", cx);
             assert_eq!(phase(cx), CallPhase::Ringing);
             assert_eq!(face(cx).unwrap().view.status.as_deref(), Some(VOICE_CALL.copy.calling.as_str()));
-            let event = talk::Event::CallListening { id: id.clone() };
+            let event = etalk::Event::CallListening { id: id.clone() };
             assert!(owns(&event, cx));
             on_worker_event(event, cx);
             assert_eq!(phase(cx), CallPhase::Ringing, "ready without the ring's end keeps ringing");
@@ -1019,7 +1019,7 @@ mod tests {
             global(cx).unwrap().update(cx, |this, cx| this.on_rang(&id, cx));
             assert_eq!(face(cx).unwrap().view.status.as_deref(), Some(VOICE_CALL.copy.getting_ready.as_str()));
             on_worker_event(
-                talk::Event::ListenFailed { id: id.clone(), reason: talk::ListenFailure::Downloading, detail: "downloading".into() },
+                etalk::Event::ListenFailed { id: id.clone(), reason: etalk::ListenFailure::Downloading, detail: "downloading".into() },
                 cx,
             );
             assert!(active(cx));
@@ -1038,7 +1038,7 @@ mod tests {
             global(cx).unwrap().update(cx, |this, cx| this.on_max_ring(&id, cx));
             assert!(!active(cx));
             let id = ring_for_test("agent-1", cx);
-            on_worker_event(talk::Event::ListenFailed { id, reason: talk::ListenFailure::Unavailable, detail: "load".into() }, cx);
+            on_worker_event(etalk::Event::ListenFailed { id, reason: etalk::ListenFailure::Unavailable, detail: "load".into() }, cx);
             assert!(!active(cx));
             assert_eq!(global(cx).unwrap().read(cx).toasts, vec![unavailable.clone(), unavailable.clone()]);
         });
@@ -1057,7 +1057,7 @@ mod tests {
             start_for_test("agent-1", cx);
             let id = global(cx).unwrap().read(cx).active.as_ref().unwrap().id.clone();
             let level = VOICE_CALL.constants.no_sound_level;
-            on_worker_event(talk::Event::Level { id: id.clone(), level, bands: [level; talk::LEVEL_BANDS] }, cx);
+            on_worker_event(etalk::Event::Level { id: id.clone(), level, bands: [level; etalk::LEVEL_BANDS] }, cx);
             global(cx).unwrap().update(cx, |this, cx| this.mic_checked(&id, cx));
             assert_eq!(face(cx).unwrap().view.caption, "");
         });

@@ -1,5 +1,5 @@
 /* NEW-15: /talk/guides/<slug>/, both Talk guides by the path's slug. Facts:
-   crates/talk (custom_voice_file), crates/voice/src/builtin.rs,
+   crates/etalk (custom_voice_file), crates/etalk-engine/src/builtin.rs,
    fixtures/voice.json (shortcutGrammar, shortcutSupportCases, pttCopy). */
 import type { ReactNode } from "react"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"

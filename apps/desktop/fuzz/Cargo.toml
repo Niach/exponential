@@ -5,7 +5,7 @@
 #
 # Targets: opus_decode (packet → PCM at any rate, channel count and frame
 # size, plus FEC and concealment), call_uplink (the call host's exact receive
-# path, `call_codec::Uplink`), aec (`decibri_aec` with any config, any
+# path, `etalk_codec::Uplink`), aec (`decibri_aec` with any config, any
 # reference/microphone interleaving and chunk sizes). The release suite runs
 # each briefly; `-F libopus` fuzzes the libopus fallback instead.
 # Its own workspace: never a member of apps/desktop's.
@@ -20,12 +20,12 @@ license = "Apache-2.0"
 cargo-fuzz = true
 
 [features]
-libopus = ["call-codec/libopus"]
+libopus = ["etalk-codec/libopus"]
 
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-call-codec = { path = "../crates/call-codec" }
+etalk-codec = { path = "../crates/etalk-codec" }
 opus-rs = "=0.1.40"
 decibri-aec = "=0.2.0"
 

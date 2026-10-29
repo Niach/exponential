@@ -565,7 +565,7 @@ pub fn low_disk(doctor: &DeviceDoctor) -> bool {
         .any(|item| item.key == KEY_DISK && item.state == DoctorState::Action)
 }
 
-/// NEW-78: what the IDE's microphone probe found (`talk::microphone`, mapped
+/// NEW-78: what the IDE's microphone probe found (`etalk::microphone`, mapped
 /// by the IDE: coding never depends on talk).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MicrophoneState {
@@ -629,7 +629,7 @@ pub fn add_wake(doctor: &mut DeviceDoctor, listening: bool, detail: &str) {
 }
 
 /// NEW-57: what this machine's desktop audio capture can do (mapped by the
-/// IDE from `talk::apps`: coding never depends on talk).
+/// IDE from `etalk::apps`: coding never depends on talk).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesktopAudioState {
     /// One channel per app.

@@ -4,7 +4,7 @@
 //!
 //!   cargo run --release --example seeds -- <speech.wav> <corpus>   (in apps/desktop/fuzz; run.sh does it)
 //!
-//! The clip is 16-bit mono PCM (`crates/voice/assets/builtin-en.wav`); the
+//! The clip is 16-bit mono PCM (`crates/etalk-engine/assets/builtin-en.wav`); the
 //! seeds are written to `<corpus>/opus_decode` and `<corpus>/call_uplink`
 //! (gitignored, never committed). An encoder panic while seeding is
 //! printed as `ENCODER PANIC: <config>` (opus-rs 0.1.40: in-band FEC at

@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "call-codec"
+name = "etalk-codec"
 version = "0.14.79"
 dependencies = [
  "log",
@@ -63,7 +63,7 @@ name = "desktop-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
- "call-codec",
+ "etalk-codec",
  "decibri-aec",
  "libfuzzer-sys",
  "opus-rs",

@@ -35,8 +35,8 @@ coding = { path = "../coding" }
 computer = { path = "../computer" }
 # NEW-53: exponentialTalk. `talk` = the speech worker's wire, `voice` = the
 # worker itself (this binary re-run as `__speech-worker`).
-talk = { path = "../talk" }
-voice = { path = "../voice" }
+etalk = { path = "../etalk" }
+etalk-engine = { path = "../etalk-engine" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true

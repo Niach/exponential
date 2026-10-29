@@ -8,7 +8,7 @@ publish = false
 [features]
 # NEW-88: code the call's Opus with the system libopus instead of `opus-rs`
 # (`cargo build -p app --features steer/libopus`; needs libopus-dev).
-libopus = ["call-codec/libopus"]
+libopus = ["etalk-codec/libopus"]
 
 [dependencies]
 # default-features = false (EXP-403): steer only reads the gpui-free emulator
@@ -45,7 +45,7 @@ log = "0.4"
 # NEW-55: the call host's audio: Opus in pure Rust (a port of libopus 1.6,
 # BSD-3), so no cmake on any runner. NEW-88: behind `call-codec`, whose
 # `libopus` feature (forwarded below) swaps in the system libopus.
-call-codec = { path = "../call-codec" }
+etalk-codec = { path = "../etalk-codec" }
 # Secret-redaction patterns for the public activity emitter (§P7). Already in
 # the workspace lock via transitive deps — adds no new build.
 regex = "1"

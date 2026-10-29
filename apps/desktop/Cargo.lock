@@ -335,6 +335,8 @@ dependencies = [
  "dirs",
  "domain",
  "embed-resource",
+ "etalk",
+ "etalk-engine",
  "flume 0.11.1",
  "gpui",
  "gpui-component",
@@ -345,11 +347,9 @@ dependencies = [
  "rust-embed",
  "steer",
  "sync",
- "talk",
  "terminal",
  "theme",
  "ui",
- "voice",
  "x11rb",
 ]
 
@@ -1277,15 +1277,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "call-codec"
-version = "0.14.84"
-dependencies = [
- "log",
- "opus-rs",
- "pkg-config",
-]
-
-[[package]]
 name = "calloop"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2094,20 +2085,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crispasr"
-version = "0.14.84"
-dependencies = [
- "flate2",
- "libc",
- "libloading",
- "log",
- "reqwest 0.12.28",
- "sha2 0.10.9",
- "tar",
- "zip",
-]
-
-[[package]]
 name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2864,6 +2841,63 @@ checksum = "fc89bf99e5dc15954a60f707c1e09d7540e5cd9af85fa75caa0b510bc08c5342"
 dependencies = [
  "euclid",
  "svg_fmt",
+]
+
+[[package]]
+name = "etalk"
+version = "0.14.84"
+dependencies = [
+ "base64 0.22.1",
+ "block2 0.6.2",
+ "cpal",
+ "log",
+ "objc2 0.6.4",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "pipewire",
+ "serde",
+ "serde_json",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
+]
+
+[[package]]
+name = "etalk-codec"
+version = "0.14.84"
+dependencies = [
+ "log",
+ "opus-rs",
+ "pkg-config",
+]
+
+[[package]]
+name = "etalk-crispasr"
+version = "0.14.84"
+dependencies = [
+ "flate2",
+ "libc",
+ "libloading",
+ "log",
+ "reqwest 0.12.28",
+ "sha2 0.10.9",
+ "tar",
+ "zip",
+]
+
+[[package]]
+name = "etalk-engine"
+version = "0.14.84"
+dependencies = [
+ "cpal",
+ "decibri-aec",
+ "etalk",
+ "etalk-codec",
+ "etalk-crispasr",
+ "libc",
+ "log",
+ "serde_json",
 ]
 
 [[package]]
@@ -9749,9 +9783,9 @@ name = "steer"
 version = "0.14.84"
 dependencies = [
  "api",
- "call-codec",
  "coding",
  "domain",
+ "etalk-codec",
  "exponential-agent-runtime",
  "flume 0.11.1",
  "futures-util",
@@ -10167,26 +10201,6 @@ name = "tag_ptr"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0e973b34477b7823833469eb0f5a3a60370fef7a453e02d751b59180d0a5a05"
-
-[[package]]
-name = "talk"
-version = "0.14.84"
-dependencies = [
- "base64 0.22.1",
- "block2 0.6.2",
- "cpal",
- "log",
- "objc2 0.6.4",
- "objc2-core-audio",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
- "pipewire",
- "serde",
- "serde_json",
- "windows 0.61.3",
- "windows-core 0.61.2",
-]
 
 [[package]]
 name = "tao-core-video-sys"
@@ -11274,6 +11288,7 @@ dependencies = [
  "dirs",
  "domain",
  "engine",
+ "etalk",
  "exponential-ui",
  "exponential-ui-gpui",
  "flume 0.11.1",
@@ -11301,7 +11316,6 @@ dependencies = [
  "sha2 0.10.9",
  "steer",
  "sync",
- "talk",
  "terminal",
  "theme",
  "tray-icon",
@@ -11735,20 +11749,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "voice"
-version = "0.14.84"
-dependencies = [
- "call-codec",
- "cpal",
- "crispasr",
- "decibri-aec",
- "libc",
- "log",
- "serde_json",
- "talk",
-]
 
 [[package]]
 name = "vswhom"
