@@ -1472,8 +1472,8 @@
         "file": "shots/exponential-ui-composer/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 11796,
-        "sha256": "4f2574f52bb352ee09ae46f409837efe45aace1871ed15ac976fe4dcdb49f381"
+        "bytes": 11812,
+        "sha256": "08bacb246d3348f295efce20c501028d13e4271e49e14bfb81b4f73131ab8a0e"
       },
       "desktop": {
         "file": "shots/exponential-ui-composer/desktop.webp",
@@ -1892,8 +1892,8 @@
         "file": "shots/exponential-ui-heading/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 12780,
-        "sha256": "918d97036a3aec358b850ec8f6ad20f8813ad7b862b42e54d3eb815ad236e8f5"
+        "bytes": 16074,
+        "sha256": "b09758ac043a54bfc9448e4aad4e3b0d41f0881b2cda95d3324927b09c97bfbf"
       },
       "desktop": {
         "file": "shots/exponential-ui-heading/desktop.webp",
@@ -1922,8 +1922,8 @@
         "file": "shots/exponential-ui-icon/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 11684,
-        "sha256": "9256f93e1423b726e3ee11855779f559186d29727e97f03bd14ee09323b63eea"
+        "bytes": 13722,
+        "sha256": "c37ffc530b10104056fdfab8abb8f9230bcede78ec08e2a599982317e16f805c"
       },
       "desktop": {
         "file": "shots/exponential-ui-icon/desktop.webp",
@@ -1982,8 +1982,8 @@
         "file": "shots/exponential-ui-input/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 26532,
-        "sha256": "d9942d8337c87609ffcfb2206d1bf2f806a71c6ae28e9377d33c5a957fe492da"
+        "bytes": 27788,
+        "sha256": "137c992666885232617d78ee40e871bc2adbd4c70b86f86772fefd5a9ee080af"
       },
       "desktop": {
         "file": "shots/exponential-ui-input/desktop.webp",
@@ -2619,8 +2619,8 @@
         "file": "shots/exponential-ui-segmented/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 16874,
-        "sha256": "bc0b6ee633ff5e120b56aa5240f10b19344e36f25741de1779d16be0725c5f98"
+        "bytes": 20468,
+        "sha256": "94a45bea5678152de75dc31714ac82e2d81b3c0ee749a58e1b5265eed059ca7f"
       },
       "desktop": {
         "file": "shots/exponential-ui-segmented/desktop.webp",
