@@ -237,8 +237,6 @@ impl Default for VoiceSettings {
         Self {
             voice_device_id: None,
             agent_id: None,
-            speak_replies: false,
-            push_to_talk: false,
             ptt_shortcut: String::new(),
             wake_word: false,
             wake_phrase: String::new(),
