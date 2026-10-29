@@ -1,6 +1,2 @@
-- Stories: amit az ügynökeid mutatnak (kérdések, tervek, eredmények képernyőképekkel), storyként jelenik meg a Csevegések fölött; lapozz végig rajtuk, és válaszolj ott helyben
-- A te Asszisztensed: minden tag saját Asszisztenst kap, saját csevegéssel, hanggal és ütemezéssel; a Beállítások mostantól köré csoportosulnak
-- Hívások, mint a telefonon: a hívás előbb kicseng, majd Hello? köszönéssel felel, egy hívásképernyőn kerek némítás, hangszóró és bontás gombokkal
-- Értekezlet mód: az Asszisztensed követhet egy értekezletet, amelyet az asztali gépeden indítasz, mindenki beleegyezésével, és a választott idő után magától leáll
-- Összekapcsolt csevegések: egy másik csevegésből érkező üzenet megmutatja, honnan jött; koppints rá, hogy odaugorj és vissza
-- Javítások: a csevegések fejléce egyezik a többi alkalmazással, a gyors visszahívás újra kicseng, és a tervmód megszűnt (a tervek kártyák, amelyekre válaszolsz)
+- Történetek lap: minden kérdés, terv és eredmény, amit egy munkamenet megmutatott, megmarad az utolsó lapján képernyőképekkel, és mutatja, hogyan zárult
+- A pull request módosításai és Stackje a történetei fölött vannak; koppints egy történetre vagy képre a teljes méretű megnyitáshoz

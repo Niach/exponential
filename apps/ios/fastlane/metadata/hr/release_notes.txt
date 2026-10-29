@@ -1,6 +1,2 @@
-- Stories: ono što vam agenti pokazuju (pitanja, planovi, rezultati sa snimkama zaslona) stiže kao stories iznad Razgovora; listajte ih i odgovorite odmah ondje
-- Vaš Asistent: svaki član dobiva vlastitog Asistenta, s vlastitim razgovorom, glasom i rasporedom; Postavke su nanovo grupirane oko njega
-- Pozivi kao telefonski: poziv najprije zvoni, a zatim se javlja s Hello?, na zaslonu poziva s okruglim tipkama za utišavanje, zvučnik i prekid
-- Način sastanka: vaš Asistent može pratiti sastanak koji pokrenete na desktopu, uz pristanak svih, i sam se zaustavlja nakon vremena koje odaberete
-- Povezani razgovori: poruka iz drugog razgovora pokazuje odakle dolazi; dodirnite je da skočite tamo i natrag
-- Ispravci: zaglavlja razgovora odgovaraju ostalim aplikacijama, brzi ponovni poziv opet zvoni, a način plana je uklonjen (planovi su kartice na koje odgovarate)
+- Kartica Priče: svako pitanje, plan i rezultat koji ti je sesija pokazala ostaje na njezinoj zadnjoj kartici, sa snimkama zaslona, i pokazuje kako je završio
+- Promjene i Stack pull requesta nalaze se iznad njegovih priča; dodirni priču ili sliku da je otvoriš u punoj veličini

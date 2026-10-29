@@ -1,6 +1,2 @@
-- Stories: det agentene dine viser deg (spørsmål, planer, resultater med skjermbilder), kommer som stories øverst i Chatter; sveip gjennom dem og svar rett der
-- Din Assistent: hvert medlem får sin egen Assistent, med egen chat, stemme og tidsplan; Innstillinger er omgruppert rundt den
-- Samtaler som en telefonsamtale: en samtale ringer først og svarer så med Hello?, på en samtaleskjerm med runde knapper for demp, høyttaler og legg på
-- Møtemodus: Assistenten din kan følge et møte du starter på skrivebordet, med alles samtykke, og stopper av seg selv etter tiden du velger
-- Koblede chatter: en melding fra en annen chat viser hvor den kom fra; trykk på den for å hoppe dit og tilbake
-- Rettelser: chatoverskrifter samsvarer med de andre appene, en rask gjenoppringing ringer igjen, og planmodus er borte (planer er kort du svarer på)
+- Fanen Historier: hvert spørsmål, hver plan og hvert resultat en økt viste deg, blir liggende i den siste fanen med skjermbilder og viser hvordan det endte
+- Pull requestens endringer og stack står over historiene; trykk på en historie eller et bilde for å åpne det i full størrelse

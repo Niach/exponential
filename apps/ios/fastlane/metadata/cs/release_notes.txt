@@ -1,6 +1,2 @@
-- Stories: co vám agenti ukazují (otázky, plány, výsledky se snímky obrazovky), se objeví jako stories nad Chaty; listujte jimi a odpovídejte přímo tam
-- Váš Asistent: každý člen dostane vlastního Asistenta s vlastním chatem, hlasem a rozvrhem; Nastavení jsou kolem něj nově uspořádána
-- Hovory jako po telefonu: hovor nejdřív zazvoní, pak se ozve Hello?, na obrazovce hovoru s kulatými tlačítky pro ztlumení, reproduktor a zavěšení
-- Režim schůzky: váš Asistent může sledovat schůzku, kterou spustíte na desktopu, se souhlasem všech, a po zvoleném čase se sám zastaví
-- Propojené chaty: zpráva z jiného chatu ukazuje, odkud pochází; klepněte na ni a přejděte tam a zpět
-- Opravy: záhlaví chatů odpovídají ostatním aplikacím, rychlé opětovné vytočení znovu zazvoní a režim plánu zmizel (plány jsou karty, na které odpovídáte)
+- Karta Příběhy: každá otázka, plán a výsledek, který vám relace ukázala, zůstává na její poslední kartě i se snímky obrazovky a ukazuje, jak skončil
+- Změny a Stack pull requestu jsou nad jeho příběhy; klepnutím otevřete příběh nebo obrázek na celou obrazovku

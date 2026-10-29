@@ -1,6 +1,2 @@
-- Stories: was deine Agents dir zeigen (Fragen, Pläne, Ergebnisse mit Screenshots), landet als Stories über den Chats; wisch dich durch und antworte direkt dort
-- Dein Assistent: jedes Mitglied bekommt einen eigenen Assistenten mit eigenem Chat, eigener Stimme und eigenem Zeitplan; die Einstellungen sind neu um ihn herum gruppiert
-- Anrufe wie am Telefon: ein Anruf klingelt zuerst und meldet sich dann mit Hallo?, auf einem Anrufbildschirm mit runden Tasten für Stummschalten, Lautsprecher und Auflegen
-- Meeting-Modus: dein Assistent kann einem Meeting folgen, das du auf deinem Desktop startest, mit dem Einverständnis aller, und stoppt nach der gewählten Zeit von selbst
-- Verknüpfte Chats: eine Nachricht aus einem anderen Chat zeigt, woher sie kommt; tipp darauf, um dorthin und zurück zu springen
-- Fehlerbehebungen: Chat-Kopfzeilen passen zu den anderen Apps, ein schneller Rückruf klingelt erneut, und der Planmodus ist weg (Pläne sind Karten, die du beantwortest)
+- Stories-Tab: jede Frage, jeder Plan und jedes Ergebnis, das dir eine Sitzung gezeigt hat, bleibt in ihrem letzten Tab, mit Screenshots, und zeigt, wie es ausging
+- Änderungen und Stack des Pull Requests stehen über seinen Stories; tipp auf eine Story oder ein Bild, um es groß zu öffnen

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-29-stories-tab",
+    date: "2026-10-29",
+    title: "A Stories tab in every session",
+    summary: "Every story a session showed you stays in its Stories tab, next to its pull request.",
+    body: r#"- **Stories tab**: a session's last tab collects every question, plan and result it showed you, with screenshots, on web, desktop, iOS and Android; a dot marks a new one.
+- **Outcomes at a glance**: each story says whether you approved it, asked for changes, answered it or a newer one replaced it.
+- **Next to the pull request**: the pull request's Changes and Stack sit on top of its stories, and a tap opens the story or picture full size."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_111: ChangelogEntry = ChangelogEntry {
     id: "2026-10-29-no-permission-prompts",
     date: "2026-10-29",
     title: "No more Allow or Deny cards in your voice agent's chat",

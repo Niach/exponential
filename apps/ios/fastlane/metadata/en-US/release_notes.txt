@@ -1,6 +1,2 @@
-- Stories: what your agents show you (questions, plans, results with screenshots) lands as stories on top of Chats; swipe through them and answer right there
-- Your Assistant: every member gets their own Assistant, with its own chat, voice and schedule; Settings are regrouped around it
-- Calls like a phone call: a call rings first, then answers with Hello?, on a call screen with round mute, speaker and end buttons
-- Meeting mode: your Assistant can follow a meeting you start on your desktop, with everyone's consent, and stops by itself after the time you pick
-- Linked chats: a message from another chat says where it came from; tap it to jump there and back
-- Fixes: chat headers match the other apps, a quick redial rings again, and plan mode is gone (plans are cards you answer)
+- Stories tab: every question, plan and result a session showed you stays in its last tab, with screenshots, and says how it ended
+- The pull request's Changes and Stack sit on top of its stories; tap a story or picture to open it full size

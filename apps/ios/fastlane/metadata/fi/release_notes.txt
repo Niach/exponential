@@ -1,6 +1,2 @@
-- Stories: se, mitä agenttisi näyttävät sinulle (kysymykset, suunnitelmat, tulokset kuvakaappauksineen), tulee storyina Keskustelujen yläpuolelle; selaa niitä ja vastaa suoraan siellä
-- Oma Avustaja: jokainen jäsen saa oman Avustajan, jolla on oma keskustelu, ääni ja aikataulu; Asetukset on ryhmitelty uudelleen sen ympärille
-- Puhelut kuin puhelimessa: puhelu soi ensin ja vastaa sitten Hello?, puhelunäkymässä, jossa on pyöreät mykistys-, kaiutin- ja lopetuspainikkeet
-- Kokoustila: Avustajasi voi seurata kokousta, jonka aloitat työpöydällä, kaikkien suostumuksella, ja lopettaa itsestään valitsemasi ajan jälkeen
-- Linkitetyt keskustelut: toisesta keskustelusta tullut viesti kertoo, mistä se on peräisin; napauta sitä siirtyäksesi sinne ja takaisin
-- Korjaukset: keskustelujen otsikot vastaavat muita sovelluksia, nopea uudelleensoitto soi taas, ja suunnitelmatila on poistettu (suunnitelmat ovat kortteja, joihin vastaat)
+- Tarinat-välilehti: jokainen kysymys, suunnitelma ja tulos, jonka istunto näytti sinulle, säilyy sen viimeisellä välilehdellä kuvakaappauksineen ja kertoo, miten se päättyi
+- Pull requestin muutokset ja Stack ovat sen tarinoiden yläpuolella; avaa tarina tai kuva koko kokoon napauttamalla
