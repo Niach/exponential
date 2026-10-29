@@ -107,25 +107,28 @@ private struct AssistantSettingsContent: View {
                 EmptyState(title: AgentSettings.AssistantCopy.noDevice, icon: AppIcons.navDevices, size: .page)
                     .accessibilityIdentifier("assistant-no-device")
             } else {
-                AssistantSettingsForm(
-                    draft: draft,
-                    voice: voice,
-                    devices: devices,
-                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                    accountId: accountId,
-                    httpClient: deps.httpClient,
-                    onRetryInstructions: { Task { await loadInstructions(retried: true) } },
-                    onCheckIn: { setCheckIn($0) }
-                )
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if agentId != nil {
-                GlassSubmitButton("Save changes", enabled: canSubmit, loading: draft.saving) {
-                    Task { await save() }
+                // S-5: the bar sits BELOW the Form, not in its safe-area
+                // inset: this Form is taller than the screen, and an inset
+                // let its rows scroll on under the glass bar and the home
+                // indicator. Laid out above it, the last row scrolls up to
+                // the bar and stops there.
+                VStack(spacing: 0) {
+                    AssistantSettingsForm(
+                        draft: draft,
+                        voice: voice,
+                        devices: devices,
+                        baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                        accountId: accountId,
+                        httpClient: deps.httpClient,
+                        onRetryInstructions: { Task { await loadInstructions(retried: true) } },
+                        onCheckIn: { setCheckIn($0) }
+                    )
+                    GlassSubmitButton("Save changes", enabled: canSubmit, loading: draft.saving) {
+                        Task { await save() }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
             }
         }
         .navigationTitle(AgentSettings.AssistantCopy.title)
