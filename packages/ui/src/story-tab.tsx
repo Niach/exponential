@@ -26,19 +26,24 @@ function waitingTint(story: Pick<Story, `kind`>): { dot: string; text: string } 
     : { dot: `bg-primary`, text: `text-primary` }
 }
 
+/** `wide` = web md+ (and the IDE), `phone` = web-mobile (and the natives). */
+export type StoryTabSize = `wide` | `phone`
+
 /** A thumbnail's width (px): by the picture's aspect at `tile.thumbHeight`,
- *  capped at `tile.thumbMaxWidth`; an unknown size = 4:3. */
-export function storyThumbWidth(picture: Pick<StoryPicture, `width` | `height`>): number {
+ *  capped at `tile.thumbMaxWidth` (both per size); an unknown size = 4:3. */
+export function storyThumbWidth(picture: Pick<StoryPicture, `width` | `height`>, size: StoryTabSize): number {
   const aspect = picture.width && picture.height ? picture.width / picture.height : 4 / 3
-  return Math.min(TILE.thumbMaxWidth, Math.round(TILE.thumbHeight * aspect))
+  return Math.min(TILE.thumbMaxWidth[size], Math.round(TILE.thumbHeight[size] * aspect))
 }
 
 export function StoryTile({
   story,
+  size,
   attachmentSrc,
   onOpen,
 }: {
   story: Story
+  size: StoryTabSize
   attachmentSrc: (attachmentId: string) => string
   /** A tap on the tile (picture 0) or a thumbnail (its index). */
   onOpen?: (story: Story, picture: number) => void
@@ -70,7 +75,7 @@ export function StoryTile({
           style={{ gap: TILE.gap }}
         >
           {story.pictures.map((picture, index) => {
-            const width = storyThumbWidth(picture)
+            const width = storyThumbWidth(picture, size)
             return (
               <button
                 key={`${picture.attachmentId}-${index}`}
@@ -85,7 +90,7 @@ export function StoryTile({
                   alt={picture.caption ?? picture.label}
                   draggable={false}
                   className="block border border-glass-stroke bg-muted object-cover object-top"
-                  style={{ width, height: TILE.thumbHeight, borderRadius: TILE.radius }}
+                  style={{ width, height: TILE.thumbHeight[size], borderRadius: TILE.radius }}
                 />
                 <span className="truncate text-xs text-muted-foreground">{picture.caption ?? picture.label}</span>
               </button>
@@ -100,12 +105,14 @@ export function StoryTile({
 /** THE Stories tab body (`storyTab()`'s ring; null = the empty state). */
 export function StoryTab({
   ring,
+  size,
   lead,
   attachmentSrc = (id) => `/api/attachments/${id}`,
   onOpen,
   className,
 }: {
   ring: Pick<StoryRing, `stories`> | null
+  size: StoryTabSize
   /** The PR block (the Stack band + StackRail, the Changes row). */
   lead?: ReactNode
   attachmentSrc?: (attachmentId: string) => string
@@ -123,7 +130,7 @@ export function StoryTab({
       {stories.length > 0 ? (
         <div className="flex min-w-0 flex-col" style={{ gap: TILE.listGap }}>
           {stories.map((story) => (
-            <StoryTile key={story.id} story={story} attachmentSrc={attachmentSrc} onOpen={onOpen} />
+            <StoryTile key={story.id} story={story} size={size} attachmentSrc={attachmentSrc} onOpen={onOpen} />
           ))}
         </div>
       ) : (

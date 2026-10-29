@@ -212,6 +212,7 @@ export function ThreadStories({
   here: string
   back: string | undefined
 }) {
+  const isMobile = useIsMobile()
   const files = usePullRequestFiles(pullRequest?.id ?? null)
   const diff = files.state.kind === `files` ? files.state.files : null
   const counts = useMemo(() => (diff ? sum(diff) : null), [diff])
@@ -241,6 +242,7 @@ export function ThreadStories({
       ) : (
         <StoryTab
           ring={tab.ring}
+          size={isMobile ? `phone` : `wide`}
           lead={lead}
           onOpen={(story, picture) => setOpen({ storyId: story.id, picture })}
         />

@@ -26,7 +26,7 @@ export const entry: StyleguideEntry = {
   island: () => (
     <div className="flex flex-wrap items-start gap-6">
       <StoryTabSpecimen />
-      <StoryTabSpecimen width={360} />
+      <StoryTabSpecimen width={360} size="phone" />
     </div>
   ),
 }

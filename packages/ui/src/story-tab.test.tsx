@@ -8,16 +8,19 @@ import { StoryTabSpecimen } from "./story-tab-specimen"
 // STORIES TAB (stories.json): the tiles paint `storyTab()`'s ring.
 describe(`storyThumbWidth`, () => {
   it(`by aspect at the thumb height, capped; unknown = 4:3`, () => {
-    const { thumbHeight, thumbMaxWidth } = STORY_TAB.tile
-    expect(storyThumbWidth({ width: 1179, height: 2556 })).toBe(Math.round(thumbHeight * (1179 / 2556)))
-    expect(storyThumbWidth({ width: 4000, height: 1000 })).toBe(thumbMaxWidth)
-    expect(storyThumbWidth({ width: null, height: null })).toBe(Math.round((thumbHeight * 4) / 3))
+    for (const size of [`wide`, `phone`] as const) {
+      const thumbHeight = STORY_TAB.tile.thumbHeight[size]
+      const thumbMaxWidth = STORY_TAB.tile.thumbMaxWidth[size]
+      expect(storyThumbWidth({ width: 1179, height: 2556 }, size)).toBe(Math.round(thumbHeight * (1179 / 2556)))
+      expect(storyThumbWidth({ width: 4000, height: 1000 }, size)).toBe(thumbMaxWidth)
+      expect(storyThumbWidth({ width: null, height: null }, size)).toBe(Math.round((thumbHeight * 4) / 3))
+    }
   })
 })
 
 describe(`StoryTab`, () => {
   it(`one tile per story in fold order, the title + meta, a thumbnail per picture with its caption else label`, () => {
-    render(<StoryTab ring={STORY_TAB_SPECIMEN} attachmentSrc={(id) => `/a/${id}`} />)
+    render(<StoryTab size="wide" ring={STORY_TAB_SPECIMEN} attachmentSrc={(id) => `/a/${id}`} />)
     const tiles = screen.getAllByTestId(STORY_TAB.testIds.tile)
     expect(tiles.map((tile) => tile.dataset.story)).toEqual(STORY_TAB_SPECIMEN.stories.map((story) => story.id))
     expect(tiles[0]!.dataset.waiting).toBe(`true`)
@@ -32,7 +35,7 @@ describe(`StoryTab`, () => {
 
   it(`a tap opens the story; a thumbnail opens its picture`, () => {
     const onOpen = vi.fn()
-    render(<StoryTab ring={STORY_TAB_SPECIMEN} onOpen={onOpen} />)
+    render(<StoryTab size="wide" ring={STORY_TAB_SPECIMEN} onOpen={onOpen} />)
     const tiles = screen.getAllByTestId(STORY_TAB.testIds.tile)
     fireEvent.click(tiles[0]!.querySelector(`button`)!)
     expect(onOpen).toHaveBeenLastCalledWith(STORY_TAB_SPECIMEN.stories[0], 0)
@@ -41,7 +44,7 @@ describe(`StoryTab`, () => {
   })
 
   it(`no ring = THE empty state, the lead still above it`, () => {
-    render(<StoryTab ring={null} lead={<div data-testid="lead" />} />)
+    render(<StoryTab size="wide" ring={null} lead={<div data-testid="lead" />} />)
     expect(screen.getByTestId(`lead`)).toBeTruthy()
     expect(screen.getByText(STORY_TAB.copy.empty)).toBeTruthy()
   })

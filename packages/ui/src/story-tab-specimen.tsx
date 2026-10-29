@@ -1,5 +1,5 @@
 import { STORY_TAB_SPECIMEN } from "@exp/domain-contract/stories"
-import { StoryTab } from "./story-tab"
+import { StoryTab, type StoryTabSize } from "./story-tab"
 
 // STORIES TAB: THE styleguide specimen (stories.json `tab.specimen` =
 // tabCases[1]'s ring), drawn by the styleguide entry `story-tab` and the
@@ -11,14 +11,14 @@ import { StoryTab } from "./story-tab"
 const PLACEHOLDER = `data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7`
 const placeholderSrc = () => PLACEHOLDER
 
-export function StoryTabSpecimen({ width = 640 }: { width?: number }) {
+export function StoryTabSpecimen({ width = 640, size = `wide` }: { width?: number; size?: StoryTabSize }) {
   return (
     <div
       data-testid="story-tab-specimen"
       className="rounded-3xl border border-glass-stroke-card bg-background p-5"
       style={{ width, maxWidth: `100%` }}
     >
-      <StoryTab ring={STORY_TAB_SPECIMEN} attachmentSrc={placeholderSrc} onOpen={() => {}} />
+      <StoryTab ring={STORY_TAB_SPECIMEN} size={size} attachmentSrc={placeholderSrc} onOpen={() => {}} />
     </div>
   )
 }
