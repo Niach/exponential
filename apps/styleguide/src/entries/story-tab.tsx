@@ -25,7 +25,12 @@ export const entry: StyleguideEntry = {
       file: `apps/desktop/crates/ui/src/story_tab.rs`,
       note: `host: thread_screen.rs (the Stories strip tab, PR block, review pane); styleguide twin entries/story_tab.rs`,
     },
-    ios: { state: `leftover`, note: `Port pending (stories.json STORIES TAB)` },
+    ios: {
+      state: `ok`,
+      symbol: `StoryTabView / StoryTile`,
+      file: `apps/ios/Exponential/UI/Thread/ThreadStories.swift`,
+      note: `host: ThreadScreen.swift (the Stories pager page + strip tab, PR block, review page); specimen StorySpecimensScreen sg_story-tab`,
+    },
     android: {
       state: `ok`,
       symbol: `StoryTab / StoryTile`,
