@@ -61,8 +61,26 @@ caller changes until a later cleanup.
    logout. `run_doctor`, the profiles, the device caps and Exponential's `ToolCheck` (the lean
    one plus the account fields), the staging / commit / import flow and its emulator-driven PTY
    stay in `coding` / `cli` / `ui` and call the core.
-4. The ACP engine core (adapters, mapper, host, session, transport) behind `RunBackend` /
-   `EventSink`; `engine` becomes Exponential's adapter.
+4. The ACP engine core behind `RunBackend` / `EventSink`; `engine` becomes Exponential's adapter.
+   - **4a, done.** `spawn` (`SpawnSpec`, `ChildExit`, `login_path`, out of `terminal::pty`, which
+     re-exports them; the PTY emulator stays in `terminal`) and `engine::` = the child-process
+     line transport (`transport`), the child's exit link (`child_exit`, out of `engine::host`),
+     the `EventSink` seam on `wire::ActivityEvent` plus `RecordingSink` (`sink`; `steer`
+     implements it for its `ActivitySender`), the local feed vocabulary (`local`) and the pure
+     run policies (`stall`, `api_retry`, `compaction`). `engine` re-exports each under its old
+     path.
+   - **4b, next.** `mapper`, `host`, `session`, `adapters/*`, `context_layout`, `exp_tool_refs`
+     and `terminals`. What they still pull from Exponential, i.e. the seams 4b defines:
+     `RunBackend` (`api::session_device` report / reply / consume, `ReplyCard` / `ReplyOption` /
+     `LostReason` / `SessionReport`, `AnswerInput`, `McpActor`, `TrpcClient`, `ApiError`); a core
+     launch spec filled from `coding::PreparedLaunch` / `AcpLaunch` (program, args, env, cwd,
+     agent, resume seed, MCP servers as `McpServerWire`, confine root, `ContextLayers`);
+     `coding::codemode` reports, `coding::agent_usage` (live rate limits), the claude transcript
+     locator, `mcp_json` / `argv` / `skill` / launcher flags; from `steer` the not-yet-moved
+     `RemoteAnswer`, `SessionBlocked`, `TurnSignal` / signals / links, `exp_tool*`, `journal`
+     caps, `answer_tap`, the publisher's image localizer / attachment hook and `SteerRuntime`;
+     `domain::contract` caps (inline + pin like `wire`) and `domain::plan_card`; and
+     `terminal::pty::open` for the ACP `terminal/*` capability (`terminals`).
 5. A local backend and a runnable example: one turn plus the session history with your own login,
    no server.
 
