@@ -55,29 +55,6 @@ function isBelow(
   return false
 }
 
-// Transitional per-feature ceilings (the COMPAT shims' partner to the 426
-// floor): `true` only when the request's `x-client-version` header names a
-// native platform listed in `ceilings` at or BELOW that version. Everything
-// ambiguous is `false` (no header = the web app or an MCP key, an unlisted
-// platform, an unparseable version): a shim keyed on this must degrade for
-// old natives only, never change what current clients see. Each caller's
-// ceilings are the last versions shipped BEFORE the behaviour it guards.
-export function clientAtOrBelow(
-  request: Pick<Request, `headers`>,
-  ceilings: Partial<Record<ClientPlatform, string>>
-): boolean {
-  const parsed = parseClientVersionHeader(
-    request.headers.get(CLIENT_VERSION_HEADER)
-  )
-  if (!parsed) return false
-  const ceiling = ceilings[parsed.platform]
-  if (!ceiling) return false
-  const ceilingTuple = parseVersionTuple(ceiling)
-  const versionTuple = parseVersionTuple(parsed.version)
-  if (!ceilingTuple || !versionTuple) return false
-  return !isBelow(ceilingTuple, versionTuple)
-}
-
 // Returns the 426 Response when the request identifies itself as a gated
 // platform below the configured minimum, else null (allow).
 export function checkClientVersion(request: Request): Response | null {

@@ -80,23 +80,30 @@ describe(`shape column allowlists`, () => {
 })
 
 describe(`sessions allowlist`, () => {
-  it(`keeps the legacy read shims for the shipped clients, never the server-only columns`, () => {
-    for (const shim of [
+  it(`syncs none of the legacy NEW-8 columns, nor the server-only ones`, () => {
+    for (const legacy of [
+      `kind`,
       `dispatch`,
       `caption`,
       `aside`,
       `move_to_device_id`,
       `handoff_restored_at`,
       `spawned_by_session_id`,
+      `name`,
+      `icon`,
+      `color`,
+      `triggers`,
+      `sort_order`,
+      `action_id`,
+      `action_name`,
+      `action_inputs`,
+      `wake_on`,
+      `mcp_server_ids`,
     ]) {
-      expect(SESSION_COLUMNS).toContain(shim)
+      expect(SESSION_COLUMNS).not.toContain(legacy)
     }
-    expect(SESSION_COLUMNS).not.toContain(`wake_on`)
-    expect(SESSION_COLUMNS).not.toContain(`mcp_server_ids`)
-    // NEW-2: the agent facets moved to `agents`; their shims stay listed.
-    for (const shim of [`kind`, `name`, `icon`, `color`, `triggers`, `sort_order`, `action_id`, `action_name`, `action_inputs`]) {
-      expect(SESSION_COLUMNS).toContain(shim)
-    }
+    expect(SESSION_ISSUE_COLUMNS).not.toContain(`assigned_session_id`)
+    expect(MESSAGE_COLUMNS).not.toContain(`session_id`)
     expect(SESSION_COLUMNS).toContain(`agent_id`)
   })
   it(`keeps an agent's instructions and trigger bookkeeping server-only`, () => {
@@ -122,8 +129,5 @@ describe(`sessions allowlist`, () => {
   })
   it(`keeps a send's idempotency key server-only (F21)`, () => {
     expect(MESSAGE_COLUMNS).not.toContain(`client_message_id`)
-  })
-  it(`keeps the never-written assignment column the shipped desktop names`, () => {
-    expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)
   })
 })

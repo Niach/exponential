@@ -92,8 +92,6 @@ const AGENT = `3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
 const stored = {
   voiceDeviceId: `d-mint`,
   agentId: AGENT,
-  speakReplies: true,
-  pushToTalk: true,
   pttShortcut: `ctrl+space`,
   wakeWord: false,
   wakePhrase: ``,
@@ -106,9 +104,6 @@ const stored = {
   meetingAutoStopHours: 4,
 }
 const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null, meetingAutoStopHours: 4 }
-// S-3: the legacy shims old clients read (speak-back always on, push to
-// talk = a key bound).
-const LEGACY_DEFAULTS = { speakReplies: true, pushToTalk: false }
 
 const OTHER_AGENT = `4f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
 const FOREIGN_AGENT = `5f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
@@ -129,24 +124,13 @@ beforeEach(() => {
 describe(`voice.get`, () => {
   it(`a member without a row or an Assistant gets the fixture's defaults`, async () => {
     h.state.assistants = []
-    expect(await caller.get()).toEqual({ ...fixture.defaults, ...LEGACY_DEFAULTS, ...MEETING_DEFAULTS })
-  })
-
-  it(`S-3: speakReplies always reads true and pushToTalk reads a bound key`, async () => {
-    const at = { createdAt: new Date(), updatedAt: new Date() }
-    h.state.selectQueue = [
-      [{ userId: `me`, ...stored, speakReplies: false, pushToTalk: false, ...at }],
-      [{ userId: `me`, ...stored, pttShortcut: ``, pushToTalk: true, ...at }],
-    ]
-    expect(await caller.get()).toMatchObject({ speakReplies: true, pushToTalk: true, pttShortcut: `ctrl+space` })
-    expect(await caller.get()).toMatchObject({ speakReplies: true, pushToTalk: false, pttShortcut: `` })
+    expect(await caller.get()).toEqual({ ...fixture.defaults, ...MEETING_DEFAULTS })
   })
 
   // S-3: the voice device and agent are DERIVED from the member's Assistant.
   it(`a member without a row reads their Assistant and its desktop, wake word off`, async () => {
     expect(await caller.get()).toEqual({
       ...fixture.defaults,
-      ...LEGACY_DEFAULTS,
       ...MEETING_DEFAULTS,
       voiceDeviceId: `d-mint`,
       agentId: AGENT,
@@ -166,8 +150,6 @@ describe(`voice.get`, () => {
     expect(await caller.get()).toMatchObject({
       voiceDeviceId: null,
       agentId: AGENT,
-      speakReplies: true,
-      pushToTalk: true,
       wakeWord: false,
     })
   })
@@ -182,8 +164,8 @@ describe(`voice.update`, () => {
   it(`stores the binding with the Assistant's mirror, and nudges its device`, async () => {
     h.state.selectQueue = [[]]
     const next = await caller.update({ agentId: AGENT, pttShortcut: `ctrl+space` })
-    expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true, pttShortcut: `ctrl+space` })
-    expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, speakReplies: true, pushToTalk: true })
+    expect(next).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, pttShortcut: `ctrl+space` })
+    expect(h.state.upserts[0]?.set).toMatchObject({ voiceDeviceId: `d-mint`, agentId: AGENT, pttShortcut: `ctrl+space` })
     expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
   })
 
@@ -202,8 +184,6 @@ describe(`voice.update`, () => {
       expect(await caller.update(change)).toMatchObject({
         voiceDeviceId: `d-mint`,
         agentId: AGENT,
-        speakReplies: true,
-        pushToTalk: true,
       })
     }
   })
@@ -245,8 +225,8 @@ describe(`S-3 push-to-talk binding`, () => {
       h.state.upserts = []
       const write = caller.update({ pttShortcut: c.in })
       if (c.value === c.in) {
-        expect(await write, c.in).toMatchObject({ pttShortcut: c.in, pushToTalk: c.in !== `` })
-        expect(h.state.upserts[0]?.set, c.in).toMatchObject({ pttShortcut: c.in, pushToTalk: c.in !== `` })
+        expect(await write, c.in).toMatchObject({ pttShortcut: c.in })
+        expect(h.state.upserts[0]?.set, c.in).toMatchObject({ pttShortcut: c.in })
       } else {
         await expect(write, c.in).rejects.toMatchObject({ code: `BAD_REQUEST` })
         expect(h.state.upserts, c.in).toHaveLength(0)
@@ -256,22 +236,7 @@ describe(`S-3 push-to-talk binding`, () => {
 
   it(`an empty binding = push to talk off`, async () => {
     h.state.selectQueue = [row()]
-    expect(await caller.update({ pttShortcut: `` })).toMatchObject({ pttShortcut: ``, pushToTalk: false })
-  })
-
-  it(`an old client's pushToTalk false clears the key; true without one binds ctrl+space`, async () => {
-    h.state.selectQueue = [row()]
-    expect(await caller.update({ pushToTalk: false })).toMatchObject({ pttShortcut: ``, pushToTalk: false })
-    h.state.selectQueue = [row({ pttShortcut: `` })]
-    expect(await caller.update({ pushToTalk: true })).toMatchObject({ pttShortcut: `ctrl+space`, pushToTalk: true })
-    h.state.selectQueue = [row({ pttShortcut: `f13` })]
-    expect(await caller.update({ pushToTalk: true })).toMatchObject({ pttShortcut: `f13`, pushToTalk: true })
-  })
-
-  it(`an old client's speakReplies is ignored (speak-back is always on)`, async () => {
-    h.state.selectQueue = [row()]
-    expect(await caller.update({ speakReplies: false })).toMatchObject({ speakReplies: true })
-    expect(h.state.upserts[0]?.set).toMatchObject({ speakReplies: true })
+    expect(await caller.update({ pttShortcut: `` })).toMatchObject({ pttShortcut: `` })
   })
 })
 
@@ -281,8 +246,6 @@ describe(`#NEW-71`, () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null, wakeWord: true }]]
     expect(await caller.get()).toMatchObject({
       agentId: null,
-      speakReplies: true,
-      pushToTalk: true,
       pttShortcut: `ctrl+space`,
       wakeWord: false,
     })
@@ -631,7 +594,7 @@ describe(`voice.startCall`, () => {
   })
 
   it(`S-3: Speak replies off never refuses, and a downloading voice rings`, async () => {
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored, speakReplies: false }], [deviceRow()]]
+    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow()]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })
     h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: doctor(`action`) })]]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })

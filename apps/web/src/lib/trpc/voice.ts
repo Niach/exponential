@@ -15,10 +15,7 @@
 // for the device or the agent clear it.
 //
 // S-3 (voice.json): speak-back is always on and push to talk is a key
-// binding (`pttShortcut`, `shortcutGrammar`, empty = off). `speakReplies` and
-// `pushToTalk` stay in the answer for OLD clients only (true / a key bound)
-// and in the input as legacy writes (pushToTalk false clears the key, true
-// without one binds `ctrl+space`; speakReplies is ignored).
+// binding (`pttShortcut`, `shortcutGrammar`, empty = off).
 // FEED-163: `meetingAutoStopHours` (one of `autoStop.hoursValues`) bounds the
 // meeting; `stopMeeting {reason}` (the device's auto-stop or restart) clears
 // only the stamp it read and, when it did, posts `stopNote` once into the
@@ -56,10 +53,6 @@ type Db = typeof Database
 export interface VoiceSettings {
   voiceDeviceId: string | null
   agentId: string | null
-  /** S-3 legacy shim for old clients: always true. */
-  speakReplies: boolean
-  /** S-3 legacy shim for old clients: a key is bound. */
-  pushToTalk: boolean
   /** S-3: `shortcutGrammar`'s canonical text; empty = push to talk off. */
   pttShortcut: string
   wakeWord: boolean
@@ -80,8 +73,6 @@ export interface VoiceSettings {
 /** voice.json `defaults` plus the meeting.json settings' defaults. */
 export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
   ...VOICE_DEFAULTS,
-  speakReplies: true,
-  pushToTalk: VOICE_DEFAULTS.pttShortcut !== ``,
   desktopAudio: `off`,
   desktopAudioApps: [],
   meetingStartedAt: null,
@@ -90,9 +81,7 @@ export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
 
 const DESKTOP_AUDIO = DESKTOP_AUDIO_VALUES.map((option) => option.value) as [DesktopAudio, ...DesktopAudio[]]
 
-/** S-3: the binding a legacy pushToTalk true binds when no key is. */
 const VOICE_SHORTCUT_MAX = VOICE_SHORTCUT_GRAMMAR.maxLength
-const LEGACY_PTT_SHORTCUT = `ctrl+space`
 const LANGUAGE_VALUES = VOICE_LANGUAGES.map((language) => language.value) as [string, ...string[]]
 const AUTO_STOP_HOURS = z
   .number()
@@ -133,8 +122,6 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
   return withClearOnNone({
     voiceDeviceId: voice.voiceDeviceId,
     agentId: voice.agentId,
-    speakReplies: true,
-    pushToTalk: row.pttShortcut !== ``,
     pttShortcut: row.pttShortcut,
     wakeWord: row.wakeWord,
     wakePhrase: row.wakePhrase,
@@ -156,13 +143,10 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
   })
 }
 
-/** The row's columns for a settings object (the meeting stamp as a Date;
- *  the S-3 legacy columns mirror what old clients read). */
+/** The row's columns for a settings object (the meeting stamp as a Date). */
 function rowOf(settings: VoiceSettings) {
   return {
     ...settings,
-    speakReplies: true,
-    pushToTalk: settings.pttShortcut !== ``,
     meetingStartedAt: settings.meetingStartedAt ? new Date(settings.meetingStartedAt) : null,
   }
 }
@@ -233,14 +217,6 @@ export function withClearOnNone(settings: VoiceSettings): VoiceSettings {
   return settings
 }
 
-/** S-3: the binding after an update, old clients' `pushToTalk` included. */
-export function pttShortcutOf(before: string, input: { pttShortcut?: string; pushToTalk?: boolean }): string {
-  const key = input.pttShortcut ?? before
-  if (input.pushToTalk === false) return ``
-  if (input.pushToTalk === true && key === ``) return LEGACY_PTT_SHORTCUT
-  return key
-}
-
 /** NEW-57 (meeting.json): an update that CHANGES the meeting's scope (the
  *  voice device, the agent, Desktop audio or its apps) while one runs stops
  *  it: a wider scope needs a new consent. */
@@ -306,9 +282,6 @@ export const voiceRouter = router({
       z.object({
         voiceDeviceId: z.string().min(1).max(128).nullable().optional(),
         agentId: z.string().uuid().nullable().optional(),
-        // S-3: legacy writes of old clients (see the header).
-        speakReplies: z.boolean().optional(),
-        pushToTalk: z.boolean().optional(),
         pttShortcut: z.string().max(VOICE_SHORTCUT_MAX).optional(),
         wakeWord: z.boolean().optional(),
         wakePhrase: oneLine(VOICE_LIMITS.wakePhrase, `wake phrase`).optional(),
@@ -352,15 +325,10 @@ export const voiceRouter = router({
       if (pickedAgent && voice.agentId !== pickedAgent) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `That agent isn't your Assistant` })
       }
-      const { speakReplies: _speakReplies, pushToTalk: _pushToTalk, ...writes } = changes
-      const pttShortcut = pttShortcutOf(before.pttShortcut, input)
       const next = withMeetingScope(before, withClearOnNone({
         ...before,
-        ...Object.fromEntries(Object.entries(writes).filter(([, value]) => value !== undefined)),
+        ...Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)),
         ...voice,
-        speakReplies: true,
-        pttShortcut,
-        pushToTalk: pttShortcut !== ``,
         wakePhrase: input.wakePhrase === undefined ? before.wakePhrase : input.wakePhrase.trim(),
         voiceFile: input.voiceFile === undefined ? before.voiceFile : input.voiceFile.trim(),
         voiceTranscript: input.voiceTranscript === undefined ? before.voiceTranscript : input.voiceTranscript.trim(),

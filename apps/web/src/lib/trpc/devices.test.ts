@@ -540,7 +540,6 @@ describe(`devices.remove`, () => {
     })
     // S-3: a bound push-to-talk key stays bound.
     expect(h.state.updates[0]!.set).not.toHaveProperty(`pttShortcut`)
-    expect(h.state.updates[0]!.set).not.toHaveProperty(`pushToTalk`)
   })
 
   it(`acts like an unshare: ends the hosted runs after commit and disarms the agents (FEED-155)`, async () => {
