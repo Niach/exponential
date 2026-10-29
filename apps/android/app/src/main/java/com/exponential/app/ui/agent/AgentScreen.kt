@@ -232,12 +232,29 @@ fun AgentScreen(
     val me by viewModel.me.collectAsStateWithLifecycle()
     val chatRepoId by viewModel.chatRepoId.collectAsStateWithLifecycle()
     // S-3 (composer-home.json `agentRow`): the last tap; a page mount starts
-    // on the default (the Assistant, else Temporary session) again.
-    var agentPick by remember { mutableStateOf<String?>(null) }
+    // on the default (the Assistant, else Temporary session) again — unless
+    // the route seeds a launch (the start circle's issue, a prompt, a
+    // machine): that mounts on Temporary session so the seeded subject is
+    // not replaced by the Assistant (iOS parity).
+    var agentPick by remember { mutableStateOf(ComposerAgentRow.seedPick(viewModel.seed)) }
     val agentRow = remember(agents, me, agentPick) { composerAgentRowState(agents, me, agentPick) }
     val pickedAgentId = agentRow.agent?.agentId
-    LaunchedEffect(pickedAgentId) {
-        if (pickedAgentId != null) viewModel.pickAgent(pickedAgentId) else viewModel.clearAgent()
+    // The model's agent follows the row (a tap; a send clearing the subject
+    // gets the row's agent back) ...
+    fun syncAgentPick() {
+        when {
+            pickedAgentId != null && (subject as? ComposerSubject.Agent)?.id != pickedAgentId ->
+                viewModel.pickAgent(pickedAgentId)
+            pickedAgentId == null -> viewModel.clearAgent()
+        }
+    }
+    LaunchedEffect(pickedAgentId) { syncAgentPick() }
+    // ... and an issue or prompt subject picked after mount is a launch: the
+    // row follows to Temporary session (iOS `onChange(of: subject)`).
+    LaunchedEffect(subject) {
+        val launch = subject is ComposerSubject.Issues || subject is ComposerSubject.Prompt
+        val next = ComposerAgentRow.pickForSubject(launch, agentPick)
+        if (next != agentPick) agentPick = next else syncAgentPick()
     }
     // S-3: the composer home makes sure the viewer has an Assistant.
     LaunchedEffect(teamId) { viewModel.ensureAssistant() }

@@ -84,12 +84,6 @@ export const HAND_RECTS: Record<string, Rect> = {
   "steering:android-phone": { x: 0.0146, y: 0.7433, w: 0.9707, h: 0.2279 },
   "steering:ios-tablet": { x: 0.15, y: 0.8205, w: 0.7, h: 0.135 },
 
-  // The floating Merge action bar (dismiss / Merge / open on GitHub), which
-  // sits over the diff at the bottom of the review screen.
-  "review:ios-phone": { x: 0.195, y: 0.9015, w: 0.603, h: 0.0585 },
-  "review:android-phone": { x: 0.178, y: 0.9025, w: 0.643, h: 0.0675 },
-  "review:ios-tablet": { x: 0.2725, y: 0.906, w: 0.46, h: 0.088 },
-
   // The "Update dependencies" action row: title with its trigger glyph,
   // description and the run button. Tablet takes two such rows.
   "actions:ios-phone": { x: 0.0206, y: 0.314, w: 0.958, h: 0.107 },

@@ -57,4 +57,21 @@ class ComposerAgentRowTest {
             assertEquals(name, expected.str("label"), state.label)
         }
     }
+
+    @Test
+    fun `a seeded launch mounts on Temporary session, a plain mount on the default`() {
+        assertEquals(null, ComposerAgentRow.seedPick(AgentComposerSeed()))
+        assertEquals(null, ComposerAgentRow.seedPick(AgentComposerSeed(text = "hi")))
+        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.seedPick(AgentComposerSeed(issueIds = listOf("i-3"))))
+        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.seedPick(AgentComposerSeed(promptId = "p-1")))
+        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.seedPick(AgentComposerSeed(deviceId = "d-1")))
+    }
+
+    @Test
+    fun `an issue or prompt subject moves the row to Temporary session`() {
+        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.pickForSubject(true, null))
+        assertEquals(ComposerAgentRow.TEMPORARY_PICK, ComposerAgentRow.pickForSubject(true, "g-me"))
+        assertEquals("g-me", ComposerAgentRow.pickForSubject(false, "g-me"))
+        assertEquals(null, ComposerAgentRow.pickForSubject(false, null))
+    }
 }

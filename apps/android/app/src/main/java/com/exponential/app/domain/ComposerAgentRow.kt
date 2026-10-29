@@ -45,6 +45,25 @@ object ComposerAgentRow {
         val label: String,
     )
 
+    /**
+     * The pick a page mount starts on. A play button / start circle seeds a
+     * LAUNCH (a prompt, issues or a machine): that is a Temporary session, so
+     * the row starts on the dotted circle and the seeded subject stays the
+     * headline (iOS `AgentPageView.ensureModels`). Anything else = null (the
+     * default: the Assistant).
+     */
+    fun seedPick(seed: AgentComposerSeed): String? =
+        if (seed.promptId != null || seed.effectiveIssueIds.isNotEmpty() || seed.deviceId != null) TEMPORARY_PICK else null
+
+    /**
+     * The pick after the composer's subject changed: an issue or prompt
+     * subject is a launch, so the row follows to Temporary session (an agent
+     * takes no prompt; iOS `onChange(of: subject)`); any other subject keeps
+     * [current].
+     */
+    fun pickForSubject(subjectIsLaunch: Boolean, current: String?): String? =
+        if (subjectIsLaunch) TEMPORARY_PICK else current
+
     /** The row for a viewer: [picked] = the last tap (null/unknown = the default). */
     fun <T> composerAgentRow(agents: List<T>, me: String?, picked: String?, row: (T) -> Agent): State<T> {
         val ordered = AgentSettings.Assistant.orderedAgents(agents, me) {
