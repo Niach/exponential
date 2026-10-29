@@ -186,7 +186,8 @@ pub fn codemode_upstreams(
 ) -> Option<(Vec<codemode::Upstream>, Vec<String>)> {
     let url = match agent_mcp {
         crate::argv::AgentMcp::ClaudeInline { url, .. } | crate::argv::AgentMcp::CodexOverrides { url, .. } => url,
-        crate::argv::AgentMcp::ClaudeFile => return None,
+        // EXP-1426: `ServersOnly` is the server-free core's; never built here.
+        crate::argv::AgentMcp::ClaudeFile | crate::argv::AgentMcp::ServersOnly => return None,
     };
     let mut upstreams = vec![codemode::Upstream {
         name: RESERVED_CONFIG_KEY.to_string(),

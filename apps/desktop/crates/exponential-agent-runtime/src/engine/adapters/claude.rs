@@ -1340,6 +1340,12 @@ impl ClaudeSession {
                         .to_string();
                     Some(McpConfig::File(Path::new(&inline_mcp)))
                 }
+                // EXP-1426 part 5: a server-free run's own servers, beside
+                // the user's configured ones (never strict, below).
+                crate::mcp::AgentMcp::ServersOnly if !self.spec.servers.is_empty() => {
+                    inline_mcp = wire::servers_mcp_config(&self.spec.servers);
+                    Some(McpConfig::Inline(&inline_mcp))
+                }
                 _ => None,
             }
         };
@@ -1386,7 +1392,9 @@ impl ClaudeSession {
             // the parent's own transcript never sees the question.
             fork_session: self.spec.aside && resume.is_some(),
             mcp_config: mcp,
-            strict_mcp_config: mcp.is_some(),
+            strict_mcp_config: mcp.is_some()
+                && (self.spec.aside
+                    || !matches!(self.spec.mcp, crate::mcp::AgentMcp::ServersOnly)),
             settings: self.spec.reaper_settings_path.as_deref(),
             add_dirs: &[],
             disallowed_tools: &disallowed,

@@ -1105,6 +1105,19 @@ pub fn inline_mcp_config(
         "exponential".to_string(),
         json!({ "type": "http", "url": url, "headers": Value::Object(headers) }),
     );
+    insert_servers(&mut mcp_servers, servers);
+    json!({ "mcpServers": Value::Object(mcp_servers) }).to_string()
+}
+
+/// EXP-1426 part 5 (`AgentMcp::ServersOnly`): the inline `--mcp-config`
+/// with the launch's own servers and no `exponential` entry.
+pub fn servers_mcp_config(servers: &[crate::mcp::McpServerWire]) -> String {
+    let mut mcp_servers = Map::new();
+    insert_servers(&mut mcp_servers, servers);
+    json!({ "mcpServers": Value::Object(mcp_servers) }).to_string()
+}
+
+fn insert_servers(mcp_servers: &mut Map<String, Value>, servers: &[crate::mcp::McpServerWire]) {
     for server in servers {
         // A server that folded to our own key would shadow the tracker's
         // tools; the resolver refuses it, this is the belt.
@@ -1126,7 +1139,6 @@ pub fn inline_mcp_config(
         };
         mcp_servers.insert(server.name.clone(), entry);
     }
-    json!({ "mcpServers": Value::Object(mcp_servers) }).to_string()
 }
 
 fn sorted_strings(pairs: &[(String, String)]) -> Value {

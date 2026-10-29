@@ -83,17 +83,20 @@ pub fn find_codex_session_id(
 }
 
 /// One rollout's first-line session meta.
-struct SessionMeta {
-    cwd: String,
-    id: String,
+pub(crate) struct SessionMeta {
+    pub(crate) cwd: String,
+    pub(crate) id: String,
     /// The `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` this spawn carried, when the
     /// build records it. `None` on builds that don't.
     originator: Option<String>,
+    /// EXP-1426 part 5: a subagent's thread (`source: {"subagent": …}`),
+    /// which the session history leaves out.
+    pub(crate) subagent: bool,
 }
 
 /// Recursive `rollout-*.jsonl` sweep (bounded depth — the layout is
 /// `YYYY/MM/DD/…`, anything deeper is not codex's).
-fn collect_rollouts(dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) {
+pub(crate) fn collect_rollouts(dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) {
     if depth > 4 {
         return;
     }
@@ -117,7 +120,7 @@ fn collect_rollouts(dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) 
 
 /// First-line session meta → `(cwd, session id)`. Lenient by design: the
 /// payload nesting is current codex; a flat legacy shape still resolves.
-fn read_session_meta(path: &Path) -> Option<SessionMeta> {
+pub(crate) fn read_session_meta(path: &Path) -> Option<SessionMeta> {
     let file = std::fs::File::open(path).ok()?;
     let mut line = String::new();
     BufReader::new(file).read_line(&mut line).ok()?;
@@ -133,7 +136,11 @@ fn read_session_meta(path: &Path) -> Option<SessionMeta> {
         .get("originator")
         .and_then(|value| value.as_str())
         .map(str::to_string);
-    Some(SessionMeta { cwd, id, originator })
+    let subagent = meta
+        .get("source")
+        .and_then(|source| source.as_object())
+        .is_some_and(|source| source.contains_key("subagent"));
+    Some(SessionMeta { cwd, id, originator, subagent })
 }
 
 #[cfg(test)]

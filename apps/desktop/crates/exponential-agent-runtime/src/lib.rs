@@ -38,6 +38,9 @@ pub mod confine;
 // EXP-1426 part 4: the ACP engine core (transport, child exit, event sink,
 // local feed, run policies), moved out of `engine`.
 pub mod engine;
+// EXP-1426 part 5: the server-free facade (detect, login, one run, the
+// CLIs' own session history) spezl builds on.
+pub mod local;
 pub mod lockfile;
 // EXP-1426 part 4c: the MCP wiring vocabulary (`coding::argv`, `api::mcp_servers`).
 pub mod mcp;

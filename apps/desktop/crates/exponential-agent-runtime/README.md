@@ -130,7 +130,63 @@ caller changes until a later cleanup.
      `unqueue` / `kill`, and reads `subscribe` / `phase` / `turn_signal` / `wait`; a resume is a
      new start with `ResumeHandle` (`session/load`). `tests/server_free_start.rs` drives it with
      `NoBackend` + `RecordingSink` against the fake agent.
-5. A local backend and a runnable example: one turn plus the session history with your own login,
-   no server.
+5. **Done.** The server-free facade `local` (below), the CLIs' own session history
+   (`local::history`), `examples/local_chat.rs`, and one additive MCP posture,
+   `mcp::AgentMcp::ServersOnly` (the run's own servers, no `exponential` entry, never strict).
+   Exponential never builds it; `coding` only names it in one exhaustive match.
+
+## Using it without a server
+
+`exponential_agent_runtime::local` is the whole surface a single-account host needs:
+
+```rust
+use exponential_agent_runtime::{agent::CodingAgent, local::{LocalAgent, RunRequest}};
+
+let agent = LocalAgent::new(CodingAgent::Claude);    // or ::with_program(agent, "/abs/claude")
+agent.check();                                       // `<cli> --version` -> ToolCheck
+agent.signed_in();                                   // the CLI's own auth status: Option<bool>
+agent.login(false)?;                                 // LocalLogin: the CLI's own sign-in in a PTY
+agent.login_command_line();                          // "claude auth login --claudeai"
+let run = agent.start(
+    RunRequest::new(cwd)
+        .prompt("…")                                 // the first message
+        .resume(past.id)                             // or reopen a past conversation
+        .mcp_server(server).env("NOTES_TOKEN", tok)  // extra servers, `${VAR}` refs into env
+        .system_append("…"),                         // optional: .sink(..), .runtime(handle)
+)?;
+run.events();                                        // flume::Receiver<wire::ActivityEvent>
+run.send("…");  run.answer(question_id, keys, text);  run.interrupt();  run.stop();
+run.native_session_id();  run.title();               // the CLI's own id and name
+agent.sessions(Some(&cwd), Some(20));                // Vec<PastSession>, newest first
+```
+
+- **One account, the default home.** No config-dir variable is set, no credential is read,
+  copied or refreshed; the spawn env is the login shell's PATH plus `RunRequest::env`. The
+  `AccountEnv` seam's local side is exactly that.
+- **Events.** Narration, tool rows, `Turn { Started | Ended }`, and a question or permission as
+  `ActivityEvent::Question` (answer it with `LocalRun::answer`). `RunRequest::sink` takes your
+  own `EventSink` instead of the channel. Underneath it is `engine::start` + `NoBackend`;
+  `LocalRun::session()` reaches the rest of `EngineSession`.
+- **MCP.** The CLI keeps the servers the user configured for it; `RunRequest::servers` adds more.
+- **History** (`local::history`, read-only over the CLIs' own files). claude:
+  `<CLAUDE_CONFIG_DIR|~/.claude>/projects/*/<id>.jsonl`, titled by the latest `custom-title`,
+  else `ai-title`, else `summary`, else the first prompt. codex: the rollouts under
+  `<CODEX_HOME|~/.codex>/sessions`, titled by `session_index.jsonl`'s `thread_name`, else the
+  first `user_message`; subagent threads are left out. `updated` = the file's mtime.
+
+```sh
+cd apps/desktop
+cargo run -p exponential-agent-runtime --example local_chat -- "reply with the word ok"
+cargo run -p exponential-agent-runtime --example local_chat -- --agent codex "hi"
+```
+
+## Still Exponential-only
+
+- [ ] The pickup loop, the launcher (`coding::PreparedLaunch`, worktrees, git, clones, GitHub tokens).
+- [ ] `RunLifecycle`: the run record, outbox, steer publisher and relay, `sessions.*` over tRPC.
+- [ ] Multi-account: profiles, staging / import, rotation, usage collection, `claude_oauth`.
+- [ ] The `exponential` MCP server posture (`ClaudeInline` / `CodexOverrides`), code mode, team servers.
+- [ ] `ExpHostTools`, the steer image localizer, the plan card's `pr_open` gate, the run playbook.
+- [ ] `open_transcript`, `fresh_context_downgrade`, prune / reaper, remote admin, the doctor and device caps.
 
 Named per the shared-libs table (`docs/libraries.md`, EXP-1421): crate `exponential-agent-runtime`, release tag `agent-runtime-v*`.

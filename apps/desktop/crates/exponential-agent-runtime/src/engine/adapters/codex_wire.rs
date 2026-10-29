@@ -486,11 +486,8 @@ pub fn thread_config(
 ) -> Value {
     let mut config = serde_json::Map::new();
     if let Some(url) = mcp_url {
-        let mut table = serde_json::Map::new();
-        for (key, entry) in crate::mcp::codex_mcp_entries(url, Some(session_id), servers) {
-            table.insert(key, codex_mcp_entry_json(&entry));
-        }
-        config.insert("mcp_servers".to_string(), Value::Object(table));
+        let entries = crate::mcp::codex_mcp_entries(url, Some(session_id), servers);
+        config.insert("mcp_servers".to_string(), mcp_servers_table(&entries));
         config.insert("experimental_use_rmcp_client".to_string(), json!(true));
     }
     let mut projects = serde_json::Map::new();
@@ -513,6 +510,15 @@ pub fn thread_config(
         );
     }
     Value::Object(config)
+}
+
+/// The `mcp_servers` table of a `thread/start` config.
+pub fn mcp_servers_table(entries: &[(String, crate::mcp::CodexMcpEntry)]) -> Value {
+    let mut table = serde_json::Map::new();
+    for (key, entry) in entries {
+        table.insert(key.clone(), codex_mcp_entry_json(entry));
+    }
+    Value::Object(table)
 }
 
 /// One `mcp_servers.<key>` value, field order = codex's documented order;

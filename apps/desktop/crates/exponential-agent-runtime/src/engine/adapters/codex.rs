@@ -893,13 +893,24 @@ fn thread_config_for(shared: &Arc<Shared>, roots: &[PathBuf]) -> Value {
         // MCP block is legal (an agent shell) and just means no tools.
         _ => (None, None),
     };
-    codex_wire::thread_config(
+    let mut config = codex_wire::thread_config(
         mcp_url.as_deref(),
         mcp_session.as_deref().unwrap_or(&shared.spec.session_id),
         // EXP-792: the team servers ride the same table.
         &shared.spec.servers,
         roots,
-    )
+    );
+    // EXP-1426 part 5: a server-free run's own servers, no `exponential`.
+    if matches!(shared.spec.mcp, crate::mcp::AgentMcp::ServersOnly)
+        && !shared.spec.servers.is_empty()
+    {
+        if let Value::Object(map) = &mut config {
+            let entries = crate::mcp::codex_server_entries(&shared.spec.servers);
+            map.insert("mcp_servers".to_string(), codex_wire::mcp_servers_table(&entries));
+            map.insert("experimental_use_rmcp_client".to_string(), Value::Bool(true));
+        }
+    }
+    config
 }
 
 fn start_pumps(
