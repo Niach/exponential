@@ -11,6 +11,8 @@
 //! inlined and pinned there.
 
 pub mod activity;
+// EXP-1426 part 4d: the answer tap (out of `steer`, which re-exports it).
+pub mod answer_tap;
 pub mod frames;
 pub mod tool_diff;
 pub mod tool_output;
@@ -19,7 +21,8 @@ pub mod workflow;
 pub use activity::{
     clamp_config_state, normalize_agent_title, normalize_compaction_trigger,
     now_unix_millis, secrets_from_worktree, synthetic_question_id, truncate, truncate_marked, worktree_diff,
-    Redactor, RemoteAnswer, SessionAgent, SessionBlocked, TRUNCATION_MARKER,
+    AgentTitleSignal, CaptionSignal, Redactor, RemoteAnswer, SessionAgent, SessionBlocked, TurnSignal,
+    TRUNCATION_MARKER,
 };
 pub use frames::{
     ActivityEvent, BackgroundTask, BackgroundTaskKind, ConfigCommand, ConfigMode, ConfigOption,

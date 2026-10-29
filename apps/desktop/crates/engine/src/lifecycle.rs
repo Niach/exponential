@@ -38,17 +38,176 @@
 //! inside the ACP dispatch loop: `worktree_diff` shells out to git, and a
 //! handler that blocks the loop for the length of a `git diff` is exactly the
 //! hazard §1.3 of the plan forbids.
+//!
+//! EXP-1426 part 4d: the host and the session moved into the agent runtime;
+//! [`RunLifecycle`] is Exponential's [`RunBackend`] there — the core engine
+//! attaches it, reports through it and runs its end sequence.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use exponential_agent_runtime::engine::host::RunBackend;
 
 use crate::host::{EngineCommand, EngineExit, EngineHost, KillFeed, KillReason, SessionCtx};
 use crate::local::EnginePhase;
+use crate::mapper::Reply;
 use crate::session::EngineError;
 use steer::SessionBlockedReport as _;
 
-/// The run's side-car machinery, alive for exactly as long as the connection.
+/// EXP-1426 part 4d: Exponential's [`RunBackend`] — the run's tRPC client and
+/// steer runtime, the host told about the exit, the Conversation outbox, the
+/// attachment hook the publisher shares with the seed prompt, and the
+/// side-car machinery once attached.
 pub(crate) struct RunLifecycle {
+    trpc: Arc<api::TrpcClient>,
+    runtime: Arc<steer::SteerRuntime>,
+    host: Arc<dyn EngineHost>,
+    /// The host's kill source, until [`RunBackend::attach`] takes it.
+    kill: Mutex<Option<KillFeed>>,
+    /// EXP-1292: the Conversation writers (replies + consumes). Set by
+    /// `start_with` (a test's recording outbox) or on attach; absent on a
+    /// replay.
+    outbox: OnceLock<crate::outbox::Outbox>,
+    /// NEW-17: the run's death as the end sequence judged it
+    /// ([`lost_reason`]); set = the `lost` report is the ONLY write of that
+    /// death (the tickers' teardown writes nothing).
+    lost: Arc<OnceLock<api::session_device::LostReason>>,
+    /// EXP-825: the session's ONE image hook and restore map, shared by the
+    /// seed prompt's localizer ([`crate::host::SteerLocalizer`]) and the
+    /// publisher. `None` on a replay.
+    attachments: Option<steer::AttachmentHook>,
+    embeds: steer::ImageEmbeds,
+    attached: Mutex<Option<Attached>>,
+}
+
+/// What [`RunLifecycle::start`] needs before the context exists.
+pub(crate) struct LifecycleSpec {
+    pub(crate) trpc: Arc<api::TrpcClient>,
+    pub(crate) runtime: Arc<steer::SteerRuntime>,
+    pub(crate) host: Arc<dyn EngineHost>,
+    pub(crate) kill: KillFeed,
+    pub(crate) session_id: String,
+    pub(crate) conversation: Option<Arc<dyn crate::outbox::ConversationApi>>,
+    pub(crate) attachments: Option<steer::AttachmentHook>,
+    pub(crate) embeds: steer::ImageEmbeds,
+}
+
+impl RunLifecycle {
+    pub(crate) fn new(spec: LifecycleSpec) -> RunLifecycle {
+        let outbox = OnceLock::new();
+        // EXP-1292: set before the lifecycle attaches, which then keeps it.
+        if let Some(conversation) = spec.conversation {
+            let _ = outbox.set(crate::outbox::Outbox::spawn(conversation, &spec.session_id));
+        }
+        RunLifecycle {
+            trpc: spec.trpc,
+            runtime: spec.runtime,
+            host: spec.host,
+            kill: Mutex::new(Some(spec.kill)),
+            outbox,
+            lost: Arc::new(OnceLock::new()),
+            attachments: spec.attachments,
+            embeds: spec.embeds,
+            attached: Mutex::new(None),
+        }
+    }
+
+    /// EXP-1292: the question/plan cards this run posted that are still open.
+    pub(crate) fn open_cards(&self) -> HashMap<String, String> {
+        self.outbox
+            .get()
+            .map(crate::outbox::Outbox::open_cards)
+            .unwrap_or_default()
+    }
+}
+
+impl RunBackend for RunLifecycle {
+    fn attach(
+        &self,
+        ctx: &Arc<SessionCtx>,
+        commands: &flume::Sender<EngineCommand>,
+    ) -> Result<(), EngineError> {
+        let kill = self
+            .kill
+            .lock()
+            .ok()
+            .and_then(|mut kill| kill.take())
+            .unwrap_or_else(KillFeed::inert);
+        let attached = Attached::attach(self, Arc::clone(ctx), kill, commands.clone())?;
+        if let Ok(mut slot) = self.attached.lock() {
+            *slot = Some(attached);
+        }
+        Ok(())
+    }
+
+    fn end(
+        &self,
+        ctx: &SessionCtx,
+        outcome: &str,
+        child: Option<terminal::pty::ChildExit>,
+        error: Option<String>,
+    ) {
+        let attached = self.attached.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(attached) = attached {
+            attached.end(ctx, self, outcome, child, error);
+        }
+    }
+
+    fn record_session_ids(&self, ctx: &SessionCtx) {
+        record_session_ids(ctx);
+    }
+
+    fn record_context_base(&self, ctx: &SessionCtx, tokens: u64, model: &str) {
+        record_context_base(ctx, tokens, model);
+    }
+
+    /// EXP-784: the launcher's resume record carries the previous run's
+    /// native id as `claude_session_id` (its EXP-443 pin, chained through
+    /// `agent_native_session_id`) and the engine upserts
+    /// `agent_native_session_id` once the adapter reports; either names the
+    /// conversation to reopen.
+    fn recorded_native_session_id(&self, ctx: &SessionCtx) -> Option<String> {
+        let record = coding::run_registry::get(&ctx.data_dir, &ctx.session_id)?;
+        record.agent_native_session_id.or(record.claude_session_id)
+    }
+
+    fn post_replies(&self, replies: Vec<Reply>) {
+        if let Some(outbox) = self.outbox.get() {
+            outbox.post(replies);
+        }
+    }
+
+    fn resolve_question(&self, question_id: &str) {
+        if let Some(outbox) = self.outbox.get() {
+            outbox.resolve_question(question_id);
+        }
+    }
+
+    fn consume(&self, message_ids: Vec<String>) {
+        if let Some(outbox) = self.outbox.get() {
+            outbox.consume(message_ids);
+        }
+    }
+
+    fn open_cards(&self) -> HashMap<String, String> {
+        RunLifecycle::open_cards(self)
+    }
+
+    fn fresh_context_kept(&self, message_id: &str) {
+        coding::pickup::write_back_card(
+            Arc::clone(&self.trpc),
+            crate::host::fresh_context_downgrade(message_id),
+        );
+    }
+
+    fn turn_started(&self, session_id: &str) {
+        coding::computer::turn_started(session_id);
+    }
+}
+
+/// The run's side-car machinery, alive for exactly as long as the connection.
+struct Attached {
     publisher: Option<steer::PublisherHandle>,
     /// Dropped FIRST in the end sequence: dropping unwatches (EXP-283).
     kill: Option<KillFeed>,
@@ -63,19 +222,20 @@ pub(crate) struct RunLifecycle {
     _refresher: Option<coding::RefresherHold>,
 }
 
-impl RunLifecycle {
+impl Attached {
     /// Bring up the outbox, the publisher and the tickers, and start
     /// pumping the kill feed into `commands`.
-    pub(crate) fn attach(
+    fn attach(
+        life: &RunLifecycle,
         ctx: Arc<SessionCtx>,
         kill: KillFeed,
         commands: flume::Sender<EngineCommand>,
-    ) -> Result<RunLifecycle, EngineError> {
+    ) -> Result<Attached, EngineError> {
         let active = Arc::new(AtomicBool::new(true));
         // A replay owns no row: no outbox, no publisher, no kill watch,
         // no diffs (`open_transcript`).
         if ctx.replay {
-            return Ok(RunLifecycle {
+            return Ok(Attached {
                 publisher: None,
                 kill: None,
                 active,
@@ -87,16 +247,16 @@ impl RunLifecycle {
         // EXP-1292: the Conversation writers come up FIRST — the seed turn's
         // consume and its first card must have somewhere to go. A test's
         // recording outbox (`EngineParts::conversation`) is already set.
-        if ctx.outbox.get().is_none() {
-            let _ = ctx.outbox.set(crate::outbox::Outbox::spawn(
-                Arc::clone(&ctx.trpc) as Arc<dyn crate::outbox::ConversationApi>,
+        if life.outbox.get().is_none() {
+            let _ = life.outbox.set(crate::outbox::Outbox::spawn(
+                Arc::clone(&life.trpc) as Arc<dyn crate::outbox::ConversationApi>,
                 &ctx.session_id,
             ));
         }
 
         let publisher = ctx
             .publish
-            .then(|| attach_publisher(&ctx, &commands, Arc::clone(&active)));
+            .then(|| attach_publisher(life, &ctx, &commands, Arc::clone(&active)));
         if let Some(publisher) = &publisher {
             // The sink may already be set (a test's recording sink): the
             // publisher then still runs, but nothing double-publishes.
@@ -114,13 +274,19 @@ impl RunLifecycle {
                 let _ = commands.send(EngineCommand::Cancel);
             })
         });
-        let ticker_exit = spawn_tickers(&ctx, Arc::clone(&active), commands);
+        let ticker_exit = spawn_tickers(
+            &ctx,
+            Arc::clone(&life.trpc),
+            Arc::clone(&life.lost),
+            Arc::clone(&active),
+            commands,
+        );
 
         let refresher = ctx.run.repository_id.as_deref().map(|repository_id| {
-            coding::clone_refreshers().retain(Arc::clone(&ctx.trpc), repository_id, &ctx.run.clone)
+            coding::clone_refreshers().retain(Arc::clone(&life.trpc), repository_id, &ctx.run.clone)
         });
 
-        Ok(RunLifecycle {
+        Ok(Attached {
             publisher,
             kill: Some(kill),
             active,
@@ -129,16 +295,16 @@ impl RunLifecycle {
         })
     }
 
-    /// The D14 end sequence. Consumes the lifecycle so the order cannot be
-    /// re-entered, and hands back the exit the host is told about.
-    pub(crate) fn end(
+    /// The D14 end sequence. Consumes the side-car so the order cannot be
+    /// re-entered.
+    fn end(
         mut self,
         ctx: &SessionCtx,
-        host: &dyn EngineHost,
+        life: &RunLifecycle,
         outcome: &str,
         child: Option<terminal::pty::ChildExit>,
         error: Option<String>,
-    ) -> EngineExit {
+    ) {
         // 1. Stop our OWN kill watch before the end flip becomes visible, or
         //    we read our own end as a remote kill (EXP-283). Dropping the
         //    feed calls `unwatch`.
@@ -153,7 +319,7 @@ impl RunLifecycle {
             .then(|| run_lost(ctx, outcome))
             .flatten();
         if let Some(lost) = lost {
-            let _ = ctx.lost.set(lost);
+            let _ = life.lost.set(lost);
         }
         // 3. Nothing else may publish from here on (the tickers stop).
         self.active.store(false, Ordering::SeqCst);
@@ -166,7 +332,7 @@ impl RunLifecycle {
         //    reply and the consumed messages land before the row's status
         //    says the agent is gone. Bounded: a dead server never holds the
         //    end hostage.
-        if let Some(outbox) = ctx.outbox.get() {
+        if let Some(outbox) = life.outbox.get() {
             outbox.close(crate::outbox::FLUSH_GRACE);
             // Handed messages whose consume never landed are parked on the
             // run record: the next wake consumes them instead of handing
@@ -188,7 +354,8 @@ impl RunLifecycle {
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
         //    message or trigger firing wakes the SAME row).
-        let end = (!ctx.replay).then(|| if released { Ok(()) } else { finish_row(ctx, outcome, lost) });
+        let end = (!ctx.replay)
+            .then(|| if released { Ok(()) } else { finish_row(ctx, &life.trpc, outcome, lost) });
         // 6. EXP-758: this run's child (if it had one) is gone with the
         //    connection, so the record must stop naming it: a pid left here
         //    would make the next start's reaper sweep hunt a dead process,
@@ -221,15 +388,8 @@ impl RunLifecycle {
         // NEW-58: and its screen-memory grant (the voice conversation's).
         coding::screen::revoke(&ctx.session_id);
         ctx.exit.finish(&exit);
-        host.on_exit(exit);
-        // The host got the full exit; `wait()` rebuilds it from the summary.
-        EngineExit {
-            session_id: ctx.session_id.clone(),
-            outcome: outcome.to_string(),
-            child: ctx.child_exit.get(),
-            error: None,
-            end: None,
-        }
+        // The host gets the full exit; `wait()` rebuilds it from the summary.
+        life.host.on_exit(exit);
     }
 }
 
@@ -259,6 +419,7 @@ pub fn keeps_workspace(outcome: &str) -> bool {
 /// says so (`lost`) — never a silent end or idle.
 fn finish_row(
     ctx: &SessionCtx,
+    trpc: &api::TrpcClient,
     outcome: &str,
     lost: Option<api::session_device::LostReason>,
 ) -> Result<(), api::ApiError> {
@@ -270,11 +431,11 @@ fn finish_row(
             mid_turn: lost.map(|_| mid_turn),
             ..agent_idle_report()
         };
-        return api::session_device::report(&ctx.trpc, &ctx.session_id, &report);
+        return api::session_device::report(trpc, &ctx.session_id, &report);
     }
     match lost {
-        Some(lost) => coding::end_session_lost(&ctx.trpc, &ctx.session_id, lost, mid_turn),
-        None => coding::end_session(&ctx.trpc, &ctx.session_id),
+        Some(lost) => coding::end_session_lost(trpc, &ctx.session_id, lost, mid_turn),
+        None => coding::end_session(trpc, &ctx.session_id),
     }
 }
 
@@ -422,17 +583,9 @@ pub(crate) fn upsert_run_record(
     });
 }
 
-/// EXP-758: the phase edges the end sequence emits, in order. An exit that
-/// carries an error (a failed spawn, a handshake that never answered, a
-/// transport that died) says so FIRST: `EngineExit::error` used to reach the
-/// host callback alone, so the CLI printed nothing and the session tab showed
-/// an empty transcript that had simply "ended".
-pub(crate) fn end_phases(error: Option<&str>) -> Vec<EnginePhase> {
-    match error {
-        Some(error) => vec![EnginePhase::Failed(error.to_string()), EnginePhase::Ended],
-        None => vec![EnginePhase::Ended],
-    }
-}
+// EXP-758: the phase edges the end sequence emits, in order (the core's,
+// shared with `NoBackend`).
+pub(crate) use exponential_agent_runtime::engine::host::end_phases;
 
 /// `steer::publish` with the ACP path's hooks. The differences from the PTY
 /// path are all consequences of there being no terminal: `write_input`
@@ -440,6 +593,7 @@ pub(crate) fn end_phases(error: Option<&str>) -> Vec<EnginePhase> {
 /// always present (every message crosses as a message), and `config` is wired
 /// — those frames have no keystroke that could express them.
 fn attach_publisher(
+    life: &RunLifecycle,
     ctx: &Arc<SessionCtx>,
     commands: &flume::Sender<EngineCommand>,
     active: Arc<AtomicBool>,
@@ -470,7 +624,7 @@ fn attach_publisher(
         // EXP-511: image embeds in a steered message become local files the
         // agent can read. EXP-825: the session's ONE hook (the seed prompt
         // used it before this publisher existed).
-        attachments: ctx.attachments.clone(),
+        attachments: life.attachments.clone(),
         commands: Some(Arc::clone(&command_link)),
         config: Some(Arc::clone(&config_link)),
         // EXP-790/EXP-861: a viewer's Stop is the user's cancel — the turn
@@ -504,11 +658,11 @@ fn attach_publisher(
     };
 
     let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
-        trpc: Arc::clone(&ctx.trpc),
+        trpc: Arc::clone(&life.trpc),
         session_id: ctx.session_id.clone(),
     });
     let handle = steer::publish(
-        &ctx.runtime,
+        &life.runtime,
         steer::PublishSpec {
             session_id: ctx.session_id.clone(),
             // EXP-1292: the room is the session; no issue subject.
@@ -519,7 +673,7 @@ fn attach_publisher(
             journal_dir: Some(ctx.data_dir.clone()),
             // EXP-825: the shared restore map — the seed prompt's images
             // were localized into it before this publisher came up.
-            embeds: ctx.embeds.clone(),
+            embeds: life.embeds.clone(),
         },
         tickets,
         hooks,
@@ -688,6 +842,8 @@ fn spawn_kill_pump(
 /// (`commands` carries its `Cancel` / `Shutdown`).
 fn spawn_tickers(
     ctx: &Arc<SessionCtx>,
+    trpc: Arc<api::TrpcClient>,
+    lost: Arc<OnceLock<api::session_device::LostReason>>,
     active: Arc<AtomicBool>,
     commands: flume::Sender<EngineCommand>,
 ) -> flume::Receiver<()> {
@@ -715,7 +871,7 @@ fn spawn_tickers(
             // EXP-1418: the turns seen so far ([`missed_turn`]).
             let mut seen_turns = 0u64;
             let report = {
-                let trpc = Arc::clone(&ctx.trpc);
+                let trpc = Arc::clone(&trpc);
                 let session_id = ctx.session_id.clone();
                 move |report: api::session_device::SessionReport| {
                     api::session_device::report(&trpc, &session_id, &report).is_ok()
@@ -892,7 +1048,7 @@ fn spawn_tickers(
             // NEW-17: a LOST run's teardown writes nothing — the end
             // sequence's `lost` report is its only word (it idles the row
             // itself, and any later report would clear the interruption).
-            if ctx.lost.get().is_none() {
+            if lost.get().is_none() {
                 // Teardown tidiness: never leave the synced attention flag
                 // stuck on a session whose engine is gone.
                 needs_input.clear_on_teardown(&hook);
@@ -902,7 +1058,7 @@ fn spawn_tickers(
             }
             // EXP-905: NOT cleared — but a name learned in the run's last
             // second still lands (the row is live until the end path runs).
-            if ctx.lost.get().is_none() {
+            if lost.get().is_none() {
                 agent_title.tick(ctx.agent_title.get().as_deref(), &title_hook);
             }
             let _ = exit_tx.send(());

@@ -1,11 +1,13 @@
-//! EXP-746 — starting a run and the handle both hosts hold onto.
+//! EXP-746 — starting a run and the handle every host holds onto.
 //!
-//! [`start`] is the whole entry point after `coding::prepare_with_hooks`
-//! returned `Prepared::Ready` with `transport == LaunchTransport::Acp`. It is
+//! EXP-1426 part 4d: moved into the agent runtime out of Exponential's
+//! `engine::session`, which wraps it. [`start`] is the whole server-free entry
+//! point: a [`LaunchSpec`] (the user's own `claude` / `codex` adapter), a
+//! [`SessionSpec`] (where events go, the tokio runtime) and a
+//! [`RunBackend`] ([`NoBackend`](super::host::NoBackend) for none). It is
 //! NON-BLOCKING: it spawns the `acp-engine-<sid8>` thread and returns, so a
-//! handshake failure never surfaces here — it arrives as an
-//! [`EngineExit`](crate::EngineExit) with `error: Some(..)` through
-//! [`EngineHost::on_exit`](crate::EngineHost::on_exit).
+//! handshake failure never surfaces here — it arrives through the backend's
+//! end sequence as an exit with `error: Some(..)`.
 //!
 //! The exit contract deliberately mirrors `cli::session_host::RunningSession`
 //! (`is_done`/`wait`/`wait_timeout`/`kill`) so the daemon's `LiveSession`
@@ -18,218 +20,36 @@ use std::time::Duration;
 
 use agent_client_protocol::{Client, ConnectTo};
 
-use crate::adapters::{Adapter, AdapterKind, AdapterSpec};
-use crate::host::{
-    thread_name, ChildExitLink, EngineCommand, EngineExit, EngineHost, ExitState, KillFeed,
-    LocalFeed, LocalSink, PendingAsks, RunFacts, SessionCtx, SessionIds,
+use super::adapters::{Adapter, AdapterKind, LaunchSpec};
+use super::host::{
+    thread_name, ChildExitLink, EngineCommand, EngineExit, ExitState, LocalFeed, LocalSink,
+    PendingAsks, PromptLocalizer, RunBackend, RunFacts, SessionCtx, SessionIds,
 };
-use crate::lifecycle::RunLifecycle;
-use crate::local::{EnginePhase, LocalFeedEvent};
-use crate::mapper::{Mapper, MapperConfig};
-use crate::sink::EventSink;
-
-/// Everything a run needs once `prepare` said Ready on the Acp arm.
-pub struct EngineStart {
-    /// `transport == Acp` and `acp.is_some()`. Its `launch_hold` must ALREADY
-    /// be taken by the host (EXP-478: the gate has to outlive registration in
-    /// `LocalSessions`/`LiveSession`, and a destructure in here would drop it
-    /// pre-spawn) — [`start`] debug-asserts it.
-    pub prepared: coding::PreparedLaunch,
-    pub trpc: Arc<api::TrpcClient>,
-    pub runtime: Arc<steer::SteerRuntime>,
-    pub data_dir: PathBuf,
-    pub account_id: String,
-    /// The signed-in user's id — the kill-watch owner pin (EXP-105).
-    pub own_user_id: Option<String>,
-    /// The `expu_` personal key: the redactor's exact-match secret (REV2-17)
-    /// AND the codex MCP bearer that rides the spawn env.
-    pub personal_key: Option<String>,
-    /// EXP-1292/1341: the session is PERSISTENT (`domain::session_kind`, a
-    /// team agent's root). It never ends: the run's end idles the row
-    /// (`sessions.report{status: idle}`) where a thread session's ends it.
-    pub persistent: bool,
-    /// EXP-444: a foreign requester on a shared host — suppresses login
-    /// affordances.
-    pub foreign_host: bool,
-    /// EXP-1005: the host runs an account-rotation beat (the desktop, the
-    /// daemon) — a wall it will rotate or wait out itself is reported
-    /// `handled`, so the owner gets no rate-limit push. A foreground
-    /// `exponential code`/`run` has no beat: `false`, and the owner hears.
-    pub rotation_host: bool,
-    /// `false` = no relay room at all (unit tests, `--no-publish`).
-    pub publish: bool,
-    /// Registered by the host BEFORE this call, so no edge can be missed
-    /// between row creation and the first frame.
-    pub kill: KillFeed,
-    /// Desktop / `exponential code` attach; `None` on the daemon.
-    pub local_sink: Option<LocalSink>,
-}
-
-/// The pieces [`start`] normally builds itself. Split out so a test (and an
-/// adapter lane's own harness) can drive the REAL engine with a scripted
-/// `ConnectTo<Client>` instead of a child process.
-pub struct EngineParts<A> {
-    pub adapter: A,
-    /// Where the adapter records its child's exit — the `exit:<code>` the
-    /// publisher says `bye` with.
-    pub child_exit: ChildExitLink,
-    /// Publish through this instead of a relay room. `None` = the room (or
-    /// nothing at all when `publish` is false).
-    pub sink: Option<Arc<dyn EventSink>>,
-    /// EXP-1292: write the Conversation (replies, consumes) through this
-    /// instead of the run's tRPC client — a test's recording fake.
-    pub conversation: Option<Arc<dyn crate::outbox::ConversationApi>>,
-}
-
-/// Open an ENDED run's transcript read-only (a Past row on the desktop).
-/// Writes nothing to the `sessions` row, runs no publisher and no kill feed:
-/// it replays history through the same mapper and stops. Resuming is a
-/// different action entirely (EXP-1292: a message to the session).
-pub struct OpenTranscript {
-    pub runtime: Arc<steer::SteerRuntime>,
-    pub data_dir: PathBuf,
-    pub personal_key: Option<String>,
-    pub handle: HistoryHandle,
-    pub local_sink: LocalSink,
-}
-
-/// Everything needed to find an ended run's history, straight off its
-/// `runs.json` [`coding::run_registry::RunRecord`].
-pub struct HistoryHandle {
-    pub agent: coding::CodingAgent,
-    pub cwd: PathBuf,
-    /// The recorded ACP session id (`session/load`), when the run took the
-    /// ACP path at all.
-    pub acp_session_id: Option<String>,
-    /// The agent-native handle — claude's transcript uuid, codex's thread id.
-    pub native: ResumeHandle,
-}
+use super::host_tools::{HostTools, NoHostTools};
+use super::launch::{EngineError, ResumeHandle};
+use super::local::{EnginePhase, LocalFeedEvent};
+use super::mapper::{Mapper, MapperConfig};
+use super::sink::EventSink;
+use crate::agent::CodingAgent;
+use crate::wire;
 
 /// A cheap-clone handle on a live (or replaying) run. `Send + Sync`.
 #[derive(Clone)]
 pub struct EngineSession(Arc<Inner>);
 
-/// The mutable half a session accumulates. Constructed only by [`start`] and
-/// [`EngineSession::open_transcript`].
+/// The mutable half a session accumulates. Constructed only by [`start_with`].
 pub(crate) struct Inner {
     pub(crate) ctx: Arc<SessionCtx>,
-    pub(crate) agent: coding::CodingAgent,
+    pub(crate) agent: CodingAgent,
     pub(crate) commands: flume::Sender<EngineCommand>,
 }
 
 impl EngineSession {
-    /// Read-only transcript replay. Ends by itself once the load's updates
-    /// stop arriving; there is nothing to kill and nothing to end.
-    ///
-    /// The `local_sink` is honoured, but the desktop reads the replay off
-    /// [`EngineSession::subscribe`] instead: the backlog carries every event
-    /// the load produced, so a view that attaches after the load finished
-    /// still renders the whole transcript.
-    pub fn open_transcript(open: OpenTranscript) -> Result<EngineSession, EngineError> {
-        let OpenTranscript {
-            runtime,
-            data_dir,
-            personal_key,
-            handle,
-            local_sink,
-        } = open;
-        let HistoryHandle {
-            agent,
-            cwd,
-            acp_session_id,
-            native,
-        } = handle;
-        let kind = AdapterKind::from_agent(agent);
-        let child_exit = ChildExitLink::new();
-        // The recorded ACP id is what `session/load` takes; a run recorded without
-        // one falls back to the agent-native handle the adapter knows how to
-        // reopen.
-        let resume = match acp_session_id {
-            Some(id) => ResumeHandle::Acp(id),
-            None => native,
-        };
-        let adapter = Adapter::new(AdapterSpec {
-            kind,
-            agent,
-            spawn: terminal::pty::SpawnSpec {
-                program: agent.default_binary().to_string(),
-                args: Vec::new(),
-                cwd: Some(cwd.clone()),
-                env: Vec::new(),
-            },
-            options: coding::LaunchOptions {
-                agent,
-                model: String::new(),
-                effort: String::new(),
-                ultracode: false,
-                plan_mode: false,
-                subagent_model: String::new(),
-                mcp_server_ids: Vec::new(),
-                account: None,
-                computer_use: None,
-            },
-            // A replay never talks to MCP: it reads history and stops.
-            mcp: coding::AgentMcp::ClaudeFile,
-            servers: Vec::new(),
-            cwd: cwd.clone(),
-            session_id: String::new(),
-            prompt: None,
-            resume: Some(resume.clone()),
-            replay: true,
-            personal_key: personal_key.clone(),
-            reaper_settings_path: None,
-            // A replay never prompts; the bare playbook keeps codex's
-            // `thread/resume` developer message stable.
-            system_append: coding::skill::system_append(None),
-            // A transcript replay draws no bar: it never prompts, so nothing
-            // ever measures a prefix to subtract from.
-            context_layers: coding::ContextLayers::default(),
-            name_conversation: false,
-            aside: false,
-            // A replay never runs a tool.
-            confine_to: None,
-            exit: child_exit.clone(),
-        })?;
-
-        // A replay's session id is local bookkeeping only — no row exists.
-        let session_id = format!("replay-{}", uuid::Uuid::new_v4());
-        let ctx = build_ctx(CtxSpec {
-            session_id: session_id.clone(),
-            run: RunFacts {
-                worktree: cwd.clone(),
-                ..RunFacts::default()
-            },
-            trpc: Arc::new(api::TrpcClient::new("http://127.0.0.1", Arc::new(|| None))),
-            runtime,
-            data_dir,
-            account_id: String::new(),
-            own_user_id: None,
-            personal_key,
-            persistent: false,
-            seed_message_id: None,
-            foreign_host: false,
-            rotation_host: false,
-            publish: false,
-            local_sink: Some(local_sink),
-            agent: agent.clone(),
-            // A replay spawned nothing, so there is nothing to mask.
-            mcp_secrets: Vec::new(),
-            replay: true,
-            // The HOST issues `session/load` for it: a replay that opened a
-            // fresh `session/new` would show an empty transcript.
-            resume: Some(resume),
-            prompt: None,
-            aside: false,
-            child_exit,
-        });
-        spawn_engine(ctx, agent, adapter, KillFeed::inert(), Arc::new(NoHost))
-    }
-
     pub fn session_id(&self) -> &str {
         &self.0.ctx.session_id
     }
 
-    pub fn agent(&self) -> coding::CodingAgent {
+    pub fn agent(&self) -> crate::agent::CodingAgent {
         self.0.agent
     }
 
@@ -282,7 +102,7 @@ impl EngineSession {
     /// A new user message. Between turns this starts one; the engine never
     /// blocks the caller.
     pub fn send_prompt(&self, text: String) {
-        self.send(EngineCommand::Prompt(crate::host::text_blocks(&text)));
+        self.send(EngineCommand::Prompt(super::host::text_blocks(&text)));
     }
 
     /// Mid-turn steering — the same entry point a relay `input` frame takes.
@@ -324,15 +144,15 @@ impl EngineSession {
     pub fn open_cards(&self) -> std::collections::HashMap<String, String> {
         self.0
             .ctx
-            .outbox
+            .backend
             .get()
-            .map(crate::outbox::Outbox::open_cards)
+            .map(|backend| backend.open_cards())
             .unwrap_or_default()
     }
 
     /// Answer a pending question card. Resolves the parked ACP `Responder`,
     /// then acks (D3).
-    pub fn answer(&self, answer: steer::RemoteAnswer) {
+    pub fn answer(&self, answer: wire::RemoteAnswer) {
         self.send(EngineCommand::Answer(answer));
     }
 
@@ -355,7 +175,7 @@ impl EngineSession {
     }
 
     /// A PERSON's mode switch (the Plan chip): EXP-1280 a real plan-mode
-    /// move steers the agent one line (`host::plan_mode_on_line` /
+    /// move steers the agent one line ([`super::host::plan_mode_on_line`] /
     /// `PLAN_MODE_OFF_LINE`).
     pub fn set_mode(&self, id: &str) {
         self.send(EngineCommand::SetMode {
@@ -407,11 +227,11 @@ impl EngineSession {
     /// path; this entry is for the process hosting the run (tests, a local
     /// composer). An acceptance sends the agent's `/compact <keep>` at the
     /// next turn boundary and a continuation prompt after the compaction.
-    pub fn request_compaction(&self, keep: Option<String>) -> steer::CompactVerdict {
+    pub fn request_compaction(&self, keep: Option<String>) -> wire::frames::CompactVerdict {
         self.0.ctx.request_compaction(keep)
     }
 
-    pub fn turn_signal(&self) -> Arc<steer::TurnSignal> {
+    pub fn turn_signal(&self) -> Arc<wire::TurnSignal> {
         self.0.ctx.turn_signal.clone()
     }
 
@@ -444,22 +264,33 @@ impl EngineSession {
     /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
     /// not blocked) — what a host's account-rotation beat reads, together
     /// with the turn slot, to decide whether this run may move to another
-    /// account right now. An expired wall (its own reset stamp passed)
-    /// reads as `None`, by the same rule the synced row follows.
-    pub fn blocked(&self) -> Option<steer::SessionBlocked> {
-        self.0
-            .ctx
-            .blocked
-            .lock()
-            .ok()
-            .and_then(|wall| wall.clone())
-            .filter(|wall| !steer::blocked_wall_expired(wall, steer::now_unix_millis()))
+    /// account right now. RAW: a wall whose own reset stamp passed still
+    /// reads here (Exponential's `engine::EngineSession::blocked` drops it
+    /// by the rule the synced row follows).
+    pub fn blocked_wall(&self) -> Option<wire::SessionBlocked> {
+        self.0.ctx.blocked.lock().ok().and_then(|wall| wall.clone())
+    }
+
+    /// EXP-1280: is Exponential's plan flag on (`None` = the agent
+    /// advertised no modes)?
+    pub fn plan_mode(&self) -> Option<bool> {
+        self.0.ctx.with_mapper(|mapper| mapper.current_mode().map(|mode| mode == PLAN_MODE_ID))
+    }
+
+    /// EXP-1334: the live `model` option, as the agent last reported it.
+    pub fn model(&self) -> Option<String> {
+        self.0.ctx.with_mapper(|mapper| mapper.current_model().map(str::to_string))
+    }
+
+    /// FEED-25's activity clock, as an `Instant`.
+    pub fn last_activity(&self) -> std::time::Instant {
+        self.0.ctx.last_activity()
     }
 
     /// EXP-850 §8: the in-process workflow caption of THIS run — the second
     /// line a session row hosted here renders. EXP-1292: local only; no
     /// column carries it any more.
-    pub fn caption_signal(&self) -> Arc<steer::CaptionSignal> {
+    pub fn caption_signal(&self) -> Arc<wire::CaptionSignal> {
         self.0.ctx.caption_signal.clone()
     }
 
@@ -480,10 +311,9 @@ impl EngineSession {
         self.0.ctx.exit.is_done()
     }
 
-    /// Blocks until the run ends. The FULL exit (with the row's last status
-    /// write) went to
-    /// [`EngineHost::on_exit`](crate::EngineHost::on_exit); this rebuilds the
-    /// same exit with `end: None`, which is all a waiter needs — the
+    /// Blocks until the run ends. The FULL exit (with the backend's last
+    /// write) went to the backend's host; this rebuilds the same exit with
+    /// `end: None`, which is all a waiter needs — Exponential's
     /// `SessionEndObserver` already applied that result (EXP-641).
     pub fn wait(&self) -> EngineExit {
         self.0.ctx.exit.wait(None).unwrap_or_else(|| EngineExit {
@@ -506,151 +336,44 @@ impl EngineSession {
     }
 }
 
-/// Start a run. Non-blocking; handshake failures arrive through
-/// [`EngineHost::on_exit`].
-pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSession, EngineError> {
-    debug_assert!(
-        start.prepared.launch_hold.is_none(),
-        "EXP-746 (EXP-478): the host takes `prepared.launch_hold` BEFORE engine::start \
-         and drops it only after it registered the session"
-    );
-    let acp = start.prepared.acp.clone();
-    let agent = start.prepared.agent;
-    let child_exit = ChildExitLink::new();
-    let adapter = Adapter::new(AdapterSpec {
-        kind: AdapterKind::from_agent(agent),
-        agent,
-        spawn: start.prepared.spawn.clone(),
-        options: acp.options.clone(),
-        mcp: acp.mcp.clone(),
-        servers: acp.servers.clone(),
-        cwd: start.prepared.worktree.clone(),
-        session_id: acp.session_id.clone(),
-        prompt: acp.prompt.clone(),
-        resume: acp.resume.clone().map(ResumeHandle::from),
-        replay: false,
-        personal_key: start.personal_key.clone(),
-        reaper_settings_path: acp.reaper_settings_path.clone(),
-        system_append: acp.system_append.clone(),
-        context_layers: acp.context_layers.clone(),
-        name_conversation: names_conversation(&start.data_dir, &start.prepared),
-        aside: is_aside_run(&start.data_dir, &start.prepared.session_id),
-        // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
-        confine_to: acp.confine_to.clone(),
-        exit: child_exit.clone(),
-    })?;
-    start_with(
-        start,
-        host,
-        EngineParts {
-            adapter,
-            child_exit,
-            sink: None,
-            conversation: None,
-        },
-    )
+/// Start a run of the user's own agent CLI: spawn its ACP adapter from
+/// `launch` and drive it. Non-blocking; handshake failures arrive through
+/// the backend's end sequence.
+pub fn start(
+    launch: LaunchSpec,
+    session: SessionSpec,
+    backend: Arc<dyn RunBackend>,
+) -> Result<EngineSession, EngineError> {
+    let adapter = Adapter::new(launch)?;
+    start_with(session, adapter, backend)
 }
 
-/// [`start`] with the transport handed in. The ONE seam a test drives.
+/// [`start`] with the transport handed in. The ONE seam a test drives (a
+/// scripted `ConnectTo<Client>`), and the one Exponential's `engine::start`
+/// takes once it built its adapter.
 pub fn start_with<A>(
-    start: EngineStart,
-    host: Arc<dyn EngineHost>,
-    parts: EngineParts<A>,
+    session: SessionSpec,
+    adapter: A,
+    backend: Arc<dyn RunBackend>,
 ) -> Result<EngineSession, EngineError>
 where
     A: ConnectTo<Client> + 'static,
 {
-    let EngineStart {
-        prepared,
-        trpc,
-        runtime,
-        data_dir,
-        account_id,
-        own_user_id,
-        personal_key,
-        persistent,
-        foreign_host,
-        rotation_host,
-        publish,
-        kill,
-        local_sink,
-    } = start;
-    let agent = prepared.agent;
-    let acp = prepared.acp.clone();
-    let aside = is_aside_run(&data_dir, &prepared.session_id);
-    let ctx = build_ctx(CtxSpec {
-        session_id: prepared.session_id.clone(),
-        run: RunFacts {
-            worktree: prepared.worktree.clone(),
-            branch: prepared.branch.clone(),
-            base_ref: prepared.base_ref.clone(),
-            repository_id: prepared.repository_id.clone(),
-            clone: prepared.clone.clone(),
-        },
-        trpc,
-        runtime,
-        data_dir,
-        account_id,
-        own_user_id,
-        personal_key,
-        persistent,
-        seed_message_id: prepared.seed_message_id.clone(),
-        foreign_host,
-        rotation_host,
-        publish,
-        local_sink,
-        agent,
-        // EXP-792: the team servers' credential values, masked like the key.
-        mcp_secrets: acp.mcp_secrets.clone().into_vec(),
-        replay: false,
-        resume: acp.resume.clone().map(ResumeHandle::from),
-        prompt: acp.prompt.clone(),
-        aside,
-        child_exit: parts.child_exit,
-    });
-    if let Some(sink) = parts.sink {
+    let agent = session.agent;
+    let sink = session.sink.clone();
+    let ctx = build_ctx(session);
+    if let Some(sink) = sink {
         let _ = ctx.sink.set(sink);
     }
-    // EXP-1292: set before the lifecycle attaches, which then keeps it.
-    if let Some(conversation) = parts.conversation {
-        let _ = ctx
-            .outbox
-            .set(crate::outbox::Outbox::spawn(conversation, &ctx.session_id));
-    }
-    spawn_engine(ctx, agent, parts.adapter, kill, host)
-}
-
-/// EXP-1134/EXP-1292: whether the adapter asks the agent to name this
-/// conversation — a FRESH thread session with nothing else to be listed
-/// under: no linked issue, no action and no title of its own (its run
-/// record says which, as `prepare` wrote it; EXP-1316: an action run's
-/// record carries the action name as its title, so it is never named). A resume keeps the name its transcript
-/// carries; an agent root is listed under its own name.
-/// EXP-1330: the run record `coding::aside` wrote marks a `/btw` aside.
-fn is_aside_run(data_dir: &Path, session_id: &str) -> bool {
-    coding::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside())
-}
-
-fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> bool {
-    prepared.acp.resume.is_none()
-        && coding::run_registry::get(data_dir, &prepared.session_id)
-            .is_some_and(|record| record_wants_name(&record))
-}
-
-/// EXP-1341: every session whose stored title is blank asks its agent CLI
-/// to name the conversation (children, issue and action threads included);
-/// the CLI's title is reported through `sessions.report`, which fills only a
-/// blank title. NEW-8: a persistent kind (an agent's conversation) never
-/// asks: its name is the agent DEFINITION's (`agents`), never a title.
-fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
-    !record.kind.is_persistent() && record.title.as_deref().is_none_or(|title| title.trim().is_empty())
+    spawn_engine(ctx, agent, adapter, backend)
 }
 
 // EXP-1334/EXP-1280: the ACP mode ids both adapters advertise
 // (`available_modes`), never re-typed here.
-use crate::adapters::{BUILD_MODE_ID, PLAN_MODE_ID};
+use super::adapters::{BUILD_MODE_ID, PLAN_MODE_ID};
 
-fn plan_mode_id(on: bool) -> &'static str {
+/// The ACP mode id for Exponential's plan flag.
+pub fn plan_mode_id(on: bool) -> &'static str {
     if on {
         PLAN_MODE_ID
     } else {
@@ -658,146 +381,82 @@ fn plan_mode_id(on: bool) -> &'static str {
     }
 }
 
-/// EXP-1292: the session pickup drives a live engine through this — the
-/// database is the bus, so a person's message, an unqueue, an answered card
-/// and an ended row all arrive off the synced shapes instead of the relay.
-impl coding::pickup::LiveEngine for EngineSession {
-    fn deliver(&self, message_id: String, text: String) {
-        EngineSession::deliver(self, message_id, text);
-    }
-
-    fn unqueue(&self, message_id: &str) {
-        EngineSession::unqueue(self, message_id);
-    }
-
-    fn answer_card(&self, question_id: &str, card: &serde_json::Value) {
-        EngineSession::answer_card(self, question_id, card);
-    }
-
-    /// EXP-1280: an answered tool-posted card (`exponential_plan_propose`,
-    /// `exponential_sessions_ask`): an approval leaves plan mode SILENTLY
-    /// first, then the answer goes in as the next turn — a fresh approval
-    /// in a fresh context.
-    fn deliver_answer(&self, message_id: String, text: String, approved: bool, fresh: bool) {
-        if approved {
-            self.set_plan_mode_silent(false);
-        }
-        if fresh {
-            self.deliver_fresh(message_id, text);
-        } else {
-            EngineSession::deliver(self, message_id, text);
-        }
-    }
-
-    fn open_cards(&self) -> std::collections::HashMap<String, String> {
-        EngineSession::open_cards(self)
-    }
-
-    /// EXP-1292: the row ended on the server — the agent's own
-    /// `sessions_end` mid-turn, or a person. EXP-637's graceful stop: a turn
-    /// in flight finishes first (≤ `steer::STOP_GRACE`), so its close-out
-    /// reply still reaches the conversation; between turns (or before the
-    /// session is live) it goes at once.
-    fn kill(&self, outcome: &'static str) {
-        if self.is_done() {
-            return;
-        }
-        let waiter = self.0.ctx.turn_signal.subscribe();
-        if self.phase() != Some(EnginePhase::Live) || waiter.try_recv().is_ok() {
-            EngineSession::kill(self, outcome);
-            return;
-        }
-        let session = self.clone();
-        let spawned = std::thread::Builder::new()
-            .name("engine-graceful-kill".to_string())
-            .spawn(move || {
-                let _ = waiter.recv_timeout(steer::STOP_GRACE);
-                EngineSession::kill(&session, outcome);
-            });
-        if spawned.is_err() {
-            EngineSession::kill(self, outcome);
-        }
-    }
-
-    fn is_done(&self) -> bool {
-        EngineSession::is_done(self)
-    }
-
-    /// EXP-849: the turn slot — a switch waits for it.
-    fn is_idle(&self) -> bool {
-        self.turn_signal().is_idle()
-    }
-
-    /// EXP-1252: a move waits for no turn, no background task (the
-    /// synced `busy` input) and no open card.
-    fn quiescent(&self) -> bool {
-        !self.agent_busy() && self.turn_signal().is_idle() && EngineSession::open_cards(self).is_empty()
-    }
-
-    /// S-4: FEED-25's activity clock — the idle release never counts a
-    /// chat quiet from before its last output.
-    fn last_activity(&self) -> Option<std::time::Instant> {
-        Some(self.0.ctx.last_activity())
-    }
-
-    /// EXP-1292: the account switch's stop — the row idles, never ends.
-    fn suspend(&self) {
-        EngineSession::kill(self, crate::lifecycle::SUSPEND_OUTCOME);
-    }
-
-    /// EXP-1334: a person's `sessions.configure` moved plan mode — the ONE
-    /// steerable mode on both adapters. EXP-1280: Exponential's flag (never
-    /// the CLI's), and a real move steers the agent one line.
-    fn set_plan_mode(&self, on: bool) {
-        self.set_mode(plan_mode_id(on));
-    }
-
-    fn plan_mode(&self) -> Option<bool> {
-        self.0.ctx.with_mapper(|mapper| mapper.current_mode().map(|mode| mode == PLAN_MODE_ID))
-    }
-
-    /// EXP-1334: a person's `sessions.configure{model}` — the live `model`
-    /// option both adapters take (`/model <alias>`).
-    fn set_model(&self, model: &str) {
-        self.set_config("model", ConfigValue::ValueId(model.to_string()));
-    }
-
-    fn model(&self) -> Option<String> {
-        self.0.ctx.with_mapper(|mapper| mapper.current_model().map(str::to_string))
-    }
-
-    fn wait_done(&self, timeout: std::time::Duration) -> bool {
-        self.wait_timeout(timeout).is_some()
-    }
-}
-
-struct CtxSpec {
-    session_id: String,
-    run: RunFacts,
-    trpc: Arc<api::TrpcClient>,
-    runtime: Arc<steer::SteerRuntime>,
-    data_dir: PathBuf,
-    account_id: String,
-    own_user_id: Option<String>,
-    personal_key: Option<String>,
-    persistent: bool,
-    seed_message_id: Option<String>,
-    foreign_host: bool,
-    rotation_host: bool,
-    publish: bool,
-    local_sink: Option<LocalSink>,
-    agent: coding::CodingAgent,
-    /// EXP-792: every team-MCP secret the launcher put in the spawn env —
-    /// exact-match entries for the redactor beside the `expu_` key.
-    mcp_secrets: Vec<String>,
-    replay: bool,
-    resume: Option<ResumeHandle>,
-    prompt: Option<String>,
-    /// EXP-1330: a `/btw` aside run ([`is_aside_run`]).
-    aside: bool,
+/// Everything the session context needs besides the adapter. Build one
+/// with [`SessionSpec::for_launch`] and adjust what the host knows more of.
+pub struct SessionSpec {
+    /// The host's session id (Exponential: the `sessions` row id).
+    pub session_id: String,
+    pub run: RunFacts,
+    /// The tokio runtime the connection is driven on.
+    pub runtime: tokio::runtime::Handle,
+    /// The host's data dir (Exponential: its `runs.json`, the journals).
+    pub data_dir: PathBuf,
+    /// The `expu_`-style key the redactor masks exactly (REV2-17).
+    pub personal_key: Option<String>,
+    /// EXP-1292/1341: a PERSISTENT session (an agent root): its process
+    /// exiting idles the row instead of ending it.
+    pub persistent: bool,
+    /// EXP-1292: the host message id the seed prompt delivers.
+    pub seed_message_id: Option<String>,
+    /// EXP-1005: the host runs an account-rotation beat.
+    pub rotation_host: bool,
+    /// `false` = no relay room at all (the backend reads it).
+    pub publish: bool,
+    /// The rich, host-local feed; `None` keeps the small headless backlog.
+    pub local_sink: Option<LocalSink>,
+    pub agent: CodingAgent,
+    /// EXP-792: every MCP secret the launcher put in the spawn env —
+    /// exact-match entries for the redactor beside the key.
+    pub mcp_secrets: Vec<String>,
+    pub replay: bool,
+    pub resume: Option<ResumeHandle>,
+    pub prompt: Option<String>,
+    /// EXP-1330: a `/btw` aside run.
+    pub aside: bool,
     /// The link the ADAPTER records its child's exit into — the same one, so
     /// the end sequence reads what the adapter wrote.
-    child_exit: ChildExitLink,
+    pub child_exit: ChildExitLink,
+    /// EXP-825: the localizer for the host's own prompts (`None` = sent as
+    /// they are).
+    pub attachments: Option<Arc<dyn PromptLocalizer>>,
+    /// The host's own tools for the mapper ([`NoHostTools`] for none).
+    pub host_tools: Arc<dyn HostTools>,
+    /// Where wire events go ([`super::sink::RecordingSink`], a voice loop, a
+    /// UI). `None` = the backend sets one on attach, or nowhere.
+    pub sink: Option<Arc<dyn EventSink>>,
+}
+
+impl SessionSpec {
+    /// The spec a server-free host starts `launch` with: its session id,
+    /// worktree, agent, seed prompt, resume handle and child-exit link,
+    /// nothing published, no host tools, no localizer.
+    pub fn for_launch(launch: &LaunchSpec, runtime: tokio::runtime::Handle) -> SessionSpec {
+        SessionSpec {
+            session_id: launch.session_id.clone(),
+            run: RunFacts {
+                worktree: launch.cwd.clone(),
+                ..RunFacts::default()
+            },
+            runtime,
+            data_dir: PathBuf::new(),
+            personal_key: launch.personal_key.clone(),
+            persistent: false,
+            seed_message_id: None,
+            rotation_host: false,
+            publish: false,
+            local_sink: None,
+            agent: launch.agent,
+            mcp_secrets: Vec::new(),
+            replay: launch.replay,
+            resume: launch.resume.clone(),
+            prompt: launch.prompt.clone(),
+            aside: launch.aside,
+            child_exit: launch.exit.clone(),
+            attachments: None,
+            host_tools: Arc::new(NoHostTools),
+            sink: None,
+        }
+    }
 }
 
 /// The redactor's exact-match set: the worktree's launcher secrets, the
@@ -809,20 +468,20 @@ fn session_secrets(
     personal_key: Option<String>,
     mcp_secrets: Vec<String>,
 ) -> Vec<String> {
-    let mut secrets = steer::activity::secrets_from_worktree(worktree);
+    let mut secrets = wire::activity::secrets_from_worktree(worktree);
     secrets.extend(personal_key);
     secrets.extend(mcp_secrets);
     secrets
 }
 
-fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
+fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
     // REV2-17: the session's own launcher secrets (the EXP-73 credential
     // file, a token in a remote URL, the `.exp-mcp.json` key) plus the
     // `expu_` key, masked out of every wire string. Built ONCE and shared:
     // the mapper's strings and the lifecycle's `diff` ticker are two
     // publishers of the same run and must mask the same set, or the weaker
     // one becomes the leak.
-    let redactor = Arc::new(steer::Redactor::new(session_secrets(
+    let redactor = Arc::new(wire::Redactor::new(session_secrets(
         &spec.run.worktree,
         spec.personal_key,
         spec.mcp_secrets,
@@ -831,49 +490,37 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     // mid-run and keeps the full row backlog; a headless host keeps only the
     // small attach-window ring (`BacklogMode::Headless`).
     let keep_backlog = spec.local_sink.is_some();
-    // EXP-825: the ONE localizer of this run — the seed prompt, a local
-    // composer message and (through the lifecycle's publisher) every steered
-    // message download into the worktree's steer-images dir. A replay sends
-    // nothing and gets none.
-    let attachments = (!spec.replay).then(|| {
-        steer::image_localizer(
-            Arc::clone(&spec.trpc),
-            crate::host::steer_images_dir(&spec.run.worktree),
-        )
-    });
+    // EXP-825: a replay sends nothing and gets no localizer.
+    let attachments = if spec.replay { None } else { spec.attachments };
     let mapper = Mapper::new(MapperConfig {
         redactor: Arc::clone(&redactor),
         cwd: spec.run.worktree.clone(),
         agent: AdapterKind::from_agent(spec.agent).session_agent(),
         session_seed: spec.session_id.clone(),
+        host_tools: spec.host_tools,
     });
     Arc::new(SessionCtx {
         session_id: spec.session_id,
         run: spec.run,
-        trpc: spec.trpc,
         runtime: spec.runtime,
         data_dir: spec.data_dir,
-        account_id: spec.account_id,
-        own_user_id: spec.own_user_id,
         persistent: spec.persistent,
         seed_message_id: spec.seed_message_id,
-        outbox: OnceLock::new(),
+        backend: OnceLock::new(),
         message_ids: Mutex::new(std::collections::HashSet::new()),
-        foreign_host: spec.foreign_host,
         rotation_host: spec.rotation_host,
         publish: spec.publish,
         local_sink: spec.local_sink,
-        turn_signal: Arc::new(steer::TurnSignal::new()),
-        caption_signal: Arc::new(steer::CaptionSignal::new()),
-        aside: spec.aside.then(crate::aside::AsideState::default),
-        agent_title: Arc::new(steer::AgentTitleSignal::new()),
+        turn_signal: Arc::new(wire::TurnSignal::new()),
+        caption_signal: Arc::new(wire::CaptionSignal::new()),
+        aside: spec.aside.then(super::aside::AsideState::default),
+        agent_title: Arc::new(wire::AgentTitleSignal::new()),
         workflows: Mutex::new(Vec::new()),
         agent: spec.agent,
         redactor,
         replay: spec.replay,
         resume: spec.resume,
         prompt: spec.prompt,
-        embeds: steer::ImageEmbeds::default(),
         attachments,
         open_questions: Mutex::new(std::collections::VecDeque::new()),
         mapper: Mutex::new(mapper),
@@ -888,13 +535,12 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         prompt_queue: Mutex::new(std::collections::VecDeque::new()),
         queue_commands: OnceLock::new(),
         drain_wanted: AtomicBool::new(false),
-        compaction: Arc::new(Mutex::new(crate::compaction::CompactionPolicy::default())),
+        compaction: Arc::new(Mutex::new(super::compaction::CompactionPolicy::default())),
         last_activity: Mutex::new(std::time::Instant::now()),
         seed_retry: std::sync::atomic::AtomicBool::new(false),
         turns_started: std::sync::atomic::AtomicU64::new(0),
         busy_at_shutdown: std::sync::atomic::AtomicBool::new(false),
-        lost: OnceLock::new(),
-        api_retry: Mutex::new(crate::api_retry::ApiRetry::new()),
+        api_retry: Mutex::new(super::api_retry::ApiRetry::new()),
         failure: Mutex::new(None),
         exit: ExitState::default(),
         outcome: Mutex::new(None),
@@ -902,7 +548,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     })
 }
 
-/// Attach the lifecycle, then run the connection on its own OS thread.
+/// Attach the backend, then run the connection on its own OS thread.
 ///
 /// `Handle::block_on` gives the whole graph a tokio context (the mapper's
 /// flush tick, the ACP timers) WITHOUT requiring the top-level future to be
@@ -910,10 +556,9 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
 /// of `SteerRuntime`'s two workers (D1).
 fn spawn_engine<A>(
     ctx: Arc<SessionCtx>,
-    agent: coding::CodingAgent,
+    agent: CodingAgent,
     adapter: A,
-    kill: KillFeed,
-    host: Arc<dyn EngineHost>,
+    backend: Arc<dyn RunBackend>,
 ) -> Result<EngineSession, EngineError>
 where
     A: ConnectTo<Client> + 'static,
@@ -922,20 +567,22 @@ where
     // EXP-861: the queue drains through the command loop, so the context
     // needs the loop's own inbox handle.
     let _ = ctx.queue_commands.set(commands.clone());
-    let lifecycle = RunLifecycle::attach(Arc::clone(&ctx), kill, commands.clone())?;
+    // EXP-1426 part 4d: the backend is on the context BEFORE it attaches,
+    // so the first edge its side-car produces already reaches it.
+    let _ = ctx.backend.set(Arc::clone(&backend));
+    backend.attach(&ctx, &commands)?;
     let thread_ctx = Arc::clone(&ctx);
     let spawned = std::thread::Builder::new()
         .name(thread_name(&ctx.session_id))
         .spawn(move || {
-            // The exit slot is flipped by `RunLifecycle::end` alone, so a
+            // The exit slot is flipped by the backend's `end` alone, so a
             // PANIC under `run_session` would leave `is_done()` false forever
             // — the daemon's `LiveSession` never leaves its map and a
             // self-update parks behind it. The guard flips it on an unwind.
             let mut guard = ExitGuard::arm(&thread_ctx.exit, &thread_ctx.session_id);
-            let runtime = Arc::clone(&thread_ctx.runtime);
+            let runtime = thread_ctx.runtime.clone();
             let result = runtime
-                .handle()
-                .block_on(crate::host::run_session(
+                .block_on(super::host::run_session(
                     Arc::clone(&thread_ctx),
                     adapter,
                     inbox,
@@ -948,7 +595,7 @@ where
                 .or_else(|| thread_ctx.take_failure());
             let outcome = thread_ctx.end_outcome();
             let child = thread_ctx.child_exit.get();
-            lifecycle.end(&thread_ctx, host.as_ref(), &outcome, child, error);
+            backend.end(&thread_ctx, &outcome, child, error);
             guard.disarm();
         });
     match spawned {
@@ -962,7 +609,7 @@ where
 }
 
 /// The engine thread's last resort: an exit for a run that never reached
-/// `RunLifecycle::end`.
+/// its backend's `end`.
 ///
 /// `end` is the ONLY writer of the exit slot, and a panic anywhere under
 /// `run_session` skips it — leaving `is_done()` false and every `wait()`
@@ -994,7 +641,7 @@ impl Drop for ExitGuard<'_> {
         if !self.armed || self.exit.is_done() {
             return;
         }
-        self.exit.finish(&EngineExit {
+        self.exit.finish(&EngineExit::<()> {
             session_id: self.session_id.to_string(),
             outcome: "ended".to_string(),
             child: None,
@@ -1002,14 +649,6 @@ impl Drop for ExitGuard<'_> {
             end: None,
         });
     }
-}
-
-/// `open_transcript` answers to nobody: a replay has no row, no publisher and
-/// no host bookkeeping to unwind.
-struct NoHost;
-
-impl EngineHost for NoHost {
-    fn on_exit(&self, _exit: EngineExit) {}
 }
 
 /// The value half of `session/set_config_option`. Mirrors ACP's
@@ -1054,17 +693,11 @@ impl From<ConfigValue> for agent_client_protocol::schema::v1::SessionConfigOptio
         }
     }
 }
-
-// EXP-1426 part 4c: the resume handle and the start error are the agent
-// runtime's (the adapters return them); `coding` converts its `ResumeSeed`
-// and `api` its `ApiError`.
-pub use exponential_agent_runtime::engine::launch::{EngineError, ResumeHandle};
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A run that dies without reaching `RunLifecycle::end` (a panic under
+    /// A run that dies without reaching its backend's `end` (a panic under
     /// `run_session`) STILL ends: the daemon reaps on `is_done`, so a slot
     /// that never flips parks a self-update forever. The normal path disarms
     /// the guard, so it never writes over the real exit.
@@ -1073,7 +706,7 @@ mod tests {
         let exit = ExitState::default();
         drop(ExitGuard::arm(&exit, "sess-1"));
         assert!(exit.is_done());
-        let finished = exit.wait(Some(Duration::from_millis(0))).expect("an exit");
+        let finished = exit.wait::<()>(Some(Duration::from_millis(0))).expect("an exit");
         assert_eq!(finished.session_id, "sess-1");
         assert!(finished.error.is_some());
 
@@ -1089,7 +722,7 @@ mod tests {
     fn the_team_mcp_secrets_join_the_redactor_set() {
         let dir = std::env::temp_dir().join(format!("exp792-secrets-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let redactor = steer::Redactor::new(session_secrets(
+        let redactor = wire::Redactor::new(session_secrets(
             &dir,
             Some("expu_personalkey1234".to_string()),
             vec![
@@ -1104,49 +737,9 @@ mod tests {
         assert!(!masked.contains("ghp_typed_value_2"), "{masked}");
         assert!(!masked.contains("expu_personalkey1234"), "{masked}");
         // Nothing extra is masked when there is nothing to mask.
-        let bare = steer::Redactor::new(session_secrets(&dir, None, Vec::new()));
+        let bare = wire::Redactor::new(session_secrets(&dir, None, Vec::new()));
         assert_eq!(bare.redact_exact_only("plain text"), "plain text");
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// EXP-1134/1292/1341: any session with a blank stored title asks its
-    /// agent for a name (issues aside); a named one never does, nor (NEW-8)
-    /// an agent's conversation.
-    #[test]
-    fn every_untitled_session_is_named_by_its_agent() {
-        let record = |kind: &str, issues: serde_json::Value, title: serde_json::Value| {
-            let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
-                "sessionId": "sess-1",
-                "accountId": "acct-1",
-                "agent": "claude",
-                "kind": kind,
-                "issues": issues,
-                "title": title,
-                "cwd": "/tmp/worktree",
-                "recordedAt": 1_700_000_000u64,
-            }))
-            .expect("the record decodes");
-            record
-        };
-        let none = serde_json::Value::Null;
-        assert!(record_wants_name(&record("thread", serde_json::json!([]), none.clone())));
-        assert!(record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!(" "))));
-        assert!(record_wants_name(&record("thread", serde_json::json!(["EXP-1"]), none.clone())));
-        assert!(!record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!("Named"))));
-        assert!(!record_wants_name(&record("agent", serde_json::json!([]), serde_json::json!("Triage"))));
-        assert!(!record_wants_name(&record("agent", serde_json::json!([]), none)));
-    }
-
-    #[test]
-    fn a_resume_seed_becomes_a_resume_handle() {
-        assert_eq!(
-            ResumeHandle::from(coding::ResumeSeed::Acp("sess-1".into())),
-            ResumeHandle::Acp("sess-1".into())
-        );
-        assert_eq!(
-            ResumeHandle::from(coding::ResumeSeed::Native("uuid-1".into())),
-            ResumeHandle::Native("uuid-1".into())
-        );
     }
 
     #[test]

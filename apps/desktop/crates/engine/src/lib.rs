@@ -51,6 +51,8 @@ pub use exponential_agent_runtime::engine::context_layout;
 // device for every client's chips (fixture-locked with web `lib/mcp/preview.ts`).
 // EXP-1426 part 4b: the rule is the core's; this keeps the name-keyed entry.
 pub mod exp_tool_refs;
+// EXP-1426 part 4d: the host and the session are the agent runtime's; these
+// re-export them beside Exponential's start, exit and `RunBackend` (lifecycle).
 pub mod host;
 pub mod lifecycle;
 pub use exponential_agent_runtime::engine::local;
@@ -69,10 +71,6 @@ pub use exponential_agent_runtime::engine::api_retry;
 // run with a reason. Pure; the lifecycle ticker drives it.
 pub use exponential_agent_runtime::engine::stall;
 pub mod stop_save;
-// EXP-750: the ACP `terminal/*` capability. Session-owned, host-local: the
-// registry lives on `SessionCtx` and nothing it produces leaves the machine.
-// EXP-1426 part 4b: moved to the agent runtime (its headless PTY in `spawn`).
-use exponential_agent_runtime::engine::terminals;
 pub use exponential_agent_runtime::engine::transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};

@@ -14,8 +14,8 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::activity::RemoteAnswer;
-use crate::frames::ActivityEvent;
+use super::activity::RemoteAnswer;
+use super::frames::ActivityEvent;
 
 /// One relay answer as a card write-back: a question's `answer` (the typed
 /// text, else the picked labels, `, `-joined) with a multi-select's picked
@@ -117,7 +117,7 @@ pub fn card_resolution(answer: &RemoteAnswer, question: Option<&ActivityEvent>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frames::QuestionOption;
+    use super::super::frames::QuestionOption;
 
     fn question(plan: bool) -> ActivityEvent {
         let mut free = QuestionOption::new("Type something.", "3");

@@ -59,7 +59,8 @@ pub mod call_host;
 pub mod activity;
 // EXP-1426: the login-screen scrapers live in the agent core now.
 pub use exponential_agent_runtime::login_screen as agent_login_driver;
-pub mod answer_tap;
+// EXP-1426 part 4d: pure, moved to the agent runtime with the engine host.
+pub use exponential_agent_runtime::wire::answer_tap;
 pub use exponential_agent_runtime::codex_login_picker;
 pub mod commands;
 pub mod control_channel;

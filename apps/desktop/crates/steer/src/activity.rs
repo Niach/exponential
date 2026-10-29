@@ -11,13 +11,14 @@
 //! * the publisher↔engine seams: [`AnswerLink`] (a steerer's semantic
 //!   answer), [`CommandLink`] (a slash command) and [`ConfigLink`] (a live
 //!   model/mode switch);
-//! * [`TurnSignal`], [`CaptionSignal`] and the forwarders
+//! * the forwarders (EXP-1426 part 4d: [`TurnSignal`], [`CaptionSignal`] and
+//!   [`AgentTitleSignal`] moved to the core with the engine host)
 //!   ([`NeedsInputForwarder`], [`StatusForwarder`], [`BlockedForwarder`],
 //!   [`AgentTitleForwarder`]).
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::frames::ActivityEvent;
@@ -169,119 +170,10 @@ impl ConfigLink {
     }
 }
 
-/// EXP-637 — the "is the agent between turns?" signal, shared by the emitter
-/// (which flips it) and the graceful-stop path (which waits on it).
-///
-/// When the agent declares its run over via `exponential_sessions_end`, the
-/// server ends the row while the CLI is still mid-turn — writing its final
-/// message, flushing its transcript. Killing it right then truncates exactly
-/// the output the close-out is about, so the host waits for the next idle
-/// edge (bounded by a timeout) before tearing anything down.
-///
-/// Deliberately tiny and lock-free on the read path: the emitter thread
-/// touches it on every hook/event tick.
-#[derive(Debug, Default)]
-pub struct TurnSignal {
-    idle: AtomicBool,
-    waiters: Mutex<Vec<flume::Sender<()>>>,
-}
-
-impl TurnSignal {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn is_idle(&self) -> bool {
-        self.idle.load(Ordering::Relaxed)
-    }
-
-    /// Record the agent's turn state. A false→true edge wakes every waiter;
-    /// repeated `true`s are cheap no-ops.
-    pub fn set_idle(&self, idle: bool) {
-        let was = self.idle.swap(idle, Ordering::Relaxed);
-        if idle && !was {
-            self.wake();
-        }
-    }
-
-    /// A receiver that fires once the agent is between turns — IMMEDIATELY
-    /// when it already is, otherwise on the next false→true edge.
-    pub fn subscribe(&self) -> flume::Receiver<()> {
-        let (tx, rx) = flume::bounded(1);
-        if self.is_idle() {
-            let _ = tx.try_send(());
-            return rx;
-        }
-        match self.waiters.lock() {
-            Ok(mut waiters) => waiters.push(tx),
-            Err(poisoned) => poisoned.into_inner().push(tx),
-        }
-        // Re-check after registering: the edge may have fired in between.
-        if self.is_idle() {
-            self.wake();
-        }
-        rx
-    }
-
-    fn wake(&self) {
-        let waiters = match self.waiters.lock() {
-            Ok(mut waiters) => std::mem::take(&mut *waiters),
-            Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
-        };
-        for waiter in waiters {
-            let _ = waiter.try_send(());
-        }
-    }
-}
-
-/// EXP-850 §8: the in-process workflow CAPTION of a run hosted right here —
-/// the desktop's own session rows read it for a run they host. EXP-1292: it
-/// is LOCAL only now; the synced `agent_caption` column and its forwarder
-/// are gone (a `sessions` row carries no caption).
-///
-/// A plain mutexed slot rather than an atomic: it holds a string and nothing
-/// reads it on the hot event path.
-#[derive(Debug, Default)]
-pub struct CaptionSignal {
-    caption: Mutex<Option<String>>,
-}
-
-impl CaptionSignal {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// The caption right now — `None` while no workflow runs.
-    pub fn get(&self) -> Option<String> {
-        match self.caption.lock() {
-            Ok(caption) => caption.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        }
-    }
-
-    /// Record the caption (`None` clears it). Returns whether it CHANGED,
-    /// which is what the forwarder's "only on change" rule keys on.
-    pub fn set(&self, caption: Option<String>) -> bool {
-        let mut slot = match self.caption.lock() {
-            Ok(slot) => slot,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if *slot == caption {
-            return false;
-        }
-        *slot = caption;
-        true
-    }
-}
-
 /// EXP-905: how long a FAILED title write waits before it is retried. A title
 /// moves a handful of times per run, so a transport hiccup must not turn the
 /// 1 s ticker into a request per second.
 pub const AGENT_TITLE_RETRY_INTERVAL: Duration = Duration::from_secs(10);
-
-/// EXP-905: the in-process agent title of a run hosted here (what the mapper
-/// last learned), shared with the forwarder and any in-process reader.
-pub type AgentTitleSignal = CaptionSignal;
 
 pub type AgentTitleHook = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
@@ -619,6 +511,7 @@ impl Default for BlockedForwarder {
 #[cfg(test)]
 mod blocked_tests {
     use super::*;
+    use std::sync::Mutex;
 
     fn wall(resets_at: Option<&str>) -> SessionBlocked {
         SessionBlocked {
@@ -896,82 +789,12 @@ mod tests {
         );
         assert_eq!(link.try_recv(), None);
     }
-
-    /// EXP-637: the graceful-stop signal. Already-idle subscribers fire
-    /// IMMEDIATELY (an agent that called `sessions_end` between turns must
-    /// not wait for a timeout), a busy one on the next false→true edge, and
-    /// repeated `true`s never re-fire a consumed waiter.
-    #[test]
-    fn turn_signal_fires_immediately_when_already_idle() {
-        let signal = TurnSignal::new();
-        assert!(!signal.is_idle());
-        signal.set_idle(true);
-        assert!(signal.is_idle());
-        let rx = signal.subscribe();
-        assert!(rx.try_recv().is_ok(), "an idle signal must fire at once");
-    }
-
-    #[test]
-    fn turn_signal_fires_on_the_next_idle_edge() {
-        let signal = TurnSignal::new();
-        let rx = signal.subscribe();
-        assert!(rx.try_recv().is_err(), "busy: nothing yet");
-        // Staying busy changes nothing.
-        signal.set_idle(false);
-        assert!(rx.try_recv().is_err());
-        signal.set_idle(true);
-        assert!(rx.try_recv().is_ok());
-    }
-
-    #[test]
-    fn turn_signal_wakes_every_waiter_once() {
-        let signal = TurnSignal::new();
-        let first = signal.subscribe();
-        let second = signal.subscribe();
-        signal.set_idle(true);
-        assert!(first.try_recv().is_ok());
-        assert!(second.try_recv().is_ok());
-        // The edge is consumed: a second `true` re-fires nothing on the old
-        // receivers, but a NEW subscriber still gets its immediate hit.
-        signal.set_idle(true);
-        assert!(first.try_recv().is_err());
-        assert!(signal.subscribe().try_recv().is_ok());
-    }
-
-    /// A busy→idle→busy cycle re-arms: the second turn's waiter must wait
-    /// for the SECOND boundary, not inherit the first.
-    #[test]
-    fn turn_signal_rearms_across_turns() {
-        let signal = TurnSignal::new();
-        signal.set_idle(true);
-        signal.set_idle(false);
-        let rx = signal.subscribe();
-        assert!(rx.try_recv().is_err());
-        signal.set_idle(true);
-        assert!(rx.try_recv().is_ok());
-    }
-}
-
-#[cfg(test)]
-mod exp850_caption_tests {
-    use super::*;
-
-    /// EXP-850 §8: the in-process slot the desktop reads for a run it hosts.
-    #[test]
-    fn the_caption_signal_reports_changes() {
-        let signal = CaptionSignal::new();
-        assert_eq!(signal.get(), None);
-        assert!(signal.set(Some("Workflow w \u{b7} starting".to_string())));
-        assert!(!signal.set(Some("Workflow w \u{b7} starting".to_string())));
-        assert_eq!(signal.get().as_deref(), Some("Workflow w \u{b7} starting"));
-        assert!(signal.set(None));
-        assert_eq!(signal.get(), None);
-    }
 }
 
 #[cfg(test)]
 mod exp905_agent_title_tests {
     use super::*;
+    use std::sync::Mutex;
     /// EXP-905: one write per change, never a clear, and a failed write waits
     /// out the retry interval unless the title moves again.
     #[test]
@@ -1019,6 +842,7 @@ mod exp905_agent_title_tests {
 #[cfg(test)]
 mod exp1292_status_tests {
     use super::*;
+    use std::sync::Mutex;
     use api::session_device::ReportStatus;
 
     fn recording_hook(
