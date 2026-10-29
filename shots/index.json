@@ -1253,8 +1253,8 @@
         "file": "shots/exponential-ui-call-surface/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 20594,
-        "sha256": "475ab8d57deb80edcc26e8853cf139b8880711437f75e3163d93b8fcfc3b8ae5"
+        "bytes": 25968,
+        "sha256": "f6ff1bec76aaec2e8a62df591f6c69b8b401c72cb5a12e886f5dca93e2bc3a24"
       }
     },
     "exponential-ui-card": {
@@ -2430,8 +2430,8 @@
         "file": "shots/exponential-ui-plan/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 22826,
-        "sha256": "329cfa9672460ee39e034eb6f7dae26bbdb5ba49ef9a9f349cc98a7df9b2108c"
+        "bytes": 22820,
+        "sha256": "2faacbadaccb13a7cea09dbd4e4002d62fbac7a8dca02d5e66830ce0b13de1a1"
       }
     },
     "exponential-ui-popover": {
