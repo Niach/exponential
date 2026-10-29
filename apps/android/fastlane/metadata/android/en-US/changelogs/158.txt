@@ -1,0 +1,2 @@
+- Agent replies and cards share one look with the other apps, and a card's title sits above it
+- Deleting several chats at once always tells you how it went

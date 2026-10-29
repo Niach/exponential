@@ -1,2 +1,2 @@
-- Stories-Tab: jede Frage, jeder Plan und jedes Ergebnis, das dir eine Sitzung gezeigt hat, bleibt in ihrem letzten Tab, mit Screenshots, und zeigt, wie es ausging
-- Änderungen und Stack des Pull Requests stehen über seinen Stories; tipp auf eine Story oder ein Bild, um es groß zu öffnen
+- Ein Kartenlook: Agent-Antworten und die Karten, die dir eine Sitzung zeigt, haben dieselbe Fläche, Ecken und Abstände wie in den anderen Apps
+- Der Titel einer Karte steht im Chat über ihr

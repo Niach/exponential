@@ -1,2 +1,2 @@
-- Kartica Priče: svako pitanje, plan i rezultat koji ti je sesija pokazala ostaje na njezinoj zadnjoj kartici, sa snimkama zaslona, i pokazuje kako je završio
-- Promjene i Stack pull requesta nalaze se iznad njegovih priča; dodirni priču ili sliku da je otvoriš u punoj veličini
+- Jedinstven izgled kartica: odgovori agenata i kartice koje ti sesija pokaže imaju istu površinu, kutove i razmake kao u ostalim aplikacijama
+- Naslov kartice nalazi se iznad nje u razgovoru

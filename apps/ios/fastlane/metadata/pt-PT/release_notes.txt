@@ -1,2 +1,2 @@
-- Separador Histórias: cada pergunta, plano e resultado que uma sessão te mostrou fica no seu último separador, com capturas de ecrã, e indica como terminou
-- As alterações e o Stack do pull request ficam por cima das suas histórias; toca numa história ou imagem para a abrir em tamanho completo
+- Um só aspeto de cartão: as respostas dos agentes e os cartões que uma sessão te mostra têm a mesma superfície, cantos e margens que nas outras apps
+- O título de um cartão aparece por cima dele no chat

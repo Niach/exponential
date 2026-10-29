@@ -1,2 +1,2 @@
-- Karta Historie: każde pytanie, plan i wynik, który pokazała ci sesja, zostaje w jej ostatniej karcie, ze zrzutami ekranu, i pokazuje, jak się zakończył
-- Zmiany i Stack pull requesta są nad jego historiami; stuknij historię lub obraz, aby otworzyć go na pełnym ekranie
+- Jeden wygląd kart: odpowiedzi agentów i karty, które pokazuje ci sesja, mają tę samą powierzchnię, rogi i marginesy co w innych aplikacjach
+- Tytuł karty jest w czacie nad nią

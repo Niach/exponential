@@ -1,2 +1,2 @@
-- Fila Povești: fiecare întrebare, plan și rezultat pe care ți l-a arătat o sesiune rămâne în ultima ei filă, cu capturi de ecran, și arată cum s-a încheiat
-- Modificările și Stack-ul pull request-ului stau deasupra poveștilor lui; atinge o poveste sau o imagine ca s-o deschizi pe tot ecranul
+- Un singur aspect pentru carduri: răspunsurile agenților și cardurile pe care ți le arată o sesiune au aceeași suprafață, colțuri și margini ca în celelalte aplicații
+- Titlul unui card apare deasupra lui în chat
