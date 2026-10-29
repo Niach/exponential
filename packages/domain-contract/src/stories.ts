@@ -13,6 +13,7 @@ export const STORY_RING = fixture.ring
 export const STORY_PROGRESS = fixture.progress
 export const STORY_VIEWER = fixture.viewer
 export const STORIES_TEST_IDS = fixture.testIds
+export const STORY_TAB = fixture.tab
 
 export type StoryKind = `plan` | `question` | `result`
 export type StoryFooter = `plan` | `choices` | `reply` | `none`
@@ -144,81 +145,122 @@ export function storyAge(createdAt: number, now: number): string {
 const byCreated = (a: Story, b: Story) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 const HOUR = 3_600_000
 
+type StoryResolution = `approved` | `changed` | `answered` | `superseded`
+
+/** One message as a story (null = not a story of a known root). `resolution`
+ *  = how a plan/question was settled (null while waiting, and for results). */
+function storyOf(
+  message: StoryMessageInput,
+  sessions: ReadonlyMap<string, StorySessionInput>,
+  marks: ReadonlyMap<string, number>,
+  now: number
+): { story: Story; root: StorySessionInput; resolution: StoryResolution | null } | null {
+  if (!message.authorSessionId || message.authorSessionId !== message.sessionId) return null
+  if (!isStoryCard(message.card)) return null
+  const card = message.card as Card
+  const session = sessions.get(message.sessionId)
+  if (!session) return null
+  const root = sessions.get(session.rootId)
+  if (!root) return null
+  const kind: StoryKind = card.kind === `plan` ? `plan` : card.kind === `question` ? `question` : `result`
+  const waiting =
+    kind === `plan`
+      ? card.decision == null
+      : kind === `question`
+        ? message.answeredAt == null && card.answer == null
+        : false
+  const resolution: StoryResolution | null =
+    kind === `result` || waiting
+      ? null
+      : kind === `question`
+        ? `answered`
+        : card.decision === `approved`
+          ? `approved`
+          : card.decision === `superseded`
+            ? `superseded`
+            : `changed`
+  const pictures = resolvedPictures(card)
+  const surface = card.surface != null && typeof card.surface === `object`
+  const options = Array.isArray(card.options) ? card.options : []
+  const title =
+    kind === `result`
+      ? str(card.title)?.trim() || null
+      : kind === `question`
+        ? str(card.question)?.trim() || null
+        : askDockTitle(str(card.plan) ?? ``) || null
+  const age = storyAge(message.createdAt, now)
+  const story: Story = {
+    id: message.id,
+    sessionId: session.id,
+    rootId: root.id,
+    sessionName: session.name,
+    kind,
+    waiting,
+    // A settled plan/question was acted on: seen.
+    seen: resolution !== null || message.createdAt <= (marks.get(root.id) ?? -Infinity),
+    createdAt: message.createdAt,
+    meta:
+      resolution && resolution !== `superseded`
+        ? `${fixture.copy[kind]} · ${fixture.tab.copy[resolution]} · ${age}`
+        : `${fixture.copy[kind]} · ${age}`,
+    title,
+    pictures,
+    surface,
+    text: kind === `plan` && pictures.length === 0 && !surface ? (str(card.plan) ?? null) : null,
+    footer:
+      resolution !== null
+        ? `none`
+        : kind === `plan`
+          ? `plan`
+          : kind === `question`
+            ? options.length > 0
+              ? `choices`
+              : `reply`
+            : `none`,
+    autoAdvanceMs: kind === `result` ? fixture.constants.autoAdvanceMs : null,
+  }
+  return { story, root, resolution }
+}
+
+/** The ring a root's stories ride (an agent's, else the chat's), empty. */
+function emptyRing(root: StorySessionInput, agents: ReadonlyMap<string, StoryAgentInput>): StoryRing {
+  const agentId = root.agentId ?? root.startedByAgentId
+  const agent = agentId ? agents.get(agentId) : undefined
+  return {
+    key: agentId ? `agent:${agentId}` : `root:${root.id}`,
+    agentId: agentId ?? null,
+    rootId: agentId ? null : root.id,
+    title: agentId ? (agent?.name ?? root.name) : root.name,
+    assistant: agent?.assistant ?? false,
+    waiting: 0,
+    unseen: false,
+    stories: [],
+  }
+}
+
+const marksOf = (reads: readonly StoryReadInput[]) =>
+  new Map(reads.map((read) => [read.sessionId, Math.max(read.readAt ?? -Infinity, read.storySeenAt ?? -Infinity)]))
+
 /** THE fold: the viewer's story rings, in display order. */
 export function stories(input: StoriesInput): StoryRing[] {
   const sessions = new Map(input.sessions.map((session) => [session.id, session]))
   const agents = new Map(input.agents.map((agent) => [agent.id, agent]))
-  const marks = new Map(
-    input.reads.map((read) => [read.sessionId, Math.max(read.readAt ?? -Infinity, read.storySeenAt ?? -Infinity)])
-  )
+  const marks = marksOf(input.reads)
   const rings = new Map<string, StoryRing>()
 
   for (const message of input.messages) {
-    if (!message.authorSessionId || message.authorSessionId !== message.sessionId) continue
-    if (!isStoryCard(message.card)) continue
-    const card = message.card as Card
-    const session = sessions.get(message.sessionId)
-    if (!session) continue
-    const root = sessions.get(session.rootId)
-    if (!root) continue
-    const kind: StoryKind = card.kind === `plan` ? `plan` : card.kind === `question` ? `question` : `result`
-    const waiting =
-      kind === `plan`
-        ? card.decision == null
-        : kind === `question`
-          ? message.answeredAt == null && card.answer == null
-          : false
-    if (kind !== `result` && !waiting) continue
-    const seen = message.createdAt <= (marks.get(root.id) ?? -Infinity)
-    const age = input.now - message.createdAt
-    if (kind === `result`) {
-      const keep = seen ? fixture.constants.seenHours : fixture.constants.unseenHours
-      if (age >= keep * HOUR) continue
+    const built = storyOf(message, sessions, marks, input.now)
+    // A settled plan/question leaves the ring (the Stories tab keeps it).
+    if (!built || built.resolution !== null) continue
+    const { story, root } = built
+    if (story.kind === `result`) {
+      const keep = story.seen ? fixture.constants.seenHours : fixture.constants.unseenHours
+      if (input.now - story.createdAt >= keep * HOUR) continue
     }
-    const pictures = resolvedPictures(card)
-    const surface = card.surface != null && typeof card.surface === `object`
-    const options = Array.isArray(card.options) ? card.options : []
-    const title =
-      kind === `result`
-        ? str(card.title)?.trim() || null
-        : kind === `question`
-          ? str(card.question)?.trim() || null
-          : askDockTitle(str(card.plan) ?? ``) || null
-    const story: Story = {
-      id: message.id,
-      sessionId: session.id,
-      rootId: root.id,
-      sessionName: session.name,
-      kind,
-      waiting,
-      seen,
-      createdAt: message.createdAt,
-      meta: `${fixture.copy[kind]} · ${storyAge(message.createdAt, input.now)}`,
-      title,
-      pictures,
-      surface,
-      text: kind === `plan` && pictures.length === 0 && !surface ? (str(card.plan) ?? null) : null,
-      footer: kind === `plan` ? `plan` : kind === `question` ? (options.length > 0 ? `choices` : `reply`) : `none`,
-      autoAdvanceMs: kind === `result` ? fixture.constants.autoAdvanceMs : null,
-    }
-    const agentId = root.agentId ?? root.startedByAgentId
-    const agent = agentId ? agents.get(agentId) : undefined
-    const key = agentId ? `agent:${agentId}` : `root:${root.id}`
-    let ring = rings.get(key)
-    if (!ring) {
-      ring = {
-        key,
-        agentId: agentId ?? null,
-        rootId: agentId ? null : root.id,
-        title: agentId ? (agent?.name ?? root.name) : root.name,
-        assistant: agent?.assistant ?? false,
-        waiting: 0,
-        unseen: false,
-        stories: [],
-      }
-      rings.set(key, ring)
-    }
-    ring.stories.push(story)
+    const ring = emptyRing(root, agents)
+    const existing = rings.get(ring.key)
+    if (existing) existing.stories.push(story)
+    else rings.set(ring.key, { ...ring, stories: [story] })
   }
 
   const list = [...rings.values()]
@@ -253,4 +295,33 @@ export function bubbleRings(
     else rest.push(ring)
   }
   return { byAgent, rest }
+}
+
+/** THE Stories tab of a session screen (stories.json `tab`): every story the
+ *  root's tree ever posted, never expiring; settled plans/questions stay
+ *  (footer none, `meta` names the outcome), a superseded plan drops. Waiting
+ *  first (oldest first), then the rest newest first. ONE ring (the root's,
+ *  as `stories` keys it) so the viewer opens on it; null = the empty state.
+ *  `unseen` = the tab chip's dot. */
+export function storyTab(input: StoriesInput & { rootId: string }): StoryRing | null {
+  const sessions = new Map(input.sessions.map((session) => [session.id, session]))
+  const agents = new Map(input.agents.map((agent) => [agent.id, agent]))
+  const root = sessions.get(input.rootId)
+  if (!root || root.rootId !== root.id) return null
+  const marks = marksOf(input.reads)
+  const list: Story[] = []
+  for (const message of input.messages) {
+    const built = storyOf(message, sessions, marks, input.now)
+    if (!built || built.root.id !== root.id || built.resolution === `superseded`) continue
+    list.push(built.story)
+  }
+  if (list.length === 0) return null
+  const waiting = list.filter((story) => story.waiting).sort(byCreated)
+  const rest = list.filter((story) => !story.waiting).sort((a, b) => byCreated(b, a))
+  return {
+    ...emptyRing(root, agents),
+    waiting: waiting.length,
+    unseen: list.some((story) => story.waiting || !story.seen),
+    stories: [...waiting, ...rest],
+  }
 }
