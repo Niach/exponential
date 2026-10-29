@@ -1,5 +1,5 @@
 import fixture from "@exp/domain-contract/fixtures/chats.json"
-import { ChatTranscriptSpecimen } from "@exp/ui"
+import { ChatTranscriptSpecimen, ExponentialUiTwin } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -16,7 +16,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1373`,
   title: `Chat transcript`,
-  blurb: `A chat's transcript ×4 (\`buildSessionThread\` rows, fixtures/chats.json TRANSCRIPT). Phones paint CHAT BUBBLES: the person's on the right (max 80%, its time inside), the agent's text on the left on THE card surface (GlassCard's fill + hairline, max 94%, the top-left corner 6px, its time bottom-right), cards in the agent's column; a new live bubble rises in (opacity + 6px at standard / decelerate). Web wide and the IDE keep the transcript. A person's \`/new\` or \`/compact\` is never a bubble: it is the centred glass pill "${COPY.dividers.compact} · 18:20" / "${COPY.dividers.new} · 09:30". An agent's inline Exponential UI preview (card \`surface\`, MCP \`exponential_session_self {op: "show"}\`) paints through the plan card's renderer (theme exponential, dark) in its own rounded glass frame, its title (if any) as the plan card's "Preview" caption above the frame (2xs medium muted); a press whose event is \`${fixture.surfaceCard.replyEvent}\` with a \`context.text\` sends that text as the person's next message. A surface that ARRIVES while the chat is open plays its enter once (fade from ${ENTER_TEXT}); reduce motion = an opacity fade only. A waiting plan or question card is always inline at its place with its actions (besides the dock); a plan the agent replaced reads "${COPY.superseded}", collapsed.`,
+  blurb: `A chat's transcript ×4 (\`buildSessionThread\` rows, fixtures/chats.json TRANSCRIPT). Phones paint CHAT BUBBLES: the person's on the right (max 80%, its time inside), the agent's text on the left on THE card surface (GlassCard's fill + hairline, max 94%, the top-left corner 6px, its time bottom-right), cards in the agent's column; a new live bubble rises in (opacity + 6px at standard / decelerate). Web wide and the IDE keep the transcript. A person's \`/new\` or \`/compact\` is never a bubble: it is the centred glass pill "${COPY.dividers.compact} · 18:20" / "${COPY.dividers.new} · 09:30". An agent's inline Exponential UI preview (card \`surface\`, MCP \`exponential_session_self {op: "show"}\`) paints through the plan card's renderer (theme exponential, dark) in its own rounded glass frame, its title (if any) as the plan card's "Preview" caption above the frame (2xs medium muted); a press whose event is \`${fixture.surfaceCard.replyEvent}\` with a \`context.text\` sends that text as the person's next message. A surface that ARRIVES while the chat is open plays its enter once (fade from ${ENTER_TEXT}); reduce motion = an opacity fade only. A waiting plan or question card is always inline at its place with its actions (besides the dock); a plan the agent replaced reads "${COPY.superseded}", collapsed. Exponential UI twin (VAPP-162): MessageBubble, the same bubble as an SDK macro (in = the card fill with a hairline, the top-start corner 6 px, the author over the text; out = the secondary fill with its time and the delivery icon: sending · sent · read), painted below from specimens.json \`exponential-ui-message-bubble\`.`,
   status: {
     web: {
       state: `ok`,
@@ -28,5 +28,9 @@ export const entry: StyleguideEntry = {
     ios: { state: `ok`, symbol: `SurfaceCardFrame / TranscriptDividerPill / AgentChatBubble`, file: `apps/ios/ExpUI/Sources/ChatTranscript.swift` },
     android: { state: `ok`, symbol: `ChatBubble`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ThreadParts.kt`, note: `TranscriptDivider: ui/components/ChatComponents.kt; SurfaceCard: ui/thread/SurfaceCard.kt` },
   },
-  island: () => <ChatTranscriptSpecimen />,
+  island: () => (
+    <ExponentialUiTwin name="MessageBubble" id="exponential-ui-message-bubble" cases={[2]}>
+      <ChatTranscriptSpecimen />
+    </ExponentialUiTwin>
+  ),
 }

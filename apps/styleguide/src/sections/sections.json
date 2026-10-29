@@ -12,7 +12,8 @@
       "mention-pill",
       "call-controls",
       "feedback-states",
-      "trace", "code-block"
+      "trace", "code-block",
+      "qr-code", "qr-scanner", "nav-rail", "voice-level"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings", "work-screen",
@@ -49,6 +50,10 @@
     "mention-pill": "EXP-1373",
     "trace": "EXP-1324",
     "code-block": "EXP-1324",
+    "qr-code": "VAPP-162",
+    "qr-scanner": "VAPP-162",
+    "nav-rail": "VAPP-162",
+    "voice-level": "VAPP-162",
     "composer-dialog": "EXP-1019",
     "session-row": "EXP-1248",
     "pr-row": "EXP-1248",
