@@ -2004,13 +2004,13 @@ struct UserMessageBubble: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            // Slightly brighter than the assistant's glass sections — the
-            // sender's own bubble (matches the composer's active tint).
-            .background(Color.white.opacity(0.10))
+            // The sender's own bubble ×4 (web `UserMessageBubble`): the
+            // glass active fill inside the strong hairline.
+            .background(GlassTokens.fillActive)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
+                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
         }
         .modifier(BubbleCaption(caption: caption, onRemove: onRemove))

@@ -877,7 +877,8 @@ pub(crate) fn chat_user_bubble(
         .into_any_element()
 }
 
-/// S-3 CHAT MODE: the agent's message = a LEFT bg-card bubble, at most 94%
+/// S-3 CHAT MODE: the agent's message = a LEFT bubble on THE card surface
+/// (`surface::glass_card`'s fill + hairline, N-12 ONE gray), at most 94%
 /// of the column, its top-left corner 6px, the time at its bottom right.
 pub(crate) fn chat_agent_bubble(body: MarkdownView, time: String, cx: &App) -> AnyElement {
     let theme = cx.theme();
@@ -894,7 +895,7 @@ pub(crate) fn chat_agent_bubble(body: MarkdownView, time: String, cx: &App) -> A
                 .rounded_tr(radius)
                 .rounded_bl(radius)
                 .rounded_br(radius)
-                .bg(theme::tokens::CARD.to_hsla())
+                .bg(crate::dock::card_fill())
                 .border_1()
                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
                 .px_3()

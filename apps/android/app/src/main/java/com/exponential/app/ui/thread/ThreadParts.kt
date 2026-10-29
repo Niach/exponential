@@ -1397,7 +1397,8 @@ fun SupersededPlanLine(modifier: Modifier = Modifier) {
 /**
  * Thread 58cb32df (chats.json TRANSCRIPT): ONE chat bubble. The person's on
  * the right (max 80% of the column, the glass fill under the strong
- * hairline), the agent's on the left in a card-fill bubble (max 94%, its
+ * hairline), the agent's on the left on THE card surface (the opaque card
+ * fill + card hairline, N-12 ONE gray; max 94%, its
  * top-leading corner 6dp); each carries its time bottom-right. A person's
  * queued message reads `queued` with the revoke ✕ (mine only).
  */
@@ -1422,8 +1423,8 @@ fun ChatBubble(
                 .align(if (fromPerson) Alignment.CenterEnd else Alignment.CenterStart)
                 .widthIn(max = max)
                 .clip(shape)
-                .background(if (fromPerson) GlassTokens.OpaqueCardFill else DesignTokens.Palette.Card, shape)
-                .then(if (fromPerson) Modifier.border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape) else Modifier)
+                .background(if (fromPerson) GlassTokens.RowFillActive else GlassTokens.OpaqueCardFill, shape)
+                .border(GlassTokens.Hairline, if (fromPerson) GlassTokens.StrokeStrong else GlassTokens.StrokeCard, shape)
                 .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp)
                 .testTag(if (fromPerson) "thread-message-bubble" else "thread-agent-message"),
         ) {

@@ -24,8 +24,8 @@ import { userMessageTime } from "./user-message-bubble"
 //                      motion = the frame's opacity alone.
 //   TranscriptDivider  a person's `/new` / `/compact` line: the centred glass
 //                      pill `copy.dividers.<kind> · HH:mm`
-//   ChatBubble         phones: the agent's text on the left in a bg-card
-//                      bubble (max 94%, top-left 6px), its time bottom-right
+//   ChatBubble         the agent's text on the left on THE card surface
+//                      (GlassCard's fill + hairline, N-12 ONE gray) (max 94%, top-left 6px), its time bottom-right
 //   useLiveArrivals    the rows that arrived after the screen first painted
 //                      (history, a reopen or a scroll never animates)
 
@@ -231,7 +231,7 @@ export function ChatBubble({
 }) {
   return (
     <div data-testid="chat-bubble" className={cn(`flex justify-start`, className)}>
-      <div className="flex max-w-[94%] min-w-0 flex-col gap-1 rounded-2xl rounded-tl-[6px] bg-card px-3.5 py-2.5 text-sm text-foreground">
+      <div className="flex max-w-[94%] min-w-0 flex-col gap-1 rounded-2xl rounded-tl-[6px] border border-glass-stroke-card bg-glass-card-opaque px-3.5 py-2.5 text-sm text-foreground">
         <div className={cn(`min-w-0`, CHAT_BUBBLE_INLINE_CHIPS_CLASS)}>{children}</div>
         {time && (
           <div data-slot="chat-bubble-time" className="self-end text-[0.6875rem] text-muted-foreground tabular-nums">

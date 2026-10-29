@@ -2232,7 +2232,7 @@ private fun NarrationBubble(
         return
     }
     // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the agent's text
-    // on the left in a card-fill bubble (max 94%, top-leading corner 6dp).
+    // on the left on THE card surface (max 94%, top-leading corner 6dp).
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val shape = RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
@@ -2241,7 +2241,8 @@ private fun NarrationBubble(
                 .align(Alignment.CenterStart)
                 .widthIn(max = maxWidth * 0.94f)
                 .clip(shape)
-                .background(DesignTokens.Palette.Card, shape)
+                .background(GlassTokens.OpaqueCardFill, shape)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .testTag("session-agent-bubble"),
         ) {
