@@ -356,11 +356,9 @@ struct SegmentedLeaf: View {
                 ConceptIcon(name: icon, size: cx.control("iconMd", 20), color: iconInk, model: cx.model)
                     .overlay(alignment: rtl ? .topLeading : .topTrailing) {
                         if let badge {
-                            SegmentedBadge(text: badge, part: cx.part("Segmented", "badge", states: states), base: cx.textStyle)
-                                // The badge's centre on the icon box's top-end corner.
-                                .alignmentGuide(.top) { $0.height / 2 }
-                                .alignmentGuide(.trailing) { $0.width / 2 }
-                                .alignmentGuide(.leading) { $0.width / 2 }
+                            let b = SegmentedBadge(text: badge, part: cx.part("Segmented", "badge", states: states), base: cx.textStyle)
+                            // The badge's centre on the icon box's top-end corner.
+                            b.offset(x: (rtl ? -1 : 1) * b.size.width / 2, y: -b.size.height / 2)
                         }
                     }
             }
@@ -385,13 +383,20 @@ struct SegmentedBadge: View {
     let part: PartStyle
     let base: TextStyle
 
-    var body: some View {
-        let height = part.height ?? 16
-        let ts = TextStyle(fontSize: part.px("fontSize") ?? 12, fontWeight: Int(part.props.num("fontWeight") ?? 500), lineHeight: part.px("lineHeight") ?? height, fontFamily: part.fontFamily ?? base.fontFamily)
+    private var textStyle: TextStyle {
+        TextStyle(fontSize: part.px("fontSize") ?? 12, fontWeight: Int(part.props.num("fontWeight") ?? 500), lineHeight: part.px("lineHeight") ?? (part.height ?? 16), fontFamily: part.fontFamily ?? base.fontFamily)
+    }
+
+    /// The pill: at least `minWidth` wide, the text + padding when wider.
+    var size: CGSize {
         let pad = part.px("paddingHorizontal") ?? part.px("padding") ?? 2
-        let width = max(part.px("minWidth") ?? 16, TextShaper.width(text, ts) + 2 * pad)
-        TextLabel(text, ts, color: part.color ?? .white, align: "center", lines: 1)
-            .frame(width: width, height: height)
+        return CGSize(width: max(part.px("minWidth") ?? 16, TextShaper.width(text, textStyle) + 2 * pad), height: part.height ?? 16)
+    }
+
+    var body: some View {
+        let size = size
+        TextLabel(text, textStyle, color: part.color ?? .white, align: "center", lines: 1)
+            .frame(width: size.width, height: size.height)
             .background(Capsule().fill(part.style.background ?? .red))
             .fixedSize()
             .allowsHitTesting(false)
