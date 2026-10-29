@@ -210,6 +210,7 @@ fn strip(
                 linked: Vec::new(),
             }),
             on_pick: std::rc::Rc::new(|_, _, _| {}),
+            stories: None,
             on_slot: Some(std::rc::Rc::new(move |measured, cx| {
                 let changed = slot.update(cx, |slot, _| {
                     let changed = slot.is_none_or(|prev| (prev - measured).abs() > 0.5);

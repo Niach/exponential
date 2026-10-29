@@ -41,7 +41,7 @@ use gpui_component::{
 
 use domain::rows::MessageRow;
 use domain::session_tree::SessionThreadRow;
-use domain::stories::{story_next, story_previous, Story, StoryKind, StoryRing, STORIES};
+use domain::stories::{story_next, story_previous, Story, StoryFooter, StoryKind, StoryRing, STORIES};
 
 use crate::icons::registry;
 use crate::markdown::{ImageCache, ImageSlot};
@@ -53,6 +53,9 @@ const HOLD: Duration = Duration::from_millis(250);
 /// The viewer's place and timer.
 struct Open {
     team_id: String,
+    /// The Stories tab's root when opened from a session screen's tab (its
+    /// ONE ring, `domain::stories::story_tab`); `None` = the team's rings.
+    tab_root: Option<String>,
     ring_key: String,
     story_id: String,
     /// The story's index when last resolved (an answered story drops out:
@@ -80,11 +83,61 @@ impl gpui::Global for Viewer {}
 
 /// Opens THE viewer at `ring_key`'s first story.
 pub(crate) fn open(team_id: &str, ring_key: &str, window: &mut Window, cx: &mut App) {
-    let rings = crate::story_ring::team_stories(team_id, cx);
-    let Some(story) = rings.iter().find(|ring| ring.key == ring_key).and_then(|ring| ring.stories.first()) else {
+    open_with(team_id, None, ring_key, None, 0, window, cx);
+}
+
+/// Opens THE viewer on a session screen's Stories tab ring (stories.json
+/// STORIES TAB) at `story_id`, picture `picture` shown.
+pub(crate) fn open_tab(
+    team_id: &str,
+    root_id: &str,
+    story_id: &str,
+    picture: usize,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(ring_key) = crate::story_ring::root_story_tab(root_id, cx).as_ref().as_ref().map(|ring| ring.key.clone())
+    else {
+        return;
+    };
+    open_with(team_id, Some(root_id), &ring_key, Some(story_id), picture, window, cx);
+}
+
+/// The rings the open viewer walks (the tab's ONE ring, else the team's).
+fn rings_of(team_id: &str, tab_root: Option<&str>, cx: &mut App) -> Rc<Vec<StoryRing>> {
+    match tab_root {
+        Some(root_id) => Rc::new(crate::story_ring::root_story_tab(root_id, cx).as_ref().clone().into_iter().collect()),
+        None => crate::story_ring::team_stories(team_id, cx),
+    }
+}
+
+fn open_rings(cx: &mut App) -> Option<Rc<Vec<StoryRing>>> {
+    let (team_id, tab_root) = cx
+        .try_global::<Viewer>()
+        .and_then(|viewer| viewer.open.as_ref())
+        .map(|open| (open.team_id.clone(), open.tab_root.clone()))?;
+    Some(rings_of(&team_id, tab_root.as_deref(), cx))
+}
+
+fn open_with(
+    team_id: &str,
+    tab_root: Option<&str>,
+    ring_key: &str,
+    story_id: Option<&str>,
+    picture: usize,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let rings = rings_of(team_id, tab_root, cx);
+    let Some(ring) = rings.iter().find(|ring| ring.key == ring_key) else {
+        return;
+    };
+    let index = story_id.and_then(|id| ring.stories.iter().position(|story| story.id == id)).unwrap_or(0);
+    let Some(story) = ring.stories.get(index) else {
         return;
     };
     let story_id = story.id.clone();
+    let picture = picture.min(story.pictures.len().saturating_sub(1));
     let focus = {
         let viewer = cx.default_global::<Viewer>();
         viewer.focus.clone()
@@ -96,13 +149,14 @@ pub(crate) fn open(team_id: &str, ring_key: &str, window: &mut Window, cx: &mut 
     });
     cx.global_mut::<Viewer>().open = Some(Open {
         team_id: team_id.to_string(),
+        tab_root: tab_root.map(str::to_string),
         ring_key: ring_key.to_string(),
         story_id,
-        index: 0,
+        index,
         shown_at: Instant::now(),
         paused_at: None,
         pressed_at: None,
-        picture: 0,
+        picture,
     });
     window.focus(&focus, cx);
     cx.refresh_windows();
@@ -164,11 +218,9 @@ pub(crate) fn previous(cx: &mut App) {
 }
 
 fn step(forward: bool, cx: &mut App) {
-    let Some(team_id) = cx.try_global::<Viewer>().and_then(|viewer| viewer.open.as_ref()).map(|open| open.team_id.clone())
-    else {
+    let Some(rings) = open_rings(cx) else {
         return;
     };
-    let rings = crate::story_ring::team_stories(&team_id, cx);
     let Some(at) = cx.global::<Viewer>().open.as_ref().and_then(|open| resolve(open, &rings)) else {
         close(cx);
         return;
@@ -244,7 +296,7 @@ fn images(cx: &mut App) -> Entity<ImageCache> {
 /// runs the result's timer, marks the story seen and paints the panel.
 pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     let team_id = cx.try_global::<Viewer>()?.open.as_ref()?.team_id.clone();
-    let rings = crate::story_ring::team_stories(&team_id, cx);
+    let rings = open_rings(cx)?;
     let mut at = cx.global::<Viewer>().open.as_ref().and_then(|open| resolve(open, &rings));
     // A result past its time moves on (a decision never does).
     if let Some((ring, story)) = at {
@@ -626,8 +678,10 @@ pub(crate) fn story_content(
         );
         lead = lead.child(crate::steer_viewer::ask_body_text(cx).child(view));
     }
+    // A settled plan / question (the Stories tab keeps it) has no footer.
+    let answering = story.footer != StoryFooter::None;
     match (&row, story.kind) {
-        (Some(row @ SessionThreadRow::Plan { .. }), _) => {
+        (Some(row @ SessionThreadRow::Plan { .. }), _) if answering => {
             let facts = crate::thread_screen::plan_facts(row).map(|(_, _, facts)| facts);
             if let Some(facts) = facts {
                 let sheet = crate::dock::sheet_host(|| {
@@ -637,7 +691,7 @@ pub(crate) fn story_content(
             }
             StoryContent { body: div().into_any_element(), footer: None }
         }
-        (Some(row @ SessionThreadRow::Question { .. }), _) => {
+        (Some(row @ SessionThreadRow::Question { .. }), _) if answering => {
             let facts = crate::thread_screen::question_facts(row).map(|(_, _, facts)| facts);
             if let Some(facts) = facts {
                 let sheet = crate::dock::sheet_host(|| {

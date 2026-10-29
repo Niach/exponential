@@ -154,6 +154,9 @@ mod surface_card;
 // S-3: THE story ring + THE story viewer.
 mod story_ring;
 mod story_viewer;
+// STORIES TAB: the session screen's Stories tab body + THE PR review pane.
+mod story_tab;
+mod pr_diff;
 mod pr_graph;
 mod pr_merge;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).

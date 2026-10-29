@@ -54,6 +54,7 @@ use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRo
 use domain::session_results::SessionResultEntry;
 use domain::dock::DockSource;
 use domain::session_tree::{SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
+use domain::stories::STORIES;
 
 use crate::controls::PointerContextMenuExt as _;
 use crate::controls::WebControl as _;
@@ -96,6 +97,8 @@ const CHIP_BADGE_PX: f32 = 5.;
 pub(crate) enum ThreadChildSel {
     Conversation,
     Issue(String),
+    /// stories.json STORIES TAB: the strip's last tab.
+    Stories,
 }
 
 // ---------------------------------------------------------------------------
@@ -1935,6 +1938,7 @@ pub(crate) enum StripPick {
     Conversation,
     Issue(String),
     Session(String),
+    Stories,
 }
 
 /// One linked issue as the strip paints it.
@@ -1969,6 +1973,10 @@ pub(crate) struct ThreadStrip {
     pub(crate) on_pick: OnStripPick,
     /// Records the middle slot's painted width.
     pub(crate) on_slot: Option<std::rc::Rc<dyn Fn(f32, &mut App)>>,
+    /// stories.json STORIES TAB: `Some(dot)` = the Stories tab pinned right
+    /// after a divider, its green dot while a story is unseen; `None` = no
+    /// Stories tab (the styleguide's strip cases).
+    pub(crate) stories: Option<bool>,
 }
 
 /// A chip's frame: `px(10)` a side + the 1px border.
@@ -2574,7 +2582,9 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     }
     // NEW-6 (N-1): a thread with ONE session has no Conversation tab (its
     // raw work IS the body); the tab comes back with the first child.
-    if spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Conversation)) {
+    // The Stories tab open on a one-session thread brings the Conversation
+    // tab back (the way home, web draws it always).
+    if spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Conversation)) || spec.open == StripPick::Stories {
         lead.push(
             strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
                 .child(Icon::new(registry::ACTION_CHAT).xsmall())
@@ -2596,6 +2606,15 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     );
     middle.extend(overflow("sessions", &session_tabs, &layout.sessions, cx));
 
+    // STORIES TAB: pinned right after a divider (the Guide's place).
+    let stories = spec.stories.map(|dot| {
+        strip_tab(SharedString::from(STORIES.tab.test_ids.tab.clone()), spec.open == StripPick::Stories, cx)
+            .child(Icon::new(registry::THREAD_STORIES).xsmall())
+            .child(SharedString::from(STORIES.tab.copy.label.clone()))
+            .when(dot, |chip| chip.child(stories_dot(cx)))
+            .on_click(pick(StripPick::Stories))
+            .into_any_element()
+    });
     let on_slot = spec.on_slot.clone();
     h_flex()
         .when_some(on_slot, |row, on_slot| {
@@ -2621,7 +2640,18 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
                 .overflow_x_hidden()
                 .children(middle),
         )
+        .when_some(stories, |row, stories| row.child(strip_divider(cx)).child(stories))
         .into_any_element()
+}
+
+/// The Stories tab's green dot (a story unseen; the Guide's dot).
+pub(crate) fn stories_dot(cx: &App) -> AnyElement {
+    div().size(px(6.)).rounded_full().bg(cx.theme().success).into_any_element()
+}
+
+/// The strip's vertical divider before Stories.
+pub(crate) fn strip_divider(cx: &App) -> AnyElement {
+    div().w(px(1.)).h(px(16.)).mx_1().bg(cx.theme().border).into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -2744,8 +2774,18 @@ pub(crate) fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>,
     hasher.finish()
 }
 
+/// The Stories tab's own state: THE review pane open, the pull request's
+/// diff, the hovered stack member. Merges ride [`crate::pr_merge`]'s state.
+#[derive(Default)]
+struct StoriesState {
+    review: bool,
+    diff: Option<(String, Entity<crate::pr_diff::PrDiffView>)>,
+    stack_hovered: Option<String>,
+}
+
 pub(crate) struct ThreadScreenView {
     root_id: String,
+    stories: StoriesState,
     child: ThreadChildSel,
     /// EXP-1346: shared, never deep-cloned per frame.
     model: Option<Rc<ThreadModel>>,
@@ -2855,6 +2895,7 @@ impl ThreadScreenView {
         });
         let mut this = Self {
             root_id,
+            stories: StoriesState::default(),
             child: ThreadChildSel::Conversation,
             model: None,
             model_gen: 0,
@@ -2887,6 +2928,10 @@ impl ThreadScreenView {
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
+        // A capture (and a debug launch) can open a thread on its Stories tab.
+        if std::env::var("EXP_DEV_THREAD_CHILD").ok().as_deref() == Some("stories") {
+            this.child = ThreadChildSel::Stories;
+        }
         this
     }
 
@@ -3000,6 +3045,7 @@ impl ThreadScreenView {
             let issue_id = issue_id.clone();
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
         }
+        self.stories.review = false;
         self.child = child;
         cx.notify();
     }
@@ -3108,6 +3154,7 @@ impl ThreadScreenView {
             (Some(focus), _) => StripPick::Session(focus.to_string()),
             (None, ThreadChildSel::Conversation) => StripPick::Conversation,
             (None, ThreadChildSel::Issue(id)) => StripPick::Issue(id.clone()),
+            (None, ThreadChildSel::Stories) => StripPick::Stories,
         };
         let issues: HashMap<String, StripIssue> = model
             .issues
@@ -3139,15 +3186,18 @@ impl ThreadScreenView {
             other => {
                 let child = match other {
                     StripPick::Issue(id) => ThreadChildSel::Issue(id),
+                    StripPick::Stories => ThreadChildSel::Stories,
                     _ => ThreadChildSel::Conversation,
                 };
                 let _ = this.update(cx, |this, cx| this.select_child(child, window, cx));
             }
         });
         let slot = cx.entity().downgrade();
+        let stories_dot = crate::story_ring::root_story_tab(&self.root_id, cx).as_ref().as_ref().is_some_and(|ring| ring.unseen);
         thread_strip(
             ThreadStrip {
                 prefix: "thread",
+                stories: Some(stories_dot),
                 tabs: model.view.tabs.clone(),
                 issues,
                 clis,
@@ -3459,6 +3509,150 @@ impl ThreadScreenView {
             .into_any_element()
     }
 
+    // ── the Stories tab ──────────────────────────────────────────────────
+
+    /// The pull request's diff view, built (and fetched) once per PR.
+    fn pull_diff(
+        &mut self,
+        pull_request_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Entity<crate::pr_diff::PrDiffView> {
+        if let Some((id, view)) = &self.stories.diff {
+            if id == pull_request_id {
+                return view.clone();
+            }
+        }
+        let view = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
+        cx.observe(&view, |_, _, cx| cx.notify()).detach();
+        let id = pull_request_id.to_string();
+        view.update(cx, |view, cx| view.set_pull_request(id.clone(), cx));
+        self.stories.diff = Some((id, view.clone()));
+        self.stories.review = false;
+        view
+    }
+
+    fn open_review(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
+        self.stories.review = open;
+        cx.notify();
+    }
+
+    /// stories.json STORIES TAB: the PR block (the Stack band + THE
+    /// StackRail, ONE Changes row opening THE review pane), then the tiles
+    /// (`story_tab`); a tile opens THE viewer on the tab's ring.
+    fn render_stories_child(&mut self, model: &ThreadModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let pull = model.pull().cloned();
+        let diff_view = pull.as_ref().map(|pull| self.pull_diff(&pull.id, window, cx));
+        let files = diff_view.as_ref().map(|view| view.read(cx).pane_files(cx)).unwrap_or_default();
+        let (additions, deletions) =
+            files.iter().fold((0u32, 0u32), |(a, d), file| (a + file.additions, d + file.deletions));
+        if let (true, Some(view)) = (self.stories.review && !files.is_empty(), diff_view.as_ref()) {
+            let this = cx.entity().downgrade();
+            let back = crate::story_tab::review_header(
+                files.len(),
+                additions,
+                deletions,
+                std::rc::Rc::new(move |_window, cx| {
+                    let _ = this.update(cx, |this, cx| this.open_review(false, cx));
+                }),
+                cx,
+            );
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .child(crate::issue_detail::centered_column(div().w_full().child(back)))
+                .child(div().flex_1().min_h_0().w_full().child(view.clone()))
+                .into_any_element();
+        }
+        let lead = pull.as_ref().map(|pull| {
+            let this = cx.entity().downgrade();
+            let changes = (!files.is_empty()).then(|| {
+                crate::story_tab::changes_row(
+                    files.len(),
+                    additions,
+                    deletions,
+                    Some(std::rc::Rc::new(move |_window, cx| {
+                        let _ = this.update(cx, |this, cx| this.open_review(true, cx));
+                    })),
+                    cx,
+                )
+            });
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_3()
+                .children(self.stack_card(model, pull, cx).map(|card| {
+                    div().id(SharedString::from(STORIES.tab.test_ids.stack.clone())).child(card)
+                }))
+                .children(changes)
+                .into_any_element()
+        });
+        let ring = crate::story_ring::root_story_tab(&self.root_id, cx);
+        let team_id = model.root.team_id.clone().unwrap_or_default();
+        let root_id = self.root_id.clone();
+        let on_open: crate::story_tab::OnOpenStory = std::rc::Rc::new(move |story, picture, window, cx| {
+            crate::story_viewer::open_tab(&team_id, &root_id, &story.id, picture, window, cx);
+        });
+        let images = self.images.clone();
+        let body = crate::story_tab::story_tab_body(ring.as_ref().as_ref(), lead, Some(&images), Some(on_open), cx);
+        div()
+            .id(SharedString::from(STORIES.tab.test_ids.list.clone()))
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .overflow_y_scroll()
+            .child(crate::issue_detail::centered_column(
+                v_flex().px(px(crate::work_header::WORK_GUTTER)).pt_6().pb_10().child(body),
+            ))
+            .into_any_element()
+    }
+
+    /// The Stack card of the thread's pull request (the Guide's): a pick
+    /// opens that PR's thread, the hovered member merges through.
+    fn stack_card(&self, model: &ThreadModel, pull: &PullRequestRow, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let team_id = model.root.team_id.as_deref()?;
+        let snapshot = crate::session_data::team_pr_snapshot(team_id, cx);
+        let view = snapshot.with_set(|set| domain::pr_stack::stack_view(pull, set))?;
+        let roots: HashMap<String, String> = snapshot
+            .pulls
+            .iter()
+            .filter_map(|pull| Some((pull.id.clone(), pull.root_session_id.clone()?)))
+            .collect();
+        let on_pick: crate::session_results::OnPickStackRow = std::rc::Rc::new(move |pull_request_id, window, cx| {
+            if let Some(root_id) = roots.get(pull_request_id) {
+                crate::navigation::navigate(window, cx, Screen::Thread { session_id: root_id.clone() });
+            }
+        });
+        // Merge through the hovered member = the stack's ONE confirm.
+        let on_merge: crate::session_results::OnPickStackRow = std::rc::Rc::new(move |pull_request_id, window, cx| {
+            crate::pr_merge::ask_stack_merge_mode(
+                pull_request_id,
+                domain::pr_stack::StackConfirmMode::Through,
+                window,
+                cx,
+            );
+        });
+        let this = cx.entity().downgrade();
+        let on_hover: crate::session_results::OnHoverStackRow = std::rc::Rc::new(move |hovered, _window, cx| {
+            let _ = this.update(cx, |this, cx| {
+                if this.stories.stack_hovered != hovered {
+                    this.stories.stack_hovered = hovered;
+                    cx.notify();
+                }
+            });
+        });
+        Some(crate::session_results::stack_card(
+            &view,
+            None,
+            Some(on_pick),
+            Some(on_merge),
+            self.stories.stack_hovered.clone(),
+            Some(on_hover),
+            cx,
+        ))
+    }
+
     fn render_issue_child(&mut self) -> AnyElement {
         match &self.issue_view {
             Some(view) => div().flex_1().min_h_0().w_full().child(view.clone()).into_any_element(),
@@ -3563,7 +3757,10 @@ impl Render for ThreadScreenView {
         let child = match self.child.clone() {
             ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
             ThreadChildSel::Issue(_) => self.render_issue_child(),
+            ThreadChildSel::Stories => self.render_stories_child(&model, window, cx),
         };
+        // THE story viewer, opened from the Stories tab.
+        let viewer = crate::story_viewer::overlay(window, cx);
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()
@@ -3571,6 +3768,7 @@ impl Render for ThreadScreenView {
             .overflow_hidden()
             .child(header)
             .child(child)
+            .children(viewer)
     }
 }
 
