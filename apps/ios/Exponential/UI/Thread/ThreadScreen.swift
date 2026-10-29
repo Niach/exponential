@@ -104,6 +104,10 @@ struct ThreadScreen: View {
     @State private var insetCorrection: CGFloat = 0
     // The thread PR (`guidePullRequest`)
     @State private var mergeState = WorkMergeState()
+    /// stories.json STORIES TAB: the fold's synced input (the tab's dot and
+    /// body); `storiesNow` ticks so the ages follow the clock.
+    @State private var stories = StoriesModel()
+    @State private var storiesNow = Date()
     /// EXP-1307: the thread PR awaiting the Close PR confirm.
     @State private var closePrTarget: PullRequestEntity?
     // EXP-1323: suggested tasks
@@ -135,7 +139,7 @@ struct ThreadScreen: View {
         self.editor = editor
         // An issue or session tab may not be in the strip yet: hold it
         // (`pendingPage`).
-        if initialPage != .conversation {
+        if initialPage != .conversation, initialPage != .stories {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: initialPage)
         } else {
@@ -154,7 +158,8 @@ struct ThreadScreen: View {
         let main = rows.chatMode == .transcript ? view.mainSessionId : nil
         // EXP-1334: a folded sub-issue is a page too (its chip's subtree);
         // EXP-1343: so is every session chip and every session it folds, in
-        // strip order (`+` is never a page).
+        // strip order (`+` is never a page); stories.json: the Stories page
+        // is always the last.
         return view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
             case .conversation: [main.map { .session($0) } ?? .conversation]
@@ -163,7 +168,7 @@ struct ThreadScreen: View {
                 [.session(sessionId)] + nested.map { .session($0.sessionId) }
             case .add: []
             }
-        }
+        } + [.stories]
     }
 
     private var currentPages: [ThreadPage] {
@@ -320,6 +325,14 @@ struct ThreadScreen: View {
             }
         }
         .task(id: rows?.root.teamId) { await resolveOwner() }
+        .task(id: accountId) {
+            guard editor == nil else { return }
+            stories.bind(accountId: accountId, db: deps.db)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                storiesNow = Date()
+            }
+        }
         // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
         .background {
             Color.clear
@@ -422,8 +435,15 @@ struct ThreadScreen: View {
             onOpenFold: { fold in
                 UIApplication.endEditing()
                 foldTarget = fold
-            }
+            },
+            storiesDot: storyTab?.unseen ?? false
         )
+    }
+
+    /// stories.json STORIES TAB: every story the root's tree ever posted
+    /// (`Stories.storyTab`); nil = the empty state.
+    private var storyTab: Stories.StoryRing? {
+        stories.tab(now: storiesNow, rootId: rows?.root.id ?? rootId)
     }
 
     /// EXP-1334: a fold sheet's pick — an issue shows its page, a session
@@ -478,6 +498,15 @@ struct ThreadScreen: View {
             issuePage(issueId)
         case let .session(sessionId):
             sessionPage(sessionId, rows: rows)
+        case .stories:
+            ThreadStoriesPage(
+                rootId: rows.root.id,
+                rows: rows,
+                ring: storyTab,
+                stories: stories,
+                canEdit: canEdit,
+                mergeState: $mergeState
+            )
         }
     }
 

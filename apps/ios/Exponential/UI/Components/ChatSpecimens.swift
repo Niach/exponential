@@ -593,7 +593,7 @@ struct SessionXrefSpecimens: View {
 struct StorySpecimensScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["story-ring", "story-viewer"]
+    static let kinds: Set<String> = ["story-ring", "story-viewer", "story-tab"]
 
     private static let now: Double = 1800000000000
     private static let smallRing: CGFloat = 36
@@ -671,10 +671,62 @@ struct StorySpecimensScreen: View {
         return .agent(icon: BoardTypeDisplay.iconName(for: icon) ?? icon, color: color)
     }
 
+    // MARK: - story-tab (stories.json `tab.specimen` = tabCases[1])
+
+    private static let tabSessions: [Stories.SessionInput] = [
+        Stories.SessionInput(id: "r1", rootId: "r1", name: "Batch-edit labels", agentId: nil, startedByAgentId: nil),
+        Stories.SessionInput(id: "c1", rootId: "r1", name: "Web draft", agentId: nil, startedByAgentId: nil),
+        Stories.SessionInput(id: "r2", rootId: "r2", name: "Other chat", agentId: nil, startedByAgentId: nil),
+    ]
+
+    private static func tabMessage(
+        _ id: String, _ sessionId: String, _ author: String, _ createdAt: Double, _ answeredAt: Double?, _ card: String
+    ) -> Stories.MessageInput {
+        Stories.MessageInput(
+            id: id, sessionId: sessionId, authorSessionId: author, createdAt: createdAt, answeredAt: answeredAt,
+            card: TreeMessageCard.parse(card)
+        )
+    }
+
+    private static let tabMessages: [Stories.MessageInput] = [
+        tabMessage("q-wait", "r1", "r1", 1799999400000, nil, ###"{"kind":"question","question":"Ship the picker as is?","options":["Ship","Polish"],"answer":null}"###),
+        tabMessage("res-web", "c1", "c1", 1799992800000, nil, ###"{"kind":"surface","surface":{"root":{"id":"c","component":"Card"}},"title":"Label picker","pictures":[{"label":"web picker","attachmentId":"att-w","width":1600,"height":1000,"caption":"Mixed state"},{"label":"ios picker","attachmentId":"att-i","width":1179,"height":2556,"caption":null},{"label":"android picker","attachmentId":null,"width":null,"height":null,"caption":null}]}"###),
+        tabMessage("plan-ok", "r1", "r1", 1799892000000, 1799895600000, ###"{"kind":"plan","plan":"## Batch-edit labels\n\nOne request per change.","decision":"approved"}"###),
+        tabMessage("plan-old", "r1", "r1", 1799888400000, 1799892000000, ###"{"kind":"plan","plan":"Old plan","decision":"superseded"}"###),
+        tabMessage("plan-no", "c1", "c1", 1799982000000, 1799985600000, ###"{"kind":"plan","plan":"Drop the undo step","decision":"rejected"}"###),
+        tabMessage("q-done", "c1", "c1", 1799989200000, 1799989800000, ###"{"kind":"question","question":"Which board?","options":[],"answer":"Mobile App"}"###),
+        tabMessage("old-result", "r1", "r1", 1799222400000, nil, ###"{"kind":"surface","story":true,"surface":{"root":{"id":"c","component":"Card"}},"title":"First draft"}"###),
+        tabMessage("status", "r1", "r1", 1799999940000, nil, ###"{"kind":"surface","surface":{"root":{"id":"c","component":"Card"}},"title":"Working"}"###),
+        tabMessage("relay", "c1", "c1", 1799998800000, nil, ###"{"kind":"question","question":"Engine ask","options":["Yes"],"questionId":"q1"}"###),
+        tabMessage("mirror", "r1", "c1", 1799999100000, nil, ###"{"kind":"ask","sessionId":"c1","messageId":"plan-no"}"###),
+        tabMessage("elsewhere", "r2", "r2", 1799999940000, nil, ###"{"kind":"question","question":"Not here","options":["A"]}"###),
+    ]
+
+    /// tabCases[1]'s ring (`Stories.storyTab` over its input).
+    static let tabRing: Stories.StoryRing? = Stories.storyTab(
+        now: now,
+        sessions: tabSessions,
+        agents: [],
+        messages: tabMessages,
+        reads: [Stories.ReadInput(sessionId: "r1", readAt: 1_799_996_400_000, storySeenAt: nil)],
+        rootId: "r1"
+    )
+
     var body: some View {
         ZStack {
             AppBackground()
-            if kind == "story-viewer" {
+            if kind == "story-tab" {
+                // The web specimen's frame: the 24pt card, the hairline, 20 in.
+                let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+                ScrollView {
+                    StoryTabView(ring: Self.tabRing)
+                        .padding(20)
+                        .background(DesignTokens.Palette.background, in: shape)
+                        .overlay(shape.strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+                        .padding(16)
+                        .accessibilityIdentifier("story-tab-specimen")
+                }
+            } else if kind == "story-viewer" {
                 StoryViewer(
                     rings: Self.rings, startKey: Self.rings[0].key, card: Self.card, avatar: Self.avatar, fraction: 0,
                     onClose: {}

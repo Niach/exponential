@@ -21,6 +21,10 @@ struct StoryViewer: View {
     /// The live rings (the fold recomputes from sync while the viewer is up).
     let rings: [Stories.StoryRing]
     let startKey: String
+    /// stories.json STORIES TAB: a tile opens the viewer at its story (and
+    /// a thumbnail at its picture); nil = the ring's first story.
+    var startStory: String?
+    var startPicture = 0
     var card: (String) -> TreeMessageCard? = { _ in nil }
     var avatar: (Stories.StoryRing) -> StoryRingAvatar
     /// A specimen's frozen progress fill (stories.json `specimen.viewer`).
@@ -146,7 +150,7 @@ struct StoryViewer: View {
             }
             StoryBody(
                 story: story, card: card(story.id), pagerFrame: $pagerFrame, scrollAtTop: $scrollAtTop,
-                space: Self.space
+                space: Self.space, initialPage: story.id == startStory ? startPicture : 0
             )
             .id(story.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -173,7 +177,8 @@ struct StoryViewer: View {
     private func open() {
         guard order.isEmpty else { return }
         order = rings.flatMap { ring in ring.stories.map { Entry(ringKey: ring.key, storyId: $0.id) } }
-        position = order.firstIndex { $0.ringKey == startKey } ?? 0
+        position = startStory.flatMap { id in order.firstIndex { $0.storyId == id } }
+            ?? order.firstIndex { $0.ringKey == startKey } ?? 0
         if order.isEmpty { onClose() }
     }
 
@@ -265,10 +270,12 @@ private struct StoryBody: View {
     @Binding var pagerFrame: CGRect
     @Binding var scrollAtTop: Bool
     let space: String
+    var initialPage = 0
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var page = 0
+    @State private var placed = false
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
@@ -299,7 +306,12 @@ private struct StoryBody: View {
                 Spacer(minLength: 0)
             }
         }
-        .onAppear { scrollAtTop = true }
+        .onAppear {
+            scrollAtTop = true
+            guard !placed else { return }
+            placed = true
+            page = min(max(0, initialPage), max(0, story.pictures.count - 1))
+        }
     }
 
     private func surfaceCard(_ surface: CardSurface) -> some View {
