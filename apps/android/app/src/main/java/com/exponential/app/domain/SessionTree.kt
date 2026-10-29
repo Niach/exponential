@@ -537,6 +537,10 @@ object SessionTree {
             val nested: List<NestedSession> = emptyList(),
         ) : ThreadTab
         // S-3: the Guide tab is gone ×4 (stories replace it).
+        /** stories.json STORIES TAB: the strip's last tab, pinned right
+         *  (not part of session-thread.json `tabs`: [threadView] never
+         *  emits it, the host appends it after the last chip). */
+        data object Stories : ThreadTab
     }
 
     sealed interface ThreadRow {

@@ -19,9 +19,19 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/story-tab.tsx`,
       note: `host: apps/web/src/components/thread/thread-stories.tsx (useStoryTab, PR block, review pane)`,
     },
-    desktop: { state: `leftover`, note: `Port pending (stories.json STORIES TAB)` },
+    desktop: {
+      state: `ok`,
+      symbol: `story_tab_body / story_tile`,
+      file: `apps/desktop/crates/ui/src/story_tab.rs`,
+      note: `host: thread_screen.rs (the Stories strip tab, PR block, review pane); styleguide twin entries/story_tab.rs`,
+    },
     ios: { state: `leftover`, note: `Port pending (stories.json STORIES TAB)` },
-    android: { state: `leftover`, note: `Port pending (stories.json STORIES TAB)` },
+    android: {
+      state: `ok`,
+      symbol: `StoryTab / StoryTile`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/stories/StoryTab.kt`,
+      note: `host: ui/thread/ThreadStories.kt (the Stories strip tab, PR block, review page); specimen StorySpecimens.kt sg_story-tab`,
+    },
   },
   island: () => (
     <div className="flex flex-wrap items-start gap-6">

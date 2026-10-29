@@ -176,6 +176,7 @@ class SessionTreeTest {
             )
         }
         SessionTree.ThreadTab.Add -> buildJsonObject { put("kind", "add") }
+        SessionTree.ThreadTab.Stories -> buildJsonObject { put("kind", "stories") }
         is SessionTree.ThreadTab.SessionTab -> buildJsonObject {
             put("kind", "session")
             put("sessionId", tab.sessionId)
