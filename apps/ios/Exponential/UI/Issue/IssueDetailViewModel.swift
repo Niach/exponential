@@ -81,11 +81,16 @@ final class IssueDetailViewModel {
     /// (EXP-57). Trashed boards never reach the local store (the boards
     /// shape filters `deleted_at IS NULL` server-side).
     var boards: [BoardEntity] = []
-    /// Non-inline-image attachments on this issue, oldest first (EXP-297) — the
-    /// Files section's rows. Inline images (`image/png|jpeg|webp|gif|avif`) are
-    /// deliberately excluded: they live in the description markdown and are
-    /// rendered by the editor.
+    /// The Files section's rows, oldest first (EXP-297): issue-level file rows
+    /// plus (NEW-83) inline image/video/audio rows that neither the
+    /// description nor any comment body links (`AttachmentFiles.issueFileRows`,
+    /// issue-files.json). A linked inline row renders in place instead.
     var fileAttachments: [AttachmentEntity] = []
+    /// NEW-83: the inputs `fileAttachments` recomputes from — the synced
+    /// attachment rows and every comment body on the issue (the description
+    /// is read off `issue`).
+    private var attachmentRows: [AttachmentEntity] = []
+    private var commentBodies: [String?] = []
     /// Picked files whose upload is in flight (or failed) — see PendingFileUpload.
     var pendingFileUploads: [PendingFileUpload] = []
     /// EXP-824: every synced attachment on this issue by id — what the
@@ -301,6 +306,9 @@ final class IssueDetailViewModel {
                     }
                     self.refreshBoard(issue: issue, pool: pool)
                     self.refreshDuplicateOf(issue: issue, pool: pool)
+                    // NEW-83: an embed added to / removed from the description
+                    // moves its row out of / into Files.
+                    self.recomputeFileAttachments()
                 }
             } catch {}
         })
@@ -385,6 +393,25 @@ final class IssueDetailViewModel {
             do {
                 for try await rows in attachmentObs.removeDuplicates().values(in: pool) {
                     self?.applyAttachments(rows)
+                }
+            } catch {}
+        })
+
+        // NEW-83: every comment body on the issue — a comment linking an
+        // inline upload takes it out of Files (issue-files.json).
+        let commentBodiesObs = ValueObservation.tracking { db in
+            try String?.fetchAll(
+                db,
+                sql: "SELECT body FROM comments WHERE issue_id = ? ORDER BY id",
+                arguments: [issueId]
+            )
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await bodies in commentBodiesObs.removeDuplicates().values(in: pool) {
+                    guard let self else { return }
+                    self.commentBodies = bodies
+                    self.recomputeFileAttachments()
                 }
             } catch {}
         })
@@ -687,15 +714,8 @@ final class IssueDetailViewModel {
         // EXP-824: the editor's media blocks read this; bump so they re-resolve.
         attachmentsById = Dictionary(rows.map { ($0.id.lowercased(), $0) }, uniquingKeysWith: { _, last in last })
         editor.attachmentsDidChange()
-        fileAttachments = rows
-            // Inline images and (EXP-824) inline media live in the body, not
-            // the rail.
-            // EXP-1247: an `asFile` row is a file whatever its type.
-            .filter { AttachmentFiles.isFile($0) }
-            // EXP-554: a file attached to a COMMENT renders in that comment's
-            // strip, not the issue's Files rail — otherwise it lists twice.
-            .filter { $0.commentId == nil }
-            .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        attachmentRows = rows
+        recomputeFileAttachments()
         // A pending entry whose real row has arrived is now a duplicate — the
         // synced row takes over.
         let syncedIds = Set(rows.map(\.id))
@@ -703,6 +723,19 @@ final class IssueDetailViewModel {
             guard let uploadedId = pending.uploadedId else { return false }
             return syncedIds.contains(uploadedId)
         }
+    }
+
+    /// NEW-83: the Files list off the latest rows, description and comment
+    /// bodies. File rows (EXP-1247: `asFile` whatever the type) list, comment
+    /// rows never do (EXP-554: they render in that comment's strip), and an
+    /// inline image/video/audio row lists only while no text links it.
+    private func recomputeFileAttachments() {
+        let texts: [String?] = [issue?.description] + commentBodies
+        let next = AttachmentFiles.issueFileRows(
+            attachmentRows.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) },
+            texts: texts
+        )
+        if next != fileAttachments { fileAttachments = next }
     }
 
     /// Attach a file picked through `.fileImporter`. The security-scoped read

@@ -577,6 +577,10 @@ impl IssueDetailView {
         subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.attachments, |_, _, cx| cx.notify()));
+        // NEW-83: the Files section lists inline uploads no text links, so a
+        // comment body (un)linking one must re-render it (the description
+        // rides the `issues` observer above).
+        subscriptions.push(cx.observe(&collections.comments, |_, _, cx| cx.notify()));
         // EXP-736: the relations card lives in this view's body — a relation
         // added on another client (or the duplicate mirror) must re-render it.
         subscriptions.push(cx.observe(&collections.issue_relations, |_, _, cx| cx.notify()));
@@ -1177,15 +1181,18 @@ impl IssueDetailView {
 
     // -- EXP-297 files rail -----------------------------------------------------
 
-    /// The "Files" section: every NON-inline-image attachment of the issue
-    /// (`issue_files::file_attachments` — pdf/zip/video/… plus the image
-    /// types markdown never embeds) with Open / Save as / Delete, the
-    /// in-flight picks on top of them, and the "Attach file" picker.
+    /// The "Files" section: every issue-level FILE attachment
+    /// (`issue_files::file_attachments` — pdf/zip/… plus the image types
+    /// markdown never embeds and `as_file` uploads) with Open / Save as /
+    /// Delete, the in-flight picks on top of them, and the "Attach file"
+    /// picker.
     ///
-    /// Inline images are deliberately absent: they live in the description
-    /// markdown and the editor renders them. The section re-renders off the
-    /// view's existing `attachments` collection observer, so an upload,
-    /// a delete or another client's change lands without any refetch.
+    /// A LINKED inline image/video/audio is absent: it lives in the
+    /// description (or a comment) and renders in place. NEW-83: one that no
+    /// text links is listed here, so it never vanishes. The section
+    /// re-renders off the view's `attachments`, `issues` and `comments`
+    /// observers, so an upload, a delete, an (un)embed or another client's
+    /// change lands without any refetch.
     /// EXP-525: the web `PrRow` (`issue-coding-rows.tsx`). EXP-1294: ONE row
     /// per pull request that closes the issue (`pull_request_issues`):
     /// state badge · `PR #N` · head branch · [Merge PR while open] · the

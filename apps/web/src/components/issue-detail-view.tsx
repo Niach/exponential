@@ -618,7 +618,11 @@ export function IssueDetailView({
   // EXP-297 Files rail: non-inline-image attachments straight from the synced
   // shape, plus the "Attach file" affordance for members.
   const filesSection = (
-    <IssueFilesSection issueId={issue.id} readOnly={readOnly} />
+    <IssueFilesSection
+      issueId={issue.id}
+      description={issue.description}
+      readOnly={readOnly}
+    />
   )
 
   // Keyed on issue.id: prev/next navigation swaps issues in place, and the

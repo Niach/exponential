@@ -495,6 +495,7 @@ impl TrunkSync {
             policy: coding::SweepPolicy {
                 live: crate::coding_flow::live_holders(cx),
                 default_branch: repo.default_branch.clone(),
+                open: crate::worktree_prune::open_branches(cx),
                 ..coding::SweepPolicy::default()
             },
         };

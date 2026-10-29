@@ -982,7 +982,15 @@ pub struct LiveRegistry {
     /// #EXP-1383: agents whose `/new` restart is in flight on its own
     /// thread — one restart per `/new`, never a second for the same one.
     restarting: std::sync::Mutex<HashSet<String>>,
+    /// S-4: since when each live engine has been quiescent with nothing
+    /// handed ([`LiveRegistry::release_idle`]).
+    quiet_since: std::sync::Mutex<HashMap<String, std::time::Instant>>,
 }
+
+/// S-4: how long a quiescent live session keeps its agent process
+/// (`codingSession.idleReleaseMinutes`).
+pub const IDLE_RELEASE: std::time::Duration =
+    std::time::Duration::from_millis(domain::contract::CODING_SESSION_IDLE_RELEASE_MS as u64);
 
 /// EXP-1341: one persistent root's revive state in this process. An engine
 /// that ran here (launched, resumed or revived) settles it for good: once
@@ -1110,6 +1118,37 @@ impl LiveRegistry {
     /// Drop the entry (releasing its claim) and hand back its engine.
     pub fn remove(&self, session_id: &str) -> Option<std::sync::Arc<dyn LiveEngine>> {
         self.lock().remove(session_id).map(|entry| entry.engine)
+    }
+
+    /// S-4: suspend every engine that sat quiescent ([`LiveEngine::quiescent`],
+    /// nothing handed, no `/new` restart in flight) for `after` — the
+    /// process goes, the row idles, nothing ends and the workspace stays;
+    /// the next message resumes the SAME row ([`PickupAction::Resume`]).
+    /// Each host calls it on its own clock; returns the released ids.
+    pub fn release_idle(&self, now: std::time::Instant, after: std::time::Duration) -> Vec<String> {
+        let restarting = locked(&self.restarting).clone();
+        let entries = self.lock();
+        let mut quiet_since = locked(&self.quiet_since);
+        quiet_since.retain(|id, _| entries.contains_key(id));
+        let mut released = Vec::new();
+        for (id, entry) in entries.iter() {
+            let quiet = !entry.engine.is_done()
+                && entry.handed.is_empty()
+                && !restarting.contains(id)
+                && entry.engine.quiescent();
+            if !quiet {
+                quiet_since.remove(id);
+                continue;
+            }
+            let since = *quiet_since.entry(id.clone()).or_insert(now);
+            if now.saturating_duration_since(since) >= after {
+                quiet_since.remove(id);
+                entry.engine.suspend();
+                released.push(id.clone());
+            }
+        }
+        released.sort_unstable();
+        released
     }
 
     /// Drop every entry whose engine is done; returns their ids.
@@ -3785,6 +3824,56 @@ mod tests {
         assert_eq!(registry.session_ids(), vec!["s1".to_string()]);
         // The pruned entry's claim went with it.
         assert!(ClaimLock::try_acquire(&dir.0, "s2").unwrap().is_some());
+    }
+
+    /// S-4: a quiescent engine is suspended once it sat idle past the
+    /// timeout (a turn, a handed message or an open card resets the clock);
+    /// the row then resumes through the plan's `Resume`, never revived.
+    #[test]
+    fn release_idle_suspends_quiet_engines_after_the_timeout() {
+        let registry = LiveRegistry::default();
+        let quiet = Arc::new(FakeEngine::default());
+        let busy = Arc::new(FakeEngine::default());
+        let carded = Arc::new(FakeEngine::default());
+        busy.working.store(true, Ordering::SeqCst);
+        carded.cards.lock().unwrap().insert("c1".to_string(), "q-1".to_string());
+        registry.insert("quiet", quiet.clone(), None);
+        registry.insert("busy", busy.clone(), None);
+        registry.insert("carded", carded.clone(), None);
+        let t0 = std::time::Instant::now();
+        let after = std::time::Duration::from_secs(60);
+        assert!(registry.release_idle(t0, after).is_empty());
+        assert!(registry.release_idle(t0 + std::time::Duration::from_secs(59), after).is_empty());
+        // A handed message restarts the quiet stretch.
+        registry.mark_handed("quiet", &["m1".to_string()]);
+        assert!(registry.release_idle(t0 + std::time::Duration::from_secs(61), after).is_empty());
+        registry.forget_handed("quiet", "m1");
+        let t1 = t0 + std::time::Duration::from_secs(62);
+        assert!(registry.release_idle(t1, after).is_empty());
+        assert_eq!(registry.release_idle(t1 + after, after), vec!["quiet".to_string()]);
+        assert_eq!(*quiet.killed.lock().unwrap(), Some("suspended"), "the process stops, the session stays");
+        assert!(busy.killed.lock().unwrap().is_none());
+        assert!(carded.killed.lock().unwrap().is_none());
+        assert_eq!(registry.prune(), vec!["quiet".to_string()]);
+        // The idle row's next message resumes it; the released root is held
+        // from a revive (its engine ran here).
+        let row = session("quiet", "idle", DEV, "2026-10-01T00:00:00Z");
+        let views = registry.live_views();
+        let held = registry.revive_held();
+        assert!(held.contains("quiet"));
+        let actions = plan(PickupInput {
+            device_id: DEV,
+            sessions: std::slice::from_ref(&row),
+            messages: &[message("m2", "quiet", "2026-10-02T00:00:00Z")],
+            live: &views,
+            in_flight: &HashSet::new(),
+            revive_held: &held,
+        });
+        let actions: Vec<&PickupAction> = actions.iter().filter(|action| action.session_id() == "quiet").collect();
+        assert!(
+            matches!(actions.as_slice(), [PickupAction::Resume { messages, .. }] if messages[0].id == "m2"),
+            "{actions:?}"
+        );
     }
 
     // ---- launch_queued / deliver_messages over the wire ----

@@ -82,6 +82,9 @@ export interface DomainContract {
    */
   codingSession: {
     staleHours: number
+    /** S-4: a quiescent live session's agent process is released after this
+     *  long (the row idles; the next message resumes it). */
+    idleReleaseMinutes: number
     /** EXP-1249: every key a start payload may carry (steer.startSession,
      *  codingSessions.start, the relay frame). */
     launchKeys: string[]
