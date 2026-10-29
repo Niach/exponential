@@ -835,6 +835,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
@@ -850,6 +852,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(
 ): Short
@@ -874,6 +878,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_version(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_bars_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(
 ): Short
@@ -939,11 +945,15 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_event(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_hold(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_index_of(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_invalidate_measures(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_is_held(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_issues_json(
 ): Short
@@ -1216,12 +1226,16 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_event(`ptr`: Long,`inde
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_hold(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(`ptr`: Long,`owner`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_index_of(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_invalidate_measures(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_is_held(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_issues_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_layout(`ptr`: Long,`measurer`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1442,6 +1456,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuff
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1457,6 +1473,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`:
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(`count`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_source_with_params_json(`source`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1481,6 +1499,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_validate_record_json(`schemaJson`
 external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_version(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_bars_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -4439,6 +4459,17 @@ public interface SurfaceInterface {
     fun `failingChecks`(`id`: kotlin.String): List<kotlin.String>
     
     /**
+     * VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
+     * `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
+     * (px relative to the button's top-left), `{"do": "pointercancel"}`,
+     * `{"do": "keydown", key, repeat?}`, `{"do": "keyup", key}` or
+     * `{"do": "blur"}`. Fires holdStart / holdEnd / holdCancel; while held
+     * the node's states carry `pressed` and its `label` prop is the
+     * `holdingLabel` (a Relayout event follows).
+     */
+    fun `hold`(`index`: kotlin.UInt, `inputJson`: kotlin.String): List<FfiEvent>
+    
+    /**
      * A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
      * overlay unless its trigger or content is hovered again.
      */
@@ -4447,6 +4478,11 @@ public interface SurfaceInterface {
     fun `indexOf`(`id`: kotlin.String): kotlin.UInt?
     
     fun `invalidateMeasures`()
+    
+    /**
+     * VAPP-162: whether a `hold` Button is held now.
+     */
+    fun `isHeld`(`id`: kotlin.String): kotlin.Boolean
     
     fun `issuesJson`(): kotlin.String
     
@@ -4926,6 +4962,29 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 
     
     /**
+     * VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
+     * `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
+     * (px relative to the button's top-left), `{"do": "pointercancel"}`,
+     * `{"do": "keydown", key, repeat?}`, `{"do": "keyup", key}` or
+     * `{"do": "blur"}`. Fires holdStart / holdEnd / holdCancel; while held
+     * the node's states carry `pressed` and its `label` prop is the
+     * `holdingLabel` (a Relayout event follows).
+     */
+    @Throws(UiException::class)override fun `hold`(`index`: kotlin.UInt, `inputJson`: kotlin.String): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_hold(
+        it,
+        FfiConverterUInt.lower(`index`),FfiConverterString.lower(`inputJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
      * overlay unless its trigger or content is hovered again.
      */override fun `hoverTimeout`(`owner`: kotlin.String): List<FfiEvent> {
@@ -4964,6 +5023,22 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 }
     }
     
+    
+
+    
+    /**
+     * VAPP-162: whether a `hold` Button is held now.
+     */override fun `isHeld`(`id`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_is_held(
+        it,
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `issuesJson`(): kotlin.String {
@@ -9861,6 +9936,23 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-162: the QrCode matrix (the core's port of Nayuki's generator,
+         * `fixtures/qr-code.json`). `level` = `L`|`M`|`Q`|`H` (anything else is
+         * `M`); the result is `{size, version, mask, rows}` (`rows` = `size`
+         * strings of '1' dark / '0' light, no quiet zone) or `null` (an empty
+         * value, or one version 40 cannot hold at that level).
+         */ fun `qrMatrixJson`(`value`: kotlin.String, `level`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(
+    
+        FfiConverterString.lower(`value`),FfiConverterString.lower(`level`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Reduce the nested authoring form → `{root, issues}` JSON.
          */
     @Throws(UiException::class) fun `reduceNestedJson`(`nestedJson`: kotlin.String, `catalogId`: kotlin.String, `extensionsJson`: kotlin.String?): kotlin.String {
@@ -9977,6 +10069,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_action_json(
     
         FfiConverterString.lower(`actionJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-162: a Segmented `bar` item's count badge text (`99+` above 99);
+         * `None` = no badge (unset, not positive, 0).
+         */ fun `segmentedBadgeText`(`count`: kotlin.Double?): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(
+    
+        FfiConverterOptionalDouble.lower(`count`),_status)
 }
     )
     }
@@ -10143,6 +10249,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_version(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-162: the VoiceWave `variant: bars` meter for one frame. `input_json`
+         * = `{size: "sm"|"md"|"lg"|"xl", activity, level?, bands?, elapsed?,
+         * reducedMotion?}`; the result is `{width, height, phase, bars: [{x, y,
+         * width, height, radius}]}` (px from the meter's top-left; `{}` on bad input).
+         */ fun `voiceWaveBarsJson`(`inputJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_voice_wave_bars_json(
+    
+        FfiConverterString.lower(`inputJson`),_status)
 }
     )
     }

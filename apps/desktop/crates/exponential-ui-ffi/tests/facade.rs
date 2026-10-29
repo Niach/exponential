@@ -1169,3 +1169,33 @@ fn a_nan_measurer_never_panics_the_facade() {
     assert!(!out.frames.is_empty());
     assert!(out.frames.iter().all(|f| f.x.is_finite() && f.y.is_finite() && f.w.is_finite() && f.h.is_finite()), "{:?}", out.frames.first());
 }
+
+/// VAPP-162: the round-5 calls the Swift and Compose painters make.
+#[test]
+fn round5_qr_matrix_bars_badge_and_hold_cross_the_facade() {
+    for c in fixture("qr-code.json")["cases"].as_array().unwrap() {
+        let got: Value = serde_json::from_str(&qr_matrix_json(c["value"].as_str().unwrap().into(), c["level"].as_str().unwrap_or("M").into())).unwrap();
+        assert_eq!(got, c["expected"], "{}", c["name"]);
+    }
+    let bars: Value = serde_json::from_str(&voice_wave_bars_json(json!({"size": "md", "activity": "idle"}).to_string())).unwrap();
+    assert_eq!((bars["width"].as_f64(), bars["bars"].as_array().map(Vec::len)), (Some(117.0), Some(20)));
+    assert_eq!(voice_wave_bars_json("nope".into()), "{}");
+    assert_eq!(segmented_badge_text(Some(120.0)).as_deref(), Some("99+"));
+    assert_eq!(segmented_badge_text(Some(0.0)), None);
+
+    let surface = Surface::new("hold".into(), core_catalog_id(), None, "light".into()).unwrap();
+    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "b", "component": "Button", "style": {"width": 120, "height": 40},
+        "props": {"label": "Hold to talk", "holdingLabel": "Holding…", "hold": true}, "on": {"holdStart": {"event": {"name": "holdStart"}}, "holdEnd": {"event": {"name": "holdEnd"}}}}]});
+    surface.set_nested(tree.to_string()).unwrap();
+    surface.set_viewport(400.0, 0.0, None);
+    surface.layout_fixed(None, false).unwrap();
+    let i = surface.index_of("b".into()).unwrap();
+    let fired = surface.hold(i, json!({"do": "pointerdown", "x": 60, "y": 20}).to_string()).unwrap();
+    assert!(fired.iter().any(|e| e.json.contains("holdStart")), "{fired:?}");
+    assert!(surface.is_held("b".into()));
+    assert!(surface.event(i, "press".into(), None).unwrap().is_empty(), "a hold Button never fires press");
+    let fired = surface.hold(i, json!({"do": "pointerup", "x": 60, "y": 20}).to_string()).unwrap();
+    assert!(fired.iter().any(|e| e.json.contains("holdEnd")), "{fired:?}");
+    assert!(!surface.is_held("b".into()));
+    assert!(surface.hold(i, "{\"do\": \"nope\"}".into()).is_err());
+}
