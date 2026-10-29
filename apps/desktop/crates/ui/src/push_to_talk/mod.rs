@@ -85,7 +85,7 @@ struct Sent {
 
 pub(crate) struct PushToTalk {
     device_id: String,
-    client: Option<talk::SpeechClient>,
+    client: Option<etalk::SpeechClient>,
     armed: Option<Armed>,
     grab: Option<hotkey::Grab>,
     status: hotkey::Status,
@@ -116,7 +116,7 @@ pub(crate) struct PushToTalk {
     wake_listening: bool,
     /// S-3: why the worker's last `WakeListening` said the microphone is not
     /// open (None = no failure reported).
-    wake_reason: Option<talk::ListenFailure>,
+    wake_reason: Option<etalk::ListenFailure>,
     /// S-3: Settings → Voice records a new key: the grab is let go.
     recording: bool,
     /// #NEW-56: the utterance in flight is a wake turn.
@@ -234,17 +234,17 @@ pub(crate) fn signed_out(cx: &mut App) {
     entity.update(cx, |this, cx| this.arm(None, cx));
 }
 
-/// `talk::Event`s that belong to listening.
-pub(crate) fn is_listen_event(event: &talk::Event) -> bool {
+/// `etalk::Event`s that belong to listening.
+pub(crate) fn is_listen_event(event: &etalk::Event) -> bool {
     matches!(
         event,
-        talk::Event::Level { .. }
-            | talk::Event::Partial { .. }
-            | talk::Event::Heard { .. }
-            | talk::Event::Empty { .. }
-            | talk::Event::ListenFailed { .. }
-            | talk::Event::Woke { .. }
-            | talk::Event::WakeListening { .. }
+        etalk::Event::Level { .. }
+            | etalk::Event::Partial { .. }
+            | etalk::Event::Heard { .. }
+            | etalk::Event::Empty { .. }
+            | etalk::Event::ListenFailed { .. }
+            | etalk::Event::Woke { .. }
+            | etalk::Event::WakeListening { .. }
     )
 }
 
@@ -298,11 +298,11 @@ pub(crate) fn wake_state(cx: &App) -> Option<domain::voice::WakeState> {
         return Some(WakeState::Meeting);
     }
     this.wake_reason.map(|reason| match reason {
-        talk::ListenFailure::NoMicrophone => WakeState::NoMicrophone,
-        talk::ListenFailure::NotGranted => WakeState::NotGranted,
-        talk::ListenFailure::Downloading => WakeState::Downloading,
-        talk::ListenFailure::Meeting => WakeState::Meeting,
-        talk::ListenFailure::Unavailable | talk::ListenFailure::Failed => WakeState::Unavailable,
+        etalk::ListenFailure::NoMicrophone => WakeState::NoMicrophone,
+        etalk::ListenFailure::NotGranted => WakeState::NotGranted,
+        etalk::ListenFailure::Downloading => WakeState::Downloading,
+        etalk::ListenFailure::Meeting => WakeState::Meeting,
+        etalk::ListenFailure::Unavailable | etalk::ListenFailure::Failed => WakeState::Unavailable,
     })
 }
 
@@ -345,7 +345,7 @@ static DEV_WAKE_LISTENING: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("EXP_DEV_WAKE_LISTENING").is_ok_and(|value| value == "1"));
 
 /// A listening event from the worker.
-pub(crate) fn on_worker_event(event: talk::Event, cx: &mut App) {
+pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| this.on_worker(event, cx));
     }
@@ -585,17 +585,17 @@ impl PushToTalk {
         }
     }
 
-    fn on_worker(&mut self, event: talk::Event, cx: &mut Context<Self>) {
+    fn on_worker(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
         let ours = |id: &str, utterance: &Option<String>| utterance.as_deref() == Some(id);
         match event {
-            talk::Event::Level { id, level, bands } if ours(&id, &self.utterance) => {
+            etalk::Event::Level { id, level, bands } if ours(&id, &self.utterance) => {
                 self.level = level;
                 self.bands = bands.to_vec();
                 self.overlay.refresh(cx);
             }
-            talk::Event::Partial { id, text } if ours(&id, &self.utterance) => self.step(PttEvent::Partial(text), cx),
-            talk::Event::Woke { id } => self.woke(id, cx),
-            talk::Event::WakeListening { listening, reason } => {
+            etalk::Event::Partial { id, text } if ours(&id, &self.utterance) => self.step(PttEvent::Partial(text), cx),
+            etalk::Event::Woke { id } => self.woke(id, cx),
+            etalk::Event::WakeListening { listening, reason } => {
                 if let Some(reason) = reason {
                     log::info!("[voice] wake word: the microphone is not open ({reason:?})");
                 }
@@ -608,7 +608,7 @@ impl PushToTalk {
                     cx.refresh_windows();
                 }
             }
-            talk::Event::Heard { id, text } if ours(&id, &self.utterance) => {
+            etalk::Event::Heard { id, text } if ours(&id, &self.utterance) => {
                 self.utterance = None;
                 self.woken = false;
                 self.step(PttEvent::Heard(text.clone()), cx);
@@ -616,12 +616,12 @@ impl PushToTalk {
                     self.send(text, cx);
                 }
             }
-            talk::Event::Empty { id } if ours(&id, &self.utterance) => {
+            etalk::Event::Empty { id } if ours(&id, &self.utterance) => {
                 self.utterance = None;
                 self.woken = false;
                 self.step(PttEvent::Empty, cx);
             }
-            talk::Event::ListenFailed { id, reason, detail } if ours(&id, &self.utterance) => {
+            etalk::Event::ListenFailed { id, reason, detail } if ours(&id, &self.utterance) => {
                 self.utterance = None;
                 self.woken = false;
                 log::info!("[voice] push to talk: listening failed ({reason:?}): {detail}");
@@ -832,16 +832,16 @@ impl PushToTalk {
     }
 }
 
-fn listen_failure(reason: talk::ListenFailure) -> domain::voice::ListenFailure {
+fn listen_failure(reason: etalk::ListenFailure) -> domain::voice::ListenFailure {
     use domain::voice::ListenFailure as Domain;
     match reason {
-        talk::ListenFailure::NoMicrophone => Domain::NoMicrophone,
-        talk::ListenFailure::NotGranted => Domain::NotGranted,
-        talk::ListenFailure::Downloading => Domain::Downloading,
-        talk::ListenFailure::Unavailable => Domain::Unavailable,
+        etalk::ListenFailure::NoMicrophone => Domain::NoMicrophone,
+        etalk::ListenFailure::NotGranted => Domain::NotGranted,
+        etalk::ListenFailure::Downloading => Domain::Downloading,
+        etalk::ListenFailure::Unavailable => Domain::Unavailable,
         // NEW-57: only a Call is refused for a meeting (a Listen mid-meeting
         // is a flush trigger answered Empty); never reaches push to talk.
-        talk::ListenFailure::Failed | talk::ListenFailure::Meeting => Domain::Failed,
+        etalk::ListenFailure::Failed | etalk::ListenFailure::Meeting => Domain::Failed,
     }
 }
 
@@ -888,11 +888,11 @@ mod tests {
 
     #[test]
     fn every_listen_event_is_routed_here() {
-        assert!(is_listen_event(&talk::Event::Empty { id: "u".into() }));
-        assert!(is_listen_event(&talk::Event::Heard { id: "u".into(), text: "x".into() }));
-        assert!(is_listen_event(&talk::Event::Woke { id: "wake-1".into() }));
-        assert!(is_listen_event(&talk::Event::WakeListening { listening: true, reason: None }));
-        assert!(!is_listen_event(&talk::Event::Ready { protocol: talk::PROTOCOL }));
-        assert!(!is_listen_event(&talk::Event::Finished { id: "m".into(), stopped: false }));
+        assert!(is_listen_event(&etalk::Event::Empty { id: "u".into() }));
+        assert!(is_listen_event(&etalk::Event::Heard { id: "u".into(), text: "x".into() }));
+        assert!(is_listen_event(&etalk::Event::Woke { id: "wake-1".into() }));
+        assert!(is_listen_event(&etalk::Event::WakeListening { listening: true, reason: None }));
+        assert!(!is_listen_event(&etalk::Event::Ready { protocol: etalk::PROTOCOL }));
+        assert!(!is_listen_event(&etalk::Event::Finished { id: "m".into(), stopped: false }));
     }
 }

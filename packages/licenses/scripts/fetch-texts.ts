@@ -163,7 +163,7 @@ writeFileSync(
 // NEW-74: exponentialTalk's speech worker downloads CrispASR's prebuilt
 // runtime (libcrispasr + ggml, MIT) at first use; nothing of it is in the
 // binary. Its licence and third-party notices, pinned to the release tag the
-// worker pins (apps/desktop/crates/crispasr/src/platform.rs).
+// worker pins (apps/desktop/crates/etalk-crispasr/src/platform.rs).
 const CRISPASR = [
   { file: `LICENSE.txt`, repo: `CrispStrobe/CrispASR`, rev: `v0.8.45`, path: `LICENSE` },
   { file: `THIRD_PARTY_NOTICES.txt`, repo: `CrispStrobe/CrispASR`, rev: `v0.8.45`, path: `THIRD_PARTY_NOTICES.txt` },

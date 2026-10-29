@@ -1,5 +1,5 @@
 /* NEW-15: /talk/numbers/. Sources: docs/talk-spike.md ("Speech in through
-   CrispASR"), crates/voice (MIN_GPU_BYTES, MAX_WARMUP_RTF),
+   CrispASR"), crates/etalk-engine (MIN_GPU_BYTES, MAX_WARMUP_RTF),
    docs/third-party-licences.md (download sizes), NEW-60 (the targets). */
 import { DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"

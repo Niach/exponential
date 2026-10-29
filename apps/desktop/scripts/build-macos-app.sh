@@ -75,7 +75,7 @@ cp "${DESKTOP_DIR}/assets/licenses/NOTICES.txt" "$APP_DIR/Contents/Resources/NOT
 # notices are in NOTICES.txt) ships INSIDE the bundle, signed below with the
 # app's identity, so notarization covers it and library validation stays on.
 # The speech worker loads it only by absolute path from Contents/Frameworks of
-# its own executable (crates/crispasr/src/platform.rs). Pinned: the release
+# its own executable (crates/etalk-crispasr/src/platform.rs). Pinned: the release
 # asset's published sha256, checked BEFORE the archive is opened; only the six
 # dylibs are taken, under the install names their @rpath references use.
 # Apple Silicon only (the Metal build is arm64; an Intel build gets no voice).

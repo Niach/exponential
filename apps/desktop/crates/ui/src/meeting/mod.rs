@@ -121,20 +121,20 @@ fn wanted_for(settings: &VoiceSettings, device_id: &str, now_ms: i64) -> Option<
 }
 
 /// The worker's selection for `desktop_audio` with the picked apps.
-fn selection_of(desktop_audio: DesktopAudio, app_ids: &[String]) -> talk::MeetingApps {
+fn selection_of(desktop_audio: DesktopAudio, app_ids: &[String]) -> etalk::MeetingApps {
     match desktop_audio {
-        DesktopAudio::Off => talk::MeetingApps::Off,
-        DesktopAudio::All => talk::MeetingApps::All,
-        DesktopAudio::Include => talk::MeetingApps::Include(app_ids.to_vec()),
-        DesktopAudio::Exclude => talk::MeetingApps::Exclude(app_ids.to_vec()),
+        DesktopAudio::Off => etalk::MeetingApps::Off,
+        DesktopAudio::All => etalk::MeetingApps::All,
+        DesktopAudio::Include => etalk::MeetingApps::Include(app_ids.to_vec()),
+        DesktopAudio::Exclude => etalk::MeetingApps::Exclude(app_ids.to_vec()),
     }
 }
 
-fn capability_of(capability: talk::apps::Capability) -> DesktopAudioCapability {
+fn capability_of(capability: etalk::apps::Capability) -> DesktopAudioCapability {
     match capability {
-        talk::apps::Capability::None => DesktopAudioCapability::None,
-        talk::apps::Capability::System => DesktopAudioCapability::System,
-        talk::apps::Capability::PerApp => DesktopAudioCapability::PerApp,
+        etalk::apps::Capability::None => DesktopAudioCapability::None,
+        etalk::apps::Capability::System => DesktopAudioCapability::System,
+        etalk::apps::Capability::PerApp => DesktopAudioCapability::PerApp,
     }
 }
 
@@ -425,7 +425,7 @@ struct Running {
     /// The account signed in when it started.
     account: Option<String>,
     wanted: Wanted,
-    capability: talk::apps::Capability,
+    capability: etalk::apps::Capability,
     started_ms: i64,
     turns: u32,
     batcher: Batcher,
@@ -436,7 +436,7 @@ struct Running {
 
 pub(crate) struct MeetingHost {
     device_id: String,
-    client: Option<talk::SpeechClient>,
+    client: Option<etalk::SpeechClient>,
     log: Option<SegmentLog>,
     running: Option<Running>,
     stopping: Option<Stopping>,
@@ -574,19 +574,19 @@ pub fn set_paused(paused: bool, cx: &mut App) {
 }
 
 /// Speech-worker events that belong to the meeting.
-pub(crate) fn is_meeting_event(event: &talk::Event) -> bool {
+pub(crate) fn is_meeting_event(event: &etalk::Event) -> bool {
     matches!(
         event,
-        talk::Event::MeetingSegment { .. }
-            | talk::Event::MeetingWake { .. }
-            | talk::Event::MeetingFlushNow { .. }
-            | talk::Event::MeetingListening { .. }
-            | talk::Event::MeetingStopped { .. }
+        etalk::Event::MeetingSegment { .. }
+            | etalk::Event::MeetingWake { .. }
+            | etalk::Event::MeetingFlushNow { .. }
+            | etalk::Event::MeetingListening { .. }
+            | etalk::Event::MeetingStopped { .. }
     )
 }
 
 /// A meeting event from the worker.
-pub(crate) fn on_worker_event(event: talk::Event, cx: &mut App) {
+pub(crate) fn on_worker_event(event: etalk::Event, cx: &mut App) {
     if let Some(entity) = host(cx) {
         entity.update(cx, |this, cx| this.on_worker(event, cx));
     }
@@ -696,7 +696,7 @@ impl MeetingHost {
     }
 
     fn start(&mut self, wanted: Wanted, cx: &mut Context<Self>) {
-        let capability = talk::apps::capability();
+        let capability = etalk::apps::capability();
         self.listening = false;
         // RESTART: remembered before anything listens.
         if let Some(log) = self.log.as_ref() {
@@ -860,26 +860,26 @@ impl MeetingHost {
         }
     }
 
-    fn on_worker(&mut self, event: talk::Event, cx: &mut Context<Self>) {
+    fn on_worker(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
         let ours = |id: &str, running: &Option<Running>| running.as_ref().is_some_and(|running| running.wanted.id == id);
         let stopping = |id: &str, stopping: &Option<Stopping>| stopping.as_ref().is_some_and(|stopping| stopping.id == id);
         match event {
             // A draining stop's last segments: logged and into the final batch.
-            talk::Event::MeetingSegment { id, channel, label, text, start_ms, end_ms, words } if stopping(&id, &self.stopping) => {
+            etalk::Event::MeetingSegment { id, channel, label, text, start_ms, end_ms, words } if stopping(&id, &self.stopping) => {
                 self.log_segment(&id, &channel, &label, &text, start_ms, end_ms, &words);
                 if let Some(stopping) = self.stopping.as_mut() {
                     stopping.batcher.segments.push(MeetingSegment { channel, label, text, start_ms });
                 }
             }
-            talk::Event::MeetingStopped { id } => self.finish_stop(Some(&id), cx),
-            talk::Event::MeetingSegment { id, channel, label, text, start_ms, end_ms, words } if ours(&id, &self.running) => {
+            etalk::Event::MeetingStopped { id } => self.finish_stop(Some(&id), cx),
+            etalk::Event::MeetingSegment { id, channel, label, text, start_ms, end_ms, words } if ours(&id, &self.running) => {
                 self.log_segment(&id, &channel, &label, &text, start_ms, end_ms, &words);
                 let segment = MeetingSegment { channel, label, text, start_ms };
                 self.step(FlushEvent::Segment, Some(segment), cx);
             }
-            talk::Event::MeetingWake { id } if ours(&id, &self.running) => self.step(FlushEvent::Wake, None, cx),
-            talk::Event::MeetingFlushNow { id } if ours(&id, &self.running) => self.step(FlushEvent::Ptt, None, cx),
-            talk::Event::MeetingListening { id, listening, reason } if ours(&id, &self.running) => {
+            etalk::Event::MeetingWake { id } if ours(&id, &self.running) => self.step(FlushEvent::Wake, None, cx),
+            etalk::Event::MeetingFlushNow { id } if ours(&id, &self.running) => self.step(FlushEvent::Ptt, None, cx),
+            etalk::Event::MeetingListening { id, listening, reason } if ours(&id, &self.running) => {
                 self.listening = listening;
                 self.publish(&crate::speak_replies::settings(cx), cx);
                 if listening {
@@ -893,7 +893,7 @@ impl MeetingHost {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn log_segment(&self, id: &str, channel: &str, label: &str, text: &str, start_ms: i64, end_ms: i64, words: &[talk::MeetingWord]) {
+    fn log_segment(&self, id: &str, channel: &str, label: &str, text: &str, start_ms: i64, end_ms: i64, words: &[etalk::MeetingWord]) {
         let Some(log) = self.log.as_ref() else { return };
         let row = LoggedSegment {
             meeting_id: id.to_string(),
@@ -1094,7 +1094,7 @@ mod tests {
         let wanted = wanted_for(&settings(), "mint", NOW).expect("this device holds it");
         assert_eq!(wanted.id, "2026-10-28T09:00:00Z");
         assert_eq!((wanted.agent_id.as_str(), wanted.language.as_str()), ("a1", "de"));
-        assert_eq!(selection_of(wanted.desktop_audio, &wanted.app_ids), talk::MeetingApps::Include(vec!["us.zoom.xos".into()]));
+        assert_eq!(selection_of(wanted.desktop_audio, &wanted.app_ids), etalk::MeetingApps::Include(vec!["us.zoom.xos".into()]));
         assert_eq!(wanted_for(&settings(), "laptop", NOW), None, "another device");
         assert_eq!(wanted_for(&VoiceSettings { meeting_started_at: None, ..settings() }, "mint", NOW), None, "stopped");
         assert_eq!(wanted_for(&VoiceSettings { meeting_started_at: Some(String::new()), ..settings() }, "mint", NOW), None);
@@ -1110,8 +1110,8 @@ mod tests {
         assert_eq!(wanted_for(&one_hour, "mint", NOW), None, "auto-stopped after 1 h");
         let eight = VoiceSettings { meeting_auto_stop_hours: 8, ..settings() };
         assert!(wanted_for(&eight, "mint", NOW - 3_600_000 + after).is_some(), "8 h outlives the default");
-        assert_eq!(selection_of(DesktopAudio::Off, &[]), talk::MeetingApps::Off);
-        assert_eq!(selection_of(DesktopAudio::Exclude, &["x".into()]), talk::MeetingApps::Exclude(vec!["x".into()]));
+        assert_eq!(selection_of(DesktopAudio::Off, &[]), etalk::MeetingApps::Off);
+        assert_eq!(selection_of(DesktopAudio::Exclude, &["x".into()]), etalk::MeetingApps::Exclude(vec!["x".into()]));
     }
 
     fn segment(channel: &str, start_ms: i64) -> MeetingSegment {
@@ -1235,7 +1235,7 @@ mod tests {
             running: Some(Running {
                 account: Some("acct-1".into()),
                 wanted: Wanted { id: id.into(), agent_id: "a1".into(), language: "de".into(), desktop_audio: DesktopAudio::Off, app_ids: Vec::new() },
-                capability: talk::apps::Capability::None,
+                capability: etalk::apps::Capability::None,
                 started_ms: 0,
                 turns: 0,
                 batcher: Batcher::default(),
@@ -1381,8 +1381,8 @@ mod tests {
 
     #[test]
     fn capability_maps_to_the_domain() {
-        assert_eq!(capability_of(talk::apps::Capability::PerApp), DesktopAudioCapability::PerApp);
-        assert_eq!(capability_of(talk::apps::Capability::System), DesktopAudioCapability::System);
-        assert_eq!(capability_of(talk::apps::Capability::None), DesktopAudioCapability::None);
+        assert_eq!(capability_of(etalk::apps::Capability::PerApp), DesktopAudioCapability::PerApp);
+        assert_eq!(capability_of(etalk::apps::Capability::System), DesktopAudioCapability::System);
+        assert_eq!(capability_of(etalk::apps::Capability::None), DesktopAudioCapability::None);
     }
 }

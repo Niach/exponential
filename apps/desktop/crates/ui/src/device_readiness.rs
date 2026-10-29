@@ -272,13 +272,13 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
     if !rows.voice_device {
         return;
     }
-    let capability = match talk::apps::capability() {
-        talk::apps::Capability::PerApp => domain::meeting::DesktopAudioCapability::PerApp,
-        talk::apps::Capability::System => domain::meeting::DesktopAudioCapability::System,
-        talk::apps::Capability::None => domain::meeting::DesktopAudioCapability::None,
+    let capability = match etalk::apps::capability() {
+        etalk::apps::Capability::PerApp => domain::meeting::DesktopAudioCapability::PerApp,
+        etalk::apps::Capability::System => domain::meeting::DesktopAudioCapability::System,
+        etalk::apps::Capability::None => domain::meeting::DesktopAudioCapability::None,
     };
     let apps = if rows.apps {
-        talk::apps::live()
+        etalk::apps::live()
             .into_iter()
             .map(|app| domain::meeting::AudioApp { id: app.id, name: app.name })
             .collect()
@@ -290,7 +290,7 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
         return;
     }
     let state = match capability {
-        _ if talk::apps::permission() == Some(false) => device_doctor::DesktopAudioState::NotGranted,
+        _ if etalk::apps::permission() == Some(false) => device_doctor::DesktopAudioState::NotGranted,
         domain::meeting::DesktopAudioCapability::PerApp => device_doctor::DesktopAudioState::PerApp,
         domain::meeting::DesktopAudioCapability::System => device_doctor::DesktopAudioState::System,
         domain::meeting::DesktopAudioCapability::None => device_doctor::DesktopAudioState::None,
@@ -300,17 +300,17 @@ pub(crate) fn add_desktop_audio(doctor: &mut DeviceDoctor, rows: VoiceRows) {
 
 /// NEW-78: the IDE's `microphone` row, appended only while THIS device
 /// listens (`push_to_talk::listens_here`); the CLI daemon never adds it.
-/// Probes the OS (`talk::microphone`, a `pactl` run on Linux): background
+/// Probes the OS (`etalk::microphone`, a `pactl` run on Linux): background
 /// executor only. The mapping lives here because coding never depends on talk.
 pub(crate) fn add_microphone_row(doctor: &mut DeviceDoctor, listening: bool) {
     if !listening {
         return;
     }
-    let state = match talk::microphone::probe() {
-        talk::microphone::Microphone::Granted => device_doctor::MicrophoneState::Granted,
-        talk::microphone::Microphone::NotGranted => device_doctor::MicrophoneState::NotGranted,
-        talk::microphone::Microphone::NoDevice => device_doctor::MicrophoneState::NoDevice,
-        talk::microphone::Microphone::NeedsRuntime => device_doctor::MicrophoneState::NeedsRuntime,
+    let state = match etalk::microphone::probe() {
+        etalk::microphone::Microphone::Granted => device_doctor::MicrophoneState::Granted,
+        etalk::microphone::Microphone::NotGranted => device_doctor::MicrophoneState::NotGranted,
+        etalk::microphone::Microphone::NoDevice => device_doctor::MicrophoneState::NoDevice,
+        etalk::microphone::Microphone::NeedsRuntime => device_doctor::MicrophoneState::NeedsRuntime,
     };
     device_doctor::add_microphone(doctor, state);
 }
@@ -765,7 +765,7 @@ pub(crate) fn install_url(key: &str) -> Option<&'static str> {
         KEY_GIT => Some("https://git-scm.com/downloads"),
         "claude" => Some("https://code.claude.com/docs/en/quickstart#step-1-install-claude-code"),
         // NEW-54: the Visual C++ runtime the Windows CPU transcriber needs.
-        KEY_MICROPHONE => Some(talk::microphone::VC_RUNTIME_URL),
+        KEY_MICROPHONE => Some(etalk::microphone::VC_RUNTIME_URL),
         // EXP-1232: codex is a managed download — its row never offers Install.
         _ => None,
     }
@@ -856,7 +856,7 @@ pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Wi
 /// Privacy → Microphone.
 fn grant_microphone(cx: &mut App) {
     let (answered, answer) = std::sync::mpsc::channel::<bool>();
-    let asked = talk::microphone::request_access(move |granted| {
+    let asked = etalk::microphone::request_access(move |granted| {
         let _ = answered.send(granted);
     });
     if !asked {
@@ -883,7 +883,7 @@ fn grant_microphone(cx: &mut App) {
 /// still not granted = System Settings → Privacy → Audio Recording.
 fn grant_desktop_audio(cx: &mut App) {
     cx.spawn(async move |cx| {
-        let granted = cx.background_executor().spawn(async move { talk::apps::request_permission() }).await;
+        let granted = cx.background_executor().spawn(async move { etalk::apps::request_permission() }).await;
         let _ = cx.update(|cx| {
             if granted == Some(false) {
                 if let Some(url) = privacy_pane_url(KEY_DESKTOP_AUDIO) {

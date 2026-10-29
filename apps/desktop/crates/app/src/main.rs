@@ -37,8 +37,8 @@ fn main() {
     }
     // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
     // per app): the voice model and the audio device, killable by the host.
-    if talk::requested() {
-        voice::run_and_exit();
+    if etalk::requested() {
+        etalk_engine::run_and_exit();
     }
     // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
     // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before

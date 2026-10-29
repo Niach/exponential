@@ -29,7 +29,7 @@ export const TALK_ROUTES: readonly Route[] = [
     () => import("./TalkHome"),
     `${NAME} · speech in and out for your agents`,
     `Talk to your Exponential agents: push to talk and spoken replies (beta) on your own GPU, in English and German, with Silero VAD, Parakeet and Qwen3-TTS. Open source.`,
-    [`ui/src/talk`, `../desktop/crates/talk`, `../desktop/crates/voice`],
+    [`ui/src/talk`, `../desktop/crates/etalk`, `../desktop/crates/etalk-engine`],
     [
       {
         "@context": `https://schema.org`,
@@ -84,7 +84,7 @@ export const TALK_ROUTES: readonly Route[] = [
     () => import("./Api"),
     `API · ${NAME}`,
     `The speech worker's wire (requests, events, level frames), the CrispASR runtime's sessions and the Settings → Voice fields, as they ship today.`,
-    [`ui/src/talk/Api.tsx`, `../desktop/crates/talk/src/lib.rs`, `../desktop/crates/crispasr/src`],
+    [`ui/src/talk/Api.tsx`, `../desktop/crates/etalk/src/lib.rs`, `../desktop/crates/etalk-crispasr/src`],
     crumbs({ name: `API`, path: `/talk/api/` })
   ),
   page(

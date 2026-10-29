@@ -1,0 +1,25 @@
+[package]
+name = "etalk-crispasr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# NEW-74: CrispASR (MIT, ggml) for exponentialTalk's speech engines, run ONLY
+# inside the speech worker. Nothing of CrispASR is linked into the binary:
+# the worker downloads the pinned prebuilt `libcrispasr` of the platform
+# (CrispASR's own release assets; on Linux plus NVIDIA's CUDA runtime and
+# cuBLAS wheels), verifies every file against its sha256 before it unpacks
+# or loads it, and opens it with `libloading`. gpui-free, so the speaker
+# (NEW-74) and the transcriber (NEW-54) share it.
+libloading = "0.8"
+log = "0.4"
+# O_NOFOLLOW when hashing a file that is about to be loaded.
+libc = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+# The NVIDIA wheels are zip archives; deflate through flate2 (in the tree).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }

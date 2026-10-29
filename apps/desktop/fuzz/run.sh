@@ -18,7 +18,7 @@ jobs=${2:-1}
 targets=${FUZZ_TARGETS:-opus_decode call_uplink aec}
 
 if [ ! -d corpus/opus_decode ]; then
-  cargo run --release --example seeds -- ../crates/voice/assets/builtin-en.wav corpus
+  cargo run --release --example seeds -- ../crates/etalk-engine/assets/builtin-en.wav corpus
 fi
 cargo +nightly fuzz build -a "$@"
 

@@ -5,7 +5,7 @@
 //! agent picked in Settings → Voice, spoken only on the member's voice
 //! device; `user_voice_settings`, delivered by every heartbeat) is
 //! reduced to [`domain::voice::spoken_text`] and handed to the speech worker
-//! (`talk::SpeechClient`, the IDE's own executable as `__speech-worker`).
+//! (`etalk::SpeechClient`, the IDE's own executable as `__speech-worker`).
 //! While it plays, the conversation's Dock shows the Speaking banner with
 //! Stop (`steer_viewer::dock_banners`). S-3: SPEAK-BACK IS ALWAYS ON (the
 //! setting is gone): the voice device with an agent picked keeps the worker
@@ -14,7 +14,7 @@
 //! is spoken is a VOICE TURN's reply only (voice.json `voiceTurn`): the
 //! running call's conversation, or the reply to a push-to-talk / wake turn
 //! ([`voice_turn`]); a typed message is never read aloud. NEW-74: which languages are
-//! spoken is what the worker reports (`talk::Event::Voices`): none without a
+//! spoken is what the worker reports (`etalk::Event::Voices`): none without a
 //! usable GPU, so a reply there is shown, never spoken.
 
 use std::collections::HashSet;
@@ -34,7 +34,7 @@ pub(crate) struct DeviceVoice {
     /// #NEW-54: push to talk or (#NEW-56) the wake word listens here.
     pub listen: bool,
     /// NEW-74: the language and voice file the worker speaks with.
-    pub voice: talk::VoiceChoice,
+    pub voice: etalk::VoiceChoice,
 }
 
 impl DeviceVoice {
@@ -55,7 +55,7 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     if settings.voice_device_id.as_deref() != Some(own_device_id) {
         return DeviceVoice::default();
     }
-    let voice = talk::VoiceChoice {
+    let voice = etalk::VoiceChoice {
         language: settings.language().to_string(),
         file: settings.voice_file.clone(),
         transcript: settings.voice_transcript.clone(),
@@ -160,7 +160,7 @@ impl Gate {
 
 pub(crate) struct SpeakReplies {
     gate: Gate,
-    client: Option<talk::SpeechClient>,
+    client: Option<etalk::SpeechClient>,
     /// The setting the worker was last prepared for (assistant + switch).
     prepared: DeviceVoice,
     /// The member's voice settings as the last heartbeat delivered them.
@@ -265,10 +265,10 @@ pub fn install(cx: &mut App) {
     let Some(store) = Store::try_global(cx) else { return };
     let collections = store.collections();
     let messages = collections.messages.clone();
-    let (tx, rx) = flume::unbounded::<talk::Event>();
+    let (tx, rx) = flume::unbounded::<etalk::Event>();
     let client = std::env::current_exe().ok().map(|exe| {
         let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
-        talk::SpeechClient::new(exe, data_dir, move |event| {
+        etalk::SpeechClient::new(exe, data_dir, move |event| {
             let _ = tx.send(event);
         })
     });
@@ -308,8 +308,8 @@ pub fn install(cx: &mut App) {
             let _ = cx.update(|cx| {
                 // NEW-55 review: a worker crash ends a running call too
                 // (Speak replies then restarts the worker as before).
-                if matches!(event, talk::Event::Exited) {
-                    crate::voice_call::on_worker_event(talk::Event::Exited, cx);
+                if matches!(event, etalk::Event::Exited) {
+                    crate::voice_call::on_worker_event(etalk::Event::Exited, cx);
                 }
                 // NEW-55: a running call's events (its microphone, its
                 // streamed reply audio) go to the call first.
@@ -387,7 +387,7 @@ static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock
 
 /// #NEW-54: the speech worker, for push to talk's Listen / EndListen /
 /// CancelListen (one worker serves both).
-pub(crate) fn client(cx: &App) -> Option<talk::SpeechClient> {
+pub(crate) fn client(cx: &App) -> Option<etalk::SpeechClient> {
     global(cx).and_then(|entity| entity.read(cx).client.clone())
 }
 
@@ -492,7 +492,7 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
             if changed {
                 this.cleanup.save(&data_dir);
             }
-            if due && this.client.as_ref().is_some_and(talk::SpeechClient::remove_voice_data) {
+            if due && this.client.as_ref().is_some_and(etalk::SpeechClient::remove_voice_data) {
                 this.cleanup.pending = false;
             }
         });
@@ -708,15 +708,15 @@ impl SpeakReplies {
         cx.notify();
     }
 
-    fn on_event(&mut self, event: talk::Event, cx: &mut Context<Self>) {
+    fn on_event(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
         let download_before = self.download.clone();
         let speaking_before = self.speaking.clone();
         let ready_before = (self.worker_ready, self.voices_known, self.voices.clone());
         let speech_before = self.speech_state(cx);
         match event {
-            talk::Event::Downloading { received, total } => self.download = Download::Running { received, total },
-            talk::Event::ModelReady => self.download = Download::Idle,
-            talk::Event::Voices { voices } => {
+            etalk::Event::Downloading { received, total } => self.download = Download::Running { received, total },
+            etalk::Event::ModelReady => self.download = Download::Idle,
+            etalk::Event::Voices { voices } => {
                 if self.download != Download::Failed {
                     self.download = Download::Idle;
                 }
@@ -726,7 +726,7 @@ impl SpeakReplies {
                 self.voices = voices;
                 self.voices_known = true;
             }
-            talk::Event::DownloadFailed { error } => {
+            etalk::Event::DownloadFailed { error } => {
                 log::warn!("[ui] speak replies: voice download failed: {error}");
                 if self.download != Download::Failed {
                     crate::toast::show_in_active_window(crate::toast::Toast::error(VOICE.copy.download_failed.clone()), cx);
@@ -734,7 +734,7 @@ impl SpeakReplies {
                 self.download = Download::Failed;
                 self.speaking = None;
             }
-            talk::Event::Finished { id, stopped } => {
+            etalk::Event::Finished { id, stopped } => {
                 if !stopped {
                     // A whole utterance played: the worker is healthy.
                     self.crashes = 0;
@@ -743,33 +743,33 @@ impl SpeakReplies {
                     self.speaking = None;
                 }
             }
-            talk::Event::Failed { id, error } => {
+            etalk::Event::Failed { id, error } => {
                 log::warn!("[ui] speak replies: the reply was not spoken: {error}");
                 if self.speaking.as_ref().is_some_and(|speaking| speaking.message_id == id) {
                     self.speaking = None;
                 }
             }
-            talk::Event::Exited => {
+            etalk::Event::Exited => {
                 self.on_exited(cx);
                 // #NEW-56: a new worker is told the wake word again.
                 crate::push_to_talk::worker_changed(false, cx);
             }
-            talk::Event::Ready { .. } => {
+            etalk::Event::Ready { .. } => {
                 self.worker_ready = true;
                 crate::push_to_talk::worker_changed(true, cx);
                 // NEW-57: a new worker is handed the running meeting (it
                 // reads these settings: after this update).
                 cx.defer(crate::meeting::worker_ready);
             }
-            talk::Event::Started { .. } => {}
+            etalk::Event::Started { .. } => {}
             // #NEW-54: routed to push to talk before they get here.
-            talk::Event::Level { .. }
-            | talk::Event::Partial { .. }
-            | talk::Event::Heard { .. }
-            | talk::Event::Empty { .. }
-            | talk::Event::ListenFailed { .. }
-            | talk::Event::Woke { .. }
-            | talk::Event::WakeListening { .. } => {}
+            etalk::Event::Level { .. }
+            | etalk::Event::Partial { .. }
+            | etalk::Event::Heard { .. }
+            | etalk::Event::Empty { .. }
+            | etalk::Event::ListenFailed { .. }
+            | etalk::Event::Woke { .. }
+            | etalk::Event::WakeListening { .. } => {}
             // NEW-55: call events (talk protocol 5) belong to the call.
             _ => {}
         }
@@ -987,7 +987,7 @@ mod tests {
         assert!(here.active(), "every language prepares the worker; it reports what it speaks");
         assert_eq!(
             here.voice,
-            talk::VoiceChoice { language: "de".into(), file: "/home/me/clip.wav".into(), transcript: "Hallo.".into() }
+            etalk::VoiceChoice { language: "de".into(), file: "/home/me/clip.wav".into(), transcript: "Hallo.".into() }
         );
         assert_eq!(voice_here(&settings, "d-mint").voice.language, "en", "unset reads as English");
         let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings.clone() };
