@@ -43,15 +43,15 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 53774,
-        "sha256": "436445c6ffe1844b72c14f1e2f53b28ad28faa67689e0d71b4ab3e379343bfe8"
+        "bytes": 47644,
+        "sha256": "b3095497b81acddb379c4197b6355b49c29a118f79d7be63d45887b3a24b9c12"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 46108,
-        "sha256": "5f3286aeff3a6f4a24555a6ef00f6f57511172a27fabfed3906a15bccbc28501"
+        "bytes": 46038,
+        "sha256": "243e39c3d12acf766ff67e224f59baf2fcd807eb0e840e73c7322132ae0502ff"
       }
     },
     "agent-home": {
@@ -697,15 +697,15 @@
         "file": "shots/chat-transcript/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 81788,
-        "sha256": "31dded2c040cfe5b8c1ca0cf8bff70219e48e3b907cbbecba2a777ba4cf266ff"
+        "bytes": 82520,
+        "sha256": "8daf7beb30ce8a58d87f2adbcb9b3c94f7cd8a354a30728108aa089e81958c48"
       },
       "web-mobile": {
         "file": "shots/chat-transcript/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 48648,
-        "sha256": "54fa496c6db3439e23f6a906e35ab933f0a428d60bcd00a9ca8e662f73458124"
+        "bytes": 48630,
+        "sha256": "f95e90af85e55f333e172819eb401aa1898dbfca9f1a731c8181b5afe5b2a5ac"
       }
     },
     "code-block": {
