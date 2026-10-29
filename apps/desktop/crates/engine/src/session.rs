@@ -1055,72 +1055,10 @@ impl From<ConfigValue> for agent_client_protocol::schema::v1::SessionConfigOptio
     }
 }
 
-/// How a resumed (or replayed) run is re-entered: the recorded ACP id, or the
-/// agent's own native id.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ResumeHandle {
-    /// The recorded ACP `sessionId` — `session/load` or `session/resume`.
-    Acp(String),
-    /// claude's transcript uuid (`--resume=<id>`), codex's thread id.
-    Native(String),
-}
-
-impl From<coding::ResumeSeed> for ResumeHandle {
-    fn from(seed: coding::ResumeSeed) -> Self {
-        match seed {
-            coding::ResumeSeed::Acp(id) => ResumeHandle::Acp(id),
-            coding::ResumeSeed::Native(id) => ResumeHandle::Native(id),
-        }
-    }
-}
-
-/// Why a start could not happen. Everything AFTER a successful [`start`] is
-/// reported through [`EngineExit`] instead.
-#[derive(Debug)]
-pub enum EngineError {
-    /// The agent child never started (missing binary, bad cwd, no PATH).
-    Spawn(std::io::Error),
-    /// The child started but never completed `initialize` / `session/new`.
-    Handshake(String),
-    /// A tRPC call the start depends on failed.
-    Api(api::error::ApiError),
-    /// The agent has no ACP adapter on this build. EXP-773: there is no
-    /// terminal transport to fall back to, so the caller REFUSES the start
-    /// and shows this.
-    Unsupported(&'static str),
-}
-
-impl std::fmt::Display for EngineError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EngineError::Spawn(err) => write!(f, "could not start the agent: {err}"),
-            EngineError::Handshake(message) => write!(f, "the agent did not connect: {message}"),
-            EngineError::Api(err) => write!(f, "{err}"),
-            EngineError::Unsupported(what) => write!(f, "{what}"),
-        }
-    }
-}
-
-impl std::error::Error for EngineError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            EngineError::Spawn(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::io::Error> for EngineError {
-    fn from(err: std::io::Error) -> Self {
-        EngineError::Spawn(err)
-    }
-}
-
-impl From<api::error::ApiError> for EngineError {
-    fn from(err: api::error::ApiError) -> Self {
-        EngineError::Api(err)
-    }
-}
+// EXP-1426 part 4c: the resume handle and the start error are the agent
+// runtime's (the adapters return them); `coding` converts its `ResumeSeed`
+// and `api` its `ApiError`.
+pub use exponential_agent_runtime::engine::launch::{EngineError, ResumeHandle};
 
 #[cfg(test)]
 mod tests {

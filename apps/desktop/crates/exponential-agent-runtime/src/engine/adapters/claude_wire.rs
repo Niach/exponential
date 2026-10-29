@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
+use crate::engine::transport::{spawn_lines, ChildLines, StderrPolicy};
 
 /// Whether `-p` leads the argv.
 ///
@@ -400,7 +400,7 @@ pub struct RateLimitInfo {
     pub is_using_overage: Option<bool>,
     /// EXP-819: the per-window map (`five_hour`/`seven_day`/
     /// `seven_day_overage_included` → `{utilization, resetsAt}`), kept raw —
-    /// `coding::agent_usage::parse_claude_rate_limit_windows` owns the
+    /// `crate::usage::parse_claude_rate_limit_windows` owns the
     /// vocabulary; see [`RateLimitInfo::usage_windows`].
     #[serde(rename = "unifiedWindows", alias = "unified_windows")]
     pub unified_windows: Option<Value>,
@@ -410,17 +410,17 @@ pub struct RateLimitInfo {
 
 impl RateLimitInfo {
     /// EXP-819: this frame's windows in the usage sheet's shape — what the
-    /// adapter publishes into `coding::agent_usage::live` so the machine's
+    /// adapter publishes into `crate::usage::live` so the machine's
     /// usage numbers move per turn. Empty when the frame carries none.
-    pub fn usage_windows(&self) -> Vec<coding::agent_usage::UsageWindow> {
+    pub fn usage_windows(&self) -> Vec<crate::usage::UsageWindow> {
         let limiting = self.rate_limit_type.as_deref().zip(self.utilization).map(
-            |(kind, utilization)| coding::agent_usage::ClaudeLimitingWindow {
+            |(kind, utilization)| crate::usage::ClaudeLimitingWindow {
                 kind,
                 utilization,
                 resets_at_secs: self.resets_at,
             },
         );
-        coding::agent_usage::parse_claude_rate_limit_windows(
+        crate::usage::parse_claude_rate_limit_windows(
             self.unified_windows.as_ref(),
             limiting,
         )
@@ -453,10 +453,10 @@ pub fn claude_window(kind: &str) -> Option<&'static str> {
         return None;
     }
     Some(match kind {
-        "five_hour" => steer::activity::BLOCKED_WINDOW_SESSION,
-        "seven_day" => steer::activity::BLOCKED_WINDOW_WEEKLY,
+        "five_hour" => crate::wire::activity::BLOCKED_WINDOW_SESSION,
+        "seven_day" => crate::wire::activity::BLOCKED_WINDOW_WEEKLY,
         // `seven_day_opus`, `seven_day_sonnet`, … — a per-model bucket.
-        _ => steer::activity::BLOCKED_WINDOW_MODEL,
+        _ => crate::wire::activity::BLOCKED_WINDOW_MODEL,
     })
 }
 
@@ -467,9 +467,9 @@ pub fn claude_window(kind: &str) -> Option<&'static str> {
 pub fn window_from_notice(text: &str) -> Option<&'static str> {
     let text = text.to_ascii_lowercase();
     if text.contains("session limit") {
-        Some(steer::activity::BLOCKED_WINDOW_SESSION)
+        Some(crate::wire::activity::BLOCKED_WINDOW_SESSION)
     } else if text.contains("weekly limit") {
-        Some(steer::activity::BLOCKED_WINDOW_WEEKLY)
+        Some(crate::wire::activity::BLOCKED_WINDOW_WEEKLY)
     } else {
         None
     }
@@ -948,7 +948,7 @@ pub enum TurnEnd {
 }
 
 impl ClaudeProcess {
-    pub fn spawn(spec: &terminal::pty::SpawnSpec) -> std::io::Result<ClaudeProcess> {
+    pub fn spawn(spec: &crate::spawn::SpawnSpec) -> std::io::Result<ClaudeProcess> {
         Ok(ClaudeProcess { child: spawn_lines(spec, StderrPolicy::Log)? })
     }
 
@@ -1027,7 +1027,7 @@ impl ClaudeProcess {
     }
 
     /// Exit status, once the child is gone.
-    pub fn wait_exit(&self, timeout: Duration) -> Option<terminal::pty::ChildExit> {
+    pub fn wait_exit(&self, timeout: Duration) -> Option<crate::spawn::ChildExit> {
         self.child.exit.recv_timeout(timeout).ok()
     }
 }
@@ -1087,12 +1087,12 @@ pub fn argv_permission_mode(mode: &str) -> &str {
 pub fn inline_mcp_config(
     url: &str,
     session_id: Option<&str>,
-    servers: &[coding::McpServerWire],
+    servers: &[crate::mcp::McpServerWire],
 ) -> String {
     let mut headers = Map::new();
     headers.insert(
         "Authorization".to_string(),
-        Value::String(format!("Bearer ${{{}}}", coding::MCP_TOKEN_ENV)),
+        Value::String(format!("Bearer ${{{}}}", crate::mcp::MCP_TOKEN_ENV)),
     );
     if let Some(session_id) = session_id {
         headers.insert(
@@ -1112,12 +1112,12 @@ pub fn inline_mcp_config(
             continue;
         }
         let entry = match &server.transport {
-            coding::McpWireTransport::Http { url } => json!({
+            crate::mcp::McpWireTransport::Http { url } => json!({
                 "type": "http",
                 "url": url,
                 "headers": sorted_strings(&server.headers),
             }),
-            coding::McpWireTransport::Stdio { command, args } => json!({
+            crate::mcp::McpWireTransport::Stdio { command, args } => json!({
                 "type": "stdio",
                 "command": command,
                 "args": args,
@@ -1175,7 +1175,7 @@ pub fn initialize_hooks() -> Value {
 }
 
 /// N-5 / NEW-5: the `PreToolUse` callback a CONFINED run registers
-/// ([`super::AdapterSpec::confine_to`]). Registered ONLY then, so an
+/// ([`super::LaunchSpec::confine_to`]). Registered ONLY then, so an
 /// unconfined run's hook set stays exactly [`initialize_hooks`].
 pub const HOOK_PRE_TOOL_USE_CONFINE: &str = "exp_pre_tool_use_confine";
 
@@ -1236,7 +1236,7 @@ pub fn generated_session_title(response: &Value) -> Option<String> {
     response
         .get("title")
         .and_then(Value::as_str)
-        .and_then(steer::normalize_agent_title)
+        .and_then(crate::wire::normalize_agent_title)
 }
 
 /// The `initialize` control response — the ONLY place the CLI reports its
@@ -1806,7 +1806,7 @@ mod tests {
         assert_eq!(msg.rate_limit_info.window(), Some("session"));
         assert_eq!(
             msg.rate_limit_info.usage_windows(),
-            vec![coding::agent_usage::UsageWindow {
+            vec![crate::usage::UsageWindow {
                 key: "session".to_string(),
                 label: "5h".to_string(),
                 percent: 91,
@@ -1995,7 +1995,7 @@ mod tests {
         let args = ClaudeArgs {
             resume: Some("parent-native"),
             fork_session: true,
-            disallowed_tools: crate::aside::ASIDE_DISALLOWED_TOOLS,
+            disallowed_tools: crate::engine::launch::ASIDE_DISALLOWED_TOOLS,
             ..ClaudeArgs::default()
         };
         let argv = claude_argv(&args);
@@ -2213,12 +2213,12 @@ mod tests {
     }
 
     /// EXP-792: the two-server pick — an OAuth http server and a stdio one.
-    fn two_servers() -> Vec<coding::McpServerWire> {
+    fn two_servers() -> Vec<crate::mcp::McpServerWire> {
         vec![
-            coding::McpServerWire {
+            crate::mcp::McpServerWire {
                 id: "srv-1".to_string(),
                 name: "linear".to_string(),
-                transport: coding::McpWireTransport::Http {
+                transport: crate::mcp::McpWireTransport::Http {
                     url: "https://mcp.linear.app/mcp".to_string(),
                 },
                 headers: vec![
@@ -2228,16 +2228,16 @@ mod tests {
                 token_env: Some("EXP_MCP_TOKEN_1".to_string()),
                 env: Vec::new(),
                 // FEED-73: transcript-only metadata, never rendered.
-                actor: Some(api::mcp_servers::McpActor {
+                actor: Some(crate::mcp::McpActor {
                     user_id: "u1".to_string(),
                     name: "Danny".to_string(),
                     shared: false,
                 }),
             },
-            coding::McpServerWire {
+            crate::mcp::McpServerWire {
                 id: "srv-2".to_string(),
                 name: "github".to_string(),
-                transport: coding::McpWireTransport::Stdio {
+                transport: crate::mcp::McpWireTransport::Stdio {
                     command: "npx".to_string(),
                     args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
                 },

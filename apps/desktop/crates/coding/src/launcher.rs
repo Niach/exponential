@@ -538,6 +538,17 @@ pub enum ResumeSeed {
     Native(String),
 }
 
+/// EXP-1426 part 4c: the agent runtime's resume handle is the engine's
+/// (`engine::ResumeHandle` re-exports it); the seed converts one-to-one.
+impl From<ResumeSeed> for exponential_agent_runtime::engine::launch::ResumeHandle {
+    fn from(seed: ResumeSeed) -> Self {
+        match seed {
+            ResumeSeed::Acp(id) => Self::Acp(id),
+            ResumeSeed::Native(id) => Self::Native(id),
+        }
+    }
+}
+
 /// EXP-746: everything the ACP engine needs that the PTY path expresses as
 /// argv — the prompt as TEXT (the engine sends it as a `session/prompt`
 /// message; PROMPT.md delivery is a TUI affordance and never happens here),
@@ -2733,25 +2744,9 @@ fn copy_claude_transcript(
     }
 }
 
-/// EXP-761: the ONE way to find a claude transcript — `<root>/*/<session
-/// id>.jsonl`, `root` being `~/.claude/projects` (or the child's
-/// `CLAUDE_CONFIG_DIR/projects`). Claude names the per-cwd directory by
-/// munging the cwd (every non-alphanumeric byte → `-`), but caps the name at
-/// roughly 200 chars and appends a 6-char hash beyond that
-/// (`…-actions-5ecb3c42-…--71h4ur`), so recomputing the name from the cwd
-/// misses exactly the long worktree paths a daemon data dir produces. The
-/// session uuid is unique across the tree, so the first hit IS the
-/// transcript; nothing here depends on the naming rule. Steer's PTY emitter,
-/// the resume probe and the engine's replay all resolve through this.
-pub fn locate_claude_transcript(root: &Path, session_id: &str) -> Option<PathBuf> {
-    let file_name = format!("{session_id}.jsonl");
-    std::fs::read_dir(root)
-        .ok()?
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path().join(&file_name))
-        .find(|path| path.is_file())
-}
+// EXP-761: the ONE claude transcript locator is the agent runtime's
+// (EXP-1426 part 4c).
+pub use exponential_agent_runtime::claude_transcript::locate_claude_transcript;
 
 /// Does claude still hold the recorded conversation? (`cwd` is what the
 /// record says; the transcript is found by session id, never by cwd —

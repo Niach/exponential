@@ -122,6 +122,29 @@ pub fn dropped_lines_note(dropped: u64) -> String {
     format!("{dropped} stdout {lines} {verb} dropped")
 }
 
+/// The `main_fn` every stdio adapter runs: hold the connection open until
+/// EITHER half goes away, then return so the connection shuts down.
+///
+/// The child half is the load-bearing one. The SDK's own `connect_to` waits
+/// only on `incoming_closed`, and the host's loop waits only on the adapter,
+/// so an agent CLI that crashed (OOM, `kill -9`, the reaper) would leave the
+/// two halves waiting on each other forever: no `on_exit`, no `exit:<code>`,
+/// a row still reading `running` and a desktop tab still Live
+/// (EXP-746 review E1). On the child's edge the exit code gets
+/// [`CHILD_EXIT_GRACE`] to land so the run ends as `exit:<code>`.
+pub async fn until_either_closes(
+    cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+    exit: &ChildExitLink,
+    child_gone: impl std::future::Future<Output = ()>,
+) {
+    tokio::select! {
+        () = cx.incoming_closed() => {}
+        () = child_gone => {
+            let _ = tokio::time::timeout(CHILD_EXIT_GRACE, exit.reaped()).await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -61,6 +61,14 @@ impl fmt::Display for ApiError {
 
 impl std::error::Error for ApiError {}
 
+/// EXP-1426 part 4c: a start that needed the server fails as the agent
+/// runtime's `EngineError::Api` (its `Display` is this error's).
+impl From<ApiError> for exponential_agent_runtime::engine::launch::EngineError {
+    fn from(err: ApiError) -> Self {
+        Self::Api(Box::new(err))
+    }
+}
+
 /// EXP-533: the ONE offline sentence, byte-identical across web, iOS, Android
 /// and desktop. Never say `Failed to fetch` / `Unable to resolve host` /
 /// `error sending request for url` to a user.

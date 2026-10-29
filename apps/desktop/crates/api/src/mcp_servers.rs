@@ -437,18 +437,8 @@ pub struct McpLaunchServer {
     pub actor: Option<McpActor>,
 }
 
-/// FEED-73: the member a resolved launch entry acts as.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpActor {
-    #[serde(default)]
-    pub user_id: String,
-    #[serde(default)]
-    pub name: String,
-    /// Another member's SHARED connection (vs the launcher's own).
-    #[serde(default)]
-    pub shared: bool,
-}
+/// FEED-73: the member a resolved launch entry acts as (EXP-1426: the core's).
+pub use exponential_agent_runtime::mcp::McpActor;
 
 /// FEED-73: one team member's standing on one picked server, for an ACTION
 /// run's roster (`[]` for every other run).

@@ -60,9 +60,9 @@ use tokio::sync::Notify;
 use super::codex_wire::{
     self, ApprovalKind, AppServer, CodexMode, ServerRequest, TurnRequest,
 };
-use super::AdapterSpec;
-use crate::host::NATIVE_SESSION_META_KEY;
-use crate::session::{EngineError, ResumeHandle};
+use super::LaunchSpec;
+use crate::engine::launch::NATIVE_SESSION_META_KEY;
+use crate::engine::launch::{EngineError, ResumeHandle};
 
 /// How long a single app-server call may take before the adapter gives up on
 /// it. Generous on purpose: an unreachable MCP endpoint delayed one CLI's
@@ -81,7 +81,7 @@ const TURN_MAX: Duration = Duration::from_secs(6 * 60 * 60);
 /// The live rate-limit windows codex pushes over `account/rateLimits/updated`,
 /// parsed into the SAME shape the desktop usage sheet reads.
 ///
-/// EXP-754: every store also PUBLISHES into `coding::agent_usage::live`, and
+/// EXP-754: every store also PUBLISHES into `crate::usage::live`, and
 /// the handle holds that registry's session guard for the run. One machine
 /// runs one app-server per session, so the usage poller reads these numbers
 /// instead of spawning a second one of its own. Clone the handle off the
@@ -91,7 +91,7 @@ const TURN_MAX: Duration = Duration::from_secs(6 * 60 * 60);
 pub struct CodexUsage(Arc<UsageSlot>);
 
 struct UsageSlot {
-    windows: Mutex<Vec<coding::agent_usage::UsageWindow>>,
+    windows: Mutex<Vec<crate::usage::UsageWindow>>,
     /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
     /// launch's `account`), the key everything published from here lands
     /// under — a run on one account never moves another's numbers.
@@ -99,7 +99,7 @@ struct UsageSlot {
     /// The live-registry attachment, released by [`CodexUsage::detach`] at
     /// session end — or, if nobody gets there, by dropping the last handle.
     /// EXP-909: `None` for a transcript REPLAY, which spends nothing.
-    attached: Mutex<Option<coding::agent_usage::live::Attached>>,
+    attached: Mutex<Option<crate::usage::live::Attached>>,
 }
 
 impl CodexUsage {
@@ -109,8 +109,8 @@ impl CodexUsage {
         CodexUsage(Arc::new(UsageSlot {
             windows: Mutex::new(Vec::new()),
             profile: profile.to_string(),
-            attached: Mutex::new(Some(coding::agent_usage::live::attach(
-                coding::CodingAgent::Codex,
+            attached: Mutex::new(Some(crate::usage::live::attach(
+                crate::agent::CodingAgent::Codex,
                 profile,
             ))),
         }))
@@ -129,8 +129,8 @@ impl CodexUsage {
 
     /// The handle `spec` asks for: attached for a real run, detached for a
     /// replay, always keyed by the login the run spends.
-    fn for_spec(spec: &AdapterSpec) -> CodexUsage {
-        let profile = coding::profile_id(spec.options.account.as_deref());
+    fn for_spec(spec: &LaunchSpec) -> CodexUsage {
+        let profile = spec.options.account_profile.clone();
         if spec.replay {
             CodexUsage::replaying(&profile)
         } else {
@@ -138,7 +138,7 @@ impl CodexUsage {
         }
     }
 
-    pub fn windows(&self) -> Vec<coding::agent_usage::UsageWindow> {
+    pub fn windows(&self) -> Vec<crate::usage::UsageWindow> {
         match self.0.windows.lock() {
             Ok(windows) => windows.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
@@ -156,7 +156,7 @@ impl CodexUsage {
         drop(attached);
     }
 
-    fn store(&self, windows: Vec<coding::agent_usage::UsageWindow>) {
+    fn store(&self, windows: Vec<crate::usage::UsageWindow>) {
         let published = windows.clone();
         match self.0.windows.lock() {
             Ok(mut slot) => *slot = windows,
@@ -164,7 +164,7 @@ impl CodexUsage {
         }
         // EXP-754: the machine's usage poller reads THIS instead of spawning
         // a second `codex app-server` to ask the same account again.
-        coding::agent_usage::live::publish(coding::CodingAgent::Codex, &self.0.profile, published);
+        crate::usage::live::publish(crate::agent::CodingAgent::Codex, &self.0.profile, published);
     }
 }
 
@@ -175,7 +175,7 @@ pub struct CodexConnection {
     pub server: Arc<AppServer>,
     pub notifications: flume::Receiver<(String, Value)>,
     pub requests: flume::Receiver<ServerRequest>,
-    pub exit: Option<flume::Receiver<terminal::pty::ChildExit>>,
+    pub exit: Option<flume::Receiver<crate::spawn::ChildExit>>,
     /// EXP-758: the app-server child's pid (`None` on the in-process test
     /// fake) — recorded into the run record for the orphan reaper.
     pub pid: Option<u32>,
@@ -185,7 +185,7 @@ impl CodexConnection {
     /// Spawn `codex app-server --listen stdio://` from the launch's own
     /// `SpawnSpec`, so the ACP child inherits the exact program, cwd and env
     /// (`EXP_MCP_TOKEN` included) the PTY launch would have used.
-    pub fn spawn(spec: &terminal::pty::SpawnSpec) -> std::io::Result<CodexConnection> {
+    pub fn spawn(spec: &crate::spawn::SpawnSpec) -> std::io::Result<CodexConnection> {
         let mut spec = spec.clone();
         spec.args = vec![
             "app-server".to_string(),
@@ -204,19 +204,20 @@ impl CodexConnection {
 }
 
 pub struct CodexAgent {
-    spec: AdapterSpec,
+    spec: LaunchSpec,
     connection: CodexConnection,
     usage: CodexUsage,
 }
 
 impl CodexAgent {
-    pub fn new(spec: AdapterSpec) -> Result<CodexAgent, EngineError> {
+    pub fn new(spec: impl Into<LaunchSpec>) -> Result<CodexAgent, EngineError> {
+        let spec = spec.into();
         let connection = CodexConnection::spawn(&spec.spawn).map_err(EngineError::Spawn)?;
         if let Some(pid) = connection.pid {
             spec.exit.record_pid(pid);
         }
         if let Some(exit) = &connection.exit {
-            crate::transport::forward_exit(exit.clone(), spec.exit.clone());
+            crate::engine::transport::forward_exit(exit.clone(), spec.exit.clone());
         }
         let usage = CodexUsage::for_spec(&spec);
         Ok(CodexAgent {
@@ -227,7 +228,8 @@ impl CodexAgent {
     }
 
     /// Drive an already-connected app-server (the adapter tests).
-    pub fn with_connection(spec: AdapterSpec, connection: CodexConnection) -> CodexAgent {
+    pub fn with_connection(spec: impl Into<LaunchSpec>, connection: CodexConnection) -> CodexAgent {
+        let spec = spec.into();
         let usage = CodexUsage::for_spec(&spec);
         CodexAgent {
             spec,
@@ -326,7 +328,7 @@ struct ModelInfo {
 }
 
 struct Shared {
-    spec: AdapterSpec,
+    spec: LaunchSpec,
     server: Arc<AppServer>,
     session_id: Mutex<Option<SessionId>>,
     cwd: Mutex<PathBuf>,
@@ -726,7 +728,7 @@ impl ConnectTo<Client> for CodexAgent {
                 // ending closes the connection here.
                 .connect_with(client, async move |cx: ConnectionTo<Client>| {
                     let shared = main_shared;
-                    crate::host::until_either_closes(
+                    crate::engine::child_exit::until_either_closes(
                         &cx,
                         &shared.spec.exit,
                         shared.child_gone(),
@@ -884,7 +886,7 @@ async fn open_thread(
 /// SAME tools and sandbox roots a fresh one does.
 fn thread_config_for(shared: &Arc<Shared>, roots: &[PathBuf]) -> Value {
     let (mcp_url, mcp_session) = match &shared.spec.mcp {
-        coding::AgentMcp::CodexOverrides { url, session_id } => {
+        crate::mcp::AgentMcp::CodexOverrides { url, session_id } => {
             (Some(url.clone()), session_id.clone())
         }
         // The other postures belong to other agents; a codex launch without an
@@ -1557,7 +1559,7 @@ fn on_notification(
         "account/rateLimits/updated" => {
             shared
                 .usage
-                .store(coding::agent_usage::parse_codex_rate_limits(params));
+                .store(crate::usage::parse_codex_rate_limits(params));
         }
         "thread/compacted" => {
             finish_compaction(shared);
@@ -1688,15 +1690,15 @@ fn publish_context_layout(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, prefi
         return;
     }
     let base = match prefix {
-        Some(prefix) => Some(crate::context_layout::BasePrefix::Measured(prefix)),
+        Some(prefix) => Some(crate::engine::context_layout::BasePrefix::Measured(prefix)),
         None => shared
             .spec
             .context_layers
             .carried_base
             .as_ref()
-            .map(|carried| crate::context_layout::BasePrefix::Carried(carried.tokens)),
+            .map(|carried| crate::engine::context_layout::BasePrefix::Carried(carried.tokens)),
     };
-    let segments = crate::context_layout::layout(&shared.spec.context_layers, base);
+    let segments = crate::engine::context_layout::layout(&shared.spec.context_layers, base);
     if segments.is_empty() {
         return;
     }
@@ -1718,7 +1720,7 @@ fn publish_context_layout(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, prefi
         .ok()
         .map(|config| config.model.clone())
         .unwrap_or_default();
-    let meta = crate::context_layout::meta(&segments, Some(&model));
+    let meta = crate::engine::context_layout::meta(&segments, Some(&model));
     let _ = cx.send_notification(
         SessionNotification::new(
             session_id,
@@ -2210,7 +2212,7 @@ fn subagent(
     // mapper reads it off the card and publishes the relay `subagent` kind.
     let mut meta = serde_json::Map::new();
     meta.insert(
-        crate::local::SUBAGENT_META_KEY.to_string(),
+        crate::engine::local::SUBAGENT_META_KEY.to_string(),
         json!({
             "id": thread,
             "agentType": short_name(agent_type),
@@ -2933,7 +2935,7 @@ mod tests {
                 panic!("expected a tool call");
             };
             call.meta
-                .and_then(|meta| meta.get(crate::local::TOOL_DETAIL_META_KEY).cloned())
+                .and_then(|meta| meta.get(crate::engine::local::TOOL_DETAIL_META_KEY).cloned())
         };
         let chris = only(feed_updates(&items, "item/started", &started("i1", "linear_as_chris")));
         assert_eq!(detail(chris), Some(json!("as Chris")));

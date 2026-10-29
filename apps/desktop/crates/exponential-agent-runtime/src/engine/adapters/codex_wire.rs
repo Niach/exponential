@@ -1,7 +1,7 @@
 //! EXP-746 — codex's private wire: a long-lived `codex app-server` JSON-RPC
 //! connection. Owned by lane E3.
 //!
-//! `coding::codex_app_server` deliberately is NOT this: it is a one-shot
+//! `crate::codex_app_server` deliberately is NOT this: it is a one-shot
 //! probe whose `route_line` returns `None` for anything carrying a `method`,
 //! which would silently drop every server-initiated approval and hang the
 //! session with no symptom. Hence the 3-way [`classify_line`]. What IS reused
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};
+use crate::engine::transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};
 
 /// Where a request line goes. Abstracted over [`LineWriter`] for ONE reason:
 /// the adapter tests drive a fake app-server in-process, and a `LineWriter`
@@ -171,12 +171,12 @@ impl AppServer {
     /// stream and the child's exit.
     #[allow(clippy::type_complexity)]
     pub fn spawn(
-        spec: &terminal::pty::SpawnSpec,
+        spec: &crate::spawn::SpawnSpec,
     ) -> std::io::Result<(
         Arc<AppServer>,
         flume::Receiver<(String, Value)>,
         flume::Receiver<ServerRequest>,
-        flume::Receiver<terminal::pty::ChildExit>,
+        flume::Receiver<crate::spawn::ChildExit>,
         u32,
     )> {
         let child = spawn_lines(spec, StderrPolicy::Log)?;
@@ -469,7 +469,7 @@ pub fn thread_start_params(
 
 /// The `config` blob for [`thread_start_params`]: the WHOLE `mcp_servers`
 /// table (EXP-792: `exponential` plus every team server, from the same
-/// [`coding::argv::codex_mcp_entries`] model the shell's `-c` flag renders,
+/// [`crate::mcp::codex_mcp_entries`] model the shell's `-c` flag renders,
 /// so the two spellings can never drift), project trust for every directory
 /// the turn may touch, and the writable roots of the workspace sandbox.
 ///
@@ -481,13 +481,13 @@ pub fn thread_start_params(
 pub fn thread_config(
     mcp_url: Option<&str>,
     session_id: &str,
-    servers: &[coding::McpServerWire],
+    servers: &[crate::mcp::McpServerWire],
     trusted_roots: &[std::path::PathBuf],
 ) -> Value {
     let mut config = serde_json::Map::new();
     if let Some(url) = mcp_url {
         let mut table = serde_json::Map::new();
-        for (key, entry) in coding::argv::codex_mcp_entries(url, Some(session_id), servers) {
+        for (key, entry) in crate::mcp::codex_mcp_entries(url, Some(session_id), servers) {
             table.insert(key, codex_mcp_entry_json(&entry));
         }
         config.insert("mcp_servers".to_string(), Value::Object(table));
@@ -518,7 +518,7 @@ pub fn thread_config(
 /// One `mcp_servers.<key>` value, field order = codex's documented order;
 /// empty collections are omitted so the `exponential` entry keeps its
 /// pre-792 shape.
-fn codex_mcp_entry_json(entry: &coding::argv::CodexMcpEntry) -> Value {
+fn codex_mcp_entry_json(entry: &crate::mcp::CodexMcpEntry) -> Value {
     let mut out = serde_json::Map::new();
     if let Some(url) = &entry.url {
         out.insert("url".to_string(), json!(url));
@@ -738,7 +738,7 @@ pub struct TurnRequest<'a> {
     /// `"fast"` when the model advertises the tier and the chip is on.
     pub service_tier: Option<&'a str>,
     pub writable_roots: &'a [std::path::PathBuf],
-    /// N-5 / NEW-5: a repo-less run's scratch dir ([`super::AdapterSpec::confine_to`]).
+    /// N-5 / NEW-5: a repo-less run's scratch dir ([`super::LaunchSpec::confine_to`]).
     /// Set, it overrides `mode`: no approvals, and the app-server's
     /// [`confined_sandbox_policy`] instead of full access.
     pub confine_to: Option<&'a std::path::Path>,
@@ -1503,10 +1503,10 @@ mod tests {
     #[test]
     fn the_thread_config_carries_every_team_server_as_env_named_fields() {
         let servers = vec![
-            coding::McpServerWire {
+            crate::mcp::McpServerWire {
                 id: "srv-1".to_string(),
                 name: "linear".to_string(),
-                transport: coding::McpWireTransport::Http {
+                transport: crate::mcp::McpWireTransport::Http {
                     url: "https://mcp.linear.app/mcp".to_string(),
                 },
                 headers: vec![
@@ -1517,16 +1517,16 @@ mod tests {
                 token_env: Some("EXP_MCP_TOKEN_1".to_string()),
                 env: Vec::new(),
                 // FEED-73: transcript-only metadata, never rendered.
-                actor: Some(api::mcp_servers::McpActor {
+                actor: Some(crate::mcp::McpActor {
                     user_id: "u1".to_string(),
                     name: "Danny".to_string(),
                     shared: false,
                 }),
             },
-            coding::McpServerWire {
+            crate::mcp::McpServerWire {
                 id: "srv-2".to_string(),
                 name: "github".to_string(),
-                transport: coding::McpWireTransport::Stdio {
+                transport: crate::mcp::McpWireTransport::Stdio {
                     command: "npx".to_string(),
                     args: vec!["-y".to_string(), "@acme/github-mcp".to_string()],
                 },
@@ -1564,7 +1564,7 @@ mod tests {
         assert!(!rendered.contains("expu_"));
         // Same model as the shell's `-c mcp_servers=` flag: the two render
         // identical field sets.
-        let toml = coding::argv::codex_mcp_servers_toml("https://x/api/mcp", Some("sess-1"), &servers);
+        let toml = crate::mcp::codex_mcp_servers_toml("https://x/api/mcp", Some("sess-1"), &servers);
         assert!(toml.contains("env_http_headers={X-Api-Key=\"EXP_MCP_ENV_1_X_API_KEY\"}"));
         assert!(toml.contains("env_vars=[\"GITHUB_TOKEN\"]"));
     }

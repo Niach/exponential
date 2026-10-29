@@ -12,18 +12,9 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// What an aside may not touch: every writing tool, the shell, and
-/// subagents (which would carry those tools back in).
-pub const ASIDE_DISALLOWED_TOOLS: &[&str] =
-    &["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash", "Task", "Agent"];
-
-/// The aside's WHOLE claude `--mcp-config` (strict): no servers. The
-/// read-only tool list above would be no posture with `exponential` still
-/// wired — `issues_update`, `comments_create`, `pr_merge` run under the
-/// person's key — nor with code mode's `exec` or the team's servers, so a
-/// side question gets none of them (the launcher skips resolving them,
-/// `coding::launcher`; this document keeps the user's own config out too).
-pub const ASIDE_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
+// EXP-1426 part 4c: the aside's tool posture is the claude adapter's, so
+// it moved with it into the agent runtime.
+pub use exponential_agent_runtime::engine::launch::{ASIDE_DISALLOWED_TOOLS, ASIDE_MCP_CONFIG};
 
 /// The aside's one-shot state on its [`crate::host::SessionCtx`].
 #[derive(Debug, Default)]

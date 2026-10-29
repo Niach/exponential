@@ -32,7 +32,7 @@ regex = "1"
 flume = { workspace = true }
 # EXP-1426 part 4b: the mapper speaks ACP's `SessionUpdate` vocabulary.
 agent-client-protocol = { workspace = true }
-
-[dev-dependencies]
-# engine::child_exit's async waiter test.
+# EXP-1426 part 4c: the adapters (ACP connection futures, the codex
+# notification pumps, the child-exit race) and their fresh session ids.
 tokio = { workspace = true }
+uuid = { workspace = true }

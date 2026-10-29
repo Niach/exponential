@@ -26,6 +26,8 @@
 
 pub mod atomic_config;
 pub mod atomic_file;
+// EXP-1426 part 4c: the claude transcript locator (out of `coding::launcher`).
+pub mod claude_transcript;
 pub mod claude_trust;
 pub mod codex_sessions;
 pub mod codex_trust;
@@ -37,10 +39,14 @@ pub mod confine;
 // local feed, run policies), moved out of `engine`.
 pub mod engine;
 pub mod lockfile;
+// EXP-1426 part 4c: the MCP wiring vocabulary (`coding::argv`, `api::mcp_servers`).
+pub mod mcp;
 // EXP-419: the one `Command` constructor for background spawns.
 pub mod process;
 /// NEW-17: each agent run in its own systemd scope on Linux.
 pub mod run_scope;
+// EXP-1426 part 4c: live rate-limit windows + their registry (`coding::agent_usage`).
+pub mod usage;
 // EXP-1426 part 4: `SpawnSpec`, `ChildExit` and the login PATH (`terminal::pty`).
 pub mod spawn;
 // EXP-1426 part 2: the event vocabulary (`ActivityEvent`, the frames, the
