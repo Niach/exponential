@@ -29,9 +29,7 @@ export async function registerUser(
   }
 
   await expect(
-    page
-      .locator(`[data-slot="card-title"]`)
-      .filter({ hasText: `Continue to Exponential` })
+    page.getByRole(`heading`, { level: 1, name: `Continue to Exponential` })
   ).toBeVisible()
   // EXP-857: the method list comes first; the password form (and its
   // create-account toggle) lives behind "Continue with email" on instances
@@ -39,9 +37,7 @@ export async function registerUser(
   await page.getByRole(`button`, { name: `Continue with email` }).click()
   await page.getByRole(`button`, { name: `Create one` }).click()
   await expect(
-    page
-      .locator(`[data-slot="card-title"]`)
-      .filter({ hasText: `Create an account` })
+    page.getByRole(`heading`, { level: 1, name: `Create an account` })
   ).toBeVisible()
 
   await page.getByLabel(`Name`).fill(user.name)
@@ -65,9 +61,7 @@ export async function loginUser(
   }
 
   await expect(
-    page
-      .locator(`[data-slot="card-title"]`)
-      .filter({ hasText: `Continue to Exponential` })
+    page.getByRole(`heading`, { level: 1, name: `Continue to Exponential` })
   ).toBeVisible()
   await page.getByRole(`button`, { name: `Continue with email` }).click()
 

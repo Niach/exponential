@@ -3982,7 +3982,7 @@ mod tests {
     /// N-5: a repos root outside the home is read-denied on its own.
     #[test]
     fn a_repos_root_outside_the_home_is_read_denied_too() {
-        let raw = claude_flag_settings(Some(Path::new("/data/scratch/r/s")), Some(Path::new("/home/a")), Path::new("/srv/repos"), None);
+        let raw = claude_flag_settings(Some(Path::new("/data/scratch/r/s")), Some(Path::new("/home/a")), Path::new("/srv/repos"));
         let settings: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(settings["sandbox"]["filesystem"]["denyRead"], serde_json::json!(["/home/a", "/srv/repos"]));
         assert_eq!(settings["permissions"]["deny"][0], "Read(//srv/repos/**)");
