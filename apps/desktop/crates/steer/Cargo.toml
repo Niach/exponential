@@ -22,14 +22,11 @@ api = { path = "../api" }
 # that stays a DAG. (EXP-781 retired coding's `gpui` feature — the crate is
 # gpui-free throughout now, so there is nothing left to opt out of.)
 coding = { path = "../coding" }
-# EXP-1426: the login-screen scrapers moved to the agent core; the old
-# module paths re-export them.
-exponential-agent-runtime = { path = "../exponential-agent-runtime" }
 # EXP-724: the generated steer-command catalog (contract.generated.rs) —
 # gpui-free, so the headless CLI links it too.
 domain = { path = "../domain" }
 # EXP-1426: the event vocabulary (frames, activity caps, the redactor,
-# workflow) lives in the server-free agent core; the old module paths
+# workflow) and the login-screen scrapers live in the server-free agent core; the old module paths
 # re-export it.
 exponential-agent-runtime = { path = "../exponential-agent-runtime" }
 # The ONLY tokio in the desktop workspace (§3.5/§8): tokio-tungstenite needs a
