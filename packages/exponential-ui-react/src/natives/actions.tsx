@@ -81,7 +81,8 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
       disabled={disabled}
       aria-busy={loading || undefined}
       data-pending={shown ? `true` : undefined}
-      aria-label={iconOnly && label ? label : undefined}
+      // VAPP-162: an author/macro label (`$a11y`, a CallSurface round button) survives: Solid keeps the spread's.
+      aria-label={iconOnly && label ? label : ((rootProps as Record<string, unknown>)[`aria-label`] as string | undefined)}
       data-xs={states || undefined}
       data-submit={submit ? `true` : undefined}
       data-hold={hold ? `true` : undefined}
@@ -209,7 +210,7 @@ export function ToggleNative({ node, props, rootProps, emit, scope }: NativeProp
         setPressed(next)
         void emit(`change`, { pressed: next }, { pressed: next })
       }}
-      aria-label={icon && label ? label : undefined}
+      aria-label={icon && label ? label : ((rootProps as Record<string, unknown>)[`aria-label`] as string | undefined)}
     >
       {icon ? (
         <span {...(part(`icon`) as Record<string, string>)}>
