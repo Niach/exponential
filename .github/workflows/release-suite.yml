@@ -245,7 +245,7 @@ jobs:
     # Postgres + Electric + Garage + Caddy (https://localhost:3000 -> vite
     # :5173, which playwright.config.ts starts). No mail transport, so sign-up
     # takes the password form. Other specs join by adding their file below.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     timeout-minutes: 30
     env:
       CI: 'true'
