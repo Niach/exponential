@@ -340,8 +340,10 @@ class ThreadsViewModel @Inject constructor(
         block: suspend (accountId: String) -> Unit,
     ) {
         viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
             try {
+                // No account = a refusal like any other (it used to return
+                // silently: the confirm closed and nothing happened).
+                val accountId = auth.activeAccountId.value ?: throw NoActiveAccount()
                 block(accountId)
                 onDone()
             } catch (t: Throwable) {
@@ -381,23 +383,7 @@ class ThreadsViewModel @Inject constructor(
     }
 
     /** Delete = `sessions.delete` per chat (after the confirm). */
-    fun deleteChats(rootIds: List<String>) = selectionCall { accountId -> each(rootIds) { sessionsApi.delete(accountId, it) } }
-
-    /** One chat at a time; every one is tried, then the failures counted. */
-    private suspend fun each(ids: List<String>, block: suspend (String) -> Unit) {
-        var first: Throwable? = null
-        var failed = 0
-        for (id in ids) {
-            try {
-                block(id)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                first = first ?: t
-                failed += 1
-            }
-        }
-        first?.let { throw PartialSelectionFailure(failed, ids.size, it) }
-    }
+    fun deleteChats(rootIds: List<String>) = selectionCall { accountId -> eachChat(rootIds) { sessionsApi.delete(accountId, it) } }
 
     /** Compact / New conversation = the builtin line, sent like a typed one
      *  into the viewer's conversation with [agentId]. */
@@ -431,9 +417,6 @@ internal const val CHAT_THING = "the chat"
 /** #EXP-1388 `copy.toasts.selectionFailed` = `Couldn't update every chat`. */
 internal const val SELECTION_VERB = "update"
 internal const val SELECTION_THING = "every chat"
-
-/** A Stop / Delete selection that failed for [failed] of its [total] chats. */
-private class PartialSelectionFailure(val failed: Int, val total: Int, val first: Throwable) : Exception(first)
 
 /** `sessions.setRead` / `setArchived` take up to 200 ids per call. */
 private const val SELECTION_BATCH = 200
