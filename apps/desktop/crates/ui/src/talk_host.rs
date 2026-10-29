@@ -164,7 +164,7 @@ pub(crate) fn desktop_audio(device_id: &str, cx: &App) -> (DesktopAudioCapabilit
 
 impl TalkHost for ExponentialHost {
     fn brand(&self) -> Brand {
-        Brand { name: "Exponential", tray_icon_svg: TRAY_ICON_SVG, app_id: crate::undock::CHANNEL_APP_ID }
+        Brand { name: "Exponential", tray_icon_svg: TRAY_ICON_SVG, app_id: crate::undock::CHANNEL_APP_ID, tray_id: "exponential-voice" }
     }
 
     fn data_dir(&self) -> PathBuf {

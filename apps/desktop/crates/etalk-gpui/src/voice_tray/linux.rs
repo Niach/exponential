@@ -360,7 +360,7 @@ impl Item {
 
     #[zbus(property)]
     fn id(&self) -> &str {
-        "exponential-voice"
+        super::tray_id()
     }
 
     #[zbus(property)]

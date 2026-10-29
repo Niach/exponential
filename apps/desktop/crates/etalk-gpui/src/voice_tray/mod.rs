@@ -66,6 +66,12 @@ fn title() -> &'static str {
     BRAND.get().map_or("eTalk", |brand| brand.name)
 }
 
+/// The Linux tray's StatusNotifierItem id.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn tray_id() -> &'static str {
+    BRAND.get().map_or("etalk-voice", |brand| brand.tray_id)
+}
+
 /// One rasterized icon frame, straight (not premultiplied) RGBA.
 struct IconFrame {
     width: u32,
@@ -1082,7 +1088,7 @@ mod tests {
 
     /// The tests' brand: Exponential's.
     fn branded() {
-        let _ = BRAND.set(crate::Brand { name: "Exponential", tray_icon_svg: ICON_SVG, app_id: "test" });
+        let _ = BRAND.set(crate::Brand { name: "Exponential", tray_icon_svg: ICON_SVG, app_id: "test", tray_id: "test" });
     }
 
     #[test]
