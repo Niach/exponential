@@ -43,8 +43,8 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 45204,
-        "sha256": "e0a0678bf5b247ffd83054a8ce67236a98b7fd2265930548872f06d38f62b0a1"
+        "bytes": 53624,
+        "sha256": "ec662eee24e8443d09fe92793273bcbb8976f832d98f3acc874dd741ec41d1d8"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
@@ -697,8 +697,8 @@
         "file": "shots/chat-transcript/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 81882,
-        "sha256": "a3fab3a743a4481c37f96952989d94baa5f9ff2530ad24ff480e4488c6093ce4"
+        "bytes": 83108,
+        "sha256": "a05f4358634314108d3c7c42af07ec149d2559c91af542c1517704a311159cd3"
       },
       "web-mobile": {
         "file": "shots/chat-transcript/web-mobile.webp",
