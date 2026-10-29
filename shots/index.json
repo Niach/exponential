@@ -1232,22 +1232,22 @@
         "file": "shots/exponential-ui-call-surface/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 28238,
-        "sha256": "aff7a0d417bffdf45e1b05da467d59914dca6eff0ef920e5f6aeb15bac1a36fe"
+        "bytes": 22652,
+        "sha256": "c943ec7ec5be9d1155a541f6d024390a54c617542490c91224b65ab5573cd8ce"
       },
       "desktop": {
         "file": "shots/exponential-ui-call-surface/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 37996,
-        "sha256": "0d530814e36da9047edfae32ee35597d61664c480c29bc3845e5af9176fb2065"
+        "bytes": 44490,
+        "sha256": "d249bf74249d32cd225e2156149a383d01bbc2c7a077c2beb486cbd354e075dc"
       },
       "ios": {
         "file": "shots/exponential-ui-call-surface/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 28042,
-        "sha256": "5c203392c154be656339f9132b5de76e5148005608af96b1949fbe3fc5e004eb"
+        "bytes": 24072,
+        "sha256": "71255f6047111e56e8ecae04e7911d8c69632b894f80e86344dae667e275fc1d"
       },
       "web": {
         "file": "shots/exponential-ui-call-surface/web.webp",
@@ -2409,22 +2409,22 @@
         "file": "shots/exponential-ui-plan/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 30880,
-        "sha256": "66d0f4949d7bfd72bf50fc492a6dcf07f7052559a70ae76592d4425ab7c50fda"
+        "bytes": 32508,
+        "sha256": "26d0cbdaf85a1f832eddb3baa727ca7dc0b3ac66336238a40701b0e155d0946a"
       },
       "desktop": {
         "file": "shots/exponential-ui-plan/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 44644,
-        "sha256": "5e4ca28630866dafe906389060dc48cfa212cb7d23d4788ba408923b99ccbf4a"
+        "bytes": 44444,
+        "sha256": "e36701fa50db9dd8e12e6d9c9bd368b21eceb92cf46cda8e85b19acf60b38065"
       },
       "ios": {
         "file": "shots/exponential-ui-plan/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 31772,
-        "sha256": "0442e0d4181f830588a7874d3d57bb4b10854d54509cc19c451cdaf6ba201b24"
+        "bytes": 33338,
+        "sha256": "a029a0ada4d8526526506c29f4c6654f75d30757f4a87bc6fc1803494067164b"
       },
       "web": {
         "file": "shots/exponential-ui-plan/web.webp",
