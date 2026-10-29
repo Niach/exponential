@@ -193,6 +193,26 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   grant for the terminal running the capture (the preflight probes it and
   prints instructions when missing).
 
+## A throwaway capture stack
+
+The helpers the orchestrator calls (`seed:screenshots`, `screenshots:ids`,
+`screenshots:prune-devices`) run as `bun run` in `apps/web`, where bun loads
+`apps/web/.env`, the SHARED dev database. Against your own stack (a server on
+`SHOTS_DEV_URL` / `CAPTURE_BASE_URL` other than :5173/:3000, with its own
+database), export that database first:
+
+```bash
+SHOTS_DEV_URL=http://localhost:5181 SHOTS_DATABASE_URL=postgres://…/exp_capture_tmp \
+  bun run shots -- --platform desktop --views settings-voice --skip-seed
+```
+
+The capture DB (`SHOTS_DATABASE_URL`, else an exported `DATABASE_URL`, never
+the .env file) is handed to every helper explicitly. With a throwaway stack
+configured, a missing capture DB or one that IS the shared dev DB from `.env`
+is refused before anything is seeded, looked up or pruned
+(`packages/shots/src/capture-db.ts`; twice on 2026-10-28 a capture pruned the
+shared DB's device rows).
+
 ## Per-platform lanes
 
 | platform   | lane                                                                 |

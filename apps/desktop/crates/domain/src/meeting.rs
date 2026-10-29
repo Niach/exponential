@@ -39,8 +39,14 @@ pub struct MeetingCopy {
     pub doctor_system: String,
     pub doctor_none: String,
     pub message_header: String,
-    /// The auto-stop's toast line ({hours}).
+    /// The auto-stop's toast line ({duration} = [`auto_stop_option`]).
     pub auto_stopped: String,
+    /// #FEED-163: the Stop after picker row's label.
+    pub auto_stop_after: String,
+    pub auto_stop_hour: String,
+    pub auto_stop_hours: String,
+    /// #FEED-163: the restart stop's note.
+    pub restart_stopped: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -50,6 +56,8 @@ pub struct MeetingTestIds {
     pub desktop_audio: String,
     pub apps: String,
     pub consent_start: String,
+    /// #FEED-163: the Stop after picker row.
+    pub auto_stop: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -88,10 +96,14 @@ pub struct MeetingPause {
 }
 
 /// AUTO-STOP: how long a meeting may run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingAutoStop {
+    /// `default_hours` in ms.
     pub after_ms: i64,
+    /// #FEED-163: `meetingAutoStopHours` when unset or not one of `hours_values`.
+    pub default_hours: i64,
+    pub hours_values: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -497,19 +509,77 @@ pub fn meeting_messages(segments: &[MeetingSegment], max_chars: usize) -> Vec<St
     out
 }
 
-/// AUTO-STOP: a set `meetingStartedAt` at least `autoStop.afterMs` old at
-/// `now_ms` (an unreadable stamp counts as expired).
-pub fn meeting_expired(started_at: Option<&str>, now_ms: i64) -> bool {
+/// #FEED-163: `hours` as the server and the devices read it: one of
+/// `autoStop.hoursValues`, anything else = `autoStop.defaultHours`.
+pub fn auto_stop_hours(hours: i64) -> i64 {
+    let auto_stop = &MEETING.auto_stop;
+    if auto_stop.hours_values.contains(&hours) { hours } else { auto_stop.default_hours }
+}
+
+/// AUTO-STOP: a set `meetingStartedAt` at least `hours` h old at `now_ms`
+/// (an unreadable stamp counts as expired; `hours` outside `hoursValues` =
+/// the default).
+pub fn meeting_expired(started_at: Option<&str>, now_ms: i64, hours: i64) -> bool {
     let Some(started_at) = started_at.filter(|at| !at.is_empty()) else { return false };
     match chrono::DateTime::parse_from_rfc3339(started_at) {
-        Ok(at) => now_ms - at.timestamp_millis() >= MEETING.auto_stop.after_ms,
+        Ok(at) => now_ms - at.timestamp_millis() >= auto_stop_hours(hours) * 3_600_000,
         Err(_) => true,
     }
 }
 
+/// #FEED-163: one Stop after option's label (`1 hour`, `{hours} hours`).
+pub fn auto_stop_option(hours: i64) -> String {
+    let copy = &MEETING.copy;
+    if hours == 1 { copy.auto_stop_hour.clone() } else { copy.auto_stop_hours.replace("{hours}", &hours.to_string()) }
+}
+
+/// One Stop after option (`{value, label}`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AutoStopOption {
+    pub value: i64,
+    pub label: String,
+}
+
+/// #FEED-163: the Stop after row's options, one per `hoursValues`.
+pub fn auto_stop_options() -> Vec<AutoStopOption> {
+    MEETING.auto_stop.hours_values.iter().map(|&hours| AutoStopOption { value: hours, label: auto_stop_option(hours) }).collect()
+}
+
 /// The auto-stop's toast line (`copy.autoStopped`).
-pub fn auto_stopped(after_ms: i64) -> String {
-    MEETING.copy.auto_stopped.replace("{hours}", &((after_ms + 1_800_000) / 3_600_000).to_string())
+pub fn auto_stopped(hours: i64) -> String {
+    MEETING.copy.auto_stopped.replace("{duration}", &auto_stop_option(auto_stop_hours(hours)))
+}
+
+/// #FEED-163: why a meeting stopped on its own (`voice.stopMeeting {reason}`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MeetingStopReason {
+    AutoStop,
+    Restart,
+}
+
+impl MeetingStopReason {
+    pub fn key(self) -> &'static str {
+        match self {
+            MeetingStopReason::AutoStop => "autoStop",
+            MeetingStopReason::Restart => "restart",
+        }
+    }
+}
+
+/// #FEED-163 NOTE: the system row an automatic stop posts (the server
+/// writes it; None = a manual stop, nothing).
+pub fn stop_note(reason: Option<MeetingStopReason>, hours: i64) -> Option<String> {
+    match reason? {
+        MeetingStopReason::AutoStop => Some(format!("{}.", auto_stopped(hours))),
+        MeetingStopReason::Restart => Some(MEETING.copy.restart_stopped.clone()),
+    }
+}
+
+/// #FEED-163 RESTART: the IDE process started while the meeting it listened
+/// to still runs: ask for consent again instead of listening.
+pub fn meeting_resume_asks(listened: Option<&str>, started_at: Option<&str>) -> bool {
+    matches!((listened, started_at), (Some(listened), Some(started_at)) if listened == started_at)
 }
 
 #[cfg(test)]
@@ -520,11 +590,38 @@ mod tests {
     #[test]
     fn auto_stop_matches_the_fixture() {
         for case in fixture()["autoStopCases"].as_array().unwrap() {
-            let got = meeting_expired(case["startedAt"].as_str(), case["nowMs"].as_i64().unwrap());
+            let hours = case["hours"].as_i64().unwrap_or(MEETING.auto_stop.default_hours);
+            let got = meeting_expired(case["startedAt"].as_str(), case["nowMs"].as_i64().unwrap(), hours);
             assert_eq!(got, case["expect"].as_bool().unwrap(), "{}", case["name"]);
         }
         for case in fixture()["autoStoppedCases"].as_array().unwrap() {
-            assert_eq!(auto_stopped(case["afterMs"].as_i64().unwrap()), case["expect"].as_str().unwrap());
+            assert_eq!(auto_stopped(case["hours"].as_i64().unwrap()), case["expect"].as_str().unwrap());
+        }
+        assert_eq!(MEETING.auto_stop.after_ms, MEETING.auto_stop.default_hours * 3_600_000);
+    }
+
+    #[test]
+    fn auto_stop_options_match_the_fixture() {
+        for case in fixture()["autoStopOptionCases"].as_array().unwrap() {
+            let expect: Vec<AutoStopOption> = serde_json::from_value(case["expect"].clone()).unwrap();
+            assert_eq!(auto_stop_options(), expect, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn stop_note_matches_the_fixture() {
+        for case in fixture()["stopNoteCases"].as_array().unwrap() {
+            let reason: Option<MeetingStopReason> = serde_json::from_value(case["reason"].clone()).unwrap();
+            let got = stop_note(reason, case["hours"].as_i64().unwrap());
+            assert_eq!(got.as_deref(), case["expect"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn restart_matches_the_fixture() {
+        for case in fixture()["restartCases"].as_array().unwrap() {
+            let got = meeting_resume_asks(case["listened"].as_str(), case["startedAt"].as_str());
+            assert_eq!(got, case["expect"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 

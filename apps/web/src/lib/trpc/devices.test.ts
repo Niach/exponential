@@ -1435,8 +1435,18 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     expect(result.launchDefaults).toEqual({ computerUse: true, computerUseDisplayId: uuid })
 
-    // Outside 1..128 chars = a bad request, never a stored value.
-    for (const bad of [``, `x`.repeat(129)]) {
+    // #FEED-164: the length counts code points like the device's Rust
+    // (`chars()`): 128 astral characters (256 UTF-16 units) fit.
+    const astral = `𝔸`.repeat(128)
+    h.state.selectQueue = deviceRow()
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseDisplayId: astral },
+    })
+    expect(result.launchDefaults).toEqual({ computerUse: true, computerUseDisplayId: astral })
+
+    // Outside 1..128 code points = a bad request, never a stored value.
+    for (const bad of [``, `x`.repeat(129), `𝔸`.repeat(129)]) {
       h.state.selectQueue = deviceRow()
       await expect(
         caller.setLaunchDefaults({
@@ -2111,6 +2121,8 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
 
   it(`drops a display without a usable id, never the report (#FEED-161)`, async () => {
     const kept = { id: `uuid-b`, number: 2, width: 3024, height: 1964, primary: true }
+    // #FEED-164: 128 code points fit however many UTF-16 units they take.
+    const astral = { id: `𝔸`.repeat(128), number: 5, width: 1920, height: 1080, primary: false }
     await caller.register({
       deviceId: `dev-1`,
       label: `b`,
@@ -2121,12 +2133,14 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
           { number: 1, width: 2560, height: 1440, primary: false },
           { id: ``, number: 3, width: 1920, height: 1080, primary: false },
           { id: `x`.repeat(129), number: 4, width: 1920, height: 1080, primary: false },
+          { id: `𝔸`.repeat(129), number: 6, width: 1920, height: 1080, primary: false },
           kept,
+          astral,
         ] as never,
       },
     })
     const upsert = h.state.upserts[0] as { set: { doctor: Record<string, unknown> } }
-    expect(upsert.set.doctor.displays).toEqual([kept])
+    expect(upsert.set.doctor.displays).toEqual([kept, astral])
   })
 
   it(`stores the desktop audio report leniently and drops a null one (NEW-57)`, async () => {

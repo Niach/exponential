@@ -117,9 +117,28 @@ fn picker_row(
     on_pick: Option<Rc<dyn Fn(Option<String>, &mut App)>>,
     cx: &App,
 ) -> gpui::Div {
-    let value_color = cx.theme().foreground.opacity(0.7);
+    enabled_picker_row(id, label, detail, value, entries, current, true, on_pick, cx)
+}
+
+/// [`picker_row`] that can be disabled (#FEED-163: Stop after while the
+/// device or the agent is None, like the toggles).
+#[allow(clippy::too_many_arguments)]
+fn enabled_picker_row(
+    id: &'static str,
+    label: &str,
+    detail: Option<SharedString>,
+    value: SharedString,
+    entries: Vec<(Option<String>, String)>,
+    current: Option<String>,
+    enabled: bool,
+    on_pick: Option<Rc<dyn Fn(Option<String>, &mut App)>>,
+    cx: &App,
+) -> gpui::Div {
+    let value_color = cx.theme().foreground.opacity(if enabled { 0.7 } else { 0.4 });
+    let on_pick = on_pick.filter(|_| enabled);
     let button = Button::new(id)
         .ghost()
+        .disabled(!enabled)
         .cursor_pointer()
         .h_auto()
         .px_0()
@@ -482,7 +501,8 @@ pub(crate) fn voice_rows(
         out.push(glass_group_rows(tray_rows).into_any_element());
         // #NEW-57 (`meeting.json` UI): its OWN group under the tray group, no
         // header: Meeting mode (its who on the second line while on),
-        // Desktop audio, and Apps while it picks apps the device can pick.
+        // #FEED-163 Stop after, Desktop audio, and Apps while it picks apps
+        // the device can pick.
         let meeting_rows = {
             let mut tray: Vec<gpui::Div> = Vec::new();
             let words = &MEETING.copy;
@@ -495,6 +515,21 @@ pub(crate) fn voice_rows(
                 meeting_on,
                 ready,
                 on_meeting,
+                cx,
+            ));
+            let hours = settings.auto_stop_hours();
+            tray.push(enabled_picker_row(
+                "settings-voice-auto-stop",
+                &words.auto_stop_after,
+                None,
+                SharedString::from(domain::meeting::auto_stop_option(hours)),
+                domain::meeting::auto_stop_options().into_iter().map(|option| (Some(option.value.to_string()), option.label)).collect(),
+                Some(hours.to_string()),
+                ready,
+                send(Rc::new(|value| VoiceUpdate {
+                    meeting_auto_stop_hours: value.as_deref().and_then(|value| value.parse().ok()),
+                    ..Default::default()
+                })),
                 cx,
             ));
             tray.push(picker_row(
@@ -866,6 +901,9 @@ impl VoicePrefsPane {
         }
         if let Some(value) = update.desktop_audio_apps.clone() {
             next.desktop_audio_apps = value;
+        }
+        if let Some(value) = update.meeting_auto_stop_hours {
+            next.meeting_auto_stop_hours = value;
         }
         let next = next.clear_on_none();
         if next == previous {

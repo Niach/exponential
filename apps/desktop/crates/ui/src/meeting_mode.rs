@@ -9,7 +9,7 @@
 
 use gpui::{App, Global, Window};
 
-use domain::meeting::{consent_body, who, AudioApp, DesktopAudioCapability, MEETING, RETENTION_DAYS};
+use domain::meeting::{consent_body, who, AudioApp, DesktopAudioCapability, MeetingStopReason, MEETING, RETENTION_DAYS};
 use domain::voice::{VoiceSettings, VOICE};
 
 use crate::push_to_talk::hotkey::{self, HotkeyEvent};
@@ -95,21 +95,27 @@ pub(crate) fn request_consent(cx: &mut App) {
 /// Start = `voice.startMeeting {consent: true}`; the stored settings go to
 /// the speaker (the host follows them).
 pub(crate) fn start(cx: &mut App) {
-    write(true, cx);
+    write(true, None, cx);
 }
 
 /// Stop at once (`voice.stopMeeting`, no dialog).
 pub(crate) fn stop(cx: &mut App) {
-    write(false, cx);
+    write(false, None, cx);
 }
 
-fn write(on: bool, cx: &mut App) {
+/// #FEED-163: an automatic stop (`voice.stopMeeting {reason}`; the server
+/// posts the conversation note).
+pub(crate) fn stop_for(reason: MeetingStopReason, cx: &mut App) {
+    write(false, Some(reason), cx);
+}
+
+fn write(on: bool, reason: Option<MeetingStopReason>, cx: &mut App) {
     let Some(trpc) = crate::queries::trpc_client(cx) else { return };
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
             .spawn(async move {
-                if on { api::voice::voice_start_meeting(&trpc) } else { api::voice::voice_stop_meeting(&trpc) }
+                if on { api::voice::voice_start_meeting(&trpc) } else { api::voice::voice_stop_meeting(&trpc, reason) }
             })
             .await;
         let _ = cx.update(|cx| match result {
@@ -124,8 +130,8 @@ fn write(on: bool, cx: &mut App) {
 /// window and, with OS notifications on for this machine, a system
 /// notification (the IDE may live in the tray with no window) that opens
 /// Settings → Voice.
-pub(crate) fn notify_auto_stopped(cx: &mut App) {
-    let line = domain::meeting::auto_stopped(MEETING.auto_stop.after_ms);
+pub(crate) fn notify_auto_stopped(hours: i64, cx: &mut App) {
+    let line = domain::meeting::auto_stopped(hours);
     crate::toast::show_in_active_window(crate::toast::Toast::info(line.clone()), cx);
     crate::os_notifications::raise_settings(crate::settings::SettingsSection::Voice, &MEETING.copy.meeting, &line, cx);
 }

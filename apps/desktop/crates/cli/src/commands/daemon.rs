@@ -1989,6 +1989,11 @@ fn reconcile_defaults_with(
     server_has_defaults: bool,
 ) {
     let settings_path = coding::Settings::default_path(&ctx.data_dir);
+    // #FEED-164 TWINS UPGRADE: an old twin pick becomes its connector id
+    // first, so the reconcile below pushes it.
+    if coding::upgrade_display_pick(&settings_path) {
+        coding::computer::set_work_display(coding::Settings::load(&settings_path).computer_use_display_id);
+    }
     let settings = coding::Settings::load(&settings_path);
     let fingerprint = coding::defaults_fingerprint(&settings);
     let marker = coding::read_marker(&settings_path, device_id);

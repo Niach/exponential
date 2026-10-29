@@ -21,6 +21,8 @@ import type { Tx } from "@/lib/sessions/tx"
 // squat. Not the eldest `devices` row: Remove deletes the owner's row and
 // the relaunch makes a younger one, so a squat's row would turn eldest. An
 // instance admin settles a dispute (`admin.clearDeviceKey({pinTo})`).
+// Deleting the first-seen account frees the id (`device_first_seen` cascades
+// with the user): the next account to register it is first-seen and pins.
 
 /** How old (or how far ahead) a proof's `signedAt` may be. */
 export const DEVICE_KEY_PROOF_SKEW_MS = 10 * 60 * 1000

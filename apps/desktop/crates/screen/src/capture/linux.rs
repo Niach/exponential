@@ -62,18 +62,27 @@ fn wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE").is_ok_and(|kind| kind == "wayland")
 }
 
-/// `computer::displays()`, re-read at most every [`DISPLAYS_TTL`].
+/// `computer::displays()`, re-read at most every [`DISPLAYS_TTL`] and
+/// whenever the display epoch moved (#FEED-164: the window list saw a
+/// hot-plug first); a re-read that finds another set bumps the epoch.
 #[derive(Default)]
 struct DisplayCache {
     read_at: Option<Instant>,
+    epoch: u64,
     displays: Vec<computer::Display>,
 }
 
 impl DisplayCache {
     fn get(&mut self) -> &[computer::Display] {
-        if self.read_at.is_none_or(|at| at.elapsed() >= DISPLAYS_TTL) {
-            self.displays = computer::displays();
+        let epoch = computer::visible::display_epoch();
+        if self.read_at.is_none_or(|at| at.elapsed() >= DISPLAYS_TTL) || epoch != self.epoch {
+            let displays = computer::displays();
+            if self.read_at.is_some() && epoch == self.epoch && displays != self.displays {
+                computer::visible::displays_changed();
+            }
+            self.displays = displays;
             self.read_at = Some(Instant::now());
+            self.epoch = computer::visible::display_epoch();
         }
         &self.displays
     }
@@ -251,6 +260,7 @@ fn x_pixels_to_rgba(data: &[u8], bytes: usize, little: bool, masks: (u32, u32, u
 }
 
 /// A portal stream as the portal describes it (compositor coordinates).
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct StreamRect {
     position: Option<(i32, i32)>,
@@ -263,6 +273,7 @@ struct StreamRect {
 /// display in position order, then numbers past the last display. Without
 /// them (pure Wayland): 1.. by position, left to right then top to bottom,
 /// position-less streams last in the portal's order.
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
 fn number_streams(streams: &[StreamRect], displays: &[computer::Display]) -> Vec<u32> {
     let mut numbers: Vec<Option<u32>> = vec![None; streams.len()];
     let mut taken = vec![false; displays.len()];

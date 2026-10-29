@@ -604,8 +604,8 @@ internal fun WorkScreenPickerRow(
     enabled: Boolean = true,
 ) {
     val options = com.exponential.app.domain.WorkScreen.options(displays, value)
-    // Keys prefix the id so no display id can collide with Auto's.
-    val key: (String?) -> String = { it?.let { id -> "$WORK_SCREEN_ID_PREFIX$id" } ?: WORK_SCREEN_AUTO_KEY }
+    // #FEED-164: the contract's picker keys (no display id can read as Auto).
+    val key: (String?) -> String = com.exponential.app.domain.WorkScreen::pickerKey
     val labels = options.associate { key(it.value) to it.label }
     androidx.compose.foundation.layout.Box(
         modifier = Modifier.testTag(com.exponential.app.domain.WorkScreen.ROW_TEST_ID),
@@ -616,14 +616,12 @@ internal fun WorkScreenPickerRow(
             options = options.map { key(it.value) },
             selected = key(value),
             optionLabel = { labels[it] ?: it },
-            onSelect = { picked -> onSelect(picked.removePrefix(WORK_SCREEN_ID_PREFIX).takeIf { picked != WORK_SCREEN_AUTO_KEY }) },
+            onSelect = { picked -> onSelect(com.exponential.app.domain.WorkScreen.pickedId(picked)) },
             enabled = enabled,
         )
     }
 }
 
-private const val WORK_SCREEN_AUTO_KEY = "auto"
-private const val WORK_SCREEN_ID_PREFIX = "id:"
 
 internal fun agentLabel(value: String): String = when (value) {
     "claude" -> "Claude Code"

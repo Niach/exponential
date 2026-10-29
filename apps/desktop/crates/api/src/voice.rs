@@ -47,6 +47,9 @@ pub struct VoiceUpdate {
     pub desktop_audio: Option<domain::meeting::DesktopAudio>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub desktop_audio_apps: Option<Vec<domain::meeting::AudioApp>>,
+    /// #FEED-163: `meeting.json` `autoStop.hoursValues`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meeting_auto_stop_hours: Option<i64>,
 }
 
 /// `voice.get` — query.
@@ -70,9 +73,22 @@ pub fn voice_start_meeting(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError>
     trpc.mutation("voice.startMeeting", &StartMeetingInput { consent: true })
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct StopMeetingInput {
+    reason: domain::meeting::MeetingStopReason,
+}
+
 /// #NEW-57: `voice.stopMeeting` — mutation; returns what is stored now.
-pub fn voice_stop_meeting(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError> {
-    trpc.mutation("voice.stopMeeting", &())
+/// #FEED-163: `reason` (`autoStop` / `restart`) = an automatic stop, for
+/// which the server posts the conversation note; None = a manual stop.
+pub fn voice_stop_meeting(
+    trpc: &TrpcClient,
+    reason: Option<domain::meeting::MeetingStopReason>,
+) -> Result<VoiceSettings, ApiError> {
+    match reason {
+        Some(reason) => trpc.mutation("voice.stopMeeting", &StopMeetingInput { reason }),
+        None => trpc.mutation("voice.stopMeeting", &()),
+    }
 }
 
 /// NEW-55: a call ticket (voice-call.json TRANSPORT): `url` is the relay
@@ -109,6 +125,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"desktopAudio":"include","desktopAudioApps":[{"id":"z","name":"Zoom"}]}"#);
+    }
+
+    #[test]
+    fn an_automatic_stop_names_its_reason() {
+        let input = StopMeetingInput { reason: domain::meeting::MeetingStopReason::AutoStop };
+        assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"reason":"autoStop"}"#);
+        let input = StopMeetingInput { reason: domain::meeting::MeetingStopReason::Restart };
+        assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"reason":"restart"}"#);
+        let update = VoiceUpdate { meeting_auto_stop_hours: Some(8), ..Default::default() };
+        assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"meetingAutoStopHours":8}"#);
     }
 
     #[test]

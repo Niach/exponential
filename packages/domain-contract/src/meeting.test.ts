@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test"
 import fixture from "../fixtures/meeting.json" with { type: "json" }
 import {
   appOptions,
+  autoStopOptions,
   autoStopped,
   channels,
   consentBody,
@@ -12,7 +13,10 @@ import {
   meetingMessage,
   meetingExpired,
   meetingMessages,
+  meetingResumeAsks,
   MEETING_FLUSH,
+  stopNote,
+  type MeetingStopReason,
   who,
   type DesktopAudio,
   type DesktopAudioCapability,
@@ -21,10 +25,22 @@ import {
 
 describe(`meeting.json`, () => {
   for (const c of fixture.autoStopCases) {
-    it(`auto-stop: ${c.name}`, () => expect(meetingExpired(c.startedAt, c.nowMs)).toBe(c.expect))
+    const hours = (c as { hours?: number }).hours
+    it(`auto-stop: ${c.name}`, () => expect(meetingExpired(c.startedAt, c.nowMs, hours)).toBe(c.expect))
   }
   for (const c of fixture.autoStoppedCases) {
-    it(`auto-stopped ${c.afterMs}`, () => expect(autoStopped(c.afterMs)).toBe(c.expect))
+    it(`auto-stopped ${c.hours}`, () => expect(autoStopped(c.hours)).toBe(c.expect))
+  }
+  for (const c of fixture.autoStopOptionCases) {
+    it(`auto-stop options: ${c.name}`, () => expect(autoStopOptions()).toEqual(c.expect))
+  }
+  for (const c of fixture.stopNoteCases) {
+    it(`stop note: ${c.name}`, () => {
+      expect(stopNote(c.reason as MeetingStopReason | null, c.hours)).toBe(c.expect)
+    })
+  }
+  for (const c of fixture.restartCases) {
+    it(`restart: ${c.name}`, () => expect(meetingResumeAsks(c.listened, c.startedAt)).toBe(c.expect))
   }
   for (const c of fixture.desktopAudioOptionCases) {
     it(`desktop audio: ${c.name}`, () => {

@@ -128,6 +128,8 @@ public enum Voice {
         /// ISO time the meeting started; nil = no meeting. Written only by
         /// `voice.startMeeting`, cleared by `voice.stopMeeting`.
         public var meetingStartedAt: String?
+        /// #FEED-163: a meeting stops after this many hours (`Meeting.AutoStop.hoursValues`).
+        public var meetingAutoStopHours: Int
 
         /// A meeting runs on the voice device.
         public var meetingOn: Bool { meetingStartedAt != nil }
@@ -143,7 +145,8 @@ public enum Voice {
             voiceTranscript: String = "",
             desktopAudio: Meeting.DesktopAudio = .off,
             desktopAudioApps: [Meeting.AudioApp] = [],
-            meetingStartedAt: String? = nil
+            meetingStartedAt: String? = nil,
+            meetingAutoStopHours: Int = Meeting.AutoStop.defaultHours
         ) {
             self.voiceDeviceId = voiceDeviceId
             self.agentId = agentId
@@ -156,11 +159,13 @@ public enum Voice {
             self.desktopAudio = desktopAudio
             self.desktopAudioApps = desktopAudioApps
             self.meetingStartedAt = meetingStartedAt
+            self.meetingAutoStopHours = meetingAutoStopHours
         }
 
         private enum CodingKeys: String, CodingKey {
             case voiceDeviceId, agentId, pttShortcut, wakeWord, wakePhrase
             case language, voiceFile, voiceTranscript, desktopAudio, desktopAudioApps, meetingStartedAt
+            case meetingAutoStopHours
         }
 
         /// A key the server does not send yet (an older server) reads its
@@ -181,6 +186,8 @@ public enum Voice {
                 .flatMap(Meeting.DesktopAudio.init(rawValue:)) ?? d.desktopAudio
             desktopAudioApps = try c.decodeIfPresent([Meeting.AudioApp].self, forKey: .desktopAudioApps) ?? d.desktopAudioApps
             meetingStartedAt = try c.decodeIfPresent(String.self, forKey: .meetingStartedAt)
+            meetingAutoStopHours = ((try? c.decodeIfPresent(Int.self, forKey: .meetingAutoStopHours)) ?? nil)
+                ?? d.meetingAutoStopHours
         }
     }
 
@@ -202,6 +209,8 @@ public enum Voice {
         public var desktopAudio: Meeting.DesktopAudio?
         /// #NEW-57: the Apps row.
         public var desktopAudioApps: [Meeting.AudioApp]?
+        /// #FEED-163: the Stop after row.
+        public var meetingAutoStopHours: Int?
 
         public init(
             voiceDeviceId: String?? = nil,
@@ -213,7 +222,8 @@ public enum Voice {
             voiceFile: String? = nil,
             voiceTranscript: String? = nil,
             desktopAudio: Meeting.DesktopAudio? = nil,
-            desktopAudioApps: [Meeting.AudioApp]? = nil
+            desktopAudioApps: [Meeting.AudioApp]? = nil,
+            meetingAutoStopHours: Int? = nil
         ) {
             self.voiceDeviceId = voiceDeviceId
             self.agentId = agentId
@@ -225,11 +235,12 @@ public enum Voice {
             self.voiceTranscript = voiceTranscript
             self.desktopAudio = desktopAudio
             self.desktopAudioApps = desktopAudioApps
+            self.meetingAutoStopHours = meetingAutoStopHours
         }
 
         private enum CodingKeys: String, CodingKey {
             case voiceDeviceId, agentId, pttShortcut, wakeWord, wakePhrase
-            case language, voiceFile, voiceTranscript, desktopAudio, desktopAudioApps
+            case language, voiceFile, voiceTranscript, desktopAudio, desktopAudioApps, meetingAutoStopHours
         }
 
         /// None travels as an explicit `null`; an untouched field writes no key.
@@ -249,6 +260,7 @@ public enum Voice {
             try c.encodeIfPresent(voiceTranscript, forKey: .voiceTranscript)
             try c.encodeIfPresent(desktopAudio, forKey: .desktopAudio)
             try c.encodeIfPresent(desktopAudioApps, forKey: .desktopAudioApps)
+            try c.encodeIfPresent(meetingAutoStopHours, forKey: .meetingAutoStopHours)
         }
     }
 
@@ -267,6 +279,7 @@ public enum Voice {
         if let voiceTranscript = change.voiceTranscript { after.voiceTranscript = voiceTranscript }
         if let desktopAudio = change.desktopAudio { after.desktopAudio = desktopAudio }
         if let desktopAudioApps = change.desktopAudioApps { after.desktopAudioApps = desktopAudioApps }
+        if let meetingAutoStopHours = change.meetingAutoStopHours { after.meetingAutoStopHours = meetingAutoStopHours }
         if after.voiceDeviceId == nil || after.agentId == nil {
             after.wakeWord = false
             // #NEW-57: None for the device or the agent stops the meeting.

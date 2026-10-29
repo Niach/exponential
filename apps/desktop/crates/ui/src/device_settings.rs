@@ -700,6 +700,14 @@ impl DeviceSettingsView {
         } else {
             remote_baseline(row.launch_defaults.as_ref())
         };
+        // #FEED-164 TWINS UPGRADE: an old twin id reads as the twin it named.
+        if let Some(stored) = seeded.computer_use_display_id.clone() {
+            let displays = Self::displays_for(Some(row), own, cx);
+            let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
+            if let Some(id) = coding::computer::picked_display_id(&ids, &stored) {
+                seeded.computer_use_display_id = Some(id.to_string());
+            }
+        }
         let configured: Vec<String> = row
             .launch_defaults
             .as_ref()
@@ -2213,7 +2221,8 @@ mod tests {
     }
 
     /// #FEED-161: the Work screen row reads the row's `computerUseDisplayId`
-    /// and its items carry display ids (`""` = Auto); a stored id the
+    /// and its items carry the picker keys (#FEED-164: `auto`, `id:` + the
+    /// display id); a stored id the
     /// machine no longer reports stays pickable as Not connected.
     #[test]
     fn the_work_screen_row_picks_by_display_id() {
@@ -2223,9 +2232,12 @@ mod tests {
         let displays = crate::styleguide::entries::work_screen::demo_displays();
         let items = crate::coding_selects::work_screen_items(&displays, seeded.computer_use_display_id.as_deref());
         let values: Vec<&str> = items.iter().map(|item| item.value.as_ref()).collect();
-        assert_eq!(values, ["", "uuid-a", "uuid-b", "uuid-c"]);
+        assert_eq!(values, ["auto", "id:uuid-a", "id:uuid-b", "id:uuid-c"]);
         assert_eq!(items[3].label.as_ref(), "Not connected");
-        assert_eq!(crate::coding_selects::work_screen_value(Some("uuid-b")).as_ref(), "uuid-b");
+        assert_eq!(crate::coding_selects::work_screen_value(Some("uuid-b")).as_ref(), "id:uuid-b");
+        assert_eq!(crate::coding_selects::work_screen_value(None).as_ref(), "auto");
+        assert_eq!(domain::work_screen::work_screen_picked_id("id:uuid-b").as_deref(), Some("uuid-b"));
+        assert_eq!(domain::work_screen::work_screen_picked_id("auto"), None);
     }
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own

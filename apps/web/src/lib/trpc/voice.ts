@@ -19,18 +19,25 @@
 // `pushToTalk` stay in the answer for OLD clients only (true / a key bound)
 // and in the input as legacy writes (pushToTalk false clears the key, true
 // without one binds `ctrl+space`; speakReplies is ignored).
+// FEED-163: `meetingAutoStopHours` (one of `autoStop.hoursValues`) bounds the
+// meeting; `stopMeeting {reason}` (the device's auto-stop or restart) clears
+// only the stamp it read and, when it did, posts `stopNote` once into the
+// member's conversation with the voice agent (never waking it).
 
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/domain-contract/voice"
 import { callAvailability } from "@exp/domain-contract/voice-call"
 import {
+  autoStopHours,
   DESKTOP_AUDIO_VALUES,
+  MEETING_AUTO_STOP,
   MEETING_LIMITS,
   meetingExpired,
+  type MeetingStopReason,
   type AudioApp,
   type DesktopAudio,
 } from "@exp/domain-contract/meeting"
@@ -41,7 +48,7 @@ import { authedProcedure, router } from "@/lib/trpc"
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
-import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED } from "@/lib/sessions/meeting-access"
+import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
 
 type Db = typeof Database
@@ -66,6 +73,8 @@ export interface VoiceSettings {
   desktopAudioApps: AudioApp[]
   /** NEW-57: ISO; null = no meeting runs. */
   meetingStartedAt: string | null
+  /** FEED-163: meeting.json `autoStop.hoursValues`. */
+  meetingAutoStopHours: number
 }
 
 /** voice.json `defaults` plus the meeting.json settings' defaults. */
@@ -76,6 +85,7 @@ export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
   desktopAudio: `off`,
   desktopAudioApps: [],
   meetingStartedAt: null,
+  meetingAutoStopHours: MEETING_AUTO_STOP.defaultHours,
 }
 
 const DESKTOP_AUDIO = DESKTOP_AUDIO_VALUES.map((option) => option.value) as [DesktopAudio, ...DesktopAudio[]]
@@ -84,6 +94,10 @@ const DESKTOP_AUDIO = DESKTOP_AUDIO_VALUES.map((option) => option.value) as [Des
 const VOICE_SHORTCUT_MAX = VOICE_SHORTCUT_GRAMMAR.maxLength
 const LEGACY_PTT_SHORTCUT = `ctrl+space`
 const LANGUAGE_VALUES = VOICE_LANGUAGES.map((language) => language.value) as [string, ...string[]]
+const AUTO_STOP_HOURS = z
+  .number()
+  .int()
+  .refine((hours) => MEETING_AUTO_STOP.hoursValues.includes(hours), `Pick one of the offered durations`)
 
 // #NEW-71/#NEW-73: one line of text; control characters and newlines never.
 const oneLine = (max: number, what: string) =>
@@ -112,6 +126,7 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
   // the member's Assistant's, derived (the stored columns are its mirror).
   const voice = await voiceAssistantOf(database, userId, row?.agentId ?? null)
   if (!row) return withClearOnNone({ ...VOICE_SETTINGS_DEFAULTS, ...voice })
+  const meetingAutoStopHours = autoStopHours(row.meetingAutoStopHours)
   // #NEW-71: a deleted agent nulls `agent_id` (FK set null) but leaves the
   // switches stored as they were; read them through clearOnNone so they never
   // come back on silently when a new agent is picked.
@@ -130,12 +145,14 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
       ? (row.desktopAudio as DesktopAudio)
       : `off`,
     desktopAudioApps: storedApps(row.desktopAudioApps),
-    // NEW-57 AUTO-STOP: an expired meeting reads as none everywhere, even
-    // before the watchdog clears the row.
+    // NEW-57 AUTO-STOP: an expired meeting (FEED-163: by the member's
+    // hours) reads as none everywhere, even before the watchdog clears it.
     meetingStartedAt:
-      row.meetingStartedAt && !meetingExpired(new Date(row.meetingStartedAt).toISOString(), Date.now())
+      row.meetingStartedAt &&
+      !meetingExpired(new Date(row.meetingStartedAt).toISOString(), Date.now(), meetingAutoStopHours)
         ? new Date(row.meetingStartedAt).toISOString()
         : null,
+    meetingAutoStopHours,
   })
 }
 
@@ -150,14 +167,61 @@ function rowOf(settings: VoiceSettings) {
   }
 }
 
-/** Write the member's row (upsert: a member without one gets it now). */
-async function writeSettings(database: Db, userId: string, next: VoiceSettings): Promise<void> {
+/** Write the member's row (upsert: a member without one gets it now).
+ *  FEED-163: `meeting: false` leaves a stored `meeting_started_at` as it is
+ *  (an expired stamp reads as null but is the watchdog's / stopMeeting's to
+ *  clear, so its stop note is posted once). */
+async function writeSettings(
+  database: Db,
+  userId: string,
+  next: VoiceSettings,
+  { meeting = true }: { meeting?: boolean } = {}
+): Promise<void> {
   const now = new Date()
   const row = rowOf(next)
+  const { meetingStartedAt: _stamp, ...withoutMeeting } = row
   await database
     .insert(userVoiceSettings)
     .values({ userId, ...row, updatedAt: now })
-    .onConflictDoUpdate({ target: userVoiceSettings.userId, set: { ...row, updatedAt: now } })
+    .onConflictDoUpdate({
+      target: userVoiceSettings.userId,
+      set: { ...(meeting ? row : withoutMeeting), updatedAt: now },
+    })
+}
+
+/** FEED-163: clear THE meeting started at `stamp` (a conditional update on
+ *  the stamp read): true only for the call that actually cleared it, which
+ *  alone posts `stopNote(reason, hours)` (no reason = a manual stop, none). */
+export async function clearMeeting(
+  database: Db,
+  userId: string,
+  stamp: Date,
+  reason: MeetingStopReason | null
+): Promise<boolean> {
+  const cleared = await database
+    .update(userVoiceSettings)
+    .set({ meetingStartedAt: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(userVoiceSettings.userId, userId),
+        // Whole milliseconds, as JS read the stamp.
+        sql`date_trunc('milliseconds', ${userVoiceSettings.meetingStartedAt}) = ${stamp.toISOString()}::timestamptz`
+      )
+    )
+    .returning({
+      agentId: userVoiceSettings.agentId,
+      voiceDeviceId: userVoiceSettings.voiceDeviceId,
+      hours: userVoiceSettings.meetingAutoStopHours,
+    })
+  const row = cleared[0]
+  if (!row) return false
+  if (row.voiceDeviceId) nudge(userId, row.voiceDeviceId)
+  if (reason && row.agentId) {
+    await postMeetingStopNote(database, userId, row.agentId, reason, autoStopHours(row.hours)).catch(
+      (error: unknown) => console.error(`[meeting] stop note failed`, error)
+    )
+  }
+  return true
 }
 
 /** voice.json `clearOnNone`: with no voice device or no agent the wake word
@@ -250,6 +314,8 @@ export const voiceRouter = router({
         language: z.enum(LANGUAGE_VALUES).optional(),
         voiceFile: oneLine(VOICE_LIMITS.voiceFile, `voice file`).optional(),
         voiceTranscript: oneLine(VOICE_LIMITS.voiceTranscript, `transcript`).optional(),
+        // FEED-163: applies to a running meeting at once, no new consent.
+        meetingAutoStopHours: AUTO_STOP_HOURS.optional(),
         // NEW-57: never `meetingStartedAt` (startMeeting / stopMeeting only).
         desktopAudio: z.enum(DESKTOP_AUDIO).optional(),
         desktopAudioApps: z
@@ -305,12 +371,17 @@ export const voiceRouter = router({
                 (app, index, apps) => apps.findIndex((other) => other.id === app.id) === index
               ),
       } as VoiceSettings))
-      await writeSettings(db, userId, next)
+      // Only a scope / None clear writes the meeting stamp (FEED-163).
+      await writeSettings(db, userId, next, { meeting: before.meetingStartedAt !== next.meetingStartedAt })
       // The old and the new voice device pick the change up at once.
       for (const deviceId of new Set([before.voiceDeviceId, next.voiceDeviceId])) {
         if (deviceId) nudge(userId, deviceId)
       }
-      return next
+      // FEED-163: a shorter Stop after applies at once: a meeting it already
+      // outlived reads as none (the watchdog / the device clear the stamp).
+      return next.meetingStartedAt && meetingExpired(next.meetingStartedAt, Date.now(), next.meetingAutoStopHours)
+        ? { ...next, meetingStartedAt: null }
+        : next
     }),
 
   // NEW-57: THE consent dialog's Start. Refused without `consent: true` (the
@@ -338,15 +409,24 @@ export const voiceRouter = router({
     }),
 
   // NEW-57: Meeting mode off (the row's toggle, the tray): at once, no dialog.
-  stopMeeting: authedProcedure.mutation(async ({ ctx }) => {
-    const userId = ctx.session.user.id
-    const before = await voiceSettingsOf(ctx.db, userId)
-    if (!before.meetingStartedAt) return before
-    const next: VoiceSettings = { ...before, meetingStartedAt: null }
-    await writeSettings(ctx.db, userId, next)
-    if (before.voiceDeviceId) nudge(userId, before.voiceDeviceId)
-    return next
-  }),
+  // FEED-163: `reason` = the voice device stopped it itself (`autoStop`, or
+  // `restart` = the IDE came back to a meeting it listened to); it clears the
+  // STORED stamp even when it already reads as expired, and the call that
+  // cleared it posts the stop note (a manual stop posts none).
+  stopMeeting: authedProcedure
+    .input(z.object({ reason: z.enum([`autoStop`, `restart`]).optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const [stored] = await ctx.db
+        .select({ meetingStartedAt: userVoiceSettings.meetingStartedAt })
+        .from(userVoiceSettings)
+        .where(and(eq(userVoiceSettings.userId, userId), isNotNull(userVoiceSettings.meetingStartedAt)))
+        .limit(1)
+      if (stored?.meetingStartedAt) {
+        await clearMeeting(ctx.db, userId, new Date(stored.meetingStartedAt), input?.reason ?? null)
+      }
+      return voiceSettingsOf(ctx.db, userId)
+    }),
 
   // NEW-55: start a STREAMED call with one agent (phones V5, web V6). Refused
   // with the availability reason (voice-call.json `copy.reasons`) unless the

@@ -101,7 +101,7 @@ describe(`voice.json`, () => {
     it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))
   }
   for (const c of fixture.trayIconCases) {
-    it(`trayIcon: ${c.name}`, () => expect(trayIcon(c.context)).toBe(c.icon as `app` | `listening` | null))
+    it(`trayIcon: ${c.name}`, () => expect(trayIcon(c.context)).toBe(c.icon as `app` | `listening` | `recording` | null))
   }
   for (const c of fixture.wakeDetailCases) {
     it(`wakeDetail: ${c.name}`, () => expect(wakeDetail(c.context as Parameters<typeof wakeDetail>[0])).toBe(c.detail))

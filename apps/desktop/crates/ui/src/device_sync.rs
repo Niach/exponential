@@ -699,6 +699,10 @@ fn beat(
             if let Some((_, key)) = &doctor_write {
                 lock_recover(sent_status).doctor_key = Some(key.clone());
             }
+            // #FEED-164 TWINS UPGRADE: an old twin pick becomes its
+            // connector id first, so the reconcile below pushes it (the hub
+            // adopts the file as `settings_moved`).
+            coding::upgrade_display_pick(&snapshot.settings_path);
             // `ok: false` (row removed) heals via the control channel's own
             // register on its next re-dial; the beat keeps running.
             if result.launch_defaults.is_some() || result.launch_defaults_updated_at.is_some() {

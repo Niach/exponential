@@ -393,6 +393,8 @@ impl Backend for Win32 {
             return Err(last_error("EnumDisplayMonitors"));
         }
         let mut displays = Vec::with_capacity(monitors.len());
+        // #FEED-164: twins are told apart by their GDI device name.
+        let mut connectors = Vec::with_capacity(monitors.len());
         for monitor in monitors {
             // SAFETY: MONITORINFOEXW is plain data.
             let mut info: MONITORINFOEXW = unsafe { zeroed() };
@@ -409,6 +411,7 @@ impl Backend for Win32 {
             }
             let end = info.szDevice.iter().position(|&unit| unit == 0).unwrap_or(info.szDevice.len());
             let name = String::from_utf16_lossy(&info.szDevice[..end]);
+            connectors.push(Some(name.trim_start_matches(r"\\.\").to_string()).filter(|connector| !connector.is_empty()));
             displays.push(DisplayInfo {
                 id: monitor_interface(&info.szDevice).unwrap_or_else(|| name.clone()),
                 x: rect.left,
@@ -425,7 +428,7 @@ impl Backend for Win32 {
         if !displays.iter().any(|display| display.primary) {
             displays[0].primary = true;
         }
-        crate::backend::finish_ids(&mut displays);
+        crate::backend::finish_ids(&mut displays, &connectors);
         Ok(displays)
     }
 

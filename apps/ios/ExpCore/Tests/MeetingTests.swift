@@ -66,6 +66,10 @@ final class MeetingTests: XCTestCase {
             "doctorSystem": Meeting.Copy.doctorSystem,
             "doctorNone": Meeting.Copy.doctorNone,
             "autoStopped": Meeting.Copy.autoStopped,
+            "autoStopAfter": Meeting.Copy.autoStopAfter,
+            "autoStopHour": Meeting.Copy.autoStopHour,
+            "autoStopHours": Meeting.Copy.autoStopHours,
+            "restartStopped": Meeting.Copy.restartStopped,
             "messageHeader": Meeting.Copy.messageHeader,
         ])
         XCTAssertEqual(fixture["testIds"] as? [String: String], [
@@ -73,6 +77,7 @@ final class MeetingTests: XCTestCase {
             "desktopAudio": Meeting.TestIds.desktopAudio,
             "apps": Meeting.TestIds.apps,
             "consentStart": Meeting.TestIds.consentStart,
+            "autoStop": Meeting.TestIds.autoStop,
         ])
         XCTAssertEqual(fixture["limits"] as? [String: Int], [
             "apps": Meeting.Limits.apps,
@@ -140,6 +145,56 @@ final class MeetingTests: XCTestCase {
         }
     }
 
+    // MARK: - #FEED-163 auto-stop
+
+    func testAutoStopMatchesTheFixture() throws {
+        let autoStop = try XCTUnwrap(try fixture()["autoStop"] as? [String: Any])
+        XCTAssertEqual(autoStop["afterMs"] as? Int, Meeting.AutoStop.afterMs)
+        XCTAssertEqual(autoStop["defaultHours"] as? Int, Meeting.AutoStop.defaultHours)
+        XCTAssertEqual(autoStop["hoursValues"] as? [Int], Meeting.AutoStop.hoursValues)
+    }
+
+    func testAutoStopCases() throws {
+        for row in try cases("autoStopCases") {
+            let name = row["name"] as? String ?? "?"
+            let startedAt = row["startedAt"] as? String
+            let nowMs = try XCTUnwrap((row["nowMs"] as? NSNumber)?.int64Value, name)
+            let got = if let hours = row["hours"] as? Int {
+                Meeting.meetingExpired(startedAt: startedAt, nowMs: nowMs, hours: hours)
+            } else {
+                Meeting.meetingExpired(startedAt: startedAt, nowMs: nowMs)
+            }
+            XCTAssertEqual(got, row["expect"] as? Bool, name)
+        }
+    }
+
+    func testAutoStoppedCases() throws {
+        for row in try cases("autoStoppedCases") {
+            XCTAssertEqual(Meeting.autoStopped(hours: row["hours"] as? Int ?? 0), row["expect"] as? String)
+        }
+    }
+
+    func testAutoStopOptionCases() throws {
+        for row in try cases("autoStopOptionCases") {
+            let name = row["name"] as? String ?? "?"
+            let expect = try XCTUnwrap(row["expect"] as? [[String: Any]], name).map {
+                Meeting.AutoStopOption(value: $0["value"] as? Int ?? 0, label: $0["label"] as? String ?? "")
+            }
+            XCTAssertEqual(Meeting.autoStopOptions(), expect, name)
+        }
+    }
+
+    func testStopNoteCases() throws {
+        for row in try cases("stopNoteCases") {
+            let name = row["name"] as? String ?? "?"
+            XCTAssertEqual(
+                Meeting.stopNote(reason: row["reason"] as? String, hours: row["hours"] as? Int ?? 0),
+                row["expect"] as? String,
+                name
+            )
+        }
+    }
+
     func testAppsValue() {
         XCTAssertEqual(Meeting.appsValue([]), Meeting.Copy.appsNone)
         XCTAssertEqual(
@@ -161,6 +216,10 @@ final class MeetingTests: XCTestCase {
         XCTAssertEqual(old.desktopAudio, .off)
         XCTAssertEqual(old.desktopAudioApps, [])
         XCTAssertFalse(old.meetingOn)
+        // #FEED-163: Stop after reads its default when absent, the stored value otherwise.
+        XCTAssertEqual(old.meetingAutoStopHours, Meeting.AutoStop.defaultHours)
+        let eight = try JSONDecoder().decode(Voice.Settings.self, from: Data(#"{"meetingAutoStopHours":8}"#.utf8))
+        XCTAssertEqual(eight.meetingAutoStopHours, 8)
     }
 
     func testChangeEncodesTheMeetingKeys() throws {
@@ -169,6 +228,13 @@ final class MeetingTests: XCTestCase {
         XCTAssertEqual(Set(object.keys), ["desktopAudio", "desktopAudioApps"])
         XCTAssertEqual(object["desktopAudio"] as? String, "exclude")
         XCTAssertEqual(object["desktopAudioApps"] as? [[String: String]], [["id": "sp", "name": "Spotify"]])
+        let hours = try XCTUnwrap(try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(Voice.Change(meetingAutoStopHours: 1))
+        ) as? [String: Any])
+        XCTAssertEqual(Set(hours.keys), ["meetingAutoStopHours"])
+        XCTAssertEqual(hours["meetingAutoStopHours"] as? Int, 1)
+        let before = Voice.Settings(voiceDeviceId: "d", agentId: "a")
+        XCTAssertEqual(Voice.clearOnNone(before, Voice.Change(meetingAutoStopHours: 2)).meetingAutoStopHours, 2)
     }
 
     /// Choosing None for the device or the agent stops the meeting.

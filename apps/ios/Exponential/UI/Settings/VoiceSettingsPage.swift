@@ -509,6 +509,18 @@ struct VoiceSettingsBlock: View {
         ) { EmptyView() }
         .disabled(!armed)
         .accessibilityIdentifier(Meeting.TestIds.meeting)
+        // #FEED-163: Stop after, right under the toggle, shown whether or not a meeting runs.
+        GlassPickerRow(
+            Meeting.Copy.autoStopAfter,
+            selection: Binding(
+                get: { Meeting.autoStopHours(settings.meetingAutoStopHours) },
+                set: { model.save(Voice.Change(meetingAutoStopHours: $0)) }
+            ),
+            options: Meeting.AutoStop.hoursValues,
+            label: { Meeting.autoStopOption($0) }
+        )
+        .disabled(!armed)
+        .accessibilityIdentifier(Meeting.TestIds.autoStop)
         let capability = model.doctorAudio.capability
         GlassPickerRow(
             Meeting.Copy.desktopAudio,

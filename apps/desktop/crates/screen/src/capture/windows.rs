@@ -293,6 +293,11 @@ impl Wgc {
         let handles: Vec<usize> = monitors.iter().map(|m| m.as_raw_hmonitor() as usize).collect();
         let current: Vec<usize> = self.sessions.iter().map(|s| s.monitor).collect();
         if handles != current {
+            if !current.is_empty() {
+                // #FEED-164: a hot-plug: the window list's cached display
+                // set (and every reading of it) numbers the old way.
+                computer::visible::displays_changed();
+            }
             self.sessions.clear();
             self.sessions = monitors.into_iter().map(Session::start).collect();
             return Ok(());

@@ -174,7 +174,7 @@ pub use launch_defaults_sync::{
 };
 pub use remote_admin::{
     apply_defaults_patch, defaults_wire, display_push_pending, mark_display_pushed,
-    overlay_launch_defaults, AgentDefaultsPatch, DefaultsPatch, DisplayPick,
+    overlay_launch_defaults, upgrade_display_pick, AgentDefaultsPatch, DefaultsPatch, DisplayPick,
 };
 pub use prompt::{reclaimed_workspace_note, ACCOUNT_SWITCH_CONTINUE_PROMPT};
 pub use settings::Settings;

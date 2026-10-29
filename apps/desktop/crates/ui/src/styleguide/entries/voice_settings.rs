@@ -23,7 +23,8 @@
 //!
 //! #NEW-57 (`fixtures/meeting.json`): after the wake phrase the tray group
 //! gains Meeting mode (on here, "You, Zoom and Slack" on its second line),
-//! Desktop audio (Pick apps) and Apps ("Zoom, Slack"), as the web entry;
+//! #FEED-163 Stop after (4 hours), Desktop audio (Pick apps) and Apps
+//! ("Zoom, Slack"), as the web entry;
 //! turning Meeting mode on opens THE consent dialog (`meeting-consent`).
 //!
 //! #NEW-97: while no tray host shows that item (GNOME without AppIndicator)
@@ -88,6 +89,8 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
             domain::meeting::AudioApp { id: "com.tinyspeck.slackmacgap".into(), name: "Slack".into() },
         ],
         meeting_started_at: Some("2026-10-28T10:00:00.000Z".into()),
+        // #FEED-163: Stop after 4 hours (the default).
+        meeting_auto_stop_hours: 4,
     };
     let mut field = |key: &'static str, placeholder: String, value: &'static str| {
         let input = window.use_keyed_state(key, cx, |window, cx| {

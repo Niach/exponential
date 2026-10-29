@@ -135,7 +135,7 @@ function clampLaunchDefaults(
     out.computerUseModel = input.computerUseModel
   }
   // NEW-59 / #FEED-161: the work screen's stable display id (the schema
-  // bounds it 1..128 chars); null (= Auto) is dropped like every cleared field.
+  // bounds it 1..128 code points, #FEED-164); null (= Auto) is dropped like every cleared field.
   if (typeof input.computerUseDisplayId === `string` && input.computerUseDisplayId.length > 0) {
     out.computerUseDisplayId = input.computerUseDisplayId
   }
@@ -861,7 +861,12 @@ export const devicesRouter = router({
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
       // FEED-159: the first account to register the id is its owner for
-      // pinning; Remove never clears it.
+      // pinning; Remove never clears it (deleting that ACCOUNT does: the FK
+      // cascades, and the next account to register the id takes it).
+      // FEED-165: during a rolling deploy, pods older than 0206 register
+      // without this write; such an id gets its row on its first register
+      // through a new pod (whichever account comes first). A short window;
+      // 0213 recomputes every row that existed when it ran.
       await ctx.db
         .insert(deviceFirstSeen)
         .values({ deviceId: input.deviceId, userId })

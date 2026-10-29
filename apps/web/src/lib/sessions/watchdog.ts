@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -11,7 +11,8 @@ import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
-import { MEETING_AUTO_STOP } from "@exp/domain-contract/meeting"
+import { autoStopHours, MEETING_AUTO_STOP } from "@exp/domain-contract/meeting"
+import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
 
 // NEW-1: the server watchdog (every minute; contract `sessionWatchdog`).
 // Nothing waits on a device's good behaviour: what stalls is flagged on
@@ -559,23 +560,41 @@ export async function pruneExpiredMessages(now: Date = new Date()): Promise<numb
   return gone.length
 }
 
-/** NEW-57 AUTO-STOP (watchdog): clear every meeting started at least
- *  `autoStop.afterMs` ago and nudge its voice device (which stops on its own
- *  clock too). Returns how many stopped. */
+/** NEW-57 AUTO-STOP (watchdog): clear every meeting started at least the
+ *  member's `meeting_auto_stop_hours` ago (FEED-163; a value outside
+ *  `autoStop.hoursValues` = the default) and nudge its voice device (which
+ *  stops on its own clock too). FEED-163 NOTE: the UPDATE is the conditional
+ *  clear (a row the device's `stopMeeting {reason: 'autoStop'}` cleared first
+ *  no longer matches), so each row it returns posts the autoStop note once.
+ *  Returns how many stopped. */
 export async function stopExpiredMeetings(now: Date = new Date()): Promise<number> {
+  const hours = sql`CASE WHEN ${userVoiceSettings.meetingAutoStopHours} IN (${sql.join(
+    MEETING_AUTO_STOP.hoursValues.map((value) => sql`${value}::int`),
+    sql`, `
+  )}) THEN ${userVoiceSettings.meetingAutoStopHours} ELSE ${MEETING_AUTO_STOP.defaultHours}::int END`
   const stopped = await db
     .update(userVoiceSettings)
     .set({ meetingStartedAt: null, updatedAt: now })
     .where(
       and(
         isNotNull(userVoiceSettings.meetingStartedAt),
-        lte(userVoiceSettings.meetingStartedAt, new Date(now.getTime() - MEETING_AUTO_STOP.afterMs))
+        sql`${userVoiceSettings.meetingStartedAt} <= ${now.toISOString()}::timestamptz - make_interval(hours => ${hours})`
       )
     )
-    .returning({ userId: userVoiceSettings.userId, voiceDeviceId: userVoiceSettings.voiceDeviceId })
+    .returning({
+      userId: userVoiceSettings.userId,
+      voiceDeviceId: userVoiceSettings.voiceDeviceId,
+      agentId: userVoiceSettings.agentId,
+      hours: userVoiceSettings.meetingAutoStopHours,
+    })
   const config = getSteerRelayConfig()
   for (const row of stopped) {
     if (config && row.voiceDeviceId) void relayPostNudge(config, row.userId, row.voiceDeviceId).catch(() => {})
+    if (row.agentId) {
+      await postMeetingStopNote(db, row.userId, row.agentId, `autoStop`, autoStopHours(row.hours)).catch(
+        (error: unknown) => console.error(`[meeting] auto-stop note failed`, error)
+      )
+    }
   }
   return stopped.length
 }

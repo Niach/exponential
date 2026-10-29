@@ -19,6 +19,7 @@
 // The Wake word row's detail says why it is or is not listening: the voice
 // device's doctor row `wake` verbatim, else `wakeDetail` (no agent, offline,
 // not reported yet).
+// #FEED-163: Stop after (`autoStopOptions()`) right under Meeting mode.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
@@ -40,6 +41,9 @@ import {
 import { contract } from "@exp/domain-contract"
 import {
   appOptions,
+  autoStopHours,
+  autoStopOption,
+  autoStopOptions,
   consentBody,
   DESKTOP_AUDIO_VALUES,
   desktopAudioOptions,
@@ -210,6 +214,9 @@ export function VoiceSettingsCard({
     (settings.desktopAudio === `include` || settings.desktopAudio === `exclude`) &&
     desktopAudioOptions(capability).includes(settings.desktopAudio)
   const appItems = appOptions(liveApps, settings.desktopAudioApps)
+  // #FEED-163: the meeting's auto-stop, shown whether or not one runs.
+  const autoStopHoursValue = autoStopHours(settings.meetingAutoStopHours)
+  const autoStopItems = autoStopOptions().map((option) => ({ value: String(option.value), label: option.label }))
   const pickedApps = settings.desktopAudioApps.map((app) => app.name).join(`, `)
   // #NEW-73: every language carries its GPU note (#NEW-74), in the row and in the menu.
   const languageItems = VOICE_LANGUAGES.map((language) => ({
@@ -421,6 +428,18 @@ export function VoiceSettingsCard({
                 if (on) setConsentOpen(true)
                 else void meeting(false)
               }}
+              disabled={!switchesLive}
+            />
+            <Picker
+              mode="single"
+              triggerVariant="row"
+              width="md"
+              mobileTitle={MEETING_COPY.autoStopAfter}
+              triggerLabel={autoStopOption(autoStopHoursValue)}
+              data-testid={MEETING_TEST_IDS.autoStop}
+              value={String(autoStopHoursValue)}
+              items={autoStopItems}
+              onChange={(hours) => apply({ meetingAutoStopHours: Number(hours) })}
               disabled={!switchesLive}
             />
             <Picker

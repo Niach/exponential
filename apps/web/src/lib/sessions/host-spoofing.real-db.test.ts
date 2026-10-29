@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { generateKeyPairSync, sign } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, deviceFirstSeen, deviceKeys, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, deviceFirstSeen, deviceKeys, deviceRemovals, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
 import { deviceKeyMessage } from "@/lib/device-keys"
 
@@ -736,7 +737,10 @@ describe.skipIf(!ready.ok)(`FEED-159: the first-seen account pins`, () => {
     expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
   })
 
-  it(`a squat holding the pin never takes it back after the owner's Remove + relaunch, and the owner takes it over`, async () => {
+  // FEED-165: here first-seen is ALREADY the owner's (its register came
+  // first, after 0206); the pin is the squat's anyway. Whether the backfill
+  // itself makes the owner first-seen is the FEED-165 suite below.
+  it(`with the owner already first-seen, a squat's pin never returns after the owner's Remove + relaunch; the owner takes it over`, async () => {
     const m = await squatted()
     await removeAndRelaunch(m.owner, m.deviceId)
     // A pin the squat took before FEED-159 (the first key won).
@@ -778,6 +782,177 @@ describe.skipIf(!ready.ok)(`FEED-159: the first-seen account pins`, () => {
     expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
     expect(await register(m.squat, m.deviceId, { key: m.box.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: true })
     expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+  })
+})
+
+// FEED-165: 0206's backfill took the pin holder first, else the eldest live
+// row, so a squat from BEFORE the deploy became first-seen. 0213 recomputes
+// from the earliest evidence. Each case seeds the pre-deploy world, runs
+// 0206's backfill then 0213 (the migration files themselves) in a rolled-back
+// transaction, writes back only this id's result, then plays the upgrade.
+describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-seen`, () => {
+  const register = (userId: string, deviceId: string, extra: { launch?: boolean; key?: ReturnType<ReturnType<typeof machineKey>[`prove`]> } = {}) =>
+    devicesAs(userId).register({ deviceId, label: `box`, kind: `server`, doctor, ...extra })
+  const pinOf = async (deviceId: string) =>
+    (await db.select({ userId: deviceKeys.userId, publicKey: deviceKeys.publicKey }).from(deviceKeys).where(eq(deviceKeys.deviceId, deviceId)))[0]
+  const migration = (file: string) =>
+    readFileSync(new URL(`../../db/out/${file}`, import.meta.url), `utf8`)
+      .split(`--> statement-breakpoint`)
+      .filter((statement) => statement.includes(`INSERT INTO "device_first_seen"`))
+  const firstSeenIn = async (tx: { execute: typeof db.execute }, deviceId: string) =>
+    (await tx.execute(sql`SELECT user_id FROM device_first_seen WHERE device_id = ${deviceId}`)).rows[0]?.user_id
+  /** 0206's backfill on a world from before it (no first-seen row), then 0213. */
+  async function backfill(deviceId: string) {
+    const out = { after0206: undefined as unknown, after0213: undefined as unknown, mismatch: true }
+    await inRollback(async (tx) => {
+      await tx.execute(sql`DELETE FROM device_first_seen WHERE device_id = ${deviceId}`)
+      for (const statement of migration(`0206_feed159_device_first_seen.sql`)) await tx.execute(sql.raw(statement))
+      out.after0206 = await firstSeenIn(tx, deviceId)
+      for (const statement of migration(`0213_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
+      out.after0213 = await firstSeenIn(tx, deviceId)
+      const { deviceFirstSeenFindings } = await import(`@/lib/device-first-seen-audit`)
+      out.mismatch = (await deviceFirstSeenFindings(tx as never)).some(
+        (finding) => finding.deviceId === deviceId && finding.kind === `mismatch`
+      )
+    })
+    await db
+      .insert(deviceFirstSeen)
+      .values({ deviceId, userId: out.after0213 as string })
+      .onConflictDoUpdate({ target: deviceFirstSeen.deviceId, set: { userId: out.after0213 as string } })
+    return out
+  }
+  /** 0213 alone on the world as it stands (rolled back). */
+  async function only0213(deviceId: string) {
+    let after: unknown
+    await inRollback(async (tx) => {
+      for (const statement of migration(`0213_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
+      after = await firstSeenIn(tx, deviceId)
+    })
+    return after
+  }
+  /** The box owner on an old client, then a squat of the id; a team. */
+  async function preDeploy() {
+    const owner = await user()
+    const squat = await user()
+    const mate = await user()
+    const deviceId = `dev-${id8()}`
+    made.devices.push(deviceId)
+    const [team] = await db.insert(teams).values({ name: `Seen`, slug: `seen-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(team!.id)
+    await db.insert(teamMembers).values([
+      { teamId: team!.id, userId: owner, role: `owner` },
+      { teamId: team!.id, userId: squat, role: `member` },
+      { teamId: team!.id, userId: mate, role: `member` },
+    ])
+    await register(owner, deviceId, { launch: true })
+    await register(squat, deviceId)
+    /** A session `userId` started on the id `daysAgo` days ago. */
+    const started = async (userId: string, daysAgo: number) => {
+      const id = crypto.randomUUID()
+      await db.insert(sessions).values({
+        id,
+        rootId: id,
+        teamId: team!.id,
+        userId,
+        deviceId,
+        status: `ended`,
+        createdAt: new Date(Date.now() - daysAgo * 86_400_000),
+      })
+    }
+    return { owner, squat, mate, deviceId, started, box: machineKey(), own: machineKey() }
+  }
+
+  it(`a squat that held the pin before the deploy keeps first-seen (0213 never moves a pin holder's); the audit lists it`, async () => {
+    const m = await preDeploy()
+    // The squat's pin from before FEED-159 (the first key won).
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.own.hex, userId: m.squat })
+    expect(await backfill(m.deviceId)).toEqual({ after0206: m.squat, after0213: m.squat, mismatch: true })
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.squat, publicKey: m.own.hex })
+  })
+
+  it(`an owner who removed, relaunched and pinned keeps first-seen over a squat's older row; the squat never pins`, async () => {
+    const m = await preDeploy()
+    await db
+      .update(devices)
+      .set({ createdAt: new Date(Date.now() - 10 * 86_400_000) })
+      .where(and(eq(devices.userId, m.squat), eq(devices.deviceId, m.deviceId)))
+    // The relaunch deletes the removal: only the pin is left to guard on.
+    await devicesAs(m.owner).remove({ deviceId: m.deviceId })
+    await register(m.owner, m.deviceId, { launch: true })
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.box.hex, userId: m.owner })
+    expect(await backfill(m.deviceId)).toEqual({ after0206: m.owner, after0213: m.owner, mismatch: true })
+    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+  })
+
+  it(`no pin, the owner's Remove + relaunch before the deploy: 0206 took the squat's eldest row, 0213 the owner's first session`, async () => {
+    const m = await preDeploy()
+    // A teammate's start on the shared box is older still, but it never
+    // registered the id: not a candidate.
+    await m.started(m.mate, 2)
+    await m.started(m.owner, 1)
+    await devicesAs(m.owner).remove({ deviceId: m.deviceId })
+    await register(m.owner, m.deviceId, { launch: true })
+    expect(await backfill(m.deviceId)).toEqual({ after0206: m.squat, after0213: m.owner, mismatch: false })
+    expect(await register(m.squat, m.deviceId, { key: m.own.prove(m.squat, m.deviceId) })).toMatchObject({ keyAccepted: false })
+    expect(await pinOf(m.deviceId)).toBeUndefined()
+    expect(await register(m.owner, m.deviceId, { key: m.box.prove(m.owner, m.deviceId) })).toMatchObject({ keyAccepted: true })
+    expect(await pinOf(m.deviceId)).toEqual({ userId: m.owner, publicKey: m.box.hex })
+  })
+
+  it(`an owner whose Remove stands keeps first-seen over a squat's older row`, async () => {
+    const m = await preDeploy()
+    // 0206 made the owner first-seen (no pin) from a row since gone (an old
+    // backfill); the squat's row reads older still; then the owner removed
+    // the box (the hard delete takes its row, the removal stays).
+    await db
+      .update(deviceFirstSeen)
+      .set({ userId: m.owner, firstSeenAt: new Date(Date.now() - 20 * 86_400_000) })
+      .where(eq(deviceFirstSeen.deviceId, m.deviceId))
+    await db
+      .update(devices)
+      .set({ createdAt: new Date(Date.now() - 30 * 86_400_000) })
+      .where(and(eq(devices.userId, m.squat), eq(devices.deviceId, m.deviceId)))
+    await devicesAs(m.owner).remove({ deviceId: m.deviceId })
+    expect(await only0213(m.deviceId)).toBe(m.owner)
+    await db.delete(deviceRemovals).where(eq(deviceRemovals.deviceId, m.deviceId))
+    expect(await only0213(m.deviceId)).toBe(m.squat)
+  })
+
+  it(`an admin's pinTo from before 0213 is never overwritten`, async () => {
+    const m = await preDeploy()
+    // An admin pinned the id to the squat on purpose (the clear drops the
+    // pin, so only the marker protects the row): 0213 keeps it.
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.own.hex, userId: m.squat })
+    const admin = await user()
+    await db.execute(sql`UPDATE users SET is_admin = true WHERE id = ${admin}`)
+    await adminAs(admin).clearDeviceKey({ deviceId: m.deviceId, pinTo: m.squat })
+    expect(await only0213(m.deviceId)).toBe(m.squat)
+    // The same row as 0206 would have written it (the squat's own row's
+    // `created_at`, in SQL: a JS Date drops the microseconds) moves.
+    await db.execute(sql`
+      UPDATE device_first_seen f SET first_seen_at = d.created_at
+        FROM devices d WHERE d.device_id = f.device_id AND d.user_id = f.user_id AND f.device_id = ${m.deviceId}`)
+    expect(await only0213(m.deviceId)).toBe(m.owner)
+  })
+
+  it(`the audit lists a first-seen squat 0206 left behind, with the pinTo that settles it`, async () => {
+    const m = await preDeploy()
+    await db.insert(deviceKeys).values({ deviceId: m.deviceId, publicKey: m.own.hex, userId: m.squat })
+    await inRollback(async (tx) => {
+      await tx.execute(sql`UPDATE device_first_seen SET user_id = ${m.squat} WHERE device_id = ${m.deviceId}`)
+      const { deviceFirstSeenFindings, settleCall } = await import(`@/lib/device-first-seen-audit`)
+      const finding = (await deviceFirstSeenFindings(tx as never)).find((entry) => entry.deviceId === m.deviceId)
+      expect(finding).toMatchObject({
+        kind: `mismatch`,
+        firstSeen: { userId: m.squat },
+        earliest: { userId: m.owner, source: `devices`, hasRow: true },
+        pin: { userId: m.squat },
+      })
+      expect(finding!.evidence.map((item) => [item.userId, item.source])).toContainEqual([m.squat, `pin`])
+      expect(settleCall(finding!)).toBe(`admin.clearDeviceKey({"deviceId":"${m.deviceId}","pinTo":"${m.owner}"})`)
+    })
   })
 })
 

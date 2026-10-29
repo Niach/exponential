@@ -133,7 +133,7 @@ pub fn start(data_dir: PathBuf) -> Result<(), String> {
 /// dialog) does not wait for it: the capturer, once open, is closed at once.
 pub fn start_with(data_dir: PathBuf, ticket: Ticket) -> Result<(), String> {
     let state_dir = data_dir.clone();
-    start_inner(data_dir, ticket, move || capture::open(&state_dir), Box::new(computer::visible::screen_look))
+    start_inner(data_dir, ticket, move || capture::open(&state_dir), Box::new(computer::visible::screen_look), Box::new(computer::visible::display_epoch))
 }
 
 pub(crate) fn start_inner(
@@ -141,6 +141,7 @@ pub(crate) fn start_inner(
     ticket: Ticket,
     open: impl FnOnce() -> Result<Box<dyn capture::Capturer>, String>,
     view: engine::ViewSource,
+    epoch: engine::EpochSource,
 ) -> Result<(), String> {
     let cancelled = || STOPS.load(Ordering::Acquire) != ticket.0;
     let _opening = OPENING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -162,7 +163,7 @@ pub(crate) fn start_inner(
     if running.is_some() {
         return Ok(());
     }
-    let memory = engine::Memory::start(&data_dir, capturer, view, engine::Timing::from_fixture(), HOTKEY.clone(), Arc::new(publish))?;
+    let memory = engine::Memory::start(&data_dir, capturer, view, epoch, engine::Timing::from_fixture(), HOTKEY.clone(), Arc::new(publish))?;
     *LAST_DIR.lock().unwrap() = Some(data_dir);
     *running = Some(memory);
     Ok(())

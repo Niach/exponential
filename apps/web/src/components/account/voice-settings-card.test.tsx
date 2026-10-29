@@ -13,7 +13,7 @@ import {
   wakePhrasePlaceholder,
 } from "@exp/domain-contract/voice"
 import voiceFixture from "@exp/domain-contract/fixtures/voice.json" with { type: "json" }
-import { consentBody, MEETING_COPY, MEETING_TEST_IDS } from "@exp/domain-contract/meeting"
+import { autoStopOptions, consentBody, MEETING_COPY, MEETING_TEST_IDS } from "@exp/domain-contract/meeting"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // NEW-67 (`voice.json`): Settings → Voice. The device + agent pickers (None
@@ -86,6 +86,7 @@ const DEFAULTS: VoiceSettings = {
   desktopAudio: `off`,
   desktopAudioApps: [],
   meetingStartedAt: null,
+  meetingAutoStopHours: 4,
 }
 let stored: VoiceSettings = { ...DEFAULTS }
 const renderCard = (settings: Partial<VoiceSettings> = {}, devices: VoiceDeviceRow[] = DEVICES) => {
@@ -383,6 +384,28 @@ describe(`Settings → Voice: meeting mode (NEW-57)`, () => {
     fireEvent.click(await within(await screen.findByTestId(VOICE_TEST_IDS.agent)).findByText(VOICE_COPY.agentNone))
     await flush()
     expect(isOn(MEETING_TEST_IDS.meeting)).toBe(false)
+  })
+
+  it(`#FEED-163 Stop after: right under Meeting mode, autoStopOptions, disabled with None`, async () => {
+    renderCard(live)
+    const row = trigger(MEETING_COPY.autoStopAfter)
+    expect(row.textContent).toContain(`4 hours`)
+    // Right under the Meeting mode toggle, before Desktop audio.
+    const meetingRow = switchOf(MEETING_TEST_IDS.meeting)
+    expect(meetingRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(row.compareDocumentPosition(trigger(MEETING_COPY.desktopAudio)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(row)
+    expect(await screen.findByTestId(MEETING_TEST_IDS.autoStop)).toBeTruthy()
+    for (const option of autoStopOptions()) expect(screen.getAllByText(option.label).length).toBeGreaterThan(0)
+    fireEvent.click(await screen.findByText(`1 hour`))
+    await flush()
+    expect(update).toHaveBeenCalledWith({ meetingAutoStopHours: 1 }, expect.anything())
+    expect(trigger(MEETING_COPY.autoStopAfter).textContent).toContain(`1 hour`)
+  })
+
+  it(`#FEED-163 Stop after is disabled while the agent is None`, () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: null })
+    expect(trigger(MEETING_COPY.autoStopAfter).disabled).toBe(true)
   })
 
   it(`Desktop audio over the device's capability; Pick apps shows the Apps row`, async () => {

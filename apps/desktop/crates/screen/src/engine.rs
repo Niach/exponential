@@ -15,6 +15,12 @@
 //! delivers only changes). LABEL and MASK read the window list nearest the
 //! frame's capture time (a short ring of readings), so a frame the OS
 //! captured before a focus change is labelled (and masked) as it was then.
+//! RACE (#FEED-164): a grab with frames reads the window list once more
+//! right after it (the newest reading, MASK's), so a denylisted window that
+//! opened between the poll and the grab is masked. DISPLAY SET: a frame is
+//! taken only with readings of the display epoch current right after its
+//! grab (`computer::visible::display_epoch`), so after a hot-plug no frame
+//! is labelled or masked by the old display numbering.
 //! The retention sweep runs every interval, paused or not.
 
 use std::collections::{HashMap, VecDeque};
@@ -35,6 +41,10 @@ use crate::{fixture, hash, ring, shrink, Status};
 /// The screen now (`computer::visible::screen_look`; a fake in tests).
 /// `None` = no window list: paused (fail closed).
 pub(crate) type ViewSource = Box<dyn FnMut() -> Option<ScreenLook> + Send>;
+
+/// The display epoch now (`computer::visible::display_epoch`; a fake in
+/// tests): readings of another epoch number the displays differently.
+pub(crate) type EpochSource = Box<dyn Fn() -> u64 + Send>;
 
 /// How long the window-list readings are kept for LABEL / MASK: longer than
 /// any frame the OS still hands out (the slot holds at most one interval).
@@ -138,6 +148,7 @@ impl Memory {
         data_dir: &Path,
         capturer: Box<dyn Capturer>,
         view: ViewSource,
+        epoch: EpochSource,
         timing: Timing,
         hotkey: Arc<AtomicBool>,
         status: StatusSink,
@@ -159,6 +170,7 @@ impl Memory {
         let mut looper = Loop {
             capturer,
             view,
+            epoch,
             timing,
             hotkey,
             status,
@@ -214,6 +226,7 @@ impl Memory {
 struct Loop {
     capturer: Box<dyn Capturer>,
     view: ViewSource,
+    epoch: EpochSource,
     timing: Timing,
     hotkey: Arc<AtomicBool>,
     status: StatusSink,
@@ -268,8 +281,10 @@ impl Loop {
                 if key.is_some() && key != self.last_focus {
                     let display = focus.as_ref().expect("a focused window").display;
                     if capturing.contains(&display) {
-                        match self.capturer.grab(self.want(display)) {
-                            Ok(Some(frame)) => self.keep(vec![frame]),
+                        let grabbed = self.capturer.grab(self.want(display));
+                        let epoch = (self.epoch)();
+                        match grabbed {
+                            Ok(Some(frame)) => self.keep(vec![frame], epoch),
                             Ok(None) => {}
                             Err(reason) => log::debug!("[screen] no focus-change frame: {reason}"),
                         }
@@ -342,7 +357,8 @@ impl Loop {
             return;
         }
         let wanted: Vec<Want> = capturing.iter().map(|display| self.want(*display)).collect();
-        match self.capturer.grab_all(&wanted) {
+        let grabbed = self.capturer.grab_all(&wanted);
+        match grabbed {
             Ok(mut frames) => {
                 for display in std::mem::take(&mut self.retry) {
                     if capturing.contains(&display) && !frames.iter().any(|frame| frame.display == display) {
@@ -368,22 +384,37 @@ impl Loop {
                         }
                     }
                 }
-                self.keep(frames);
+                // Every grab of this tick is done: the epoch they share.
+                let epoch = (self.epoch)();
+                self.keep(frames, epoch);
             }
             Err(reason) => log::debug!("[screen] no frames this tick: {reason}"),
         }
     }
 
-    /// Hash and dedupe the frames; the kept ones go to the worker as one
-    /// batch unless it is still busy.
-    fn keep(&mut self, frames: Vec<Frame>) {
+    /// Hash and dedupe the frames (grabbed under display `epoch`); the
+    /// kept ones go to the worker as one batch unless it is still busy.
+    fn keep(&mut self, frames: Vec<Frame>, epoch: u64) {
         // Busy: not even the hash (the gate would skip them all anyway).
         if !self.gate.worker.ready() {
             self.skip(frames.iter().map(|frame| frame.display));
             return;
         }
+        if frames.is_empty() {
+            return;
+        }
         let grabbed = now_ms();
-        let latest = self.readings.back().and_then(|(_, look)| look.clone());
+        // RACE: the window list once more, now that the pixels are fixed: a
+        // denylisted window that opened since the poll's read is in it. One
+        // read per grab with frames (a still screen grabs none), against
+        // one every focus poll. None, or the display set moved on since the
+        // grab: nothing is placed safely, the next tick grabs again.
+        let latest = (self.view)().map(Arc::new);
+        self.remember(now_ms(), latest.clone());
+        if !latest.as_ref().is_some_and(|look| look.epoch == epoch) {
+            self.skip(frames.iter().map(|frame| frame.display));
+            return;
+        }
         let frames: Vec<(Frame, u64, (String, String), Option<Rect>)> = frames
             .into_iter()
             .filter(Frame::valid)
@@ -393,6 +424,10 @@ impl Loop {
                 // (no window list then), a denylisted focus or top window
                 // then = dropped (fail closed).
                 let reading = self.reading_at(at)?.clone();
+                // DISPLAY SET: a reading of another display numbering.
+                if reading.epoch != epoch {
+                    return None;
+                }
                 let view = Some(&reading.view);
                 let focus = reading.view.focused.as_ref();
                 if paused_by(focus) || !capturing(view, false).contains(&frame.display) {

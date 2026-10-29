@@ -1,7 +1,7 @@
 package com.exponential.app.domain
 
 // NEW-59: THE work screen, the display coding agents drive with computer use.
-// Android mirrors `copy` and `options` only (the gate lives in the desktop
+// Android mirrors `copy`, `options` and the picker keys only (the gate lives in the desktop
 // computer crate). A pure mirror of `packages/domain-contract/src/work-screen.ts`
 // (`workScreenOptions`), byte-locked by `fixtures/work-screen.json`
 // (`optionCases`, replayed by WorkScreenTest). The fixture's `$comment` holds
@@ -29,6 +29,20 @@ object WorkScreen {
 
     /** `work-screen.json` `testIds.row`: the device settings picker row. */
     const val ROW_TEST_ID = "device-settings-work-screen"
+
+    /** #FEED-164 `work-screen.json` `pickerKeys`: the picker's string keys. */
+    object PickerKeys {
+        const val AUTO = "auto"
+        const val DISPLAY = "id:"
+    }
+
+    /** #FEED-164: the picker key of an option value (null = Auto): Auto's
+     *  key, else the display prefix + the id, so no id can read as Auto. */
+    fun pickerKey(value: String?): String = value?.let { "${PickerKeys.DISPLAY}$it" } ?: PickerKeys.AUTO
+
+    /** #FEED-164: the stored value (the bare display id, null = Auto) of a picker key. */
+    fun pickedId(key: String): String? =
+        key.takeIf { it.startsWith(PickerKeys.DISPLAY) }?.removePrefix(PickerKeys.DISPLAY)
 
     private const val SEP = " · "
 

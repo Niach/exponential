@@ -1,0 +1,1 @@
+ALTER TABLE "user_voice_settings" ADD COLUMN "meeting_auto_stop_hours" integer DEFAULT 4 NOT NULL;

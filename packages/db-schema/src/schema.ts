@@ -996,6 +996,15 @@ export interface DeviceLaunchDefaults {
   computerUseDisplayId?: string | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
+/** #FEED-164: a display id's length in Unicode code points, as the device
+ * counts it (Rust `chars()`), never UTF-16 units (work-screen.json). */
+export const displayIdLength = (id: string): number => [...id].length
+/** #FEED-164: a display id, 1..128 code points. */
+const displayIdSchema = z
+  .string()
+  .refine((id) => displayIdLength(id) >= 1 && displayIdLength(id) <= 128, {
+    message: `A display id is 1 to 128 characters.`,
+  })
 // Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
 // a field (EXP-495). `clampLaunchDefaults` strips the nulls; stored copies
 // stay null-free.
@@ -1009,7 +1018,7 @@ export const deviceLaunchDefaultsSchema = z.object({
   // EXP-1236: see DeviceLaunchDefaults.computerUseModel.
   computerUseModel: z.string().max(32).nullish(),
   // NEW-59 / #FEED-161: see DeviceLaunchDefaults.computerUseDisplayId.
-  computerUseDisplayId: z.string().min(1).max(128).nullish(),
+  computerUseDisplayId: displayIdSchema.nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
@@ -1280,7 +1289,7 @@ export interface DeviceDoctorItem {
 }
 /** NEW-59: one display as the device reports it (the OS's order, pixels). */
 export interface DeviceDisplay {
-  /** #FEED-161: stable across reconnects and reorders (1..128 chars), the
+  /** #FEED-161: stable across reconnects and reorders (1..128 code points), the
    * value `launch_defaults.computerUseDisplayId` stores. */
   id: string
   /** 1-based position in the OS's order, for the label only. */
@@ -1343,13 +1352,13 @@ export const deviceDoctorSchema = z.object({
                 typeof entry === `object` &&
                 entry !== null &&
                 typeof (entry as { id?: unknown }).id === `string` &&
-                (entry as { id: string }).id.length >= 1 &&
-                (entry as { id: string }).id.length <= 128
+                displayIdLength((entry as { id: string }).id) >= 1 &&
+                displayIdLength((entry as { id: string }).id) <= 128
             )
           : value,
       z.array(
         z.object({
-          id: z.string().min(1).max(128),
+          id: displayIdSchema,
           number: z.number().int().min(1).max(16),
         width: z.number().int().min(1).max(100000),
         height: z.number().int().min(1).max(100000),
@@ -1525,7 +1534,10 @@ export const deviceKeys = pgTable(`device_keys`, {
 // register it is the box's. Written insert-or-ignore on every register and
 // NEVER deleted by Remove: the eldest `devices` row stopped being that signal
 // once the owner's Remove + relaunch made its row younger than a squat's. An
-// instance admin moves it (`admin.clearDeviceKey({pinTo})`). Server-only.
+// instance admin moves it (`admin.clearDeviceKey({pinTo})`). Deleting the
+// first-seen ACCOUNT frees the id (the FK cascades): the next account to
+// register it becomes first-seen. FEED-165: 0213 recomputed every row from
+// the earliest evidence (lib/device-first-seen-audit.ts). Server-only.
 export const deviceFirstSeen = pgTable(`device_first_seen`, {
   deviceId: varchar(`device_id`, { length: 128 }).primaryKey(),
   userId: text(`user_id`)
@@ -3095,6 +3107,8 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   desktopAudio: varchar(`desktop_audio`, { length: 16 }).notNull().default(`off`),
   desktopAudioApps: jsonb(`desktop_audio_apps`).$type<{ id: string; name: string }[]>().notNull().default(sql`'[]'::jsonb`),
   meetingStartedAt: timestamp(`meeting_started_at`, { withTimezone: true }),
+  // #FEED-163: the meeting's auto-stop in hours (meeting.json `autoStop.hoursValues`).
+  meetingAutoStopHours: integer(`meeting_auto_stop_hours`).notNull().default(4),
   ...timestamps,
 }, (table) => [
   check(`user_voice_settings_language_check`, sql`${table.language} IN ('en', 'de')`),
