@@ -164,7 +164,7 @@ export function SurfaceCard({
       data-testid={CHATS_TEST_IDS.surfaceCard}
       data-entering={animate || undefined}
       className={cn(
-        `relative flex w-full max-w-full min-w-0 flex-col gap-2 rounded-2xl border border-glass-stroke-card bg-glass-card p-3`,
+        `relative flex w-full max-w-full min-w-0 flex-col gap-2 rounded-2xl border border-glass-stroke-card bg-glass-card-opaque p-3`,
         className
       )}
     >
