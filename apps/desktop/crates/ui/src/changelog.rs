@@ -62,7 +62,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Floating pill**: while the desktop app is minimized a small call pill stays on top; drag it anywhere, it remembers where you put it, and Esc or the tray's End call ends the call.
 - **Replies are always spoken**: Speak replies is gone; whatever you say by voice is answered by voice, typed messages never are.
 - **Your own push-to-talk key**: press any key or combination in your Assistant's Voice settings to bind it, like in a game; Backspace clears it.
-- **Wake word**: it now hears its phrase anywhere in what you say, and your Assistant's Voice settings tell you why it isn't listening."#,
+- **Wake word**: it now hears its phrase anywhere in what you say, and your Assistant's Voice settings tell you why it isn't listening.
+- **Idle chats free your machine**: a chat left alone for 30 minutes gives its agent process back and picks up where it left off with your next message; its worktree goes once all its pull requests are merged and nothing is left uncommitted."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

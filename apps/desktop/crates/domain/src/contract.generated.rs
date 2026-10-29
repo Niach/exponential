@@ -101,6 +101,7 @@ pub const STEER_WORKING_PREVIEW_MAX: usize = 160;
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = 4;
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
+pub const CODING_SESSION_IDLE_RELEASE_MS: i64 = 1800000;
 pub const CODING_SESSION_LAUNCH_KEYS: &[&str] = &["agent", "model", "effort", "subagentModel", "ultracode", "mcpServerIds", "account", "computerUse"];
 pub const CODING_SESSION_COMPUTER_USE_CAP: &str = "computer-use-run";
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = 90000;

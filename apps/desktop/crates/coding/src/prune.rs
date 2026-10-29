@@ -198,6 +198,62 @@ pub fn worktree_dirty_state(worktree: &Path) -> DirtyState {
 /// effective default when its `origin/<b>` ref exists locally, else the
 /// clone's `origin/HEAD` symref, else the trunk's checked-out branch. `None`
 /// when nothing verifies — never a fabricated `main`/`master`.
+/// S-4: the branches of OPEN (not ended) sessions, split by what the
+/// worktree cleanup may do with them now that nothing ends an idle chat.
+/// `settled` = the session's whole tree is idle (nothing working, nobody
+/// asked) and it has pull requests, every one merged: its worktree may go,
+/// but only when clean (never parked, never with uncommitted changes).
+/// `keep` = every other open session's branch: never touched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OpenBranches {
+    pub keep: HashSet<String>,
+    pub settled: HashSet<String>,
+}
+
+/// [`OpenBranches`] over the synced `sessions` and `pull_requests` rows.
+pub fn open_branches<'a>(
+    sessions: impl IntoIterator<Item = &'a domain::rows::SessionRow>,
+    pulls: impl IntoIterator<Item = &'a domain::rows::PullRequestRow>,
+) -> OpenBranches {
+    use domain::session_tree::{session_state, SessionState};
+    let sessions: Vec<&domain::rows::SessionRow> = sessions.into_iter().collect();
+    let mut busy_roots: HashSet<&str> = HashSet::new();
+    for session in &sessions {
+        if matches!(session_state(session), SessionState::Working | SessionState::NeedsYou) {
+            busy_roots.insert(session.root_id_or_self());
+        }
+    }
+    // root id → (any PR, every PR merged).
+    let mut prs: std::collections::HashMap<&str, (bool, bool)> = std::collections::HashMap::new();
+    for pr in pulls {
+        let Some(root) = pr.root_session_id.as_deref().or(pr.session_id.as_deref()) else {
+            continue;
+        };
+        let entry = prs.entry(root).or_insert((false, true));
+        entry.0 = true;
+        entry.1 &= pr.is_merged();
+    }
+    let mut open = OpenBranches::default();
+    for session in sessions {
+        if session.is_ended() {
+            continue;
+        }
+        let Some(branch) = session.branch.clone().filter(|branch| !branch.is_empty()) else {
+            continue;
+        };
+        let root = session.root_id_or_self();
+        let settled = !busy_roots.contains(root) && prs.get(root).is_some_and(|&(any, merged)| any && merged);
+        if settled {
+            open.settled.insert(branch);
+        } else {
+            open.keep.insert(branch);
+        }
+    }
+    // A branch two open sessions share is kept if either needs it.
+    open.settled.retain(|branch| !open.keep.contains(branch));
+    open
+}
+
 pub fn effective_default_branch(clone: &Path, server_default: Option<&str>) -> Option<String> {
     let verified = |branch: &str| -> bool {
         validate_branch_arg(branch, "prune default branch").is_ok()
@@ -578,6 +634,9 @@ pub struct SweepPolicy {
     /// The server-resolved default branch — the landed check's base for a
     /// worktree no run record names (see [`effective_default_branch`]).
     pub default_branch: Option<String>,
+    /// S-4: the open sessions' branches ([`open_branches`]): a `keep` one is
+    /// never swept, a `settled` one only while it has no tracked changes.
+    pub open: OpenBranches,
 }
 
 impl Default for SweepPolicy {
@@ -586,6 +645,7 @@ impl Default for SweepPolicy {
             max_age: SWEEP_MAX_AGE,
             live: Default::default(),
             default_branch: None,
+            open: OpenBranches::default(),
         }
     }
 }
@@ -665,6 +725,15 @@ pub fn sweep_stale_worktrees(
         let Some(branch) = entry.branch.clone() else {
             continue; // detached: no branch to reason about
         };
+        // S-4: an open chat's worktree is what its next message resumes in:
+        // it goes only once its tree is idle with every PR merged, and
+        // never with uncommitted changes (nothing is parked for a live chat).
+        if policy.open.keep.contains(&branch)
+            || (policy.open.settled.contains(&branch)
+                && worktree_dirty_state(&entry.path) == DirtyState::TrackedChanges)
+        {
+            continue;
+        }
         let mut mine: Vec<&crate::run_registry::RunRecord> = records
             .iter()
             .filter(|record| canonical(&record.cwd) == path)
@@ -1383,6 +1452,76 @@ mod tests {
         assert_eq!(report.finished.len(), 2, "{report:?}");
         assert!(report.leftovers().is_empty());
         assert!(!recent.exists() && !young.exists());
+    }
+
+    /// S-4: an open chat's worktree survives the sweep unless its tree is
+    /// idle with every PR merged — and even then never with uncommitted
+    /// changes (nothing parked for a live chat).
+    #[test]
+    fn the_sweep_spares_open_chats_until_settled_and_clean() {
+        let dir = temp_dir("sweep-open");
+        let (_origin, clone) = seed(&dir.0);
+        let data_dir = dir.0.join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        let old = Duration::from_secs(3 * 24 * 60 * 60);
+        let kept = worktree(&clone, "exp/session-open1");
+        let dirty = worktree(&clone, "exp/session-open2");
+        let clean = worktree(&clone, "exp/session-open3");
+        fs::write(dirty.join("README.md"), "edited\n").unwrap();
+        for path in [&kept, &dirty, &clean] {
+            age_by(path, old);
+        }
+        let policy = SweepPolicy {
+            open: OpenBranches {
+                keep: HashSet::from(["exp/session-open1".to_string()]),
+                settled: HashSet::from(["exp/session-open2".to_string(), "exp/session-open3".to_string()]),
+            },
+            ..SweepPolicy::default()
+        };
+        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &policy);
+        let branches: Vec<&str> = report.finished.iter().map(|swept| swept.branch.as_str()).collect();
+        assert_eq!(branches, vec!["exp/session-open3"], "{report:?}");
+        assert!(report.leftovers().is_empty());
+        assert!(kept.exists() && dirty.exists() && !clean.exists());
+    }
+
+    /// S-4: a tree is settled only when nothing in it works or asks and it
+    /// has PRs, every one merged; ended sessions name no branch.
+    #[test]
+    fn open_branches_splits_settled_trees() {
+        use domain::rows::{PullRequestRow, SessionRow};
+        let row = |id: &str, root: Option<&str>, status: &str, branch: &str| SessionRow {
+            id: id.to_string(),
+            root_id: root.map(str::to_string),
+            status: Some(status.to_string()),
+            branch: Some(branch.to_string()),
+            ..SessionRow::default()
+        };
+        let pr = |root: &str, state: &str| -> PullRequestRow {
+            serde_json::from_value(serde_json::json!({
+                "id": format!("pr-{root}-{state}"),
+                "root_session_id": root,
+                "state": state,
+            }))
+            .unwrap()
+        };
+        let mut busy_child = row("b1", Some("b"), "running", "exp/b1");
+        busy_child.busy = true;
+        let sessions = vec![
+            row("a", None, "idle", "exp/a"),
+            row("b", None, "idle", "exp/b"),
+            busy_child,
+            row("c", None, "idle", "exp/c"),
+            row("d", None, "idle", "exp/d"),
+            row("e", None, "ended", "exp/e"),
+        ];
+        let pulls = vec![pr("a", "merged"), pr("b", "merged"), pr("c", "merged"), pr("c", "open")];
+        let open = open_branches(&sessions, &pulls);
+        assert_eq!(open.settled, HashSet::from(["exp/a".to_string()]));
+        assert_eq!(
+            open.keep,
+            HashSet::from(["exp/b".to_string(), "exp/b1".to_string(), "exp/c".to_string(), "exp/d".to_string()])
+        );
     }
 
     /// A live run's worktree is never swept, however old — by its record's

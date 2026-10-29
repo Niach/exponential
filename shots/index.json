@@ -817,8 +817,8 @@
         "file": "shots/composer-menu/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 46254,
-        "sha256": "449e29496b18e939d05e6076c25c740d446e6906c91a1920c26b18f3c272fd2b"
+        "bytes": 42908,
+        "sha256": "54ff32c3364d162594ff81b8420373200ef26529db04e4cd328b7e18a02e7081"
       }
     },
     "composer-slash-menu": {
@@ -4493,8 +4493,8 @@
         "file": "shots/settings-assistant/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 37130,
-        "sha256": "ba57d8e076c275b5bd3b241a4cd998a156836f8d932f79b3cd3a44a0809fa1a0"
+        "bytes": 32524,
+        "sha256": "c56bda14b7eb7d3c2d26c4da2c260a056af2abaadf4b4f807a9ecdec5df33ebe"
       },
       "web": {
         "file": "shots/settings-assistant/web.webp",
@@ -5308,8 +5308,8 @@
         "file": "shots/voice-call/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 54444,
-        "sha256": "7f3b51b61347104310e1a692f050e8fb920b1857cce86732ac9c16c7879f9881"
+        "bytes": 52926,
+        "sha256": "890b76d8be885ffa06d035ad188be2f2a2d7c77ffd9f81252a6ee743c3cfe84c"
       },
       "web-mobile": {
         "file": "shots/voice-call/web-mobile.webp",
@@ -5331,8 +5331,8 @@
         "file": "shots/voice-call-overlay/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 39864,
-        "sha256": "82bbfe4b4be5ef2c998f64b71484a0a5a7e5016d83095237d232e18735cb2df3"
+        "bytes": 38342,
+        "sha256": "4eaa17becdfb7a5987391ad22968fa07bd1296bc46cece541ac562dc9135b083"
       },
       "web-mobile": {
         "file": "shots/voice-call-overlay/web-mobile.webp",

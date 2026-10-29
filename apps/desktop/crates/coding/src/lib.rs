@@ -161,7 +161,7 @@ pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
 pub use prune::{
-    prune_landed, settle_sweep_report, sweep_stale_worktrees, sweep_stale_worktrees_if_due,
+    open_branches, prune_landed, OpenBranches, settle_sweep_report, sweep_stale_worktrees, sweep_stale_worktrees_if_due,
     PrunePolicy, PruneReport, SkipReason, SweepPolicy, SweepReport, SweptWorktree, SWEEP_INTERVAL,
     SWEEP_MAX_AGE,
 };
