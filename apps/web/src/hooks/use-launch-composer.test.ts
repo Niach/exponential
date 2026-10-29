@@ -339,6 +339,33 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.recipient).toBeNull()
   })
 
+  it(`S-3: a seeded issue starts the row on Temporary session (composer-home.json seedCases)`, () => {
+    const { result } = mount({ issueIds: [`i1`] }, [device], true)
+    expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
+    expect(result.current.agentRow?.selected).toBe(`temporary`)
+    expect(result.current.recipient).toBeNull()
+    // A tap on an agent afterwards wins; the chipped issue rides along.
+    act(() => result.current.pickRecipient(`ag-1`))
+    expect(result.current.recipient?.id).toBe(`ag-1`)
+    expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
+  })
+
+  it(`S-3: a device seed starts the row on Temporary session`, () => {
+    const { result } = mount({ issueIds: [], deviceId: `dev-1` }, [device], true)
+    expect(result.current.agentRow?.selected).toBe(`temporary`)
+  })
+
+  it(`S-3: picking an issue or a prompt moves the row to Temporary session (subjectCases)`, () => {
+    const { result } = mount(null, [device], true)
+    expect(result.current.recipient?.id).toBe(`ag-me`)
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.agentRow?.selected).toBe(`temporary`)
+    act(() => result.current.pickRecipient(`ag-1`))
+    act(() => result.current.pickPrompt(`pr-1`))
+    expect(result.current.agentRow?.selected).toBe(`temporary`)
+    expect(result.current.subject).toEqual({ kind: `prompt`, id: `pr-1` })
+  })
+
   it(`consumes a seed once: issues, text only into an empty draft`, () => {
     const { result, onSeedConsumed } = mount({ issueIds: [`i1`, `i1`], text: `do it` })
     expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
@@ -370,6 +397,16 @@ describe(`useLaunchComposer start`, () => {
     // The draft is done with.
     expect(result.current.subject).toBeNull()
     expect(result.current.text).toBe(``)
+  })
+
+  it(`S-3: a seeded issue sends a launch with the issue, not a message to the Assistant`, async () => {
+    const { result } = mount({ issueIds: [`i1`] }, [device], true)
+    act(() => result.current.setText(`fix it`))
+    await act(() => result.current.submit())
+    expect(mockState.send).toHaveBeenCalledTimes(1)
+    const input = mockState.send.mock.calls[0]![0]
+    expect(input).toMatchObject({ teamId: `t1`, deviceId: `dev-1`, issueIds: [`i1`] })
+    expect(input).not.toHaveProperty(`agentId`)
   })
 
   it(`S-3: a picked agent sends sessions.send({agentId}) and opens its chat`, async () => {
