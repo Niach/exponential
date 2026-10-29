@@ -24,7 +24,7 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="device" num="01" label="The voice device">
           <h2>The voice device</h2>
           <p>
-            One of your desktops listens and speaks for you. Pick it in Settings → Voice, with the agent it talks to. Phones and
+            One of your desktops listens and speaks for you. Pick it in Settings → Assistant, with the agent it talks to. Phones and
             servers can&apos;t be the voice device.
           </p>
           <p>
@@ -65,7 +65,7 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="coming" num="05" label="Coming">
           <h2>Coming</h2>
           <p>
-            Calling your agent from your phone, and a wake word. The wake word switch is already in Settings → Voice;
+            Calling your agent from your phone, and a wake word. The wake word switch is already in Settings → Assistant;
             nothing listens for it yet.
           </p>
         </DocsSection>

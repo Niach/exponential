@@ -47,9 +47,9 @@ const TOOL_GROUPS: {
     heading: `Sessions and agents`,
     tools: [
       { name: `exponential_sessions_send`, desc: `THE session verb, no op: sessionId messages a session (answer answers its open question or plan; stop: true interrupts its turn; issueIds forwards issues; account switches its login; deviceId moves it), agentId messages a team agent (your own conversation with it), appId your app editor session, parentId starts a child, neither starts a thread (text, issueIds, promptId, repositoryId; deviceId required). Every transition of a session comes back as a message.` },
-      { name: `exponential_sessions`, desc: `op get (a session tree: title, issues, PRs, Guide, children, latest messages; no id = your own), list, link, unlink, end.` },
-      { name: `exponential_session_self`, desc: `Inside a session only: op ask (one rich question card), plan (plan mode's card), suggest (one-tap replies or follow-up tasks), show (an inline Exponential UI preview in the chat), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
-      { name: `exponential_guide_write`, desc: `The thread's one Guide, the body of every PR in it: per topic 2-3 sentences plus the files it touched; label mints a picture upload; remove drops a picture, a text or a topic.` },
+      { name: `exponential_sessions`, desc: `op get (a session tree: title, issues, PRs, children, latest messages; no id = your own), list, link, unlink, end.` },
+      { name: `exponential_session_self`, desc: `Inside a session only: op suggest (one-tap replies or follow-up tasks), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
+      { name: `exponential_show`, desc: `Inside a session only, no op: one card in the chat per turn (an Exponential UI surface, a question with options, or a plan with questions; replace: true updates it). Questions, plans and cards with pictures are stories: they land in the Stories rings on top of Chats, and the pictures (labels starting web, ios, android or desktop, each uploaded with the returned curl line) are what a PR body shows.` },
       { name: `exponential_devices`, desc: `op list (the machines running sessions, their agents and logins), account_login.` },
       { name: `exponential_events`, desc: `op emit (a named event with a payload; every agent with a trigger on that name wakes), list.` },
       { name: `exponential_notifications`, desc: `op list, mark_read.` },
@@ -268,7 +268,7 @@ npx mcp-remote ${LINKS.app.mcp}
             </p>
             <DocsCallout kind="note" title="The same tools for every caller">
               Every client sees all 16. An op that only makes sense inside an
-              agent session the launcher started (the Guide, the self ops) or
+              agent session the launcher started (show, the self ops) or
               on the cloud (report_bug) answers with a message saying so
               instead of hiding.
             </DocsCallout>

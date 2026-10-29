@@ -1,5 +1,5 @@
 /* NEW-15: /talk/api/, the speech worker's wire (crates/talk/src/lib.rs),
-   CrispASR's types (crates/crispasr) and the Settings → Voice fields
+   CrispASR's types (crates/crispasr) and the Settings → Assistant fields
    (fixtures/voice.json, user_voice_settings). */
 import { DocsCallout, DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
