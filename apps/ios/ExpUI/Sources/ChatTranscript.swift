@@ -51,7 +51,8 @@ public enum ChatBubbleMetrics {
     public static let arrivalRise: CGFloat = 6
 }
 
-/// The agent's left bubble: its content on the card fill, the time at the
+/// The agent's left bubble: its content on THE card surface (GlassCard's
+/// opaque fill + card hairline, N-12 ONE gray), the time at the
 /// bottom-right.
 public struct AgentChatBubble<Content: View>: View {
     let time: String?
@@ -82,7 +83,7 @@ public struct AgentChatBubble<Content: View>: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(DesignTokens.Palette.card, in: shape)
+            .background(GlassTokens.opaqueCardFill, in: shape)
             .overlay(shape.stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
             // The column's last 6% stays free (max 94%).
             Spacer(minLength: ChatBubbleMetrics.agentTrailingGap)

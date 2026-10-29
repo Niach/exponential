@@ -27,7 +27,6 @@ import at.exponential.ui.compose.ExponentialSurface
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.motionDurationMs
@@ -35,9 +34,10 @@ import com.exponential.app.ui.theme.motionEasing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** The surface card's frame fill: opaque, so the children's stagger can veil
+/** The surface card's frame fill: THE card surface (N-12 ONE gray ×4, the
+ *  bubbles' and cards' fill), opaque so the children's stagger can veil
  *  their own regions in exactly the colour beneath them. */
-private val SurfaceFrameFill: Color = DesignTokens.Palette.Background
+private val SurfaceFrameFill: Color = GlassTokens.OpaqueCardFill
 
 /**
  * Thread 58cb32df (chats.json SURFACE CARD ×4): an agent's inline

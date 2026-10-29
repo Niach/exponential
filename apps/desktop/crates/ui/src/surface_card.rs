@@ -365,7 +365,8 @@ pub(crate) fn surface_frame(
                 .rounded(px(card.surface_radius))
                 .border_1()
                 .border_color(border)
-                .bg(theme::tokens::glass::FILL_ROW.to_hsla())
+                // THE card surface (N-12 ONE gray ×4), the bubbles' and cards' fill.
+                .bg(crate::dock::card_fill())
                 .overflow_hidden()
                 .map(|frame| match body {
                     Some(body) => frame.child(body),
