@@ -3023,10 +3023,7 @@
             "recipe": {
               "macro": "Separator",
               "part": "root",
-              "props": {},
-              "authored": [
-                "@media (max-width: $breakpoint.md)"
-              ]
+              "props": {}
             },
             "accessibility": {
               "role": "separator"
@@ -3187,10 +3184,7 @@
             "recipe": {
               "macro": "Separator",
               "part": "root",
-              "props": {},
-              "authored": [
-                "@media (max-width: $breakpoint.md)"
-              ]
+              "props": {}
             },
             "accessibility": {
               "role": "separator"
@@ -3351,10 +3345,7 @@
             "recipe": {
               "macro": "Separator",
               "part": "root",
-              "props": {},
-              "authored": [
-                "@media (max-width: $breakpoint.md)"
-              ]
+              "props": {}
             },
             "accessibility": {
               "role": "separator"
@@ -24020,10 +24011,7 @@
             "recipe": {
               "macro": "Separator",
               "part": "root",
-              "props": {},
-              "authored": [
-                "@media (max-width: $breakpoint.md)"
-              ]
+              "props": {}
             },
             "accessibility": {
               "role": "separator"

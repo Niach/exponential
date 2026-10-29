@@ -122,8 +122,8 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   template's structure + the author's style) < the macro part's recipe
   (Badge/label) < the style keys written ON the macro node (VAPP-163: the
   expander lists them, sorted, in the root's `recipe.authored`; condition
-  blocks count as one key each; for a nested macro the outer template's
-  merged style is the inner macro's author). Macro templates state only structure, spacing, radius and
+  blocks count as one key each; only the author's keys count, a macro
+  node an outer template drew passes on just its root's `authored`). Macro templates state only structure, spacing, radius and
   control heights; every colour and border is a recipe, so a theme restyles
   what a template drew.
 - **Surface settings** (round 1): `mode` light | dark | system
