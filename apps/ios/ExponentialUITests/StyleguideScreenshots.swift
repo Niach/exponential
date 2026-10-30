@@ -168,6 +168,11 @@ final class StyleguideScreenshots: XCTestCase {
 
         let app = makeScreenshotApp()
 
+        if Self.specimensOnly {
+            walkSpecimens(app)
+            return
+        }
+
         // ── sg_sign-in: the pre-login server chooser ─────────────────────────
         // EXP-1267: the simulator is no longer erased; `launchSignedOut`
         // relaunches the app in a fresh-install state with no account, so it
@@ -943,34 +948,7 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_device-readiness (EXP-1375) · sg_session-xref ·
         // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json): the
         // styleguide entries' specimens.
-        for entry in [
-            "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
-            "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-            "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-            "story-tab", "sealed-locked",
-        ] {
-            guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
-            openThreadCards(app, entry)
-            switch entry {
-            case "chat-list": snapshot("sg_chat-list", settle: 2)
-            case "phone-tab-bar": snapshot("sg_phone-tab-bar", settle: 2)
-            case "phone-board-menu": snapshot("sg_phone-board-menu", settle: 2)
-            case "phone-page-header": snapshot("sg_phone-page-header", settle: 2)
-            case "chat-transcript": snapshot("sg_chat-transcript", settle: 2)
-            case "chat-menus": snapshot("sg_chat-menus", settle: 2)
-            case "chat-selection": snapshot("sg_chat-selection", settle: 2)
-            case "mention-pill": snapshot("sg_mention-pill", settle: 2)
-            case "voice-call": snapshot("sg_voice-call", settle: 2)
-            case "call-controls": snapshot("sg_call-controls", settle: 2)
-            case "device-readiness": snapshot("sg_device-readiness", settle: 2)
-            case "session-xref": snapshot("sg_session-xref", settle: 2)
-            case "story-ring": snapshot("sg_story-ring", settle: 2)
-            case "story-viewer": snapshot("sg_story-viewer", settle: 2)
-            case "story-tab": snapshot("sg_story-tab", settle: 2)
-            case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
-            default: snapshot("sg_schedule-picker", settle: 2)
-            }
-        }
+        walkSpecimens(app)
         // ── sg_app-consent (VAPP-120, app-actions.json): the consent card an
         // app raises for an ungranted typed action, with the operation's own
         // words, drawn by the real card over a stand-in surface (the painted
@@ -1006,6 +984,50 @@ final class StyleguideScreenshots: XCTestCase {
         scrollUntilVisible(app, devicesRow, attempts: 4)
         expect(devicesRow, within: Wait.nav, "The Team page has no Devices row")
         devicesRow.tap()
+    }
+
+    /// The styleguide entries photographed as capture-only specimens
+    /// (`-uiTestingStyleguide <entry>`, signed out): no account, no seed.
+    static let specimenEntries = [
+        "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
+        "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
+        "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
+        "story-tab", "sealed-locked",
+    ]
+
+    /// A scoped run that wants only specimens (`--views sealed-locked`)
+    /// needs none of the seeded walk before them.
+    static var specimensOnly: Bool {
+        guard let requested = ScreenshotShots.requested, !requested.isEmpty else { return false }
+        let specimens = Set(specimenEntries.map { "sg_\($0)" })
+        return requested.isSubset(of: specimens)
+    }
+
+    @MainActor
+    private func walkSpecimens(_ app: XCUIApplication) {
+        for entry in Self.specimenEntries {
+            guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
+            openThreadCards(app, entry)
+            switch entry {
+            case "chat-list": snapshot("sg_chat-list", settle: 2)
+            case "phone-tab-bar": snapshot("sg_phone-tab-bar", settle: 2)
+            case "phone-board-menu": snapshot("sg_phone-board-menu", settle: 2)
+            case "phone-page-header": snapshot("sg_phone-page-header", settle: 2)
+            case "chat-transcript": snapshot("sg_chat-transcript", settle: 2)
+            case "chat-menus": snapshot("sg_chat-menus", settle: 2)
+            case "chat-selection": snapshot("sg_chat-selection", settle: 2)
+            case "mention-pill": snapshot("sg_mention-pill", settle: 2)
+            case "voice-call": snapshot("sg_voice-call", settle: 2)
+            case "call-controls": snapshot("sg_call-controls", settle: 2)
+            case "device-readiness": snapshot("sg_device-readiness", settle: 2)
+            case "session-xref": snapshot("sg_session-xref", settle: 2)
+            case "story-ring": snapshot("sg_story-ring", settle: 2)
+            case "story-viewer": snapshot("sg_story-viewer", settle: 2)
+            case "story-tab": snapshot("sg_story-tab", settle: 2)
+            case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
+            default: snapshot("sg_schedule-picker", settle: 2)
+            }
+        }
     }
 
     /// EXP-1259: relaunch signed out onto one run-thread card specimen.
