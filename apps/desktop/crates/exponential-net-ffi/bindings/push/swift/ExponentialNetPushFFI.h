@@ -243,6 +243,22 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureRes
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_GENERATE_TREE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_GENERATE_TREE_KEY
+RustBuffer uniffi_exponential_net_ffi_fn_func_generate_tree_key(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_OPEN_BODY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_OPEN_BODY
+RustBuffer uniffi_exponential_net_ffi_fn_func_open_body(RustBuffer body, RustBuffer keys, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_OPEN_CARD
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_OPEN_CARD
+RustBuffer uniffi_exponential_net_ffi_fn_func_open_card(RustBuffer card_json, RustBuffer keys, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_DERIVE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_KEYPAIR_DERIVE
 RustBuffer uniffi_exponential_net_ffi_fn_func_push_keypair_derive(RustBuffer identity, RustCallStatus *_Nonnull out_status
@@ -262,6 +278,26 @@ RustBuffer uniffi_exponential_net_ffi_fn_func_push_open(RustBuffer recipient_sec
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_SEAL
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PUSH_SEAL
 RustBuffer uniffi_exponential_net_ffi_fn_func_push_seal(RustBuffer recipient_public, RustBuffer plaintext, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SEAL_BODY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SEAL_BODY
+RustBuffer uniffi_exponential_net_ffi_fn_func_seal_body(RustBuffer tree_public_key, uint32_t epoch, RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SEAL_CARD
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SEAL_CARD
+RustBuffer uniffi_exponential_net_ffi_fn_func_seal_card(RustBuffer tree_public_key, uint32_t epoch, RustBuffer card_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_UNWRAP_TREE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_UNWRAP_TREE_KEY
+RustBuffer uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(RustBuffer install_secret, RustBuffer wrapped, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_WRAP_TREE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_WRAP_TREE_KEY
+RustBuffer uniffi_exponential_net_ffi_fn_func_wrap_tree_key(RustBuffer install_public, RustBuffer tree_secret, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_NET_FFI_RUSTBUFFER_ALLOC
@@ -524,6 +560,24 @@ void ffi_exponential_net_ffi_rust_future_free_void(uint64_t handle
 void ffi_exponential_net_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_GENERATE_TREE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_GENERATE_TREE_KEY
+uint16_t uniffi_exponential_net_ffi_checksum_func_generate_tree_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_OPEN_BODY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_OPEN_BODY
+uint16_t uniffi_exponential_net_ffi_checksum_func_open_body(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_OPEN_CARD
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_OPEN_CARD
+uint16_t uniffi_exponential_net_ffi_checksum_func_open_card(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_KEYPAIR_DERIVE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_KEYPAIR_DERIVE
 uint16_t uniffi_exponential_net_ffi_checksum_func_push_keypair_derive(void
@@ -545,6 +599,30 @@ uint16_t uniffi_exponential_net_ffi_checksum_func_push_open(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_SEAL
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PUSH_SEAL
 uint16_t uniffi_exponential_net_ffi_checksum_func_push_seal(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SEAL_BODY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SEAL_BODY
+uint16_t uniffi_exponential_net_ffi_checksum_func_seal_body(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SEAL_CARD
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SEAL_CARD
+uint16_t uniffi_exponential_net_ffi_checksum_func_seal_card(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_UNWRAP_TREE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_UNWRAP_TREE_KEY
+uint16_t uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_TREE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_TREE_KEY
+uint16_t uniffi_exponential_net_ffi_checksum_func_wrap_tree_key(void
     
 );
 #endif

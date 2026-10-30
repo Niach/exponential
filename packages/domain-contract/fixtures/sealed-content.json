@@ -1,0 +1,662 @@
+{
+  "$comment": "EXP-1458 (design #EXP-1457): sealed session content, the ONE wire format every platform reads and writes. Replayed x4 through each platform's reference: TS packages/domain-contract/src/sealed-content.ts, Rust enet-core sealed.rs (exported as free functions by exponential-net-ffi, full AND push-only build, and by exponential-net-wasm), Swift + Kotlin through the UniFFI binding. PRIMITIVE: `push_seal(recipient_x25519_public, plaintext)` from enet-core push.rs, byte-exact (fixtures/push-seal.json); secrets are lowercase hex here, everything that travels (public keys, wrapped keys, envelopes) is base64url WITHOUT padding, canonical (a padded, non-alphabet or non-zero-trailing-bits encoding is malformed). TREE KEY: one X25519 keypair per session tree (root) and EPOCH (1-based, <= 2147483647). The ROOT row carries `sessions.seal_public_key` (base64url of 32 bytes, 43 chars) and `sessions.seal_epoch` (int, the current epoch); both NULL until a key exists. `session_keys(root_id, epoch, install_id, wrapped, created_by_install_id, created_at)`, unique (root_id, epoch, install_id): `wrapped` = base64url(push_seal(installs.x25519_public, tree_secret[32])) = 81 bytes. `generateTreeKey()` = 32 random secret bytes + their clamped X25519 public; `wrapTreeKey(installPublic, treeSecret)` / `unwrapTreeKey(installSecret, wrapped)` (fails unless it opens to exactly 32 bytes). READERS of a tree (the server computes them, tRPC sessionKeys): every non-revoked install of the root's starter (`sessions.user_id`) while a member of the root's team; every non-revoked install of every team member when the root is `shared`; the non-revoked installs bound (`installs.device_id`) to the HOST devices row (lib/sessions/host.ts: the starter's own row for the session's `device_id`, else the first row sharing the team) of ANY session in the tree. Nothing crosses teams. BODY ENVELOPE (`messages.body`, `sessions.sealed_title`, text): `exp-sealed:v1:<epoch>:<b64url push_seal(tree_public, utf8(text))>`. A body without the `exp-sealed:` prefix is plaintext and stays legal (server lines, older rows). Parse: after the prefix, the version runs to the next `:` (or the end); a version other than `v1` = `unsupported` (never an error, never shown as text); for v1 the epoch is decimal without leading zeros, 1..2147483647, then `:` and the payload, which must decode to at least the 49-byte seal overhead; anything else = `malformed`. Open (`openBody(body, keys by epoch)`) gives exactly one status: `plain` (text = the body), `opened` (epoch, text), `noKey` (epoch: this install holds no secret for that epoch yet: show a locked placeholder and wait for the wrap), `unsupported`, `malformed`, `refused` (epoch: the secret did not authenticate it, or the plaintext is not UTF-8). CARD ENVELOPE (`messages.card`, jsonb): `{...clear, \"sealed\": \"v1:<epoch>:<b64url push_seal(tree_public, utf8(JSON(full card)))>\"}` (the same sealed-value grammar as the body after its prefix). CLEAR fields (`cardClearFields`): `kind` plus only what routing needs: messageId, sessionId, issueId, pullRequestId, event, status, final, decision, fresh, answered; each is copied from the full card when set (null/absent = omitted) except `answered`, which is `true` when the card carries `answer` or `answers` (or `answered: true`) and absent otherwise. EVERYTHING else (question, options, plan, questions, pictures, surface, summary, answers, title, caption, items, text, headSha...) exists only inside `sealed`, and the sealed JSON is the FULL card (the clear fields included). `splitCard(card)` = {clear, plaintext}; `card.splits` lists EVERY MessageCard kind (packages/db-schema domain.ts) with its clear part, its plaintext and its envelope. The plaintext's key order and whitespace are NOT part of the contract (readers parse it); the vectors are written with sorted keys and no whitespace so sorting serializers (serde_json, JSONSerialization .sortedKeys) reproduce `plaintext` and `envelope` byte-exact, and every platform must at least open every envelope to `card`. Answering re-seals the FULL card with the answers and sets the clear `decision` / `answered`. `openCard(card, keys)`: no `sealed` field = `plain` (the card as is); `sealed` not a string = `malformed`; otherwise the body statuses; `opened` = the sealed card with the clear fields laid OVER it (the server may update clear flags such as `decision: superseded` without re-sealing); a sealed card whose `kind` differs from the clear `kind`, or that is not a JSON object, = `refused`; any status but plain/opened returns the clear part alone (show the kind's locked placeholder). SEALED TITLE: `sessions.sealed_title` = a body envelope; the plaintext `title` stays a neutral fallback. KEY API (tRPC `sessionKeys`, authed; the caller must own the `installId` it names, not revoked): `create {rootId, installId, epoch, publicKey, wraps:[{installId, wrapped}]}` (epoch 1 when the root has no key, or `seal_epoch + 1` by the root's starter or an install of the executing device; the caller's install must be a reader and must be among the wraps; every wrap targets a reader); `mine {installId, rootIds?}` -> [{rootId, epoch, wrapped}]; `pending {installId, limit<=200}` -> [{rootId, epoch, publicKey, targetInstallId, targetX25519Public}] = readers without a wrap for the current epoch on roots where installId holds the current epoch (and is still a reader); automatic, no approval; `wrap {installId, wraps:[{rootId, epoch, targetInstallId, wrapped}]}` only for pairs `pending` lists (a pair another holder wrapped meanwhile is skipped); `publicKeys {rootIds}` -> [{rootId, epoch, publicKey}] for keyed roots the caller may read or send to (keyless or invisible roots are omitted). VECTORS: `tree` (epoch 1) and `rotatedTree` (epoch 2) = fixed secrets and their public keys; `install` = an install's X25519 secret and public; `wrap` = wrapping `wrap.treeSecret` for `wrap.installPublic` with the fixed `wrap.ephemeralSecret` gives exactly `wrapped`, which unwraps with `install.secret`; `body` = sealing `body.text` with `body.ephemeralSecret` (test code only; production draws a fresh ephemeral per seal) gives exactly `body.envelope`; `card.splits` = per kind, `card` splits into `clear` + `plaintext` and seals (with `card.ephemeralSecret`, epoch 1) to exactly `envelope`; `bodyCases` / `cardCases` open with `keys` (epoch -> tree secret hex) to the given status, epoch and text / card.",
+  "cardClearFields": [
+    "kind",
+    "messageId",
+    "sessionId",
+    "issueId",
+    "pullRequestId",
+    "event",
+    "status",
+    "final",
+    "decision",
+    "fresh",
+    "answered"
+  ],
+  "tree": {
+    "epoch": 1,
+    "secret": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "publicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ"
+  },
+  "rotatedTree": {
+    "epoch": 2,
+    "secret": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+    "publicKey": "Z13VdO13iTELPS52gfN5C0ZsdzsVIf7PNld5WDcepS8"
+  },
+  "install": {
+    "secret": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+    "x25519Public": "YFpyXSpK3-6xop4X7dYhwbdZPujNvESsbEq24vgF0jw"
+  },
+  "wrap": {
+    "ephemeralSecret": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+    "treeSecret": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "installPublic": "YFpyXSpK3-6xop4X7dYhwbdZPujNvESsbEq24vgF0jw",
+    "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11E6EeH8uSz-edwQGZU1jJHdByTUhciGDkq1xHI7GPNYW3UWrIZNugvynIC4Y-pvPtA",
+    "bytes": 81
+  },
+  "body": {
+    "ephemeralSecret": "e0dfdedddcdbdad9d8d7d6d5d4d3d2d1d0cfcecdcccbcac9c8c7c6c5c4c3c2c1",
+    "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+    "epoch": 1,
+    "text": "Ship it — grüße ✓!",
+    "envelope": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg"
+  },
+  "card": {
+    "ephemeralSecret": "9f9e9d9c9b9a999897969594939291908f8e8d8c8b8a89888786858483828180",
+    "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+    "epoch": 1,
+    "splits": [
+      {
+        "name": "question (open)",
+        "card": {
+          "custom": true,
+          "kind": "question",
+          "multi": false,
+          "optionDescriptions": [
+            "The server",
+            null
+          ],
+          "options": [
+            "Postgres",
+            "SQLite"
+          ],
+          "question": "Which database?"
+        },
+        "clear": {
+          "kind": "question"
+        },
+        "plaintext": "{\"custom\":true,\"kind\":\"question\",\"multi\":false,\"optionDescriptions\":[\"The server\",null],\"options\":[\"Postgres\",\"SQLite\"],\"question\":\"Which database?\"}",
+        "envelope": {
+          "kind": "question",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZM2AJriJcdhMisLfh21tMlDmrEfktdI15eESxl28XTBFJi8zr2Az5YTLu9ab9OZmLqBiyUobS-DSTjJj7AWH3FN2VltYJyOS4mxEiNFaFHY_AWaazy40nl4z45iYm97hQUar85L1HmqyrZR9JdutyuztVoNhxN8Gbu-OyyW8JfIqa5l6nv5JsYtawT7tPrX0kjb6iJZNEHdgJHEIgIvyp_K3Hi"
+        }
+      },
+      {
+        "name": "question (answered)",
+        "card": {
+          "answer": "Postgres",
+          "answers": [
+            "Postgres"
+          ],
+          "kind": "question",
+          "options": [
+            "Postgres",
+            "SQLite"
+          ],
+          "question": "Which database?"
+        },
+        "clear": {
+          "kind": "question",
+          "answered": true
+        },
+        "plaintext": "{\"answer\":\"Postgres\",\"answers\":[\"Postgres\"],\"kind\":\"question\",\"options\":[\"Postgres\",\"SQLite\"],\"question\":\"Which database?\"}",
+        "envelope": {
+          "kind": "question",
+          "answered": true,
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZOwwJogogdhJ6ON-4uk8opEyzKZghCJUxIFzYoj7zddlBk6yntRHcccPvsZ_oCbTCkTTKPgKK5BznkdGaLWGPCfDBQ5PQgBywFzkmPF6EAPLxPJ5P-gwL-9mgNysW_uUs8PIY5Mge7-xjCDJ0XyemD08BvdTIE7TXmki23A5y6jU2JfA60IfftTg"
+        }
+      },
+      {
+        "name": "plan (waiting)",
+        "card": {
+          "fresh": false,
+          "kind": "plan",
+          "pictures": [
+            {
+              "attachmentId": "00000000-0000-4000-8000-0000000000a1",
+              "height": 600,
+              "label": "web-before",
+              "width": 800
+            }
+          ],
+          "plan": "## Plan\n1. Schema\n2. Router",
+          "questions": [
+            {
+              "id": "scope",
+              "options": [
+                {
+                  "label": "All"
+                }
+              ],
+              "prompt": "Scope?"
+            }
+          ]
+        },
+        "clear": {
+          "kind": "plan",
+          "fresh": false
+        },
+        "plaintext": "{\"fresh\":false,\"kind\":\"plan\",\"pictures\":[{\"attachmentId\":\"00000000-0000-4000-8000-0000000000a1\",\"height\":600,\"label\":\"web-before\",\"width\":800}],\"plan\":\"## Plan\\n1. Schema\\n2. Router\",\"questions\":[{\"id\":\"scope\",\"options\":[{\"label\":\"All\"}],\"prompt\":\"Scope?\"}]}",
+        "envelope": {
+          "kind": "plan",
+          "fresh": false,
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZJ3xRsj9gF2N2yK_h21tMlDmrEfktcOlpDR2koxY6cUkpl-j29G19FD7a6ePIPYX_7ATezgfP3TGa6ZnqZByOGOG8Op-Y3aD5lkRfDQONVYq5TNfCf_1u6o3ox18Xi7kYqIYg-KAe773-aSdwTiO-Hy4M3NjYEsDr5-PmpQMgTLL7sqaXy79EC6f1X8uymDlxwLLvO0TIzRknfMnseFSvtzoL9fEhkVtwUmYEy1x8g-_KzXuWleKmkSJRz_xEKzunNBrVXP8kf1O1VAaXjxl4pGteUeT3ng0sA_9L-Tl0RfKj5BMS4G8m52gIZgnJV_ZwhQ2Xivt6lXEqAx4R2gL_Hcq2n-Rrx_Ece9n2mLjo1pw"
+        }
+      },
+      {
+        "name": "plan (approved)",
+        "card": {
+          "answers": {
+            "scope": [
+              "All"
+            ]
+          },
+          "decision": "approved",
+          "feedback": "Go",
+          "fresh": true,
+          "kind": "plan",
+          "plan": "## Plan\n1. Schema"
+        },
+        "clear": {
+          "kind": "plan",
+          "decision": "approved",
+          "fresh": true,
+          "answered": true
+        },
+        "plaintext": "{\"answers\":{\"scope\":[\"All\"]},\"decision\":\"approved\",\"feedback\":\"Go\",\"fresh\":true,\"kind\":\"plan\",\"plan\":\"## Plan\\n1. Schema\"}",
+        "envelope": {
+          "kind": "plan",
+          "decision": "approved",
+          "fresh": true,
+          "answered": true,
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZOwwJogohMnIaleu45m8gpQjS9ZihAOhlwGGko0YKcT0x-8CC9GyZfXae8Y-UJbTCyTSWfgLWvDzXhdHCLcHyUOX1Y5bNpNCxv1UiOFf9HJPcNYeKV7Rvm8iRyysW-oE8hatV0fwahiSPLC6IR2KPC9MJlcSwA8GoEddXv-vUn1PjqJ3FdIdIl"
+        }
+      },
+      {
+        "name": "subagent",
+        "card": {
+          "kind": "subagent",
+          "status": "running",
+          "summary": "Found three callers",
+          "title": "Explore the router"
+        },
+        "clear": {
+          "kind": "subagent",
+          "status": "running"
+        },
+        "plaintext": "{\"kind\":\"subagent\",\"status\":\"running\",\"summary\":\"Found three callers\",\"title\":\"Explore the router\"}",
+        "envelope": {
+          "kind": "subagent",
+          "status": "running",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZExB97xcAdzcm8Ofo_msxuTCyVMAhYI0gPX2d4wImRT1FwvWK9UnFTQLa8dbFWK1TxGi2exaWlHDPvdinIW3_TZywcu_RuNXo5xBjBUpYdP_IMd6WPuwPvszg_k5OrvgwynXjPTol0DfFdh9AY6PJotA"
+        }
+      },
+      {
+        "name": "session",
+        "card": {
+          "kind": "session",
+          "sessionId": "00000000-0000-4000-8000-000000000001"
+        },
+        "clear": {
+          "kind": "session",
+          "sessionId": "00000000-0000-4000-8000-000000000001"
+        },
+        "plaintext": "{\"kind\":\"session\",\"sessionId\":\"00000000-0000-4000-8000-000000000001\"}",
+        "envelope": {
+          "kind": "session",
+          "sessionId": "00000000-0000-4000-8000-000000000001",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZExB97xcAdzdmtK_Q1mppgQn2DNxpFOVVkAWcwl9fPFg8nr36vDDQOHefjOKNcOT-mX3PKyOH9Xma6ZnqZByOGJH1DXDVX6_2-BpP0v7HjIiqLJA"
+        }
+      },
+      {
+        "name": "picture",
+        "card": {
+          "attachmentId": "00000000-0000-4000-8000-0000000000a2",
+          "caption": "The new dock",
+          "height": 720,
+          "kind": "picture",
+          "width": 1280
+        },
+        "clear": {
+          "kind": "picture"
+        },
+        "plaintext": "{\"attachmentId\":\"00000000-0000-4000-8000-0000000000a2\",\"caption\":\"The new dock\",\"height\":720,\"kind\":\"picture\",\"width\":1280}",
+        "envelope": {
+          "kind": "picture",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZO2QV-hJJS29KqEfl4zpp8UD7WdFkcZhYdVXU6mNPPFg86p36vESkOHef-PKNcOSKuDnHYyfOuDyb-PyXHFSmUQTdbt7h_Ky4xzlmQUv9HJ_sKYqjb7VG9oXp8xIynokptcs0mNUb1rD3PR9JdnuSG08kvLnBT6ifmNUG50iQJXSq-hXKtccYy8Q"
+        }
+      },
+      {
+        "name": "event",
+        "card": {
+          "event": "pr_merge_refused",
+          "headSha": "0a1b2c3d",
+          "issueId": "00000000-0000-4000-8000-000000000011",
+          "kind": "event",
+          "pullRequestId": "00000000-0000-4000-8000-000000000021",
+          "sessionId": "00000000-0000-4000-8000-000000000001"
+        },
+        "clear": {
+          "kind": "event",
+          "sessionId": "00000000-0000-4000-8000-000000000001",
+          "issueId": "00000000-0000-4000-8000-000000000011",
+          "pullRequestId": "00000000-0000-4000-8000-000000000021",
+          "event": "pr_merge_refused"
+        },
+        "plaintext": "{\"event\":\"pr_merge_refused\",\"headSha\":\"0a1b2c3d\",\"issueId\":\"00000000-0000-4000-8000-000000000011\",\"kind\":\"event\",\"pullRequestId\":\"00000000-0000-4000-8000-000000000021\",\"sessionId\":\"00000000-0000-4000-8000-000000000001\"}",
+        "envelope": {
+          "kind": "event",
+          "sessionId": "00000000-0000-4000-8000-000000000001",
+          "issueId": "00000000-0000-4000-8000-000000000011",
+          "pullRequestId": "00000000-0000-4000-8000-000000000021",
+          "event": "pr_merge_refused",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZK2xRxk9gFnMysB_A_ht8pP3yDIhxfM18PSWdi0IabdVd2vXS9EWUPT-WtP_dOJTD3HDCPgJipTGyoZnqZByOGJW8Tp-YqbCNhkQrLXetVf65ONfCf_1u6o3pg1tb_7gJtI4Y4OAe7-yrcAJALy6HA19RheBMEo2L-7uuPVo8LIqyr8PG2t8MI_P1Xv4GnGBwsffjU2yAgSFm_bipAeXXs0JKcLgItGc4thMB1mCMG6qTsDve5aujhHdc3u05Ujfvaaf5FZoAF3v8WT_qjk0w1CIjUPWS43BpfbmKyqW4qhtDv3RAxbGJgnQ"
+        }
+      },
+      {
+        "name": "thread_started",
+        "card": {
+          "kind": "thread_started",
+          "sessionId": "00000000-0000-4000-8000-000000000002"
+        },
+        "clear": {
+          "kind": "thread_started",
+          "sessionId": "00000000-0000-4000-8000-000000000002"
+        },
+        "plaintext": "{\"kind\":\"thread_started\",\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "envelope": {
+          "kind": "thread_started",
+          "sessionId": "00000000-0000-4000-8000-000000000002",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZExB97xcAdytSsPfw-q8s4AXySIQ0OehleADZ53IiRb1s1pWyvETQOHef-PL5cOSKuQnfK1eHgVma6ZmeZByOGJW8Op-YqbDx33FfVRSPb2078jkzKvwgxWSQ"
+        }
+      },
+      {
+        "name": "report",
+        "card": {
+          "final": true,
+          "kind": "report",
+          "sessionId": "00000000-0000-4000-8000-000000000003",
+          "summary": "Merged #1400; tests green"
+        },
+        "clear": {
+          "kind": "report",
+          "sessionId": "00000000-0000-4000-8000-000000000003",
+          "final": true
+        },
+        "plaintext": "{\"final\":true,\"kind\":\"report\",\"sessionId\":\"00000000-0000-4000-8000-000000000003\",\"summary\":\"Merged #1400; tests green\"}",
+        "envelope": {
+          "kind": "report",
+          "sessionId": "00000000-0000-4000-8000-000000000003",
+          "final": true,
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZJxB9-i9gFys6rPbF4n9EiBCzcZhtJJlRfEWcml5SaVUx-8CDWRSYED-f-PKNcOSKuQnPK1eHgWma6ZmeRByOGOG8Op-YqbD5lkQrLQ_FJbe0WaK3OvRKoqWgdg5WpqUpva95ibBW6-TvPFooMyeqQwsRjNjyt1N1fE9cAgQVMmp_87106"
+        }
+      },
+      {
+        "name": "ask",
+        "card": {
+          "kind": "ask",
+          "messageId": "00000000-0000-4000-8000-000000000031",
+          "sessionId": "00000000-0000-4000-8000-000000000003"
+        },
+        "clear": {
+          "kind": "ask",
+          "messageId": "00000000-0000-4000-8000-000000000031",
+          "sessionId": "00000000-0000-4000-8000-000000000003"
+        },
+        "plaintext": "{\"kind\":\"ask\",\"messageId\":\"00000000-0000-4000-8000-000000000031\",\"sessionId\":\"00000000-0000-4000-8000-000000000003\"}",
+        "envelope": {
+          "kind": "ask",
+          "messageId": "00000000-0000-4000-8000-000000000031",
+          "sessionId": "00000000-0000-4000-8000-000000000003",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZExB97xcAd38-1erF4md0_E2-BISBIdAEPVXU6hdfPFg86r36vESkKHef-IatcOSKzX3PK1eH9Xma6ZnmYFT-UZjpN5L91MkcxgwDZQONVf65TNfCC_1u6o2dk1tf-4RZ_eN97bBWx6X-aVc5P2b3RhdwJdK5cogFxOOmbNfUVAC8L"
+        }
+      },
+      {
+        "name": "suggestions",
+        "card": {
+          "items": [
+            {
+              "id": "s1",
+              "issueId": "00000000-0000-4000-8000-000000000012",
+              "text": "Cover the readers rule",
+              "title": "Add tests"
+            }
+          ],
+          "kind": "suggestions"
+        },
+        "clear": {
+          "kind": "suggestions"
+        },
+        "plaintext": "{\"items\":[{\"id\":\"s1\",\"issueId\":\"00000000-0000-4000-8000-000000000012\",\"text\":\"Cover the readers rule\",\"title\":\"Add tests\"}],\"kind\":\"suggestions\"}",
+        "envelope": {
+          "kind": "suggestions",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZG2RRylNgF5cf8Mfl4zpo_USzKZgBfJU5ILCEoj8XPFg8nr36vESkOHef-IadcOSKzV3PK1fz9Xma6ZnqZByOGJG0cu_RuOXYhgwDZM7wTKuxDcajK7xnv8i41lJTuvlsjLc16flHorSPPR8RdqOmGh9VoZzUS8GrGsb2tW8NVIqa5s7Th4JZLpaQI4cKoUSIwLgKlsd6p9IcEUQmPPJ8"
+        }
+      },
+      {
+        "name": "replies",
+        "card": {
+          "items": [
+            {
+              "id": "r1",
+              "sent": false,
+              "text": "Yes, ship it"
+            }
+          ],
+          "kind": "replies"
+        },
+        "clear": {
+          "kind": "replies"
+        },
+        "plaintext": "{\"items\":[{\"id\":\"r1\",\"sent\":false,\"text\":\"Yes, ship it\"}],\"kind\":\"replies\"}",
+        "envelope": {
+          "kind": "replies",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZG2RRylNgF5cf8Mfl4zpo-USzKZhpJOE8PXyNr2ZSaCh1j-jbrAz4cdLK9ILMfYXvuTyqOx6yQQnThPyTNFSmUZzpO-79_LywozCEUyZlrqjMsIRntm_8dPA"
+        }
+      },
+      {
+        "name": "surface",
+        "card": {
+          "description": "Before and after",
+          "kind": "surface",
+          "story": true,
+          "surface": {
+            "root": {
+              "component": "Stack",
+              "id": "s"
+            }
+          },
+          "title": "Results"
+        },
+        "clear": {
+          "kind": "surface"
+        },
+        "plaintext": "{\"description\":\"Before and after\",\"kind\":\"surface\",\"story\":true,\"surface\":{\"root\":{\"component\":\"Stack\",\"id\":\"s\"}},\"title\":\"Results\"}",
+        "envelope": {
+          "kind": "surface",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZLyAJ8lZNPytWxNr9g1vopBmGUIUlNOF8NBCN-0JXdCh189iD7Az4cXqK8avIPbDCyTTCOiqO0TGz-JD_MGzHFYC1Y9rV_fjQug0iUH6dHdeVBZq_CvwTk9iQkxN3sn1ouK4R0cAfovW2QR41dlPDOhdVkYC0E8C25z_q1R8FFc77mTvKlKvJR7N7Wpd1u-7N0aQ"
+        }
+      }
+    ]
+  },
+  "keys": {
+    "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+  },
+  "bodyCases": [
+    {
+      "name": "plaintext (no prefix)",
+      "body": "Hello from the server",
+      "status": "plain",
+      "epoch": null,
+      "text": "Hello from the server"
+    },
+    {
+      "name": "plaintext that only mentions the prefix",
+      "body": "see exp-sealed:v1 docs",
+      "status": "plain",
+      "epoch": null,
+      "text": "see exp-sealed:v1 docs"
+    },
+    {
+      "name": "sealed, epoch 1",
+      "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+      "status": "opened",
+      "epoch": 1,
+      "text": "Ship it — grüße ✓!"
+    },
+    {
+      "name": "unknown version",
+      "body": "exp-sealed:v2:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+      "status": "unsupported",
+      "epoch": null,
+      "text": null,
+      "version": "v2"
+    },
+    {
+      "name": "unknown version, other shape",
+      "body": "exp-sealed:v10",
+      "status": "unsupported",
+      "epoch": null,
+      "text": null,
+      "version": "v10"
+    },
+    {
+      "name": "wrong epoch (no key for epoch 2)",
+      "body": "exp-sealed:v1:2:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw7arqiom4XdpAl-YgOLM5zRca9pwhmpm8",
+      "status": "noKey",
+      "epoch": 2,
+      "text": null
+    },
+    {
+      "name": "labelled with the wrong epoch",
+      "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw7arqiom4XdpAl-YgOLM5zRca9pwhmpm8",
+      "status": "refused",
+      "epoch": 1,
+      "text": null
+    },
+    {
+      "name": "tampered",
+      "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffw",
+      "status": "refused",
+      "epoch": 1,
+      "text": null
+    },
+    {
+      "name": "malformed base64",
+      "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEf$$",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "padded base64",
+      "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg=",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "non-canonical trailing bits",
+      "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffh",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "epoch 0",
+      "body": "exp-sealed:v1:0:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "epoch with a leading zero",
+      "body": "exp-sealed:v1:01:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "epoch past int4",
+      "body": "exp-sealed:v1:2147483648:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "no payload",
+      "body": "exp-sealed:v1:1",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    },
+    {
+      "name": "shorter than the seal overhead",
+      "body": "exp-sealed:v1:1:AQID",
+      "status": "malformed",
+      "epoch": null,
+      "text": null
+    }
+  ],
+  "cardCases": [
+    {
+      "name": "plain card (no sealed field)",
+      "card": {
+        "kind": "session",
+        "sessionId": "00000000-0000-4000-8000-000000000001"
+      },
+      "status": "plain",
+      "epoch": null,
+      "opened": {
+        "kind": "session",
+        "sessionId": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "sealed report",
+      "card": {
+        "kind": "report",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true,
+        "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZJxB9-i9gFys6rPbF4n9EiBCzcZhtJJlRfEWcml5SaVUx-8CDWRSYED-f-PKNcOSKuQnPK1eHgWma6ZmeRByOGOG8Op-YqbD5lkQrLQ_FJbe0WaK3OvRKoqWgdg5WpqUpva95ibBW6-TvPFooMyeqQwsRjNjyt1N1fE9cAgQVMmp_87106"
+      },
+      "status": "opened",
+      "epoch": 1,
+      "opened": {
+        "final": true,
+        "kind": "report",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "summary": "Merged #1400; tests green"
+      }
+    },
+    {
+      "name": "sealed answered question",
+      "card": {
+        "kind": "question",
+        "answered": true,
+        "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZOwwJogogdhJ6ON-4uk8opEyzKZghCJUxIFzYoj7zddlBk6yntRHcccPvsZ_oCbTCkTTKPgKK5BznkdGaLWGPCfDBQ5PQgBywFzkmPF6EAPLxPJ5P-gwL-9mgNysW_uUs8PIY5Mge7-xjCDJ0XyemD08BvdTIE7TXmki23A5y6jU2JfA60IfftTg"
+      },
+      "status": "opened",
+      "epoch": 1,
+      "opened": {
+        "answer": "Postgres",
+        "answers": [
+          "Postgres"
+        ],
+        "kind": "question",
+        "options": [
+          "Postgres",
+          "SQLite"
+        ],
+        "question": "Which database?",
+        "answered": true
+      }
+    },
+    {
+      "name": "the server superseded a waiting plan (clear decision only)",
+      "card": {
+        "kind": "plan",
+        "fresh": false,
+        "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZJ3xRsj9gF2N2yK_h21tMlDmrEfktcOlpDR2koxY6cUkpl-j29G19FD7a6ePIPYX_7ATezgfP3TGa6ZnqZByOGOG8Op-Y3aD5lkRfDQONVYq5TNfCf_1u6o3ox18Xi7kYqIYg-KAe773-aSdwTiO-Hy4M3NjYEsDr5-PmpQMgTLL7sqaXy79EC6f1X8uymDlxwLLvO0TIzRknfMnseFSvtzoL9fEhkVtwUmYEy1x8g-_KzXuWleKmkSJRz_xEKzunNBrVXP8kf1O1VAaXjxl4pGteUeT3ng0sA_9L-Tl0RfKj5BMS4G8m52gIZgnJV_ZwhQ2Xivt6lXEqAx4R2gL_Hcq2n-Rrx_Ece9n2mLjo1pw",
+        "decision": "superseded"
+      },
+      "status": "opened",
+      "epoch": 1,
+      "opened": {
+        "fresh": false,
+        "kind": "plan",
+        "pictures": [
+          {
+            "attachmentId": "00000000-0000-4000-8000-0000000000a1",
+            "height": 600,
+            "label": "web-before",
+            "width": 800
+          }
+        ],
+        "plan": "## Plan\n1. Schema\n2. Router",
+        "questions": [
+          {
+            "id": "scope",
+            "options": [
+              {
+                "label": "All"
+              }
+            ],
+            "prompt": "Scope?"
+          }
+        ],
+        "decision": "superseded"
+      }
+    },
+    {
+      "name": "unknown version",
+      "card": {
+        "kind": "report",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true,
+        "sealed": "v2:1:AAAA"
+      },
+      "status": "unsupported",
+      "epoch": null,
+      "opened": {
+        "kind": "report",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true
+      }
+    },
+    {
+      "name": "wrong epoch (no key)",
+      "card": {
+        "kind": "report",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true,
+        "sealed": "v1:2:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZJxB9-i9gFys6rPbF4n9EiBCzcZhtJJlRfEWcml5SaVUx-8CDWRSYED-f-PKNcOSKuQnPK1eHgWma6ZmeRByOGOG8Op-YqbD5lkQrLQ_FJbe0WaK3OvRKoqWgdg5WpqUpva95ibBW6-TvPFooMyeqQwsRjNjyt1N1fE9cAgQVMmp_87106"
+      },
+      "status": "noKey",
+      "epoch": 2,
+      "opened": {
+        "kind": "report",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true
+      }
+    },
+    {
+      "name": "malformed sealed value",
+      "card": {
+        "kind": "ask",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "messageId": "00000000-0000-4000-8000-000000000031",
+        "sealed": "v1:1:not base64!"
+      },
+      "status": "malformed",
+      "epoch": null,
+      "opened": {
+        "kind": "ask",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "messageId": "00000000-0000-4000-8000-000000000031"
+      }
+    },
+    {
+      "name": "sealed is not a string",
+      "card": {
+        "kind": "ask",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "messageId": "00000000-0000-4000-8000-000000000031",
+        "sealed": 7
+      },
+      "status": "malformed",
+      "epoch": null,
+      "opened": {
+        "kind": "ask",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "messageId": "00000000-0000-4000-8000-000000000031"
+      }
+    },
+    {
+      "name": "clear kind differs from the sealed card",
+      "card": {
+        "kind": "session",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true,
+        "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZJxB9-i9gFys6rPbF4n9EiBCzcZhtJJlRfEWcml5SaVUx-8CDWRSYED-f-PKNcOSKuQnPK1eHgWma6ZmeRByOGOG8Op-YqbD5lkQrLQ_FJbe0WaK3OvRKoqWgdg5WpqUpva95ibBW6-TvPFooMyeqQwsRjNjyt1N1fE9cAgQVMmp_87106"
+      },
+      "status": "refused",
+      "epoch": 1,
+      "opened": {
+        "kind": "session",
+        "sessionId": "00000000-0000-4000-8000-000000000003",
+        "final": true
+      }
+    }
+  ]
+}

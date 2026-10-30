@@ -44,6 +44,8 @@ hkdf = "0.12"
 sha2 = "0.10"
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 getrandom = "0.4"
+# sealed content (EXP-1458): cards are JSON.
+serde_json = "1"
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 # The browser's crypto.getRandomValues (getrandom 0.4 needs only the feature).
@@ -51,7 +53,6 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-serde_json = "1"
 
 [[test]]
 name = "net"

@@ -126,6 +126,9 @@ describe(`sessions allowlist`, () => {
     expect(ISSUE_EVENT_COLUMNS).toContain(`actor_agent_id`)
     expect(ISSUE_EVENT_COLUMNS).not.toContain(`via_mcp`)
   })
+  it(`syncs the EXP-1458 tree key and sealed title`, () => {
+    expect(SESSION_COLUMNS).toEqual(expect.arrayContaining([`seal_public_key`, `seal_epoch`, `sealed_title`]))
+  })
   it(`keeps the FEED-160 PR-state guard server-only`, () => {
     expect(PULL_REQUEST_COLUMNS).not.toContain(`github_updated_at`)
   })

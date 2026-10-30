@@ -47,6 +47,10 @@ export const SESSION_COLUMNS = [
   `agent_instructions_at`,
   // #EXP-1383: the agent whose session started this root.
   `started_by_agent_id`,
+  // EXP-1458: the tree key (roots) and the sealed title (sealed-content.json).
+  `seal_public_key`,
+  `seal_epoch`,
+  `sealed_title`,
   `created_at`,
   `updated_at`,
 ]

@@ -41,6 +41,14 @@ bindings. License: MIT OR Apache-2.0.
   sealed)`** for the iOS Notification Service Extension / the Android FCM
   service: no node, no runtime, only the X25519 secret (byte format in the
   core README).
+- Sealed session content (EXP-1458, spec + vectors in
+  `packages/domain-contract/fixtures/sealed-content.json`): `generateTreeKey`
+  (`{secret, publicKey}`), `wrapTreeKey(installPublic, treeSecret)` /
+  `unwrapTreeKey(installSecret, wrapped)`, `sealBody(treePublicKey, epoch,
+  text)` / `openBody(body, keys)`, `sealCard(treePublicKey, epoch, cardJson)`
+  / `openCard(cardJson, keys)`; `keys` = `[EnetEpochKey {epoch, secret}]`,
+  results carry an `EnetSealStatus` (`plain | opened | noKey | unsupported |
+  malformed | refused`).
 - Errors: `EnetError` = `Invalid | Bind | Connect | Refused | Crypto |
   NotFound | Transport | Closed | Panic`, each with a `reason`. Async work runs
   in spawned tasks, so a Rust panic comes back as `Panic` instead of crossing
@@ -59,8 +67,8 @@ bash apps/desktop/crates/exponential-net-ffi/run-binding-tests.sh  # the Swift s
 
 `ENET_PUSH_ONLY=1` on any of the three scripts builds the facade with
 `--no-default-features`: `enet-core` without its `node` feature, so
-only `pushOpen`, `pushSeal`, `pushKeypairGenerate`/`Derive` and `EnetError`
-remain, on RustCrypto alone (no iroh, no tokio). It is what the iOS
+only `pushOpen`, `pushSeal`, `pushKeypairGenerate`/`Derive`, the
+sealed-content functions and `EnetError` remain, on RustCrypto alone (no iroh, no tokio). It is what the iOS
 Notification Service Extension links (~24 MB memory cap): bindings under
 `bindings/push/swift` (committed), artifacts under `out/push/`
 (`ExponentialNetPush.xcframework`). Android links the FULL node instead

@@ -688,6 +688,12 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_net_ffi"))
         uniffiCheckContractApiVersion(this)
     }
+    external fun uniffi_exponential_net_ffi_checksum_func_generate_tree_key(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_open_body(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_open_card(
+    ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_push_keypair_derive(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_push_keypair_generate(
@@ -695,6 +701,14 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_net_ffi_checksum_func_push_open(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_push_seal(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_seal_body(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_seal_card(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key(
+    ): Short
+    external fun uniffi_exponential_net_ffi_checksum_func_wrap_tree_key(
     ): Short
     external fun uniffi_exponential_net_ffi_checksum_func_default_config(
     ): Short
@@ -862,6 +876,12 @@ external fun uniffi_exponential_net_ffi_fn_method_enetnode_start_call(`ptr`: Lon
 ): Long
 external fun uniffi_exponential_net_ffi_fn_method_enetnode_ticket(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_generate_tree_key(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_open_body(`body`: RustBuffer.ByValue,`keys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_open_card(`cardJson`: RustBuffer.ByValue,`keys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_push_keypair_derive(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffi_out_err: UniffiRustCallStatus, 
@@ -869,6 +889,14 @@ external fun uniffi_exponential_net_ffi_fn_func_push_keypair_generate(uniffi_out
 external fun uniffi_exponential_net_ffi_fn_func_push_open(`recipientSecret`: RustBuffer.ByValue,`sealed`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_push_seal(`recipientPublic`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_seal_body(`treePublicKey`: RustBuffer.ByValue,`epoch`: Int,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_seal_card(`treePublicKey`: RustBuffer.ByValue,`epoch`: Int,`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(`installSecret`: RustBuffer.ByValue,`wrapped`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_net_ffi_fn_func_wrap_tree_key(`installPublic`: RustBuffer.ByValue,`treeSecret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -3026,6 +3054,139 @@ public object FfiConverterTypeEnetConfig: FfiConverterRustBuffer<EnetConfig> {
 
 
 
+/**
+ * One tree secret this install holds.
+ */
+data class EnetEpochKey (
+    var `epoch`: kotlin.UInt
+    , 
+    var `secret`: kotlin.ByteArray
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetEpochKey: FfiConverterRustBuffer<EnetEpochKey> {
+    override fun read(buf: ByteBuffer): EnetEpochKey {
+        return EnetEpochKey(
+            FfiConverterUInt.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetEpochKey) = (
+            FfiConverterUInt.allocationSize(value.`epoch`) +
+            FfiConverterByteArray.allocationSize(value.`secret`)
+    )
+
+    override fun write(value: EnetEpochKey, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`epoch`, buf)
+            FfiConverterByteArray.write(value.`secret`, buf)
+    }
+}
+
+
+
+data class EnetOpenedBody (
+    var `status`: EnetSealStatus
+    , 
+    var `epoch`: kotlin.UInt?
+    , 
+    /**
+     * Set for plain and opened only.
+     */
+    var `text`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetOpenedBody: FfiConverterRustBuffer<EnetOpenedBody> {
+    override fun read(buf: ByteBuffer): EnetOpenedBody {
+        return EnetOpenedBody(
+            FfiConverterTypeEnetSealStatus.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetOpenedBody) = (
+            FfiConverterTypeEnetSealStatus.allocationSize(value.`status`) +
+            FfiConverterOptionalUInt.allocationSize(value.`epoch`) +
+            FfiConverterOptionalString.allocationSize(value.`text`)
+    )
+
+    override fun write(value: EnetOpenedBody, buf: ByteBuffer) {
+            FfiConverterTypeEnetSealStatus.write(value.`status`, buf)
+            FfiConverterOptionalUInt.write(value.`epoch`, buf)
+            FfiConverterOptionalString.write(value.`text`, buf)
+    }
+}
+
+
+
+data class EnetOpenedCard (
+    var `status`: EnetSealStatus
+    , 
+    var `epoch`: kotlin.UInt?
+    , 
+    /**
+     * JSON: the full card (plain / opened) or the clear part alone.
+     */
+    var `cardJson`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetOpenedCard: FfiConverterRustBuffer<EnetOpenedCard> {
+    override fun read(buf: ByteBuffer): EnetOpenedCard {
+        return EnetOpenedCard(
+            FfiConverterTypeEnetSealStatus.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetOpenedCard) = (
+            FfiConverterTypeEnetSealStatus.allocationSize(value.`status`) +
+            FfiConverterOptionalUInt.allocationSize(value.`epoch`) +
+            FfiConverterString.allocationSize(value.`cardJson`)
+    )
+
+    override fun write(value: EnetOpenedCard, buf: ByteBuffer) {
+            FfiConverterTypeEnetSealStatus.write(value.`status`, buf)
+            FfiConverterOptionalUInt.write(value.`epoch`, buf)
+            FfiConverterString.write(value.`cardJson`, buf)
+    }
+}
+
+
+
 data class EnetPushKeypair (
     /**
      * X25519 secret: give ONLY this to the notification extension.
@@ -3166,6 +3327,47 @@ public object FfiConverterTypeEnetTicket: FfiConverterRustBuffer<EnetTicket> {
             FfiConverterString.write(value.`endpointId`, buf)
             FfiConverterSequenceString.write(value.`relays`, buf)
             FfiConverterSequenceString.write(value.`addrs`, buf)
+    }
+}
+
+
+
+/**
+ * A session tree's keypair: `public_key` = `sessions.seal_public_key`.
+ */
+data class EnetTreeKey (
+    var `secret`: kotlin.ByteArray
+    , 
+    var `publicKey`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetTreeKey: FfiConverterRustBuffer<EnetTreeKey> {
+    override fun read(buf: ByteBuffer): EnetTreeKey {
+        return EnetTreeKey(
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetTreeKey) = (
+            FfiConverterByteArray.allocationSize(value.`secret`) +
+            FfiConverterString.allocationSize(value.`publicKey`)
+    )
+
+    override fun write(value: EnetTreeKey, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`secret`, buf)
+            FfiConverterString.write(value.`publicKey`, buf)
     }
 }
 
@@ -3655,6 +3857,80 @@ public object FfiConverterTypeEnetEvent : FfiConverterRustBuffer<EnetEvent>{
 
 
 
+/**
+ * What opening sealed content gave (fixture spelling: plain, opened,
+ * noKey, unsupported, malformed, refused).
+ */
+
+enum class EnetSealStatus {
+    
+    PLAIN,
+    OPENED,
+    NO_KEY,
+    UNSUPPORTED,
+    MALFORMED,
+    REFUSED;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetSealStatus: FfiConverterRustBuffer<EnetSealStatus> {
+    override fun read(buf: ByteBuffer) = try {
+        EnetSealStatus.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: EnetSealStatus) = 4UL
+
+    override fun write(value: EnetSealStatus, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
+    override fun read(buf: ByteBuffer): kotlin.UInt? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UInt?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UInt?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUInt.write(value, buf)
+        }
+    }
+}
+
+
+
 
 /**
  * @suppress
@@ -3879,6 +4155,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeEnetEpochKey: FfiConverterRustBuffer<List<EnetEpochKey>> {
+    override fun read(buf: ByteBuffer): List<EnetEpochKey> {
+        val len = buf.getInt()
+        return List<EnetEpochKey>(len) {
+            FfiConverterTypeEnetEpochKey.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<EnetEpochKey>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeEnetEpochKey.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<EnetEpochKey>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeEnetEpochKey.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<EnetRecord>> {
     override fun read(buf: ByteBuffer): List<EnetRecord> {
         val len = buf.getInt()
@@ -3907,6 +4211,38 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
 
 
 
+ fun `generateTreeKey`(): EnetTreeKey {
+            return FfiConverterTypeEnetTreeKey.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_generate_tree_key(
+    
+        _status)
+}
+    )
+    }
+    
+
+    @Throws(EnetException::class) fun `openBody`(`body`: kotlin.String, `keys`: List<EnetEpochKey>): EnetOpenedBody {
+            return FfiConverterTypeEnetOpenedBody.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_open_body(
+    
+        FfiConverterString.lower(`body`),FfiConverterSequenceTypeEnetEpochKey.lower(`keys`),_status)
+}
+    )
+    }
+    
+
+    @Throws(EnetException::class) fun `openCard`(`cardJson`: kotlin.String, `keys`: List<EnetEpochKey>): EnetOpenedCard {
+            return FfiConverterTypeEnetOpenedCard.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_open_card(
+    
+        FfiConverterString.lower(`cardJson`),FfiConverterSequenceTypeEnetEpochKey.lower(`keys`),_status)
+}
+    )
+    }
+    
 
         /**
          * The install's push keypair derived from its 32 identity bytes.
@@ -3956,6 +4292,60 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     UniffiLib.uniffi_exponential_net_ffi_fn_func_push_seal(
     
         FfiConverterByteArray.lower(`recipientPublic`),FfiConverterByteArray.lower(`plaintext`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A body (or sealed title) envelope: `exp-sealed:v1:<epoch>:<b64url>`.
+         */
+    @Throws(EnetException::class) fun `sealBody`(`treePublicKey`: kotlin.String, `epoch`: kotlin.UInt, `text`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_seal_body(
+    
+        FfiConverterString.lower(`treePublicKey`),FfiConverterUInt.lower(`epoch`),FfiConverterString.lower(`text`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A card envelope (JSON in, JSON out): `{...clear, "sealed": "v1:…"}`.
+         */
+    @Throws(EnetException::class) fun `sealCard`(`treePublicKey`: kotlin.String, `epoch`: kotlin.UInt, `cardJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_seal_card(
+    
+        FfiConverterString.lower(`treePublicKey`),FfiConverterUInt.lower(`epoch`),FfiConverterString.lower(`cardJson`),_status)
+}
+    )
+    }
+    
+
+    @Throws(EnetException::class) fun `unwrapTreeKey`(`installSecret`: kotlin.ByteArray, `wrapped`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(
+    
+        FfiConverterByteArray.lower(`installSecret`),FfiConverterString.lower(`wrapped`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * `session_keys.wrapped` for a reader install (`install_public` = its
+         * base64url `installs.x25519_public`).
+         */
+    @Throws(EnetException::class) fun `wrapTreeKey`(`installPublic`: kotlin.String, `treeSecret`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_wrap_tree_key(
+    
+        FfiConverterString.lower(`installPublic`),FfiConverterByteArray.lower(`treeSecret`),_status)
 }
     )
     }

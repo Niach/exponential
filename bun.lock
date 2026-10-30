@@ -204,6 +204,11 @@
     "packages/domain-contract": {
       "name": "@exp/domain-contract",
       "version": "0.0.0",
+      "dependencies": {
+        "@noble/ciphers": "^2.2.0",
+        "@noble/curves": "^1.9.7",
+        "@noble/hashes": "^2.2.0",
+      },
     },
     "packages/electric-protocol": {
       "name": "@exp/electric-protocol",
