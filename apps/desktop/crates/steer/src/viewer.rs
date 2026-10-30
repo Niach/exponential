@@ -119,7 +119,10 @@ impl EnetViewerSource for InstallViewerSource {
 
 /// Where the connection stands. `Ended` and `Unauthorized` are TERMINAL — the
 /// loop has stopped and the handle is inert.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// VAPP-167: serde so the daemon's viewer proxy ([`crate::viewer_proxy`])
+/// can stream it to a CLI over the local socket.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ViewerPhase {
     /// The first join is under way.
     Connecting,
@@ -152,7 +155,7 @@ impl ViewerPhase {
 /// Everything the socket task tells the UI, in arrival order. Apply them to a
 /// [`crate::feed::SteerFeed`] and render it; the enum is deliberately close to
 /// the wire so the UI adds no protocol logic of its own.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ViewerEvent {
     /// A phase TRANSITION (emitted only when the phase actually changes — a
     /// per-frame re-emission would re-render the world on every replayed

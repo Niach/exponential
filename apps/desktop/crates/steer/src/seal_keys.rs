@@ -6,7 +6,9 @@
 //! - **Cache**: the tree secrets this install unwrapped live in
 //!   `coding::sealing::Keyring`, a 0600 file beside the eNet identity
 //!   (`seal-keys` / `cli-seal-keys`), per account.
-//! - **Holder loop**: on start and every [`HOLDER_PASS`]: `sessionKeys.mine`
+//! - **Holder loop**: on start, every [`HOLDER_PASS`] and on the server's
+//!   `check_in` nudge (EXP-1472: a new install's registration nudges the
+//!   holders; at most every [`WAKE_SPACING`]): `sessionKeys.mine`
 //!   (unwrap what is new with the install's X25519 secret, derived from the
 //!   eNet identity) then `sessionKeys.pending` → `sessionKeys.wrap` for
 //!   every listed reader. Automatic, no approval (the #EXP-1457 decision).
@@ -31,6 +33,9 @@ use enet_core::PushKeypair;
 
 /// How often a holder answers `pending` (and re-reads `mine`) while online.
 pub const HOLDER_PASS: Duration = Duration::from_secs(60);
+/// EXP-1472: the closest two woken passes run (a `check_in` nudge wakes one;
+/// nudges come with every piece of new work).
+pub const WAKE_SPACING: Duration = Duration::from_secs(5);
 
 /// The `sessionKeys.*` calls the holder makes: tRPC in the apps, a fake in
 /// the tests. BLOCKING.
@@ -81,6 +86,9 @@ struct HolderInner {
     creating: Mutex<()>,
     stopped: AtomicBool,
     direct: Mutex<Option<DirectSender>>,
+    /// The running loop's early-pass signal, and when it last fired.
+    wake: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    woken_at: Mutex<Option<std::time::Instant>>,
 }
 
 impl KeyHolder {
@@ -95,6 +103,8 @@ impl KeyHolder {
                 creating: Mutex::new(()),
                 stopped: AtomicBool::new(false),
                 direct: Mutex::new(None),
+                wake: Mutex::new(None),
+                woken_at: Mutex::new(None),
             }),
         }
     }
@@ -187,6 +197,7 @@ impl KeyHolder {
     /// Runs the holder loop on `runtime` (blocking calls on its blocking
     /// pool) until [`KeyHolder::stop`]; `wake` runs a pass early.
     pub fn spawn(&self, runtime: &tokio::runtime::Handle, wake: Arc<tokio::sync::Notify>) {
+        *lock(&self.inner.wake) = Some(Arc::clone(&wake));
         let holder = self.clone();
         runtime.spawn(async move {
             while !holder.inner.stopped.load(Ordering::SeqCst) {
@@ -268,6 +279,17 @@ impl SealService for KeyHolder {
     fn fetch_secrets(&self, root_id: &str) {
         if let Err(err) = self.pull(Some(&[root_id.to_string()])) {
             log::debug!("seal-keys: sessionKeys.mine {root_id} failed: {err}");
+        }
+    }
+
+    fn wake(&self) {
+        let mut woken_at = lock(&self.inner.woken_at);
+        if woken_at.is_some_and(|at| at.elapsed() < WAKE_SPACING) {
+            return;
+        }
+        if let Some(wake) = lock(&self.inner.wake).as_ref() {
+            *woken_at = Some(std::time::Instant::now());
+            wake.notify_one();
         }
     }
 

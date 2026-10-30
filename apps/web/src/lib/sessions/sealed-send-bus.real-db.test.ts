@@ -43,7 +43,7 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[sealed-send-bus.real-db] skipped: ${ready.reason}`)
 
-const { sendSession, SEALED_NO_KEY_MESSAGE } = await import(`@/lib/sessions/send`)
+const { sendSession, SEALED_NO_KEY_MESSAGE, PLAIN_IN_SEALED_TREE_MESSAGE } = await import(`@/lib/sessions/send`)
 const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const { busAsk, REPORT_FALLBACK } = await import(`@/lib/sessions/bus`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
@@ -268,6 +268,26 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     await expect(
       w.host.reply({ sessionId: childId, body, listenerCopies: [{ rootId: watcher, body: `plain leak` }] })
     ).rejects.toThrow(/listener copy/)
+  })
+
+  it(`a keyed tree refuses plaintext sends and replies; a keyless one still takes them (EXP-1472)`, async () => {
+    const w = await world()
+    const { tree, rootId, childId } = await sealedTree(w)
+    const before = (await messagesOf(rootId)).length
+    await expect(sendSession({ userId: w.owner, input: { sessionId: rootId, text: `PONG-7731 in clear` } })).rejects.toThrow(
+      PLAIN_IN_SEALED_TREE_MESSAGE
+    )
+    await expect(w.host.reply({ sessionId: childId, body: `a plaintext reply` })).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)
+    await expect(
+      w.host.reply({ sessionId: childId, body: ``, card: { kind: `question`, question: `In clear?`, options: [`Yes`] } as never })
+    ).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)
+    expect((await messagesOf(rootId)).length).toBe(before)
+    // Sealed content still lands; a keyless tree keeps taking plaintext.
+    await sendSession({ userId: w.owner, input: { sessionId: rootId, text: sealBody(tree.publicKey, 1, `sealed`) } })
+    expect((await messagesOf(rootId)).length).toBe(before + 1)
+    const keyless = await w.root()
+    await sendSession({ userId: w.owner, input: { sessionId: keyless, text: `still legal` } })
+    expect((await messagesOf(keyless)).map((m) => m.body)).toContain(`still legal`)
   })
 
   it(`a plaintext reply keeps its old relay (trimmed copy, no listener list)`, async () => {

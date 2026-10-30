@@ -98,6 +98,12 @@ fn pidfile(data_dir: &Path) -> PathBuf {
     data_dir.join("cli-daemon.pid")
 }
 
+/// VAPP-167: the socket the daemon's viewer proxy listens on
+/// ([`steer::viewer_proxy`]).
+pub fn viewer_socket(data_dir: &Path) -> PathBuf {
+    data_dir.join("cli-daemon.sock")
+}
+
 /// The last `--label` value this machine actually applied via
 /// `devices.rename`. `install --label` bakes the flag into the service's
 /// ExecStart, so without this latch every daemon restart (reboot,
@@ -460,6 +466,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
             }),
         });
         node
+    });
+    // VAPP-167: the CLI cannot run a node of its own while this one holds the
+    // install's eNet identity, so `sessions log --follow` asks this daemon
+    // to view for it over the local socket.
+    let viewer_proxy = runtime.as_ref().zip(enet.as_ref()).and_then(|(runtime, node)| {
+        let (runtime, install, trpc) = (Arc::clone(runtime), node.clone(), Arc::clone(&ctx.trpc));
+        let spawn: steer::viewer_proxy::SpawnViewer = Arc::new(move |session_id, events_tx| {
+            let source = steer::InstallViewerSource { install: install.clone(), trpc: Arc::clone(&trpc) };
+            steer::spawn_viewer(&runtime, Some(Arc::new(source)), session_id, events_tx)
+        });
+        steer::viewer_proxy::serve(&viewer_socket(&ctx.data_dir), spawn)
+            .map_err(|err| log::warn!("the viewer proxy socket failed to bind (`sessions log --follow` will refuse here): {err}"))
+            .ok()
     });
     let mut enet_teams = synced_team_ids(&pickup);
     let mut last_team_check = Instant::now();
@@ -1125,6 +1144,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // --- Quit sweep (desktop parity): hang up, kill live children (their
     // supervisors end the rows), reap PTY escapees, drop the pidfile. ------
     log::info!("daemon stopping");
+    if let Some(proxy) = &viewer_proxy {
+        proxy.stop();
+    }
     if let Some(enet) = &enet {
         enet.stop();
     }
@@ -1397,6 +1419,8 @@ fn dial_control(
     let check_in = Arc::clone(check_in);
     let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
         check_in.store(true, Ordering::SeqCst);
+        // EXP-1472: a new install may be waiting for its tree keys.
+        coding::sealing::wake_holder();
     });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
     Some(steer::spawn_control_channel(

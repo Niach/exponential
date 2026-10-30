@@ -340,6 +340,16 @@ async function assertSealedForTree(tx: Tx, rootId: string, text: string): Promis
   }
 }
 
+export const PLAIN_IN_SEALED_TREE_MESSAGE = `This chat is sealed: its messages must be sealed too (update the app)`
+
+/** EXP-1472: a keyed tree takes no plaintext content from a writer (server
+ *  lines are not writers'). Every client seals for a keyed root; a body that
+ *  arrives in clear is a writer that failed open, refused before it lands. */
+export async function assertNotPlainInSealedTree(tx: Pick<Db, `select`>, rootId: string): Promise<void> {
+  const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  if (root?.sealEpoch != null) throw new TRPCError({ code: `BAD_REQUEST`, message: PLAIN_IN_SEALED_TREE_MESSAGE })
+}
+
 /** The person message of a send (text and/or attachments), or null.
  *  EXP-1323: `from` = the calling session (its MCP key): stamped as
  *  `author_session_id`; `asSession` = the message is that SESSION's input
@@ -361,6 +371,7 @@ async function postSendMessage(
   if (input.seal) await createTreeKeyInTx(tx, sealUserId, { ...input.seal, rootId: session.rootId })
   if (!text.trim() && !input.attachmentIds?.length) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
+  else if (text.trim()) await assertNotPlainInSealedTree(tx, session.rootId)
   if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)

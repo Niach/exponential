@@ -1822,6 +1822,11 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             },
         }
     }
+    // EXP-1472: a root claimed without a key (a raw tRPC/MCP start) is keyed
+    // now, not at its first output, so a send into it never waits long.
+    if row.is_root() && row.seal_epoch.is_none() {
+        crate::sealing::ensure_tree_key(&row.id);
+    }
     let brief = match fetch_brief(&deps.coding.trpc, &row.id) {
         Ok(brief) => brief,
         Err(err) if transient(&err) => {
@@ -4424,6 +4429,8 @@ mod tests {
     /// row (never ends it), so the next message launches it again.
     #[test]
     fn a_failed_start_replies_consumes_the_tried_messages_and_idles() {
+        // A key holder another test installs would seal the reply.
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-failed-start");
         let (base, requests) = canned_server_recording(vec![
             (200, REPLY_OK.to_string()),
@@ -4808,6 +4815,7 @@ mod tests {
 
     #[test]
     fn a_refused_wake_is_explained_once_and_retried_on_a_new_message() {
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-resume-refused");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
@@ -4951,6 +4959,7 @@ mod tests {
     /// not re-claimed until the row changes.
     #[test]
     fn a_claim_refused_for_a_limit_is_explained_once() {
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-claim-limit");
         let (base, requests) = canned_server_recording(vec![
             (
@@ -5191,6 +5200,7 @@ mod tests {
     /// once and the session keeps working on its login.
     #[test]
     fn a_switch_it_need_not_or_cannot_make_leaves_the_engine_running() {
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-switch-noop");
         let (base, requests) = canned_server_recording(vec![
             (200, REPLY_OK.to_string()),
@@ -5236,6 +5246,7 @@ mod tests {
     /// pick, and the row is told the login the run keeps.
     #[test]
     fn a_wake_refuses_a_switch_it_cannot_make_once_and_runs_on() {
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-wake-refused");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
@@ -5407,6 +5418,7 @@ mod tests {
     /// the same pending messages never re-post it on a later wake.
     #[test]
     fn a_switch_whose_resume_fails_is_explained_once() {
+        let _serial = crate::sealing::test_support::serial();
         let dir = temp_dir("pickup-switch-prepare-fails");
         let (base, requests) = canned_server_recording(vec![
             (200, REPORT_OK.to_string()),

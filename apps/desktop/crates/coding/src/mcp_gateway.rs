@@ -21,9 +21,11 @@
 //!   conversation with it (`sessions.sendTarget`: its root's key, else a
 //!   fresh key as `seal`; an app's brief composed in).
 //!
-//! A tree that cannot be sealed (no key holder, no key yet for another
-//! tree, no answer from `sessions.sendTarget`) gets the plaintext: legal,
-//! logged.
+//! EXP-1472: content that cannot be sealed is NEVER sent in clear while
+//! this process has a key holder: the call fails with the reason (another
+//! tree without a key yet is first waited for, `sealing::SEND_KEY_WAIT`).
+//! Only a process without one (eNet off, signed out) sends as given, and
+//! the server refuses that for a keyed tree.
 //!
 //! OPEN (every result): body envelopes, card envelopes and sealed titles
 //! anywhere in the result's JSON are opened; what this install cannot open
@@ -133,14 +135,14 @@ impl SealingTransform {
         let sealed = match (target, other) {
             (Some(target), _) => {
                 let Some(root) = self.root_for(&target) else {
-                    log::warn!("gateway: sessions_send to {target} goes out plaintext: its root is unknown here");
+                    unsealed("sessions_send", &no_root())?;
                     return Ok(args);
                 };
                 let seal = |value: &Option<String>| value.as_deref().map(|v| self.seal_text(&root, v)).transpose();
                 match (seal(&text), seal(&name)) {
                     (Ok(text), Ok(name)) => (text, name, None),
                     (Err(err), _) | (_, Err(err)) => {
-                        log_plain("sessions_send", &err);
+                        unsealed("sessions_send", &err)?;
                         return Ok(args);
                     }
                 }
@@ -149,7 +151,13 @@ impl SealingTransform {
                 // The caller's conversation with an agent / editor session
                 // with an app (`sessions.sendTarget`): sealed to its key, or
                 // with a fresh key riding as `seal` (none yet / keyless).
-                let Some(target) = self.send_target(obj) else { return Ok(args) };
+                let target = match self.send_target(obj) {
+                    Ok(target) => target,
+                    Err(err) => {
+                        unsealed("sessions_send", &err)?;
+                        return Ok(args);
+                    }
+                };
                 // A sealed text is the writer's whole message: an app's
                 // brief is composed in here (`briefedText`).
                 let text = match (target.brief.as_deref().map(str::trim).filter(|b| !b.is_empty()), text) {
@@ -160,38 +168,40 @@ impl SealingTransform {
                 let keyed = target.root_id.as_deref().zip(target.epoch).zip(target.public_key.as_deref());
                 match keyed {
                     Some(((root, epoch), key)) => {
-                        let Ok(public) = sealing::public_key_from_b64(key) else { return Ok(args) };
+                        let public = sealing::public_key_from_b64(key).map_err(|e| refused("sessions_send", &e))?;
                         if let Some(service) = sealing::service() {
                             service.keyring().set_current(root, epoch, public);
                         }
-                        match enet_core::sealed::seal_body(&public, epoch, &text) {
-                            Ok(body) => (Some(body), None, None),
-                            Err(err) => {
-                                log::warn!("gateway: sessions_send to an agent/app goes out plaintext: {err}");
-                                return Ok(args);
-                            }
-                        }
+                        let body = enet_core::sealed::seal_body(&public, epoch, &text).map_err(|e| refused("sessions_send", &e))?;
+                        (Some(body), None, None)
                     }
                     None => {
-                        let Some(seal) = self.new_root_seal() else { return Ok(args) };
-                        let Ok(public) = sealing::public_key_from_b64(&seal.public_key) else { return Ok(args) };
-                        match enet_core::sealed::seal_body(&public, seal.epoch, &text) {
-                            Ok(body) => (Some(body), None, Some(seal)),
-                            Err(_) => return Ok(args),
-                        }
+                        let seal = match self.new_root_seal() {
+                            Ok(seal) => seal,
+                            Err(err) => {
+                                unsealed("sessions_send", &err)?;
+                                return Ok(args);
+                            }
+                        };
+                        let public = sealing::public_key_from_b64(&seal.public_key).map_err(|e| refused("sessions_send", &e))?;
+                        let body = enet_core::sealed::seal_body(&public, seal.epoch, &text).map_err(|e| refused("sessions_send", &e))?;
+                        (Some(body), None, Some(seal))
                     }
                 }
             }
             (None, false) => match self.new_root_seal() {
-                None => return Ok(args),
-                Some(seal) => {
-                    let Ok(public) = sealing::public_key_from_b64(&seal.public_key) else { return Ok(args) };
+                Err(err) => {
+                    unsealed("a new thread", &err)?;
+                    return Ok(args);
+                }
+                Ok(seal) => {
+                    let public = sealing::public_key_from_b64(&seal.public_key).map_err(|e| refused("a new thread", &e))?;
                     let seal_one = |value: &Option<String>| {
                         value.as_deref().map(|v| enet_core::sealed::seal_body(&public, seal.epoch, v)).transpose()
                     };
                     match (seal_one(&text), seal_one(&name)) {
                         (Ok(text), Ok(name)) => (text, name, Some(seal)),
-                        _ => return Ok(args),
+                        (Err(err), _) | (_, Err(err)) => return Err(refused("a new thread", &err)),
                     }
                 }
             },
@@ -215,13 +225,11 @@ impl SealingTransform {
     }
 
     /// tRPC `sessions.sendTarget {agentId|appId}`: the conversation root a
-    /// send to an agent / app lands in, its key and an app's brief. `None`
-    /// (logged) = the send goes out plaintext.
-    fn send_target(&self, args: &Map<String, Value>) -> Option<SendTarget> {
-        sealing::service()?;
+    /// send to an agent / app lands in, its key and an app's brief.
+    fn send_target(&self, args: &Map<String, Value>) -> Result<SendTarget, SealError> {
+        sealing::service().ok_or(SealError::NoService)?;
         let Some(trpc) = &self.trpc else {
-            log::info!("gateway: sessions_send to an agent/app goes out plaintext: no tRPC client");
-            return None;
+            return Err(SealError::NoKey("no tRPC client to look its chat up".into()));
         };
         let mut query = Map::new();
         for key in ["agentId", "appId"] {
@@ -229,30 +237,18 @@ impl SealingTransform {
                 query.insert(key.into(), id.clone());
             }
         }
-        match trpc.query_with_input::<_, SendTarget>("sessions.sendTarget", &Value::Object(query)) {
-            Ok(target) => Some(target),
-            Err(err) => {
-                log::warn!("gateway: sessions.sendTarget failed, the send goes out plaintext: {err}");
-                None
-            }
-        }
+        trpc.query_with_input::<_, SendTarget>("sessions.sendTarget", &Value::Object(query))
+            .map_err(|err| SealError::NoKey(format!("sessions.sendTarget failed: {err}")))
     }
 
     /// A fresh tree key for a new thread, wrapped for this install (its
     /// other readers get theirs through `pending`).
-    fn new_root_seal(&self) -> Option<NewRootSeal> {
-        let service = sealing::service()?;
+    fn new_root_seal(&self) -> Result<NewRootSeal, SealError> {
+        let service = sealing::service().ok_or(SealError::NoService)?;
         let (Some(install_id), Some(public)) = (service.install_id(), service.install_public()) else {
-            log::info!("gateway: a new thread goes out plaintext: this install cannot wrap a tree key yet");
-            return None;
+            return Err(SealError::NoKey("this install cannot wrap a tree key yet".into()));
         };
-        match sealing::seal_new_root(&install_id, &public, &[]) {
-            Ok(seal) => Some(seal),
-            Err(err) => {
-                log_plain("a new thread", &err);
-                None
-            }
-        }
+        sealing::seal_new_root(&install_id, &public, &[])
     }
 
     /// `sessions_send {sessionId, answer}`: the target's open card read
@@ -291,7 +287,7 @@ impl SealingTransform {
         let sealed = match self.seal_card(&root, &answered) {
             Ok(sealed) => sealed,
             Err(err) => {
-                log_plain("an answer", &err);
+                unsealed("an answer", &err)?;
                 return Ok(args);
             }
         };
@@ -341,7 +337,7 @@ impl SealingTransform {
         let sealed = match self.seal_card(&self.root_id, &card) {
             Ok(sealed) => sealed,
             Err(err) => {
-                log_plain("exponential_show", &err);
+                unsealed("exponential_show", &err)?;
                 return Ok(strip_picture_ids(args));
             }
         };
@@ -377,14 +373,14 @@ impl SealingTransform {
         };
         let target = args.get("id").and_then(Value::as_str).unwrap_or(&self.session_id).to_string();
         let Some(root) = self.root_for(&target) else {
-            log::warn!("gateway: the end report of {target} goes out plaintext: its root is unknown here");
+            unsealed("an end report", &no_root())?;
             return Ok(args);
         };
         let report = json!({ "kind": "report", "sessionId": target, "status": "ended", "final": true, "summary": summary });
         let sealed = match self.seal_card(&root, &report) {
             Ok(sealed) => sealed,
             Err(err) => {
-                log_plain("an end report", &err);
+                unsealed("an end report", &err)?;
                 return Ok(args);
             }
         };
@@ -464,7 +460,7 @@ impl SealingTransform {
                 Ok(args)
             }
             Err(err) => {
-                log_plain("an escalated card", &err);
+                unsealed("an escalated card", &err)?;
                 Ok(args)
             }
         }
@@ -483,7 +479,7 @@ impl SealingTransform {
             match self.seal_card(&self.root_id, card) {
                 Ok(envelope) => sealed.push(envelope),
                 Err(err) => {
-                    log_plain("suggestions", &err);
+                    unsealed("suggestions", &err)?;
                     return Ok(args);
                 }
             }
@@ -701,11 +697,26 @@ struct EscalateTarget {
     root_id: String,
 }
 
-fn log_plain(what: &str, err: &SealError) {
+/// EXP-1472: what to do with content that could not be sealed. Without a
+/// key holder in this process it goes as given (`Ok`: plaintext stays legal
+/// in a keyless tree, the server refuses it in a keyed one); otherwise the
+/// call fails with the reason and nothing is sent.
+fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
     match err {
-        SealError::NoService => {}
-        err => log::warn!("gateway: {what} goes out plaintext: {err}"),
+        SealError::NoService => Ok(()),
+        err => Err(refused(what, err)),
     }
+}
+
+/// The agent-facing error of content refused unsealed (logged).
+fn refused(what: &str, err: &dyn std::fmt::Display) -> String {
+    log::warn!("gateway: {what} not sent: it could not be sealed: {err}");
+    format!("{what} was not sent: it could not be sealed ({err}). Nothing left this device; try again in a moment.")
+}
+
+/// Why a session's root is unknown: no key holder at all, or a lookup miss.
+fn no_root() -> SealError {
+    if sealing::service().is_some() { SealError::UnknownRoot } else { SealError::NoService }
 }
 
 fn card_kind(message: &Value) -> Option<&str> {
@@ -1836,10 +1847,48 @@ mod tests {
         assert_eq!(opened.text.as_deref(), Some("hello neighbour"));
         assert!(fake.created.lock().unwrap().is_empty());
 
-        // An agent conversation the server cannot resolve: plaintext (legal).
-        call(&grant, SEND_TOOL, json!({ "agentId": "a1", "text": "plain is legal" }));
-        assert_eq!(calls_of(&server, SEND_TOOL).pop().unwrap()["text"], "plain is legal");
+        // An agent conversation the server cannot resolve: refused, never
+        // sent in clear (EXP-1472).
+        let sends = calls_of(&server, SEND_TOOL).len();
+        let out = call(&grant, SEND_TOOL, json!({ "agentId": "a1", "text": "never in clear" }));
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("could not be sealed")), "{out}");
+        assert_eq!(calls_of(&server, SEND_TOOL).len(), sends);
         assert!(server.calls.lock().unwrap().iter().any(|(t, url)| t == "trpc:sessions.sendTarget" && url.as_str().unwrap_or_default().contains("a1")));
+        codemode::revoke("s-own");
+        sealing::uninstall();
+    }
+
+    #[test]
+    fn a_send_into_a_keyless_tree_waits_for_its_key_and_never_goes_out_plaintext() {
+        let _serial = serial();
+        let fake = install_fake();
+        sealing::set_send_key_wait(std::time::Duration::from_millis(800));
+        fake.roots.lock().unwrap().insert("s-a".into(), "root-a".into());
+        let answer: Answer = Arc::new(|_, _| json!({ "sessionId": "s-a", "messageId": "m", "status": "running", "deliverTo": null }));
+        let server = fake_server(answer, json!({}));
+        let grant = gateway(&server, "s-own", "root-own");
+
+        // Nobody keys root-a: the call fails and nothing reaches the server.
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "s-a", "text": "PONG-7731" }));
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("no key yet")), "{out}");
+        assert!(calls_of(&server, SEND_TOOL).is_empty());
+        assert!(!server.calls.lock().unwrap().iter().any(|(_, args)| args.to_string().contains("PONG-7731")));
+
+        // Its device keys it meanwhile (the claim): the send waits and seals.
+        let tree = enet_core::sealed::generate_tree_key();
+        let keyring_owner = fake.clone();
+        let keyer = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            keyring_owner.keyring.set_current("root-a", 1, tree.public);
+        });
+        call(&grant, SEND_TOOL, json!({ "sessionId": "s-a", "text": "PONG-7731" }));
+        keyer.join().unwrap();
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        let opened = enet_core::sealed::open_body(sent["text"].as_str().unwrap(), &|_| Some(tree.secret));
+        assert_eq!(opened.text.as_deref(), Some("PONG-7731"));
+        assert!(!fake.created.lock().unwrap().iter().any(|root| root == "root-a"), "another tree's key is never created here");
+
+        sealing::set_send_key_wait(sealing::SEND_KEY_WAIT);
         codemode::revoke("s-own");
         sealing::uninstall();
     }
