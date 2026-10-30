@@ -102,3 +102,19 @@ export function steerBatches(
   if (current.length > 0) groups.push(current)
   return { groups, dropped }
 }
+
+/** VAPP-169: what a viewer is showing when a redial trigger fires. */
+export type SteerRedialPhase = `offline` | `ended` | `starting`
+export type SteerRedialTrigger = `presenceOnline` | `presenceOffline` | `staleTimer` | `wakeup`
+
+/**
+ * VAPP-169: whether a trigger redials (discovery + `join`). The
+ * device-offline `ended` is not terminal: presence online, a wakeup and the
+ * stale timer all retry it; a `bye`-ended transcript never redials; a
+ * `starting` row cuts its backoff short on presence online or a wakeup.
+ */
+export function steerOfflineRedial(phase: SteerRedialPhase, trigger: SteerRedialTrigger): boolean {
+  if (trigger === `presenceOffline` || phase === `ended`) return false
+  if (phase === `offline`) return true
+  return trigger !== `staleTimer`
+}

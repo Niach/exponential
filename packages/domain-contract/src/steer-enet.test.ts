@@ -2,7 +2,15 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/steer-enet.json" with { type: "json" }
-import { encodeSteerEnvelope, parseSteerEnvelope, steerBatches, steerViewerAllowed } from "./steer-enet"
+import {
+  encodeSteerEnvelope,
+  parseSteerEnvelope,
+  steerBatches,
+  steerOfflineRedial,
+  type SteerRedialPhase,
+  type SteerRedialTrigger,
+  steerViewerAllowed,
+} from "./steer-enet"
 
 describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
   for (const c of fixture.access) {
@@ -24,6 +32,11 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
   for (const c of fixture.batch) {
     test(`batch: ${c.name}`, () => {
       expect(steerBatches(c.sizes, c)).toEqual({ groups: c.groups, dropped: c.dropped })
+    })
+  }
+  for (const c of fixture.offlineRedial) {
+    test(`offlineRedial: ${c.name}`, () => {
+      expect(steerOfflineRedial(c.phase as SteerRedialPhase, c.trigger as SteerRedialTrigger)).toBe(c.redial)
     })
   }
   test(`encode round-trips`, () => {
