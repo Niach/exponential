@@ -59,6 +59,8 @@ cp "$repo/apps/desktop/Cargo.lock" "$tmp/Cargo.lock"
 cp "$repo/apps/desktop/rust-toolchain.toml" "$tmp/" 2>/dev/null || true
 
 echo "--- $lib @ $rev: $crates"
+# rustup picks the toolchain from the working directory: the copied pin.
+cd "$tmp"
 cat "$tmp/Cargo.toml"
 # One copy of every crate of this repo: two sources of eui-gpui (the etalk
 # tag's checkout + the eui tag) would build, but their types never unify.
