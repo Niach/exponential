@@ -455,7 +455,8 @@ public struct SessionCardView: View {
             iconTint: Self.tint(tone),
             name: card.name,
             kindWord: kindWord ?? card.kindWord,
-            kindTint: tone == "amber" || tone == "rose"
+            // #EXP-1466 session-card.json: the word stays muted unless amber.
+            kindTint: tone == "amber"
                 ? Self.tint(tone)
                 : .white.opacity(TextOpacity.tertiary),
             trailing: card.elapsed,
