@@ -52,10 +52,6 @@ const STATUS = [
 const THREAD = buildSessionThread(threadFixture.cases[0]!.input as unknown as ThreadInput)
 const PRIVATE = buildSessionThread(threadFixture.cases[1]!.input as unknown as ThreadInput)
 const LIST = partitionThreads(listFixture.cases[0]!.input as unknown as ListInput)
-/** EXP-1323: a live tree nesting its children, unread rows bold. */
-const NESTED = partitionThreads(
-  listFixture.cases.find((entry) => entry.name.startsWith(`EXP-1323`))!.input as unknown as ListInput
-)
 
 const NOW = `2026-10-13T10:00:00.000Z`
 const BASE = {
@@ -285,7 +281,7 @@ const PRS_BY_ROOT = new Map([
   [`c`, [TEAM_PRS[3]!]],
 ])
 const CLAUDE = new Map(
-  [...LIST, ...NESTED].flatMap((group) => group.rows.map((row) => [row.sessionId, `claude`] as const))
+  LIST.flatMap((group) => group.rows.map((row) => [row.sessionId, `claude`] as const))
 )
 const AGENTS = [
   { agentId: `ag1`, teamId: `t`, name: `Triage`, icon: `bug`, color: `#a78bfa`, busy: false, needsYou: true, assistant: false },
@@ -311,7 +307,6 @@ function ThreadsListSpecimen({
         agents={agents ? AGENTS : undefined}
         deviceGlyph={deviceGlyph}
         onOpenThread={noop}
-        onOpenSession={noop}
         onOpenAgent={noop}
       />
     </div>
@@ -361,7 +356,6 @@ export const entry: StyleguideEntry = {
         ))}
       </div>
       <ThreadsListSpecimen />
-      <ThreadsListSpecimen groups={NESTED} agents={false} />
     </div>
   ),
 }
