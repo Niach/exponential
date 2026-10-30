@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "eTalk's wake word: an openWakeWord-compatible detector in pure Rust (tract), gpui-free."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
 
 [dependencies]
 # EXP-1424: eTalk's wake-word detector, gpui-free (Exponential's speech

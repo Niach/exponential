@@ -125,18 +125,17 @@ export function AppsDocsPage() {
             </p>
             <h3>Voice</h3>
             <p>
-              <strong>Settings → Voice</strong> picks your{` `}
+              <strong>Settings → Assistant → Voice</strong> picks your{` `}
               <strong>Voice device</strong> (one of your desktops) and the{` `}
-              <strong>Agent</strong> you talk to, with{` `}
-              <strong>Speak replies</strong>, the <strong>Language</strong>,
+              <strong>Agent</strong> you talk to, with the <strong>Language</strong>,
               and a <strong>Voice file</strong> with its{` `}
               <strong>Transcript</strong>. While a voice device is picked, a
               second group, <strong>On &lt;device&gt; (tray)</strong>, holds{` `}
               <strong>Push to talk</strong>, its <strong>Shortcut</strong>,{` `}
               <strong>Wake word</strong> and <strong>Wake phrase</strong>, and
               the IDE on that desktop sits in the system tray. Push to talk
-              and spoken replies in English and German are in beta; calling
-              from the phone and the wake word are coming. More on{` `}
+              and spoken replies in English and German, calls and the wake
+              word are in beta. More on{` `}
               <a href="/talk/">eTalk</a>.
             </p>
             <DocShot

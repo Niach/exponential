@@ -1,15 +1,16 @@
 /* EXP-1421: exponential.at/apps/, eApps' one docs page: the app package
-   format. Facts: packages/exponential-ui/src/host/package.ts (the package
-   and its validator, in @exponential_app/ui 0.1.1 without records),
-   fixtures/app-records.json and app-export.json (what the app ships);
-   the additions (a neutral records source, tools, a signed export,
-   extensions) are planned. Package names: docs/libraries.md. */
+   format. Facts: packages/exponential-ui/docs/package-format.md (format
+   version 2, VAPP-161) and src/host/ (package.ts, records.ts,
+   record-store.ts, tools.ts, signature.ts), in @exponential_app/ui 0.2.0;
+   domain-contract fixtures app-records.json and app-export.json (what the
+   app ships). Package names: docs/libraries.md. */
 import type { ReactNode } from "react"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { StatusChip } from "../../../src/components/blog/StatusChip"
 import { DocsTable, PageHero } from "../components/Content"
 import { LIBRARIES_NAV } from "../lib/libraries"
 import type { PageProps } from "../lib/routes"
+import { LINKS } from "../lib/site"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `status`, num: `01`, label: `Status` },
@@ -21,26 +22,29 @@ const SECTIONS: DocsSectionType[] = [
 ]
 
 const IN_APP = <StatusChip status="in-progress">in the app</StatusChip>
+const IN_EUI = <StatusChip status="shipped">in eUI</StatusChip>
 const PLANNED = <StatusChip status="planned">planned</StatusChip>
 
 const PARTS: [string, string, ReactNode][] = [
   [`Manifest`, `id, name, version, the eUI catalog it targets, icon, theme, description`, IN_APP],
   [`Templates`, `Screens as A2UI components, one per template id`, IN_APP],
-  [`Bindings`, `A data model path filled live from a source, e.g. exp:records?kind=entry`, IN_APP],
+  [`Format version`, `formatVersion (absent = 1); a host refuses a newer one`, IN_EUI],
+  [`Bindings`, `A data model path filled live from a source, e.g. records:entry?sort=date`, IN_APP],
   [`Function allowlist`, `The functions the screens may call; everything else is refused`, IN_APP],
   [`Records`, `The app's own data: kinds with a small JSON Schema, records.upsert and records.delete`, IN_APP],
-  [`Records source`, `One neutral records: source, synced by whatever host runs the app (eNet between peers)`, PLANNED],
-  [`Tools`, `MCP servers or scripts the app registers as tools, shown for consent first`, PLANNED],
-  [`Signed export`, `An author and a signature on the shared file`, PLANNED],
-  [`Extensions`, `Custom eUI components an app brings along`, PLANNED],
+  [`Records source`, `The neutral records:<kind>?query source; the host provides the store (RecordStore)`, IN_APP],
+  [`Tools`, `MCP servers or scripts as tools.<id>.<name>; the host shows toolConsent() before the first call`, IN_EUI],
+  [`Signed package file`, `An author and an Ed25519 signature over RFC 8785 canonical JSON (signPackageFile, verifyPackageFile)`, IN_EUI],
+  [`Extensions`, `Custom eUI component catalogs with a minimum version, checked against the host's`, IN_EUI],
 ]
 
 const EXAMPLE = `{
+  "formatVersion": 2,
   "id": "hours",
   "name": "Working hours",
   "version": "1.4.0",
-  "catalogId": "https://ui.exponential.at/catalogs/core/v9",
-  "sources": ["exp:records"],
+  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+  "sources": ["records:entry"],
   "records": {
     "entry": {
       "schema": {
@@ -56,15 +60,18 @@ const EXAMPLE = `{
   "templates": {
     "month": {
       "components": [{ "id": "root", "component": "Text", "text": "Hours" }],
-      "bindings": [{ "path": "/entries", "source": "exp:records?kind=entry&sort=date" }]
+      "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }]
     }
   }
 }`
 
-const VALIDATE = `import { validatePackage } from "@exponential_app/ui/host"
+const VALIDATE = `import { toolConsent, validatePackage, verifyPackageFile } from "@exponential_app/ui/host"
 
-const issues = validatePackage(JSON.parse(file))
-// [] or [{ path: "/templates", message: "templates is a non-empty object" }, …]`
+const file = JSON.parse(text)
+const issues = validatePackage(file.package)
+// [] or [{ path: "/templates", message: "templates is a non-empty object" }, …]
+const signed = await verifyPackageFile(file) // unsigned | valid (author) | invalid
+const consent = toolConsent(file.package)    // one card row per tool, before its first call`
 
 export default function Apps({ path }: PageProps) {
   return (
@@ -77,8 +84,12 @@ export default function Apps({ path }: PageProps) {
           <h2>Status</h2>
           <p>
             The format runs today: every <a className="content-link" href="/docs/apps/#team-apps">team app</a> in Exponential is
-            one of these packages, painted by eUI on web, desktop, iOS and Android. Its validator ships in eUI. The
-            standalone library, with the additions below, is planned.
+            one of these packages, painted by eUI on web, desktop, iOS and Android. Format version 2 (records, tools with
+            consent, versioned extensions, signed package files) ships in eUI&apos;s host module; the spec is{` `}
+            <a className="content-link" href={LINKS.source(`packages/exponential-ui/docs/package-format.md`)}>
+              package-format.md
+            </a>
+            . The standalone library is planned.
           </p>
         </DocsSection>
         <DocsSection id="parts" num="02" label="One package">
@@ -109,7 +120,8 @@ export default function Apps({ path }: PageProps) {
         <DocsSection id="today" num="05" label="Use it today">
           <h2>Use it today</h2>
           <p>
-            The package type and its validator are in eUI&apos;s host module (records arrive with the next release):
+            The package type, its validator, the records store, tool consent and signatures are in eUI&apos;s host module
+            (format version 2 since 0.2.0):
           </p>
           <DocsCode language="shell">npm install @exponential_app/ui</DocsCode>
           <DocsCode language="ts">{VALIDATE}</DocsCode>

@@ -22,7 +22,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 76 components (74 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases; EXP-1259 added `SearchList`, EXP-1324 `Trace` + `TraceItem`, EXP-1280 `ChoiceTiles`) with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 19 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 89 components (87 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases; EXP-1259 added `SearchList`, EXP-1324 `Trace` + `TraceItem`, EXP-1280 `ChoiceTiles`, NEW-77 `VoiceWave`, VAPP-162 `MessageBubble`, `CallSurface`, `Plan`, `QrCode`, `QrScanner`) with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
@@ -286,7 +286,7 @@ painters through the facade); `catalog/host.json` is the contract and
   card the host must show); `extensions` (declared, versioned); the package
   FILE's `author` + Ed25519 `signature` over RFC 8785 canonical JSON
   (`signPackageFile` / `verifyPackageFile`). Every version-1 package stays
-  valid.
+  valid. The host contract is version 3 (`catalog/host.json` `version`).
 
 The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
 (`harness.*` functions, `exp:` over the Electric collections, the consent
@@ -324,6 +324,9 @@ against React.
 | `control-geometry.json` | theme × control × props → the box a painter or override must measure to |
 | `host-transport.json` / `host-policy.json` / `host-router.json` | the host API (VAPP-91): decoders, the gate / urls / media / sources / negotiation, router flows → ops |
 | `host-package.json` | the package format (VAPP-161): records queries and values, tool consent, extension compatibility, canonical JSON, signatures (RFC 8032 test key) |
+| `qr-code.json` | VAPP-162: the QR matrix (the port of Project Nayuki's generator) bit for bit |
+| `voice-wave.json` | NEW-77: the VoiceWave geometry and the child rule; VAPP-162 `bars` |
+| `pointer.json` | EXP-1385: a landed pointer write reads back (`-` appends and reads the last element) |
 | `format.json` | round 2: the format functions through the English fallback Formatter (= Intl en-US; UTC, and `zoned` at a fixed offset) + what a text prop shows for a bound number/boolean |
 | `template-items.json` | round 2: item keys (`#<index>` for missing/duplicate), Table row keys, accumulated (escaped) instance suffixes, template nodes lifted out of the tree, cycles reported |
 | `text-direction.json` | round 2: per-node direction (`direction` on any node) and the physical text alignment |

@@ -18,7 +18,7 @@ ScreenCast portal + PipeWire capturer (libpipewire is a LOAD-time dependency, so
 a headless daemon leaves it off and reads the X root instead):
 
 ```toml
-epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.83", features = ["portal"] }
+epilot-screen = { git = "https://github.com/Niach/exponential", tag = "epilot-v0.14.84", features = ["portal"] }
 ```
 
 The spec is `packages/domain-contract/fixtures/screen-memory.json`, compiled in

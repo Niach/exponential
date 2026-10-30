@@ -16,7 +16,7 @@ plugins {
 // repository (`build/central-bundle`, zipped by release/central-bundle.sh
 // into the Central Portal upload) and, ONLY when a key is provided
 // (`ORG_GRADLE_PROJECT_signingInMemoryKey` / `…Password`), signing. The
-// version is the `uiVersion` Gradle property (default 0.1.1, read by the
+// version is the `uiVersion` Gradle property (default 0.2.0, read by the
 // modules themselves so `:ui-compose-primitives` keeps it when the
 // Exponential Android app includes it by path).
 val signingKey = providers.gradleProperty("signingInMemoryKey").orNull

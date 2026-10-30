@@ -9,7 +9,8 @@ const SECTIONS: DocsSectionType[] = [
   { id: `in`, num: `02`, label: `Speech in` },
   { id: `out`, num: `03`, label: `Speech out` },
   { id: `ptt`, num: `04`, label: `Push to talk` },
-  { id: `coming`, num: `05`, label: `Coming` },
+  { id: `calls`, num: `05`, label: `Calls` },
+  { id: `wake`, num: `06`, label: `Wake word` },
 ]
 
 export default function HowItWorks({ path }: PageProps) {
@@ -24,7 +25,7 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="device" num="01" label="The voice device">
           <h2>The voice device</h2>
           <p>
-            One of your desktops listens and speaks for you. Pick it in Settings → Voice, with the agent it talks to. Phones and
+            One of your desktops listens and speaks for you. Pick it in Settings → Assistant → Voice, with the agent it talks to. Phones and
             servers can&apos;t be the voice device.
           </p>
           <p>
@@ -58,15 +59,24 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="ptt" num="04" label="Push to talk">
           <h2>Push to talk</h2>
           <p>
-            Beta, on the desktop app only. Hold the shortcut and speak. The overlay shows what it heard, then sends it to the agent as a plain message. Speak
-            replies reads the answer aloud. The tray mutes the microphone.
+            Beta, on the desktop app only. Hold the shortcut and speak. The overlay shows what it heard, then sends it to the agent as a plain message.
+            What you say by voice is answered by voice; typed messages never are. The tray mutes the microphone.
           </p>
         </DocsSection>
-        <DocsSection id="coming" num="05" label="Coming">
-          <h2>Coming</h2>
+        <DocsSection id="calls" num="05" label="Calls">
+          <h2>Calls</h2>
           <p>
-            Calling your agent from your phone, and a wake word. The wake word switch is already in Settings → Voice;
-            nothing listens for it yet.
+            Beta. Call your voice device&apos;s agent from iPhone, Android, the web or the desktop app. It rings while the voice
+            device loads speech and the voice, then answers with Hello?. The call screen shows the agent, the timer and what is
+            being said, with mute, speaker and end buttons.
+          </p>
+        </DocsSection>
+        <DocsSection id="wake" num="06" label="Wake word">
+          <h2>Wake word</h2>
+          <p>
+            Beta. Say the wake phrase on your voice device instead of holding push to talk; a red dot shows while the microphone
+            listens. A phrase with a model of its own is heard by an openWakeWord detector, any other phrase by the speech
+            recogniser.
           </p>
         </DocsSection>
       </DocsLayout>

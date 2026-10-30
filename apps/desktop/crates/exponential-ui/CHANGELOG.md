@@ -5,6 +5,11 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+## 0.2.0 (2026-10-30)
+
+- VAPP-161: package format v2 mirrored from the TS reference: `validate_package_with` (`formatVersion`, `records:<kind>` bindings, `tools`, versioned `extensions`), `host::tools` (`validate_tools`, `tool_consent`, `tool_consent_key`, `tool_call`), `host::signature` (`canonical_json` = RFC 8785, `package_file_signed_bytes`; no crypto dependency, the host verifies), `host::record_store::parse_records_source`; `HOST_CONTRACT_VERSION` 3; `fixtures/host-package.json` replayed.
+- VAPP-162 (round 5): the catalog's new components and props (MessageBubble, CallSurface, Plan, QrCode, QrScanner; Segmented `orientation` + `option.count`, VoiceWave `variant: bars`, Button `hold`), `qr_code` (the QR matrix), `segmented` (the vertical rail and its badges), `hold` (the hold gesture's events), `voice_wave::voice_wave_bars`, the `type.family.serif` token.
+- NEW-77: `voice_wave` (the VoiceWave geometry and the child rule).
 - VAPP-122: `host::records` (`validate_record_schema`, `validate_record`, the reserved row keys), the `records` block in `validate_package`, `source_with_params` (the `bind` action's params encoding) and the contract's `package.records` / `sources.paramsEncoding`; the host fixtures replay the new `sourceParams` and `records` cases. The catalog's 33rd built-in is `bind`.
 
 ## 0.1.1 (2026-10-23)

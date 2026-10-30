@@ -16,7 +16,7 @@ import { LIBRARIES } from "../ui/src/lib/libraries"
    eUI), each one or two sentences over REAL parts: committed captures
    (shots/) and live @exp/ui islands. The hero is an agent's phone chat
    (HeroPhone, src/ui-demos/AgentChat.tsx); eTalk states only what has
-   shipped, the rest reads "coming". EXP-1421: then the library family, one
+   shipped. EXP-1421: then the library family, one
    docs card per lib with its state. */
 
 function Shot({ view, platform, className }: { view: string; platform: Platform; className: string }) {
@@ -29,8 +29,8 @@ function Shot({ view, platform, className }: { view: string; platform: Platform;
 const TALK: { text: string; status: Status; label: string }[] = [
   { text: `Push to talk on your desktop`, status: `in-progress`, label: `beta` },
   { text: `Spoken replies in English and German`, status: `in-progress`, label: `beta` },
-  { text: `Call your agent from your phone`, status: `planned`, label: `coming` },
-  { text: `Wake word`, status: `planned`, label: `coming` },
+  { text: `Call your agent from your phone`, status: `in-progress`, label: `beta` },
+  { text: `Wake word`, status: `in-progress`, label: `beta` },
 ]
 
 function Feature({

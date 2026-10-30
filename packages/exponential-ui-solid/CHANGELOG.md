@@ -5,6 +5,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+## 0.2.0 (2026-10-30)
+
 - VAPP-162: round 5 paints like the React renderer (parity-gated): `QrCode` (the core's matrix, dark on a light plate), `QrScanner` (viewfinder chrome; the camera through the `host.qrScanner.start(feed, formats, onValue) → stop` hook, `scanned {value}` once per distinct value, the placeholder without one), `VoiceWave` `variant: bars`, `Segmented` `orientation: vertical` (the rail) + the `count` badge, `Button` `hold` (holdStart/holdEnd/holdCancel, `holdingLabel`, replaying `interactions-round1.json buttonHold`); fallback glyphs for the round-5 concepts.
 - NEW-77: `VoiceWave` paints like the React renderer (parity-gated), with the child rule; the `VoiceWave` primitive in `@exponential_app/ui-solid/primitives`.
 

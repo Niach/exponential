@@ -1,20 +1,20 @@
 /* NEW-15: exponential.at/talk/, the voice library's front page. The
    overlay is the real push-to-talk capsule (src/ui-demos/VoiceOverlay.tsx,
-   VoiceWave from @exp/ui); every feature is marked beta or coming. */
+   VoiceWave from @exp/ui); every feature is marked beta. */
 import { TalkOverlay } from "../../../src/components/TalkOverlay"
 import { StatusChip, type Status } from "../../../src/components/blog/StatusChip"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
 import type { PageProps } from "../lib/routes"
 import { talkGuidePath } from "./nav"
 
-/* The owner's four statuses (push to talk and spoken replies in English and
-   German: beta; calling from the phone and the wake word: coming), nothing
-   more about the future. The engines ride in the What column. */
+/* The owner's four parts, all beta since the 2026-10-27 release (calls and
+   the wake word joined push to talk and spoken replies), nothing more about
+   the future. The engines ride in the What column. */
 const PARTS: { part: string; what: string; status: Status; label: string }[] = [
   { part: `Push to talk`, what: `Hold a shortcut on your desktop. Silero VAD and Parakeet through CrispASR`, status: `in-progress`, label: `beta` },
   { part: `Spoken replies`, what: `English and German. Qwen3-TTS, cloned from a clip of your voice`, status: `in-progress`, label: `beta` },
-  { part: `Call your agent`, what: `From your phone`, status: `planned`, label: `coming` },
-  { part: `Wake word`, what: `“Hey Triage”`, status: `planned`, label: `coming` },
+  { part: `Call your agent`, what: `From your phone, the web or the desktop app`, status: `in-progress`, label: `beta` },
+  { part: `Wake word`, what: `“Hey Triage”, instead of holding the shortcut`, status: `in-progress`, label: `beta` },
 ]
 
 export default function TalkHome(_: PageProps) {

@@ -8,14 +8,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@exponential_app/ui": "file:../.packs/exponential_app-ui-0.1.1.tgz",
-    "@exponential_app/ui-element": "file:../.packs/exponential_app-ui-element-0.1.1.tgz"
+    "@exponential_app/ui": "file:../.packs/exponential_app-ui-0.2.0.tgz",
+    "@exponential_app/ui-element": "file:../.packs/exponential_app-ui-element-0.2.0.tgz"
   },
   "devDependencies": {
     "vite": "^7.1.0"
   },
   "overrides": {
-    "@exponential_app/ui": "file:../.packs/exponential_app-ui-0.1.1.tgz",
-    "@exponential_app/ui-solid": "file:../.packs/exponential_app-ui-solid-0.1.1.tgz"
+    "@exponential_app/ui": "file:../.packs/exponential_app-ui-0.2.0.tgz",
+    "@exponential_app/ui-solid": "file:../.packs/exponential_app-ui-solid-0.2.0.tgz"
   }
 }

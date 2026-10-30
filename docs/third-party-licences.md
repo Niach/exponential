@@ -184,7 +184,7 @@ SVG under `brand/`, a row in `icons.json` `brand` (with `owner`), a row in
 
 ### The cua driver, gone (EXP-1273, 2026-10-19)
 
-`apps/desktop/crates/computer` linked the cua driver (trycua/cua, MIT) from
+`apps/desktop/crates/computer` (now `epilot`) linked the cua driver (trycua/cua, MIT) from
 EXP-1196 to EXP-1273. It links nothing of it any more: computer use is a
 thin foreground backend of our own on crates already in the tree (`x11rb`,
 `core-graphics` and the `objc2` family, `windows-sys`, `image`), so the git
@@ -413,21 +413,21 @@ bundle, Windows ~2.3 GB.
 
 | path | what | written by |
 |---|---|---|
-| `crispasr-0.8.45/` | the runtime libraries, their licences, one `.<artifact id>.sha256` manifest per artifact (Linux, Windows; macOS reads `Contents/Frameworks` of the bundle instead) | `crispasr::artifact::ensure` |
+| `crispasr-0.8.45/` | the runtime libraries, their licences, one `.<artifact id>.sha256` manifest per artifact (Linux, Windows; macOS reads `Contents/Frameworks` of the bundle instead) | `etalk_crispasr::artifact::ensure` |
 | `crispasr-0.8.45-cpu/` | NEW-78: the CPU-only runtime, where no GPU driver exists (Linux, Windows) | same |
 | `models/` | `qwen3-tts-12hz-0.6b-base.gguf`, `qwen3-tts-tokenizer-12hz.gguf`, NEW-78's `parakeet-tdt-0.6b-v3-q8_0.gguf` (674 MB) and `ggml-silero-v6.2.0.bin` (0.9 MB), and their manifests | same |
-| `voices/` | `builtin-<language>.wav`, the built-in clips written out for CrispASR (rewritten when they differ) | `voice::builtin::materialize` |
+| `voices/` | `builtin-<language>.wav`, the built-in clips written out for CrispASR (rewritten when they differ) | `etalk_engine::builtin::materialize` |
 | `no-gpu.txt` | the "this GPU and driver were too slow" verdict (fingerprint + time, 30 days) | the speech worker |
-| `<artifact id>.part` | a download in progress (deleted on failure or after unpacking) | `crispasr::artifact::download` |
-| `<file>.tmp` | a file being unpacked (renamed into place when complete) | `crispasr::artifact::write_kept` |
+| `<artifact id>.part` | a download in progress (deleted on failure or after unpacking) | `etalk_crispasr::artifact::download` |
+| `<file>.tmp` | a file being unpacked (renamed into place when complete) | `etalk_crispasr::artifact::write_kept` |
 
 The NEW-53 `kokoro-multi-lang-v1_0/` directory is deleted by the worker on
 start. #NEW-63: the IDE deletes the whole `{data_dir}/talk/` once an
 account's settings move its voice device away from this machine and no
 account signed in here still names it (`{data_dir}/voice-device-claims.json`),
 and sweeps leftover `*.part` / `*.tmp` files whenever the speech worker shuts
-down; both wait on the worker's lock (`talk::SpeechClient::remove_voice_data`,
-`talk::SpeechClient::remove_partial_downloads`).
+down; both wait on the worker's lock (`etalk::SpeechClient::remove_voice_data`,
+`etalk::SpeechClient::remove_partial_downloads`).
 
 The built-in reference clips (`apps/desktop/crates/etalk-engine/assets/`, in the
 binary, ~0.9 MB) are our own output of Qwen3-TTS 0.6B CustomVoice

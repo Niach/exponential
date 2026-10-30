@@ -3,7 +3,7 @@
 Decided 2026-10-29 for the epic #EXP-1420. The **product names** (eUI, eTalk, ePilot,
 eNet, eApps) are what copy, docs and the front page say. The **package names**
 stay in the `exponential-*` family on every registry: eUI is already published
-under it (npm `@exponential_app/ui*` 0.1.1, crates.io `exponential-ui` 0.1.1,
+under it (npm `@exponential_app/ui*`, crates.io `exponential-ui`,
 Maven `at.exponential:ui-compose*`, SwiftPM `ExponentialUI`), and the bare short
 names are taken (crates.io `enet`; npm `epilot`, `enet`, `eui`), so a mixed
 scheme would be the only alternative. Nothing published gets renamed, so no
@@ -18,11 +18,19 @@ consumes them as dependencies.
 | product | Rust crates (`apps/desktop/crates/<name>`) | npm (`@exponential_app/…`) | Maven (`at.exponential:…`) | SwiftPM product (repo) | release tag | docs |
 |---|---|---|---|---|---|---|
 | **eUI** | `exponential-ui`, `exponential-ui-ffi` (not published, ships inside Swift/Kotlin), `exponential-ui-gpui` (#EXP-1429) | `ui`, `ui-react`, `ui-solid`, `ui-element` | `ui-compose`, `ui-compose-primitives` | `ExponentialUI`, `ExponentialUIPrimitives` (`Niach/exponential-ui-swift`) | `ui-v*` | exponential.at/ui/ |
-| **eTalk** | `exponential-talk` (today `talk`), `exponential-talk-voice` (`voice`), `exponential-talk-asr` (`crispasr`), `exponential-talk-codec` (`call-codec`), `exponential-talk-gpui` (tray, push to talk, overlay, call UI; #EXP-1422), `exponential-talk-ffi` | `talk` | `talk-compose` | `ExponentialTalk` (`Niach/exponential-talk-swift`) | `talk-v*` | exponential.at/talk/ |
-| **ePilot** | `exponential-pilot` (today `computer`), `exponential-pilot-screen` (`screen`) | none (desktop only) | none | none (desktop only) | `pilot-v*` | exponential.at/pilot/ |
+| **eTalk** | `etalk` (was `talk`), `etalk-engine` (`voice`), `etalk-crispasr` (`crispasr`), `etalk-codec` (`call-codec`), `etalk-wakeword` (#EXP-1424), `etalk-gpui` (tray, push to talk, overlay, call UI; #EXP-1422); `etalk-ffi` not yet | `talk` | `talk-compose` | `ExponentialTalk` (`Niach/exponential-talk-swift`) | `etalk-v*` | exponential.at/talk/ |
+| **ePilot** | `epilot` (was `computer`), `epilot-screen` (`screen`) | none (desktop only) | none | none (desktop only) | `epilot-v*` | exponential.at/pilot/ |
 | **eNet** | `exponential-net`, `exponential-net-ffi`, `exponential-net-wasm` | `net` (the wasm build, relay-only in the browser) | `net` | `ExponentialNet` (`Niach/exponential-net-swift`) | `net-v*` | exponential.at/net/ |
 | **eApps** | `exponential-apps` | `apps` | `apps` | `ExponentialApps` (`Niach/exponential-apps-swift`) | `apps-v*` | exponential.at/apps/ |
 | agent-runtime | `exponential-agent-runtime` (from `coding` + `engine`, #EXP-1426) | none | none | none | `agent-runtime-v*` | in the repo README only |
+
+**Deviation (2026-10-30):** the eTalk and ePilot extractions (#1348, #1331)
+renamed their crates `etalk*` / `epilot*` and tag `etalk-v*` / `epilot-v*`
+instead of the `exponential-talk*` / `exponential-pilot*` / `talk-v*` /
+`pilot-v*` planned here. They are git dependencies (`publish = false`: the
+fixtures are compiled in with `include_str!`), so no registry name is spent;
+the table records what is merged. Renaming them back to the `exponential-*`
+family before a first release is open.
 
 Every name above was checked free on 2026-10-29 (crates.io API, `npm view`,
 Maven Central) except the eUI ones, which we already own.
@@ -44,3 +52,14 @@ Maven Central) except the eUI ones, which we already own.
   one entry per lib in the front page's library section.
 - gpui consumers (Exponential desktop, spezl desktop) pin the same zed/gpui and
   gpui-component revisions: see `apps/desktop/crates/exponential-ui-gpui/README.md`.
+
+## Published state (2026-10-30)
+
+| product | released | how |
+|---|---|---|
+| eUI | 0.2.0 | tag `ui-v0.2.0` → `release-ui.yml`: npm, crates.io (`exponential-ui`), Maven Central, SwiftPM; `exponential-ui-gpui` rides the tag as a git dependency |
+| eTalk | never | crates at the desktop workspace version; no `etalk-v*` tag yet |
+| ePilot | never | crates at the desktop workspace version; no `epilot-v*` tag yet |
+| eNet | never | `exponential-net{,-ffi,-wasm}` 0.1.0, MIT OR Apache-2.0; no `net-v*` tag, no release workflow |
+| eApps | inside eUI | the package format (v2) ships in `@exponential_app/ui/host` and the `exponential-ui` crate; no `exponential-apps` crate yet |
+| agent-runtime | never | `exponential-agent-runtime` 0.1.0, `publish = false` |

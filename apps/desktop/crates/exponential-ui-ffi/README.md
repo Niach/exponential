@@ -72,7 +72,10 @@ bindings), so an embedder never builds Rust.
   native never re-implements it, `tokenizeCodeJson`, `chartExtentJson`,
   `niceTicksJson`, `weekStart`, `textDirection`, `stringTableJson`,
   `formatString`, `resolveConditionsJson`, `componentA11yJson`,
-  `validateStyleJson`.
+  `validateStyleJson`; `sourceWithParamsJson`, `validateRecordJson`
+  (VAPP-122); `voiceWaveJson`, `voiceWaveBarsJson`, `qrMatrixJson(value,
+  level)`, `segmentedBadgeText` (NEW-77, VAPP-162). `Surface.hold(index,
+  inputJson)` / `isHeld(id)` run a `hold: true` Button's gesture in the core.
 
 ## The panic boundary (VAPP-107)
 

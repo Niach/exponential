@@ -5,6 +5,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+## 0.2.0 (2026-10-30)
+
 - VAPP-162: round 5 paints through the Solid painter (`QrCode`, `QrScanner`, `VoiceWave` bars, the vertical `Segmented` rail + counts, `Button` hold); the QrScanner's camera = `plugin.qrScanner.start(feed, formats, onValue) → stop`, a decoded value fires `scanned` (`xui-action`).
 - NEW-77: `VoiceWave` paints through the Solid painter.
 

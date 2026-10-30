@@ -23,7 +23,7 @@ val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoo
 // The Maven coordinates (the POM maps project dependencies through them).
 // `-PuiVersion=…` sets the release version (VAPP-91).
 group = "at.exponential"
-version = (findProperty("uiVersion") as String?) ?: "0.1.1"
+version = (findProperty("uiVersion") as String?) ?: "0.2.0"
 
 android {
     namespace = "at.exponential.ui"

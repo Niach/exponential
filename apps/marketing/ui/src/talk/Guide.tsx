@@ -1,6 +1,6 @@
 /* NEW-15: /talk/guides/<slug>/, both Talk guides by the path's slug. Facts:
    crates/etalk (custom_voice_file), crates/etalk-engine/src/builtin.rs,
-   fixtures/voice.json (shortcutGrammar, shortcutSupportCases, pttCopy). */
+   packages/etalk/fixtures/voice.json (shortcutGrammar, shortcutSupportCases, pttCopy). */
 import type { ReactNode } from "react"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocShot } from "../../../src/components/DocShot"
@@ -21,7 +21,7 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
         <>
           <p>
             eTalk speaks in a voice cloned from ONE short clip, in English and in German. No training, no upload. The clip stays on
-            your voice device. Settings → Voice stores only its path and its transcript.
+            your voice device. Settings → Assistant → Voice stores only its path and its transcript.
           </p>
           <p>
             Leave the Voice file empty and each language uses its built-in clip. Cloning, like all speech out, runs only on a GPU.
@@ -80,7 +80,7 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       label: `Enter it`,
       body: (
         <>
-          <p>In Settings → Voice, with your desktop as the voice device:</p>
+          <p>In Settings → Assistant → Voice, with your desktop as the voice device:</p>
           <DocShot view="settings-assistant" platform="web" caption="Settings → Assistant on the web: its Voice block with Language, Voice file and Transcript." />
           <DocsTable
             head={[`Row`, `Value`]}
@@ -130,7 +130,7 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       body: (
         <>
           <p>
-            Record one in Settings → Voice on the voice device, under On {`{device}`} (tray): click the row and press the key or
+            Record one in Settings → Assistant → Voice on the voice device, under On {`{device}`} (tray): click the row and press the key or
             combination. A letter, digit or most other keys need Ctrl, Alt, Shift or Super with them; these may stand alone:
           </p>
           <DocsTable
@@ -150,7 +150,7 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       body: (
         <>
           <p>
-            It never fails silently. The tray item reads Push to talk · Ctrl + Space unavailable, and Settings → Voice says why
+            It never fails silently. The tray item reads Push to talk · Ctrl + Space unavailable, and Settings → Assistant → Voice says why
             under the Shortcut row:
           </p>
           <DocsTable

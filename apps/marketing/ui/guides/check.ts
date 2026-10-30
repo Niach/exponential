@@ -33,7 +33,7 @@ import { join, resolve } from "node:path"
 
 const GUIDES = import.meta.dir
 const REPO = resolve(GUIDES, `..`, `..`, `..`, `..`)
-const VERSION = `0.1.0`
+const VERSION = `0.2.0`
 const CHECKS = [`react`, `solid`, `element`, `agent`, `define`, `theme`, `gpui`, `swift`, `compose`] as const
 type Check = (typeof CHECKS)[number]
 
@@ -107,7 +107,7 @@ async function tarballs(): Promise<Tarballs> {
   return packed
 }
 
-/** The guide's `^0.1.0` registry deps → the local tarballs (what `npm
+/** The guide's `^0.2.0` registry deps → the local tarballs (what `npm
  *  install` would fetch once the packages are published). */
 function useTarballs(dir: string, t: Tarballs): void {
   const path = join(dir, `package.json`)

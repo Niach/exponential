@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "eTalk's call codec: Opus through the pure-Rust opus-rs by default, libopus behind a feature."
+repository = "https://github.com/Niach/exponential"
+readme = "../etalk/README.md"
 
 # NEW-88: the call's Opus, behind one seam. The default is `opus-rs`, a
 # pure-Rust port of libopus 1.6 (BSD-3), so no cmake or C toolchain on any
