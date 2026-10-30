@@ -4315,6 +4315,15 @@
         "sha256": "0ad93f7aaa60da7e1b7825a9f0bc8827848404d7e54378862445e78f3ac0183c"
       }
     },
+    "sealed-locked": {
+      "ios": {
+        "file": "shots/sealed-locked/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 34416,
+        "sha256": "fca2da30d4aed469c3ffca5b799156374a9e7b72c317302ff7aa78b7110235af"
+      }
+    },
     "search": {
       "android": {
         "file": "shots/search/android.webp",
