@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   release:
-    # GitHub's `xcode-27` image: release macOS 27 with release Xcode 27.1
+    # GitHub's `xcode-27` image: release macOS 27 with release Xcode 27.x
     # (the whole point of building here), the same Xcode the MacBook and
     # test-ios use (.github/scripts/select-xcode.sh).
     runs-on: xcode-27
@@ -69,7 +69,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Select Xcode 27.1 (release, the iOS 27 SDK)
+      - name: Select Xcode 27 (release, the iOS 27 SDK)
         run: |
           bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh"
           xcodebuild -showsdks | grep iphoneos
