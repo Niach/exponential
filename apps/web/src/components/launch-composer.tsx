@@ -52,7 +52,8 @@ import {
 // options and tools — `launch-dialog/composer-plus-menu.tsx`), the submit
 // glyph carrying the per-subject label (Start session / Start coding / Start
 // batch · N). S-3: over the card the AGENT ROW (composer-home.json
-// `agentRow`, the home only: an agent picked = a message into its chat);
+// `agentRow`, the home and the dialog (EXP-1451): an agent picked = a
+// message into its chat, the chipped issues forwarded);
 // the "+" is the card's ONLY tool (no inline image/file/#/emoji, no options
 // line: Device/Account/Model/Repository are "+" rows); under the card only
 // the launch notes (no desktop, not ready, batch guards). All state is the hook's
@@ -120,7 +121,9 @@ export function LaunchComposer({
   // submit instead of failing on send; pressing it opens the "Ready to
   // code?" checklist with the fix.
   const { data: session } = useSession()
-  const checkedIds = subject?.kind === `issues` ? subject.ids : []
+  // EXP-1450: a picked agent runs on its own device: the issues ride along
+  // to it, so this machine's readiness never gates the send.
+  const checkedIds = subject?.kind === `issues` && !model.recipient ? subject.ids : []
   const readinessState = useIssuesCodingReadiness({
     teamId: model.teamId,
     issueIds: checkedIds,
@@ -168,6 +171,12 @@ export function LaunchComposer({
       // login: no launch notes.
       options={model.recipient ? undefined : <LaunchNotes model={model} />}
     >
+      {/* EXP-1019: the SUBJECT leads — a prompt / "Implement <issues>" —
+          and the field under it is the optional half. The chips are the
+          ones the card used to carry in its leading row, ✕ and all. */}
+      <LaunchHeadline model={model} />
+      {/* S-3 / EXP-1451: the agent row stands directly over the card, on
+          the home and in the start-coding dialog alike. */}
       {model.agentRow && (
         <ComposerAgentRow
           row={model.agentRow}
@@ -176,10 +185,6 @@ export function LaunchComposer({
           className="mb-1"
         />
       )}
-      {/* EXP-1019: the SUBJECT leads — a prompt / "Implement <issues>" —
-          and the field under it is the optional half. The chips are the
-          ones the card used to carry in its leading row, ✕ and all. */}
-      <LaunchHeadline model={model} />
       <Composer
         data-testid="agent-composer"
         strip={

@@ -66,3 +66,17 @@ export function pickForSubject(
 ): string | null {
   return subject === `issues` || subject === `prompt` ? TEMPORARY_PICK : current
 }
+
+/** The composer's subject as the pick rules read it. */
+export type ComposerSubjectValue =
+  | { kind: `issues`; ids: readonly string[] }
+  | { kind: `prompt`; id: string }
+  | null
+
+/** The subject after a tap on the row (`agentRow.pickCases`, EXP-1450): a
+ *  pick NEVER drops issue chips (a picked agent gets them forwarded); only a
+ *  prompt goes when an AGENT is picked (a prompt starts a new root). */
+export function subjectAfterPick<S extends ComposerSubjectValue>(subject: S, pick: string): S | null {
+  if (pick !== TEMPORARY_PICK && subject?.kind === `prompt`) return null
+  return subject
+}

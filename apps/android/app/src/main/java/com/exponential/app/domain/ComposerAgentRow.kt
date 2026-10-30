@@ -64,6 +64,15 @@ object ComposerAgentRow {
     fun pickForSubject(subjectIsLaunch: Boolean, current: String?): String? =
         if (subjectIsLaunch) TEMPORARY_PICK else current
 
+    /**
+     * The subject after a TAP on the row (`agentRow.pickCases`, EXP-1450): a
+     * pick NEVER drops issue chips (a picked agent gets them forwarded as the
+     * send's `issueIds`); only a prompt goes when an AGENT is picked (a prompt
+     * starts a new root). [isPrompt] reads the client's subject type.
+     */
+    fun <S : Any> subjectAfterPick(subject: S?, pick: String, isPrompt: (S) -> Boolean): S? =
+        if (pick != TEMPORARY_PICK && subject != null && isPrompt(subject)) null else subject
+
     /** The row for a viewer: [picked] = the last tap (null/unknown = the default). */
     fun <T> composerAgentRow(agents: List<T>, me: String?, picked: String?, row: (T) -> Agent): State<T> {
         val ordered = AgentSettings.Assistant.orderedAgents(agents, me) {

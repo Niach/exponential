@@ -29,6 +29,7 @@ import com.exponential.app.domain.AccountOption
 import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
@@ -96,10 +97,12 @@ internal fun composerPlaceholder(
     subject: ComposerSubject?,
     /** EXP-1253: the Agent HOME asks composer-home.json's question instead. */
     home: Boolean = false,
+    /** S-3: an agent is picked in the agent row (web `model.recipient`). */
+    recipient: Boolean = false,
 ): String {
+    // S-3: a message to the agent row's pick keeps the home's question.
+    if (home && recipient) return AgentHome.PLACEHOLDER
     if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
-    // S-3: an agent picked in the agent row keeps the home's question.
-    if (home && subject is ComposerSubject.Agent) return AgentHome.PLACEHOLDER
     return DomainContract.composerUiInstructionsPlaceholder
 }
 
@@ -114,10 +117,21 @@ sealed interface ComposerSubject {
 
     /** NEW-2: a saved prompt (`sessions.send({promptId})`); no inputs. */
     data class Prompt(val id: String) : ComposerSubject
+}
 
-    /** NEW-3: a team agent (`sessions.send({agentId})`): the message goes
-     *  into the caller's DM with it, on the agent's own device and login. */
-    data class Agent(val id: String) : ComposerSubject
+/** EXP-1450 (composer-home.json `agentRow.controlCases`): the composer's
+ *  controls. The subject lives apart from the launch options, so only the
+ *  agent row's tap may touch it, and even that keeps the issue chips. */
+enum class ComposerControl { AgentRow, Device, Agent, Account, Model, Effort, Repository, Work, McpServer }
+
+/** The subject after [control] changed ([pick] = the agent row's tap). */
+internal fun subjectAfterControl(
+    subject: ComposerSubject?,
+    control: ComposerControl,
+    pick: String = ComposerAgentRow.TEMPORARY_PICK,
+): ComposerSubject? = when (control) {
+    ComposerControl.AgentRow -> ComposerAgentRow.subjectAfterPick(subject, pick) { it is ComposerSubject.Prompt }
+    else -> subject
 }
 
 /**
@@ -587,16 +601,25 @@ class AgentComposerViewModel @Inject constructor(
         steerLaunch.clearFailure()
     }
 
-    /** NEW-3: Message an agent ›'s pick — the agent replaces whatever subject
-     *  is up (picking an issue or a prompt swaps it back out). */
-    fun pickAgent(agentId: String) {
-        _subject.value = ComposerSubject.Agent(agentId)
+    // ── S-3: the agent row's pick (the recipient) ───────────────────────────
+    /** The picked team agent (null = Temporary session: today's launch). It
+     *  is NOT a subject (EXP-1450): the issue chips stay beside it and ride
+     *  the send as `issueIds`. */
+    private val _recipient = MutableStateFlow<String?>(null)
+    val recipient: StateFlow<String?> = _recipient
+
+    /** The row's resolved agent (null = Temporary session). Never touches
+     *  the subject: a late agents snapshot must not drop a seeded prompt. */
+    fun setRecipient(agentId: String?) {
+        if (_recipient.value == agentId) return
+        _recipient.value = agentId
         steerLaunch.clearFailure()
     }
 
-    fun clearAgent() {
-        if (_subject.value is ComposerSubject.Agent) _subject.value = null
-        steerLaunch.clearFailure()
+    /** A TAP on the agent row (`agentRow.pickCases`): the issue chips stay;
+     *  only a prompt goes when an agent is picked. */
+    fun applyRowPick(pick: String) {
+        _subject.value = subjectAfterControl(_subject.value, ComposerControl.AgentRow, pick)
     }
 
     fun setDraft(text: String) {
@@ -825,8 +848,8 @@ class AgentComposerViewModel @Inject constructor(
      */
     fun submit(@Suppress("UNUSED_PARAMETER") resumeOffered: Boolean = false) {
         if (_sending.value) return
-        (_subject.value as? ComposerSubject.Agent)?.let { agent ->
-            submitToAgent(agent.id)
+        _recipient.value?.let { agentId ->
+            submitToAgent(agentId, (_subject.value as? ComposerSubject.Issues)?.ids)
             return
         }
         val target = device.value ?: return
@@ -884,12 +907,13 @@ class AgentComposerViewModel @Inject constructor(
 
     /**
      * NEW-3: the agent subject's send — `sessions.send({agentId, text,
-     * attachmentIds})` into the caller's DM with it (created on first use; it
+     * attachmentIds, issueIds})` into the caller's DM with it (created on
+     * first use; EXP-1450: the issue chips forward as `issueIds`; it
      * runs on the agent's device and login, so no runner picks). The pending
      * files upload against the team first; the accepted send lands on the DM
      * (the delegate's `startedSessionId`) and clears the draft.
      */
-    private fun submitToAgent(agentId: String) {
+    private fun submitToAgent(agentId: String, issueIds: List<String>?) {
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
@@ -928,6 +952,7 @@ class AgentComposerViewModel @Inject constructor(
                         agentId = agentId,
                         text = text,
                         attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
+                        issueIds = issueIds,
                     ),
                 )
             } finally {

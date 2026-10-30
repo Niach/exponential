@@ -67,8 +67,9 @@ public enum SessionsSendInput: Sendable, Equatable {
     )
     /// NEW-2: a message to a team AGENT — into the caller's own conversation
     /// session with it (created on first use; it runs on the agent's own
-    /// device, so no runner picks). Needs text or files.
-    case agent(agentId: String, text: String? = nil, attachmentIds: [String]? = nil)
+    /// device, so no runner picks). Needs text or files. EXP-1450:
+    /// `issueIds` = the composer's issue chips, forwarded onto it.
+    case agent(agentId: String, text: String? = nil, attachmentIds: [String]? = nil, issueIds: [String]? = nil)
     /// VAPP-110: a message to an APP — into the caller's own EDITOR session
     /// with it (created on first use on `deviceId`, else the caller's default
     /// device; an ended one continues). Needs text or files.
@@ -123,10 +124,11 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try c.encodeIfPresent(promptId, forKey: .promptId)
             try c.encodeIfPresent(repositoryId, forKey: .repositoryId)
-        case let .agent(agentId, text, attachmentIds):
+        case let .agent(agentId, text, attachmentIds, issueIds):
             try c.encode(agentId, forKey: .agentId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+            try c.encodeIfPresent(issueIds, forKey: .issueIds)
         case let .app(appId, deviceId, text, attachmentIds):
             try c.encode(appId, forKey: .appId)
             try c.encodeIfPresent(deviceId, forKey: .deviceId)

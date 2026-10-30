@@ -12,6 +12,7 @@ import { useSteerConfig } from "@/hooks/use-steer-config"
 import { LaunchComposer } from "@/components/launch-composer"
 import { launchHeadlineText } from "@/components/launch-dialog/launch-headline"
 import type { Team } from "@/db/schema"
+import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useSession } from "@/hooks/use-session"
@@ -130,6 +131,8 @@ function LaunchDialogBody({
   const onSeedConsumed = useCallback(() => {
     seededRef.current = null
   }, [])
+  // S-3: the viewer's Assistant exists before the agent row lists it.
+  useEnsureAssistant(team.id)
   // The launcher gets out of the way once the session started (the composer
   // then opens its thread); a failed start keeps the draft and the dialog.
   const model = useLaunchComposer({
@@ -138,6 +141,11 @@ function LaunchDialogBody({
     seed: seededRef.current,
     onSeedConsumed,
     onStarted: closeLaunchDialog,
+    // EXP-1451 (composer-home.json `agentRow`): the dialog IS the home's
+    // composer, agent row and all; the play button's seed starts it on
+    // Temporary session.
+    agentRow: true,
+    me: currentUserId ?? null,
   })
   const sent = model.busy
   useEffect(() => {

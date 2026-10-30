@@ -16,7 +16,7 @@ import {
   composerAgentRow,
   pickForSubject,
   seedPick,
-  TEMPORARY_PICK,
+  subjectAfterPick,
   type ComposerAgentRowState,
 } from "@exp/domain-contract/composer-agent-row"
 import { agentCollection, issueCollection, sessionCollection } from "@/lib/collections"
@@ -225,7 +225,7 @@ export interface LaunchComposerModel {
   pickPrompt: (promptId: string) => void
   clearPrompt: () => void
   /** S-3: the agent row over the card (composer-home.json `agentRow`);
-   *  null = the host draws none (the launch dialog): Temporary session. */
+   *  null = the host draws none: Temporary session. */
   agentRow: ComposerAgentRowState<ComposerAgent> | null
   /** The picked agent (null = Temporary session: today's launch). */
   recipient: ComposerAgent | null
@@ -278,7 +278,8 @@ export function useLaunchComposer({
   me = null,
 }: {
   teamId: string
-  /** S-3: draw the agent row (the New-chat composer: the agent home). */
+  /** S-3: draw the agent row (the agent home and, EXP-1451, the
+   *  start-coding dialog). */
   agentRow?: boolean
   /** The viewer (their own Assistant leads the agent row). */
   me?: string | null
@@ -342,8 +343,10 @@ export function useLaunchComposer({
   const recipient = agentRow?.agent ?? null
   const pickRecipient = useCallback((id: string) => {
     setPicked(id)
-    // NEW-2 prompts start a new root: never a message to an agent.
-    if (id !== TEMPORARY_PICK) setSubject((current) => (current?.kind === `prompt` ? null : current))
+    // EXP-1450 (`agentRow.pickCases`): a pick NEVER drops the issue chips (a
+    // picked agent gets them forwarded); only a prompt goes, it starts a
+    // new root and is never a message to an agent.
+    setSubject((current) => subjectAfterPick(current, id))
   }, [])
   // S-3 (composer-home.json `agentRow.subjectCases`): an issue or prompt
   // subject is a launch: the row follows to Temporary session (a later tap
