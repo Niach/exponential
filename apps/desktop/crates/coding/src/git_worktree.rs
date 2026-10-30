@@ -390,6 +390,31 @@ pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<
     Ok(())
 }
 
+/// FEED-170 — the first of `candidates` (never empty) that origin has: a
+/// fetch that succeeds proves the ref exists there. A row's branch can name
+/// a throwaway local checkout that was never pushed (`origin/verify`:
+/// "invalid reference"), so a child falls back down the list instead of
+/// failing. All fetches failing (offline) = the first one whose
+/// remote-tracking ref is already here, else the first.
+pub fn first_base_on_origin(clone: &Path, candidates: &[String], url: &TokenUrl) -> String {
+    if let Some(found) = candidates.iter().find(|base| fetch_base(clone, base, url).is_ok()) {
+        return found.clone();
+    }
+    candidates
+        .iter()
+        .find(|base| {
+            run_git(
+                Some(clone),
+                &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{base}")],
+                None,
+                "git rev-parse --verify",
+            )
+            .is_ok()
+        })
+        .unwrap_or(&candidates[0])
+        .clone()
+}
+
 /// Create (or reuse) the worktree for `branch` at the §7.1 layout path.
 /// Idempotent: an existing worktree still ON `branch` is reattached, one an
 /// agent switched onto another branch gets `branch` checked back out
@@ -1922,6 +1947,32 @@ fatal: couldn't find remote ref nope\n";
         )
         .unwrap();
         assert_eq!(reused, clone);
+    }
+
+    /// FEED-170: a parent branch that never reached origin (a throwaway
+    /// local `verify`) is skipped for the parent's own pushed branch, and
+    /// with neither on origin the repo default wins.
+    #[test]
+    fn a_base_missing_on_origin_falls_back_down_the_list() {
+        let dir = temp_dir("base-fallback");
+        let origin = seed_origin(&dir.0);
+        git(&origin, &["branch", "exp/session-2fb083bf"]);
+        let clone = dir.0.join("clone");
+        git(&dir.0, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        // The throwaway exists locally only, never on origin.
+        git(&clone, &["branch", "verify"]);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        let bases = |list: &[&str]| list.iter().map(|base| base.to_string()).collect::<Vec<_>>();
+
+        let picked = first_base_on_origin(&clone, &bases(&["verify", "exp/session-2fb083bf", "main"]), &url);
+        assert_eq!(picked, "exp/session-2fb083bf");
+        let picked = first_base_on_origin(&clone, &bases(&["verify", "exp/session-gone", "main"]), &url);
+        assert_eq!(picked, "main");
+        let picked = first_base_on_origin(&clone, &bases(&["exp/session-2fb083bf", "main"]), &url);
+        assert_eq!(picked, "exp/session-2fb083bf", "a pushed parent branch stays the base");
+        // The pick cuts a real worktree (the incident's `invalid reference`).
+        let picked = first_base_on_origin(&clone, &bases(&["verify", "main"]), &url);
+        create_worktree(&clone, "exp/session-d724f9a3", &format!("origin/{picked}"), &url).unwrap();
     }
 
     #[test]

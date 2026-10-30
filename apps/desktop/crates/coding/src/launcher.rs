@@ -447,6 +447,50 @@ pub trait WorktreeProvider: Send + Sync {
         expires_at: Option<&str>,
         parked: Parked,
     ) -> Result<PathBuf, GitError>;
+
+    /// FEED-170: the first of `candidates` (most wanted first, never empty)
+    /// a child can cut from. The default trusts the first.
+    fn pick_base(
+        &self,
+        _repos_root: &Path,
+        _full_name: &str,
+        _url: &TokenUrl,
+        _expires_at: Option<&str>,
+        candidates: &[String],
+    ) -> String {
+        candidates[0].clone()
+    }
+}
+
+/// FEED-170 — where a child may cut its worktree from, most wanted first:
+/// the parent's reported branch, the parent's own `exp/session-<id8>`, the
+/// repo default. Deduplicated; never empty.
+pub fn child_base_candidates(row: &SessionRow, parent_branch: &str, default_branch: &str) -> Vec<String> {
+    let parent_own = row
+        .parent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| format!("{SESSION_BRANCH_PREFIX}{}", crate::run_cleanup::session_id8(id)));
+    let mut candidates: Vec<String> = Vec::new();
+    for candidate in [Some(parent_branch.to_string()), parent_own, Some(default_branch.to_string())]
+        .into_iter()
+        .flatten()
+    {
+        if !candidate.trim().is_empty() && !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    if candidates.is_empty() {
+        candidates.push(parent_branch.to_string());
+    }
+    candidates
+}
+
+/// FEED-170 — the branch the server row names for a resumed run (the
+/// record's when the row has none).
+fn reported_branch<'a>(row: &'a SessionRow, recorded: &'a str) -> &'a str {
+    row.branch.as_deref().map(str::trim).filter(|branch| !branch.is_empty()).unwrap_or(recorded)
 }
 
 /// The real git path: `ensure_clone` → [`git_credentials::ensure`] (bare
@@ -484,6 +528,23 @@ impl WorktreeProvider for GitWorktrees {
         // `.git/info/exclude`.
         let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
         Ok(worktree)
+    }
+
+    fn pick_base(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+        candidates: &[String],
+    ) -> String {
+        let ready = ensure_clone(repos_root, full_name, url)
+            .and_then(|clone| git_credentials::ensure(&clone, url, expires_at).map(|_| clone));
+        match ready {
+            Ok(clone) => crate::git_worktree::first_base_on_origin(&clone, candidates, url),
+            // No clone to ask: the existing failure surfaces on prepare.
+            Err(_) => candidates[0].clone(),
+        }
     }
 }
 
@@ -1795,7 +1856,17 @@ fn prepare_session(
                 let base_branch = match parent_branch {
                     Some(parent) => {
                         crate::git_worktree::validate_branch_arg(parent, "parent branch")?;
-                        parent.to_string()
+                        // FEED-170: the parent's row may name a branch that
+                        // never reached origin (a throwaway local checkout):
+                        // the first base that exists on origin wins.
+                        let candidates = child_base_candidates(row, parent, &minted.default_branch);
+                        deps.worktrees.pick_base(
+                            &repos_root,
+                            url.full_name(),
+                            &url,
+                            minted.expires_at.as_deref(),
+                            &candidates,
+                        )
                     }
                     None => minted.default_branch.clone(),
                 };
@@ -2344,12 +2415,15 @@ fn prepare_resume(
                         );
                     }
                     cwd = worktree;
-                } else if let Some(carried) = carried_branch(&cwd, branch) {
-                    // The run stands on another branch: the row follows, so
-                    // the thread's PR opens from where the commits are.
+                } else if let Some(carried) = carried_branch(&cwd, reported_branch(row, branch)) {
+                    // The run stands on another branch than the ROW says: the
+                    // row follows, so the thread's PR opens from where the
+                    // commits are. FEED-170: compared with the row's branch,
+                    // not the record's, so a switch BACK is reported too.
                     log::info!(
-                        "resume {}: worktree stays on {carried} (recorded branch {branch}); the row follows",
-                        record.session_id
+                        "resume {}: worktree stays on {carried} (row branch {}); the row follows",
+                        record.session_id,
+                        reported_branch(row, branch),
                     );
                     report_branch(&deps.trpc, &session_id, &carried);
                 }
@@ -3865,6 +3939,22 @@ mod tests {
         let record = crate::run_registry::get(&dir.0, SESSION_ID).expect("record");
         assert!(record.owns_run_worktree());
         assert_eq!(record.base_branch.as_deref(), Some("exp/EXP-41"));
+    }
+
+    /// FEED-170: a child's bases, most wanted first — the parent's reported
+    /// branch, the parent's own session branch, the repo default — deduped.
+    #[test]
+    fn a_child_falls_back_to_the_parents_own_branch_then_the_default() {
+        let mut child = row(SESSION_ID, Some("repo-child"));
+        child.parent_id = Some("2fb083bf-0000-4000-8000-000000000000".to_string());
+        assert_eq!(
+            child_base_candidates(&child, "verify", "master"),
+            ["verify", "exp/session-2fb083bf", "master"]
+        );
+        assert_eq!(
+            child_base_candidates(&child, "exp/session-2fb083bf", "master"),
+            ["exp/session-2fb083bf", "master"]
+        );
     }
 
     /// NEW-1: a ROOT with a repository works itself — a worktree on its
