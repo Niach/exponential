@@ -1042,11 +1042,13 @@ extension Chats {
     /// chat's transcript, unread marking and pickup keep reading messages.
     /// EXP-1459: the digest's bodies and cards are sealed like the messages
     /// they stand for; `rootId` names the tree whose key opens them.
-    public static func digestMessages(sessionId: String, digest raw: String?, rootId: String? = nil) -> [TreeMessage] {
-        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw), rootId: rootId)
+    public static func digestMessages(sessionId: String, digest raw: String?, rootId: String? = nil, opener: SealedOpener? = .shared) -> [TreeMessage] {
+        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw), rootId: rootId, opener: opener)
     }
 
-    public static func digestMessages(sessionId: String, digest: [String: Any]?, rootId: String? = nil) -> [TreeMessage] {
+    /// `opener` nil = the digest as stored (sealed entries stay whole: the
+    /// fixture's own view, chats.json `digestCases`).
+    public static func digestMessages(sessionId: String, digest: [String: Any]?, rootId: String? = nil, opener: SealedOpener? = .shared) -> [TreeMessage] {
         guard let digest else { return [] }
         func text(_ value: Any?) -> String? { value as? String }
         func msOr0(_ iso: String) -> Double { SessionTree.ms(iso) ?? 0 }
@@ -1060,7 +1062,8 @@ extension Chats {
             guard seen.insert(id).inserted else { continue }
             let authorKind = text(m["authorKind"]) ?? ""
             let createdAt = text(m["createdAt"]) ?? ""
-            let opened = SealedMessage.open(body: text(m["body"]) ?? "", card: m["card"] as? [String: Any], rootId: rootId)
+            let raw = (body: text(m["body"]) ?? "", card: m["card"] as? [String: Any], status: SealStatus.plain)
+            let opened = opener.map { SealedMessage.open(body: raw.body, card: raw.card, rootId: rootId, opener: $0) } ?? raw
             let card = opened.card.map(TreeMessageCard.init(object:))
             out.append(TreeMessage(
                 id: id,

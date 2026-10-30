@@ -263,8 +263,11 @@ public final class SessionSealer: @unchecked Sendable {
         }
         guard let row, SealedEnvelope.mayBeSealedCard(row.card) else { return nil }
         let opened = opener.card(row.card, rootId: row.rootId)
-        guard opened.status == .opened,
-              let card = (try? JSONSerialization.jsonObject(with: Data(opened.json.utf8))) as? [String: Any] else { return nil }
+        // An escalated card this install can't open in its own tree: the
+        // mirror's `sealedCard` (sealed to the watching tree) stands in.
+        let json = opened.status == .opened ? opened.json : escalatedCard(accountId: accountId, messageId: input.messageId)
+        guard let json,
+              let card = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
         let root = read(accountId) { db in try SessionEntity.fetchOne(db, key: row.rootId) }
         guard let key = await holder.sealKey(
             accountId: accountId,
@@ -281,6 +284,23 @@ public final class SessionSealer: @unchecked Sendable {
               let object = try? JSONSerialization.jsonObject(with: Data(envelope.utf8)),
               let sealedCard = CardJSON(any: object) else { return nil }
         return SealedAnswerInput(messageId: input.messageId, decision: input.decision, fresh: input.fresh, sealedCard: sealedCard)
+    }
+
+    /// The opened `sealedCard` of an `ask` mirror escalating `messageId`.
+    private func escalatedCard(accountId: String, messageId: String) -> String? {
+        let mirrors = read(accountId) { db in
+            try MessageEntity
+                .filter(Column("card").like("%\"sealedCard\"%") && Column("card").like("%\(messageId)%"))
+                .fetchAll(db)
+        } ?? []
+        for mirror in mirrors {
+            guard let object = (try? JSONSerialization.jsonObject(with: Data((mirror.card ?? "").utf8))) as? [String: Any],
+                  object["messageId"] as? String == messageId,
+                  let json = SealedMessage.escalatedCard(mirror.card, rootId: mirror.rootId, opener: opener)
+            else { continue }
+            return json
+        }
+        return nil
     }
 }
 
