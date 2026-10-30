@@ -7,7 +7,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use etalk_wakeword::{Classifier, FrontEnd};
 use sha2::{Digest, Sha256};
@@ -20,25 +21,40 @@ fn sha256(path: &Path) -> String {
     Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// The unpacked tarball (`onnx/`, `tests/fixtures/`).
+/// The unpacked tarball (`onnx/`, `tests/fixtures/`). #EXP-1465: the tests
+/// run in parallel (threads, and the example beside them as a process), so
+/// one thread per process fetches it (a `OnceLock`) into a private staging
+/// dir and renames the finished tree into place: a reader never sees a
+/// half-written tarball or a half-unpacked tree.
 pub fn fixtures() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(unpack).clone()
+}
+
+fn unpack() -> PathBuf {
     let target = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
     let dir = target.join("etalk-wakeword-fixtures");
-    let root = dir.join("livekit-wakeword-0.1.3");
-    if root.join("tests/fixtures/hey_livekit.onnx").exists() {
+    // Only ever created by the rename below, so it exists = it is complete (a
+    // new name: the old racy unpack's `livekit-wakeword-0.1.3/` is never trusted).
+    let root = dir.join("unpacked-0.1.3");
+    if root.exists() {
         return root;
     }
-    std::fs::create_dir_all(&dir).unwrap();
-    let tarball = dir.join("livekit-wakeword-0.1.3.crate");
-    if !tarball.exists() || sha256(&tarball) != CRATE_SHA256 {
-        let status = Command::new("curl").args(["-sSfL", "-o"]).arg(&tarball).arg(CRATE_URL).status().unwrap();
-        assert!(status.success(), "download {CRATE_URL}");
-    }
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let staging = dir.join(format!(".staging-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&staging).unwrap();
+    let tarball = staging.join("livekit-wakeword-0.1.3.crate");
+    let status = Command::new("curl").args(["-sSfL", "-o"]).arg(&tarball).arg(CRATE_URL).status().unwrap();
+    assert!(status.success(), "download {CRATE_URL}");
     assert_eq!(sha256(&tarball), CRATE_SHA256, "the tarball's pin");
-    let status = Command::new("tar").arg("xzf").arg(&tarball).arg("-C").arg(&dir).status().unwrap();
+    let status = Command::new("tar").arg("xzf").arg(&tarball).arg("-C").arg(&staging).status().unwrap();
     assert!(status.success());
+    // Losing the rename to another process is fine: its tree is complete.
+    let _ = std::fs::rename(staging.join("livekit-wakeword-0.1.3"), &root);
+    let _ = std::fs::remove_dir_all(&staging);
+    assert!(root.join("tests/fixtures/hey_livekit.onnx").exists(), "{} unpacked", root.display());
     root
 }
 
