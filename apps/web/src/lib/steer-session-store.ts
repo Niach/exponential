@@ -57,6 +57,11 @@ import {
 } from "@/lib/pending-images"
 import type { SessionStatus } from "@exp/db-schema/domain"
 import { currentSteerCarrier } from "@/lib/enet/steer-bridge"
+import {
+  STEER_ENET_STALE_MS,
+  steerOfflineRedial,
+} from "@exp/domain-contract/steer-enet"
+
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
 
 // EXP-621: the viewer connection to the session's feed, lifted OUT of
@@ -793,6 +798,10 @@ export function createSteerSessionStore(
   /** EXP-773: the host machine's label, for the device-offline copy. The
    *  owning view feeds it off the synced devices row. */
   let deviceLabel: string | null = null
+  /** VAPP-169: the `ended` phase is the device-offline one (NO FEED for an
+   *  ended row), which keeps redialing: the stale timer, a wakeup, the
+   *  device's presence flip online (fixtures/steer-enet.json OFFLINE REDIAL). */
+  let deviceOffline = false
   // EXP-625: dial liveness, so a wakeup can tell a dial that is merely young
   // from one that is stuck. The timer is generation-scoped.
   let joinAckTimer: ReturnType<typeof setTimeout> | null = null
@@ -1020,7 +1029,14 @@ export function createSteerSessionStore(
     // EXP-796: an ended phase never lifts back to live on the same dial —
     // keepalives and pages are not a run, and the synced row stays the
     // source of truth (a redial resets the phase).
-    if (phase.kind === `ended`) return false
+    // VAPP-169: a device-offline ended that a redial reached: the transcript
+    // replaces the offline copy (a stored replay stays plain `ended`).
+    if (phase.kind === `ended`) {
+      if (!deviceOffline) return false
+      deviceOffline = false
+      phase = sessionStatus === `ended` ? { kind: `ended` } : { kind: `live` }
+      return true
+    }
     phase = { kind: `live` }
     return true
   }
@@ -1812,6 +1828,15 @@ export function createSteerSessionStore(
     }, startingRetryDelay(retries++))
   }
 
+  /** VAPP-169: the device-offline copy redials every `staleMs` while it shows. */
+  const scheduleOfflineRedial = () => {
+    clearRetryTimer()
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      if (deviceOffline && steerOfflineRedial(`offline`, `staleTimer`)) void dial(true)
+    }, STEER_ENET_STALE_MS)
+  }
+
   const dial = async (retrying: boolean) => {
     if (disposed) return
     const gen = ++generation
@@ -1849,7 +1874,8 @@ export function createSteerSessionStore(
     // No endpoint, no node, every endpoint refused or no `activity_synced`
     // in time = NO FEED, shown with the existing states: a row still alive
     // waits in `starting` and redials on the backoff, an ended row is over
-    // and its transcript sits on a machine this viewer cannot reach.
+    // and its transcript sits on a machine this viewer cannot reach, until
+    // the device comes back (VAPP-169: the redial holds the phase).
     const sock = await deps.openEnet(sessionId).catch(() => null)
     if (disposed || gen !== generation) {
       sock?.close()
@@ -1857,6 +1883,7 @@ export function createSteerSessionStore(
     }
     if (!sock) {
       if (sessionStatus === `ended`) {
+        deviceOffline = true
         phase = {
           kind: `ended`,
           detail: `${deviceLabel ?? `The device`} is offline. The transcript lives on that machine.`,
@@ -1865,6 +1892,7 @@ export function createSteerSessionStore(
         restoreQueueToDraft()
         commit()
         onEnded()
+        scheduleOfflineRedial()
       } else {
         phase = { kind: `starting` }
         commit()
@@ -1999,6 +2027,7 @@ export function createSteerSessionStore(
       // Nor is an in-flight page ask answered on a closed feed (EXP-795).
       historyRequest = null
       if (sawEnd) {
+        deviceOffline = false
         phase = { kind: `ended`, detail: detail ?? undefined }
         // A run that ended mid-fold is not compacting any more (EXP-724).
         clearCompaction()
@@ -2144,6 +2173,7 @@ export function createSteerSessionStore(
       clearRetryTimer()
       clearDialTimers()
       retries = 0
+      deviceOffline = false
       generation++
       ws?.close()
       ws = null
@@ -2154,9 +2184,11 @@ export function createSteerSessionStore(
       if (disposed) return false
       return requestOlderPage()
     },
-    kick(_reason) {
+    kick(reason) {
       if (disposed) return
       const current = phase
+      // VAPP-169: the host device's presence flip is its own trigger.
+      const trigger = reason === `device-online` ? `presenceOnline` : `wakeup`
       switch (current.kind) {
         case `closed`:
           // An unexpected close stays terminal BY DESIGN until something
@@ -2190,6 +2222,7 @@ export function createSteerSessionStore(
             Date.now() - lastFrameAt <= LIVE_STALE_MS
           )
             return
+          if (!steerOfflineRedial(`starting`, trigger)) return
           clearRetryTimer()
           void dial(true)
           return
@@ -2212,8 +2245,15 @@ export function createSteerSessionStore(
           clearRetryTimer()
           void dial(true)
           return
+        case `ended`:
+          // VAPP-169: the device-offline copy redials (the phase holds); a
+          // transcript ended by `bye` never does.
+          if (!steerOfflineRedial(deviceOffline ? `offline` : `ended`, trigger)) return
+          clearRetryTimer()
+          void dial(true)
+          return
         default:
-          // `idle` and `ended` need nothing.
+          // `idle` needs nothing.
           return
       }
     },

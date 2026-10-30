@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-offline-redial",
+    date: "2026-10-30",
+    title: "Offline sessions reconnect on their own",
+    summary: "A session whose device was offline opens its transcript by itself once that device is back.",
+    body: r#"- **Reconnects by itself**: when a session says its device is offline, the app keeps checking. Once the device is back online the transcript appears without reopening the session, on web, desktop, iOS and Android."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_124: ChangelogEntry = ChangelogEntry {
     id: "2026-10-30-cli-follow-via-daemon",
     date: "2026-10-30",
     title: "The CLI follows sessions while its daemon runs",
