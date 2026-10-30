@@ -1175,6 +1175,10 @@ class SteerConnectionTest {
             // NO FEED again on each tick = the same copy.
             waitUntil("three offline dials") { transport.noFeeds.get() == 3 }
             val socket = transport.awaitOpen()
+            // VAPP-172: the flip lands in the dial's own frame, so the row
+            // collector only catches up once the dial suspends; a frame
+            // emitted before that reads the ENDED row and never goes Live.
+            waitUntil("the running row") { connection.session.value?.isEnded == false }
             socket.emit("""{"t":"activity_reset"}""")
             waitUntil("live") { connection.phase.value == AgentPhase.Live }
             assertNull(connection.history.value)
