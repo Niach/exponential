@@ -569,7 +569,12 @@ describe(`voice.startCall`, () => {
   })
 
   it(`refuses with the fixture's reason, first match wins`, async () => {
+    // NEW-99: no Assistant at all names the Assistant, not a voice device.
     h.state.assistants = []
+    h.state.selectQueue = [[{ id: AGENT }], []]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noAgent))
+    // An Assistant on a server (no desktop) has no voice device.
+    h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
     h.state.selectQueue = [[{ id: AGENT }], []]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noVoiceDevice))
     h.state.assistants = [{ id: AGENT, voiceDeviceId: `d-mint` }]
@@ -593,6 +598,13 @@ describe(`voice.startCall`, () => {
     )
   })
 
+  it(`NEW-99: a voice that failed to load refuses with its reason`, async () => {
+    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: doctor(`error`) })]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(
+      refused(`mint couldn't load its voice: restart Exponential there`)
+    )
+  })
+
   it(`S-3: Speak replies off never refuses, and a downloading voice rings`, async () => {
     h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow()]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })
@@ -606,6 +618,7 @@ describe(`voice.startCall`, () => {
     expect(callSpeechOf(doctor(`ok`))).toBe(`ok`)
     expect(callSpeechOf(doctor(`missing`))).toBe(`noGpu`)
     expect(callSpeechOf(doctor(`action`))).toBe(`preparing`)
+    expect(callSpeechOf(doctor(`error`))).toBe(`failed`)
     // A `speech` key in another group is not the voice's.
     expect(callSpeechOf({ checkedAt: ``, items: [{ key: `speech`, group: `required`, state: `ok` }] })).toBeNull()
   })

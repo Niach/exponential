@@ -36,6 +36,42 @@ pub enum SpeechState {
     Downloading,
     /// No usable GPU: replies are shown, never spoken.
     NoGpu,
+    /// NEW-99: the voice failed to load (the download failed before any
+    /// voice was known, or the worker crashed [`MAX_CRASHES`] times in a
+    /// row): calls are off until a restart or a changed setting.
+    Failed,
+}
+
+impl SpeechState {
+    /// The doctor row's state (device-doctor.json `speech`), the one input
+    /// of `etalk::call::call_speech_of`.
+    pub fn doctor_state(self) -> &'static str {
+        match self {
+            SpeechState::Ready => "ok",
+            SpeechState::Downloading => "off",
+            SpeechState::NoGpu => "missing",
+            SpeechState::Failed => "error",
+        }
+    }
+}
+
+/// NEW-55 / NEW-99: the `speech` row from the watcher's state (None = no
+/// row: not the voice device, Speak replies off, or the worker has not
+/// answered yet).
+fn speech_row(speaks: bool, download: &Download, voices_known: bool, voices_empty: bool) -> Option<SpeechState> {
+    if !speaks {
+        return None;
+    }
+    match download {
+        Download::Unavailable => return Some(SpeechState::Failed),
+        Download::Running { .. } => return Some(SpeechState::Downloading),
+        Download::Failed if !voices_known => return Some(SpeechState::Failed),
+        _ => {}
+    }
+    if !voices_known {
+        return None;
+    }
+    Some(if voices_empty { SpeechState::NoGpu } else { SpeechState::Ready })
 }
 
 /// What THIS device speaks for: the member's voice settings
@@ -580,16 +616,7 @@ impl SpeakReplies {
     /// NEW-55: the doctor's `speech` row (None = no row: not the voice
     /// device, Speak replies off, or the worker has not answered yet).
     fn speech_state(&self, cx: &App) -> Option<SpeechState> {
-        if !self.own_voice(cx).speaks() || self.download == Download::Unavailable {
-            return None;
-        }
-        if matches!(self.download, Download::Running { .. }) {
-            return Some(SpeechState::Downloading);
-        }
-        if !self.voices_known {
-            return None;
-        }
-        Some(if self.voices.is_empty() { SpeechState::NoGpu } else { SpeechState::Ready })
+        speech_row(self.own_voice(cx).speaks(), &self.download, self.voices_known, self.voices.is_empty())
     }
 
     /// THIS device's share of the member's voice settings. A method, not a
@@ -931,6 +958,21 @@ mod tests {
         // Not ready: the gate starts over (the next ready batch is history).
         assert!(gate.observe(feed(&next, false)).is_empty());
         assert!(gate.observe(feed(&next, true)).is_empty());
+    }
+
+    #[test]
+    fn the_speech_row_names_a_dead_voice() {
+        let running = Download::Running { received: 1, total: 2 };
+        assert_eq!(speech_row(false, &Download::Unavailable, false, true), None, "not speaking here: no row");
+        assert_eq!(speech_row(true, &Download::Idle, false, true), None, "not answered yet");
+        assert_eq!(speech_row(true, &running, false, true), Some(SpeechState::Downloading));
+        assert_eq!(speech_row(true, &Download::Unavailable, false, true), Some(SpeechState::Failed), "crashed MAX_CRASHES times");
+        assert_eq!(speech_row(true, &Download::Failed, false, true), Some(SpeechState::Failed), "failed before any voice");
+        assert_eq!(speech_row(true, &Download::Failed, true, false), Some(SpeechState::Ready), "a known voice still speaks");
+        assert_eq!(speech_row(true, &Download::Idle, true, true), Some(SpeechState::NoGpu));
+        assert_eq!(speech_row(true, &Download::Idle, true, false), Some(SpeechState::Ready));
+        let states = [SpeechState::Ready, SpeechState::Downloading, SpeechState::NoGpu, SpeechState::Failed];
+        assert_eq!(states.map(SpeechState::doctor_state), ["ok", "off", "missing", "error"]);
     }
 
     #[test]

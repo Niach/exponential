@@ -439,6 +439,7 @@ class AgentCallViewModel @Inject constructor(
         Target(
             availability = VoiceCall.callAvailability(
                 VoiceCall.AvailabilityInput(
+                    agent = s?.agentId != null,
                     platform = VoiceCall.Platform.Phone,
                     device = device,
                     online = row != null && DeviceLiveness.isOnline(row.lastSeenAt, now),
@@ -470,7 +471,7 @@ class AgentCallViewModel @Inject constructor(
     }
 
     private companion object {
-        val OFF = VoiceCall.AvailabilityInput(VoiceCall.Platform.Phone, null, false, false, null, false)
+        val OFF = VoiceCall.AvailabilityInput(agent = false, platform = VoiceCall.Platform.Phone, device = null, online = false, here = false, speech = null, busy = false)
     }
 }
 

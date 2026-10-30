@@ -69,6 +69,8 @@ pub(crate) struct AgentDevice {
     /// The stored device glyph (`contract::DEVICE_ICON_VALUES`).
     pub(crate) icon: Option<String>,
     pub(crate) server: bool,
+    /// The row's `kind` (`desktop` / `server` / ...; NEW-99 Runs on).
+    pub(crate) kind: Option<String>,
     pub(crate) online: bool,
     /// The signed-in user's DEFAULT machine (EXP-622) — a new agent seeds to it.
     pub(crate) is_default: bool,
@@ -137,6 +139,7 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
                 icon: row.icon.clone(),
                 server: row.is_server(),
+                kind: row.kind.clone(),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
                 is_default: me
                     .as_deref()
@@ -845,7 +848,19 @@ impl AgentDetailPane {
             .clone()
             .or_else(|| active_team_id(&self.nav, cx))
             .unwrap_or_default();
-        let devices = agent_devices(&team_id, cx);
+        // NEW-99 (`runsOnCases`): the Assistant's device is the member's
+        // voice device: desktops only, a bound non-desktop stays.
+        let all = agent_devices(&team_id, cx);
+        let kept = domain::agent_settings::runs_on_device_ids(
+            all.iter().map(|device| (device.device_id.as_str(), device.kind.as_deref())),
+            agent.device_id.as_deref(),
+            true,
+        )
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+        let devices: Vec<AgentDevice> =
+            all.iter().filter(|device| kept.contains(&device.device_id)).cloned().collect();
         let copy = &ASSISTANT.copy;
         let caption = |text: &str, cx: &App| {
             div()

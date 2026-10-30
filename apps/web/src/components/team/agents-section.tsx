@@ -82,6 +82,7 @@ import {
   assistantModelValue,
   assistantScheduleOf,
   assistantScheduleTriggers,
+  runsOnDeviceIds,
   type AssistantScheduleId,
 } from "@exp/domain-contract/agent-settings"
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
@@ -186,11 +187,15 @@ export function useAgentDevices(teamId: string | undefined): SteerDevice[] | nul
 
 /** The Device row's entries: online machines are pickable, an offline one
  *  stays listed (disabled) so a bound agent still names it, and a binding the
- *  viewer cannot see (a teammate's private machine) renders by its raw id. */
+ *  viewer cannot see (a teammate's private machine) renders by its raw id.
+ *  NEW-99: an Assistant's lists desktops only (`runsOnDeviceIds`). */
 function deviceRows(
-  devices: readonly SteerDevice[],
-  boundId: string | null
+  all: readonly SteerDevice[],
+  boundId: string | null,
+  assistant: boolean
 ): DevicePickerDevice[] {
+  const kept = new Set(runsOnDeviceIds(all, boundId, assistant))
+  const devices = all.filter((device) => kept.has(device.deviceId))
   const rows: DevicePickerDevice[] = devices.map((device) => ({
     id: device.deviceId,
     name: device.deviceLabel || device.deviceId,
@@ -200,7 +205,7 @@ function deviceRows(
       ? {}
       : { description: `Offline`, disabled: device.deviceId !== boundId }),
   }))
-  if (boundId && !devices.some((device) => device.deviceId === boundId)) {
+  if (boundId && !all.some((device) => device.deviceId === boundId)) {
     rows.unshift({ id: boundId, name: boundId })
   }
   return rows
@@ -640,7 +645,7 @@ export function AgentSettingsPage({
       mobileTitle="Device"
       value={deviceId}
       onChange={pickDevice}
-      devices={deviceRows(devices ?? [], deviceId)}
+      devices={deviceRows(devices ?? [], deviceId, assistant)}
       disabled={readOnly}
       emptyText="No devices online"
       data-testid="agent-device"

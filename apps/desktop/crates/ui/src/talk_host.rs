@@ -69,6 +69,7 @@ pub(crate) fn speech_state(cx: &App) -> Option<coding::device_doctor::SpeechStat
         etalk_gpui::SpeechState::Ready => coding::device_doctor::SpeechState::Ready,
         etalk_gpui::SpeechState::Downloading => coding::device_doctor::SpeechState::Downloading,
         etalk_gpui::SpeechState::NoGpu => coding::device_doctor::SpeechState::NoGpu,
+        etalk_gpui::SpeechState::Failed => coding::device_doctor::SpeechState::Failed,
     })
 }
 

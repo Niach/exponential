@@ -14,11 +14,15 @@ const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtur
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallReasons {
+    /// NEW-99: the member has no voice Assistant yet.
+    pub no_agent: String,
     pub no_voice_device: String,
     pub offline: String,
     pub not_here: String,
     pub preparing: String,
     pub no_gpu: String,
+    /// NEW-99: the voice failed to load on the voice device.
+    pub voice_failed: String,
     pub busy: String,
     /// #NEW-57: a meeting runs on the voice device.
     pub meeting: String,
@@ -180,10 +184,25 @@ pub enum CallSpeech {
     Ok,
     Preparing,
     NoGpu,
+    /// NEW-99: the doctor row reads `error` (the voice failed to load).
+    Failed,
+}
+
+/// NEW-99 (`speechCases`): the voice device's doctor row `speech` state as a
+/// caller reads it; None = no row yet.
+pub fn call_speech_of(state: Option<&str>) -> Option<CallSpeech> {
+    Some(match state? {
+        "ok" => CallSpeech::Ok,
+        "missing" => CallSpeech::NoGpu,
+        "error" => CallSpeech::Failed,
+        _ => CallSpeech::Preparing,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallAvailabilityInput<'a> {
+    /// NEW-99: the member has a voice Assistant (`voice.get` agentId).
+    pub agent: bool,
     pub platform: CallPlatform,
     /// The voice device's name; None = none picked.
     pub device: Option<&'a str>,
@@ -203,6 +222,9 @@ pub struct CallAvailabilityInput<'a> {
 pub fn call_unavailable(input: &CallAvailabilityInput<'_>) -> Option<String> {
     let reasons = &VOICE_CALL.copy.reasons;
     let off = |reason: &str| Some(reason.replace("{device}", input.device.unwrap_or_default()));
+    if !input.agent {
+        return off(&reasons.no_agent);
+    }
     if input.device.is_none() {
         return off(&reasons.no_voice_device);
     }
@@ -217,6 +239,7 @@ pub fn call_unavailable(input: &CallAvailabilityInput<'_>) -> Option<String> {
     }
     match input.speech {
         None => return off(&reasons.preparing),
+        Some(CallSpeech::Failed) => return off(&reasons.voice_failed),
         Some(CallSpeech::NoGpu) => return off(&reasons.no_gpu),
         Some(CallSpeech::Ok | CallSpeech::Preparing) => {}
     }
@@ -570,9 +593,12 @@ mod tests {
             let speech = input["speech"].as_str().map(|speech| match speech {
                 "ok" => CallSpeech::Ok,
                 "noGpu" => CallSpeech::NoGpu,
-                _ => CallSpeech::Preparing,
+                "failed" => CallSpeech::Failed,
+                "preparing" => CallSpeech::Preparing,
+                other => panic!("unknown speech {other}"),
             });
             let reason = call_unavailable(&CallAvailabilityInput {
+                agent: input["agent"].as_bool().unwrap(),
                 platform: platform(&input["platform"]),
                 device: input["device"].as_str(),
                 online: input["online"].as_bool().unwrap(),
@@ -584,6 +610,20 @@ mod tests {
             let expected = &case["expected"];
             assert_eq!(reason.is_none(), expected["enabled"].as_bool().unwrap(), "{}", case["name"]);
             assert_eq!(reason.as_deref(), expected["reason"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn speech_matches_the_fixture() {
+        for case in fixture()["speechCases"].as_array().unwrap() {
+            let expected = case["expected"].as_str().map(|speech| match speech {
+                "ok" => CallSpeech::Ok,
+                "noGpu" => CallSpeech::NoGpu,
+                "failed" => CallSpeech::Failed,
+                "preparing" => CallSpeech::Preparing,
+                other => panic!("unknown speech {other}"),
+            });
+            assert_eq!(call_speech_of(case["state"].as_str()), expected, "{}", case["name"]);
         }
     }
 

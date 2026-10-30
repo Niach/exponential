@@ -15,7 +15,7 @@ const STALE = new Date(NOW.getTime() - 10 * 60_000)
 
 /** The doctor's `speech` row a caller's input stands for. */
 function doctorFor(speech: CallAvailabilityInput[`speech`]): DeviceDoctor {
-  const state = { ok: `ok`, noGpu: `missing`, preparing: `action` } as const
+  const state = { ok: `ok`, noGpu: `missing`, preparing: `action`, failed: `error` } as const
   return {
     checkedAt: NOW.toISOString(),
     items: speech === null ? [] : [{ key: `speech`, group: `voice`, state: state[speech] }],
@@ -24,6 +24,7 @@ function doctorFor(speech: CallAvailabilityInput[`speech`]): DeviceDoctor {
 
 function rowsFor(input: CallAvailabilityInput) {
   const settings = {
+    agentId: input.agent ? `agent-1` : null,
     voiceDeviceId: input.device === null ? null : `dev-1`,
     meetingStartedAt: input.meeting ? NOW.toISOString() : null,
   }
@@ -47,7 +48,7 @@ describe(`web call availability (voice-call.json availabilityCases)`, () => {
   })
 
   it(`covers every reason a web caller can see`, () => {
-    for (const key of [`noVoiceDevice`, `offline`, `meeting`, `preparing`, `noGpu`] as const) {
+    for (const key of [`noAgent`, `noVoiceDevice`, `offline`, `meeting`, `preparing`, `voiceFailed`, `noGpu`] as const) {
       const hit = WEB_CASES.some((c) => c.expected.reason === fixture.copy.reasons[key].replace(`{device}`, c.input.device ?? ``))
       expect(hit, key).toBe(true)
     }
@@ -55,7 +56,7 @@ describe(`web call availability (voice-call.json availabilityCases)`, () => {
   })
 
   it(`a voice device whose row is gone reads as none picked`, () => {
-    const settings = { voiceDeviceId: `dev-1` }
+    const settings = { voiceDeviceId: `dev-1`, agentId: `agent-1` }
     expect(webCallAvailability(settings, null, NOW).reason).toBe(fixture.copy.reasons.noVoiceDevice)
     const other = { deviceId: `dev-2`, label: `mint`, lastSeenAt: FRESH, doctor: doctorFor(`ok`) }
     expect(webCallAvailability(settings, other, NOW).reason).toBe(fixture.copy.reasons.noVoiceDevice)
@@ -65,12 +66,14 @@ describe(`web call availability (voice-call.json availabilityCases)`, () => {
     expect(webCallAvailability(null, null, NOW).enabled).toBe(false)
   })
 
-  it(`the doctor row: ok → ok, missing → noGpu, absent or anything else → preparing`, () => {
+  it.each(fixture.speechCases.map((c) => [c.name, c] as const))(`speechCases: %s`, (_name, c) => {
+    const doctor = { checkedAt: ``, items: c.state === null ? [] : [{ key: `speech`, group: `voice`, state: c.state }] }
+    expect(callSpeechOf(doctor as DeviceDoctor)).toBe(c.expected)
+  })
+
+  it(`the doctor row: only the voice group's speech row counts`, () => {
     expect(callSpeechOf(null)).toBeNull()
     expect(callSpeechOf(doctorFor(null))).toBeNull()
-    expect(callSpeechOf(doctorFor(`ok`))).toBe(`ok`)
-    expect(callSpeechOf(doctorFor(`noGpu`))).toBe(`noGpu`)
-    expect(callSpeechOf(doctorFor(`preparing`))).toBe(`preparing`)
     // Another group's `speech` row is not the voice's.
     expect(callSpeechOf({ checkedAt: ``, items: [{ key: `speech`, group: `required`, state: `ok` }] } as DeviceDoctor)).toBeNull()
   })

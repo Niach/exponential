@@ -257,6 +257,18 @@ object AgentSettings {
     // contract `agentRole`), the mirror of TS `ASSISTANT*`,
     // `assistantScheduleOf`, `visibleAgent`, `orderedAgents`; replayed by
     // `AgentSettingsTest` (`scheduleCases`, `visibleCases`, `orderCases`).
+    /** A Runs on candidate as [runsOnDeviceIds] reads it. */
+    data class RunsOnDevice(val deviceId: String, val kind: String?)
+
+    /**
+     * NEW-99 (`assistant.runsOnCases`, TS `runsOnDeviceIds`): the Runs on
+     * device picker's devices, in the given order. An Assistant's device is
+     * the member's voice device, so it lists desktops only (a bound
+     * non-desktop stays, naming itself); a team agent keeps every device.
+     */
+    fun runsOnDeviceIds(devices: List<RunsOnDevice>, boundId: String?, assistant: Boolean): List<String> =
+        devices.filter { !assistant || it.kind == "desktop" || it.deviceId == boundId }.map { it.deviceId }
+
     object Assistant {
         const val ROLE = "assistant"
         const val TITLE = "Assistant"

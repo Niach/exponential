@@ -38,10 +38,14 @@ object VoiceCall {
         val greeting: Map<String, String> = linkedMapOf("en" to "Hello?", "de" to "Hallo?")
 
         object Reasons {
-            const val NO_VOICE_DEVICE = "Pick a voice device in Settings → Voice"
+            /** NEW-99: the member has no voice Assistant yet. */
+            const val NO_AGENT = "Set up your Assistant in Settings → Agents"
+            const val NO_VOICE_DEVICE = "Run your Assistant on a desktop in Settings → Assistant"
             const val OFFLINE = "{device} is offline"
             const val NOT_HERE = "Calls run on {device}"
             const val PREPARING = "{device} is getting its voice ready"
+            /** NEW-99: the voice device's `speech` row reads error. */
+            const val VOICE_FAILED = "{device} couldn't load its voice: restart Exponential there"
             const val NO_GPU = "{device} can't speak: no usable GPU"
             const val BUSY = "{device} is in another call"
             /** #NEW-57: a meeting runs on the voice device. */
@@ -180,9 +184,11 @@ object VoiceCall {
     enum class Platform(val wire: String) { Desktop("desktop"), Phone("phone"), Web("web") }
 
     /** The voice device's doctor row `speech` as a caller reads it. */
-    enum class Speech(val wire: String) { Ok("ok"), Preparing("preparing"), NoGpu("noGpu") }
+    enum class Speech(val wire: String) { Ok("ok"), Preparing("preparing"), NoGpu("noGpu"), Failed("failed") }
 
     data class AvailabilityInput(
+        /** NEW-99: the member has a voice Assistant (`voice.get` agentId). */
+        val agent: Boolean,
         val platform: Platform,
         /** The voice device's name; null = none picked. */
         val device: String?,
@@ -205,11 +211,13 @@ object VoiceCall {
         fun off(reason: String) = Availability(enabled = false, reason = reason.replace("{device}", input.device ?: ""))
         val r = Copy.Reasons
         return when {
+            !input.agent -> off(r.NO_AGENT)
             input.device == null -> off(r.NO_VOICE_DEVICE)
             !input.online -> off(r.OFFLINE)
             input.meeting -> off(r.MEETING)
             input.platform == Platform.Desktop && !input.here -> off(r.NOT_HERE)
             input.speech == null -> off(r.PREPARING)
+            input.speech == Speech.Failed -> off(r.VOICE_FAILED)
             input.speech == Speech.NoGpu -> off(r.NO_GPU)
             input.busy -> off(r.BUSY)
             else -> Availability(enabled = true, reason = null)
@@ -218,16 +226,19 @@ object VoiceCall {
 
     /**
      * The voice device's `speech` (group `voice`) doctor row: ok → ok,
-     * missing (no usable GPU) → noGpu, absent → null, anything else → preparing
-     * (web `callSpeechOf`).
+     * missing (no usable GPU) → noGpu, error (NEW-99: the voice failed to
+     * load) → failed, absent → null, anything else → preparing.
      */
-    fun callSpeech(doctor: DeviceDoctor?): Speech? {
-        val row = doctor?.items?.firstOrNull { it.key == "speech" && it.group == "voice" } ?: return null
-        return when (row.state) {
-            "ok" -> Speech.Ok
-            "missing" -> Speech.NoGpu
-            else -> Speech.Preparing
-        }
+    fun callSpeech(doctor: DeviceDoctor?): Speech? =
+        callSpeechOf(doctor?.items?.firstOrNull { it.key == "speech" && it.group == "voice" }?.state)
+
+    /** NEW-99 (`speechCases`, TS `callSpeechOf`): a doctor row state → [Speech]; null = no row. */
+    fun callSpeechOf(state: String?): Speech? = when (state) {
+        null -> null
+        "ok" -> Speech.Ok
+        "missing" -> Speech.NoGpu
+        "error" -> Speech.Failed
+        else -> Speech.Preparing
     }
 
     enum class Phase { Hidden, Ringing, Listening, Thinking, Speaking }
