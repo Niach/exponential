@@ -248,9 +248,9 @@ jobs:
 
   swift-dist:
     # After the release: the package's binaryTarget url points at the zip
-    # this release just uploaded.
+    # this release just uploaded. A dry run does everything but the push
+    # (`git push --dry-run`, which still needs the token's write access).
     needs: [version, release]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -264,7 +264,25 @@ jobs:
         run: |
           if [ -z "$SWIFT_DIST_TOKEN" ]; then echo "::warning::SWIFT_DIST_TOKEN is not set: the package is an artifact, not pushed"; exit 0; fi
           git clone "https://x-access-token:${SWIFT_DIST_TOKEN}@github.com/Niach/exponential-talk-swift.git" dist-repo
-          rsync -a --delete --exclude .git dist-swift/package/ dist-repo/
+          # #EXP-1467: --checksum, never rsync's size+mtime quick check: a
+          # version bump keeps every file's size (0.2.1 → 0.2.2, one checksum
+          # for another) and the unpacked artifact and the fresh clone share
+          # their mtime second, so the quick check copied nothing.
+          rsync -a --checksum --delete --exclude .git dist-swift/package/ dist-repo/
           cd dist-repo
           git config user.name "exponential-release" && git config user.email "release@exponential.at"
-          git add -A && git commit -m "ExponentialTalk $V" && git tag "$V" && git push origin HEAD "$V"
+          git add -A
+          git status --short
+          if git diff --cached --quiet; then echo "::notice::main already holds the $V package"; else git commit -q -m "ExponentialTalk $V"; fi
+          # Idempotent re-runs: an existing tag must already be this commit.
+          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+            [ "$(git rev-parse "$V^{commit}")" = "$(git rev-parse HEAD)" ] || { echo "::error::tag $V already exists on another commit"; exit 1; }
+          else
+            git tag "$V"
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            git push --dry-run origin HEAD "$V"
+            echo "::notice::dry run: the $V package was not pushed (the token can write)"
+          else
+            git push origin HEAD "$V"
+          fi
