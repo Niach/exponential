@@ -332,7 +332,7 @@ export function ThreadStripGroup({
       title={THREAD_STRIP_GROUP_LABEL}
       aria-label={THREAD_STRIP_GROUP_LABEL}
       data-testid={`${THREAD_TEST_IDS.group}-menu`}
-      contentClassName="w-80 p-1"
+      contentClassName="w-96 p-1"
       trigger={
         <StripChip
           // A MENU trigger, not a tab: its state rides `data-active`.

@@ -340,14 +340,16 @@ export const STORY_VIEWER_FRAME_STYLE = {
 /** A press on these never steps (the tap thirds skip them). */
 const INTERACTIVE = `button, a, input, textarea, select, label, [role="button"], [role="slider"], [role="radio"], [role="checkbox"], [role="switch"], [role="option"], [contenteditable="true"], [data-slot="story-footer"]`
 
-/** A floating band's scrim (`viewer.scrimHeight`): black at the edge,
- *  clear at its inner end; a band taller than the scrim stays black under
- *  its content. `to` = the direction it fades towards. */
+/** A floating band's scrim (`viewer.scrimHeight`): near-opaque behind the
+ *  band's text, fading out over the extra `STORY_SCRIM_FADE` px past it,
+ *  so a picture's own text never collides with the title. `to` = the
+ *  direction it fades towards. */
+const STORY_SCRIM_FADE = STORY_VIEWER.scrimFade
 function storyScrim(to: `bottom` | `top`): CSSProperties {
-  const black = `rgb(0 0 0 / 0.75)`
   return {
     minHeight: STORY_VIEWER.scrimHeight,
-    backgroundImage: `linear-gradient(to ${to}, ${black} 0%, ${black} calc(100% - ${STORY_VIEWER.scrimHeight}px), transparent 100%)`,
+    [to === `bottom` ? `paddingBottom` : `paddingTop`]: STORY_SCRIM_FADE,
+    backgroundImage: `linear-gradient(to ${to}, rgb(0 0 0 / 0.88) 0%, rgb(0 0 0 / 0.8) calc(100% - ${STORY_SCRIM_FADE}px), transparent 100%)`,
   }
 }
 
