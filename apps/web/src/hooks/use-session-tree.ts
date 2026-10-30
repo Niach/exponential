@@ -905,13 +905,16 @@ export function useSessionWaitingCard(
   const conversationIds = sessionConversationIds(conversations, [sessionId])
   const sessionIds = useMemo(() => [sessionId], [sessionId])
   const { rows, isReady } = useNewestMessages({ key: sessionId, conversationIds, sessionIds })
+  const keyVersion = useKeyVersion()
   return useMemo(() => {
-    const messages = keyMessageRows(rows, conversations).map(toTreeMessage)
+    // EXP-1459: sealed cards open here (keyVersion re-opens them once a key lands).
+    const messages = toTreeMessages(keyMessageRows(rows, conversations))
     const id = sessionWaitingCard(sessionId, messages)
     const message = id ? messages.find((row) => row.id === id) : undefined
     if (message) return threadAskRow(message)
     return isReady ? null : undefined
-  }, [rows, isReady, conversations, sessionId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, isReady, conversations, sessionId, keyVersion])
 }
 
 /** Every message of ONE tree (`root_id`): an agent's conversation shows
