@@ -2,7 +2,7 @@ name: release-etalk
 
 # EXP-1438: publishes eTalk (voice, calls, wake word) on `etalk-v<semver>` tags, the
 # eUI pattern (release-eui.yml): one tag = one version of every crate below,
-# checked against their Cargo.toml first. Crates: etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui.
+# checked against their Cargo.toml first. Crates: etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui etalk-ffi.
 # Not on crates.io (publish = false): consumers depend on the tag with git = + tag =.
 # A dispatched dry run tests and stops before publishing anything.
 
@@ -41,7 +41,7 @@ jobs:
         run: |
           v="${VERSION:-${GITHUB_REF_NAME#etalk-v}}"
           echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "not a semver version: $v"; exit 1; }
-          for c in etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui; do
+          for c in etalk etalk-codec etalk-engine etalk-crispasr etalk-wakeword etalk-gpui etalk-ffi; do
             crate=$(grep -m1 '^version' "apps/desktop/crates/$c/Cargo.toml" | cut -d'"' -f2)
             [ "$crate" = "$v" ] || { echo "apps/desktop/crates/$c/Cargo.toml is $crate, the tag says $v: bump it first"; exit 1; }
           done
@@ -67,7 +67,7 @@ jobs:
           workspaces: apps/desktop
       - name: Cargo tests (eTalk)
         working-directory: apps/desktop
-        run: cargo test --no-fail-fast --locked -p etalk -p etalk-codec -p etalk-engine -p etalk-crispasr -p etalk-wakeword -p etalk-gpui
+        run: cargo test --no-fail-fast --locked -p etalk -p etalk-codec -p etalk-engine -p etalk-crispasr -p etalk-wakeword -p etalk-gpui -p etalk-ffi
 
   release:
     needs: [version, test]

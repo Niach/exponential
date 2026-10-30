@@ -13,6 +13,7 @@ Exponential and spezl.
 | `etalk-crispasr` | The pinned CrispASR runtime + models: sha256-verified downloads, loaded at run time with `libloading`, nothing linked. | |
 | `etalk-codec` | The call's Opus (pure-Rust `opus-rs` by default, `libopus` behind a feature). | |
 | `etalk-wakeword` | The wake word with a model: an openWakeWord-compatible detector on tract behind `WakeDetector` (see its README). | |
+| `etalk-ffi` | The UniFFI facade for iOS + Android: the call machine (`etalk::call`) and the codec, PCM in and out; audio I/O stays native, transport is eNet's (see its README). | `etalk`, `etalk-codec`, uniffi |
 | `etalk-gpui` | The UI: tray voice, push-to-talk overlay, call panel, reply speaker, meeting mode, behind the `TalkHost` sink (see its README). | gpui |
 
 ## The contract
@@ -21,7 +22,9 @@ Exponential and spezl.
 `voice.json`, `voice-call.json`, `talk-listen.json`, `meeting.json`, each with
 its `$comment` as the spec, plus the TypeScript references (`voice.ts`,
 `voice-call.ts`, `meeting.ts`). The Rust state machines here, Swift
-(`apps/ios`) and Kotlin (`apps/android`) are locked to the same cases. A
+(`apps/ios`) and Kotlin (`apps/android`) are locked to the same cases; the
+phones' call machine can come from `etalk-ffi` instead, whose Swift and Kotlin
+suites replay `voice-call.json` through the bindings. A
 behaviour change edits the fixture first.
 
 ## Hosting the worker

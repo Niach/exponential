@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
-const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice-call.json");
+pub const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice-call.json");
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -402,6 +402,58 @@ pub fn call_step(state: &CallState, event: &CallEvent) -> CallState {
     }
 }
 
+/// The flow event as the caller receives it (`call_event {event}`,
+/// voice-call.json `wire.control`): S-3 the ring's `rang`, the worker's
+/// `ready` and the mic check's `noSound` too, so caller and host show the
+/// same ring. None = an event the host never forwards (the caller's own
+/// start, mute, speaker, end; a hang-up rides `call_end`; a host failure is
+/// sent on its own before the `call_end`).
+pub fn call_wire_event(event: &CallEvent) -> Option<serde_json::Value> {
+    use serde_json::json;
+    Some(match event {
+        CallEvent::Rang => json!({ "t": "rang" }),
+        CallEvent::Ready => json!({ "t": "ready" }),
+        CallEvent::NoSound => json!({ "t": "noSound" }),
+        CallEvent::Partial(text) => json!({ "t": "partial", "text": text }),
+        CallEvent::Said(text) => json!({ "t": "said", "text": text }),
+        CallEvent::SpeechStarted => json!({ "t": "speechStarted" }),
+        CallEvent::Queued { count, text } => json!({ "t": "queued", "count": count, "text": text }),
+        CallEvent::ReplyStarted(text) => json!({ "t": "replyStarted", "text": text }),
+        CallEvent::ReplyFinished => json!({ "t": "replyFinished" }),
+        _ => return None,
+    })
+}
+
+/// #EXP-1441: a caller's side of [`call_wire_event`]: one flow event in its
+/// wire form (`{t, ...}`, the `flowCases` event shape, `failed {code}`
+/// included) as a [`CallEvent`]; None = not a flow event.
+pub fn call_event_of_wire(value: &serde_json::Value) -> Option<CallEvent> {
+    let text = || value["text"].as_str().unwrap_or_default().to_string();
+    Some(match value["t"].as_str()? {
+        "start" => CallEvent::Start {
+            device: value["device"].as_str()?.to_string(),
+            language: value["language"].as_str().map(str::to_string),
+        },
+        "rang" => CallEvent::Rang,
+        "ready" => CallEvent::Ready,
+        "noSound" => CallEvent::NoSound,
+        "partial" => CallEvent::Partial(text()),
+        "said" => CallEvent::Said(text()),
+        "speechStarted" => CallEvent::SpeechStarted,
+        "queued" => CallEvent::Queued { count: value["count"].as_u64().unwrap_or(0) as usize, text: text() },
+        "replyStarted" => CallEvent::ReplyStarted(text()),
+        "replyFinished" => CallEvent::ReplyFinished,
+        "mute" => CallEvent::Mute,
+        "unmute" => CallEvent::Unmute,
+        "speaker" => CallEvent::Speaker(value["on"].as_bool()?),
+        "end" => CallEvent::End,
+        "hungUp" => CallEvent::HungUp(value["reason"].as_str().map(str::to_string)),
+        // A host failure with any code: one without copy fails as `dropped`.
+        "failed" => CallEvent::Failed(value["code"].as_str().unwrap_or("dropped").to_string()),
+        _ => return None,
+    })
+}
+
 /// One round call button (`call-controls`), in `CallView::buttons` order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -628,29 +680,20 @@ mod tests {
     }
 
     fn event(value: &Value) -> CallEvent {
-        let text = || value["text"].as_str().unwrap_or_default().to_string();
-        match value["t"].as_str().unwrap() {
-            "start" => CallEvent::Start {
-                device: value["device"].as_str().unwrap().into(),
-                language: value["language"].as_str().map(str::to_string),
-            },
-            "rang" => CallEvent::Rang,
-            "ready" => CallEvent::Ready,
-            "noSound" => CallEvent::NoSound,
-            "partial" => CallEvent::Partial(text()),
-            "said" => CallEvent::Said(text()),
-            "speechStarted" => CallEvent::SpeechStarted,
-            "queued" => CallEvent::Queued { count: value["count"].as_u64().unwrap() as usize, text: text() },
-            "replyStarted" => CallEvent::ReplyStarted(text()),
-            "replyFinished" => CallEvent::ReplyFinished,
-            "mute" => CallEvent::Mute,
-            "unmute" => CallEvent::Unmute,
-            "speaker" => CallEvent::Speaker(value["on"].as_bool().unwrap()),
-            "end" => CallEvent::End,
-            "hungUp" => CallEvent::HungUp(value["reason"].as_str().map(str::to_string)),
-            "failed" => CallEvent::Failed(value["code"].as_str().unwrap().into()),
-            other => panic!("unknown event {other}"),
+        call_event_of_wire(value).unwrap_or_else(|| panic!("unknown event {value}"))
+    }
+
+    #[test]
+    fn the_wire_events_round_trip() {
+        for case in fixture()["flowCases"].as_array().unwrap() {
+            for value in case["events"].as_array().unwrap() {
+                let event = event(value);
+                if let Some(wire) = call_wire_event(&event) {
+                    assert_eq!(call_event_of_wire(&wire), Some(event), "{value}");
+                }
+            }
         }
+        assert_eq!(call_event_of_wire(&serde_json::json!({ "t": "nope" })), None);
     }
 
     #[test]

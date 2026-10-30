@@ -8,6 +8,10 @@
 //! PipeWire app nodes (PulseAudio's monitor source as `system`), Windows
 //! WASAPI process loopback (build 20348+, else system loopback).
 
+// #EXP-1441: the phones (etalk-ffi) build this crate too; the capture
+// queue only serves the three desktop implementations.
+#![cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows")), allow(dead_code))]
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

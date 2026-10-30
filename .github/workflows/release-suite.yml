@@ -16,7 +16,8 @@ name: release-suite
 # confine cases on the Mac), the desktop fuzz targets (short
 # runs, NEW-88), Android unit tests + lint +
 # licence inventory, the iOS compile + suites (test-ios.yml), and every
-# Exponential UI renderer + conformance + bench (exponential-ui.yml).
+# Exponential UI renderer + conformance + bench (exponential-ui.yml), and
+# eTalk's phone facade (etalk-ffi: bindings drift + Swift/Kotlin suites).
 
 on:
   push:
@@ -378,6 +379,53 @@ jobs:
           path: apps/desktop/fuzz/artifacts
           if-no-files-found: ignore
 
+
+  # #EXP-1441: eTalk's UniFFI facade for the phones. The committed bindings
+  # match the generator (Kotlin ships with omit_checksums), and the Swift +
+  # Kotlin suites replay packages/etalk/fixtures/voice-call.json through them.
+  etalk-ffi:
+    needs: [dedupe, pick]
+    if: needs.dedupe.outputs.run == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Facade tests
+        working-directory: apps/desktop
+        run: cargo test --locked -p etalk-ffi
+      - name: Committed bindings match the generator
+        run: |
+          bash apps/desktop/crates/etalk-ffi/generate-bindings.sh
+          git diff --exit-code -- apps/desktop/crates/etalk-ffi/bindings
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Kotlin binding suite (the committed binding vs the host .so)
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+        run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh kotlin
+
+  etalk-ffi-swift:
+    needs: [dedupe, pick]
+    if: needs.dedupe.outputs.run == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: bash .github/scripts/select-xcode.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - name: Swift binding suite (the committed binding vs the host dylib)
+        run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh swift
 
   android:
     needs: [dedupe, pick]

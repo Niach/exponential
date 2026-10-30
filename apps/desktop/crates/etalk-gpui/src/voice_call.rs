@@ -40,7 +40,7 @@ use gpui::{
 };
 
 use etalk::call::{
-    call_ring_ms, call_ring_random, call_speech_of, call_step, call_timer, call_unavailable, call_view, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
+    call_ring_ms, call_ring_random, call_speech_of, call_step, call_timer, call_unavailable, call_view, call_wire_event as wire_event, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
     VOICE_CALL,
 };
 
@@ -387,25 +387,6 @@ fn unavailable_ignoring_busy(cx: &App) -> Option<String> {
         speech: Some(CallSpeech::Ok),
         busy: false,
         meeting: crate::speak_replies::settings(cx).meeting(),
-    })
-}
-
-/// The flow event as the caller receives it (`call_event`): S-3 the ring's
-/// `rang`, the worker's `ready` and the mic check's `noSound` too, so caller
-/// and host show the same ring.
-fn wire_event(event: &CallEvent) -> Option<serde_json::Value> {
-    use serde_json::json;
-    Some(match event {
-        CallEvent::Rang => json!({ "t": "rang" }),
-        CallEvent::Ready => json!({ "t": "ready" }),
-        CallEvent::NoSound => json!({ "t": "noSound" }),
-        CallEvent::Partial(text) => json!({ "t": "partial", "text": text }),
-        CallEvent::Said(text) => json!({ "t": "said", "text": text }),
-        CallEvent::SpeechStarted => json!({ "t": "speechStarted" }),
-        CallEvent::Queued { count, text } => json!({ "t": "queued", "count": count, "text": text }),
-        CallEvent::ReplyStarted(text) => json!({ "t": "replyStarted", "text": text }),
-        CallEvent::ReplyFinished => json!({ "t": "replyFinished" }),
-        _ => return None,
     })
 }
 
