@@ -12,10 +12,13 @@
 //! ([`super::composer_dialog::ComposerSpecimen`]), EXP-1211's quick replies
 //! above it (`repliesCases[1]`), then EXP-1323's ended
 //! root and its live dispatcher (the suggestions card in every state, a
-//! report line, an aside's card).
+//! report line, an aside's card), then #EXP-1464's session rows
+//! (thread-row-action.json): a Needs you child expanded into its question
+//! card with `Open chat`, and an event line that opens its session.
 
-use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
-use gpui_component::{v_flex, ActiveTheme as _};
+use gpui::{div, px, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use gpui_component::button::ButtonVariants as _;
+use gpui_component::{v_flex, ActiveTheme as _, Sizable as _};
 
 use crate::markdown::ImageCache;
 
@@ -100,7 +103,74 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         }
         column = column.child(conversation);
     }
-    column
+    column.child(
+        v_flex()
+            .gap_2()
+            .child(caption(
+                "#EXP-1464: a Needs you child expanded in place (THE session card, chevron down, THE question card with Open chat), then an event line that opens its session.",
+                cx,
+            ))
+            .child(session_rows_specimen(&images, window, cx)),
+    )
+}
+
+/// #EXP-1464 (thread-row-action.json): the fold case's child question under
+/// its session card expanded, then an event line naming a session — the
+/// thread screen's REAL painters, the expanded state drawn as such.
+fn session_rows_specimen(images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> gpui::AnyElement {
+    use domain::session_tree::{SessionCard, SessionState, SessionThreadRow};
+    let fold = case(case_named(FOLD_CASE));
+    let root = fold.view.root_id.clone();
+    let question = fold
+        .view
+        .rows
+        .iter()
+        .find(|row| matches!(row, SessionThreadRow::Question { session_id, .. } if *session_id != root))
+        .expect("the fold case asks a child's question")
+        .clone();
+    let SessionThreadRow::Question { session_id, .. } = &question else { unreachable!() };
+    let card = SessionCard {
+        session_id: session_id.clone(),
+        icon: "coding-needs-input".to_string(),
+        name: "Fix the sign-in redirect".to_string(),
+        kind_word: SessionState::NeedsYou.word().to_string(),
+        state: SessionState::NeedsYou,
+        tone: "amber".to_string(),
+        elapsed: None,
+        running: false,
+        test_id: "session-card".to_string(),
+    };
+    let header = crate::work_card::session_card_row(
+        &card,
+        Some(crate::icons::registry::UI_CHEVRON_DOWN),
+        Some(Box::new(|_, _| {})),
+        cx,
+    );
+    let open_chat = gpui_component::button::Button::new("sg-session-thread-open-chat")
+        .link()
+        .cursor_pointer()
+        .xsmall()
+        .label(domain::thread_row_action::copy().open_chat.clone());
+    let text = crate::thread_screen::ThreadText::default();
+    let body = crate::thread_screen::ask_row_card_with(&question, &text, images, Some(open_chat.into_any_element()), window, cx)
+        .unwrap_or_else(|| div().into_any_element());
+    v_flex()
+        .w_full()
+        .gap_5()
+        .child(v_flex().w_full().gap_2().child(header).child(body))
+        .child(crate::thread_screen::muted_line_button(
+            SharedString::from("sg-session-thread-event"),
+            crate::icons::registry::EVENT_STATUS_CHANGED,
+            "Polish the inbox was not picked up".to_string(),
+            |_, _| {},
+            cx,
+        ))
+        .child(crate::thread_screen::muted_line(
+            crate::icons::registry::EVENT_STATUS_CHANGED,
+            "Danny linked the thread".to_string(),
+            cx,
+        ))
+        .into_any_element()
 }
 
 #[cfg(test)]

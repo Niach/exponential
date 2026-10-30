@@ -78,6 +78,8 @@ pub(crate) struct RunLifecycle {
     /// publisher. `None` on a replay.
     attachments: Option<steer::AttachmentHook>,
     embeds: steer::ImageEmbeds,
+    /// VAPP-33: who may steer the run over eNet. `None` on a replay.
+    audience: Option<coding::SteerAudience>,
     attached: Mutex<Option<Attached>>,
 }
 
@@ -91,6 +93,7 @@ pub(crate) struct LifecycleSpec {
     pub(crate) conversation: Option<Arc<dyn crate::outbox::ConversationApi>>,
     pub(crate) attachments: Option<steer::AttachmentHook>,
     pub(crate) embeds: steer::ImageEmbeds,
+    pub(crate) audience: Option<coding::SteerAudience>,
 }
 
 impl RunLifecycle {
@@ -109,6 +112,7 @@ impl RunLifecycle {
             lost: Arc::new(OnceLock::new()),
             attachments: spec.attachments,
             embeds: spec.embeds,
+            audience: spec.audience,
             attached: Mutex::new(None),
         }
     }
@@ -693,6 +697,8 @@ fn attach_publisher(
             // EXP-825: the shared restore map — the seed prompt's images
             // were localized into it before this publisher came up.
             embeds: life.embeds.clone(),
+            // VAPP-33: the eNet steer room's access rule.
+            audience: life.audience.clone(),
         },
         tickets,
         hooks,

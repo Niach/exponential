@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn waiting_rows_are_open_plans_and_unanswered_questions() {
         let rows: Vec<SessionThreadRow> = vec![
-            SessionThreadRow::Event { id: "e".into(), event: "linked".into(), text: "Linked".into() },
+            SessionThreadRow::Event { id: "e".into(), event: "linked".into(), text: "Linked".into(), session_id: None },
             plan("p1", None),
             plan("p2", Some("approved")),
             question("q1", false),

@@ -10,8 +10,10 @@ import {
 } from "react"
 import threadFixture from "@exp/domain-contract/fixtures/session-thread.json"
 import {
+  SESSION_CARD_COPY,
   SUGGESTIONS_COPY,
   THREAD_TEST_IDS,
+  type SessionState,
   threadStripMode,
   type SessionTabMarkState,
   type SessionXref as SessionXrefModel,
@@ -26,6 +28,13 @@ import {
 } from "@exp/domain-contract/ask-dock"
 import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
 import { STORY_TAB } from "@exp/domain-contract/stories"
+import {
+  THREAD_ROW_ACTION_COPY,
+  THREAD_ROW_ACTION_TEST_IDS,
+  threadRowAction,
+  waitingCardInline,
+  type ThreadRowAction,
+} from "@exp/domain-contract/thread-row-action"
 import type { RunMarkState } from "./agent-brand-mark"
 import {
   answerIssue,
@@ -69,6 +78,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
 import { CHAT_BUBBLE_ENTER_CLASS, ChatBubble, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
 import { Spinner } from "./feedback"
+import { SkeletonRows } from "./skeleton"
 import { StableRow } from "./transcript-window"
 import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 
@@ -107,6 +117,7 @@ const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const SuggestionsIcon = conceptIcon(`ui-checklist`)
 const MoreIcon = conceptIcon(`ui-more`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const GroupIcon = conceptIcon(`session-tree`)
 /** #EXP-1433: the group tab's open label caps here (px). */
 const STRIP_GROUP_MAX_WIDTH = threadFixture.stripGroupMaxWidth
@@ -654,6 +665,13 @@ export interface ThreadConversationProps {
   /** S-3: the agent mark of an xref's `agentId` (absent = the session
    *  glyph). */
   xrefAgent?: (agentId: string) => UserAvatarAgent | null
+  /** #EXP-1464 (thread-row-action.json): the conversation's own root (a row
+   *  about it does nothing). */
+  rootId?: string
+  /** #EXP-1464: loads an expanded row's waiting question / plan card (the
+   *  host's data; `undefined` = still loading, null = none); absent = a
+   *  Needs you card opens like any other. */
+  WaitingCard?: ComponentType<{ sessionId: string; children: (row: WaitingCardRow | null | undefined) => ReactNode }>
   /** S-3: who started the viewed session (`SessionThreadView.origin`): its
    *  header line on top of the rows. */
   origin?: SessionXrefModel | null
@@ -694,6 +712,9 @@ export interface ThreadConversationProps {
   className?: string
 }
 
+/** #EXP-1464: the card an expanded session row opens. */
+export type WaitingCardRow = Extract<ThreadRow, { type: `question` | `plan` }>
+
 /** S-3: the card rows a `bubbles` conversation keeps in the agent column. */
 const AGENT_COLUMN_ROWS = new Set<ThreadRow[`type`]>([
   `session`,
@@ -716,6 +737,8 @@ export function ThreadConversation(props: ThreadConversationProps) {
     onOpenSession,
     onOpenXref,
     xrefAgent,
+    rootId = ``,
+    WaitingCard,
     origin,
     onAnswer,
     onDecide,
@@ -741,16 +764,43 @@ export function ThreadConversation(props: ThreadConversationProps) {
   const isLive = arrived ?? ownArrivals
   const bubbles = layout === `bubbles`
   const canOpenXref = Boolean(onOpenXref ?? onOpenSession)
-  const xrefLine = (xref: SessionXrefModel, key?: string) => (
+  const openXref = (id: string) => (latest.current.onOpenXref ?? latest.current.onOpenSession)?.(id)
+  // #EXP-1464 (thread-row-action.json): the rows expanded into their
+  // waiting card, and the sessions the viewer answered from one (local).
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
+  const toggle = (rowId: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(rowId)) next.add(rowId)
+      return next
+    })
+  const actionOf = (row: ThreadRow): ThreadRowAction => {
+    const sessionId =
+      row.type === `session` ? row.card.sessionId : row.type === `report` || row.type === `event` ? row.sessionId : null
+    const card = row.type === `session` ? row.card : null
+    const action = threadRowAction({
+      type: row.type,
+      sessionId,
+      rootId,
+      state: (card?.state as SessionState | undefined) ?? null,
+      // A flagged session's word names its flag (session-card.json).
+      blocked: card !== null && card.state === `needs_you` && card.kindWord !== SESSION_CARD_COPY.states.needs_you,
+      inline: sessionId !== null && waitingCardInline(rows, sessionId),
+      answered: sessionId !== null && answered.has(sessionId),
+    })
+    if (action.action === `expand` && !WaitingCard) return { ...action, action: `open` }
+    if (action.action === `open` && !(row.type === `session` ? onOpenSession : canOpenXref)) {
+      return { action: `none`, sessionId: null, chevron: false, kindWord: null, tone: null }
+    }
+    return action
+  }
+  const xrefLine = (xref: SessionXrefModel, key?: string, open = canOpenXref) => (
     <SessionXref
       key={key}
       xref={xref}
       agent={xref.agentId ? (latest.current.xrefAgent?.(xref.agentId) ?? null) : null}
-      onOpen={
-        canOpenXref
-          ? (id) => (latest.current.onOpenXref ?? latest.current.onOpenSession)?.(id)
-          : undefined
-      }
+      onOpen={open ? openXref : undefined}
     />
   )
   const renderRow = (row: ThreadRow): ReactNode => {
@@ -826,14 +876,82 @@ export function ThreadConversation(props: ThreadConversationProps) {
             className={bubbles ? `max-w-[94%]` : undefined}
           />
         )
-      case `session`:
-        return (
-          <SessionCard
-            key={row.id}
-            card={row.card}
-            onOpen={onOpenSession ? () => latest.current.onOpenSession?.(row.card.sessionId) : undefined}
-          />
+      case `session`: {
+        const action = actionOf(row)
+        const card = action.kindWord ? { ...row.card, kindWord: action.kindWord, tone: action.tone ?? row.card.tone } : row.card
+        const open =
+          action.action === `expand`
+            ? () => toggle(row.id)
+            : action.action === `open`
+              ? () => latest.current.onOpenSession?.(row.card.sessionId)
+              : undefined
+        const isExpanded = action.action === `expand` && expanded.has(row.id)
+        const sessionCard = <SessionCard key={row.id} card={card} onOpen={open} expanded={isExpanded} />
+        if (!isExpanded || !WaitingCard) return sessionCard
+        const sessionId = row.card.sessionId
+        const openChat = (
+          <button
+            type="button"
+            data-testid={THREAD_ROW_ACTION_TEST_IDS.openChat}
+            className="ml-auto shrink-0 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70"
+            onClick={() => openXref(sessionId)}
+          >
+            {THREAD_ROW_ACTION_COPY.openChat}
+          </button>
         )
+        const done = () => {
+          setAnswered((prev) => new Set(prev).add(sessionId))
+          setExpanded((prev) => {
+            const next = new Set(prev)
+            next.delete(row.id)
+            return next
+          })
+        }
+        return (
+          <div key={row.id} data-testid={THREAD_ROW_ACTION_TEST_IDS.expanded} className="flex min-w-0 flex-col gap-2">
+            {sessionCard}
+            <WaitingCard sessionId={sessionId}>
+              {(waiting) =>
+                waiting === undefined ? (
+                  <SkeletonRows rows={1} />
+                ) : waiting === null ? null : waiting.type === `question` ? (
+                  <ThreadQuestionCard
+                    row={waiting}
+                    renderText={renderText}
+                    attachmentSrc={attachmentSrc}
+                    busy={pending?.has(waiting.id) ?? false}
+                    headerAction={openChat}
+                    onAnswer={
+                      onAnswer
+                        ? (input) => {
+                            latest.current.onAnswer?.(waiting.id, input)
+                            done()
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <ThreadPlanCard
+                    row={waiting}
+                    renderText={renderText}
+                    attachmentSrc={attachmentSrc}
+                    busy={pending?.has(waiting.id) ?? false}
+                    headerAction={openChat}
+                    onDecide={
+                      onDecide
+                        ? (input) => {
+                            latest.current.onDecide?.(waiting.id, input)
+                            done()
+                          }
+                        : undefined
+                    }
+                  />
+                )
+              }
+            </WaitingCard>
+          </div>
+        )
+      }
       case `question`:
         return (
           <ThreadQuestionCard
@@ -884,20 +1002,41 @@ export function ThreadConversation(props: ThreadConversationProps) {
             )}
           </figure>
         )
-      case `event`:
+      case `event`: {
+        // #EXP-1464: a line about another session opens it (chevron,
+        // hover, press); any other stays a plain muted line.
+        const action = actionOf(row)
+        const sessionId = action.sessionId
+        if (action.action === `none` || !sessionId) {
+          return (
+            <div
+              key={row.id}
+              data-slot="thread-event"
+              data-event={row.event}
+              className="text-xs text-muted-foreground"
+            >
+              {row.text}
+            </div>
+          )
+        }
         return (
-          <div
+          <button
             key={row.id}
+            type="button"
             data-slot="thread-event"
+            data-testid={THREAD_ROW_ACTION_TEST_IDS.event}
             data-event={row.event}
-            className="text-xs text-muted-foreground"
+            className="flex min-w-0 max-w-full items-center gap-1 self-start text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70"
+            onClick={() => openXref(sessionId)}
           >
-            {row.text}
-          </div>
+            <span className="min-w-0 truncate">{row.text}</span>
+            <ChevronRightIcon className="size-3.5 shrink-0" />
+          </button>
         )
+      }
       case `report`:
         // S-3: a report IS its link line (`Report from <session> ›`).
-        return xrefLine(row.xref, row.id)
+        return xrefLine(row.xref, row.id, actionOf(row).action !== `none`)
       case `suggestions`:
         return (
           <ThreadSuggestionsCard
@@ -940,6 +1079,11 @@ export function ThreadConversation(props: ThreadConversationProps) {
             isLive(row.id),
             docked?.has(row.id) ?? false,
             pending?.has(row.id) ?? false,
+            expanded.has(row.id),
+            row.type === `session` ? answered.has(row.card.sessionId) : false,
+            row.type === `session` ? waitingCardInline(rows, row.card.sessionId) : false,
+            row.type === `session` && expanded.has(row.id) ? pending : null,
+            WaitingCard ?? null,
             row.type === `message` ? (messageCaption?.(row) ?? null) : null,
             row.type === `message` ? (messageTime?.(row) ?? null) : null,
             viewerId ?? null,
@@ -1313,17 +1457,23 @@ function ThreadQuestionCard({
   renderText,
   attachmentSrc,
   busy,
+  headerAction,
   onAnswer,
 }: {
   row: Extract<ThreadRow, { type: `question` }>
   renderText: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
+  /** #EXP-1464: the header's trailing link (`Open chat`); it brings the
+   *  `Question` label line. */
+  headerAction?: ReactNode
   onAnswer?: (input: ThreadQuestionAnswer) => void
 }) {
   const form = useQuestionForm(row, busy, onAnswer)
   return (
     <AskCard
+      label={headerAction ? ASK_DOCK_COPY.question : undefined}
+      meta={headerAction}
       data-slot="thread-question"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="question"
@@ -1564,12 +1714,15 @@ function ThreadPlanCard({
   renderText,
   attachmentSrc,
   busy,
+  headerAction,
   onDecide,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   renderText: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
+  /** #EXP-1464: the header's trailing link (`Open chat`). */
+  headerAction?: ReactNode
   onDecide?: (input: ThreadPlanDecision) => void
 }) {
   const form = usePlanForm(row, busy, onDecide)
@@ -1598,6 +1751,7 @@ function ThreadPlanCard({
     <AskCard
       plan
       label={ASK_DOCK_COPY.planReady}
+      meta={headerAction}
       data-slot="thread-plan"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="plan"

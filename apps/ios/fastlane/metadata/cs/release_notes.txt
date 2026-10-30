@@ -1,4 +1,5 @@
 - Zprávy v sezeních se pečetí na tvých zařízeních, takže je server už nepřečte
+- Otázka z chatu, který jsi založil, ti přijde jako notifikace i se samotnou otázkou
 - Klepnutím na rozhodnutí ve schránce otevřeš chat, který na tebe čeká
 - Příběhy ukazují posledních 24 hodin a karta Příběhy v chatu je zobrazí přímo na místě
 - Hovory fungují dál, když přepneš mezi reproduktorem, sluchátky a Bluetooth

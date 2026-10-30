@@ -1,4 +1,5 @@
 - As mensagens das sessões são seladas nos teus dispositivos, por isso o servidor já não as consegue ler
+- Uma pergunta de um chat que iniciaste chega ao telemóvel como notificação e mostra a própria pergunta
 - Tocar numa decisão na caixa de entrada abre o chat que está à tua espera
 - As histórias mostram as últimas 24 horas e o separador Histórias de um chat mostra-as no lugar
 - As chamadas continuam quando mudas entre altifalante, auscultadores e Bluetooth

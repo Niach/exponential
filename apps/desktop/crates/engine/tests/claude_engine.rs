@@ -163,6 +163,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
         codex_resume_id: None,
         launch_hold: None,
         mcp_pick: None,
+        audience: None,
     }
 }
 

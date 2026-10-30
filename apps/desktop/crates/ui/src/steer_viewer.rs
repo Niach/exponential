@@ -2759,7 +2759,7 @@ impl SteerSessionView {
         let cards: Vec<AnyElement> = indices
             .iter()
             .filter_map(|&index| self.conv_cards.get(index).cloned())
-            .filter_map(|row| crate::thread_screen::card_row(&row, &self.session_id, &text, &self.images, window, cx))
+            .filter_map(|row| crate::thread_screen::card_row(&row, &self.session_id, &self.conv_cards, &text, &self.images, window, cx))
             .collect();
         v_flex().w_full().min_w_0().gap(px(transcript::GAP_BLOCK)).children(cards).into_any_element()
     }
@@ -3644,26 +3644,51 @@ fn sync_offline(cx: &App) -> bool {
         .unwrap_or(false)
 }
 
-/// Dial the relay for `session_id`. `None` when the steer runtime never came
-/// up or nobody is signed in — the caller then renders the unauthorized
-/// banner instead of a dead feed.
+/// Dial `session_id`: VAPP-33 eNet straight to the device first (this
+/// account's node + `installs.forSession`), the relay as the fallback. `None`
+/// when the steer runtime never came up or nobody is signed in — the caller
+/// then renders the unauthorized banner instead of a dead feed.
 fn spawn_viewer(
     session_id: &str,
     events_tx: flume::Sender<ViewerEvent>,
     cx: &mut App,
 ) -> Option<ViewerHandle> {
     let runtime = crate::steer_wiring::runtime(cx)?;
-    let trpc = crate::queries::trpc_client(cx)?;
+    let trpc = Arc::new(crate::queries::trpc_client(cx)?);
     let tickets = Arc::new(steer::TrpcViewerTickets {
-        trpc: Arc::new(trpc),
+        trpc: Arc::clone(&trpc),
         session_id: session_id.to_string(),
     });
-    Some(steer::spawn_viewer(
+    let enet = crate::enet_wiring::active_node(cx).map(|install| {
+        Arc::new(EnetSource { install, trpc: Arc::clone(&trpc) }) as Arc<dyn steer::EnetViewerSource>
+    });
+    Some(steer::spawn_viewer_over(
         &runtime,
         tickets,
+        enet,
         session_id.to_string(),
         events_tx,
+        steer::ViewerTimings::default(),
     ))
+}
+
+/// VAPP-33: the viewer's way to the device over eNet.
+struct EnetSource {
+    install: steer::enet::InstallNode,
+    trpc: Arc<api::TrpcClient>,
+}
+
+impl steer::EnetViewerSource for EnetSource {
+    fn node(&self) -> Option<Arc<enet_core::Node>> {
+        self.install.node()
+    }
+
+    fn endpoints(&self, session_id: &str) -> Result<Vec<String>, api::error::ApiError> {
+        Ok(api::installs::for_session(&self.trpc, session_id)?
+            .into_iter()
+            .map(|install| install.endpoint_id)
+            .collect())
+    }
 }
 
 // ---------------------------------------------------------------------------

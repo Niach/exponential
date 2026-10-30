@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.2.1 (2026-10-30)
+
+- Version-only bump with the SDK (eui-gpui 0.2.1: per-cluster font fallback, YO-30); unchanged from 0.2.0.
+
 ## 0.2.0 (2026-10-30)
 
 - Renamed (EXP-1438): `@exponential_app/ui-react` is now `@exponential_app/eui-react`; 0.1.x under the old name is deprecated on npm.

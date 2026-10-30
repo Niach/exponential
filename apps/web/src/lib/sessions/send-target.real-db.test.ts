@@ -18,7 +18,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetSessionMessageNotify: () => {},
   fireAndForgetPrNotify: () => {},
   notifySessionBlocked: async () => {},
-  notifyAssistantDecision: async () => {},
+  notifySessionAsk: async () => {},
 }))
 vi.mock(`@/lib/steer`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/steer")>()),

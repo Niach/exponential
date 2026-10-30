@@ -23,6 +23,20 @@ vi.mock(`@/lib/auth/access`, () => ({
   }),
 }))
 
+// VAPP-33: forSession reads the session through the visibility helpers.
+const SESSIONS: Record<string, { id: string; userId: string; shared: boolean; teamId: string; deviceId: string }> = {}
+vi.mock(`@/lib/sessions/access`, () => ({
+  loadSessionForUser: vi.fn(async (userId: string, sessionId: string) => {
+    const session = SESSIONS[sessionId]
+    if (!session || !(session.shared || session.userId === userId)) {
+      const { TRPCError } = await import(`@trpc/server`)
+      throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    }
+    return session
+  }),
+  sessionDeviceOwner: vi.fn(async (session: { userId: string }) => session.userId),
+}))
+
 import { installMessage, installsRouter, MAX_INSTALLS_PER_USER } from "@/lib/trpc/installs"
 import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
 import registerFixture from "@exp/domain-contract/fixtures/install-register.json"
@@ -252,6 +266,39 @@ describe(`installs.list`, () => {
   it(`refuses a non-member`, async () => {
     await expect(caller(`u3`).list({ teamId: TEAM_A })).rejects.toMatchObject({ code: `FORBIDDEN` })
     await expect(caller(`u1`).list({ teamId: TEAM_B })).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+})
+
+describe(`installs.forSession (VAPP-33 discovery)`, () => {
+  const S1 = `33333333-3333-4333-8333-333333333333`
+  const S2 = `44444444-4444-4444-8444-444444444444`
+  beforeEach(() => {
+    SESSIONS[S1] = { id: S1, userId: `u1`, shared: false, teamId: TEAM_A, deviceId: `mac-1` }
+    SESSIONS[S2] = { id: S2, userId: `u1`, shared: true, teamId: TEAM_A, deviceId: `mac-1` }
+  })
+
+  it(`returns the live desktop/daemon installs of the running machine, never phones or other machines`, async () => {
+    const desktop = identity()
+    const daemon = identity()
+    const phone = identity()
+    const gone = identity()
+    const other = identity()
+    await caller(`u1`).register(registration(`u1`, desktop, { kind: `desktop`, deviceId: `mac-1` }))
+    await caller(`u1`).register(registration(`u1`, daemon, { kind: `daemon`, deviceId: `mac-1` }))
+    await caller(`u1`).register(registration(`u1`, phone, { kind: `ios` }))
+    const { installId } = await caller(`u1`).register(registration(`u1`, gone, { kind: `desktop`, deviceId: `mac-1` }))
+    await caller(`u1`).revoke({ installId })
+    await caller(`u2`).register(registration(`u2`, other, { kind: `desktop`, deviceId: `mac-2` }))
+
+    const found = await caller(`u1`).forSession({ sessionId: S1 })
+    expect(found.map((row) => row.endpointId).sort()).toEqual([desktop.endpointId, daemon.endpointId].sort())
+    expect(Object.keys(found[0]!).sort()).toEqual([`endpointId`, `kind`])
+  })
+
+  it(`follows the visibility rule: a teammate sees a shared session's installs, not a private one's`, async () => {
+    await caller(`u1`).register(registration(`u1`, identity(), { kind: `desktop`, deviceId: `mac-1` }))
+    expect(await caller(`u2`).forSession({ sessionId: S2 })).toHaveLength(1)
+    await expect(caller(`u2`).forSession({ sessionId: S1 })).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
 })
 

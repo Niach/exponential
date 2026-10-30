@@ -1,0 +1,65 @@
+{
+  "$comment": "YO-30: text is laid out per grapheme CLUSTER (UAX #29 extended), never per code point. (1) Font fallback: a cluster the primary face cannot shape whole (Nunito has no U+0329 COMBINING VERTICAL LINE BELOW) shapes whole in the first fallback face that covers every character of it, so a combining mark attaches to its base (browsers, CoreText, minikin do this; gpui falls back per character and eui-gpui cuts its runs per cluster, crates/eui-gpui/src/fallback.rs). `attach` = the clusters whose marks must paint ON their base: same face as the base, inside the base's advance (never a free-standing glyph after it). (2) CSS `letter-spacing` follows clusters: `tracked` = how many times `letterSpacing` is added (a mark adds none; bidi controls none). Hand-written; src/text-clusters.ts is the reference, every renderer replays it (eui-gpui tests/text_clusters.rs with the conformance fonts, SwiftUI Round2Suites, Compose Round2Suites).",
+  "family": "Nunito",
+  "cases": [
+    {
+      "name": "IPA Spätzle (the Spezl sense line)",
+      "text": "/ˈʃpɛtsl̩/",
+      "clusters": [
+        "/",
+        "ˈ",
+        "ʃ",
+        "p",
+        "ɛ",
+        "t",
+        "s",
+        "l̩",
+        "/"
+      ],
+      "tracked": 9,
+      "attach": [
+        7
+      ]
+    },
+    {
+      "name": "decomposed accents Nunito covers",
+      "text": "Spätzle",
+      "clusters": [
+        "S",
+        "p",
+        "ä",
+        "t",
+        "z",
+        "l",
+        "e"
+      ],
+      "tracked": 7,
+      "attach": [
+        2
+      ]
+    },
+    {
+      "name": "two marks on one base",
+      "text": "ń̩",
+      "clusters": [
+        "ń̩"
+      ],
+      "tracked": 1,
+      "attach": [
+        0
+      ]
+    },
+    {
+      "name": "a bidi mark takes no letter-spacing",
+      "text": "‎abc",
+      "clusters": [
+        "‎",
+        "a",
+        "b",
+        "c"
+      ],
+      "tracked": 3,
+      "attach": []
+    }
+  ]
+}

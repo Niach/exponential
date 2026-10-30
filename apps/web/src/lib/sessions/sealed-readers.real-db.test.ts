@@ -17,6 +17,7 @@ import { inSession, insertMessage, messageWithSession } from "@/lib/sessions/mes
 
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
+  notifySessionAsk: async () => {},
   fireAndForgetSessionMessageNotify: () => {},
   fireAndForgetPrNotify: () => {},
   notifySessionBlocked: async () => {},

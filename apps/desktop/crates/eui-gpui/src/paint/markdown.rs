@@ -908,6 +908,8 @@ pub struct MdPaint {
     pub selection_bg: Hsla,
     /// A task item's box by its checked state (the theme's Checkbox `box`).
     pub task_box: TaskBox,
+    /// YO-30: spans are cut per cluster against it (`None` = as built).
+    pub text_system: Option<std::sync::Arc<gpui::TextSystem>>,
 }
 
 /// Paints a task item's checkbox (`true` = checked).
@@ -919,6 +921,15 @@ pub type LinkHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 pub type ImageResolver = Rc<dyn Fn(&str) -> Option<gpui::ImageSource>>;
 
 impl MdPaint {
+    /// Runs cut per cluster ([`crate::fallback::cluster_runs`]), as the
+    /// measurer shaped them.
+    pub fn fallback(&self, text: &str, runs: Vec<TextRun>) -> Vec<TextRun> {
+        match &self.text_system {
+            Some(ts) => crate::fallback::cluster_runs(ts, text, &runs, &crate::fallback::default_chain()),
+            None => runs,
+        }
+    }
+
     /// Colours from the theme (`Markdown/link`, `code`, `codeBlock`, `quote`).
     pub fn colors(theme: Option<&ResolvedTheme>, mode: Mode, ink: Hsla, owner_props: &Map<String, serde_json::Value>) -> (RunColors, Hsla, Hsla, Option<Hsla>) {
         let link = color_of(part_visual(theme, mode, "Markdown", "link", owner_props, &[]).color.as_deref()).or_else(|| theme_color(theme, mode, "primary")).unwrap_or(ink);
@@ -957,6 +968,7 @@ fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Ve
 
 fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors) -> AnyElement {
     let (text, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
+    let runs = p.fallback(&text, runs);
     let links: Vec<(std::ops::Range<usize>, String)> = {
         let mut at = 0;
         let mut out = Vec::new();
@@ -1044,7 +1056,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 let text: SharedString = b.inlines.first().map(|i| i.text.clone()).unwrap_or_default().into();
                 let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(s.code.weight as f32), style: FontStyle::Normal };
                 let run = TextRun { len: text.len(), font, color: p.colors.ink, background_color: None, underline: None, strikethrough: None };
-                let runs = if text.is_empty() { Vec::new() } else { vec![run] };
+                let runs = if text.is_empty() { Vec::new() } else { p.fallback(&text, vec![run]) };
                 placed
                     .rounded(px(6.0))
                     .when_some(p.code_block_bg, |d, bg| d.bg(bg))

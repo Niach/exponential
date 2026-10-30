@@ -1,4 +1,5 @@
 - Session-Nachrichten werden auf deinen Geräten versiegelt, der Server kann sie nicht mehr lesen
+- Eine Frage aus einem Chat, den du gestartet hast, kommt als Push aufs Handy und zeigt die Frage selbst
 - Ein Tipp auf eine Entscheidung im Posteingang öffnet den Chat, der auf dich wartet
 - Stories zeigen die letzten 24 Stunden, und der Stories-Tab eines Chats zeigt sie direkt an
 - Anrufe laufen weiter, wenn du zwischen Lautsprecher, Kopfhörern und Bluetooth wechselst

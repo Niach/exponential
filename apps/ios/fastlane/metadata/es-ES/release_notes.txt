@@ -1,4 +1,5 @@
 - Los mensajes de las sesiones se sellan en tus dispositivos, así que el servidor ya no puede leerlos
+- Una pregunta de un chat que has iniciado llega a tu móvil como notificación y muestra la propia pregunta
 - Al tocar una decisión en tu bandeja de entrada se abre el chat que te está esperando
 - Las historias muestran las últimas 24 horas y la pestaña Historias de un chat las muestra en su sitio
 - Las llamadas siguen funcionando al cambiar entre altavoz, auriculares y Bluetooth

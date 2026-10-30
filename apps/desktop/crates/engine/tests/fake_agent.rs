@@ -794,6 +794,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         codex_resume_id: None,
         launch_hold: None,
         mcp_pick: None,
+        audience: None,
     }
 }
 

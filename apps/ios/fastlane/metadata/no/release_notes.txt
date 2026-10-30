@@ -1,4 +1,5 @@
 - Meldinger i økter forsegles på enhetene dine, så serveren ikke lenger kan lese dem
+- Et spørsmål fra en chat du har startet, kommer som varsel på telefonen og viser selve spørsmålet
 - Et trykk på en beslutning i innboksen åpner chatten som venter på deg
 - Stories viser de siste 24 timene, og en chats Stories-fane viser dem på stedet
 - Samtaler fortsetter når du bytter mellom høyttaler, hodetelefoner og Bluetooth

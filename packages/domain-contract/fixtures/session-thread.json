@@ -208,7 +208,8 @@
             "card": {
               "kind": "event",
               "event": "issue_filed",
-              "issueId": "i-b"
+              "issueId": "i-b",
+              "sessionId": "c1"
             },
             "answeredAt": null,
             "consumedAt": "2026-10-13T10:00:01.000Z",
@@ -348,7 +349,8 @@
             "type": "event",
             "id": "m3",
             "event": "issue_filed",
-            "text": "Filed EXP-13"
+            "text": "Filed EXP-13",
+            "sessionId": "c1"
           },
           {
             "type": "session",
@@ -394,7 +396,8 @@
             "type": "event",
             "id": "m7",
             "event": "pr_opened",
-            "text": "Opened PR #45"
+            "text": "Opened PR #45",
+            "sessionId": null
           },
           {
             "type": "message",
@@ -717,7 +720,8 @@
             "type": "event",
             "id": "m3",
             "event": "issue_filed",
-            "text": "Filed EXP-13"
+            "text": "Filed EXP-13",
+            "sessionId": null
           },
           {
             "type": "session",
@@ -763,7 +767,8 @@
             "type": "event",
             "id": "m7",
             "event": "pr_opened",
-            "text": "Opened PR #45"
+            "text": "Opened PR #45",
+            "sessionId": null
           },
           {
             "type": "message",
@@ -779,7 +784,8 @@
             "type": "event",
             "id": "m9",
             "event": "pr_merge_refused",
-            "text": "Merge of PR #45 refused"
+            "text": "Merge of PR #45 refused",
+            "sessionId": null
           }
         ],
         "composer": {
@@ -1006,7 +1012,8 @@
             "type": "event",
             "id": "n8",
             "event": "session_ended",
-            "text": "Session ended"
+            "text": "Session ended",
+            "sessionId": null
           }
         ],
         "composer": {

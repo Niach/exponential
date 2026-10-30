@@ -1,6 +1,6 @@
 [package]
 name = "eui-gpui"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Exponential UI gpui painter: paints the core catalog from eui-core's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
@@ -27,7 +27,7 @@ default = ["net"]
 net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dependencies]
-eui-core = { path = "../eui-core", version = "0.2.0" }
+eui-core = { path = "../eui-core", version = "0.2.1" }
 gpui.workspace = true
 gpui-component.workspace = true
 serde.workspace = true
@@ -39,6 +39,9 @@ unicode-linebreak = "0.1.5"
 # (gpui shapes with the first strong character's); already in the lock via
 # cosmic-text.
 unicode-bidi = "0.3.18"
+# YO-30: grapheme clusters for the per-cluster font fallback and
+# letter-spacing (CSS tracks clusters, not code points); already in the lock.
+unicode-segmentation = "1.12"
 # VAPP-91 host runtime: transport threads and source emits hand their events
 # to the gpui main thread through one channel (already in the tree).
 flume.workspace = true

@@ -1,0 +1,75 @@
+{
+  "$comment": "VAPP-33: steer over eNet's chat channel (`exp/enet/chat/1`, acked, ONE ordered stream per peer) between a viewer install and the install RUNNING the session. The steer frames themselves are unchanged (apps/steer-relay/src/protocol.ts + STEER-WIRE-EXP-850.md); only the carrier moves. ENVELOPE: one chat message = UTF-8 JSON `{t:\"exp-steer\", v:1, sessionId, frames:[...]}`, frames = wire frame OBJECTS (never strings), applied in array order, envelopes in chat order. `parse` rules (every receiver): t must be `exp-steer`, v must be 1, sessionId a non-empty string, frames a NON-EMPTY array of objects each with a string `t` (the wire frames' own tag, exactly the relay's `{t:\"input\",data}` etc.); anything else is not a steer envelope (ignored, acked). A frame whose `t` the receiver does not know is skipped, the rest of the envelope still applies. VIEWER → DEVICE frames: `join {channel:\"activity\"}`, `leave`, and the relay client frames `input`, `answer`, `interrupt`, `unqueue`, `set_config`, `set_mode`, `kill`, `history_page {requestId, beforeSeq, limit}` (its session is the envelope's). Frames go out exactly as on the relay socket (e.g. `{t:\"join\",channel:\"activity\"}`, `{t:\"answer\",questionId,keys,text?}`). DEVICE → VIEWER: on `join` = `activity_reset`, the journal replay (`activity {event, seq}` in `replay_seq` order: the log, then the latest-wins slots), then `activity_synced {firstSeq, lastSeq, truncated?}` (the end-of-replay marker, exactly the relay's: firstSeq/lastSeq = the seqs of the first and last LOG entry (the latest-wins slots do not count), both 0 when the log is empty; `truncated: true` when the journal evicted or firstSeq > 0, absent otherwise); afterwards every recorded event live as `activity {event, seq}`; `history_chunk {requestId, events, seqs, done}` to the asker only; `keepalive` every `keepaliveMs` to every joined viewer; `bye {outcome}` when the run ends (the viewer is dropped); `error {code}` with `no_such_session` (this install runs no such live session: the viewer tries its next endpoint) or `unauthorized` (the access rule). A re-sent `join` restarts the feed (activity_reset + full replay), exactly like a relay reconnect. BATCHING (the device): a viewer's feed drains its queue into one envelope while the serialized envelope stays ≤ `batchMaxBytes`; a frame that alone passes it goes in an envelope of its own; an envelope over `chatMaxBytes` (enet-core MAX_CHAT_MESSAGE) is never sent (the frame is dropped and logged). A failed or timed-out (`sendTimeoutMs`) send drops the viewer. DISCOVERY: the viewer calls tRPC `installs.forSession {sessionId}` → `[{endpointId, kind}]` = the non-revoked `desktop`/`daemon` installs whose `device_id` = the session's `device_id`, newest `last_seen_at` first, only for a caller who can see the session (the visibility rule: starter, or `shared` + team member). It sends `join` to the first; on `error no_such_session` the next; no endpoint, no node, every endpoint refused, or no `activity_synced` within `joinTimeoutMs` = the steer relay as before (until VAPP-43). A viewer that sees no frame for `staleMs` re-sends `join`. ACCESS (the device, per envelope): the sender endpoint's user comes from the registry list of the SESSION's team (`installs.list {teamId: sessions.team_id}` entries; an endpoint known only from another team the device's user shares with the sender does NOT count); unknown endpoint = refused; the starter (`sessions.user_id`) = allowed; another user = allowed only when the session is `shared` (being in that team's list = a member). `access` cases: {viewerUserId (null = endpoint not in the session team's registry list), starterUserId, shared} → allowed. VIEWER SIDE: device frames arrive as chat messages the DEVICE dials (each side sends on its own outbound stream, so the viewer's allowlist must hold the device's endpoint: the same team registry); the viewer applies only envelopes whose sessionId it joined AND whose sender is the endpoint it joined, every other steer envelope is ignored. `parse` cases: {body (the chat body as a JSON value, or bodyText for a raw string)} → {ok, sessionId?, types? (the frames' `t` tags kept, in order)}. `batch` cases: frame sizes in bytes (each frame's serialized JSON length) with the envelope overhead `overhead` (the serialized envelope with an empty frames array) and one comma per extra frame → the groups as frame indexes; `dropped` = indexes over chatMaxBytes even alone.",
+  "tag": "exp-steer",
+  "version": 1,
+  "batchMaxBytes": 262144,
+  "chatMaxBytes": 1048576,
+  "keepaliveMs": 30000,
+  "staleMs": 75000,
+  "joinTimeoutMs": 8000,
+  "sendTimeoutMs": 20000,
+  "viewerFrames": ["join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page"],
+  "deviceFrames": ["activity_reset", "activity", "activity_synced", "history_chunk", "keepalive", "bye", "error"],
+  "errorCodes": ["no_such_session", "unauthorized"],
+  "access": [
+    { "name": "the starter", "viewerUserId": "u1", "starterUserId": "u1", "shared": false, "allowed": true },
+    { "name": "the starter of a shared session", "viewerUserId": "u1", "starterUserId": "u1", "shared": true, "allowed": true },
+    { "name": "a teammate, private session", "viewerUserId": "u2", "starterUserId": "u1", "shared": false, "allowed": false },
+    { "name": "a teammate, shared session", "viewerUserId": "u2", "starterUserId": "u1", "shared": true, "allowed": true },
+    { "name": "an endpoint the registry does not know", "viewerUserId": null, "starterUserId": "u1", "shared": true, "allowed": false }
+  ],
+  "parse": [
+    {
+      "name": "a join",
+      "body": { "t": "exp-steer", "v": 1, "sessionId": "s1", "frames": [{ "t": "join", "channel": "activity" }] },
+      "ok": true,
+      "sessionId": "s1",
+      "types": ["join"]
+    },
+    {
+      "name": "a composer message: text chunk then the submitting CR",
+      "body": { "t": "exp-steer", "v": 1, "sessionId": "s1", "frames": [{ "t": "input", "data": "hello" }, { "t": "input", "data": "\r" }] },
+      "ok": true,
+      "sessionId": "s1",
+      "types": ["input", "input"]
+    },
+    {
+      "name": "a replay batch",
+      "body": {
+        "t": "exp-steer",
+        "v": 1,
+        "sessionId": "s1",
+        "frames": [
+          { "t": "activity_reset" },
+          { "t": "activity", "seq": 0, "event": { "kind": "narration", "text": "hi" } },
+          { "t": "activity_synced", "firstSeq": 0, "lastSeq": 0 }
+        ]
+      },
+      "ok": true,
+      "sessionId": "s1",
+      "types": ["activity_reset", "activity", "activity_synced"]
+    },
+    {
+      "name": "an unknown frame type is kept by parse (the receiver skips it)",
+      "body": { "t": "exp-steer", "v": 1, "sessionId": "s1", "frames": [{ "t": "from_the_future" }, { "t": "leave" }] },
+      "ok": true,
+      "sessionId": "s1",
+      "types": ["from_the_future", "leave"]
+    },
+    { "name": "another tag (an agent-to-agent message)", "body": { "t": "exp-msg", "v": 1, "sessionId": "s1", "frames": [{ "t": "join" }] }, "ok": false },
+    { "name": "another version", "body": { "t": "exp-steer", "v": 2, "sessionId": "s1", "frames": [{ "t": "join" }] }, "ok": false },
+    { "name": "no session", "body": { "t": "exp-steer", "v": 1, "sessionId": "", "frames": [{ "t": "join" }] }, "ok": false },
+    { "name": "no frames", "body": { "t": "exp-steer", "v": 1, "sessionId": "s1", "frames": [] }, "ok": false },
+    { "name": "frames as strings", "body": { "t": "exp-steer", "v": 1, "sessionId": "s1", "frames": ["{\"t\":\"join\"}"] }, "ok": false },
+    { "name": "a frame without a type", "body": { "t": "exp-steer", "v": 1, "sessionId": "s1", "frames": [{ "channel": "activity" }] }, "ok": false },
+    { "name": "the eNet ping", "bodyText": "exp-enet-ping/1", "ok": false },
+    { "name": "not JSON", "bodyText": "{not json", "ok": false }
+  ],
+  "batch": [
+    { "name": "everything fits", "overhead": 50, "batchMaxBytes": 1000, "chatMaxBytes": 4000, "sizes": [100, 100, 100], "groups": [[0, 1, 2]], "dropped": [] },
+    { "name": "split at the budget (overhead + sizes + commas)", "overhead": 50, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [100, 100, 100, 100], "groups": [[0, 1], [2, 3]], "dropped": [] },
+    { "name": "exactly the budget fits", "overhead": 49, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [125, 125], "groups": [[0, 1]], "dropped": [] },
+    { "name": "a big frame goes alone", "overhead": 50, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [100, 2000, 100], "groups": [[0], [1], [2]], "dropped": [] },
+    { "name": "a frame over the chat cap is dropped", "overhead": 50, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [100, 5000, 100], "groups": [[0, 2]], "dropped": [1] }
+  ]
+}

@@ -110,7 +110,7 @@ fn paint(row: &SessionThreadRow, time: &str, images: &Entity<ImageCache>, window
             }
         }
         SessionThreadRow::Divider { id, kind, .. } => crate::surface_card::divider_pill(id, *kind, time, cx),
-        _ => card_row(row, "sg-chat", &text, images, window, cx).unwrap_or_else(|| div().into_any_element()),
+        _ => card_row(row, "sg-chat", &[], &text, images, window, cx).unwrap_or_else(|| div().into_any_element()),
     }
 }
 

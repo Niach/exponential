@@ -47,6 +47,13 @@ data class OwnInstall(
 )
 
 @Serializable
+data class ForSessionInput(val sessionId: String)
+
+/** VAPP-33: an install a viewer dials to steer a session over eNet (newest first). */
+@Serializable
+data class SessionInstall(val endpointId: String, val kind: String)
+
+@Serializable
 private object InstallsEmptyInput
 
 @Serializable
@@ -70,6 +77,15 @@ class InstallsApi @Inject constructor(private val trpc: TrpcClient) {
             input = ListInstallsInput(teamId),
             inputSerializer = ListInstallsInput.serializer(),
             outputSerializer = ListSerializer(TeamInstall.serializer()),
+        )
+
+    suspend fun forSession(accountId: String, sessionId: String): List<SessionInstall> =
+        trpc.query(
+            accountId,
+            path = "installs.forSession",
+            input = ForSessionInput(sessionId),
+            inputSerializer = ForSessionInput.serializer(),
+            outputSerializer = ListSerializer(SessionInstall.serializer()),
         )
 
     suspend fun mine(accountId: String): List<OwnInstall> =

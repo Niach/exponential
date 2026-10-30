@@ -2330,6 +2330,9 @@ struct QuestionCard: View {
     /// decision rows (`AskDock.Copy.feedbackPlaceholder`); it rides any
     /// decision as `feedback`, so the reject row no longer expands.
     var feedback: Binding<String>? = nil
+    /// #EXP-1464 (thread-row-action.json): trailing the label line (a
+    /// conversation row's expanded card: `Open chat`).
+    var headerTrailing: AnyView? = nil
 
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
@@ -2445,6 +2448,10 @@ struct QuestionCard: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
+                        if let headerTrailing {
+                            Spacer(minLength: 8)
+                            headerTrailing
+                        }
                     }
                     .padding(.bottom, 4)
                 }
@@ -2460,7 +2467,7 @@ struct QuestionCard: View {
     }
 
     private var hasHeader: Bool {
-        headerText != nil || stepLabel != nil || caption?.isEmpty == false
+        headerText != nil || stepLabel != nil || caption?.isEmpty == false || headerTrailing != nil
     }
 
     /// Everything under the heading: answered steps, the body, then the
@@ -3962,6 +3969,7 @@ extension AppDependencies {
         // command queue. Set on every claim — a reattached model was built on
         // an earlier one.
         model.devicesApi = devicesApi
+        model.steerEnet = installNode?.steer
         return model
     }
 }

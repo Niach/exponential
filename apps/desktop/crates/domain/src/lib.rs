@@ -84,6 +84,9 @@
 //! * [`inbox_route`] — #EXP-1456: where an inbox row / toast opens (issue,
 //!   session, nothing) and where a session opens (agent page, thread,
 //!   session), byte-locked ×4 by `fixtures/inbox-route.json`;
+//! * [`thread_row_action`] — #EXP-1464: what a conversation's session row
+//!   does when tapped (expand into its card, open, nothing), byte-locked ×4
+//!   by `fixtures/thread-row-action.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
 //!   byte-locked ×4 by `fixtures/app-link.json`.
@@ -176,6 +179,8 @@ pub mod stories;
 pub mod tree_guides;
 // NEW-59: the Work screen picker's options + copy, fixture-locked ×4.
 pub mod work_screen;
+// #EXP-1464: what a conversation's session rows do (expand / open / none), fixture-locked ×4.
+pub mod thread_row_action;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

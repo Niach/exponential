@@ -52,9 +52,31 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     summary: "Messages, cards and titles in your sessions are sealed on your devices, so the server stores them without being able to read them.",
     body: r#"- **Sealed on your devices**: what you, your agents and your Assistant write in a session (messages, cards, answers and titles) is sealed with that session's key before it leaves the device, on web, desktop, iOS and Android. The server stores and syncs it but can't read it.
 - **Keys arrive by themselves**: a new browser, phone or teammate on a shared session gets the key from one of your devices that's online, with no approval step. Until then the row shows "Waiting for the key" and opens on its own.
-- **Agents talk device to device**: a message from one agent to another goes straight to the target device over eNet; the server keeps only a sealed copy.
+- **Agents talk device to device**: a message from one agent to another goes straight to the target device over eNet; the server keeps only a sealed copy. Watching a running session from your phone or browser also connects straight to the device running it.
 - **Update required**: older apps can't open sealed content, so this release raises the minimum version on every platform.
 - **Also**: calls keep working when you switch between speaker, headphones and Bluetooth on your phone, and web apps load their records only when you open them."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_121: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-question-pushes",
+    date: "2026-10-30",
+    title: "Questions push to your phone",
+    summary: "When a chat you started asks you a question or proposes a plan, your phone gets a push, with the question itself even in sealed chats.",
+    body: r#"- **Every chat you start**: a question or plan from one of your chats now sends you a push, not only your Assistant. Teammates are not pinged; they still see that it needs input.
+- **The question, kept private**: in a sealed chat the push carries the question encrypted, and your phone opens it with the chat's key to show it. Without the key you see "New message in a session"."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_120: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-30-conversation-session-rows",
+    date: "2026-10-30",
+    title: "Session rows open from a chat",
+    summary: "Tap a session's row in a chat to open it, or answer its question right there.",
+    body: r#"- **Conversations**: tap a session's row to open it. A row that needs you opens its question or plan right there, so you can answer in place.
+- **Every line goes somewhere**: "Report from", "was not picked up" and the other session lines open that session; only rows that do something show a chevron."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

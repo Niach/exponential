@@ -1,4 +1,5 @@
 - Správy v reláciách sa pečatia na tvojich zariadeniach, takže ich server už neprečíta
+- Otázka z chatu, ktorý si začal, ti príde ako notifikácia aj so samotnou otázkou
 - Ťuknutím na rozhodnutie v doručenej pošte otvoríš chat, ktorý na teba čaká
 - Príbehy ukazujú posledných 24 hodín a karta Príbehy v chate ich zobrazí priamo na mieste
 - Hovory fungujú ďalej, keď prepneš medzi reproduktorom, slúchadlami a Bluetooth

@@ -1,4 +1,5 @@
 - Istuntojen viestit sinetöidään laitteillasi, joten palvelin ei voi enää lukea niitä
+- Aloittamasi keskustelun kysymys tulee puhelimeesi ilmoituksena ja näyttää itse kysymyksen
 - Saapuneiden päätöksen napauttaminen avaa keskustelun, joka odottaa sinua
 - Tarinat näyttävät viimeiset 24 tuntia, ja keskustelun Tarinat-välilehti näyttää ne paikallaan
 - Puhelut jatkuvat, kun vaihdat kaiuttimen, kuulokkeiden ja Bluetoothin välillä

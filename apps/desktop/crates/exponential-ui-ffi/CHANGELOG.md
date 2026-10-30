@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.2.1 (2026-10-30)
+
+- Version-only bump with the SDK (eui-gpui 0.2.1: per-cluster font fallback, YO-30); unchanged from 0.2.0.
+
 ## 0.2.0 (2026-10-30)
 
 - VAPP-162 / NEW-77: `voice_wave_json`, `voice_wave_bars_json`, `qr_matrix_json`, `segmented_badge_text`, `Surface::hold` + `is_held` for the Swift and Kotlin painters; bindings regenerated.

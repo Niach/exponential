@@ -180,6 +180,8 @@ pub(crate) struct HeaderRow {
     pub(crate) name: SharedString,
     /// The muted word after the name (`Workflow`, `Working`).
     pub(crate) kind_word: Option<SharedString>,
+    /// The word's tint; `None` = muted (the session card's amber, #EXP-1466).
+    pub(crate) kind_tint: Option<gpui::Hsla>,
     /// A 12px spinner in front of the trailing meta.
     pub(crate) running: bool,
     /// The muted trailing text (`progress · elapsed`, `2m 04s`).
@@ -210,7 +212,7 @@ pub(crate) fn header_row(row: HeaderRow, cx: &App) -> AnyElement {
                 .child(row.name),
         )
         .when_some(row.kind_word, |this, word| {
-            this.child(div().flex_shrink_0().text_color(muted).child(word))
+            this.child(div().flex_shrink_0().text_color(row.kind_tint.unwrap_or(muted)).child(word))
         })
         .child(div().flex_1())
         .when(row.running, |this| this.child(Spinner::new().xsmall()))
@@ -234,6 +236,7 @@ fn header(card: &WorkCard, cx: &App) -> AnyElement {
             icon_tint: None,
             name: SharedString::from(card.name.clone()),
             kind_word: card.kind_word.clone().map(SharedString::from),
+            kind_tint: None,
             running: card.running,
             meta: (!meta.is_empty())
                 .then(|| SharedString::from(meta.join(steer::work_card::WORK_CARD_SEPARATOR))),
@@ -442,7 +445,20 @@ pub(crate) fn session_card(
     on_click: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    session_card_framed(card, true, on_click, cx)
+    session_card_framed(card, true, Some(registry::UI_CHEVRON_RIGHT), Some(Box::new(on_click)), cx)
+}
+
+/// #EXP-1464 (thread-row-action.json): THE session card as a conversation
+/// row — `chevron` = the trailing glyph (right = opens, down = expanded),
+/// `None` with no `on_click` = a row that does nothing (no chevron, no
+/// hover, no press).
+pub(crate) fn session_card_row(
+    card: &domain::session_tree::SessionCard,
+    chevron: Option<crate::icons::ExpIcon>,
+    on_click: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    cx: &App,
+) -> AnyElement {
+    session_card_framed(card, true, chevron, on_click, cx)
 }
 
 /// EXP-1323: THE session card without its frame — a started suggestion
@@ -452,30 +468,29 @@ pub(crate) fn session_card_bare(
     on_click: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    session_card_framed(card, false, on_click, cx)
+    session_card_framed(card, false, Some(registry::UI_CHEVRON_RIGHT), Some(Box::new(on_click)), cx)
 }
 
 fn session_card_framed(
     card: &domain::session_tree::SessionCard,
     framed: bool,
-    on_click: impl Fn(&mut Window, &mut App) + 'static,
+    chevron: Option<crate::icons::ExpIcon>,
+    on_click: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     cx: &App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
+    let interactive = on_click.is_some();
     let header = header_row(
         HeaderRow {
             icon: registry::concept_by_name(&card.icon).unwrap_or(registry::CODING_SUBAGENT),
             icon_tint: Some(session_tone_color(&card.tone, cx)),
             name: SharedString::from(card.name.clone()),
             kind_word: Some(SharedString::from(card.kind_word.clone())),
+            // #EXP-1466 session-card.json: the word stays muted unless amber.
+            kind_tint: (card.tone == "amber").then(|| session_tone_color(&card.tone, cx)),
             running: card.running,
             meta: card.elapsed.clone().map(SharedString::from),
-            trailing: Some(
-                Icon::new(registry::UI_CHEVRON_RIGHT)
-                    .xsmall()
-                    .text_color(muted.opacity(0.7))
-                    .into_any_element(),
-            ),
+            trailing: chevron.map(|chevron| Icon::new(chevron).xsmall().text_color(muted.opacity(0.7)).into_any_element()),
         },
         cx,
     );
@@ -492,11 +507,14 @@ fn session_card_framed(
                 .border_1()
                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
                 .bg(crate::dock::card_fill())
-                .hover(|this| this.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
+                .when(interactive, |this| {
+                    this.hover(|this| this.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
+                })
         })
-        .when(!framed, |this| this.hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla())))
-        .cursor_pointer()
-        .on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
+        .when(!framed && interactive, |this| this.hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla())))
+        .when_some(on_click, |this, on_click| {
+            this.cursor_pointer().on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
+        })
         .child(header)
         .into_any_element()
 }

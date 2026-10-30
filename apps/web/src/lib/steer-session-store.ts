@@ -57,6 +57,8 @@ import {
   type PendingAttachment,
 } from "@/lib/pending-images"
 import type { SessionStatus } from "@exp/db-schema/domain"
+import { currentSteerCarrier } from "@/lib/enet/steer-bridge"
+import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
 
 // EXP-621: the viewer connection to the steer relay, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
@@ -708,6 +710,9 @@ interface SteerStoreDeps {
     { disabled: true } | { ticket: string; url: string }
   >
   createSocket: (url: string) => WebSocket
+  /** VAPP-33: the feed over eNet's chat channel, joined and shaped like the
+   *  relay socket; null = dial the relay (the fallback until #VAPP-43). */
+  openEnet?: (codingSessionId: string) => Promise<WebSocket | null>
 }
 
 const defaultDeps: SteerStoreDeps = {
@@ -717,6 +722,12 @@ const defaultDeps: SteerStoreDeps = {
       { context: { skipErrorToast: true } }
     ) as Promise<{ disabled: true } | { ticket: string; url: string }>,
   createSocket: (url) => new WebSocket(url),
+  openEnet: async (codingSessionId) =>
+    (await openEnetSteer(codingSessionId, {
+      carrier: currentSteerCarrier,
+      forSession: (id) =>
+        trpc.installs.forSession.query({ sessionId: id }, { context: { skipErrorToast: true } }),
+    })) as unknown as WebSocket | null,
 }
 
 export interface SteerSessionStore {
@@ -1907,46 +1918,57 @@ export function createSteerSessionStore(
     let detail: string | null = null
 
     try {
-      // EXP-625: race the mint against its deadline. The attached noop catch
-      // keeps a LATE rejection (after the deadline already won) from
-      // surfacing as an unhandled rejection. The race still sees it while
-      // it is the pending outcome.
-      const minting = deps.mintTicket(sessionId)
-      minting.catch(() => {})
-      const minted = await Promise.race([
-        minting,
-        new Promise<typeof MINT_TIMED_OUT>((resolve) => {
-          mintTimer = setTimeout(() => {
-            mintTimer = null
-            resolve(MINT_TIMED_OUT)
-          }, MINT_TIMEOUT_MS)
-        }),
-      ])
-      if (disposed || gen !== generation) return
-      if (mintTimer) {
-        clearTimeout(mintTimer)
-        mintTimer = null
-      }
-      if (minted === MINT_TIMED_OUT) {
-        phase = {
-          kind: `closed`,
-          detail: `Couldn't get a viewer ticket in time.`,
-        }
-        commit()
+      // VAPP-33: eNet first (its own deadlines: joinTimeoutMs); a joined
+      // feed skips the mint, anything else falls through to the relay.
+      const viaEnet = deps.openEnet ? await deps.openEnet(sessionId).catch(() => null) : null
+      if (disposed || gen !== generation) {
+        viaEnet?.close()
         return
       }
-      if (`disabled` in minted && minted.disabled) {
-        phase = {
-          kind: `closed`,
-          detail: `Live steering is unavailable on this instance.`,
-          terminal: true,
+      let sock: WebSocket
+      if (viaEnet) {
+        sock = viaEnet
+      } else {
+        // EXP-625: race the mint against its deadline. The attached noop catch
+        // keeps a LATE rejection (after the deadline already won) from
+        // surfacing as an unhandled rejection. The race still sees it while
+        // it is the pending outcome.
+        const minting = deps.mintTicket(sessionId)
+        minting.catch(() => {})
+        const minted = await Promise.race([
+          minting,
+          new Promise<typeof MINT_TIMED_OUT>((resolve) => {
+            mintTimer = setTimeout(() => {
+              mintTimer = null
+              resolve(MINT_TIMED_OUT)
+            }, MINT_TIMEOUT_MS)
+          }),
+        ])
+        if (disposed || gen !== generation) return
+        if (mintTimer) {
+          clearTimeout(mintTimer)
+          mintTimer = null
         }
-        commit()
-        return
+        if (minted === MINT_TIMED_OUT) {
+          phase = {
+            kind: `closed`,
+            detail: `Couldn't get a viewer ticket in time.`,
+          }
+          commit()
+          return
+        }
+        if (`disabled` in minted && minted.disabled) {
+          phase = {
+            kind: `closed`,
+            detail: `Live steering is unavailable on this instance.`,
+            terminal: true,
+          }
+          commit()
+          return
+        }
+        const { url } = minted as { ticket: string; url: string }
+        sock = deps.createSocket(url)
       }
-      const { url } = minted as { ticket: string; url: string }
-
-      const sock = deps.createSocket(url)
       ws = sock
       sock.onopen = () => {
         if (disposed || gen !== generation) return
@@ -2159,7 +2181,7 @@ export function createSteerSessionStore(
         // reader is stranded on an empty transcript. Retrying is safe: the
         // next join replays from scratch.
         if (
-          event.code === CLOSE_SLOW_CONSUMER &&
+          (event.code === CLOSE_SLOW_CONSUMER || event.code === CLOSE_ENET_LOST) &&
           (sessionStatus !== `ended` || sawHistoryPending)
         ) {
           commit()

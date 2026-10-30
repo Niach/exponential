@@ -4,7 +4,6 @@
 //! drawn INSIDE the leaf's frame div. Every one mirrors in RTL.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -187,7 +186,8 @@ pub fn tracked_width(window: &Window, font: &Font, size: f32, text: &str, ls: f3
         return 0.0;
     }
     let run = TextRun { len: text.len(), font: font.clone(), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
-    f32::from(window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &[run], None).width) + crate::measure::tracking_width(text, ls)
+    let runs = crate::fallback::cluster_runs(window.text_system(), text, &[run], &crate::fallback::default_chain());
+    f32::from(window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &runs, None).width) + crate::measure::tracking_width(text, ls)
 }
 
 /// One line [`tracked_text`] painted (with [`record_tracked`] on): where
@@ -319,7 +319,8 @@ pub fn tracked_text(t: Tracked) -> gpui::Canvas<()> {
                         continue;
                     }
                     let run = TextRun { len: line.len(), font: t.font.clone(), color: t.ink, background_color: None, underline: None, strikethrough: None };
-                    let shaped = window.text_system().shape_line(SharedString::from(line.clone()), size, &[run], None);
+                    let runs = crate::fallback::cluster_runs(window.text_system(), line, &[run], &crate::fallback::default_chain());
+                    let shaped = window.text_system().shape_line(SharedString::from(line.clone()), size, &runs, None);
                     let full = f32::from(shaped.width) + crate::measure::tracking_width(line, t.ls);
                     let room = f32::from(bounds.size.width);
                     let cut = t.ellipsize && k + 1 == t.lines.len() && full > room + 0.5;
@@ -335,14 +336,7 @@ pub fn tracked_text(t: Tracked) -> gpui::Canvas<()> {
                     let baseline = top + pad + shaped.ascent;
                     // Byte index → tracked characters before it (a bidi
                     // mark takes no letter-spacing).
-                    let char_at: HashMap<usize, usize> = line
-                        .char_indices()
-                        .scan(0usize, |n, (b, c)| {
-                            let before = *n;
-                            *n += usize::from(crate::measure::is_tracked(c));
-                            Some((b, before))
-                        })
-                        .collect();
+                    let char_at = crate::measure::tracked_before(line);
                     let glyphs: Vec<(gpui::FontId, &gpui::ShapedGlyph)> = shaped.runs.iter().flat_map(|r| r.glyphs.iter().map(move |g| (r.font_id, g))).collect();
                     let mut end_x = x0;
                     let mut painted: Option<(f32, f32)> = None;

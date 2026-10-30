@@ -617,24 +617,30 @@ class SteerConnection internal constructor(
 
         var opened: SteerSocket? = null
         try {
-            val minted = transport.mint(codingSessionId)
-            if (!minted.isUsable) {
-                // Config state, not a transient failure — retrying can't help.
-                return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
-            }
-            Log.i(TAG, "[$sid] dial#$dial mint ok")
-            // The upgrade is BOUNDED (EXP-625): ktor's HttpTimeout skips
-            // websocket upgrades, so a socket that never completes its
-            // handshake would hold the loop here forever. withTimeoutOrNull,
-            // never withTimeout: the latter's throw IS a CancellationException
-            // and would read as "the loop was cancelled".
             val startedAt = nowMs()
-            val socket = withTimeoutOrNull(timings.upgradeMs) {
-                // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
-                transport.open(minted.url!!)
+            // VAPP-33: the install running the session, joined over eNet
+            // (bounded by its own join timeout); null = the relay as before.
+            val socket = transport.openEnet(codingSessionId)?.also {
+                Log.i(TAG, "[$sid] dial#$dial over eNet")
             } ?: run {
-                Log.w(TAG, "[$sid] dial#$dial upgrade timeout")
-                return DialOutcome.Closed(NO_ANSWER_DETAIL)
+                val minted = transport.mint(codingSessionId)
+                if (!minted.isUsable) {
+                    // Config state, not a transient failure — retrying can't help.
+                    return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
+                }
+                Log.i(TAG, "[$sid] dial#$dial mint ok")
+                // The upgrade is BOUNDED (EXP-625): ktor's HttpTimeout skips
+                // websocket upgrades, so a socket that never completes its
+                // handshake would hold the loop here forever. withTimeoutOrNull,
+                // never withTimeout: the latter's throw IS a CancellationException
+                // and would read as "the loop was cancelled".
+                withTimeoutOrNull(timings.upgradeMs) {
+                    // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
+                    transport.open(minted.url!!)
+                } ?: run {
+                    Log.w(TAG, "[$sid] dial#$dial upgrade timeout")
+                    return DialOutcome.Closed(NO_ANSWER_DETAIL)
+                }
             }
             opened = socket
             if (!currentCoroutineContext().isActive) {

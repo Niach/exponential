@@ -827,8 +827,10 @@ public enum ThreadRow: Equatable, Sendable {
     case plan(ThreadPlanRow)
     case subagent(id: String, title: String, status: String)
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)
-    /// One muted line.
-    case event(id: String, event: String, text: String)
+    /// One muted line. #EXP-1464: `sessionId` = the synced session the
+    /// line is about (its card's `sessionId`), else nil;
+    /// thread-row-action.json opens it.
+    case event(id: String, event: String, text: String, sessionId: String?)
     /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
     /// the centred divider pill; `at` = the message's createdAt (wire text).
     case divider(id: String, kind: Chats.DividerKind, at: String)
@@ -893,7 +895,7 @@ public enum ThreadRow: Equatable, Sendable {
              let .suggestions(id, _, _, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
-             let .event(id, _, _),
+             let .event(id, _, _, _),
              let .divider(id, _, _),
              let .locked(id, _, _),
              let .surface(id, _, _, _):
@@ -1769,7 +1771,8 @@ public enum SessionTree {
                     byId[id].map { sessionCard($0, title: titles[$0.id] ?? "", now: now).name }
                 }
                 if let text {
-                    rows.append(.event(id: message.id, event: card.event ?? "", text: text))
+                    let about = card.sessionId.flatMap { byId[$0] == nil ? nil : $0 }
+                    rows.append(.event(id: message.id, event: card.event ?? "", text: text, sessionId: about))
                 }
             // NEW-1: a child's ask mirrored into its parent (`ask`): the
             // child's own card already surfaces in the Conversation, so the

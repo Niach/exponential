@@ -21,6 +21,7 @@ import { inSession, sessionConversation, messageWithSession } from "@/lib/sessio
 const notifyBlocked = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}))
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
+  notifySessionAsk: async () => {},
   fireAndForgetSessionMessageNotify: () => {},
   fireAndForgetPrNotify: () => {},
   notifySessionBlocked: notifyBlocked,

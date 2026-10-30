@@ -1,4 +1,5 @@
 - Poruke u sesijama zapečaćuju se na tvojim uređajima, pa ih poslužitelj više ne može čitati
+- Pitanje iz razgovora koji si pokrenuo stiže kao obavijest na mobitel i prikazuje samo pitanje
 - Dodir na odluku u pristigloj pošti otvara razgovor koji te čeka
 - Priče prikazuju zadnja 24 sata, a kartica Priče u razgovoru prikazuje ih na mjestu
 - Pozivi rade dalje kad prebacuješ između zvučnika, slušalica i Bluetootha

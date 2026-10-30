@@ -1,0 +1,519 @@
+{
+  "$comment": "#EXP-1464 (owner 2026-10-30): WHAT A CONVERSATION'S SESSION ROWS DO ×4, a thread's Conversation and a team agent's conversation alike (session-thread.json rows). threadRowAction({type, sessionId, rootId, state, blocked, inline, answered}): a row of type `session` (a `session` / `thread_started` card, an escalated ask's card; sessionId = its card's), `report` (its xref's session) or `event` (its `sessionId`, null when the card names none or it has not synced) naming a session OTHER than the conversation's own root does something; anything else, or a row about the root itself, does NOTHING (`none`: no chevron, no hover, no press). `expand`: a `session` row whose waiting card is NOT already a row of this conversation (`inline` = some `question` row with answered false or `plan` row with decision null of that sessionId sits in the conversation's rows: a thread child's own card, an escalated ask #EXP-1399; such a row OPENS instead) and whose state (session-card.json) is `needs_you` and NOT behind a flag (`blocked` = the session's `blocked` is set: a usage wall, not picked up, stuck; those have no card) expands IN PLACE: under THE session card (its chevron turns down; a tap collapses it) sits THE question / plan card of that session (`sessionWaitingCard`, the same card a thread renders, answerable there via sessions.answer), its header carrying `copy.openChat` (testIds.openChat) which opens the session. While the card has not synced the card slot is the skeleton line. Once the viewer answered it (client-held `answered`) the row collapses and, while the session is neither `needs_you` again nor `done`, reads the quiet `copy.answered` (`kindWord`, tone `muted`) instead of its state word; needing you again expands again. `open`: every other row naming a session opens THAT session by inbox-route.json `sessionTarget` (the viewer's own agent conversation root = the agent's page, a thread root = its thread, a thread's child = in its thread, anything else under an agent = its own session screen); a session of the SAME thread opens in place. chevron = action != none: a session card's trailing chevron, a `Report from` line's, an event line's (the muted line becomes a button: hover = foreground, press = the pressed wash). sessionWaitingCard(sessionId, messages) = that session's NEWEST (createdAt, ties by the higher id) waiting `question` (answeredAt null) or `plan` (no decision; `superseded` is a decision) message id, else null. Mirrors: TS src/thread-row-action.ts, desktop `domain::thread_row_action`, iOS ExpCore `ThreadRowAction.swift`, Android `domain/ThreadRowAction.kt`; each replays `cases` and `waitingCases` comparing the WHOLE expected object.",
+  "copy": {
+    "openChat": "Open chat",
+    "answered": "Answered"
+  },
+  "testIds": {
+    "openChat": "thread-open-chat",
+    "expanded": "thread-row-expanded",
+    "event": "thread-event"
+  },
+  "cases": [
+    {
+      "name": "a Needs you session card expands into its card",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "expand",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a session card behind a flag (not picked up) opens",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": true,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a Needs you card whose waiting card already draws inline opens",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": false,
+        "inline": true,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a working session card opens",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "working",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a done session card opens",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "done",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "answered and working again reads Answered",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "working",
+        "blocked": false,
+        "inline": false,
+        "answered": true
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": "Answered",
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "answered and idle reads Answered",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "idle",
+        "blocked": false,
+        "inline": false,
+        "answered": true
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": "Answered",
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "answered but needing you again expands again",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": false,
+        "inline": false,
+        "answered": true
+      },
+      "expected": {
+        "action": "expand",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "answered and done reads its own word",
+      "input": {
+        "type": "session",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "done",
+        "blocked": false,
+        "inline": false,
+        "answered": true
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s1",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a report line opens its session",
+      "input": {
+        "type": "report",
+        "sessionId": "s2",
+        "rootId": "r",
+        "state": "done",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s2",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "an event line about a session opens it",
+      "input": {
+        "type": "event",
+        "sessionId": "s3",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": true,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s3",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "an event line about a needing session still opens (only cards expand)",
+      "input": {
+        "type": "event",
+        "sessionId": "s3",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "open",
+        "sessionId": "s3",
+        "chevron": true,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "an event line naming no session does nothing",
+      "input": {
+        "type": "event",
+        "sessionId": null,
+        "rootId": "r",
+        "state": null,
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "none",
+        "sessionId": null,
+        "chevron": false,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a row about the conversation's own root does nothing",
+      "input": {
+        "type": "event",
+        "sessionId": "r",
+        "rootId": "r",
+        "state": "working",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "none",
+        "sessionId": null,
+        "chevron": false,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a message row does nothing",
+      "input": {
+        "type": "message",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "working",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "none",
+        "sessionId": null,
+        "chevron": false,
+        "kindWord": null,
+        "tone": null
+      }
+    },
+    {
+      "name": "a question row does nothing",
+      "input": {
+        "type": "question",
+        "sessionId": "s1",
+        "rootId": "r",
+        "state": "needs_you",
+        "blocked": false,
+        "inline": false,
+        "answered": false
+      },
+      "expected": {
+        "action": "none",
+        "sessionId": null,
+        "chevron": false,
+        "kindWord": null,
+        "tone": null
+      }
+    }
+  ],
+  "waitingCases": [
+    {
+      "name": "an unanswered question",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "question": "Ship it?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        }
+      ],
+      "expected": "a"
+    },
+    {
+      "name": "the newest waiting card wins",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "question": "Ship it?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        },
+        {
+          "id": "b",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:05:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "plan": "# Plan",
+            "decision": null
+          }
+        }
+      ],
+      "expected": "b"
+    },
+    {
+      "name": "ties go to the higher id",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "b",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "question": "Ship it?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        },
+        {
+          "id": "c",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "question": "Ship it?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        }
+      ],
+      "expected": "c"
+    },
+    {
+      "name": "an answered question and a decided plan wait for nothing",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": "2026-10-30T10:01:00.000Z",
+          "card": {
+            "kind": "question",
+            "question": "Ship it?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        },
+        {
+          "id": "b",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:02:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "plan": "# Plan",
+            "decision": "approve"
+          }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a superseded plan is decided",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "plan": "# Plan",
+            "decision": "superseded"
+          }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a plan without a decision key waits",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "plan": "x"
+          }
+        }
+      ],
+      "expected": "a"
+    },
+    {
+      "name": "another session's card never counts",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s2",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "question": "Ship it?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "other card kinds never count",
+      "sessionId": "s1",
+      "messages": [
+        {
+          "id": "a",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": {
+            "kind": "surface"
+          }
+        },
+        {
+          "id": "b",
+          "sessionId": "s1",
+          "createdAt": "2026-10-30T10:00:00.000Z",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "expected": null
+    }
+  ]
+}

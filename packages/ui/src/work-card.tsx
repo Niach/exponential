@@ -267,6 +267,7 @@ export function WorkCardHeader({
   name,
   kindWord,
   kindWordClassName,
+  iconClassName,
   running,
   trailing,
   after,
@@ -274,8 +275,10 @@ export function WorkCardHeader({
   icon: IconConcept
   name: string
   kindWord: string | null
-  /** Tone override for the kind word (the session card's amber/rose). */
+  /** Tone override for the kind word (the session card's amber). */
   kindWordClassName?: string
+  /** Tone override for the icon (the session card's state tone). */
+  iconClassName?: string
   running: boolean
   trailing: string | null
   /** A glyph after the trailing text (the session card's chevron). */
@@ -284,7 +287,7 @@ export function WorkCardHeader({
   const Icon = conceptIcon(icon)
   return (
     <div className="flex min-w-0 items-center gap-2 px-3" style={{ height: G.header }}>
-      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+      <Icon className={cn(`size-3.5 shrink-0 text-muted-foreground`, iconClassName)} />
       <span className="min-w-0 truncate font-medium">{name}</span>
       {kindWord && (
         <span className={cn(`shrink-0 text-muted-foreground`, kindWordClassName)}>
@@ -318,7 +321,8 @@ export interface SessionCardModel {
 }
 
 export const SESSION_CARD_TONE: Record<string, string> = {
-  amber: `text-amber-400`,
+  // design-tokens semantic.yellow (#FACC15), the natives' amber.
+  amber: `text-yellow-400`,
   rose: `text-rose-400`,
   foreground: `text-foreground`,
   muted: ``,
@@ -335,10 +339,14 @@ export const SESSION_CARD_TONE: Record<string, string> = {
 export function SessionCard({
   card,
   onOpen,
+  expanded,
   className,
 }: {
   card: SessionCardModel
   onOpen?: () => void
+  /** #EXP-1464: the row is expanded into its waiting card (the chevron
+   *  turns down; a tap collapses it). */
+  expanded?: boolean
   className?: string
 }) {
   const header = (
@@ -346,10 +354,17 @@ export function SessionCard({
       icon={card.icon as IconConcept}
       name={card.name}
       kindWord={card.kindWord}
-      kindWordClassName={SESSION_CARD_TONE[card.tone]}
+      // #EXP-1466 session-card.json: the icon takes the tone; the word stays
+      // muted unless the tone is amber.
+      iconClassName={SESSION_CARD_TONE[card.tone]}
+      kindWordClassName={card.tone === `amber` ? SESSION_CARD_TONE.amber : undefined}
       running={card.running}
       trailing={card.elapsed}
-      after={onOpen ? <ChevronIcon className="size-3.5 shrink-0" /> : undefined}
+      after={
+        onOpen ? (
+          <ChevronIcon className={cn(`size-3.5 shrink-0 transition-transform`, expanded && `rotate-90`)} />
+        ) : undefined
+      }
     />
   )
   const caption = card.caption ? (
@@ -379,7 +394,8 @@ export function SessionCard({
       type="button"
       data-testid={card.testId}
       data-state={card.state}
-      className={cn(shell, `hover:bg-glass-active/50`)}
+      aria-expanded={expanded}
+      className={cn(shell, `hover:bg-glass-active/50 active:bg-glass-active`)}
       onClick={onOpen}
     >
       {header}

@@ -1,4 +1,5 @@
 - Les messages des sessions sont scellés sur tes appareils, le serveur ne peut plus les lire
+- Une question d'un chat que tu as lancé arrive en notification sur ton téléphone et affiche la question elle-même
 - Toucher une décision dans ta boîte de réception ouvre la discussion qui t'attend
 - Les stories montrent les dernières 24 heures, et l'onglet Stories d'une discussion les affiche sur place
 - Les appels continuent quand tu passes du haut-parleur aux écouteurs ou au Bluetooth

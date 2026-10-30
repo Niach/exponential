@@ -20,8 +20,12 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
     // still around (the registry just revoked this endpoint for them).
     private var suppressed: Set<String> = []
 
-    public init(service: InstallNodeService, auth: AuthRepository, db: DatabaseManager) {
+    /// VAPP-33: the steer viewers' way onto this node.
+    public let steer: SteerEnetCarrier?
+
+    public init(service: InstallNodeService, auth: AuthRepository, db: DatabaseManager, steer: SteerEnetCarrier? = nil) {
         self.service = service
+        self.steer = steer
         self.auth = auth
         self.db = db
     }
