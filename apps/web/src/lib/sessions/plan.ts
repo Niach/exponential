@@ -7,6 +7,7 @@ import {
   type ReduceResult,
 } from "@exponential_app/ui"
 import {
+  PLAN_CARD_DESCRIPTION_MAX,
   PLAN_CARD_SURFACE_MAX_BYTES,
   PLAN_CARD_SURFACE_MAX_COMPONENTS,
   PLAN_CARD_UPLOAD_SCHEME,
@@ -253,6 +254,7 @@ export function buildSurfaceCard(input: {
   title?: string
   pictures?: CardPictureInput[]
   story?: boolean
+  description?: string
 }): Extract<MessageCard, { kind: `surface` }> {
   const surface = validateCardSurface(input.surface)
   if (!surface) throw bad(`surface is required: an Exponential UI core tree {root, data?}`)
@@ -263,10 +265,16 @@ export function buildSurfaceCard(input: {
   // S-3 stories.json: a surface may carry a result story's screenshots;
   // a plain surface is a story only when asked (or once a picture lands).
   const pictures = cardPictures(input.pictures)
+  // The cap lives here, not in the show schema (its own byte budget).
+  const description = input.description?.trim() || null
+  if (description && description.length > PLAN_CARD_DESCRIPTION_MAX) {
+    throw bad(`description is ${description.length} characters; the cap is ${PLAN_CARD_DESCRIPTION_MAX}`)
+  }
   return {
     kind: `surface`,
     surface,
     title,
+    ...(description ? { description } : {}),
     ...(pictures.length ? { pictures } : {}),
     ...(input.story !== undefined ? { story: input.story } : {}),
   }

@@ -390,7 +390,7 @@ const cardSurfaceInput = z
 // S-3: the show tool's description (always-loaded bytes; its own per-tool
 // cap in context-budget.test.ts): the nested node syntax, one example, the
 // reply rule and the component names; props come from the apps catalog.
-const SHOW_TOOL_DESCRIPTION = `ONE card in your chat per turn (result, status, draft, choice); replace: true edits this turn's card. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event sends text as the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[...]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures); story: false = chat only. After ask/plan end your turn: the answer is your next message.`
+const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn (result, status, draft, choice); replace: true edits it. surface = nested nodes {id, component, props?, children?, on?} + data. E.g. {root:{id:"c",component:"Card",children:[{id:"h",component:"Heading",props:{text:"Green"}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the person's answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures; +description); story: false = chat only. After ask/plan end your turn; the answer comes next.`
 
 /** F38: `exponential_show {pictures}` with no surface: a Card holding the
  *  title (else the picture labels) above the pictures. */
@@ -2704,10 +2704,11 @@ export function registerExponentialTools(
             })
             .optional(),
           pictures: cardPicturesInput,
+          description: z.string().optional(),
           story: z.boolean().optional(),
         }),
       },
-      async ({ surface, title, replace, ask, plan, pictures, story }) => {
+      async ({ surface, title, replace, ask, plan, pictures, description, story }) => {
         try {
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_show`))
@@ -2721,7 +2722,13 @@ export function registerExponentialTools(
             ? buildPlanCard({ plan: plan.text, questions: plan.questions, pictures, surface })
             : ask
               ? buildQuestionCard({ ...ask, pictures, surface })
-              : buildSurfaceCard({ surface: shown, title, pictures, ...(story !== undefined ? { story } : {}) })
+              : buildSurfaceCard({
+                  surface: shown,
+                  title,
+                  pictures,
+                  ...(description ? { description } : {}),
+                  ...(story !== undefined ? { story } : {}),
+                })
           // S-3 stories.json: an explicit flag rides every kind.
           if (story !== undefined) card.story = story
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))

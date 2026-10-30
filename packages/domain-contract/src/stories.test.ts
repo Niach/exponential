@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/stories.json" with { type: "json" }
-import { bubbleRings, stories, storyTab } from "./stories"
+import { bubbleRings, stories, storyFrames, storyTab } from "./stories"
 
 describe(`stories`, () => {
   for (const entry of fixture.cases) {
@@ -32,6 +32,14 @@ describe(`storyTab`, () => {
   for (const entry of fixture.tabCases) {
     test(entry.name, () => {
       expect(storyTab(entry.input as never)).toEqual(entry.expected as never)
+    })
+  }
+})
+
+describe(`storyFrames`, () => {
+  for (const entry of fixture.frameCases) {
+    test(entry.name, () => {
+      expect(storyFrames(entry.input as never)).toEqual(entry.expected as never)
     })
   }
 })

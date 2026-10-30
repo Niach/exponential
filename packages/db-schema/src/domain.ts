@@ -1330,6 +1330,8 @@ export type MessageCard =
       pictures?: PlanCardPicture[] | null
       /** S-3 stories.json: a story (absent = pictures make it one). */
       story?: boolean | null
+      /** #EXP-1432 stories.json: the story's one line under its title. */
+      description?: string | null
     }
 
 /** EXP-1323: one item of a `suggestions` card (`sessions_suggest`). Start =

@@ -10,6 +10,7 @@ import fixture from "@exp/domain-contract/fixtures/composer-menu.json"
 export type ComposerMenuRowId =
   | `add-file`
   | `implement-issue`
+  | `prompts`
   | `device`
   | `account`
   | `model`

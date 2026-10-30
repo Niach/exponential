@@ -1,5 +1,5 @@
 {
-  "$comment": "S-3 STORIES ×4 (owner 2026-10-28: 'agent stories as a new way the agent communicates ... decisions/questions and results land here, instagram-story-like UI ... swipeable. all questions and drafts propagate to the top. minimal text ... default to visual only'). Stories REPLACE the Guide's text and the Dock's plan/question rows; the STORIES TAB (below) is where they stay browsable. A STORY = a session's OWN show card (`messages` row with author_session_id = session_id, card kind `plan` | `question` | `surface`, posted by `exponential_show`) that is a story: `card.story` true, or `card.story` absent and (kind plan|question, or a resolved picture). A plan/question with `questionId` (an engine's relay ask) and an `ask` mirror never are. KIND: plan → `plan`, question → `question`, surface → `result`. A plan waits while `decision` is null (any decision, `superseded` included, = gone); a question waits while `answeredAt` and `answer` are both null (answered = gone). A result is kept while age (now − createdAt) < `constants.unseenHours` hours when unseen, < `constants.seenHours` when seen. SEEN = createdAt <= the viewer's mark of the story's ROOT: max(session_reads.read_at, session_reads.story_seen_at) of the row (user = viewer, session = rootId); no row = unseen. A host marks a story seen when it is SHOWN in the viewer: `sessions.markStoriesSeen({sessionId: rootId, at: createdAt})`, the server keeps the greatest. RINGS = `stories(input)`: one ring per AGENT (key `agent:<id>`: the root's own agentId (its agent conversation) else the root's startedByAgentId; title = the agent's name, `assistant` from the host's agent row) and one per ROOT chat with no agent (key `root:<rootId>`; title = the root's name). A ring's stories: waiting first, then unseen, then seen, each group oldest first (createdAt, then id), so the viewer opens on what needs the person. A ring: `waiting` = its waiting count, `unseen` = any story waiting or unseen. RING ORDER: the Assistant's ring first (whatever its state), then rings with waiting, then rings with unseen, then the rest, each group by its newest story (createdAt desc, then key). A ring with no story left is absent. A STORY (out): id (the message id), sessionId, rootId, sessionName (the posting session's name), kind, waiting, seen, createdAt, meta = '<copy kind> · <age>' (age: < 1 min `now`, < 60 min `<m>m`, < 24 h `<h>h`, else `<d>d`, floored), title = a result's card title, a question's text, a plan's first plain line (ask-dock `askDockTitle`), else null; pictures = the card's RESOLVED pictures (attachmentId set) in card order {label, attachmentId, width, height, caption}; surface = the card has a surface; text = a plan's markdown when it has neither a picture nor a surface, else null; footer = `plan` (THE plan options of ask-dock.json: Approve = approve, Change = reject + its feedback field) | `choices` (a question with options: its option chips, + the free-text field when custom) | `reply` (a question with no options: the free-text field) | `none` (a result); autoAdvanceMs = `constants.autoAdvanceMs` for a result, else null (a decision never advances on its own). An answer goes through THE card-answer path (`sessions.answer`, the same as the in-chat card); the story then drops out (answered). STORY RING (styleguide `story-ring`, eUI `StoryRing`: an avatar inside a ring split into one arc per story, `ring.gap` degrees apart, `ring.width` px; a waiting story's arc = the plan/question tint (ask-dock tints), an unseen one = foreground, a seen one = the glass-stroke hairline): the chats header's agent bubbles (chats.json BUBBLES) wear their agent's ring (the Assistant's bubble first, as listAgents orders it); a tap on a bubble with a ring opens THE viewer at that ring (no ring = the chats.json tap: the agent's chat); the root rings (and an agent ring whose agent has no bubble) follow the agent bubbles in the same row, in ring order (the root's session avatar, its name under it); no separate ring row ×4. STORY VIEWER (styleguide `story-viewer`; Exponential-specific, not eUI): phones (iOS, Android, web-mobile) = full screen over everything; web wide + the IDE = a centered modal (`viewer.width` × `viewer.height` max, `viewer.radius`) over a scrim on the list. Top: THE StoryProgress (eUI `StoryProgress`: one segment per story of the ring, `progress.gap` apart, `progress.height` tall; done = foreground, the current = its fill fraction, todo = the glass-stroke track). Header: the ring's avatar inside its StoryRing (agent mark / the chat row's brand mark), the story's `sessionName`, `meta` muted, the close ghost glyph; a tap on the avatar or name opens that session (the #1309 back stack) and closes the viewer. Body: the pictures (fitted, a horizontal pager when several, the caption under it) and/or the surface (THE surface card renderer of chats.json `surfaceCard`), else the plan text (markdown); the title over the body in one line when present, EXCEPT when the body is the plan text (`text` set: it already begins with that line). Footer: per `footer`; nothing for a result. NAVIGATION: tap the right third / swipe left / ArrowRight / the side arrow (wide) = next story, past the last = the next ring, past the last ring = close; left third / swipe right / ArrowLeft = previous (the first story of a ring = the previous ring's last); swipe down / Escape / the close glyph = close; holding a press pauses the timer. Only a result advances on its own after `autoAdvanceMs`. TOOL: `exponential_show {story?}`: default true for ask/plan/pictures, false for a plain surface (a status card stays in the chat only); a surface may carry `pictures` (labels; each returned curl uploads one) so a result story shows screenshots. PR BODIES read the stories: pr-body.json `storyCases`. Mirrors: desktop domain::stories, iOS ExpCore Stories.swift, Android domain/Stories.kt replay `cases` comparing the WHOLE expected array. STORIES TAB ×4 (owner 2026-10-29: 'the guide tab got completely vibed away ... we still want it but calling it stories. you should see them still afterwards like the guides were. just all less text'): the session screen's strip ends with ONE `tab.copy.label` tab, pinned right where the Guide was (not part of session-thread.json `tabs`; every host draws it after the last chip; phones icon-only like Conversation, the concept `thread-stories`, md+/IDE icon + label; a page of the phones' pager, the last one), with a dot (the Guide's dot) while `storyTab(input).unseen`. FOLD `storyTab(input + rootId)` (every mirror replays `tabCases`, comparing the WHOLE ring): every story the ROOT's tree ever posted (a story's root = rootId; the same story rule as the ring), NEVER expiring; a settled plan/question STAYS (waiting false, seen true, footer `none`, meta = '<copy kind> · <tab.copy outcome> · <age>', outcome = `approved` | `changed` (rejected) | `answered`), a superseded plan drops (a newer plan replaced it). seen = settled, or createdAt <= the root's mark (as the ring). Order: waiting first (oldest first), then the rest NEWEST first (createdAt desc, then id desc). Out = ONE StoryRing (key/agentId/title/assistant as `stories` keys the root's ring; waiting = the count; unseen = any waiting or unseen) so a tile opens THE viewer on it; null = no story (or rootId not a root) = the empty state. BODY (top to bottom, ONE scroll, centred column like the conversation): (1) the PR block while session-thread.json `guidePullRequest` is set: in a linear open stack the `tab.copy.stack` band + THE StackRail (the Guide's, unchanged), then ONE `tab.copy.changes` row (the diff glyph, `+a −d · n files` from THE DiffCounts) opening THE review pane (the Guide's complete-diff page: md+/IDE the file tree beside the file cards, phones the cards + file sheet; its back row reads `‹ tab.copy.label`); no PR = no block. (2) `tile.leadGap` under the PR block, the story TILES in fold order, `tile.listGap` apart, NO band, no prose: a tile = line 1 the title (one line, truncated; none = the copy kind word) with `meta` muted at the trailing end (a waiting tile tints its meta with the plan/question tint of ask-dock and leads with the tint dot), then for a story with pictures ONE horizontal row of thumbnails (each `tile.thumbHeight` tall, width by aspect capped at `tile.thumbMaxWidth`, both per form factor: `wide` = web md+ and the IDE, `phone` = web-mobile, iOS, Android (owner 2026-10-29: the old Guide's scale on wide), `tile.radius`, `tile.gap` apart, the glass-stroke hairline; scrolls sideways when it overflows) with ONE muted line under each = the picture's caption, else its label (A PR's pictures group by their STORY, in card order: no platform columns, the label already names the platform). A tile without pictures is the line alone. A tap on a tile or a thumbnail opens THE viewer on the tab's ring at that story (the picture's index for a thumbnail); the viewer behaves as from a ring (marks seen, answers a waiting one, a settled one has no footer and never auto-advances away: results still do). (3) none at all = THE EmptyState (`tab.copy.empty`, the concept `thread-stories`, no subtitle); the PR block still shows above it. Styleguide `story-tab` (Exponential-specific, not eUI) draws `tab.specimen`.",
+  "$comment": "S-3 STORIES ×4 (owner 2026-10-28: 'agent stories as a new way the agent communicates ... decisions/questions and results land here, instagram-story-like UI ... swipeable. all questions and drafts propagate to the top. minimal text ... default to visual only'). Stories REPLACE the Guide's text and the Dock's plan/question rows; the STORIES TAB (below) is where they stay browsable. A STORY = a session's OWN show card (`messages` row with author_session_id = session_id, card kind `plan` | `question` | `surface`, posted by `exponential_show`) that is a story: `card.story` true, or `card.story` absent and (kind plan|question, or a resolved picture). A plan/question with `questionId` (an engine's relay ask) and an `ask` mirror never are. KIND: plan → `plan`, question → `question`, surface → `result`. A plan waits while `decision` is null (any decision, `superseded` included, = gone); a question waits while `answeredAt` and `answer` are both null (answered = gone). A result is kept while age (now − createdAt) < `constants.unseenHours` hours when unseen, < `constants.seenHours` when seen. SEEN = createdAt <= the viewer's mark of the story's ROOT: max(session_reads.read_at, session_reads.story_seen_at) of the row (user = viewer, session = rootId); no row = unseen. A host marks a story seen when it is SHOWN in the viewer: `sessions.markStoriesSeen({sessionId: rootId, at: createdAt})`, the server keeps the greatest. RINGS = `stories(input)`: one ring per AGENT (key `agent:<id>`: the root's own agentId (its agent conversation) else the root's startedByAgentId; title = the agent's name, `assistant` from the host's agent row) and one per ROOT chat with no agent (key `root:<rootId>`; title = the root's name). A ring's stories: waiting first, then unseen, then seen, each group oldest first (createdAt, then id), so the viewer opens on what needs the person. A ring: `waiting` = its waiting count, `unseen` = any story waiting or unseen. RING ORDER: the Assistant's ring first (whatever its state), then rings with waiting, then rings with unseen, then the rest, each group by its newest story (createdAt desc, then key). A ring with no story left is absent. A STORY (out): id (the message id), sessionId, rootId, sessionName (the posting session's name), kind, waiting, seen, createdAt, meta = '<copy kind> · <age>' (age: < 1 min `now`, < 60 min `<m>m`, < 24 h `<h>h`, else `<d>d`, floored), title = a result's card title, a question's text, a plan's first plain line (ask-dock `askDockTitle`), else null; pictures = the card's RESOLVED pictures (attachmentId set) in card order {label, attachmentId, width, height, caption}; surface = the card has a surface; text = a plan's markdown when it has neither a picture nor a surface, else null; footer = `plan` (THE plan options of ask-dock.json: Approve = approve, Change = reject + its feedback field) | `choices` (a question with options: its option chips, + the free-text field when custom) | `reply` (a question with no options: the free-text field) | `none` (a result); autoAdvanceMs = `constants.autoAdvanceMs` for a result, else null (a decision never advances on its own). An answer goes through THE card-answer path (`sessions.answer`, the same as the in-chat card); the story then drops out (answered). STORY RING (styleguide `story-ring`, eUI `StoryRing`: an avatar inside a ring split into one arc per story, `ring.gap` degrees apart, `ring.width` px; a waiting story's arc = the plan/question tint (ask-dock tints), an unseen one = foreground, a seen one = the glass-stroke hairline): the chats header's agent bubbles (chats.json BUBBLES) wear their agent's ring (the Assistant's bubble first, as listAgents orders it); a tap on a bubble with a ring opens THE viewer at that ring (no ring = the chats.json tap: the agent's chat); the root rings (and an agent ring whose agent has no bubble) follow the agent bubbles in the same row, in ring order (the root's session avatar, its name under it); no separate ring row ×4. STORY VIEWER (styleguide `story-viewer`; Exponential-specific, not eUI; #EXP-1432 owner 2026-10-29: 'they should all stack ... the story can either be an image OR a a2ui view ... +description for both ... flatten all stories, but make it visually distinct what stories belong together ... on all platforms'). THE viewer steps through FRAMES, never through stories with an inner pager: `storyFrames(ring)` (every mirror replays `frameCases`, comparing the WHOLE array) flattens the ring's stories in order, a story = one frame per resolved picture (pictures WIN: a picture story's surface stays in the chat, it was the card that only repeated the title), else one `surface` frame, else one `text` frame (a plan's markdown), else one `title` frame (a bare question). A frame: story (index in the ring), storyId, index/count (its place among its story's frames), kind, picture (the index in story.pictures, else null), title = the story's title (null on a `text` frame: the markdown already begins with it), description = a picture's caption, else the story's `description` (the show card's optional `description`; null on a `text` frame), footer = the story's footer on its LAST frame only (`none` before it), autoAdvanceMs = the story's. Every frame has its own timer (a result's frames each advance after `autoAdvanceMs`, a decision's never). Top: THE StoryProgress with ONE segment per FRAME, `progress.height` tall: segments of the same story `progress.gap` apart, a new story starts `progress.storyGap` after the last one (so what belongs together reads as one group); done = foreground, the current = its fill fraction, todo = the glass-stroke track. Header: the ring's avatar inside its StoryRing (agent mark / the chat row's brand mark), the story's `sessionName`, `meta` muted, the close ghost glyph; a tap on the avatar or name opens that session (the #1309 back stack) and closes the viewer. Under the header: the frame's title (one line, semibold) and its description (muted, up to 3 lines) when set; each says it ONCE (no title inside the body, no label line over a surface, no caption under the picture: the description IS the caption). Body: a `picture` frame = the picture fitted (contain) on black; a `surface` frame = THE surface renderer (chats.json `surfaceCard`'s tree, NO card chrome around it); a `text` frame = the plan markdown; a `title` frame = nothing (the title says it). Footer: per the frame's `footer`. PHONES (iOS, Android, web-mobile) = FULL SCREEN over everything, Instagram-like: the picture fills the screen edge to edge (fitted on black, behind the status bar), a surface frame fills it the same way (scrolls when taller); the progress, header, title and description FLOAT over the top on a black-to-clear scrim (`viewer.scrimHeight` px), the footer floats over the bottom on the mirrored scrim; no card, no inset panel. WIDE (web md+, the IDE) = a centered modal (`viewer.width` × `viewer.height` max, `viewer.radius`) over a scrim on the list, the SAME frame layout inside it (the picture fills the modal on black, the floating header over it), the side arrows sit OUTSIDE the modal and a press on them steps (never a scrim press: only a press on the bare scrim closes). NAVIGATION (frames): tap the right third / swipe left / ArrowRight / the side arrow (wide) = next frame, past the last = the next ring, past the last ring = close; left third / swipe right / ArrowLeft = previous frame (the first frame of a ring = the previous ring's last); swipe down / Escape / the close glyph = close; holding a press pauses the timer. Opening at a story (a tile) = its first frame; at a thumbnail = that picture's frame (`storyFrameIndex`). Marking seen: a frame's story when the frame is shown. TOOL: `exponential_show {story?, description?}` (description = the story's one line under its title, a surface/result card's `description`): default true for ask/plan/pictures, false for a plain surface (a status card stays in the chat only); a surface may carry `pictures` (labels; each returned curl uploads one) so a result story shows screenshots. PR BODIES read the stories: pr-body.json `storyCases`. Mirrors: desktop domain::stories, iOS ExpCore Stories.swift, Android domain/Stories.kt replay `cases` comparing the WHOLE expected array. STORIES TAB ×4 (owner 2026-10-29: 'the guide tab got completely vibed away ... we still want it but calling it stories. you should see them still afterwards like the guides were. just all less text'): the session screen's strip ends with ONE `tab.copy.label` tab, pinned right where the Guide was (not part of session-thread.json `tabs`; every host draws it after the last chip; phones icon-only like Conversation, the concept `thread-stories`, md+/IDE icon + label; a page of the phones' pager, the last one), with a dot (the Guide's dot) while `storyTab(input).unseen`. FOLD `storyTab(input + rootId)` (every mirror replays `tabCases`, comparing the WHOLE ring): every story the ROOT's tree ever posted (a story's root = rootId; the same story rule as the ring), NEVER expiring; a settled plan/question STAYS (waiting false, seen true, footer `none`, meta = '<copy kind> · <tab.copy outcome> · <age>', outcome = `approved` | `changed` (rejected) | `answered`), a superseded plan drops (a newer plan replaced it). seen = settled, or createdAt <= the root's mark (as the ring). Order: waiting first (oldest first), then the rest NEWEST first (createdAt desc, then id desc). Out = ONE StoryRing (key/agentId/title/assistant as `stories` keys the root's ring; waiting = the count; unseen = any waiting or unseen) so a tile opens THE viewer on it; null = no story (or rootId not a root) = the empty state. BODY (top to bottom, ONE scroll, centred column like the conversation): (1) the PR block while session-thread.json `guidePullRequest` is set: in a linear open stack the `tab.copy.stack` band + THE StackRail (the Guide's, unchanged), then ONE `tab.copy.changes` row (the diff glyph, `+a −d · n files` from THE DiffCounts) opening THE review pane (the Guide's complete-diff page: md+/IDE the file tree beside the file cards, phones the cards + file sheet; its back row reads `‹ tab.copy.label`); no PR = no block. (2) `tile.leadGap` under the PR block, the story TILES in fold order, `tile.listGap` apart, NO band, no prose: a tile = line 1 the title (one line, truncated; none = the copy kind word) with `meta` muted at the trailing end (a waiting tile tints its meta with the plan/question tint of ask-dock and leads with the tint dot), then for a story with pictures ONE horizontal row of thumbnails (each `tile.thumbHeight` tall, width by aspect capped at `tile.thumbMaxWidth`, both per form factor: `wide` = web md+ and the IDE, `phone` = web-mobile, iOS, Android (owner 2026-10-29: the old Guide's scale on wide), `tile.radius`, `tile.gap` apart, the glass-stroke hairline; scrolls sideways when it overflows) with ONE muted line under each = the picture's caption, else its label (A PR's pictures group by their STORY, in card order: no platform columns, the label already names the platform). A tile without pictures is the line alone. A tap on a tile or a thumbnail opens THE viewer on the tab's ring at that story (the picture's index for a thumbnail); the viewer behaves as from a ring (marks seen, answers a waiting one, a settled one has no footer and never auto-advances away: results still do). (3) none at all = THE EmptyState (`tab.copy.empty`, the concept `thread-stories`, no subtitle); the PR block still shows above it. Styleguide `story-tab` (Exponential-specific, not eUI) draws `tab.specimen`.",
   "constants": {
     "seenHours": 24,
     "unseenHours": 168,
@@ -23,12 +23,14 @@
   },
   "progress": {
     "height": 3,
-    "gap": 4
+    "gap": 4,
+    "storyGap": 10
   },
   "viewer": {
     "width": 440,
     "height": 760,
-    "radius": 16
+    "radius": 16,
+    "scrimHeight": 180
   },
   "testIds": {
     "ring": "story-ring",
@@ -122,6 +124,7 @@
               "createdAt": 1799999700000,
               "meta": "Question · 5m",
               "title": "Which colour?",
+              "description": null,
               "pictures": [],
               "surface": false,
               "text": null,
@@ -319,6 +322,7 @@
               "createdAt": 1799999000000,
               "meta": "Plan · 16m",
               "title": "Roll back",
+              "description": null,
               "pictures": [],
               "surface": false,
               "text": "## Roll back\n\nRevert **v2** first.",
@@ -336,6 +340,7 @@
               "createdAt": 1799996400000,
               "meta": "Result · 1h",
               "title": null,
+              "description": null,
               "pictures": [
                 {
                   "label": "web smoke",
@@ -361,6 +366,7 @@
               "createdAt": 1799990000000,
               "meta": "Result · 2h",
               "title": "Deploy green",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -498,6 +504,7 @@
               "createdAt": 1798000000000,
               "meta": "Question · 23d",
               "title": "Still there?",
+              "description": null,
               "pictures": [],
               "surface": false,
               "text": null,
@@ -515,6 +522,7 @@
               "createdAt": 1799910000000,
               "meta": "Result · 1d",
               "title": "B",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -696,6 +704,7 @@
               "createdAt": 1799999000000,
               "meta": "Result · 16m",
               "title": "Brief",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -724,6 +733,7 @@
               "createdAt": 1799000000000,
               "meta": "Question · 11d",
               "title": "Ship?",
+              "description": null,
               "pictures": [],
               "surface": false,
               "text": null,
@@ -752,6 +762,7 @@
               "createdAt": 1799999500000,
               "meta": "Result · 8m",
               "title": "Draft 2",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -780,6 +791,7 @@
               "createdAt": 1799999000000,
               "meta": "Result · 16m",
               "title": "Draft",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -808,6 +820,7 @@
               "createdAt": 1799999970000,
               "meta": "Result · now",
               "title": "Done",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -996,7 +1009,8 @@
                     "text": "No drift"
                   }
                 }
-              }
+              },
+              "description": "Paddings match on all four platforms."
             }
           },
           {
@@ -1050,6 +1064,7 @@
               "createdAt": 1799999760000,
               "meta": "Question · 4m",
               "title": "Which accent for the board header?",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -1078,6 +1093,7 @@
               "createdAt": 1799999460000,
               "meta": "Plan · 9m",
               "title": "Close the duplicates",
+              "description": null,
               "pictures": [],
               "surface": false,
               "text": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
@@ -1095,6 +1111,7 @@
               "createdAt": 1799998200000,
               "meta": "Result · 30m",
               "title": "Today's triage",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -1123,6 +1140,7 @@
               "createdAt": 1799996400000,
               "meta": "Result · 1h",
               "title": "Spacing review",
+              "description": "Paddings match on all four platforms.",
               "pictures": [],
               "surface": true,
               "text": null,
@@ -1151,6 +1169,7 @@
               "createdAt": 1799992800000,
               "meta": "Result · 2h",
               "title": "Checklist done",
+              "description": null,
               "pictures": [],
               "surface": true,
               "text": null,
@@ -1340,7 +1359,8 @@
                   "text": "No drift"
                 }
               }
-            }
+            },
+            "description": "Paddings match on all four platforms."
           }
         },
         {
@@ -1699,6 +1719,7 @@
             "createdAt": 1799999400000,
             "meta": "Question · 10m",
             "title": "Ship the picker as is?",
+            "description": null,
             "pictures": [],
             "surface": false,
             "text": null,
@@ -1716,6 +1737,7 @@
             "createdAt": 1799992800000,
             "meta": "Result · 2h",
             "title": "Label picker",
+            "description": null,
             "pictures": [
               {
                 "label": "web picker",
@@ -1748,6 +1770,7 @@
             "createdAt": 1799989200000,
             "meta": "Question · Answered · 3h",
             "title": "Which board?",
+            "description": null,
             "pictures": [],
             "surface": false,
             "text": null,
@@ -1765,6 +1788,7 @@
             "createdAt": 1799982000000,
             "meta": "Plan · Changes asked · 5h",
             "title": "Drop the undo step",
+            "description": null,
             "pictures": [],
             "surface": false,
             "text": "Drop the undo step",
@@ -1782,6 +1806,7 @@
             "createdAt": 1799892000000,
             "meta": "Plan · Approved · 1d",
             "title": "Batch-edit labels",
+            "description": null,
             "pictures": [],
             "surface": false,
             "text": "## Batch-edit labels\n\nOne request per change.",
@@ -1799,6 +1824,7 @@
             "createdAt": 1799222400000,
             "meta": "Result · 9d",
             "title": "First draft",
+            "description": null,
             "pictures": [],
             "surface": true,
             "text": null,
@@ -1906,6 +1932,7 @@
             "createdAt": 1799906400000,
             "meta": "Result · 1d",
             "title": "Icons",
+            "description": null,
             "pictures": [
               {
                 "label": "desktop icons",
@@ -2145,6 +2172,390 @@
         "rootId": "c1"
       },
       "expected": null
+    }
+  ],
+  "frameCases": [
+    {
+      "name": "no stories: no frames",
+      "input": {
+        "stories": []
+      },
+      "expected": []
+    },
+    {
+      "name": "the Stories tab mix: a picture story = one frame per picture (the surface stays in the chat), the footer only on its last frame; a bare question = a title frame; a plan's text drops the title",
+      "input": {
+        "stories": [
+          {
+            "id": "q-wait",
+            "sessionId": "r1",
+            "rootId": "r1",
+            "sessionName": "Batch-edit labels",
+            "kind": "question",
+            "waiting": true,
+            "seen": false,
+            "createdAt": 1799999400000,
+            "meta": "Question · 10m",
+            "title": "Ship the picker as is?",
+            "description": null,
+            "pictures": [],
+            "surface": false,
+            "text": null,
+            "footer": "choices",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "res-web",
+            "sessionId": "c1",
+            "rootId": "r1",
+            "sessionName": "Web draft",
+            "kind": "result",
+            "waiting": false,
+            "seen": true,
+            "createdAt": 1799992800000,
+            "meta": "Result · 2h",
+            "title": "Label picker",
+            "description": null,
+            "pictures": [
+              {
+                "label": "web picker",
+                "attachmentId": "att-w",
+                "width": 1600,
+                "height": 1000,
+                "caption": "Mixed state"
+              },
+              {
+                "label": "ios picker",
+                "attachmentId": "att-i",
+                "width": 1179,
+                "height": 2556,
+                "caption": null
+              }
+            ],
+            "surface": true,
+            "text": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          },
+          {
+            "id": "q-done",
+            "sessionId": "c1",
+            "rootId": "r1",
+            "sessionName": "Web draft",
+            "kind": "question",
+            "waiting": false,
+            "seen": true,
+            "createdAt": 1799989200000,
+            "meta": "Question · Answered · 3h",
+            "title": "Which board?",
+            "description": null,
+            "pictures": [],
+            "surface": false,
+            "text": null,
+            "footer": "none",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "plan-no",
+            "sessionId": "c1",
+            "rootId": "r1",
+            "sessionName": "Web draft",
+            "kind": "plan",
+            "waiting": false,
+            "seen": true,
+            "createdAt": 1799982000000,
+            "meta": "Plan · Changes asked · 5h",
+            "title": "Drop the undo step",
+            "description": null,
+            "pictures": [],
+            "surface": false,
+            "text": "Drop the undo step",
+            "footer": "none",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "plan-ok",
+            "sessionId": "r1",
+            "rootId": "r1",
+            "sessionName": "Batch-edit labels",
+            "kind": "plan",
+            "waiting": false,
+            "seen": true,
+            "createdAt": 1799892000000,
+            "meta": "Plan · Approved · 1d",
+            "title": "Batch-edit labels",
+            "description": null,
+            "pictures": [],
+            "surface": false,
+            "text": "## Batch-edit labels\n\nOne request per change.",
+            "footer": "none",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "old-result",
+            "sessionId": "r1",
+            "rootId": "r1",
+            "sessionName": "Batch-edit labels",
+            "kind": "result",
+            "waiting": false,
+            "seen": true,
+            "createdAt": 1799222400000,
+            "meta": "Result · 9d",
+            "title": "First draft",
+            "description": null,
+            "pictures": [],
+            "surface": true,
+            "text": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          }
+        ]
+      },
+      "expected": [
+        {
+          "story": 0,
+          "storyId": "q-wait",
+          "index": 0,
+          "count": 1,
+          "kind": "title",
+          "picture": null,
+          "title": "Ship the picker as is?",
+          "description": null,
+          "footer": "choices",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 1,
+          "storyId": "res-web",
+          "index": 0,
+          "count": 2,
+          "kind": "picture",
+          "picture": 0,
+          "title": "Label picker",
+          "description": "Mixed state",
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        },
+        {
+          "story": 1,
+          "storyId": "res-web",
+          "index": 1,
+          "count": 2,
+          "kind": "picture",
+          "picture": 1,
+          "title": "Label picker",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        },
+        {
+          "story": 2,
+          "storyId": "q-done",
+          "index": 0,
+          "count": 1,
+          "kind": "title",
+          "picture": null,
+          "title": "Which board?",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 3,
+          "storyId": "plan-no",
+          "index": 0,
+          "count": 1,
+          "kind": "text",
+          "picture": null,
+          "title": null,
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 4,
+          "storyId": "plan-ok",
+          "index": 0,
+          "count": 1,
+          "kind": "text",
+          "picture": null,
+          "title": null,
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 5,
+          "storyId": "old-result",
+          "index": 0,
+          "count": 1,
+          "kind": "surface",
+          "picture": null,
+          "title": "First draft",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        }
+      ]
+    },
+    {
+      "name": "the styleguide specimen's rings: a surface frame carries the card description",
+      "input": {
+        "stories": [
+          {
+            "id": "board-question",
+            "sessionId": "board",
+            "rootId": "board",
+            "sessionName": "Board header polish",
+            "kind": "question",
+            "waiting": true,
+            "seen": false,
+            "createdAt": 1799999760000,
+            "meta": "Question · 4m",
+            "title": "Which accent for the board header?",
+            "description": null,
+            "pictures": [],
+            "surface": true,
+            "text": null,
+            "footer": "choices",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "triage-plan",
+            "sessionId": "triage",
+            "rootId": "triage",
+            "sessionName": "Triage",
+            "kind": "plan",
+            "waiting": true,
+            "seen": false,
+            "createdAt": 1799999460000,
+            "meta": "Plan · 9m",
+            "title": "Close the duplicates",
+            "description": null,
+            "pictures": [],
+            "surface": false,
+            "text": "## Close the duplicates\n\nMerge FB-8 into FB-3 and label the rest.",
+            "footer": "plan",
+            "autoAdvanceMs": null
+          },
+          {
+            "id": "triage-result",
+            "sessionId": "triage",
+            "rootId": "triage",
+            "sessionName": "Triage",
+            "kind": "result",
+            "waiting": false,
+            "seen": false,
+            "createdAt": 1799998200000,
+            "meta": "Result · 30m",
+            "title": "Today's triage",
+            "description": null,
+            "pictures": [],
+            "surface": true,
+            "text": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          },
+          {
+            "id": "designer-result",
+            "sessionId": "designer",
+            "rootId": "designer",
+            "sessionName": "Designer",
+            "kind": "result",
+            "waiting": false,
+            "seen": false,
+            "createdAt": 1799996400000,
+            "meta": "Result · 1h",
+            "title": "Spacing review",
+            "description": "Paddings match on all four platforms.",
+            "pictures": [],
+            "surface": true,
+            "text": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          },
+          {
+            "id": "ship-result",
+            "sessionId": "ship",
+            "rootId": "ship",
+            "sessionName": "Ship the launch checklist",
+            "kind": "result",
+            "waiting": false,
+            "seen": true,
+            "createdAt": 1799992800000,
+            "meta": "Result · 2h",
+            "title": "Checklist done",
+            "description": null,
+            "pictures": [],
+            "surface": true,
+            "text": null,
+            "footer": "none",
+            "autoAdvanceMs": 6000
+          }
+        ]
+      },
+      "expected": [
+        {
+          "story": 0,
+          "storyId": "board-question",
+          "index": 0,
+          "count": 1,
+          "kind": "surface",
+          "picture": null,
+          "title": "Which accent for the board header?",
+          "description": null,
+          "footer": "choices",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 1,
+          "storyId": "triage-plan",
+          "index": 0,
+          "count": 1,
+          "kind": "text",
+          "picture": null,
+          "title": null,
+          "description": null,
+          "footer": "plan",
+          "autoAdvanceMs": null
+        },
+        {
+          "story": 2,
+          "storyId": "triage-result",
+          "index": 0,
+          "count": 1,
+          "kind": "surface",
+          "picture": null,
+          "title": "Today's triage",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        },
+        {
+          "story": 3,
+          "storyId": "designer-result",
+          "index": 0,
+          "count": 1,
+          "kind": "surface",
+          "picture": null,
+          "title": "Spacing review",
+          "description": "Paddings match on all four platforms.",
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        },
+        {
+          "story": 4,
+          "storyId": "ship-result",
+          "index": 0,
+          "count": 1,
+          "kind": "surface",
+          "picture": null,
+          "title": "Checklist done",
+          "description": null,
+          "footer": "none",
+          "autoAdvanceMs": 6000
+        }
+      ]
     }
   ]
 }
