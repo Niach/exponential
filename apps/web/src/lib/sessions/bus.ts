@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import { ASSISTANT_SILENT_EVENTS, assistantAgentIds } from "@/lib/agents/assistant-chat"
 import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import {
@@ -353,6 +354,14 @@ export async function busLine(
   opts: { waking: boolean; pullRequestId?: string | null; selfFallback?: boolean }
 ): Promise<string[]> {
   const card: MessageCard = { kind: `event`, event, sessionId: child.id }
+  // #EXP-1439: routine lines never land in a member's Assistant
+  // conversation (`assistant.chat.silentEvents`); its check-in reads them.
+  const silentFor = ASSISTANT_SILENT_EVENTS.has(event)
+    ? await assistantAgentIds(
+        tx,
+        (await busListeners(tx, child)).flatMap((listener) => (listener.agentId ? [listener.agentId] : []))
+      )
+    : null
   return deliver(tx, child, {
     authorKind: `system`,
     body,
@@ -362,6 +371,9 @@ export async function busLine(
     ...(event === `pr_opened` ? { hidden: { body: privateText(child, PRIVATE_PR_LEAD), card } } : {}),
     waking: opts.waking,
     fallbackToSelf: opts.selfFallback !== false,
+    ...(silentFor?.size
+      ? { skip: (listener: Listener) => listener.agentId !== null && listener.id === listener.rootId && silentFor.has(listener.agentId) }
+      : {}),
   })
 }
 

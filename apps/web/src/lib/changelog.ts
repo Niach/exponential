@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-30-quiet-assistant`,
+    date: `2026-10-30`,
+    title: `A quiet Assistant with one live status card`,
+    summary: `Your Assistant keeps one status card up to date and only writes when you do or a decision needs you.`,
+    body: `- **One status card**: your Assistant keeps a single card with your chats, pull requests, what shipped and what needs you, and updates it in place until you write again.
+- **No more noise**: check-ins, opened pull requests and running chats no longer post messages; a check-in with nothing new is skipped.
+- **Decisions reach you**: when your Assistant needs a decision it asks with clear options and sends you a push.
+- **Built-in prompt**: the Assistant runs on Exponential's own prompt, so its Instructions field is gone; your old instructions were posted once into its chat.
+- **Teams stay apart**: a device shared only with another team no longer runs this team's chats or agents, and agents never see another team's devices.`,
+  },
+  {
     id: `2026-10-30-one-card-look`,
     date: `2026-10-30`,
     title: `Chat cards look the same everywhere`,

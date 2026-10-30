@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm"
+import { memberChatsChanged } from "@/lib/agents/assistant-chat"
 import type { AgentTrigger, AgentTriggerState } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -204,7 +205,10 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
         if (!at) continue
         due.push({ trigger, cron: trigger.cron, tz: trigger.tz ?? null, at, caughtUp: now.getTime() - at.getTime() > 2 * MIN })
       }
-      if (due.length > 0 && (!lastFired || (await treesChanged(tx, agent, lastFired)))) {
+      // #EXP-1439: an Assistant watches ALL its member's chats in the team.
+      const moved = (since: Date) =>
+        agent.role === `assistant` ? memberChatsChanged(tx, agent, since) : treesChanged(tx, agent, since)
+      if (due.length > 0 && (!lastFired || (await moved(lastFired)))) {
         const body = due.map((d) => TRIGGER_COPY.schedule(d.cron, d.tz, d.caughtUp)).join(`\n`)
         try {
           const tick = await foldableTick(tx, agent)

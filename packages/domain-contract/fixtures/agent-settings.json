@@ -507,7 +507,8 @@
       "deleteRefused": "The Assistant can't be deleted",
       "scheduleRefused": "The Assistant checks in on a schedule only",
       "promptFixed": "The Assistant's prompt is built in",
-      "legacyInstructions": "Your Assistant now runs on Exponential's built-in prompt, so its instructions field is gone. Your old instructions, to move into a team agent if you still need them:"
+      "legacyInstructions": "Your Assistant now runs on Exponential's built-in prompt, so its instructions field is gone. Your old instructions, to move into a team agent if you still need them:",
+      "decisionPush": "Your Assistant needs a decision"
     },
     "sections": [
       "identity",
@@ -753,6 +754,13 @@
           "c"
         ]
       }
-    ]
+    ],
+    "chat": {
+      "$comment": "#EXP-1439 (owner 2026-10-30): THE ASSISTANT'S CHAT STAYS QUIET, server-enforced (lib/agents/assistant-chat.ts), so every client renders it with the existing rows and cards unchanged. (1) STATUS CARD: in its root conversation every `exponential_show` SURFACE edits the newest surface card the conversation posted since the member last wrote (their message, or their answer to its question/plan); none = a new card. So between two member messages there is ONE status card, updated in place across turns. (2) TEXT only in a turn the member started (among the inputs delivered last, one is theirs): a turn woken by a check-in tick or a child's line posts no text (dropped, the reply is a no-op). (3) A DECISION is an ask (question/plan): a new card plus ONE push to its owner (`agent_message`, title `copy.decisionPush`, body = the question or the plan's first line). (4) SILENT EVENTS: the bus lines in `silentEvents` never land in an Assistant conversation (its next check-in reads them); asks, walls, stuck/unclaimed and reports still do. (5) QUIET TICKS: a scheduled check-in is skipped when none of the member's sessions in the team (their threads, their agents' conversations, every child; not the Assistant's own conversation) moved since its last firing.",
+      "silentEvents": [
+        "pr_opened",
+        "session_claimed"
+      ]
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { resolveSessionHost } from "@/lib/sessions/host"
+import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import {
   and,
   desc,
@@ -1000,6 +1001,36 @@ export async function notifySessionBlocked(
     })
   } catch (err) {
     console.error(`[notify] session_blocked failed:`, err)
+  }
+}
+
+/**
+ * #EXP-1439: a member's Assistant asks them for a DECISION (a question or
+ * plan card in its conversation): the one moment its chat pushes. One
+ * issue-less `agent_message` row routed to the conversation, push-first,
+ * muted per type by the usual prefs. Best-effort, never throws.
+ */
+export async function notifyAssistantDecision(sessionId: string, text: string): Promise<void> {
+  try {
+    const [session] = await db
+      .select({ userId: sessions.userId, teamId: sessions.teamId, teamSlug: teams.slug })
+      .from(sessions)
+      .innerJoin(teams, eq(teams.id, sessions.teamId))
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+    if (!session) return
+    const body = text.trim().split(`\n`)[0]!.slice(0, 200)
+    await deliverToTeam({
+      teamId: session.teamId,
+      recipientIds: [session.userId],
+      type: `agent_message`,
+      title: ASSISTANT_COPY.decisionPush,
+      body: body || null,
+      pushData: { sessionId, teamId: session.teamId, teamSlug: session.teamSlug },
+      sessionId,
+    })
+  } catch (err) {
+    console.error(`[notify] assistant decision failed:`, err)
   }
 }
 

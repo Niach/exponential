@@ -22,6 +22,8 @@ import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { askText, busAsk, closeAskMirrors } from "@/lib/sessions/bus"
+import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistant-chat"
+import { notifyAssistantDecision } from "@/lib/integrations/notifications"
 import { insertMessage, pendingInput, postOwnAskCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
@@ -387,7 +389,17 @@ export async function postShowCard(args: {
   card: ShowCard
   replace: boolean
 }): Promise<{ messageId: string; replaced: boolean; uploads: CardUpload[]; next?: string }> {
-  const replaced = args.replace
+  // #EXP-1439: in a member's Assistant conversation a surface is THE live
+  // status card (`statusCardTarget`, edited in place across turns until the
+  // member writes) and an ask notifies its owner.
+  const [owner] = await db
+    .select({ id: sessions.id, rootId: sessions.rootId, agentId: sessions.agentId })
+    .from(sessions)
+    .where(eq(sessions.id, args.sessionId))
+    .limit(1)
+  const assistant = owner ? await isAssistantConversation(db, owner) : false
+  const status = assistant && args.card.kind === `surface`
+  const replaced = args.replace || status
     ? await db.transaction(async (tx) => {
         const [session] = await tx
           .select({ id: sessions.id, status: sessions.status })
@@ -399,7 +411,7 @@ export async function postShowCard(args: {
         if (session.status === `ended`) {
           throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
         }
-        const target = await replaceTarget(tx, session.id, args.card)
+        const target = status ? await statusCardTarget(tx, session.id) : await replaceTarget(tx, session.id, args.card)
         if (!target) return null
         await generateTxId(tx)
         const now = new Date()
@@ -444,6 +456,12 @@ export async function postShowCard(args: {
       sessionId: args.sessionId,
       card: args.card as Extract<MessageCard, { kind: `plan` | `question` }>,
     })
+    if (assistant) {
+      void notifyAssistantDecision(
+        args.sessionId,
+        args.card.kind === `question` ? args.card.question : (args.card as Extract<MessageCard, { kind: `plan` }>).plan
+      )
+    }
     return { ...posted, replaced: false }
   }
   const posted = await postSurfaceCard({
