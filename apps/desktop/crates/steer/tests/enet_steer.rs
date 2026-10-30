@@ -5,7 +5,8 @@
 //! input; the run's end says `bye`. A teammate is refused from a private
 //! session (its own test: both nodes live in one process, so they share the
 //! viewer subscriptions). VAPP-43: STORED REPLAY off the device's journal
-//! file, and the desktop viewer's no-feed states.
+//! file, and the desktop viewer's no-feed states. VAPP-169: the
+//! device-offline end redials once the device answers.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -385,7 +386,8 @@ async fn the_desktop_viewer_steers_over_enet_and_has_no_fallback() {
             break;
         }
     }
-    // …and an ended one says its device is offline (no relay fallback).
+    // …and an ended one says its device is offline (no relay fallback),
+    // VAPP-169: and keeps redialing under that copy.
     nowhere.note_session_ended();
     nowhere.kick();
     loop {
@@ -394,6 +396,8 @@ async fn the_desktop_viewer_steers_over_enet_and_has_no_fallback() {
             break;
         }
     }
+    assert!(nowhere.is_active(), "VAPP-169: the device-offline end is not terminal");
+    nowhere.shutdown();
     // No node at all: the same.
     let (events_tx, events) = flume::unbounded();
     let offline = steer::spawn_viewer(runtime, None, "sess-no-node".into(), events_tx);
@@ -610,4 +614,111 @@ async fn the_daemon_proxies_a_cli_viewer_over_its_local_socket() {
     device.stop();
     daemon.stop();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+
+/// VAPP-169 OFFLINE REDIAL: an ended row whose device does not answer shows
+/// the device-offline `Ended` and keeps the loop alive; once the device
+/// answers, a kick (presence online, a wakeup) and, separately, the stale
+/// timer alone redial silently (no `Connecting`) and the stored replay
+/// arrives, ending in the plain `bye history`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_offline_viewer_redials_when_the_device_comes_back() {
+    use std::sync::atomic::AtomicBool;
+    use steer::{ViewerEvent, ViewerPhase, ViewerTimings};
+    let dir = std::env::temp_dir().join(format!("enet-steer-redial-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "fred", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "fred", InstallKind::Desktop);
+    for install in [&device, &viewer] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    d.add_ticket(&v.ticket());
+    v.add_ticket(&d.ticket());
+
+    let session_id = format!("sess-redial-{}", std::process::id());
+    let journals = dir.join("data");
+    let mut writer = steer::JournalWriter::open(&journals, &session_id).unwrap();
+    writer.append(&ActivityEvent::narration("kept on the device"));
+    drop(writer);
+    device.serve_stored(stored(&journals, &session_id, "fred", Arc::new(AtomicBool::new(true))));
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+
+    for by_kick in [true, false] {
+        let source = Arc::new(Redial { node: Arc::clone(&v), endpoints: Mutex::new(Vec::new()) });
+        let timings = ViewerTimings {
+            retry_base: Duration::from_millis(50),
+            retry_cap: Duration::from_millis(100),
+            // The kick round must not be rescued by the timer.
+            offline_redial: if by_kick { Duration::from_secs(600) } else { Duration::from_millis(300) },
+            ..Default::default()
+        };
+        let (events_tx, events) = flume::unbounded();
+        let handle = steer::spawn_viewer_with(runtime, Some(source.clone()), session_id.clone(), events_tx, timings);
+        handle.note_session_ended();
+        loop {
+            if let ViewerEvent::Phase(phase) = next_event(&events).await {
+                if phase.is_device_offline() {
+                    break;
+                }
+            }
+        }
+        assert!(handle.is_active(), "the device-offline end keeps the loop");
+        // A few NO FEED redials under the copy: no phase flaps.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(handle.is_active());
+        if by_kick {
+            assert!(events.try_iter().all(|event| !matches!(event, ViewerEvent::Phase(_))), "the phase holds");
+        }
+        // The device comes back.
+        *source.endpoints.lock().unwrap() = vec![enet::endpoint_hex(&d.endpoint_id())];
+        if by_kick {
+            handle.kick();
+        }
+        let mut seen = Vec::new();
+        loop {
+            let event = next_event(&events).await;
+            let done = matches!(&event, ViewerEvent::Phase(ViewerPhase::Ended { .. }));
+            seen.push(event);
+            if done {
+                break;
+            }
+        }
+        assert!(!seen.contains(&ViewerEvent::Phase(ViewerPhase::Connecting)), "a silent redial");
+        assert!(seen.contains(&ViewerEvent::Reset));
+        assert!(seen.iter().any(|event| matches!(
+            event,
+            ViewerEvent::Activity(0, ActivityEvent::Narration { text, .. }) if text == "kept on the device"
+        )));
+        assert!(seen.iter().any(|event| matches!(event, ViewerEvent::Synced { .. })));
+        assert_eq!(seen.last(), Some(&ViewerEvent::Phase(ViewerPhase::Ended { outcome: Some("history".into()) })));
+        wait_until(|| !handle.is_active()).await;
+    }
+
+    device.stop();
+    viewer.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// VAPP-169: a source whose endpoints appear once the device is back.
+struct Redial {
+    node: Arc<enet_core::Node>,
+    endpoints: Mutex<Vec<String>>,
+}
+
+impl steer::EnetViewerSource for Redial {
+    fn node(&self) -> Option<Arc<enet_core::Node>> {
+        Some(Arc::clone(&self.node))
+    }
+    fn endpoints(&self, _session_id: &str) -> Result<Vec<String>, ApiError> {
+        Ok(self.endpoints.lock().unwrap().clone())
+    }
 }

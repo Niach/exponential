@@ -1678,7 +1678,9 @@ impl SteerSessionView {
     // costs nothing.
 
     /// Nudge the socket to redial NOW if it is stuck. A no-op once the loop
-    /// has stopped for good (ended, unauthorized, shut down).
+    /// has stopped for good (ended, unauthorized, shut down). VAPP-169: the
+    /// device-offline end has not, so these edges redial it and the replay
+    /// swaps in over the empty transcript.
     fn wake(&self, reason: &str) {
         let Some(handle) = self.source.handle() else {
             return;
