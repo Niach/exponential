@@ -1522,6 +1522,44 @@ export const devices = pgTable(
   ]
 )
 
+// EXP-1457 / VAPP-37: the eNet install registry. One row per app install
+// (desktop, daemon, iOS, Android, web) that holds its own ed25519 identity:
+// `endpoint_id` = the lowercase hex of the 32-byte public key, which IS the
+// install's iroh endpoint id, and `x25519_public` (base64url, 32 bytes) the
+// key peers seal to. `installs.register` accepts a row only with a fresh
+// signature by that identity over the caller's user id (proof of
+// possession), so an endpoint id belongs to exactly one account. Teammates
+// discover each other's installs through `installs.list` (computed from
+// team membership, so leaving a team needs no cleanup). `revoked_at` is
+// final: a revoked endpoint never registers again. desktop/daemon installs
+// point at their `devices` row. Server-only: no Electric shape syncs it.
+export const installs = pgTable(
+  `installs`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // `desktop` | `daemon` | `ios` | `android` | `web` (router-validated).
+    kind: varchar({ length: 16 }).notNull(),
+    deviceId: uuid(`device_id`).references(() => devices.id, {
+      onDelete: `set null`,
+    }),
+    label: varchar({ length: 64 }),
+    platform: varchar({ length: 32 }),
+    endpointId: varchar(`endpoint_id`, { length: 64 }).notNull().unique(),
+    x25519Public: varchar(`x25519_public`, { length: 43 }).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp(`revoked_at`, { withTimezone: true }),
+  },
+  (table) => [index(`idx_installs_user`).on(table.userId)]
+)
+
 // FEED-154: the key PINNED for a machine id, trust-on-first-use: the first
 // proven register of the id pins its key, and only the pinning account may
 // rotate it (a fresh data dir). It outlives the devices rows on purpose: the
@@ -3815,6 +3853,7 @@ export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
 export type McpGrant = InferSelectModel<typeof mcpGrants>
 export type Device = InferSelectModel<typeof devices>
+export type Install = InferSelectModel<typeof installs>
 export type DeviceWorktree = InferSelectModel<typeof deviceWorktrees>
 export type SyncedDeviceWorktree = Omit<
   DeviceWorktree,
