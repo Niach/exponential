@@ -940,6 +940,14 @@ export const fcmTokens = pgTable(
       .references(() => users.id, { onDelete: `cascade` }),
     token: text().notNull(),
     platform: varchar({ length: 20 }).notNull(),
+    // The push relay's accountless mode (EXP-1428): the device's capability
+    // (`cap_…`, minted by the relay for its install) and its X25519 push
+    // public key (base64url, 32 bytes). Set together or not at all; a row
+    // with both is pushed sealed via POST /push, a row without goes through
+    // the legacy /send shim (released clients). Server-only: no shape syncs
+    // this table.
+    relayCapability: text(`relay_capability`),
+    pushPublicKey: text(`push_public_key`),
     ...timestamps,
   },
   (table) => [

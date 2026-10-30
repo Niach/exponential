@@ -8,10 +8,13 @@ import {
   type RelayMessaging,
 } from "./app"
 import { formatLogLine } from "./log"
+import { RelayStore } from "./store"
 
-// EXP-1289: the one transport retry, the deep health check and the stats
-// around them, driven through the real Hono app with a fake firebase-admin
-// messaging client and a fake clock.
+// EXP-1289: the /send compat shim's one transport retry, the deep health
+// check and the stats around them, driven through the real Hono app with a
+// fake firebase-admin messaging client and a fake clock. The /send
+// expectations are frozen: the shim must stay byte-identical until NEW-14
+// removes it.
 
 const SECRET = `test-secret`
 
@@ -64,6 +67,7 @@ function relay(messaging: RelayMessaging | null, extra: { fcmDeadlineMs?: number
     trustProxy: false,
     getMessaging: () => messaging,
     log: quietLog,
+    api: { store: RelayStore.open(`:memory:`), apns: null, apnsTopics: [] },
     ...extra,
   })
 }

@@ -1,0 +1,30 @@
+[package]
+name = "exponential-net-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "The wasm-bindgen facade over exponential-net (eNet) for the browser: relay-only, still end-to-end encrypted."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+keywords = ["iroh", "wasm", "p2p"]
+
+[lib]
+name = "exponential_net_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# No `fs-store` in a browser: blobs live in memory.
+exponential-net = { path = "../exponential-net", version = "0.1.0", default-features = false }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+# The browser's randomness for every getrandom generation in the tree, selected
+# HERE (crate-level features, no workspace .cargo/config.toml): 0.4 (iroh,
+# eNet) takes the `wasm_js` feature alone; 0.2 (ring, via iroh's QUIC TLS)
+# takes `js`. getrandom 0.3 is not in this crate's graph (it would need the
+# `getrandom_backend="wasm_js"` cfg flag as well).
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }

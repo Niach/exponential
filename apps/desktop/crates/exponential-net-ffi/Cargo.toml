@@ -1,0 +1,34 @@
+[package]
+name = "exponential-net-ffi"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "The UniFFI facade over exponential-net (eNet) for Swift and Kotlin: an EnetNode object on its own tokio runtime, events through a foreign listener or next_event(), push_open for notification extensions."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+keywords = ["iroh", "uniffi", "p2p"]
+exclude = ["tests/", "bindings/", "out/", "*.sh"]
+
+[lib]
+name = "exponential_net_ffi"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[features]
+default = ["fs-store"]
+cli = ["uniffi/cli"]
+# Persistent blobs under EnetConfig.blobDir (redb); off = in-memory only.
+fs-store = ["exponential-net/fs-store"]
+
+[dependencies]
+exponential-net = { path = "../exponential-net", version = "0.1.0" }
+# The version already in apps/desktop/Cargo.lock (eUI's facade): ONE uniffi in the tree.
+uniffi = { version = "0.31" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
