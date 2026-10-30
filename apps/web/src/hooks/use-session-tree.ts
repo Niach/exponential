@@ -31,6 +31,7 @@ import {
   threadAskRow,
   type ThreadRow,
   toTreeIssue,
+  toTreeMessage,
   toTreeMessages,
   toTreePullRequest,
   toTreeSession,
